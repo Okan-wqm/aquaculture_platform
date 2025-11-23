@@ -1,0 +1,225 @@
+name: Infrastructure - Terraform Apply
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'infra/**'
+  workflow_run:
+    workflows:
+      - Infrastructure - Terraform Plan
+    types:
+      - completed
+    branches:
+      - main
+
+env:
+  TF_LOG_PATH: ./infra/terraform.log
+  TF_LOG: INFO
+
+jobs:
+  terraform-apply-staging:
+    runs-on: ubuntu-latest
+    environment: staging
+    if: github.ref == 'refs/heads/develop'
+    outputs:
+      plan-hash: ${{ steps.hash.outputs.sha }}
+    
+    defaults:
+      run:
+        working-directory: ./infra
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: '1.5.0'
+          terraform_wrapper: false
+      
+      - name: Configure Terraform backend
+        run: |
+          # Create backend configuration file with environment variables
+          cat > backend_override.tf <<EOF
+          terraform {
+            backend "s3" {
+              bucket = "aquaculture-platform-terraform-state"
+              key    = "staging/terraform.tfstate"
+              region = "us-east-1"
+              dynamodb_table = "terraform-locks"
+            }
+          }
+          EOF
+      
+      - name: Terraform Init
+        run: terraform init -input=false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v3
+        with:
+          name: terraform-plan-staging
+          path: ./infra
+      
+      - name: Terraform Apply
+        run: terraform apply -input=false terraform.plan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TF_VAR_environment: staging
+          TF_VAR_db_password: ${{ secrets.DB_PASSWORD_STAGING }}
+          TF_VAR_api_key: ${{ secrets.API_KEY_STAGING }}
+      
+      - name: Extract outputs
+        id: outputs
+        run: |
+          terraform output -json > outputs.json
+          echo "frontend_url=$(terraform output -raw frontend_url)" >> $GITHUB_OUTPUT
+          echo "backend_url=$(terraform output -raw backend_url)" >> $GITHUB_OUTPUT
+      
+      - name: Hash Terraform Plan Artifact
+        id: hash
+        run: |
+          echo "sha=$(sha256sum terraform.plan | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
+      
+      - name: Update environment variables
+        uses: octokit/request-action@v2.x
+        with:
+          route: POST /repos/${{ github.repository }}/environments/staging/secrets
+          data: |
+            {
+              "name": "FRONTEND_URL",
+              "value": "${{ steps.outputs.outputs.frontend_url }}"
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  terraform-apply-production:
+    runs-on: ubuntu-latest
+    environment: production
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      plan-hash: ${{ steps.hash.outputs.sha }}
+    
+    defaults:
+      run:
+        working-directory: ./infra
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: '1.5.0'
+          terraform_wrapper: false
+      
+      - name: Configure Terraform backend
+        run: |
+          # Create backend configuration file with environment variables
+          cat > backend_override.tf <<EOF
+          terraform {
+            backend "s3" {
+              bucket = "aquaculture-platform-terraform-state"
+              key    = "production/terraform.tfstate"
+              region = "us-east-1"
+              dynamodb_table = "terraform-locks"
+            }
+          }
+          EOF
+      
+      - name: Terraform Init
+        run: terraform init -input=false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v3
+        with:
+          name: terraform-plan-production
+          path: ./infra
+      
+      - name: Create infrastructure backup
+        run: |
+          # Create a backup of current state before applying
+          aws s3 cp s3://aquaculture-platform-terraform-state/production/terraform.tfstate \
+            s3://aquaculture-platform-terraform-state/backups/production-terraform-$(date +%Y%m%d-%H%M%S).tfstate
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      
+      - name: Terraform Apply
+        run: terraform apply -input=false terraform.plan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TF_VAR_environment: production
+          TF_VAR_db_password: ${{ secrets.DB_PASSWORD_PRODUCTION }}
+          TF_VAR_api_key: ${{ secrets.API_KEY_PRODUCTION }}
+      
+      - name: Extract outputs
+        id: outputs
+        run: |
+          terraform output -json > outputs.json
+          echo "frontend_url=$(terraform output -raw frontend_url)" >> $GITHUB_OUTPUT
+          echo "backend_url=$(terraform output -raw backend_url)" >> $GITHUB_OUTPUT
+      
+      - name: Hash Terraform Plan Artifact
+        id: hash
+        run: |
+          echo "sha=$(sha256sum terraform.plan | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
+      
+      - name: Update environment variables
+        uses: octokit/request-action@v2.x
+        with:
+          route: POST /repos/${{ github.repository }}/environments/production/secrets
+          data: |
+            {
+              "name": "FRONTEND_URL",
+              "value": "${{ steps.outputs.outputs.frontend_url }}"
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Generate inventory file
+        run: |
+          terraform inventory > production-inventory.txt
+      
+      - name: Upload inventory file
+        uses: actions/upload-artifact@v3
+        with:
+          name: production-inventory
+          path: ./infra/production-inventory.txt
+          retention-days: 30
+
+  notify-deployment:
+    needs: [terraform-apply-staging, terraform-apply-production]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Notify Slack on success
+        if: needs.terraform-apply-staging.result == 'success' || needs.terraform-apply-production.result == 'success'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          channel: '#devops'
+          text: 'Terraform infrastructure changes applied successfully'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      
+      - name: Notify Slack on failure
+        if: needs.terraform-apply-staging.result == 'failure' || needs.terraform-apply-production.result == 'failure'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          channel: '#devops'
+          text: 'Terraform infrastructure changes failed to apply'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

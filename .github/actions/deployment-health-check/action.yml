@@ -1,0 +1,88 @@
+name: 'Deployment Health Check'
+description: 'Performs a health check against a deployed environment and optionally retries and alerts'
+author: 'Aquaculture Platform Team'
+
+inputs:
+  environment:
+    description: 'Target environment name (staging, production)'
+    required: true
+  url:
+    description: 'Health endpoint URL'
+    required: true
+  timeout:
+    description: 'Timeout in seconds'
+    required: false
+    default: '300'
+  interval:
+    description: 'Interval between checks in seconds'
+    required: false
+    default: '10'
+  expected-status:
+    description: 'Expected HTTP status code'
+    required: false
+    default: '200'
+  keyword:
+    description: 'Optional keyword to search in response body'
+    required: false
+    default: ''
+
+outputs:
+  status:
+    description: 'Final status of the health check'
+    value: ${{ steps.check.outputs.status }}
+  response-code:
+    description: 'HTTP response code'
+    value: ${{ steps.check.outputs.code }}
+  attempts:
+    description: 'Number of attempts made'
+    value: ${{ steps.check.outputs.attempts }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Wait for healthy service
+      id: check
+      shell: bash
+      env:
+        URL: ${{ inputs.url }}
+        TIMEOUT: ${{ inputs.timeout }}
+        INTERVAL: ${{ inputs.interval }}
+        EXPECTED: ${{ inputs.expected-status }}
+        KEYWORD: ${{ inputs.keyword }}
+      run: |
+        set +e
+        echo "Checking health for $URL with timeout ${TIMEOUT}s, interval ${INTERVAL}s"
+        start=$(date +%s)
+        attempts=0
+        status=failed
+        last_code=0
+        while true; do
+          attempts=$((attempts+1))
+          code=$(curl -sk -o response.txt -w "%{http_code}" "$URL")
+          last_code=$code
+          if [ "$code" = "$EXPECTED" ]; then
+            if [ -n "$KEYWORD" ]; then
+              if grep -q "$KEYWORD" response.txt; then
+                status=success
+                break
+              fi
+            else
+              status=success
+              break
+            fi
+          fi
+          now=$(date +%s)
+          elapsed=$((now-start))
+          if [ $elapsed -ge $TIMEOUT ]; then
+            echo "Timed out after ${elapsed}s"
+            break
+          fi
+          sleep $INTERVAL
+        done
+        echo "status=$status" >> $GITHUB_OUTPUT
+        echo "code=$last_code" >> $GITHUB_OUTPUT
+        echo "attempts=$attempts" >> $GITHUB_OUTPUT
+        if [ "$status" != "success" ]; then
+          echo "Health check failed after $attempts attempts with status code $last_code"
+          exit 1
+        fi

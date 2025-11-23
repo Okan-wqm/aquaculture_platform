@@ -1,0 +1,145 @@
+name: 'Build and Push Docker Image'
+description: 'Builds and pushes Docker images with caching and multi-arch support'
+author: 'Aquaculture Platform Team'
+
+inputs:
+  context:
+    description: 'Docker build context'
+    required: false
+    default: '.'
+  
+  file:
+    description: 'Path to Dockerfile'
+    required: false
+    default: './Dockerfile'
+  
+  tags:
+    description: 'Comma-separated list of tags for the image'
+    required: true
+  
+  push:
+    description: 'Whether to push the image to registry'
+    required: false
+    default: 'true'
+  
+  platforms:
+    description: 'Comma-separated list of platforms to build for. Empty string = single platform'
+    required: false
+    default: ''
+  
+  args:
+    description: 'Comma-separated list of build-time variables'
+    required: false
+    default: ''
+  
+  cache-from:
+    description: 'Build cache sources'
+    required: false
+    default: ''
+  
+  cache-to:
+    description: 'Build cache destinations'
+    required: false
+    default: ''
+
+outputs:
+  imageid:
+    description: 'ID of the built image'
+    value: ${{ steps.build.outputs.imageid }}
+  
+  image-digest:
+    description: 'Digest of the pushed image'
+    value: ${{ steps.build.outputs.image-digest }}
+  
+  image-tag:
+    description: 'First tag used for the image'
+    value: ${{ steps.build.outputs.tag }}
+  
+  build-duration:
+    description: 'Build duration in seconds'
+    value: ${{ steps.duration.outputs.seconds }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Prepare Docker buildx
+      id: setup
+      shell: bash
+      run: |
+        # Create buildx builder if it doesn't exist
+        docker buildx inspect default > /dev/null || docker buildx create --use --name=default
+        docker buildx inspect --bootstrap
+        
+        # Parse tags
+        TAGS="${{ inputs.tags }}"
+        IFS=',' read -r -a TAG_ARRAY <<< "$TAGS"
+        
+        echo "primary-tag=${TAG_ARRAY[0]}" >> $GITHUB_OUTPUT
+        
+        echo "Setting up Docker buildx with tags: ${TAGS}"
+        echo "Context: ${{ inputs.context }}"
+        echo "Dockerfile: ${{ inputs.file }}"
+    
+    - name: Record start time
+      id: start-time
+      shell: bash
+      run: echo "seconds=$(date +%s)" >> $GITHUB_OUTPUT
+    
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.file }}
+        tags: ${{ inputs.tags }}
+        push: ${{ inputs.push }}
+        platforms: ${{ inputs.platforms }}
+        build-args: ${{ inputs.args }}
+        cache-from: ${{ inputs.cache-from }}
+        cache-to: ${{ inputs.cache-to }}
+        labels: |
+          org.opencontainers.version=${{ github.sha }}
+          org.opencontainers.title=aquaculture-platform
+          org.opencontainers.url=https://github.com/${{ github.repository }}
+          org.opencontainers.source=https://github.com/${{ github.repository }}
+          org.opencontainers.revision=${{ github.sha }}
+          org.opencontainers.created=${{ github.event.head_commit.timestamp }}
+          org.opencontainers.licenses=MIT
+    
+    - name: Record end time
+      id: end-time
+      shell: bash
+      run: echo "seconds=$(date +%s)" >> $GITHUB_OUTPUT
+    
+    - name: Calculate build duration
+      id: duration
+      shell: bash
+      run: |
+        START_TIME=${{ steps.start-time.outputs.seconds }}
+        END_TIME=${{ steps.end-time.outputs.seconds }}
+        DURATION=$((END_TIME - START_TIME))
+        echo "seconds=$DURATION" >> $GITHUB_OUTPUT
+        echo "Build completed in ${DURATION}s"
+    
+    - name: Sign the image (if cosign is available)
+      id: sign
+      shell: bash
+      if: ${{ env.COSIGN_ENABLED == 'true' }}
+      env:
+        COSIGN_ENABLED: ${{ env.COSIGN_ENABLED || 'false' }}
+      run: |
+        if command -v cosign &> /dev/null && [ "${{ inputs.push }}" == "true" ]; then
+          TAG="${{ steps.setup.outputs.primary-tag }}"
+          cosign sign --yes "$TAG"
+          echo "Image signed with cosign: $TAG"
+        else
+          echo "Cosign not available or push disabled, skipping signing"
+        fi
+    
+    - name: Output image metadata
+      shell: bash
+      run: |
+        echo "Image built successfully"
+        echo "Image: ${{ steps.setup.outputs.primary-tag }}"
+        echo "Digest: ${{ steps.build.outputs.image-digest }}"
+        echo "Duration: ${{ steps.duration.outputs.seconds }}s"

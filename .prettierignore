@@ -1,0 +1,27 @@
+# Dependencies
+node_modules
+
+# Build outputs
+dist
+build
+coverage
+.nx
+
+# Logs
+*.log
+logs
+
+# Lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Environment files
+.env
+.env.*
+
+# Generated files
+*.generated.*
+
+# Documentation
+CHANGELOG.md

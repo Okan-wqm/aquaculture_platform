@@ -1,0 +1,93 @@
+name: 'Setup Node.js Environment'
+description: 'Sets up Node.js, caches dependencies, and configures package manager for CI/CD workflows'
+author: 'Aquaculture Platform Team'
+
+inputs:
+  node-version:
+    description: 'Node.js version to use'
+    required: false
+    default: '18'
+  
+  cache-dependency-path:
+    description: 'Path to dependency files (package-lock.json, yarn.lock, etc.)'
+    required: false
+    default: 'package-lock.json'
+  
+  install-command:
+    description: 'Command to install dependencies (npm ci, yarn install, pnpm install)'
+    required: false
+    default: 'npm ci'
+    
+  enable-corepack:
+    description: 'Enable corepack for package manager support (yarn, pnpm, etc.)'
+    required: false
+    default: 'true'
+
+outputs:
+  cache-hit:
+    description: 'Whether a cache hit occurred'
+    value: ${{ steps.cache.outputs.cache-hit }}
+  
+  npm-version:
+    description: 'npm version'
+    value: ${{ steps.npm.outputs.version }}
+  
+  node-version:
+    description: 'Node.js version'
+    value: ${{ steps.node.outputs.version }}
+  
+  architecture:
+    description: 'System architecture'
+    value: ${{ steps.arch.outputs.architecture }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      id: node
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: 'npm'
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
+    
+    - name: Enable corepack
+      id: corepack
+      if: ${{ inputs.enable-corepack == 'true' }}
+      shell: bash
+      run: |
+        corepack enable
+        corepack prepare yarn@latest --activate
+    
+    - name: Install dependencies
+      id: npm
+      shell: bash
+      run: |
+        ${{ inputs.install-command }}
+        echo "version=$(npm --version)" >> $GITHUB_OUTPUT
+    
+    - name: Verify node and npm version
+      id: version-check
+      shell: bash
+      run: |
+        node --version
+        npm --version
+    
+    - name: Get architecture
+      id: arch
+      shell: bash
+      run: |
+        echo "architecture=$(node -e 'console.log(process.arch)')" >> $GITHUB_OUTPUT
+    
+    - name: Create npm cache directory
+      shell: bash
+      run: mkdir -p $HOME/.npm
+    
+    - name: Display environment info
+      shell: bash
+      run: |
+        echo "Node.js version: $(node --version)"
+        echo "npm version: $(npm --version)"
+        echo "Architecture: $(node -e 'console.log(process.arch)')"
+        echo "Platform: $(node -e 'console.log(process.platform)')"
+        echo "Working directory: $(pwd)"

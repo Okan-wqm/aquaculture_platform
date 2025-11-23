@@ -1,0 +1,68 @@
+name: Performance Benchmark
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - '.github/workflows/performance-benchmark.yml'
+
+jobs:
+  lighthouse:
+    name: Frontend Lighthouse CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Start server
+        run: |
+          npm run preview &
+          echo $! > server.pid
+          sleep 5
+      - name: Run Lighthouse
+        uses: treosh/lighthouse-ci-action@v11
+        with:
+          urls: |
+            http://localhost:4173/
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+      - name: Stop server
+        if: always()
+        run: |
+          kill $(cat server.pid) || true
+
+  k6-api:
+    name: Backend k6 API benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+      - name: Run k6 tests
+        run: |
+          k6 run tests/performance/api-smoke.js --vus 10 --duration 30s
+      - name: Upload k6 results
+        uses: actions/upload-artifact@v3
+        with:
+          name: k6-results
+          path: ./k6-results/*
+
+  summary:
+    needs: [lighthouse, k6-api]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Compose summary
+        run: |
+          echo "# Performance Benchmark Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Lighthouse and k6 benchmarks have completed." >> $GITHUB_STEP_SUMMARY
+          echo "- Review uploaded artifacts for detailed results." >> $GITHUB_STEP_SUMMARY

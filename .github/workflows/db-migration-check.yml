@@ -1,0 +1,241 @@
+name: Database Migration Check
+
+on:
+  pull_request:
+    paths:
+      - 'migrations/**'
+      - '**/alembic.ini'
+      - '**/alembic/**'
+      - '**/models/**/*.py'
+      - 'backend/requirements.txt'
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'migrations/**'
+      - '**/alembic.ini'
+      - '**/alembic/**'
+      - '**/models/**/*.py'
+
+jobs:
+  migration-check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aquaculture_migration_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    defaults:
+      run:
+        working-directory: ./backend
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Cache Python dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      
+      - name: Set environment variables
+        run: |
+          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/aquaculture_migration_test" >> $GITHUB_ENV
+      
+      - name: Check alembic configuration
+        run: |
+          python -c "from alembic.config import Config; config = Config('alembic.ini'); print('Alembic config is valid')" || exit 1
+      
+      - name: Check for unapplied migrations
+        id: migration-check
+        run: |
+          # Create database from migrations
+          python -c "
+          import os
+          import sys
+          from sqlalchemy import create_engine
+          from sqlalchemy_utils import database_exists, create_database
+          
+          os.environ['DATABASE_URL'] = 'postgresql://postgres:postgres@localhost:5432/aquaculture_migration_test'
+          engine = create_engine(os.environ['DATABASE_URL'])
+          
+          if not database_exists(engine.url):
+              create_database(engine.url)
+          
+          print('Database created successfully')
+          "
+          
+          # Apply migrations and check if they run without error
+          alembic upgrade head
+          
+          # Get current revision
+          CURRENT_REV=$(alembic current --verbose | tail -n 1 | awk '{print $1}')
+          echo "current-revision=$CURRENT_REV" >> $GITHUB_OUTPUT
+          
+          # Check for pending migrations
+          REVISION_COUNT=$(alembic heads --verbose | wc -l)
+          echo "revision-count=$REVISION_COUNT" >> $GITHUB_OUTPUT
+      
+      - name: Generate migration diff
+        if: github.event_name == 'pull_request'
+        run: |
+          # Generate migration diff to show changes in PR
+          alembic revision --autogenerate -m "Migration for PR #${{ github.event.pull_request.number }}"
+          
+          # Check if migration file was generated and has content
+          if [ -d migrations/versions ] && [ "$(ls -A migrations/versions)" ]; then
+            echo "found-new-migration=true" >> $GITHUB_OUTPUT
+            echo "## Database Migration Generated" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Show the generated migration
+            LATEST_MIGRATION=$(ls -t migrations/versions/*.py | head -n 1)
+            if [ -n "$LATEST_MIGRATION" ]; then
+              echo '### Latest Migration File' >> $GITHUB_STEP_SUMMARY
+              echo '```python' >> $GITHUB_STEP_SUMMARY
+              cat "$LATEST_MIGRATION" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "found-new-migration=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Check for missing migrations
+        if: github.event_name == 'pull_request'
+        run: |
+          # Create a fresh temporary database
+          python -c "
+          import sqlite3
+          import os
+          
+          # Create temp DB from models (not migrations)
+          os.system('rm -f temp_models.db')
+          conn = sqlite3.connect('temp_models.db')
+          # Import models
+          from models import Base
+          from sqlalchemy import create_engine
+          engine = create_engine('sqlite:///temp_models.db')
+          Base.metadata.create_all(engine)
+          conn.close()
+          "
+          
+          # Check if models are in sync with migrations
+          python -c "
+          from alembic.autogenerate import compare_metadata
+          from alembic.config import Config
+          from sqlalchemy import create_engine
+          from models import Base
+          
+          alembic_cfg = Config('alembic.ini')
+          engine = create_engine(os.environ['DATABASE_URL'])
+          
+          autogenerate_diffs = compare_metadata(alembic_cfg, Base.metadata)
+          if autogenerate_diffs:
+              print('Model-Migration Gap Detected')
+              print('Models and migrations are out of sync. Please generate a new migration.')
+              exit(1)
+          else:
+              print('Models and migrations are in sync')
+          "
+      
+      - name: Migration downgrade test
+        run: |
+          # Test that we can downgrade to previous version
+          python -c "
+          from alembic.config import Config
+          from alembic import command
+          
+          config = Config('alembic.ini')
+          history = command.history(config)
+          
+          # If we have at least 2 migrations, test the downgrade
+          if len(history) >= 2:
+              command.downgrade(config, history[-2])
+              print('Downgrade test successful')
+          else:
+              print('Only one or no migration found, skipping downgrade test')
+          "
+      
+      - name: Test migration with sample data
+        run: |
+          # Apply all migrations again
+          alembic upgrade head
+          
+          # Run the application with sample data scripts
+          python -c "
+          # Create sample data to test schema integrity
+          import os
+          import sys
+          from models import db, User, System, Sensor
+          
+          os.environ['DATABASE_URL'] = 'postgresql://postgres:postgres@localhost:5432/aquaculture_migration_test'
+          from app import create_app
+          
+          app = create_app()
+          
+          with app.app_context():
+            try:
+              # Create test data
+              test_user = User(username='migration_test', email='test@example.com')
+              db.session.add(test_user)
+              db.session.commit()
+              
+              # Query it back
+              user = User.query.filter_by(username='migration_test').first()
+              if user:
+                print('Migration integrity test passed')
+              else:
+                print('Migration integrity test failed')
+                sys.exit(1)
+            except Exception as e:
+              print(f'Migration test with data failed: {str(e)}')
+              sys.exit(1)
+          "
+      
+      - name: Check for migration naming convention
+        run: |
+          # Check if all migration files follow naming convention
+          python -c "
+          import os
+          import re
+          import sys
+          
+          migration_pattern = r'^[a-z0-9_]+\.py$'
+          invalid_files = []
+          
+          if os.path.exists('migrations/versions'):
+            for filename in os.listdir('migrations/versions'):
+              if not re.match(migration_pattern, filename) and filename.endswith('.py'):
+                invalid_files.append(filename)
+          
+          if invalid_files:
+            print('Invalid migration file names found:')
+            for f in invalid_files:
+              print(f'  - {f}')
+            print('\nMigration files should follow naming convention: lowercase letters, numbers, and underscores only')
+            sys.exit(1)
+          else:
+            print('All migration files follow naming convention')
+          "

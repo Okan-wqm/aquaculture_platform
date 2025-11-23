@@ -1,0 +1,41 @@
+name: Security - Trivy
+
+on:
+  pull_request:
+  push:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 3 * * *'
+
+jobs:
+  trivy-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build images (no push)
+        run: |
+          docker build -f Dockerfile.backend -t backend:scan .
+          docker build -f Dockerfile.frontend -t frontend:scan .
+      - name: Run Trivy on backend
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: backend:scan
+          format: sarif
+          output: trivy-backend.sarif
+          exit-code: '0'
+          ignore-unfixed: true
+      - name: Run Trivy on frontend
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: frontend:scan
+          format: sarif
+          output: trivy-frontend.sarif
+          exit-code: '0'
+          ignore-unfixed: true
+      - name: Upload SARIF results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: trivy-backend.sarif

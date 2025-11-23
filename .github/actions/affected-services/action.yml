@@ -1,0 +1,156 @@
+name: 'Detect Affected Services'
+description: 'Detects which services were affected by changes in the repository'
+author: 'Aquaculture Platform Team'
+
+inputs:
+  base-branch:
+    description: 'Base branch to compare against'
+    required: false
+    default: 'main'
+  
+  head-branch:
+    description: 'Current branch to check'
+    required: false
+    default: ${{ github.ref }}
+  
+  service-path:
+    description: 'Comma-separated list of service paths to check'
+    required: false
+    default: 'frontend,backend,infra,database'
+    
+  shared-path:
+    description: 'Comma-separated list of shared directories that affect all services'
+    required: false
+    default: 'docs,scripts,.github,config'
+
+outputs:
+  frontend:
+    description: 'Whether frontend was affected'
+    value: ${{ steps.check-services.outputs.frontend }}
+  
+  backend:
+    description: 'Whether backend was affected'
+    value: ${{ steps.check-services.outputs.backend }}
+  
+  database:
+    description: 'Whether database was affected'
+    value: ${{ steps.check-services.outputs.database }}
+  
+  infra:
+    description: 'Whether infrastructure was affected'
+    value: ${{ steps.check-services.outputs.infra }}
+  
+  affected-services:
+    description: 'Comma-separated list of affected services'
+    value: ${{ steps.check-services.outputs.affected-services }}
+    
+  all-services:
+    description: 'Whether all services were affected'
+    value: ${{ steps.check-services.outputs.all-services }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Determine the ref
+      id: ref
+      shell: bash
+      run: |
+        BRANCH="${{ inputs.head-branch }}"
+        # Strip refs/heads/ if present
+        echo "head=${BRANCH#refs/heads/}" >> $GITHUB_OUTPUT
+    
+    - name: Get changed files
+      id: changed-files
+      shell: bash
+      run: |
+        echo "Fetching branch information..."
+        git fetch origin ${{ inputs.base-branch }} --depth=1
+        
+        # Get list of changed files
+        CHANGED_FILES=$(git diff --name-only origin/${{ inputs.base-branch }}...HEAD | tr '\n' ' ')
+        echo "changed-files=$CHANGED_FILES" >> $GITHUB_OUTPUT
+        
+        if [ -n "$CHANGED_FILES" ]; then
+          echo "Files changed since ${{ inputs.base-branch }}:"
+          echo "$CHANGED_FILES"
+          echo "num-changed=$(echo $CHANGED_FILES | wc -w)" >> $GITHUB_OUTPUT
+        else
+          echo "No files changed"
+          echo "num-changed=0" >> $GITHUB_OUTPUT
+        fi
+  
+    - name: Check affected services
+      id: check-services
+      shell: bash
+      env:
+        CHANGED_FILES: ${{ steps.changed-files.outputs.changed-files }}
+        SERVICE_PATHS: ${{ inputs.service-path }}
+        SHARED_PATHS: ${{ inputs.shared-path }}
+      run: |
+        # Initialize all services as not affected
+        FRONTEND=false
+        BACKEND=false
+        DATABASE=false
+        INFRA=false
+        
+        # Convert comma-separated strings to arrays
+        IFS=',' read -r -a SERVICE_PATH_ARRAY <<< "$SERVICE_PATHS"
+        IFS=',' read -r -a SHARED_PATH_ARRAY <<< "$SHARED_PATHS"
+        
+        # Create arrays to track affected services
+        AFFECTED_ALL=false
+        AFFECTED_SERVICES=""
+        
+        echo "Checking affected services for changed files: $CHANGED_FILES"
+        
+        # Check each changed file
+        for path in $CHANGED_FILES; do
+          # Remove the file part, keep only the directory
+          DIR=$(dirname "$path")
+          
+          # Check if it's a shared directory (affects all services)
+          for shared in "${SHARED_PATH_ARRAY[@]}"; do
+            if [[ "$DIR" == "$shared"* ]]; then
+              echo "Shared directory affected: $DIR"
+              FRONTEND=true
+              BACKEND=true
+              DATABASE=true
+              INFRA=true
+              AFFECTED_ALL=true
+              break 2  # Break out of both loops
+            fi
+          done
+          
+          # Check which service this file belongs to
+          if [[ "$DIR" == "frontend"* ]] || [[ "$DIR" == "packages/ui"* ]]; then
+            FRONTEND=true
+            echo "Frontend affected by: $path"
+          elif [[ "$DIR" == "backend"* ]] || [[ "$DIR" == "services"* ]]; then
+            BACKEND=true
+            echo "Backend affected by: $path"
+          elif [[ "$DIR" == "*migration*" ]] || [[ "$DIR" == "*model*" ]] || [[ "$DIR" == "database"* ]]; then
+            DATABASE=true
+            echo "Database affected by: $path"
+          elif [[ "$DIR" == "infra"* ]] || [[ "$DIR" == "*terraform"* ]] || [[ "$DIR" == "k8s"* ]]; then
+            INFRA=true
+            echo "Infrastructure affected by: $path"
+          fi
+        done
+        
+        # Build array of affected services
+        if [ "$FRONTEND" = true ]; then AFFECTED_SERVICES="frontend,$AFFECTED_SERVICES"; fi
+        if [ "$BACKEND" = true ]; then AFFECTED_SERVICES="backend,$AFFECTED_SERVICES"; fi
+        if [ "$DATABASE" = true ]; then AFFECTED_SERVICES="database,$AFFECTED_SERVICES"; fi
+        if [ "$INFRA" = true ]; then AFFECTED_SERVICES="infra,$AFFECTED_SERVICES"; fi
+        
+        # Remove trailing comma
+        AFFECTED_SERVICES=${AFFECTED_SERVICES%,}
+        
+        echo "frontend=$FRONTEND" >> $GITHUB_OUTPUT
+        echo "backend=$BACKEND" >> $GITHUB_OUTPUT
+        echo "database=$DATABASE" >> $GITHUB_OUTPUT
+        echo "infra=$INFRA" >> $GITHUB_OUTPUT
+        echo "affected-services=$AFFECTED_SERVICES" >> $GITHUB_OUTPUT
+        echo "all-services=$AFFECTED_ALL" >> $GITHUB_OUTPUT
+        
+        echo "Affected services: $AFFECTED_SERVICES"

@@ -2,13 +2,13 @@
 //!
 //! Handles saving, loading, and managing scripts on the edge device.
 
+use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
-use tracing::{info, warn, error, debug};
-use anyhow::{Result, Context};
-use chrono::{DateTime, Utc};
+use tracing::{debug, error, info, warn};
 
 use super::ScriptDefinition;
 
@@ -77,15 +77,19 @@ impl ScriptStorage {
     pub fn init(&mut self) -> Result<()> {
         // Create scripts directory if it doesn't exist
         if !self.scripts_dir.exists() {
-            fs::create_dir_all(&self.scripts_dir)
-                .with_context(|| format!("Failed to create scripts directory: {:?}", self.scripts_dir))?;
+            fs::create_dir_all(&self.scripts_dir).with_context(|| {
+                format!("Failed to create scripts directory: {:?}", self.scripts_dir)
+            })?;
             info!("Created scripts directory: {:?}", self.scripts_dir);
         }
 
         // Load existing scripts
         self.load_all()?;
 
-        info!("Script storage initialized with {} scripts", self.scripts.len());
+        info!(
+            "Script storage initialized with {} scripts",
+            self.scripts.len()
+        );
         Ok(())
     }
 
@@ -100,10 +104,17 @@ impl ScriptStorage {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().map(|e| e == "json" || e == "yaml").unwrap_or(false) {
+            if path
+                .extension()
+                .map(|e| e == "json" || e == "yaml")
+                .unwrap_or(false)
+            {
                 match self.load_script_file(&path) {
                     Ok(script) => {
-                        info!("Loaded script: {} ({})", script.definition.name, script.definition.id);
+                        info!(
+                            "Loaded script: {} ({})",
+                            script.definition.name, script.definition.id
+                        );
                         self.scripts.insert(script.definition.id.clone(), script);
                     }
                     Err(e) => {
@@ -131,7 +142,11 @@ impl ScriptStorage {
         };
 
         Ok(Script {
-            status: if definition.enabled { ScriptStatus::Active } else { ScriptStatus::Paused },
+            status: if definition.enabled {
+                ScriptStatus::Active
+            } else {
+                ScriptStatus::Paused
+            },
             last_run: None,
             last_result: None,
             error_count: 0,
@@ -161,7 +176,11 @@ impl ScriptStorage {
     /// Add or update a script from definition
     pub fn add_script(&mut self, definition: ScriptDefinition) -> Result<()> {
         let script = Script {
-            status: if definition.enabled { ScriptStatus::Active } else { ScriptStatus::Paused },
+            status: if definition.enabled {
+                ScriptStatus::Active
+            } else {
+                ScriptStatus::Paused
+            },
             last_run: None,
             last_result: None,
             error_count: 0,
@@ -190,7 +209,8 @@ impl ScriptStorage {
 
     /// Get active scripts only
     pub fn get_active(&self) -> Vec<&Script> {
-        self.scripts.values()
+        self.scripts
+            .values()
             .filter(|s| s.status == ScriptStatus::Active && s.definition.enabled)
             .collect()
     }
@@ -275,7 +295,10 @@ impl ScriptStorage {
                 // Disable after 5 consecutive errors
                 if script.error_count >= 5 {
                     script.status = ScriptStatus::Error;
-                    warn!("Script {} disabled after {} consecutive errors", id, script.error_count);
+                    warn!(
+                        "Script {} disabled after {} consecutive errors",
+                        id, script.error_count
+                    );
                 }
             }
         }

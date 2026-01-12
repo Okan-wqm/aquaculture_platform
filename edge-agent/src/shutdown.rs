@@ -11,7 +11,7 @@
 use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Graceful shutdown coordinator
 pub struct ShutdownCoordinator {
@@ -56,7 +56,10 @@ impl ShutdownCoordinator {
 
         // Step 1: Signal all tasks to stop
         let subscriber_count = self.notify.receiver_count();
-        info!("Sending shutdown signal to {} subscribers", subscriber_count);
+        info!(
+            "Sending shutdown signal to {} subscribers",
+            subscriber_count
+        );
 
         if let Err(e) = self.notify.send(()) {
             warn!("Failed to send shutdown signal: {}", e);
@@ -176,12 +179,16 @@ mod tests {
         let (tx, rx) = broadcast::channel(1);
 
         let task_handle = tokio::spawn(async move {
-            run_until_shutdown(async {
-                // This would run forever without shutdown
-                loop {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                }
-            }, rx).await;
+            run_until_shutdown(
+                async {
+                    // This would run forever without shutdown
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                },
+                rx,
+            )
+            .await;
         });
 
         // Send shutdown signal

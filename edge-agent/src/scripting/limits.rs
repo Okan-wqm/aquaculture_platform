@@ -92,12 +92,12 @@ impl ScriptRateLimiter {
     pub fn check(&self, script_id: &str) -> bool {
         let mut windows = self.windows.write().unwrap();
 
-        let window = windows.entry(script_id.to_string()).or_insert_with(|| {
-            RateLimitWindow {
+        let window = windows
+            .entry(script_id.to_string())
+            .or_insert_with(|| RateLimitWindow {
                 count: AtomicU32::new(0),
                 window_start: Instant::now(),
-            }
-        });
+            });
 
         // Reset window if minute has passed
         if window.window_start.elapsed() >= Duration::from_secs(60) {
@@ -297,5 +297,137 @@ mod tests {
 
         ctx.exit_nested();
         assert!(ctx.enter_nested().is_ok());
+    }
+
+    // ============================================
+    // P2: Infinite Loop Protection Tests
+    // ============================================
+
+    #[test]
+    fn test_infinite_loop_protection_via_depth() {
+        // Simulates script A -> calls script B -> calls script A (recursion)
+        // Default max_call_depth is 5
+        let limits = ScriptLimits::default();
+        let mut ctx = ExecutionContext::new(limits);
+
+        // Simulate call stack: main -> script1 -> script2 -> script3 -> script4 -> script5
+        assert!(ctx.enter_nested().is_ok()); // depth 1
+        assert!(ctx.enter_nested().is_ok()); // depth 2
+        assert!(ctx.enter_nested().is_ok()); // depth 3
+        assert!(ctx.enter_nested().is_ok()); // depth 4
+        assert!(ctx.enter_nested().is_ok()); // depth 5
+
+        // 6th call should be blocked (infinite loop protection)
+        let result = ctx.enter_nested();
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), LimitError::CallDepthExceeded);
+    }
+
+    #[test]
+    fn test_infinite_loop_protection_strict_limit() {
+        // Very strict limit for safety-critical scenarios
+        let limits = ScriptLimits {
+            max_call_depth: 1,  // Only allow direct call, no nesting
+            ..Default::default()
+        };
+        let mut ctx = ExecutionContext::new(limits);
+
+        // First nested call should work
+        assert!(ctx.enter_nested().is_ok());
+
+        // Second nested call should fail immediately
+        let result = ctx.enter_nested();
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), LimitError::CallDepthExceeded);
+    }
+
+    #[test]
+    fn test_infinite_loop_protection_action_spam() {
+        // A script that tries to execute 1000 actions in a loop
+        // should be stopped after max_actions_per_run
+        let limits = ScriptLimits {
+            max_actions_per_run: 10,
+            ..Default::default()
+        };
+        let mut ctx = ExecutionContext::new(limits);
+
+        let mut executed = 0;
+        for _ in 0..1000 {
+            match ctx.record_action() {
+                Ok(()) => executed += 1,
+                Err(LimitError::ActionLimitExceeded) => break,
+                Err(e) => panic!("Unexpected error: {:?}", e),
+            }
+        }
+
+        // Should have executed exactly 10 actions, then stopped
+        assert_eq!(executed, 10);
+        assert!(ctx.is_action_limit_exceeded());
+    }
+
+    #[test]
+    fn test_combined_protections() {
+        // Test that multiple protections work together
+        let limits = ScriptLimits {
+            max_call_depth: 3,
+            max_actions_per_run: 5,
+            ..Default::default()
+        };
+        let mut ctx = ExecutionContext::new(limits);
+
+        // Nest some calls
+        assert!(ctx.enter_nested().is_ok());
+        assert!(ctx.enter_nested().is_ok());
+
+        // Execute some actions
+        assert!(ctx.record_action().is_ok());
+        assert!(ctx.record_action().is_ok());
+
+        // Can still enter one more depth
+        assert!(ctx.enter_nested().is_ok());
+
+        // But depth is now maxed
+        assert!(ctx.is_depth_exceeded());
+        assert!(ctx.enter_nested().is_err());
+
+        // Actions still have room
+        assert!(!ctx.is_action_limit_exceeded());
+        assert!(ctx.record_action().is_ok());
+    }
+
+    #[test]
+    fn test_rate_limiter_per_script_isolation() {
+        // Ensure rate limiting is per-script, not global
+        let limiter = ScriptRateLimiter::new(3);
+
+        // Script A uses its quota
+        assert!(limiter.check("script_a"));
+        assert!(limiter.check("script_a"));
+        assert!(limiter.check("script_a"));
+        assert!(!limiter.check("script_a")); // Blocked
+
+        // Script B should still work
+        assert!(limiter.check("script_b"));
+        assert!(limiter.check("script_b"));
+        assert!(limiter.check("script_b"));
+        assert!(!limiter.check("script_b")); // Now blocked too
+    }
+
+    #[test]
+    fn test_delay_limit_protection() {
+        let limits = ScriptLimits {
+            max_delay_ms: 5000, // 5 seconds max
+            ..Default::default()
+        };
+        let ctx = ExecutionContext::new(limits);
+
+        // Normal delays should be allowed
+        assert!(ctx.is_delay_allowed(1000));
+        assert!(ctx.is_delay_allowed(5000));
+
+        // Excessive delays should be blocked
+        assert!(!ctx.is_delay_allowed(5001));
+        assert!(!ctx.is_delay_allowed(60_000)); // 1 minute
+        assert!(!ctx.is_delay_allowed(u64::MAX)); // Extreme case
     }
 }

@@ -2,14 +2,19 @@
 //!
 //! Detects when multiple scripts attempt to write different values
 //! to the same GPIO pin or Modbus register in the same execution cycle.
+//!
+//! v2.0: Priority-aware conflict resolution
+//! - Higher priority scripts win conflicts
+//! - Lower priority scripts are blocked from overwriting
 
 use std::collections::HashMap;
-use tracing::warn;
+use tracing::{debug, warn};
 
 /// Pending write operation for conflict detection
 #[derive(Debug, Clone)]
 pub struct PendingWrite {
     pub script_id: String,
+    pub priority: u8,
     pub value: WriteValue,
 }
 
@@ -25,8 +30,10 @@ pub enum WriteValue {
 pub enum ConflictResult {
     /// No conflict, proceed with write
     NoConflict,
-    /// Conflict detected, provides warning message
-    Conflict { message: String },
+    /// Conflict detected but current script has higher priority, proceed
+    ConflictWon { message: String },
+    /// Conflict detected and current script has lower priority, BLOCKED
+    ConflictLost { message: String },
     /// Same value, can be deduplicated
     Duplicate,
 }
@@ -35,12 +42,13 @@ pub enum ConflictResult {
 ///
 /// Tracks pending writes within an execution cycle to detect
 /// when multiple scripts try to write different values to the same target.
+/// Uses priority to determine which script wins conflicts.
 pub struct ConflictDetector {
-    /// Pending GPIO writes: pin -> (script_id, value)
+    /// Pending GPIO writes: pin -> PendingWrite
     gpio_writes: HashMap<u8, PendingWrite>,
-    /// Pending Modbus register writes: (device, address) -> (script_id, value)
+    /// Pending Modbus register writes: (device, address) -> PendingWrite
     modbus_writes: HashMap<(String, u16), PendingWrite>,
-    /// Pending Modbus coil writes: (device, address) -> (script_id, value)
+    /// Pending Modbus coil writes: (device, address) -> PendingWrite
     coil_writes: HashMap<(String, u16), PendingWrite>,
 }
 
@@ -61,12 +69,19 @@ impl ConflictDetector {
         self.coil_writes.clear();
     }
 
-    /// Check and register a GPIO write
+    /// Check and register a GPIO write with priority
     ///
-    /// Returns ConflictResult indicating if there's a conflict
-    pub fn check_gpio_write(&mut self, script_id: &str, pin: u8, value: bool) -> ConflictResult {
+    /// Returns ConflictResult indicating if there's a conflict and who wins
+    pub fn check_gpio_write(
+        &mut self,
+        script_id: &str,
+        priority: u8,
+        pin: u8,
+        value: bool,
+    ) -> ConflictResult {
         let new_write = PendingWrite {
             script_id: script_id.to_string(),
+            priority,
             value: WriteValue::Bool(value),
         };
 
@@ -96,17 +111,35 @@ impl ConflictDetector {
             };
             let new_value = if value { "HIGH" } else { "LOW" };
 
-            let message = format!(
-                "GPIO CONFLICT: Pin {} - Script '{}' wants {}, but '{}' already set {}",
-                pin, script_id, new_value, existing.script_id, conflict_value
-            );
-
-            warn!("{}", message);
-
-            // Still register the new write (last-write-wins policy)
-            self.gpio_writes.insert(pin, new_write);
-
-            return ConflictResult::Conflict { message };
+            // Priority-based resolution
+            if priority > existing.priority {
+                // Current script has HIGHER priority - it wins
+                let message = format!(
+                    "GPIO CONFLICT WON: Pin {} - Script '{}' (priority {}) overrides '{}' (priority {}): {} -> {}",
+                    pin, script_id, priority, existing.script_id, existing.priority, conflict_value, new_value
+                );
+                warn!("{}", message);
+                self.gpio_writes.insert(pin, new_write);
+                return ConflictResult::ConflictWon { message };
+            } else if priority < existing.priority {
+                // Current script has LOWER priority - it loses, BLOCKED
+                let message = format!(
+                    "GPIO CONFLICT LOST: Pin {} - Script '{}' (priority {}) blocked by '{}' (priority {}): keeping {}",
+                    pin, script_id, priority, existing.script_id, existing.priority, conflict_value
+                );
+                warn!("{}", message);
+                // Don't update the write - existing higher priority wins
+                return ConflictResult::ConflictLost { message };
+            } else {
+                // Same priority - last write wins (original behavior)
+                let message = format!(
+                    "GPIO CONFLICT: Pin {} - Script '{}' wants {}, but '{}' already set {} (same priority {})",
+                    pin, script_id, new_value, existing.script_id, conflict_value, priority
+                );
+                warn!("{}", message);
+                self.gpio_writes.insert(pin, new_write);
+                return ConflictResult::ConflictWon { message };
+            }
         }
 
         // No existing write, register it
@@ -114,10 +147,11 @@ impl ConflictDetector {
         ConflictResult::NoConflict
     }
 
-    /// Check and register a Modbus register write
+    /// Check and register a Modbus register write with priority
     pub fn check_modbus_write(
         &mut self,
         script_id: &str,
+        priority: u8,
         device: &str,
         address: u16,
         value: u16,
@@ -125,6 +159,7 @@ impl ConflictDetector {
         let key = (device.to_string(), address);
         let new_write = PendingWrite {
             script_id: script_id.to_string(),
+            priority,
             value: WriteValue::U16(value),
         };
 
@@ -143,25 +178,42 @@ impl ConflictDetector {
                 _ => 0,
             };
 
-            let message = format!(
-                "MODBUS CONFLICT: {}:{} - Script '{}' wants {}, but '{}' already set {}",
-                device, address, script_id, value, existing.script_id, existing_val
-            );
-
-            warn!("{}", message);
-
-            self.modbus_writes.insert(key, new_write);
-            return ConflictResult::Conflict { message };
+            // Priority-based resolution
+            if priority > existing.priority {
+                let message = format!(
+                    "MODBUS CONFLICT WON: {}:{} - Script '{}' (priority {}) overrides '{}' (priority {}): {} -> {}",
+                    device, address, script_id, priority, existing.script_id, existing.priority, existing_val, value
+                );
+                warn!("{}", message);
+                self.modbus_writes.insert(key, new_write);
+                return ConflictResult::ConflictWon { message };
+            } else if priority < existing.priority {
+                let message = format!(
+                    "MODBUS CONFLICT LOST: {}:{} - Script '{}' (priority {}) blocked by '{}' (priority {}): keeping {}",
+                    device, address, script_id, priority, existing.script_id, existing.priority, existing_val
+                );
+                warn!("{}", message);
+                return ConflictResult::ConflictLost { message };
+            } else {
+                let message = format!(
+                    "MODBUS CONFLICT: {}:{} - Script '{}' wants {}, but '{}' already set {} (same priority {})",
+                    device, address, script_id, value, existing.script_id, existing_val, priority
+                );
+                warn!("{}", message);
+                self.modbus_writes.insert(key, new_write);
+                return ConflictResult::ConflictWon { message };
+            }
         }
 
         self.modbus_writes.insert(key, new_write);
         ConflictResult::NoConflict
     }
 
-    /// Check and register a Modbus coil write
+    /// Check and register a Modbus coil write with priority
     pub fn check_coil_write(
         &mut self,
         script_id: &str,
+        priority: u8,
         device: &str,
         address: u16,
         value: bool,
@@ -169,6 +221,7 @@ impl ConflictDetector {
         let key = (device.to_string(), address);
         let new_write = PendingWrite {
             script_id: script_id.to_string(),
+            priority,
             value: WriteValue::Bool(value),
         };
 
@@ -187,15 +240,31 @@ impl ConflictDetector {
                 _ => false,
             };
 
-            let message = format!(
-                "COIL CONFLICT: {}:{} - Script '{}' wants {}, but '{}' already set {}",
-                device, address, script_id, value, existing.script_id, existing_val
-            );
-
-            warn!("{}", message);
-
-            self.coil_writes.insert(key, new_write);
-            return ConflictResult::Conflict { message };
+            // Priority-based resolution
+            if priority > existing.priority {
+                let message = format!(
+                    "COIL CONFLICT WON: {}:{} - Script '{}' (priority {}) overrides '{}' (priority {}): {} -> {}",
+                    device, address, script_id, priority, existing.script_id, existing.priority, existing_val, value
+                );
+                warn!("{}", message);
+                self.coil_writes.insert(key, new_write);
+                return ConflictResult::ConflictWon { message };
+            } else if priority < existing.priority {
+                let message = format!(
+                    "COIL CONFLICT LOST: {}:{} - Script '{}' (priority {}) blocked by '{}' (priority {}): keeping {}",
+                    device, address, script_id, priority, existing.script_id, existing.priority, existing_val
+                );
+                warn!("{}", message);
+                return ConflictResult::ConflictLost { message };
+            } else {
+                let message = format!(
+                    "COIL CONFLICT: {}:{} - Script '{}' wants {}, but '{}' already set {} (same priority {})",
+                    device, address, script_id, value, existing.script_id, existing_val, priority
+                );
+                warn!("{}", message);
+                self.coil_writes.insert(key, new_write);
+                return ConflictResult::ConflictWon { message };
+            }
         }
 
         self.coil_writes.insert(key, new_write);
@@ -229,25 +298,51 @@ mod tests {
     fn test_no_conflict_single_script() {
         let mut detector = ConflictDetector::new();
 
-        let result = detector.check_gpio_write("script1", 17, true);
+        let result = detector.check_gpio_write("script1", 50, 17, true);
         assert!(matches!(result, ConflictResult::NoConflict));
 
         // Same script can update same pin
-        let result = detector.check_gpio_write("script1", 17, false);
+        let result = detector.check_gpio_write("script1", 50, 17, false);
         assert!(matches!(result, ConflictResult::NoConflict));
     }
 
     #[test]
-    fn test_conflict_different_scripts_different_values() {
+    fn test_high_priority_wins() {
         let mut detector = ConflictDetector::new();
 
-        // Script1 sets pin 17 to HIGH
-        let result = detector.check_gpio_write("script1", 17, true);
+        // Low priority script sets pin 17 to HIGH
+        let result = detector.check_gpio_write("low_priority", 10, 17, true);
         assert!(matches!(result, ConflictResult::NoConflict));
 
-        // Script2 tries to set pin 17 to LOW - CONFLICT!
-        let result = detector.check_gpio_write("script2", 17, false);
-        assert!(matches!(result, ConflictResult::Conflict { .. }));
+        // High priority script tries to set pin 17 to LOW - should WIN
+        let result = detector.check_gpio_write("high_priority", 100, 17, false);
+        assert!(matches!(result, ConflictResult::ConflictWon { .. }));
+    }
+
+    #[test]
+    fn test_low_priority_loses() {
+        let mut detector = ConflictDetector::new();
+
+        // High priority script sets pin 17 to HIGH
+        let result = detector.check_gpio_write("high_priority", 100, 17, true);
+        assert!(matches!(result, ConflictResult::NoConflict));
+
+        // Low priority script tries to set pin 17 to LOW - should be BLOCKED
+        let result = detector.check_gpio_write("low_priority", 10, 17, false);
+        assert!(matches!(result, ConflictResult::ConflictLost { .. }));
+    }
+
+    #[test]
+    fn test_same_priority_last_wins() {
+        let mut detector = ConflictDetector::new();
+
+        // First script sets pin 17 to HIGH
+        let result = detector.check_gpio_write("script1", 50, 17, true);
+        assert!(matches!(result, ConflictResult::NoConflict));
+
+        // Second script with same priority sets pin 17 to LOW - last wins
+        let result = detector.check_gpio_write("script2", 50, 17, false);
+        assert!(matches!(result, ConflictResult::ConflictWon { .. }));
     }
 
     #[test]
@@ -255,32 +350,34 @@ mod tests {
         let mut detector = ConflictDetector::new();
 
         // Script1 sets pin 17 to HIGH
-        detector.check_gpio_write("script1", 17, true);
+        detector.check_gpio_write("script1", 50, 17, true);
 
         // Script2 also wants to set pin 17 to HIGH - duplicate, not conflict
-        let result = detector.check_gpio_write("script2", 17, true);
+        let result = detector.check_gpio_write("script2", 100, 17, true);
         assert!(matches!(result, ConflictResult::Duplicate));
     }
 
     #[test]
-    fn test_modbus_conflict() {
+    fn test_modbus_priority_conflict() {
         let mut detector = ConflictDetector::new();
 
-        detector.check_modbus_write("script1", "PLC-1", 100, 1234);
+        // Emergency script sets register
+        detector.check_modbus_write("emergency", 255, "PLC-1", 100, 0);
 
-        let result = detector.check_modbus_write("script2", "PLC-1", 100, 5678);
-        assert!(matches!(result, ConflictResult::Conflict { .. }));
+        // Normal script tries to write different value - should be BLOCKED
+        let result = detector.check_modbus_write("normal", 50, "PLC-1", 100, 1234);
+        assert!(matches!(result, ConflictResult::ConflictLost { .. }));
     }
 
     #[test]
     fn test_reset_clears_state() {
         let mut detector = ConflictDetector::new();
 
-        detector.check_gpio_write("script1", 17, true);
+        detector.check_gpio_write("script1", 100, 17, true);
         detector.reset();
 
         // After reset, no conflict should exist
-        let result = detector.check_gpio_write("script2", 17, false);
+        let result = detector.check_gpio_write("script2", 10, 17, false);
         assert!(matches!(result, ConflictResult::NoConflict));
     }
 }

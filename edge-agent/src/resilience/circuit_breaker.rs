@@ -31,7 +31,11 @@ impl CircuitBreaker {
     /// * `name` - Identifier for logging
     /// * `failure_threshold` - Number of failures before opening
     /// * `recovery_timeout` - Time to wait before trying again
-    pub fn new(name: impl Into<String>, failure_threshold: u32, recovery_timeout: Duration) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        failure_threshold: u32,
+        recovery_timeout: Duration,
+    ) -> Self {
         Self {
             name: name.into(),
             state: AtomicU8::new(STATE_CLOSED),

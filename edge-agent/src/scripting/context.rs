@@ -3,10 +3,10 @@
 //! Provides access to sensor data, GPIO, variables, and system info
 //! for script condition evaluation and action execution.
 
-use std::collections::HashMap;
+use chrono::{Datelike, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use chrono::{Utc, Timelike, Datelike};
+use std::collections::HashMap;
 
 /// Script execution context - provides data for condition evaluation
 #[derive(Debug, Clone, Default)]
@@ -96,17 +96,13 @@ impl ScriptContext {
             let source_name = parts[1];
 
             match source_type {
-                "sensor" | "register" => {
-                    self.sensors.get(source_name).map(|v| Value::from(*v))
-                }
-                "gpio" | "pin" => {
-                    source_name.parse::<u8>().ok()
-                        .and_then(|pin| self.gpio.get(&pin))
-                        .map(|v| Value::from(*v))
-                }
-                "var" | "variable" => {
-                    self.variables.get(source_name).cloned()
-                }
+                "sensor" | "register" => self.sensors.get(source_name).map(|v| Value::from(*v)),
+                "gpio" | "pin" => source_name
+                    .parse::<u8>()
+                    .ok()
+                    .and_then(|pin| self.gpio.get(&pin))
+                    .map(|v| Value::from(*v)),
+                "var" | "variable" => self.variables.get(source_name).cloned(),
                 "time" => {
                     let now = Utc::now();
                     match source_name {
@@ -121,16 +117,16 @@ impl ScriptContext {
                         _ => None,
                     }
                 }
-                "system" | "sys" => {
-                    match source_name {
-                        "cpu" | "cpu_usage" => Some(Value::from(self.system.cpu_usage)),
-                        "memory" | "mem" | "memory_usage" => Some(Value::from(self.system.memory_usage)),
-                        "disk" | "disk_usage" => Some(Value::from(self.system.disk_usage)),
-                        "temp" | "temperature" => self.system.temperature.map(Value::from),
-                        "uptime" => Some(Value::from(self.system.uptime_seconds)),
-                        _ => None,
+                "system" | "sys" => match source_name {
+                    "cpu" | "cpu_usage" => Some(Value::from(self.system.cpu_usage)),
+                    "memory" | "mem" | "memory_usage" => {
+                        Some(Value::from(self.system.memory_usage))
                     }
-                }
+                    "disk" | "disk_usage" => Some(Value::from(self.system.disk_usage)),
+                    "temp" | "temperature" => self.system.temperature.map(Value::from),
+                    "uptime" => Some(Value::from(self.system.uptime_seconds)),
+                    _ => None,
+                },
                 _ => None,
             }
         } else {

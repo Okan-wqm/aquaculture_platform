@@ -3,13 +3,13 @@
 //! Handles connection to MQTT broker, publishing telemetry/status,
 //! and subscribing to commands/config topics.
 
-use std::time::Duration;
-use rumqttc::{AsyncClient, MqttOptions, QoS, Event, Packet};
-use tokio::sync::mpsc;
-use tracing::{info, warn, error, debug};
-use anyhow::{Result, Context};
-use serde::{Serialize, Deserialize};
+use anyhow::{Context, Result};
 use chrono::Utc;
+use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS};
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
+use tokio::sync::mpsc;
+use tracing::{debug, error, info, warn};
 
 use crate::config::{AgentConfig, ResolvedTopics};
 use crate::error::AgentError;
@@ -120,7 +120,7 @@ pub struct GpioPinData {
     pub name: String,
     pub pin: u8,
     pub direction: String,
-    pub state: String,  // "high" or "low"
+    pub state: String, // "high" or "low"
 }
 
 /// Command message (received from cloud)
@@ -149,21 +149,32 @@ impl MqttClient {
     /// Create and connect MQTT client
     pub async fn new(config: &AgentConfig) -> Result<Self> {
         // Get MQTT settings
-        let broker = config.mqtt.broker.as_ref()
+        let broker = config
+            .mqtt
+            .broker
+            .as_ref()
             .ok_or_else(|| AgentError::Mqtt("MQTT broker not configured".into()))?;
-        let username = config.mqtt.username.as_ref()
+        let username = config
+            .mqtt
+            .username
+            .as_ref()
             .ok_or_else(|| AgentError::Mqtt("MQTT username not configured".into()))?;
-        let password = config.mqtt.password.as_ref()
+        let password = config
+            .mqtt
+            .password
+            .as_ref()
             .ok_or_else(|| AgentError::Mqtt("MQTT password not configured".into()))?;
 
         // Resolve topics
-        let tenant_id = config.tenant_id.as_ref()
+        let tenant_id = config
+            .tenant_id
+            .as_ref()
             .ok_or_else(|| AgentError::Mqtt("Tenant ID not configured".into()))?;
         let topics = config.mqtt.topics.resolve(tenant_id, &config.device_id);
 
         // Create MQTT options
         let mut options = MqttOptions::new(
-            username,  // Use username as client ID
+            username, // Use username as client ID
             broker,
             config.mqtt.port,
         );
@@ -222,7 +233,7 @@ impl MqttClient {
     async fn handle_events(
         eventloop: &mut rumqttc::EventLoop,
         message_tx: mpsc::Sender<IncomingMessage>,
-        _topics: ResolvedTopics,  // Available for future topic filtering
+        _topics: ResolvedTopics, // Available for future topic filtering
     ) {
         loop {
             match eventloop.poll().await {

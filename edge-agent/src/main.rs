@@ -10,33 +10,33 @@
 //! - Graceful shutdown coordinator
 //! - Granular state management
 
+mod commands;
 mod config;
 mod error;
-mod provisioning;
-mod mqtt;
-mod telemetry;
-mod commands;
-mod modbus;
 mod gpio;
-mod scripting;
+mod modbus;
+mod mqtt;
+mod provisioning;
 mod resilience;
+mod scripting;
 mod shutdown;
+mod telemetry;
 
+use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::{info, error, warn, debug};
-use anyhow::Result;
+use tracing::{debug, error, info, warn};
 
-use crate::config::AgentConfig;
-use crate::provisioning::ProvisioningClient;
-use crate::mqtt::MqttClient;
-use crate::telemetry::TelemetryCollector;
 use crate::commands::CommandHandler;
-use crate::modbus::ModbusHandle;
+use crate::config::AgentConfig;
 use crate::gpio::{GpioHandle, GpioManager};
+use crate::modbus::ModbusHandle;
+use crate::mqtt::MqttClient;
+use crate::provisioning::ProvisioningClient;
 use crate::scripting::ScriptEngine;
 use crate::shutdown::ShutdownCoordinator;
+use crate::telemetry::TelemetryCollector;
 
 /// Activation state - minimal mutable state
 pub struct ActivationState {
@@ -95,13 +95,19 @@ impl AppState {
         // Initialize Modbus actor
         if !self.config.modbus.is_empty() {
             self.modbus_handle = Some(ModbusHandle::new(self.config.modbus.clone()));
-            info!("Modbus actor initialized with {} devices", self.config.modbus.len());
+            info!(
+                "Modbus actor initialized with {} devices",
+                self.config.modbus.len()
+            );
         }
 
         // Initialize GPIO actor (v2.0 - actor pattern)
         if !self.config.gpio.is_empty() {
             self.gpio_handle = Some(GpioHandle::new(self.config.gpio.clone()));
-            info!("GPIO actor initialized with {} pins", self.config.gpio.len());
+            info!(
+                "GPIO actor initialized with {} pins",
+                self.config.gpio.len()
+            );
         }
     }
 
@@ -110,7 +116,10 @@ impl AppState {
     pub fn init_modbus(&mut self) {
         if !self.config.modbus.is_empty() {
             self.modbus_handle = Some(ModbusHandle::new(self.config.modbus.clone()));
-            info!("Modbus actor initialized with {} devices", self.config.modbus.len());
+            info!(
+                "Modbus actor initialized with {} devices",
+                self.config.modbus.len()
+            );
         }
     }
 }
@@ -163,8 +172,7 @@ async fn main() -> Result<()> {
 fn init_logging() {
     use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     tracing_subscriber::registry()
         .with(fmt::layer().with_target(true))
@@ -253,15 +261,11 @@ async fn run_agent(
 
     // Step 5: Start telemetry collector
     let telemetry_collector = TelemetryCollector::new(state.clone());
-    let telemetry_handle = tokio::spawn(async move {
-        telemetry_collector.run().await
-    });
+    let telemetry_handle = tokio::spawn(async move { telemetry_collector.run().await });
 
     // Step 6: Start command handler
     let command_handler = CommandHandler::new(state.clone());
-    let command_handle = tokio::spawn(async move {
-        command_handler.run().await
-    });
+    let command_handle = tokio::spawn(async move { command_handler.run().await });
 
     // Step 7: Start script engine
     info!("Starting script engine...");
@@ -269,12 +273,13 @@ async fn run_agent(
     if let Err(e) = script_engine.init().await {
         warn!("Script engine initialization failed: {}", e);
     } else {
-        info!("Script engine initialized with {} scripts", script_engine.script_count());
+        info!(
+            "Script engine initialized with {} scripts",
+            script_engine.script_count()
+        );
     }
 
-    let script_handle = tokio::spawn(async move {
-        script_engine.run().await
-    });
+    let script_handle = tokio::spawn(async move { script_engine.run().await });
 
     // Step 8: Main loop - wait for shutdown
     info!("Agent running. Press Ctrl+C to stop.");
@@ -382,9 +387,14 @@ async fn init_hardware(state: &Arc<RwLock<AppState>>) {
         let results = handle.read_all().await;
         for result in results {
             if result.errors.is_empty() {
-                info!("  {} - {} registers available", result.device_name, result.values.len());
+                info!(
+                    "  {} - {} registers available",
+                    result.device_name,
+                    result.values.len()
+                );
                 for value in &result.values {
-                    debug!("    {}: {:.2} {}",
+                    debug!(
+                        "    {}: {:.2} {}",
                         value.name,
                         value.scaled_value,
                         value.unit.as_deref().unwrap_or("")
@@ -403,5 +413,8 @@ async fn init_hardware(state: &Arc<RwLock<AppState>>) {
     let gpio_count = state_guard.config.gpio.len();
     let modbus_count = state_guard.config.modbus.len();
 
-    info!("Hardware summary: {} GPIO pins, {} Modbus devices", gpio_count, modbus_count);
+    info!(
+        "Hardware summary: {} GPIO pins, {} Modbus devices",
+        gpio_count, modbus_count
+    );
 }

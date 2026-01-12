@@ -2,10 +2,10 @@
 //!
 //! Handles loading and saving of agent configuration from YAML files.
 
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use anyhow::{Result, Context};
 use tracing::info;
 
 /// Default config file path
@@ -120,19 +120,24 @@ impl MqttTopics {
     /// Resolve topic pattern with actual tenant_id and device_id
     pub fn resolve(&self, tenant_id: &str, device_id: &str) -> ResolvedTopics {
         ResolvedTopics {
-            status: self.status
+            status: self
+                .status
                 .replace("{tenant_id}", tenant_id)
                 .replace("{device_id}", device_id),
-            telemetry: self.telemetry
+            telemetry: self
+                .telemetry
                 .replace("{tenant_id}", tenant_id)
                 .replace("{device_id}", device_id),
-            responses: self.responses
+            responses: self
+                .responses
                 .replace("{tenant_id}", tenant_id)
                 .replace("{device_id}", device_id),
-            commands: self.commands
+            commands: self
+                .commands
                 .replace("{tenant_id}", tenant_id)
                 .replace("{device_id}", device_id),
-            config: self.config
+            config: self
+                .config
                 .replace("{tenant_id}", tenant_id)
                 .replace("{device_id}", device_id),
         }
@@ -307,16 +312,36 @@ pub struct GpioConfig {
 }
 
 // Default value functions
-fn default_mqtt_port() -> u16 { 1883 }
-fn default_keepalive() -> u64 { 30 }
-fn default_true() -> bool { true }
-fn default_telemetry_interval() -> u64 { 30 }
-fn default_log_level() -> String { "info".to_string() }
-fn default_log_file() -> String { "/var/log/suderra-agent.log".to_string() }
-fn default_slave_id() -> u8 { 1 }
-fn default_data_type() -> String { "u16".to_string() }
-fn default_scale() -> f64 { 1.0 }
-fn default_pull() -> String { "none".to_string() }
+fn default_mqtt_port() -> u16 {
+    1883
+}
+fn default_keepalive() -> u64 {
+    30
+}
+fn default_true() -> bool {
+    true
+}
+fn default_telemetry_interval() -> u64 {
+    30
+}
+fn default_log_level() -> String {
+    "info".to_string()
+}
+fn default_log_file() -> String {
+    "/var/log/suderra-agent.log".to_string()
+}
+fn default_slave_id() -> u8 {
+    1
+}
+fn default_data_type() -> String {
+    "u16".to_string()
+}
+fn default_scale() -> f64 {
+    1.0
+}
+fn default_pull() -> String {
+    "none".to_string()
+}
 
 // Default topic patterns (v1.1 spec)
 fn default_status_topic() -> String {
@@ -363,8 +388,7 @@ impl AgentConfig {
     pub fn save_to(&self, path: &str) -> Result<()> {
         let path = PathBuf::from(path);
 
-        let content = serde_yaml::to_string(self)
-            .context("Failed to serialize config")?;
+        let content = serde_yaml::to_string(self).context("Failed to serialize config")?;
 
         fs::write(&path, content)
             .with_context(|| format!("Failed to write config file: {}", path.display()))?;
@@ -389,8 +413,17 @@ mod tests {
         let topics = MqttTopics::default();
         let resolved = topics.resolve("tenant-123", "device-456");
 
-        assert_eq!(resolved.status, "tenants/tenant-123/devices/device-456/status");
-        assert_eq!(resolved.telemetry, "tenants/tenant-123/devices/device-456/telemetry");
-        assert_eq!(resolved.commands, "tenants/tenant-123/devices/device-456/commands");
+        assert_eq!(
+            resolved.status,
+            "tenants/tenant-123/devices/device-456/status"
+        );
+        assert_eq!(
+            resolved.telemetry,
+            "tenants/tenant-123/devices/device-456/telemetry"
+        );
+        assert_eq!(
+            resolved.commands,
+            "tenants/tenant-123/devices/device-456/commands"
+        );
     }
 }

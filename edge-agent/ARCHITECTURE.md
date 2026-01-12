@@ -173,11 +173,17 @@ pub struct ScriptRateLimiter {
 }
 ```
 
-### 5. Script Conflict Detection (v2.0)
+### 5. Script Conflict Detection with Priority (v2.0)
 
-Detects when multiple scripts attempt to write different values to the same GPIO pin or Modbus register in the same execution cycle:
+Detects when multiple scripts attempt to write different values to the same GPIO pin or Modbus register. Uses script priority for conflict resolution:
 
 ```rust
+pub struct PendingWrite {
+    pub script_id: String,
+    pub priority: u8,  // Script priority for conflict resolution
+    pub value: WriteValue,
+}
+
 pub struct ConflictDetector {
     gpio_writes: HashMap<u8, PendingWrite>,
     modbus_writes: HashMap<(String, u16), PendingWrite>,
@@ -185,21 +191,38 @@ pub struct ConflictDetector {
 }
 
 pub enum ConflictResult {
-    NoConflict,                    // Proceed with write
-    Conflict { message: String },  // Log warning, continue (last-write-wins)
-    Duplicate,                     // Same value, skip redundant write
+    NoConflict,                      // Proceed with write
+    ConflictWon { message: String }, // Higher priority wins, proceed
+    ConflictLost { message: String }, // Lower priority, BLOCKED
+    Duplicate,                        // Same value, skip redundant write
+}
+```
+
+**Priority Levels:**
+```rust
+pub enum ScriptPriority {
+    Low = 0,        // Runs last
+    Normal = 50,    // Default
+    High = 100,     // Runs before normal scripts
+    Critical = 200, // Runs first, wins most conflicts
+    Emergency = 255, // Absolute highest, for safety scripts
 }
 ```
 
 **Behavior:**
 - **NoConflict**: First script to write a value proceeds normally
-- **Conflict**: Different scripts write different values → warning logged, last write wins
+- **ConflictWon**: Higher priority script overrides lower priority → proceed with write
+- **ConflictLost**: Lower priority script blocked → action fails, existing value preserved
 - **Duplicate**: Same value from different scripts → write skipped for efficiency
+- **Same Priority**: Last-write-wins (original behavior)
 
-**Example Log:**
+**Example Logs:**
 ```
-WARN: GPIO CONFLICT: Pin 17 - Script 'cooling_control' wants HIGH,
-      but 'emergency_shutdown' already set LOW
+WARN: GPIO CONFLICT WON: Pin 17 - Script 'emergency_shutdown' (priority 255)
+      overrides 'cooling_control' (priority 50): HIGH -> LOW
+
+WARN: GPIO CONFLICT LOST: Pin 17 - Script 'cooling_control' (priority 50)
+      blocked by 'emergency_shutdown' (priority 255): keeping LOW
 ```
 
 ### 6. Graceful Shutdown (v2.0)

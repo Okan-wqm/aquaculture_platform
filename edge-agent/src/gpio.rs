@@ -4,12 +4,12 @@
 //! Uses actor pattern to isolate non-Send rppal types.
 //! Components communicate with the actor via channels.
 
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{info, warn, debug};
-use anyhow::{Result, Context};
-use serde::{Serialize, Deserialize};
+use tracing::{debug, info, warn};
 
 use crate::config::GpioConfig;
 use crate::resilience::with_timeout;
@@ -28,7 +28,11 @@ pub enum PinState {
 
 impl From<bool> for PinState {
     fn from(value: bool) -> Self {
-        if value { PinState::High } else { PinState::Low }
+        if value {
+            PinState::High
+        } else {
+            PinState::Low
+        }
     }
 }
 
@@ -82,13 +86,9 @@ pub enum GpioCommand {
         response: oneshot::Sender<Result<()>>,
     },
     /// Get pin count
-    GetPinCount {
-        response: oneshot::Sender<usize>,
-    },
+    GetPinCount { response: oneshot::Sender<usize> },
     /// Check if GPIO is available
-    IsAvailable {
-        response: oneshot::Sender<bool>,
-    },
+    IsAvailable { response: oneshot::Sender<bool> },
     /// Reconfigure GPIO (hot-reload)
     Reconfigure {
         configs: Vec<GpioConfig>,
@@ -135,7 +135,12 @@ impl GpioHandle {
     /// Read all configured input pins
     pub async fn read_all(&self) -> GpioReadResult {
         let (tx, rx) = oneshot::channel();
-        if self.sender.send(GpioCommand::ReadAll { response: tx }).await.is_err() {
+        if self
+            .sender
+            .send(GpioCommand::ReadAll { response: tx })
+            .await
+            .is_err()
+        {
             return GpioReadResult {
                 values: vec![],
                 errors: vec!["GPIO actor dead".to_string()],
@@ -163,30 +168,47 @@ impl GpioHandle {
             .await
             .map_err(|_| anyhow::anyhow!("GPIO actor dead"))?;
 
-        with_timeout(rx, Duration::from_secs(5), &format!("GPIO read pin {}", pin))
-            .await
-            .map_err(|e| anyhow::anyhow!("{}", e))?
-            .map_err(|_| anyhow::anyhow!("GPIO actor response error"))?
+        with_timeout(
+            rx,
+            Duration::from_secs(5),
+            &format!("GPIO read pin {}", pin),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?
+        .map_err(|_| anyhow::anyhow!("GPIO actor response error"))?
     }
 
     /// Write to an output pin
     pub async fn write_pin(&self, pin: u8, value: bool) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.sender
-            .send(GpioCommand::WritePin { pin, value, response: tx })
+            .send(GpioCommand::WritePin {
+                pin,
+                value,
+                response: tx,
+            })
             .await
             .map_err(|_| anyhow::anyhow!("GPIO actor dead"))?;
 
-        with_timeout(rx, Duration::from_secs(5), &format!("GPIO write pin {}", pin))
-            .await
-            .map_err(|e| anyhow::anyhow!("{}", e))?
-            .map_err(|_| anyhow::anyhow!("GPIO actor response error"))?
+        with_timeout(
+            rx,
+            Duration::from_secs(5),
+            &format!("GPIO write pin {}", pin),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", e))?
+        .map_err(|_| anyhow::anyhow!("GPIO actor response error"))?
     }
 
     /// Get configured pin count
     pub async fn pin_count(&self) -> usize {
         let (tx, rx) = oneshot::channel();
-        if self.sender.send(GpioCommand::GetPinCount { response: tx }).await.is_err() {
+        if self
+            .sender
+            .send(GpioCommand::GetPinCount { response: tx })
+            .await
+            .is_err()
+        {
             return 0;
         }
         rx.await.unwrap_or(0)
@@ -195,7 +217,12 @@ impl GpioHandle {
     /// Check if GPIO hardware is available
     pub async fn is_available(&self) -> bool {
         let (tx, rx) = oneshot::channel();
-        if self.sender.send(GpioCommand::IsAvailable { response: tx }).await.is_err() {
+        if self
+            .sender
+            .send(GpioCommand::IsAvailable { response: tx })
+            .await
+            .is_err()
+        {
             return false;
         }
         rx.await.unwrap_or(false)
@@ -205,11 +232,15 @@ impl GpioHandle {
     pub async fn reconfigure(&self, configs: Vec<GpioConfig>) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.sender
-            .send(GpioCommand::Reconfigure { configs, response: tx })
+            .send(GpioCommand::Reconfigure {
+                configs,
+                response: tx,
+            })
             .await
             .map_err(|_| anyhow::anyhow!("GPIO actor dead"))?;
 
-        rx.await.map_err(|_| anyhow::anyhow!("GPIO actor response error"))?
+        rx.await
+            .map_err(|_| anyhow::anyhow!("GPIO actor response error"))?
     }
 }
 
@@ -252,7 +283,10 @@ impl GpioActor {
     }
 
     async fn run(&mut self) {
-        info!("GPIO actor started with {} pins configured", self.configs.len());
+        info!(
+            "GPIO actor started with {} pins configured",
+            self.configs.len()
+        );
 
         while let Some(cmd) = self.receiver.recv().await {
             match cmd {
@@ -268,7 +302,11 @@ impl GpioActor {
                     let result = self.read_single_pin(pin);
                     let _ = response.send(result);
                 }
-                GpioCommand::WritePin { pin, value, response } => {
+                GpioCommand::WritePin {
+                    pin,
+                    value,
+                    response,
+                } => {
                     let result = self.write_single_pin(pin, value);
                     let _ = response.send(result);
                 }
@@ -293,14 +331,21 @@ impl GpioActor {
     fn init_gpio(&mut self) -> Result<()> {
         use rppal::gpio::Gpio;
 
-        info!("Initializing GPIO with {} pins configured", self.configs.len());
+        info!(
+            "Initializing GPIO with {} pins configured",
+            self.configs.len()
+        );
 
         let gpio = Gpio::new().context("Failed to initialize GPIO")?;
 
         for config in &self.configs.clone() {
-            info!("Configuring GPIO pin {} ({}) as {}", config.pin, config.name, config.direction);
+            info!(
+                "Configuring GPIO pin {} ({}) as {}",
+                config.pin, config.name, config.direction
+            );
 
-            let pin = gpio.get(config.pin)
+            let pin = gpio
+                .get(config.pin)
                 .with_context(|| format!("Failed to get GPIO pin {}", config.pin))?;
 
             match config.direction.as_str() {
@@ -318,7 +363,10 @@ impl GpioActor {
                     self.output_pins.insert(config.pin, output_pin);
                 }
                 other => {
-                    warn!("Unknown direction '{}' for pin {}, skipping", other, config.pin);
+                    warn!(
+                        "Unknown direction '{}' for pin {}, skipping",
+                        other, config.pin
+                    );
                     continue;
                 }
             }
@@ -347,7 +395,11 @@ impl GpioActor {
             }
 
             if let Some(pin) = self.input_pins.get(&config.pin) {
-                let raw_state = if pin.is_high() { PinState::High } else { PinState::Low };
+                let raw_state = if pin.is_high() {
+                    PinState::High
+                } else {
+                    PinState::Low
+                };
                 let final_state = if config.invert {
                     match raw_state {
                         PinState::High => PinState::Low,
@@ -365,7 +417,9 @@ impl GpioActor {
                     timestamp: chrono::Utc::now().to_rfc3339(),
                 });
             } else {
-                result.errors.push(format!("{}: Pin not initialized", config.name));
+                result
+                    .errors
+                    .push(format!("{}: Pin not initialized", config.name));
             }
         }
 
@@ -381,7 +435,9 @@ impl GpioActor {
                 continue;
             }
 
-            let raw_state = self.simulated_states.get(&config.pin)
+            let raw_state = self
+                .simulated_states
+                .get(&config.pin)
                 .copied()
                 .unwrap_or(PinState::Low);
 
@@ -409,7 +465,11 @@ impl GpioActor {
     #[cfg(all(target_os = "linux", feature = "gpio"))]
     fn read_single_pin(&self, pin: u8) -> Result<PinState> {
         if let Some(input_pin) = self.input_pins.get(&pin) {
-            let state = if input_pin.is_high() { PinState::High } else { PinState::Low };
+            let state = if input_pin.is_high() {
+                PinState::High
+            } else {
+                PinState::Low
+            };
             Ok(state)
         } else {
             Err(anyhow::anyhow!("Pin {} not configured as input", pin))
@@ -418,7 +478,8 @@ impl GpioActor {
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
     fn read_single_pin(&self, pin: u8) -> Result<PinState> {
-        self.simulated_states.get(&pin)
+        self.simulated_states
+            .get(&pin)
             .copied()
             .ok_or_else(|| anyhow::anyhow!("Pin {} not configured", pin))
     }
@@ -440,7 +501,11 @@ impl GpioActor {
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
     fn write_single_pin(&mut self, pin: u8, value: bool) -> Result<()> {
-        if self.configs.iter().any(|c| c.pin == pin && c.direction == "output") {
+        if self
+            .configs
+            .iter()
+            .any(|c| c.pin == pin && c.direction == "output")
+        {
             let state = if value { PinState::High } else { PinState::Low };
             self.simulated_states.insert(pin, state);
             debug!("Simulated GPIO pin {} set to {:?}", pin, state);
@@ -556,19 +621,38 @@ impl GpioManager {
     pub fn read_all(&self) -> GpioReadResult {
         let mut result = GpioReadResult::default();
         for config in &self.configs {
-            if config.direction != "input" { continue; }
+            if config.direction != "input" {
+                continue;
+            }
 
             #[cfg(all(target_os = "linux", feature = "gpio"))]
-            let state = self.input_pins.get(&config.pin)
-                .map(|p| if p.is_high() { PinState::High } else { PinState::Low })
+            let state = self
+                .input_pins
+                .get(&config.pin)
+                .map(|p| {
+                    if p.is_high() {
+                        PinState::High
+                    } else {
+                        PinState::Low
+                    }
+                })
                 .unwrap_or(PinState::Low);
 
             #[cfg(not(all(target_os = "linux", feature = "gpio")))]
-            let state = self.simulated_states.get(&config.pin).copied().unwrap_or(PinState::Low);
+            let state = self
+                .simulated_states
+                .get(&config.pin)
+                .copied()
+                .unwrap_or(PinState::Low);
 
             let final_state = if config.invert {
-                match state { PinState::High => PinState::Low, PinState::Low => PinState::High }
-            } else { state };
+                match state {
+                    PinState::High => PinState::Low,
+                    PinState::Low => PinState::High,
+                }
+            } else {
+                state
+            };
 
             result.values.push(GpioPinValue {
                 name: config.name.clone(),
@@ -583,9 +667,13 @@ impl GpioManager {
 
     pub fn is_available(&self) -> bool {
         #[cfg(all(target_os = "linux", feature = "gpio"))]
-        { self.gpio.is_some() }
+        {
+            self.gpio.is_some()
+        }
         #[cfg(not(all(target_os = "linux", feature = "gpio")))]
-        { false }
+        {
+            false
+        }
     }
 
     pub fn pin_count(&self) -> usize {

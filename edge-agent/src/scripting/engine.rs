@@ -48,6 +48,8 @@ pub struct ScriptEngine {
     conflict_detector: ConflictDetector,
     /// Current script ID being executed (for conflict tracking)
     current_script_id: Option<String>,
+    /// Current script priority (for conflict resolution, v2.0)
+    current_script_priority: u8,
 }
 
 impl ScriptEngine {
@@ -64,6 +66,7 @@ impl ScriptEngine {
             rate_limiter,
             conflict_detector: ConflictDetector::new(),
             current_script_id: None,
+            current_script_priority: 50, // Default: Normal priority
         }
     }
 
@@ -79,6 +82,7 @@ impl ScriptEngine {
             rate_limiter,
             conflict_detector: ConflictDetector::new(),
             current_script_id: None,
+            current_script_priority: 50, // Default: Normal priority
         }
     }
 
@@ -205,27 +209,46 @@ impl ScriptEngine {
         Ok(())
     }
 
-    /// Check all triggers and return scripts that should run
+    /// Check all triggers and return scripts that should run (sorted by priority)
+    /// Higher priority scripts execute first (v2.0)
     fn check_all_triggers(&mut self) -> Vec<String> {
-        let mut scripts_to_run = Vec::new();
+        // Collect scripts with their priorities
+        let mut scripts_with_priority: Vec<(String, u8)> = Vec::new();
 
         for script in self.storage.get_active() {
             let script_id = &script.definition.id;
+            let priority = script.definition.priority.value();
 
             for (idx, trigger) in script.definition.triggers.iter().enumerate() {
                 if self
                     .trigger_manager
                     .check_trigger(script_id, idx, trigger, &self.context)
                 {
-                    if !scripts_to_run.contains(script_id) {
-                        scripts_to_run.push(script_id.clone());
+                    // Check if already in list
+                    if !scripts_with_priority.iter().any(|(id, _)| id == script_id) {
+                        scripts_with_priority.push((script_id.clone(), priority));
                     }
                     break; // Only need one trigger to fire
                 }
             }
         }
 
-        scripts_to_run
+        // Sort by priority descending (higher priority first)
+        scripts_with_priority.sort_by(|a, b| b.1.cmp(&a.1));
+
+        // Log execution order if multiple scripts
+        if scripts_with_priority.len() > 1 {
+            debug!(
+                "Script execution order (by priority): {:?}",
+                scripts_with_priority
+                    .iter()
+                    .map(|(id, p)| format!("{}({})", id, p))
+                    .collect::<Vec<_>>()
+            );
+        }
+
+        // Return just the script IDs
+        scripts_with_priority.into_iter().map(|(id, _)| id).collect()
     }
 
     /// Execute a script by ID (public API - uses depth=0)
@@ -294,8 +317,9 @@ impl ScriptEngine {
 
         let definition = script.definition.clone();
 
-        // Track current script ID for conflict detection (v2.0)
+        // Track current script ID and priority for conflict detection (v2.0)
         self.current_script_id = Some(script_id.to_string());
+        self.current_script_priority = definition.priority.value();
 
         info!(
             "Executing script: {} ({}) [depth={}]",
@@ -507,7 +531,7 @@ impl ScriptEngine {
         }
     }
 
-    /// Set GPIO pin action (v2.0 - uses actor pattern + conflict detection)
+    /// Set GPIO pin action (v2.0 - uses actor pattern + priority-aware conflict detection)
     async fn action_set_gpio(&mut self, action: &Action) -> ActionResult {
         let pin: u8 = match action.target.parse() {
             Ok(p) => p,
@@ -519,15 +543,24 @@ impl ScriptEngine {
             None => return ActionResult::failure(ActionType::SetGpio, "Missing or invalid value"),
         };
 
-        // Check for conflicts (v2.0)
+        // Check for conflicts with priority (v2.0)
         let script_id = self.current_script_id.as_deref().unwrap_or("unknown");
+        let priority = self.current_script_priority;
         match self
             .conflict_detector
-            .check_gpio_write(script_id, pin, value)
+            .check_gpio_write(script_id, priority, pin, value)
         {
-            ConflictResult::Conflict { message } => {
-                // Log conflict but continue (last-write-wins policy)
+            ConflictResult::ConflictWon { message } => {
+                // Higher priority script wins - continue with write
                 warn!("{}", message);
+            }
+            ConflictResult::ConflictLost { message } => {
+                // Lower priority script loses - BLOCKED from writing
+                warn!("{}", message);
+                return ActionResult::failure(
+                    ActionType::SetGpio,
+                    format!("Blocked by higher priority script: GPIO {}", pin),
+                );
             }
             ConflictResult::Duplicate => {
                 debug!("GPIO {} duplicate write from {}, skipping", pin, script_id);
@@ -560,7 +593,7 @@ impl ScriptEngine {
         }
     }
 
-    /// Write Modbus register action (v2.0 - with conflict detection)
+    /// Write Modbus register action (v2.0 - with priority-aware conflict detection)
     async fn action_write_modbus(&mut self, action: &Action) -> ActionResult {
         let device = match &action.device {
             Some(d) => d.clone(),
@@ -581,14 +614,24 @@ impl ScriptEngine {
             }
         };
 
-        // Check for conflicts (v2.0)
+        // Check for conflicts with priority (v2.0)
         let script_id = self.current_script_id.as_deref().unwrap_or("unknown");
+        let priority = self.current_script_priority;
         match self
             .conflict_detector
-            .check_modbus_write(script_id, &device, address, value)
+            .check_modbus_write(script_id, priority, &device, address, value)
         {
-            ConflictResult::Conflict { message } => {
+            ConflictResult::ConflictWon { message } => {
+                // Higher priority script wins - continue with write
                 warn!("{}", message);
+            }
+            ConflictResult::ConflictLost { message } => {
+                // Lower priority script loses - BLOCKED from writing
+                warn!("{}", message);
+                return ActionResult::failure(
+                    ActionType::WriteModbus,
+                    format!("Blocked by higher priority script: {}:{}", device, address),
+                );
             }
             ConflictResult::Duplicate => {
                 debug!(
@@ -621,7 +664,7 @@ impl ScriptEngine {
         }
     }
 
-    /// Write Modbus coil action (v2.0 - with conflict detection)
+    /// Write Modbus coil action (v2.0 - with priority-aware conflict detection)
     async fn action_write_coil(&mut self, action: &Action) -> ActionResult {
         let device = match &action.device {
             Some(d) => d.clone(),
@@ -640,14 +683,24 @@ impl ScriptEngine {
             }
         };
 
-        // Check for conflicts (v2.0)
+        // Check for conflicts with priority (v2.0)
         let script_id = self.current_script_id.as_deref().unwrap_or("unknown");
+        let priority = self.current_script_priority;
         match self
             .conflict_detector
-            .check_coil_write(script_id, &device, address, value)
+            .check_coil_write(script_id, priority, &device, address, value)
         {
-            ConflictResult::Conflict { message } => {
+            ConflictResult::ConflictWon { message } => {
+                // Higher priority script wins - continue with write
                 warn!("{}", message);
+            }
+            ConflictResult::ConflictLost { message } => {
+                // Lower priority script loses - BLOCKED from writing
+                warn!("{}", message);
+                return ActionResult::failure(
+                    ActionType::WriteCoil,
+                    format!("Blocked by higher priority script: {}:{}", device, address),
+                );
             }
             ConflictResult::Duplicate => {
                 debug!(

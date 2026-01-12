@@ -11,18 +11,18 @@
 //! - Timeouts on all operations
 //! - Parallel device reads
 
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio_modbus::prelude::*;
-use tokio_modbus::client::tcp;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{info, warn, error, debug};
-use anyhow::{Result, Context};
-use serde::{Serialize, Deserialize};
+use tokio_modbus::client::tcp;
+use tokio_modbus::prelude::*;
+use tracing::{debug, error, info, warn};
 
-use crate::config::{ModbusDeviceConfig, ModbusRegisterConfig, ByteOrder};
-use crate::resilience::{CircuitBreaker, with_timeout};
+use crate::config::{ByteOrder, ModbusDeviceConfig, ModbusRegisterConfig};
+use crate::resilience::{with_timeout, CircuitBreaker};
 
 /// Default timeout for Modbus operations
 const MODBUS_TIMEOUT: Duration = Duration::from_secs(5);
@@ -45,9 +45,7 @@ pub enum ModbusCommand {
         response: oneshot::Sender<Vec<String>>,
     },
     /// Disconnect all devices
-    DisconnectAll {
-        response: oneshot::Sender<()>,
-    },
+    DisconnectAll { response: oneshot::Sender<()> },
     /// Read all registers from all devices
     ReadAll {
         response: oneshot::Sender<Vec<ModbusReadResult>>,
@@ -67,9 +65,7 @@ pub enum ModbusCommand {
         response: oneshot::Sender<Result<()>>,
     },
     /// Get device count
-    DeviceCount {
-        response: oneshot::Sender<usize>,
-    },
+    DeviceCount { response: oneshot::Sender<usize> },
 }
 
 /// Thread-safe handle to communicate with the Modbus actor
@@ -95,52 +91,73 @@ impl ModbusHandle {
     /// Connect to all devices
     pub async fn connect_all(&self) -> Vec<String> {
         let (tx, rx) = oneshot::channel();
-        let _ = self.sender.send(ModbusCommand::ConnectAll { response: tx }).await;
-        rx.await.unwrap_or_else(|_| vec!["Actor disconnected".to_string()])
+        let _ = self
+            .sender
+            .send(ModbusCommand::ConnectAll { response: tx })
+            .await;
+        rx.await
+            .unwrap_or_else(|_| vec!["Actor disconnected".to_string()])
     }
 
     /// Disconnect all devices
     pub async fn disconnect_all(&self) {
         let (tx, rx) = oneshot::channel();
-        let _ = self.sender.send(ModbusCommand::DisconnectAll { response: tx }).await;
+        let _ = self
+            .sender
+            .send(ModbusCommand::DisconnectAll { response: tx })
+            .await;
         let _ = rx.await;
     }
 
     /// Read all registers from all devices
     pub async fn read_all(&self) -> Vec<ModbusReadResult> {
         let (tx, rx) = oneshot::channel();
-        let _ = self.sender.send(ModbusCommand::ReadAll { response: tx }).await;
+        let _ = self
+            .sender
+            .send(ModbusCommand::ReadAll { response: tx })
+            .await;
         rx.await.unwrap_or_default()
     }
 
     /// Write a register value
     pub async fn write_register(&self, device_name: &str, address: u16, value: u16) -> Result<()> {
         let (tx, rx) = oneshot::channel();
-        let _ = self.sender.send(ModbusCommand::WriteRegister {
-            device_name: device_name.to_string(),
-            address,
-            value,
-            response: tx,
-        }).await;
-        rx.await.map_err(|_| anyhow::anyhow!("Actor disconnected"))?
+        let _ = self
+            .sender
+            .send(ModbusCommand::WriteRegister {
+                device_name: device_name.to_string(),
+                address,
+                value,
+                response: tx,
+            })
+            .await;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Actor disconnected"))?
     }
 
     /// Write a coil value
     pub async fn write_coil(&self, device_name: &str, address: u16, value: bool) -> Result<()> {
         let (tx, rx) = oneshot::channel();
-        let _ = self.sender.send(ModbusCommand::WriteCoil {
-            device_name: device_name.to_string(),
-            address,
-            value,
-            response: tx,
-        }).await;
-        rx.await.map_err(|_| anyhow::anyhow!("Actor disconnected"))?
+        let _ = self
+            .sender
+            .send(ModbusCommand::WriteCoil {
+                device_name: device_name.to_string(),
+                address,
+                value,
+                response: tx,
+            })
+            .await;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Actor disconnected"))?
     }
 
     /// Get device count
     pub async fn device_count(&self) -> usize {
         let (tx, rx) = oneshot::channel();
-        let _ = self.sender.send(ModbusCommand::DeviceCount { response: tx }).await;
+        let _ = self
+            .sender
+            .send(ModbusCommand::DeviceCount { response: tx })
+            .await;
         rx.await.unwrap_or(0)
     }
 }
@@ -176,7 +193,12 @@ impl ModbusActor {
                     let results = self.manager.read_all().await;
                     let _ = response.send(results);
                 }
-                ModbusCommand::WriteRegister { device_name, address, value, response } => {
+                ModbusCommand::WriteRegister {
+                    device_name,
+                    address,
+                    value,
+                    response,
+                } => {
                     let result = if let Some(client) = self.manager.get_client(&device_name) {
                         client.write_register(address, value).await
                     } else {
@@ -184,7 +206,12 @@ impl ModbusActor {
                     };
                     let _ = response.send(result);
                 }
-                ModbusCommand::WriteCoil { device_name, address, value, response } => {
+                ModbusCommand::WriteCoil {
+                    device_name,
+                    address,
+                    value,
+                    response,
+                } => {
                     let result = if let Some(client) = self.manager.get_client(&device_name) {
                         client.write_coil(address, value).await
                     } else {
@@ -273,15 +300,13 @@ impl ModbusClient {
         self.circuit_breaker.reset();
 
         let result = match self.config.connection_type.as_str() {
-            "tcp" => {
-                with_timeout(
-                    self.connect_tcp_inner(),
-                    CONNECT_TIMEOUT,
-                    &format!("Modbus TCP connect {}", self.config.name),
-                )
-                .await
-                .map_err(|e| anyhow::anyhow!("{}", e))?
-            }
+            "tcp" => with_timeout(
+                self.connect_tcp_inner(),
+                CONNECT_TIMEOUT,
+                &format!("Modbus TCP connect {}", self.config.name),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("{}", e))?,
             "rtu" => self.connect_rtu().await,
             other => Err(anyhow::anyhow!("Unknown connection type: {}", other)),
         };
@@ -296,10 +321,16 @@ impl ModbusClient {
 
     /// Connect via Modbus TCP (inner implementation)
     async fn connect_tcp_inner(&mut self) -> Result<()> {
-        let addr: SocketAddr = self.config.address.parse()
+        let addr: SocketAddr = self
+            .config
+            .address
+            .parse()
             .with_context(|| format!("Invalid TCP address: {}", self.config.address))?;
 
-        info!("Connecting to Modbus TCP device '{}' at {}", self.config.name, addr);
+        info!(
+            "Connecting to Modbus TCP device '{}' at {}",
+            self.config.name, addr
+        );
 
         let ctx = tcp::connect_slave(addr, Slave(self.config.slave_id))
             .await
@@ -325,7 +356,8 @@ impl ModbusClient {
             );
 
             let builder = tokio_serial::new(&self.config.address, baud_rate);
-            let port = builder.open_native_async()
+            let port = builder
+                .open_native_async()
                 .with_context(|| format!("Failed to open serial port: {}", self.config.address))?;
 
             let ctx = tokio_modbus::client::rtu::attach_slave(port, Slave(self.config.slave_id));
@@ -406,7 +438,10 @@ impl ModbusClient {
     }
 
     /// Read a register with timeout
-    async fn read_register_with_timeout(&mut self, register: &ModbusRegisterConfig) -> Result<RegisterValue> {
+    async fn read_register_with_timeout(
+        &mut self,
+        register: &ModbusRegisterConfig,
+    ) -> Result<RegisterValue> {
         with_timeout(
             self.read_register(register),
             MODBUS_TIMEOUT,
@@ -417,46 +452,61 @@ impl ModbusClient {
     }
 
     /// Read a single register
-    pub async fn read_register(&mut self, register: &ModbusRegisterConfig) -> Result<RegisterValue> {
+    pub async fn read_register(
+        &mut self,
+        register: &ModbusRegisterConfig,
+    ) -> Result<RegisterValue> {
         // Calculate register count before borrowing ctx to satisfy borrow checker
         let register_count = self.get_register_count(&register.data_type);
 
-        let ctx = self.ctx.as_mut()
+        let ctx = self
+            .ctx
+            .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
 
         let raw_values = match register.register_type.as_str() {
-            "holding" => {
-                ctx.read_holding_registers(register.address, register_count)
-                    .await
-                    .context("Failed to read holding registers")?
-                    .map_err(|e| anyhow::anyhow!("Modbus exception: {:?}", e))?
-            }
-            "input" => {
-                ctx.read_input_registers(register.address, register_count)
-                    .await
-                    .context("Failed to read input registers")?
-                    .map_err(|e| anyhow::anyhow!("Modbus exception: {:?}", e))?
-            }
+            "holding" => ctx
+                .read_holding_registers(register.address, register_count)
+                .await
+                .context("Failed to read holding registers")?
+                .map_err(|e| anyhow::anyhow!("Modbus exception: {:?}", e))?,
+            "input" => ctx
+                .read_input_registers(register.address, register_count)
+                .await
+                .context("Failed to read input registers")?
+                .map_err(|e| anyhow::anyhow!("Modbus exception: {:?}", e))?,
             "coil" => {
-                let coils = ctx.read_coils(register.address, 1)
+                let coils = ctx
+                    .read_coils(register.address, 1)
                     .await
                     .context("Failed to read coil")?
                     .map_err(|e| anyhow::anyhow!("Modbus exception: {:?}", e))?;
-                vec![if coils.first().copied().unwrap_or(false) { 1 } else { 0 }]
+                vec![if coils.first().copied().unwrap_or(false) {
+                    1
+                } else {
+                    0
+                }]
             }
             "discrete" => {
-                let inputs = ctx.read_discrete_inputs(register.address, 1)
+                let inputs = ctx
+                    .read_discrete_inputs(register.address, 1)
                     .await
                     .context("Failed to read discrete input")?
                     .map_err(|e| anyhow::anyhow!("Modbus exception: {:?}", e))?;
-                vec![if inputs.first().copied().unwrap_or(false) { 1 } else { 0 }]
+                vec![if inputs.first().copied().unwrap_or(false) {
+                    1
+                } else {
+                    0
+                }]
             }
             other => return Err(anyhow::anyhow!("Unknown register type: {}", other)),
         };
 
         // Convert raw value based on data type and byte order
         let raw_value = raw_values.first().copied().unwrap_or(0);
-        let scaled_value = self.convert_value(&raw_values, &register.data_type, register.byte_order) * register.scale;
+        let scaled_value =
+            self.convert_value(&raw_values, &register.data_type, register.byte_order)
+                * register.scale;
 
         debug!(
             "Read {}: raw={}, scaled={:.2}{}",
@@ -478,7 +528,9 @@ impl ModbusClient {
 
     /// Write to a holding register
     pub async fn write_register(&mut self, address: u16, value: u16) -> Result<()> {
-        let ctx = self.ctx.as_mut()
+        let ctx = self
+            .ctx
+            .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
 
         ctx.write_single_register(address, value)
@@ -492,7 +544,9 @@ impl ModbusClient {
 
     /// Write to a coil
     pub async fn write_coil(&mut self, address: u16, value: bool) -> Result<()> {
-        let ctx = self.ctx.as_mut()
+        let ctx = self
+            .ctx
+            .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
 
         ctx.write_single_coil(address, value)
@@ -580,9 +634,7 @@ pub struct ModbusManager {
 impl ModbusManager {
     /// Create a new Modbus manager
     pub fn new(configs: Vec<ModbusDeviceConfig>) -> Self {
-        let clients = configs.into_iter()
-            .map(ModbusClient::new)
-            .collect();
+        let clients = configs.into_iter().map(ModbusClient::new).collect();
 
         Self { clients }
     }
@@ -621,8 +673,9 @@ impl ModbusManager {
             // Use per-device timeout
             let result = tokio::time::timeout(
                 Duration::from_secs(10), // Per-device timeout
-                client.read_all()
-            ).await;
+                client.read_all(),
+            )
+            .await;
 
             match result {
                 Ok(r) => results.push(r),
@@ -661,20 +714,24 @@ impl ModbusManager {
 
     /// Reconfigure with new device configs (hot-reload)
     pub async fn reconfigure(&mut self, new_configs: Vec<ModbusDeviceConfig>) {
-        info!("Reconfiguring Modbus manager with {} devices", new_configs.len());
+        info!(
+            "Reconfiguring Modbus manager with {} devices",
+            new_configs.len()
+        );
 
         // Disconnect existing clients
         self.disconnect_all().await;
 
         // Create new clients
-        self.clients = new_configs.into_iter()
-            .map(ModbusClient::new)
-            .collect();
+        self.clients = new_configs.into_iter().map(ModbusClient::new).collect();
 
         // Connect new clients
         let errors = self.connect_all().await;
         if !errors.is_empty() {
-            warn!("Some Modbus devices failed to connect during reconfigure: {:?}", errors);
+            warn!(
+                "Some Modbus devices failed to connect during reconfigure: {:?}",
+                errors
+            );
         }
     }
 }

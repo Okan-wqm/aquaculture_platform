@@ -27,8 +27,39 @@ pub use engine::{ExecutionResult, ScriptEngine};
 pub use limits::{ExecutionContext, LimitError, ScriptLimits, ScriptRateLimiter};
 pub use storage::{Script, ScriptStatus, ScriptStorage};
 pub use triggers::{Trigger, TriggerManager, TriggerType};
+// ScriptPriority is defined below and already public
 
 use serde::{Deserialize, Serialize};
+
+/// Script priority levels (v2.0)
+/// Higher values = higher priority = executes first
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScriptPriority {
+    /// Lowest priority (default) - runs last
+    Low = 0,
+    /// Normal priority
+    Normal = 50,
+    /// High priority - runs before normal scripts
+    High = 100,
+    /// Critical priority - runs first, wins conflicts
+    Critical = 200,
+    /// Emergency priority - absolute highest, for safety scripts
+    Emergency = 255,
+}
+
+impl Default for ScriptPriority {
+    fn default() -> Self {
+        ScriptPriority::Normal
+    }
+}
+
+impl ScriptPriority {
+    /// Get numeric value for comparison
+    pub fn value(&self) -> u8 {
+        *self as u8
+    }
+}
 
 /// Script definition - the DSL structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,6 +81,11 @@ pub struct ScriptDefinition {
     /// Whether script is enabled
     #[serde(default = "default_true")]
     pub enabled: bool,
+
+    /// Script priority (v2.0) - higher priority scripts execute first
+    /// and win in conflict situations
+    #[serde(default)]
+    pub priority: ScriptPriority,
 
     /// Trigger conditions
     pub triggers: Vec<Trigger>,
@@ -145,5 +181,56 @@ mod tests {
         assert_eq!(script.id, "script-001");
         assert_eq!(script.name, "High Temperature Alert");
         assert!(script.enabled);
+    }
+
+    #[test]
+    fn test_script_priority_parsing() {
+        let json = r#"{
+            "id": "emergency-shutdown",
+            "name": "Emergency Shutdown",
+            "priority": "emergency",
+            "triggers": [
+                {"type": "threshold", "source": "water_temp", "operator": "gt", "value": 35.0}
+            ],
+            "conditions": [],
+            "actions": [
+                {"type": "set_gpio", "target": "17", "value": false}
+            ]
+        }"#;
+
+        let script: ScriptDefinition = serde_json::from_str(json).unwrap();
+        assert_eq!(script.priority, ScriptPriority::Emergency);
+        assert_eq!(script.priority.value(), 255);
+    }
+
+    #[test]
+    fn test_script_priority_default() {
+        let json = r#"{
+            "id": "normal-script",
+            "name": "Normal Script",
+            "triggers": [],
+            "conditions": [],
+            "actions": []
+        }"#;
+
+        let script: ScriptDefinition = serde_json::from_str(json).unwrap();
+        assert_eq!(script.priority, ScriptPriority::Normal);
+        assert_eq!(script.priority.value(), 50);
+    }
+
+    #[test]
+    fn test_priority_ordering() {
+        // Higher value = higher priority
+        assert!(ScriptPriority::Emergency > ScriptPriority::Critical);
+        assert!(ScriptPriority::Critical > ScriptPriority::High);
+        assert!(ScriptPriority::High > ScriptPriority::Normal);
+        assert!(ScriptPriority::Normal > ScriptPriority::Low);
+
+        // Numeric values
+        assert_eq!(ScriptPriority::Low.value(), 0);
+        assert_eq!(ScriptPriority::Normal.value(), 50);
+        assert_eq!(ScriptPriority::High.value(), 100);
+        assert_eq!(ScriptPriority::Critical.value(), 200);
+        assert_eq!(ScriptPriority::Emergency.value(), 255);
     }
 }

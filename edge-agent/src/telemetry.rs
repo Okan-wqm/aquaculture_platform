@@ -5,13 +5,15 @@
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use sysinfo::{Components, Disks, Networks, System};
 use tokio::sync::RwLock;
-use sysinfo::{System, Networks, Disks, Components};
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
-use crate::AppState;
-use crate::mqtt::{TelemetryMetrics, DeviceStatus, ModbusDeviceData, ModbusRegisterData, GpioPinData};
 use crate::gpio::PinState;
+use crate::mqtt::{
+    DeviceStatus, GpioPinData, ModbusDeviceData, ModbusRegisterData, TelemetryMetrics,
+};
+use crate::AppState;
 
 /// Telemetry collector
 pub struct TelemetryCollector {
@@ -214,8 +216,10 @@ impl TelemetryCollector {
 
         if let Some(handle) = gpio_handle {
             let gpio_result = handle.read_all().await;
-            let gpio_data: Vec<GpioPinData> = gpio_result.values.iter().map(|v| {
-                GpioPinData {
+            let gpio_data: Vec<GpioPinData> = gpio_result
+                .values
+                .iter()
+                .map(|v| GpioPinData {
                     name: v.name.clone(),
                     pin: v.pin,
                     direction: v.direction.clone(),
@@ -223,8 +227,8 @@ impl TelemetryCollector {
                         PinState::High => "high".to_string(),
                         PinState::Low => "low".to_string(),
                     },
-                }
-            }).collect();
+                })
+                .collect();
 
             if !gpio_data.is_empty() {
                 metrics.gpio = Some(gpio_data);
@@ -247,14 +251,16 @@ impl TelemetryCollector {
             let mut modbus_data = Vec::new();
 
             for result in modbus_results {
-                let registers: Vec<ModbusRegisterData> = result.values.iter().map(|v| {
-                    ModbusRegisterData {
+                let registers: Vec<ModbusRegisterData> = result
+                    .values
+                    .iter()
+                    .map(|v| ModbusRegisterData {
                         name: v.name.clone(),
                         address: v.address,
                         value: v.scaled_value,
                         unit: v.unit.clone(),
-                    }
-                }).collect();
+                    })
+                    .collect();
 
                 modbus_data.push(ModbusDeviceData {
                     device_name: result.device_name,

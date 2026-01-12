@@ -67,12 +67,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_timeout_success() {
-        let result = with_timeout(
-            async { 42 },
-            Duration::from_secs(1),
-            "test_op",
-        )
-        .await;
+        let result = with_timeout(async { 42 }, Duration::from_secs(1), "test_op").await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 42);

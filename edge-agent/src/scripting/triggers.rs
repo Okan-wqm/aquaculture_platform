@@ -6,12 +6,12 @@
 //! - Event-based (GPIO change, etc.)
 //! - Interval-based (every N seconds)
 
+use chrono::{Datelike, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use chrono::{Utc, Timelike, Datelike};
 use tracing::{debug, warn};
 
-use super::{ScriptContext, ComparisonOperator};
+use super::{ComparisonOperator, ScriptContext};
 
 /// Trigger definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,7 +102,8 @@ impl TriggerManager {
 
         // Get or create state
         if !self.states.contains_key(&state_key) {
-            self.states.insert(state_key.clone(), TriggerState::default());
+            self.states
+                .insert(state_key.clone(), TriggerState::default());
         }
 
         // Check debounce first (read-only)
@@ -117,23 +118,27 @@ impl TriggerManager {
 
         // Evaluate trigger type
         let should_trigger = match trigger.trigger_type {
-            TriggerType::Threshold => {
-                Self::check_threshold_static(trigger, context, self.states.get_mut(&state_key).unwrap())
-            }
-            TriggerType::Change => {
-                Self::check_change_static(trigger, context, self.states.get_mut(&state_key).unwrap())
-            }
-            TriggerType::Schedule => {
-                Self::check_schedule_static(trigger)
-            }
+            TriggerType::Threshold => Self::check_threshold_static(
+                trigger,
+                context,
+                self.states.get_mut(&state_key).unwrap(),
+            ),
+            TriggerType::Change => Self::check_change_static(
+                trigger,
+                context,
+                self.states.get_mut(&state_key).unwrap(),
+            ),
+            TriggerType::Schedule => Self::check_schedule_static(trigger),
             TriggerType::Interval => {
                 let state = self.states.get(&state_key).unwrap();
                 Self::check_interval_static(trigger, state, now_ms)
             }
-            TriggerType::GpioChange => {
-                Self::check_gpio_change_static(trigger, context, self.states.get_mut(&state_key).unwrap())
-            }
-            TriggerType::Manual => false, // Only triggered via command
+            TriggerType::GpioChange => Self::check_gpio_change_static(
+                trigger,
+                context,
+                self.states.get_mut(&state_key).unwrap(),
+            ),
+            TriggerType::Manual => false,  // Only triggered via command
             TriggerType::Startup => false, // Handled separately on startup
         };
 
@@ -220,7 +225,8 @@ impl TriggerManager {
         let hour_match = Self::match_cron_field_static(parts[1], now.hour());
         let day_match = Self::match_cron_field_static(parts[2], now.day());
         let month_match = Self::match_cron_field_static(parts[3], now.month());
-        let weekday_match = Self::match_cron_field_static(parts[4], now.weekday().num_days_from_sunday());
+        let weekday_match =
+            Self::match_cron_field_static(parts[4], now.weekday().num_days_from_sunday());
 
         minute_match && hour_match && day_match && month_match && weekday_match
     }
@@ -240,9 +246,9 @@ impl TriggerManager {
 
         // Handle comma-separated values
         if pattern.contains(',') {
-            return pattern.split(',').any(|p| {
-                p.trim().parse::<u32>().map(|v| v == value).unwrap_or(false)
-            });
+            return pattern
+                .split(',')
+                .any(|p| p.trim().parse::<u32>().map(|v| v == value).unwrap_or(false));
         }
 
         // Handle range (N-M)
@@ -327,7 +333,9 @@ impl TriggerManager {
                 ComparisonOperator::In => {
                     if let Some(arr) = right.as_array() {
                         return arr.iter().any(|v| {
-                            v.as_f64().map(|r| (l - r).abs() < f64::EPSILON).unwrap_or(false)
+                            v.as_f64()
+                                .map(|r| (l - r).abs() < f64::EPSILON)
+                                .unwrap_or(false)
                         });
                     }
                     false

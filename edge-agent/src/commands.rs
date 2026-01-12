@@ -3,15 +3,15 @@
 //! Receives and executes commands from the cloud platform.
 //! Supports: ping, reboot, get_config, update_config, scripts, etc.
 
+use chrono::Utc;
+use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use serde_json::{json, Value};
-use tracing::{info, warn, error, debug};
-use chrono::Utc;
+use tracing::{debug, error, info, warn};
 
-use crate::AppState;
 use crate::mqtt::{CommandMessage, CommandResponse, IncomingMessage};
-use crate::scripting::{ScriptStorage, ScriptDefinition};
+use crate::scripting::{ScriptDefinition, ScriptStorage};
+use crate::AppState;
 
 /// Command handler
 pub struct CommandHandler {
@@ -62,8 +62,7 @@ impl CommandHandler {
     /// Handle incoming message
     async fn handle_message(&mut self, message: IncomingMessage) -> anyhow::Result<()> {
         let state = self.state.read().await;
-        let topics = state.mqtt_client.as_ref()
-            .map(|m| m.topics().clone());
+        let topics = state.mqtt_client.as_ref().map(|m| m.topics().clone());
         drop(state);
 
         let topics = match topics {
@@ -84,7 +83,10 @@ impl CommandHandler {
                 }
             };
 
-            info!("Executing command: {} (id: {})", command.command, command.command_id);
+            info!(
+                "Executing command: {} (id: {})",
+                command.command, command.command_id
+            );
 
             // Execute command
             let response = self.execute_command(&command).await;
@@ -131,7 +133,11 @@ impl CommandHandler {
             "set_log_level" => self.cmd_set_log_level(&command.params).await,
             _ => {
                 warn!("Unknown command: {}", command.command);
-                (false, json!(null), Some(format!("Unknown command: {}", command.command)))
+                (
+                    false,
+                    json!(null),
+                    Some(format!("Unknown command: {}", command.command)),
+                )
             }
         };
 
@@ -148,7 +154,11 @@ impl CommandHandler {
     /// Ping command - simple health check
     async fn cmd_ping(&self) -> (bool, Value, Option<String>) {
         info!("Executing ping command");
-        (true, json!({"pong": true, "timestamp": Utc::now().to_rfc3339()}), None)
+        (
+            true,
+            json!({"pong": true, "timestamp": Utc::now().to_rfc3339()}),
+            None,
+        )
     }
 
     /// Get device info
@@ -204,7 +214,8 @@ impl CommandHandler {
         info!("Executing reboot command");
 
         // Check for delay parameter
-        let delay_secs = params.get("delay_seconds")
+        let delay_secs = params
+            .get("delay_seconds")
             .and_then(|v| v.as_u64())
             .unwrap_or(5);
 
@@ -229,13 +240,21 @@ impl CommandHandler {
                 }
             });
 
-            (true, json!({"scheduled": true, "delay_seconds": delay_secs}), None)
+            (
+                true,
+                json!({"scheduled": true, "delay_seconds": delay_secs}),
+                None,
+            )
         }
 
         #[cfg(not(target_os = "linux"))]
         {
             warn!("Reboot not supported on this platform");
-            (false, json!(null), Some("Reboot not supported on this platform".to_string()))
+            (
+                false,
+                json!(null),
+                Some("Reboot not supported on this platform".to_string()),
+            )
         }
     }
 
@@ -266,7 +285,11 @@ impl CommandHandler {
         #[cfg(not(target_os = "linux"))]
         {
             warn!("Restart not supported on this platform");
-            (false, json!(null), Some("Restart not supported on this platform".to_string()))
+            (
+                false,
+                json!(null),
+                Some("Restart not supported on this platform".to_string()),
+            )
         }
     }
 
@@ -274,13 +297,23 @@ impl CommandHandler {
     async fn cmd_set_log_level(&self, params: &Value) -> (bool, Value, Option<String>) {
         let level = match params.get("level").and_then(|v| v.as_str()) {
             Some(l) => l,
-            None => return (false, json!(null), Some("Missing 'level' parameter".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'level' parameter".to_string()),
+                )
+            }
         };
 
         // Validate level
         let valid_levels = ["trace", "debug", "info", "warn", "error"];
         if !valid_levels.contains(&level.to_lowercase().as_str()) {
-            return (false, json!(null), Some(format!("Invalid level. Valid: {:?}", valid_levels)));
+            return (
+                false,
+                json!(null),
+                Some(format!("Invalid level. Valid: {:?}", valid_levels)),
+            );
         }
 
         info!("Setting log level to: {}", level);
@@ -292,7 +325,11 @@ impl CommandHandler {
         // Note: Actually changing the tracing level at runtime requires more setup
         // For now, we just update the config (effective after restart)
 
-        (true, json!({"level": level, "note": "Effective after agent restart"}), None)
+        (
+            true,
+            json!({"level": level, "note": "Effective after agent restart"}),
+            None,
+        )
     }
 
     /// Get hardware info - lists all connected devices and sensors
@@ -302,38 +339,52 @@ impl CommandHandler {
         let state = self.state.read().await;
 
         // Collect Modbus device info
-        let modbus_devices: Vec<Value> = state.config.modbus.iter().map(|device| {
-            json!({
-                "name": device.name,
-                "connection_type": device.connection_type,
-                "address": device.address,
-                "slave_id": device.slave_id,
-                "registers": device.registers.iter().map(|r| {
-                    json!({
-                        "name": r.name,
-                        "address": r.address,
-                        "type": r.register_type,
-                        "data_type": r.data_type,
-                        "unit": r.unit
-                    })
-                }).collect::<Vec<_>>()
+        let modbus_devices: Vec<Value> = state
+            .config
+            .modbus
+            .iter()
+            .map(|device| {
+                json!({
+                    "name": device.name,
+                    "connection_type": device.connection_type,
+                    "address": device.address,
+                    "slave_id": device.slave_id,
+                    "registers": device.registers.iter().map(|r| {
+                        json!({
+                            "name": r.name,
+                            "address": r.address,
+                            "type": r.register_type,
+                            "data_type": r.data_type,
+                            "unit": r.unit
+                        })
+                    }).collect::<Vec<_>>()
+                })
             })
-        }).collect();
+            .collect();
 
         // Collect GPIO pin info
-        let gpio_pins: Vec<Value> = state.config.gpio.iter().map(|pin| {
-            json!({
-                "name": pin.name,
-                "pin": pin.pin,
-                "direction": pin.direction,
-                "pull": pin.pull,
-                "invert": pin.invert
+        let gpio_pins: Vec<Value> = state
+            .config
+            .gpio
+            .iter()
+            .map(|pin| {
+                json!({
+                    "name": pin.name,
+                    "pin": pin.pin,
+                    "direction": pin.direction,
+                    "pull": pin.pull,
+                    "invert": pin.invert
+                })
             })
-        }).collect();
+            .collect();
 
         // Check hardware availability
         let modbus_connected = state.modbus_handle.is_some();
-        let gpio_available = state.gpio_manager.as_ref().map(|g| g.is_available()).unwrap_or(false);
+        let gpio_available = state
+            .gpio_manager
+            .as_ref()
+            .map(|g| g.is_available())
+            .unwrap_or(false);
 
         let hardware_info = json!({
             "modbus": {
@@ -369,27 +420,36 @@ impl CommandHandler {
 
         let handle = match modbus_handle {
             Some(h) => h,
-            None => return (false, json!(null), Some("No Modbus devices configured".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("No Modbus devices configured".to_string()),
+                )
+            }
         };
 
         // Read all devices (device filtering can be added via handle if needed)
         let results = handle.read_all().await;
-        let data: Vec<Value> = results.iter().map(|result| {
-            json!({
-                "device": result.device_name,
-                "values": result.values.iter().map(|v| {
-                    json!({
-                        "name": v.name,
-                        "address": v.address,
-                        "raw_value": v.raw_value,
-                        "scaled_value": v.scaled_value,
-                        "unit": v.unit,
-                        "timestamp": v.timestamp
-                    })
-                }).collect::<Vec<_>>(),
-                "errors": result.errors.clone()
+        let data: Vec<Value> = results
+            .iter()
+            .map(|result| {
+                json!({
+                    "device": result.device_name,
+                    "values": result.values.iter().map(|v| {
+                        json!({
+                            "name": v.name,
+                            "address": v.address,
+                            "raw_value": v.raw_value,
+                            "scaled_value": v.scaled_value,
+                            "unit": v.unit,
+                            "timestamp": v.timestamp
+                        })
+                    }).collect::<Vec<_>>(),
+                    "errors": result.errors.clone()
+                })
             })
-        }).collect();
+            .collect();
 
         (true, json!({"devices": data}), None)
     }
@@ -400,17 +460,35 @@ impl CommandHandler {
 
         let device_name = match params.get("device").and_then(|v| v.as_str()) {
             Some(d) => d,
-            None => return (false, json!(null), Some("Missing 'device' parameter".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'device' parameter".to_string()),
+                )
+            }
         };
 
         let address = match params.get("address").and_then(|v| v.as_u64()) {
             Some(a) => a as u16,
-            None => return (false, json!(null), Some("Missing 'address' parameter".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'address' parameter".to_string()),
+                )
+            }
         };
 
         let value = match params.get("value").and_then(|v| v.as_u64()) {
             Some(v) => v as u16,
-            None => return (false, json!(null), Some("Missing 'value' parameter".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'value' parameter".to_string()),
+                )
+            }
         };
 
         // Get modbus handle (thread-safe)
@@ -421,13 +499,23 @@ impl CommandHandler {
 
         let handle = match modbus_handle {
             Some(h) => h,
-            None => return (false, json!(null), Some("No Modbus devices configured".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("No Modbus devices configured".to_string()),
+                )
+            }
         };
 
         match handle.write_register(device_name, address, value).await {
             Ok(()) => {
                 info!("Wrote {} to register {} on {}", value, address, device_name);
-                (true, json!({"device": device_name, "address": address, "value": value}), None)
+                (
+                    true,
+                    json!({"device": device_name, "address": address, "value": value}),
+                    None,
+                )
             }
             Err(e) => {
                 error!("Failed to write Modbus register: {}", e);
@@ -444,20 +532,30 @@ impl CommandHandler {
 
         let gpio_manager = match state.gpio_manager.as_ref() {
             Some(g) => g,
-            None => return (false, json!(null), Some("No GPIO pins configured".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("No GPIO pins configured".to_string()),
+                )
+            }
         };
 
         let result = gpio_manager.read_all();
 
-        let pins: Vec<Value> = result.values.iter().map(|v| {
-            json!({
-                "name": v.name,
-                "pin": v.pin,
-                "direction": v.direction,
-                "state": format!("{:?}", v.state).to_lowercase(),
-                "timestamp": v.timestamp
+        let pins: Vec<Value> = result
+            .values
+            .iter()
+            .map(|v| {
+                json!({
+                    "name": v.name,
+                    "pin": v.pin,
+                    "direction": v.direction,
+                    "state": format!("{:?}", v.state).to_lowercase(),
+                    "timestamp": v.timestamp
+                })
             })
-        }).collect();
+            .collect();
 
         if result.errors.is_empty() {
             (true, json!({"pins": pins}), None)
@@ -472,25 +570,49 @@ impl CommandHandler {
 
         let pin = match params.get("pin").and_then(|v| v.as_u64()) {
             Some(p) => p as u8,
-            None => return (false, json!(null), Some("Missing 'pin' parameter".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'pin' parameter".to_string()),
+                )
+            }
         };
 
         let state_value = match params.get("state").and_then(|v| v.as_str()) {
             Some(s) => s,
-            None => return (false, json!(null), Some("Missing 'state' parameter (high/low)".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'state' parameter (high/low)".to_string()),
+                )
+            }
         };
 
         let pin_state = match state_value.to_lowercase().as_str() {
             "high" | "1" | "true" | "on" => crate::gpio::PinState::High,
             "low" | "0" | "false" | "off" => crate::gpio::PinState::Low,
-            _ => return (false, json!(null), Some("Invalid state. Use 'high' or 'low'".to_string())),
+            _ => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Invalid state. Use 'high' or 'low'".to_string()),
+                )
+            }
         };
 
         let mut state = self.state.write().await;
 
         let gpio_manager = match state.gpio_manager.as_mut() {
             Some(g) => g,
-            None => return (false, json!(null), Some("No GPIO pins configured".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("No GPIO pins configured".to_string()),
+                )
+            }
         };
 
         match gpio_manager.write_pin(pin, pin_state) {
@@ -511,29 +633,44 @@ impl CommandHandler {
     async fn cmd_list_scripts(&self) -> (bool, Value, Option<String>) {
         info!("Executing list_scripts command");
 
-        let scripts: Vec<Value> = self.script_storage.get_all().iter().map(|s| {
-            json!({
-                "id": s.definition.id,
-                "name": s.definition.name,
-                "description": s.definition.description,
-                "enabled": s.definition.enabled,
-                "status": format!("{:?}", s.status).to_lowercase(),
-                "triggers": s.definition.triggers.len(),
-                "actions": s.definition.actions.len(),
-                "last_run": s.last_run,
-                "last_result": s.last_result,
-                "error_count": s.error_count
+        let scripts: Vec<Value> = self
+            .script_storage
+            .get_all()
+            .iter()
+            .map(|s| {
+                json!({
+                    "id": s.definition.id,
+                    "name": s.definition.name,
+                    "description": s.definition.description,
+                    "enabled": s.definition.enabled,
+                    "status": format!("{:?}", s.status).to_lowercase(),
+                    "triggers": s.definition.triggers.len(),
+                    "actions": s.definition.actions.len(),
+                    "last_run": s.last_run,
+                    "last_result": s.last_result,
+                    "error_count": s.error_count
+                })
             })
-        }).collect();
+            .collect();
 
-        (true, json!({"scripts": scripts, "count": scripts.len()}), None)
+        (
+            true,
+            json!({"scripts": scripts, "count": scripts.len()}),
+            None,
+        )
     }
 
     /// Get a specific script
     async fn cmd_get_script(&self, params: &Value) -> (bool, Value, Option<String>) {
         let script_id = match params.get("id").and_then(|v| v.as_str()) {
             Some(id) => id,
-            None => return (false, json!(null), Some("Missing 'id' parameter".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'id' parameter".to_string()),
+                )
+            }
         };
 
         info!("Executing get_script command for: {}", script_id);
@@ -559,9 +696,11 @@ impl CommandHandler {
                 });
                 (true, data, None)
             }
-            None => {
-                (false, json!(null), Some(format!("Script '{}' not found", script_id)))
-            }
+            None => (
+                false,
+                json!(null),
+                Some(format!("Script '{}' not found", script_id)),
+            ),
         }
     }
 
@@ -573,7 +712,11 @@ impl CommandHandler {
         let definition: ScriptDefinition = match serde_json::from_value(params.clone()) {
             Ok(def) => def,
             Err(e) => {
-                return (false, json!(null), Some(format!("Invalid script definition: {}", e)));
+                return (
+                    false,
+                    json!(null),
+                    Some(format!("Invalid script definition: {}", e)),
+                );
             }
         };
 
@@ -583,11 +726,15 @@ impl CommandHandler {
         match self.script_storage.add_script(definition) {
             Ok(()) => {
                 info!("Script deployed: {} ({})", script_name, script_id);
-                (true, json!({
-                    "id": script_id,
-                    "name": script_name,
-                    "message": "Script deployed successfully"
-                }), None)
+                (
+                    true,
+                    json!({
+                        "id": script_id,
+                        "name": script_name,
+                        "message": "Script deployed successfully"
+                    }),
+                    None,
+                )
             }
             Err(e) => {
                 error!("Failed to deploy script: {}", e);
@@ -600,21 +747,25 @@ impl CommandHandler {
     async fn cmd_delete_script(&mut self, params: &Value) -> (bool, Value, Option<String>) {
         let script_id = match params.get("id").and_then(|v| v.as_str()) {
             Some(id) => id,
-            None => return (false, json!(null), Some("Missing 'id' parameter".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'id' parameter".to_string()),
+                )
+            }
         };
 
         info!("Executing delete_script command for: {}", script_id);
 
         match self.script_storage.delete(script_id) {
-            Ok(true) => {
-                (true, json!({"id": script_id, "deleted": true}), None)
-            }
-            Ok(false) => {
-                (false, json!(null), Some(format!("Script '{}' not found", script_id)))
-            }
-            Err(e) => {
-                (false, json!(null), Some(format!("Delete failed: {}", e)))
-            }
+            Ok(true) => (true, json!({"id": script_id, "deleted": true}), None),
+            Ok(false) => (
+                false,
+                json!(null),
+                Some(format!("Script '{}' not found", script_id)),
+            ),
+            Err(e) => (false, json!(null), Some(format!("Delete failed: {}", e))),
         }
     }
 
@@ -622,21 +773,25 @@ impl CommandHandler {
     async fn cmd_enable_script(&mut self, params: &Value) -> (bool, Value, Option<String>) {
         let script_id = match params.get("id").and_then(|v| v.as_str()) {
             Some(id) => id,
-            None => return (false, json!(null), Some("Missing 'id' parameter".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'id' parameter".to_string()),
+                )
+            }
         };
 
         info!("Executing enable_script command for: {}", script_id);
 
         match self.script_storage.enable(script_id) {
-            Ok(true) => {
-                (true, json!({"id": script_id, "enabled": true}), None)
-            }
-            Ok(false) => {
-                (false, json!(null), Some(format!("Script '{}' not found", script_id)))
-            }
-            Err(e) => {
-                (false, json!(null), Some(format!("Enable failed: {}", e)))
-            }
+            Ok(true) => (true, json!({"id": script_id, "enabled": true}), None),
+            Ok(false) => (
+                false,
+                json!(null),
+                Some(format!("Script '{}' not found", script_id)),
+            ),
+            Err(e) => (false, json!(null), Some(format!("Enable failed: {}", e))),
         }
     }
 
@@ -644,21 +799,25 @@ impl CommandHandler {
     async fn cmd_disable_script(&mut self, params: &Value) -> (bool, Value, Option<String>) {
         let script_id = match params.get("id").and_then(|v| v.as_str()) {
             Some(id) => id,
-            None => return (false, json!(null), Some("Missing 'id' parameter".to_string())),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'id' parameter".to_string()),
+                )
+            }
         };
 
         info!("Executing disable_script command for: {}", script_id);
 
         match self.script_storage.disable(script_id) {
-            Ok(true) => {
-                (true, json!({"id": script_id, "enabled": false}), None)
-            }
-            Ok(false) => {
-                (false, json!(null), Some(format!("Script '{}' not found", script_id)))
-            }
-            Err(e) => {
-                (false, json!(null), Some(format!("Disable failed: {}", e)))
-            }
+            Ok(true) => (true, json!({"id": script_id, "enabled": false}), None),
+            Ok(false) => (
+                false,
+                json!(null),
+                Some(format!("Script '{}' not found", script_id)),
+            ),
+            Err(e) => (false, json!(null), Some(format!("Disable failed: {}", e))),
         }
     }
 

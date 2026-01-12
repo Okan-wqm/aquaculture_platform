@@ -6,14 +6,14 @@
 //! 3. Receive MQTT credentials
 //! 4. Update local config
 
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
-use tracing::{info, warn, error, debug};
-use anyhow::{Result, Context};
+use tracing::{debug, error, info, warn};
 
+use crate::error::{ActivationErrorCode, AgentError};
 use crate::AppState;
-use crate::error::{AgentError, ActivationErrorCode};
 
 /// Provisioning client for device activation
 pub struct ProvisioningClient {
@@ -88,7 +88,10 @@ impl ProvisioningClient {
     pub async fn activate(&self) -> Result<ActivationResponse> {
         let (api_url, device_id, token) = {
             let state = self.state.read().await;
-            let token = state.config.provisioning_token.clone()
+            let token = state
+                .config
+                .provisioning_token
+                .clone()
                 .ok_or_else(|| AgentError::NotActivated)?;
 
             (
@@ -115,7 +118,8 @@ impl ProvisioningClient {
         let url = format!("{}/api/devices/activate", api_url);
         info!("Sending activation request to {}", url);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .json(&request)
             .send()
@@ -123,15 +127,17 @@ impl ProvisioningClient {
             .context("Failed to send activation request")?;
 
         let status = response.status();
-        let body = response.text().await
+        let body = response
+            .text()
+            .await
             .context("Failed to read response body")?;
 
         debug!("Response status: {}, body: {}", status, body);
 
         // Handle response
         if status.is_success() {
-            let activation: ActivationResponse = serde_json::from_str(&body)
-                .context("Failed to parse activation response")?;
+            let activation: ActivationResponse =
+                serde_json::from_str(&body).context("Failed to parse activation response")?;
 
             if activation.success {
                 info!("Activation successful for device {}", device_id);
@@ -141,7 +147,10 @@ impl ProvisioningClient {
 
         // Try to parse error response
         if let Ok(error_response) = serde_json::from_str::<ActivationErrorResponse>(&body) {
-            warn!("Activation failed: {} ({})", error_response.error, error_response.error_code);
+            warn!(
+                "Activation failed: {} ({})",
+                error_response.error, error_response.error_code
+            );
 
             if let Some(code) = ActivationErrorCode::from_str(&error_response.error_code) {
                 return Err(AgentError::from(code).into());
@@ -151,7 +160,10 @@ impl ProvisioningClient {
         }
 
         // Unknown error
-        error!("Activation failed with status {} and body: {}", status, body);
+        error!(
+            "Activation failed with status {} and body: {}",
+            status, body
+        );
         Err(AgentError::Unknown(format!("HTTP {}: {}", status, body)).into())
     }
 
@@ -233,9 +245,7 @@ impl ProvisioningClient {
 
     /// Get hostname
     fn get_hostname() -> Option<String> {
-        hostname::get()
-            .ok()
-            .and_then(|h| h.into_string().ok())
+        hostname::get().ok().and_then(|h| h.into_string().ok())
     }
 }
 

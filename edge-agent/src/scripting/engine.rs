@@ -7,22 +7,20 @@
 //! - Rate limiting per script
 //! - Infinite loop protection
 
+use chrono::Utc;
+use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn, error, debug};
-use serde_json::{json, Value};
-use chrono::Utc;
+use tracing::{debug, error, info, warn};
 
 use super::{
-    ScriptDefinition, Script, ScriptStatus, ScriptStorage,
-    ScriptContext, Condition, ConditionType, ComparisonOperator,
-    Action, ActionType, ActionResult, AlertLevel,
-    TriggerManager,
-    ScriptLimits, ScriptRateLimiter, ExecutionContext, LimitError,
+    Action, ActionResult, ActionType, AlertLevel, ComparisonOperator, Condition, ConditionType,
+    ConflictDetector, ConflictResult, ExecutionContext, LimitError, Script, ScriptContext,
+    ScriptDefinition, ScriptLimits, ScriptRateLimiter, ScriptStatus, ScriptStorage, TriggerManager,
 };
 
-use crate::AppState;
 use crate::gpio::PinState;
+use crate::AppState;
 
 /// Script execution result
 #[derive(Debug, Clone)]
@@ -46,6 +44,10 @@ pub struct ScriptEngine {
     limits: ScriptLimits,
     /// Rate limiter for script executions
     rate_limiter: ScriptRateLimiter,
+    /// Conflict detector for GPIO/Modbus writes (v2.0)
+    conflict_detector: ConflictDetector,
+    /// Current script ID being executed (for conflict tracking)
+    current_script_id: Option<String>,
 }
 
 impl ScriptEngine {
@@ -60,6 +62,8 @@ impl ScriptEngine {
             context: ScriptContext::new(),
             limits,
             rate_limiter,
+            conflict_detector: ConflictDetector::new(),
+            current_script_id: None,
         }
     }
 
@@ -73,13 +77,18 @@ impl ScriptEngine {
             context: ScriptContext::new(),
             limits,
             rate_limiter,
+            conflict_detector: ConflictDetector::new(),
+            current_script_id: None,
         }
     }
 
     /// Initialize the engine
     pub async fn init(&mut self) -> anyhow::Result<()> {
         self.storage.init()?;
-        info!("Script engine initialized with {} scripts", self.storage.count());
+        info!(
+            "Script engine initialized with {} scripts",
+            self.storage.count()
+        );
 
         // Execute startup scripts
         self.run_startup_scripts().await;
@@ -89,11 +98,16 @@ impl ScriptEngine {
 
     /// Run startup scripts
     async fn run_startup_scripts(&mut self) {
-        let startup_scripts: Vec<String> = self.storage.get_active()
+        let startup_scripts: Vec<String> = self
+            .storage
+            .get_active()
             .iter()
-            .filter(|s| s.definition.triggers.iter().any(|t| {
-                t.trigger_type == super::TriggerType::Startup
-            }))
+            .filter(|s| {
+                s.definition
+                    .triggers
+                    .iter()
+                    .any(|t| t.trigger_type == super::TriggerType::Startup)
+            })
             .map(|s| s.definition.id.clone())
             .collect();
 
@@ -135,6 +149,11 @@ impl ScriptEngine {
 
             // Check triggers for active scripts
             let scripts_to_run = self.check_all_triggers();
+
+            // Reset conflict detector for this execution cycle (v2.0)
+            if !scripts_to_run.is_empty() {
+                self.conflict_detector.reset();
+            }
 
             // Execute triggered scripts
             for script_id in scripts_to_run {
@@ -194,12 +213,10 @@ impl ScriptEngine {
             let script_id = &script.definition.id;
 
             for (idx, trigger) in script.definition.triggers.iter().enumerate() {
-                if self.trigger_manager.check_trigger(
-                    script_id,
-                    idx,
-                    trigger,
-                    &self.context,
-                ) {
+                if self
+                    .trigger_manager
+                    .check_trigger(script_id, idx, trigger, &self.context)
+                {
                     if !scripts_to_run.contains(script_id) {
                         scripts_to_run.push(script_id.clone());
                     }
@@ -223,12 +240,19 @@ impl ScriptEngine {
     /// - Rate limiting per script
     /// - Execution timeout
     /// - Action count limits
-    async fn execute_with_depth(&mut self, script_id: &str, depth: usize) -> anyhow::Result<ExecutionResult> {
+    async fn execute_with_depth(
+        &mut self,
+        script_id: &str,
+        depth: usize,
+    ) -> anyhow::Result<ExecutionResult> {
         let start = std::time::Instant::now();
 
         // Check depth limit FIRST (infinite loop protection)
         if depth >= self.limits.max_call_depth {
-            warn!("Script {} exceeded max call depth ({})", script_id, self.limits.max_call_depth);
+            warn!(
+                "Script {} exceeded max call depth ({})",
+                script_id, self.limits.max_call_depth
+            );
             return Ok(ExecutionResult {
                 script_id: script_id.to_string(),
                 success: false,
@@ -236,7 +260,7 @@ impl ScriptEngine {
                 actions_failed: 1,
                 results: vec![ActionResult::failure(
                     ActionType::CallScript,
-                    format!("Max call depth ({}) exceeded", self.limits.max_call_depth)
+                    format!("Max call depth ({}) exceeded", self.limits.max_call_depth),
                 )],
                 duration_ms: start.elapsed().as_millis() as u64,
                 timestamp: Utc::now().to_rfc3339(),
@@ -253,19 +277,30 @@ impl ScriptEngine {
                 actions_failed: 1,
                 results: vec![ActionResult::failure(
                     ActionType::Noop,
-                    format!("Rate limit exceeded ({}/min)", self.limits.rate_limit_per_minute)
+                    format!(
+                        "Rate limit exceeded ({}/min)",
+                        self.limits.rate_limit_per_minute
+                    ),
                 )],
                 duration_ms: start.elapsed().as_millis() as u64,
                 timestamp: Utc::now().to_rfc3339(),
             });
         }
 
-        let script = self.storage.get(script_id)
+        let script = self
+            .storage
+            .get(script_id)
             .ok_or_else(|| anyhow::anyhow!("Script not found: {}", script_id))?;
 
         let definition = script.definition.clone();
 
-        info!("Executing script: {} ({}) [depth={}]", definition.name, definition.id, depth);
+        // Track current script ID for conflict detection (v2.0)
+        self.current_script_id = Some(script_id.to_string());
+
+        info!(
+            "Executing script: {} ({}) [depth={}]",
+            definition.name, definition.id, depth
+        );
 
         // Mark as running
         if let Some(s) = self.storage.get_mut(script_id) {
@@ -275,7 +310,8 @@ impl ScriptEngine {
         // Check conditions
         if !self.evaluate_conditions(&definition.conditions) {
             debug!("Script {} conditions not met, skipping", script_id);
-            self.storage.update_result(script_id, true, "Conditions not met - skipped");
+            self.storage
+                .update_result(script_id, true, "Conditions not met - skipped");
 
             return Ok(ExecutionResult {
                 script_id: script_id.to_string(),
@@ -303,7 +339,7 @@ impl ScriptEngine {
                 warn!("Script {} execution time exceeded", script_id);
                 results.push(ActionResult::failure(
                     ActionType::Noop,
-                    "Execution time limit exceeded"
+                    "Execution time limit exceeded",
                 ));
                 actions_failed += 1;
                 break;
@@ -314,7 +350,10 @@ impl ScriptEngine {
                 warn!("Script {} action limit exceeded", script_id);
                 results.push(ActionResult::failure(
                     ActionType::Noop,
-                    format!("Action limit ({}) exceeded", self.limits.max_actions_per_run)
+                    format!(
+                        "Action limit ({}) exceeded",
+                        self.limits.max_actions_per_run
+                    ),
                 ));
                 actions_failed += 1;
                 break;
@@ -468,8 +507,8 @@ impl ScriptEngine {
         }
     }
 
-    /// Set GPIO pin action (v2.0 - uses actor pattern)
-    async fn action_set_gpio(&self, action: &Action) -> ActionResult {
+    /// Set GPIO pin action (v2.0 - uses actor pattern + conflict detection)
+    async fn action_set_gpio(&mut self, action: &Action) -> ActionResult {
         let pin: u8 = match action.target.parse() {
             Ok(p) => p,
             Err(_) => return ActionResult::failure(ActionType::SetGpio, "Invalid pin number"),
@@ -480,6 +519,26 @@ impl ScriptEngine {
             None => return ActionResult::failure(ActionType::SetGpio, "Missing or invalid value"),
         };
 
+        // Check for conflicts (v2.0)
+        let script_id = self.current_script_id.as_deref().unwrap_or("unknown");
+        match self
+            .conflict_detector
+            .check_gpio_write(script_id, pin, value)
+        {
+            ConflictResult::Conflict { message } => {
+                // Log conflict but continue (last-write-wins policy)
+                warn!("{}", message);
+            }
+            ConflictResult::Duplicate => {
+                debug!("GPIO {} duplicate write from {}, skipping", pin, script_id);
+                return ActionResult::success(
+                    ActionType::SetGpio,
+                    format!("GPIO {} already set to same value, skipped", pin),
+                );
+            }
+            ConflictResult::NoConflict => {}
+        }
+
         // Get GPIO handle (thread-safe, actor pattern)
         let gpio_handle = {
             let app_state = self.state.read().await;
@@ -487,37 +546,62 @@ impl ScriptEngine {
         };
 
         match gpio_handle {
-            Some(handle) => {
-                match handle.write_pin(pin, value).await {
-                    Ok(()) => {
-                        let state_str = if value { "HIGH" } else { "LOW" };
-                        ActionResult::success(ActionType::SetGpio, format!("Set GPIO {} to {}", pin, state_str))
-                    }
-                    Err(e) => {
-                        ActionResult::failure(ActionType::SetGpio, format!("Failed: {}", e))
-                    }
+            Some(handle) => match handle.write_pin(pin, value).await {
+                Ok(()) => {
+                    let state_str = if value { "HIGH" } else { "LOW" };
+                    ActionResult::success(
+                        ActionType::SetGpio,
+                        format!("Set GPIO {} to {}", pin, state_str),
+                    )
                 }
-            }
+                Err(e) => ActionResult::failure(ActionType::SetGpio, format!("Failed: {}", e)),
+            },
             None => ActionResult::failure(ActionType::SetGpio, "GPIO not available"),
         }
     }
 
-    /// Write Modbus register action
-    async fn action_write_modbus(&self, action: &Action) -> ActionResult {
+    /// Write Modbus register action (v2.0 - with conflict detection)
+    async fn action_write_modbus(&mut self, action: &Action) -> ActionResult {
         let device = match &action.device {
-            Some(d) => d,
+            Some(d) => d.clone(),
             None => return ActionResult::failure(ActionType::WriteModbus, "Missing device name"),
         };
 
         let address = match action.address {
             Some(a) => a,
-            None => return ActionResult::failure(ActionType::WriteModbus, "Missing register address"),
+            None => {
+                return ActionResult::failure(ActionType::WriteModbus, "Missing register address")
+            }
         };
 
         let value = match action.value.as_ref().and_then(|v| v.as_u64()) {
             Some(v) => v as u16,
-            None => return ActionResult::failure(ActionType::WriteModbus, "Missing or invalid value"),
+            None => {
+                return ActionResult::failure(ActionType::WriteModbus, "Missing or invalid value")
+            }
         };
+
+        // Check for conflicts (v2.0)
+        let script_id = self.current_script_id.as_deref().unwrap_or("unknown");
+        match self
+            .conflict_detector
+            .check_modbus_write(script_id, &device, address, value)
+        {
+            ConflictResult::Conflict { message } => {
+                warn!("{}", message);
+            }
+            ConflictResult::Duplicate => {
+                debug!(
+                    "Modbus {}:{} duplicate write from {}, skipping",
+                    device, address, script_id
+                );
+                return ActionResult::success(
+                    ActionType::WriteModbus,
+                    format!("{}:{} already set to same value, skipped", device, address),
+                );
+            }
+            ConflictResult::NoConflict => {}
+        }
 
         // Get modbus handle (thread-safe)
         let modbus_handle = {
@@ -526,27 +610,21 @@ impl ScriptEngine {
         };
 
         match modbus_handle {
-            Some(handle) => {
-                match handle.write_register(device, address, value).await {
-                    Ok(()) => {
-                        ActionResult::success(
-                            ActionType::WriteModbus,
-                            format!("Wrote {} to {}:{}", value, device, address)
-                        )
-                    }
-                    Err(e) => {
-                        ActionResult::failure(ActionType::WriteModbus, format!("Failed: {}", e))
-                    }
-                }
-            }
+            Some(handle) => match handle.write_register(&device, address, value).await {
+                Ok(()) => ActionResult::success(
+                    ActionType::WriteModbus,
+                    format!("Wrote {} to {}:{}", value, device, address),
+                ),
+                Err(e) => ActionResult::failure(ActionType::WriteModbus, format!("Failed: {}", e)),
+            },
             None => ActionResult::failure(ActionType::WriteModbus, "Modbus not available"),
         }
     }
 
-    /// Write Modbus coil action
-    async fn action_write_coil(&self, action: &Action) -> ActionResult {
+    /// Write Modbus coil action (v2.0 - with conflict detection)
+    async fn action_write_coil(&mut self, action: &Action) -> ActionResult {
         let device = match &action.device {
-            Some(d) => d,
+            Some(d) => d.clone(),
             None => return ActionResult::failure(ActionType::WriteCoil, "Missing device name"),
         };
 
@@ -557,8 +635,32 @@ impl ScriptEngine {
 
         let value = match action.value.as_ref().and_then(|v| v.as_bool()) {
             Some(v) => v,
-            None => return ActionResult::failure(ActionType::WriteCoil, "Missing or invalid value"),
+            None => {
+                return ActionResult::failure(ActionType::WriteCoil, "Missing or invalid value")
+            }
         };
+
+        // Check for conflicts (v2.0)
+        let script_id = self.current_script_id.as_deref().unwrap_or("unknown");
+        match self
+            .conflict_detector
+            .check_coil_write(script_id, &device, address, value)
+        {
+            ConflictResult::Conflict { message } => {
+                warn!("{}", message);
+            }
+            ConflictResult::Duplicate => {
+                debug!(
+                    "Coil {}:{} duplicate write from {}, skipping",
+                    device, address, script_id
+                );
+                return ActionResult::success(
+                    ActionType::WriteCoil,
+                    format!("{}:{} already set to same value, skipped", device, address),
+                );
+            }
+            ConflictResult::NoConflict => {}
+        }
 
         // Get modbus handle (thread-safe)
         let modbus_handle = {
@@ -567,19 +669,13 @@ impl ScriptEngine {
         };
 
         match modbus_handle {
-            Some(handle) => {
-                match handle.write_coil(device, address, value).await {
-                    Ok(()) => {
-                        ActionResult::success(
-                            ActionType::WriteCoil,
-                            format!("Wrote {} to {}:{}", value, device, address)
-                        )
-                    }
-                    Err(e) => {
-                        ActionResult::failure(ActionType::WriteCoil, format!("Failed: {}", e))
-                    }
-                }
-            }
+            Some(handle) => match handle.write_coil(&device, address, value).await {
+                Ok(()) => ActionResult::success(
+                    ActionType::WriteCoil,
+                    format!("Wrote {} to {}:{}", value, device, address),
+                ),
+                Err(e) => ActionResult::failure(ActionType::WriteCoil, format!("Failed: {}", e)),
+            },
             None => ActionResult::failure(ActionType::WriteCoil, "Modbus not available"),
         }
     }
@@ -624,7 +720,7 @@ impl ScriptEngine {
 
         ActionResult::success(
             ActionType::SetVariable,
-            format!("Set {} = {:?}", action.target, value)
+            format!("Set {} = {:?}", action.target, value),
         )
     }
 
@@ -648,7 +744,10 @@ impl ScriptEngine {
         if delay_ms > self.limits.max_delay_ms {
             return ActionResult::failure(
                 ActionType::Delay,
-                format!("Delay {}ms exceeds maximum allowed ({}ms)", delay_ms, self.limits.max_delay_ms)
+                format!(
+                    "Delay {}ms exceeds maximum allowed ({}ms)",
+                    delay_ms, self.limits.max_delay_ms
+                ),
             );
         }
 
@@ -677,7 +776,11 @@ impl ScriptEngine {
     }
 
     /// Call another script (v2.0 - with depth tracking for infinite loop protection)
-    async fn action_call_script_with_depth(&mut self, action: &Action, current_depth: usize) -> ActionResult {
+    async fn action_call_script_with_depth(
+        &mut self,
+        action: &Action,
+        current_depth: usize,
+    ) -> ActionResult {
         let script_id = match &action.script_id {
             Some(id) => id,
             None => return ActionResult::failure(ActionType::CallScript, "Missing script_id"),
@@ -686,7 +789,10 @@ impl ScriptEngine {
         // Increment depth for nested call
         let next_depth = current_depth + 1;
 
-        debug!("Calling script {} from depth {} -> {}", script_id, current_depth, next_depth);
+        debug!(
+            "Calling script {} from depth {} -> {}",
+            script_id, current_depth, next_depth
+        );
 
         // Use execute_with_depth with incremented depth
         match Box::pin(self.execute_with_depth(script_id, next_depth)).await {
@@ -694,25 +800,25 @@ impl ScriptEngine {
                 if result.success {
                     ActionResult::success(
                         ActionType::CallScript,
-                        format!("Called script {} [depth={}]", script_id, next_depth)
+                        format!("Called script {} [depth={}]", script_id, next_depth),
                     )
                 } else {
                     // Include reason for failure if it was a limit error
-                    let reason = result.results.first()
+                    let reason = result
+                        .results
+                        .first()
                         .map(|r| r.message.clone())
                         .unwrap_or_else(|| "Unknown error".to_string());
                     ActionResult::failure(
                         ActionType::CallScript,
-                        format!("Script {} failed: {}", script_id, reason)
+                        format!("Script {} failed: {}", script_id, reason),
                     )
                 }
             }
-            Err(e) => {
-                ActionResult::failure(
-                    ActionType::CallScript,
-                    format!("Failed to call script: {}", e)
-                )
-            }
+            Err(e) => ActionResult::failure(
+                ActionType::CallScript,
+                format!("Failed to call script: {}", e),
+            ),
         }
     }
 

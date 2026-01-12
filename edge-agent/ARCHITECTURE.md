@@ -13,6 +13,7 @@ The Suderra Edge Agent is a Rust-based industrial IoT agent designed for aquacul
 - **v2.0: Circuit breaker for fault tolerance**
 - **v2.0: Graceful shutdown coordination**
 - **v2.0: Script execution limits (infinite loop protection)**
+- **v2.0: Script conflict detection (GPIO/Modbus write conflicts)**
 
 ## Architecture Diagram (v2.0)
 
@@ -172,7 +173,36 @@ pub struct ScriptRateLimiter {
 }
 ```
 
-### 5. Graceful Shutdown (v2.0)
+### 5. Script Conflict Detection (v2.0)
+
+Detects when multiple scripts attempt to write different values to the same GPIO pin or Modbus register in the same execution cycle:
+
+```rust
+pub struct ConflictDetector {
+    gpio_writes: HashMap<u8, PendingWrite>,
+    modbus_writes: HashMap<(String, u16), PendingWrite>,
+    coil_writes: HashMap<(String, u16), PendingWrite>,
+}
+
+pub enum ConflictResult {
+    NoConflict,                    // Proceed with write
+    Conflict { message: String },  // Log warning, continue (last-write-wins)
+    Duplicate,                     // Same value, skip redundant write
+}
+```
+
+**Behavior:**
+- **NoConflict**: First script to write a value proceeds normally
+- **Conflict**: Different scripts write different values → warning logged, last write wins
+- **Duplicate**: Same value from different scripts → write skipped for efficiency
+
+**Example Log:**
+```
+WARN: GPIO CONFLICT: Pin 17 - Script 'cooling_control' wants HIGH,
+      but 'emergency_shutdown' already set LOW
+```
+
+### 6. Graceful Shutdown (v2.0)
 
 Coordinated shutdown sequence:
 
@@ -191,7 +221,7 @@ pub struct ShutdownCoordinator {
 5. Publish offline status
 6. Disconnect MQTT
 
-### 6. Endianness Support (v2.0)
+### 7. Endianness Support (v2.0)
 
 Supports different PLC byte orders for 32-bit values:
 
@@ -215,7 +245,7 @@ modbus:
         byte_order: "little_endian"  # For Schneider PLC
 ```
 
-### 7. Arc-Based Register Sharing (v2.0)
+### 8. Arc-Based Register Sharing (v2.0)
 
 Registers are shared via Arc to avoid cloning on every read:
 
@@ -254,7 +284,8 @@ edge-agent/
 │       ├── triggers.rs      # Trigger evaluation
 │       ├── actions.rs       # Action definitions
 │       ├── limits.rs        # Execution limits (v2.0)
-│       └── engine.rs        # Script engine + depth tracking
+│       ├── conflict.rs      # Conflict detection (v2.0)
+│       └── engine.rs        # Script engine + depth tracking + conflicts
 ```
 
 ## Thread Safety Model (v2.0)
@@ -270,6 +301,7 @@ edge-agent/
 | ScriptEngine | !Send | Single task + limits |
 | CircuitBreaker | Send + Sync | Atomic operations |
 | ScriptRateLimiter | Send + Sync | RwLock per-script |
+| ConflictDetector | !Send | ScriptEngine-owned, reset per cycle |
 
 ## Configuration (v2.0)
 
@@ -351,6 +383,7 @@ scripting:
 - **Timeouts** on all hardware operations
 - **Rate limiting** prevents script abuse
 - **Depth tracking** prevents infinite recursion in scripts
+- **Conflict detection** warns when scripts write conflicting values
 - MQTT reconnection with exponential backoff
 - Graceful shutdown on SIGTERM/SIGINT
 

@@ -12,19 +12,21 @@
 //! - Rate limiting per script
 //! - Sandboxed execution context
 
-mod storage;
-mod engine;
-mod triggers;
 mod actions;
+mod conflict;
 mod context;
+mod engine;
 mod limits;
+mod storage;
+mod triggers;
 
-pub use storage::{ScriptStorage, Script, ScriptStatus};
-pub use engine::{ScriptEngine, ExecutionResult};
-pub use triggers::{Trigger, TriggerType, TriggerManager};
-pub use actions::{Action, ActionType, ActionResult, AlertLevel};
+pub use actions::{Action, ActionResult, ActionType, AlertLevel};
+pub use conflict::{ConflictDetector, ConflictResult};
 pub use context::ScriptContext;
-pub use limits::{ScriptLimits, ScriptRateLimiter, ExecutionContext, LimitError};
+pub use engine::{ExecutionResult, ScriptEngine};
+pub use limits::{ExecutionContext, LimitError, ScriptLimits, ScriptRateLimiter};
+pub use storage::{Script, ScriptStatus, ScriptStorage};
+pub use triggers::{Trigger, TriggerManager, TriggerType};
 
 use serde::{Deserialize, Serialize};
 
@@ -101,15 +103,15 @@ pub enum ConditionType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ComparisonOperator {
-    Eq,         // ==
-    Ne,         // !=
-    Gt,         // >
-    Gte,        // >=
-    Lt,         // <
-    Lte,        // <=
-    Contains,   // string contains
-    Between,    // value between [min, max]
-    In,         // value in list
+    Eq,       // ==
+    Ne,       // !=
+    Gt,       // >
+    Gte,      // >=
+    Lt,       // <
+    Lte,      // <=
+    Contains, // string contains
+    Between,  // value between [min, max]
+    In,       // value in list
 }
 
 fn default_version() -> String {

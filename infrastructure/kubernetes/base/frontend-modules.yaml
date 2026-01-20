@@ -1,0 +1,239 @@
+# =============================================================================
+# Aquaculture Platform - Frontend Microfrontend Modules
+# =============================================================================
+
+# Dashboard Module
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  namespace: aquaculture
+  labels:
+    app: dashboard
+    tier: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dashboard
+  template:
+    metadata:
+      labels:
+        app: dashboard
+        tier: frontend
+    spec:
+      containers:
+        - name: dashboard
+          image: ghcr.io/aquaculture/dashboard:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard
+  namespace: aquaculture
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: dashboard
+
+# Farm Module
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: farm-module
+  namespace: aquaculture
+  labels:
+    app: farm-module
+    tier: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: farm-module
+  template:
+    metadata:
+      labels:
+        app: farm-module
+        tier: frontend
+    spec:
+      containers:
+        - name: farm-module
+          image: ghcr.io/aquaculture/farm-module:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: farm-module
+  namespace: aquaculture
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: farm-module
+
+# Process Editor Module
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: process-editor
+  namespace: aquaculture
+  labels:
+    app: process-editor
+    tier: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: process-editor
+  template:
+    metadata:
+      labels:
+        app: process-editor
+        tier: frontend
+    spec:
+      containers:
+        - name: process-editor
+          image: ghcr.io/aquaculture/process-editor:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: process-editor
+  namespace: aquaculture
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: process-editor
+
+# Admin Panel Module
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-panel
+  namespace: aquaculture
+  labels:
+    app: admin-panel
+    tier: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: admin-panel
+  template:
+    metadata:
+      labels:
+        app: admin-panel
+        tier: frontend
+    spec:
+      containers:
+        - name: admin-panel
+          image: ghcr.io/aquaculture/admin-panel:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-panel
+  namespace: aquaculture
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: admin-panel

@@ -1,0 +1,57 @@
+# =============================================================================
+# Aquaculture Platform - Microfrontend Module Nginx Configuration
+# Template with environment variable substitution
+# =============================================================================
+
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+
+    # CORS for Module Federation
+    add_header Access-Control-Allow-Origin "*" always;
+    add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "Origin, Content-Type, Accept" always;
+
+    # Health check
+    location /health {
+        access_log off;
+        return 200 '{"status":"healthy","service":"${MODULE_NAME}"}';
+        add_header Content-Type application/json;
+    }
+
+    # Module Federation entry point - never cache
+    location ~* remoteEntry\.js$ {
+        expires -1;
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
+        add_header Access-Control-Allow-Origin "*";
+        try_files $uri =404;
+    }
+
+    # Shared chunks - short cache for federation
+    location ~* __federation.*\.js$ {
+        expires 1h;
+        add_header Cache-Control "public";
+        add_header Access-Control-Allow-Origin "*";
+        try_files $uri =404;
+    }
+
+    # Static assets with long cache
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        add_header Access-Control-Allow-Origin "*";
+        try_files $uri =404;
+    }
+
+    # Default
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

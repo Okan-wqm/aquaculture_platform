@@ -1,0 +1,83 @@
+{
+  "query": "mutation RegisterParentWithChildren($input: RegisterParentWithChildrenInput!) { registerParentWithChildren(input: $input) { success parent { id name protocolCode registrationStatus connectionStatus { isConnected latency lastError } } children { id name type dataPath unit } error connectionTestPassed latencyMs } }",
+  "variables": {
+    "input": {
+      "parent": {
+        "name": "Farm-01 Water Quality Gateway",
+        "protocolCode": "mqtt",
+        "protocolConfiguration": {
+          "brokerUrl": "aqua-mosquitto",
+          "port": 1883,
+          "topic": "sensors/farm-01/pool-01/water-quality",
+          "qos": 1,
+          "payloadFormat": "json"
+        },
+        "manufacturer": "Aqua Sensors Inc",
+        "model": "WQ-Gateway-5000",
+        "serialNumber": "WQ-GW-001",
+        "description": "Multi-parameter water quality monitoring gateway",
+        "siteId": "4480e275-a10a-4dce-b2ec-53d624d71344",
+        "departmentId": "b891526e-df82-484d-809f-5e7b20b5c010"
+      },
+      "children": [
+        {
+          "name": "Temperature Sensor",
+          "type": "TEMPERATURE",
+          "dataPath": "temperature",
+          "unit": "°C",
+          "minValue": 0,
+          "maxValue": 50,
+          "alertThresholds": {
+            "warning": { "low": 15, "high": 28 },
+            "critical": { "low": 10, "high": 32 }
+          }
+        },
+        {
+          "name": "pH Sensor",
+          "type": "PH",
+          "dataPath": "ph",
+          "unit": "pH",
+          "minValue": 0,
+          "maxValue": 14,
+          "alertThresholds": {
+            "warning": { "low": 6.5, "high": 8.5 },
+            "critical": { "low": 6.0, "high": 9.0 }
+          }
+        },
+        {
+          "name": "Dissolved Oxygen Sensor",
+          "type": "DISSOLVED_OXYGEN",
+          "dataPath": "dissolvedOxygen",
+          "unit": "mg/L",
+          "minValue": 0,
+          "maxValue": 20,
+          "alertThresholds": {
+            "warning": { "low": 5, "high": 12 },
+            "critical": { "low": 3, "high": 15 }
+          }
+        },
+        {
+          "name": "Salinity Sensor",
+          "type": "SALINITY",
+          "dataPath": "salinity",
+          "unit": "ppt",
+          "minValue": 0,
+          "maxValue": 45
+        },
+        {
+          "name": "Ammonia Sensor",
+          "type": "AMMONIA",
+          "dataPath": "ammonia",
+          "unit": "mg/L",
+          "minValue": 0,
+          "maxValue": 5,
+          "alertThresholds": {
+            "warning": { "low": 0, "high": 0.5 },
+            "critical": { "low": 0, "high": 1.0 }
+          }
+        }
+      ],
+      "skipConnectionTest": true
+    }
+  }
+}

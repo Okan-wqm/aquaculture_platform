@@ -1,0 +1,66 @@
+{
+  "name": "alert-engine",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/alert-engine/src",
+  "projectType": "application",
+  "tags": ["scope:backend", "type:service"],
+  "targets": {
+    "build": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "target": "node",
+        "compiler": "tsc",
+        "outputPath": "dist/apps/alert-engine",
+        "main": "apps/alert-engine/src/main.ts",
+        "tsConfig": "apps/alert-engine/tsconfig.app.json",
+        "assets": ["apps/alert-engine/src/assets"],
+        "generatePackageJson": true,
+        "webpackConfig": "apps/alert-engine/webpack.config.js"
+      },
+      "configurations": {
+        "development": {
+          "optimization": false,
+          "sourceMap": true
+        },
+        "production": {
+          "optimization": true,
+          "extractLicenses": true,
+          "inspect": false,
+          "sourceMap": false
+        }
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "alert-engine:build"
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "alert-engine:build:development"
+        },
+        "production": {
+          "buildTarget": "alert-engine:build:production"
+        }
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["apps/alert-engine/**/*.ts"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "apps/alert-engine/jest.config.ts",
+        "passWithNoTests": true
+      }
+    }
+  }
+}

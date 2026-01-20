@@ -1,0 +1,3 @@
+{
+  "query": "query { sites { items { id name code } } departments { items { id name code siteId } } equipmentList { items { id name code equipmentTypeId departmentId } } }"
+}

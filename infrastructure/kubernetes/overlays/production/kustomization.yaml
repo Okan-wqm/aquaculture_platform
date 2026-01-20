@@ -1,0 +1,86 @@
+# =============================================================================
+# Aquaculture Platform - Production Overlay
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: aquaculture
+
+resources:
+  - ../../base
+
+commonLabels:
+  environment: production
+
+# Production replicas (defined in base, can be overridden)
+replicas:
+  - name: gateway-api
+    count: 3
+  - name: auth-service
+    count: 2
+  - name: farm-service
+    count: 2
+  - name: sensor-service
+    count: 3
+  - name: alert-engine
+    count: 2
+  - name: notification-service
+    count: 2
+  - name: shell
+    count: 2
+  - name: dashboard
+    count: 2
+  - name: farm-module
+    count: 2
+  - name: process-editor
+    count: 2
+  - name: admin-panel
+    count: 2
+
+configMapGenerator:
+  - name: aquaculture-config
+    behavior: merge
+    literals:
+      - NODE_ENV=production
+      - LOG_LEVEL=warn
+
+patches:
+  # Production resource limits
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "2000m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "2Gi"
+    target:
+      kind: Deployment
+      name: gateway-api
+
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "2000m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "2Gi"
+    target:
+      kind: Deployment
+      name: sensor-service
+
+  # Update ingress hosts for production
+  - patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - app.aquaculture.io
+          - api.aquaculture.io
+      - op: replace
+        path: /spec/rules/0/host
+        value: app.aquaculture.io
+      - op: replace
+        path: /spec/rules/1/host
+        value: api.aquaculture.io
+    target:
+      kind: Ingress
+      name: aquaculture-ingress

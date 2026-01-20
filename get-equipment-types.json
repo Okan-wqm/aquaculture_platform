@@ -1,0 +1,3 @@
+{
+  "query": "query { equipmentTypes { id name code } }"
+}

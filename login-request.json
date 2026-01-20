@@ -1,0 +1,3 @@
+{
+  "query": "mutation { login(input: { email: \"okan@suderra.com\", password: \"Admin123!\" }) { accessToken user { id email tenantId role } } }"
+}

@@ -1,0 +1,70 @@
+# =============================================================================
+# Aquaculture Platform - Staging Overlay
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: aquaculture-staging
+
+resources:
+  - ../../base
+
+namePrefix: staging-
+
+commonLabels:
+  environment: staging
+
+replicas:
+  - name: gateway-api
+    count: 2
+  - name: auth-service
+    count: 2
+  - name: farm-service
+    count: 2
+  - name: sensor-service
+    count: 2
+  - name: alert-engine
+    count: 1
+  - name: notification-service
+    count: 1
+  - name: shell
+    count: 2
+  - name: dashboard
+    count: 1
+  - name: farm-module
+    count: 1
+  - name: process-editor
+    count: 1
+  - name: admin-panel
+    count: 1
+
+configMapGenerator:
+  - name: aquaculture-config
+    behavior: merge
+    literals:
+      - NODE_ENV=staging
+      - LOG_LEVEL=info
+
+images:
+  - name: ghcr.io/aquaculture/gateway-api
+    newTag: staging
+  - name: ghcr.io/aquaculture/auth-service
+    newTag: staging
+  - name: ghcr.io/aquaculture/farm-service
+    newTag: staging
+  - name: ghcr.io/aquaculture/sensor-service
+    newTag: staging
+  - name: ghcr.io/aquaculture/alert-engine
+    newTag: staging
+  - name: ghcr.io/aquaculture/notification-service
+    newTag: staging
+  - name: ghcr.io/aquaculture/shell
+    newTag: staging
+  - name: ghcr.io/aquaculture/dashboard
+    newTag: staging
+  - name: ghcr.io/aquaculture/farm-module
+    newTag: staging
+  - name: ghcr.io/aquaculture/process-editor
+    newTag: staging
+  - name: ghcr.io/aquaculture/admin-panel
+    newTag: staging

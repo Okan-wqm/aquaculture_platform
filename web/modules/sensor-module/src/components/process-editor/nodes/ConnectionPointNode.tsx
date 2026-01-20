@@ -1,0 +1,223 @@
+/**
+ * ConnectionPointNode Component
+ * Small connection point with 4 toggleable handles (top, bottom, left, right)
+ */
+
+import React, { useState, useEffect } from 'react';
+import { Handle, useUpdateNodeInternals, NodeProps } from 'reactflow';
+import { useProcessStore } from '../../../store/processStore';
+
+type HandleType = 'source' | 'target';
+
+interface ConnectionPointNodeData {
+  topType?: HandleType;
+  bottomType?: HandleType;
+  leftType?: HandleType;
+  rightType?: HandleType;
+  fillColor?: string;
+  strokeColor?: string;
+  label?: string;
+}
+
+const ConnectionPointNode: React.FC<NodeProps<ConnectionPointNodeData>> = ({ id, data, selected }) => {
+  const updateNodeInternals = useUpdateNodeInternals();
+  const updateNodeData = useProcessStore((state) => state.updateNodeData);
+
+  const [topType, setTopType] = useState<HandleType>(data?.topType || 'target');
+  const [bottomType, setBottomType] = useState<HandleType>(data?.bottomType || 'source');
+  const [leftType, setLeftType] = useState<HandleType>(data?.leftType || 'target');
+  const [rightType, setRightType] = useState<HandleType>(data?.rightType || 'source');
+
+  const toggleType = (current: HandleType): HandleType => (current === 'source' ? 'target' : 'source');
+
+  const updateType = (side: 'top' | 'bottom' | 'left' | 'right') => {
+    const currentType = { top: topType, bottom: bottomType, left: leftType, right: rightType }[side];
+    const newType = toggleType(currentType);
+
+    updateNodeData(id, { [`${side}Type`]: newType } as any);
+
+    if (side === 'top') setTopType(newType);
+    else if (side === 'bottom') setBottomType(newType);
+    else if (side === 'left') setLeftType(newType);
+    else if (side === 'right') setRightType(newType);
+  };
+
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [topType, bottomType, leftType, rightType, id, updateNodeInternals]);
+
+  const getColor = (type: HandleType) => type === 'source' ? '#22c55e' : '#3b82f6';
+
+  return (
+    <div
+      style={{
+        position: 'relative',
+        width: 30,
+        height: 30,
+        border: selected ? '2px solid #3b82f6' : '2px solid transparent',
+        borderRadius: '50%',
+      }}
+    >
+      <svg width="30" height="30">
+        <circle
+          cx="15"
+          cy="15"
+          r="12"
+          fill={data?.fillColor || '#ffcc00'}
+          stroke={data?.strokeColor || '#333'}
+          strokeWidth="2"
+        />
+      </svg>
+
+      {/* Top Handle */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 15,
+          top: 3,
+          width: 10,
+          height: 10,
+          transform: 'translate(-50%, -50%)',
+          pointerEvents: 'all',
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          updateType('top');
+        }}
+      >
+        <Handle
+          id="cp-top"
+          type={topType}
+          position={undefined as any}
+          isConnectable={true}
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            background: getColor(topType),
+            borderRadius: '50%',
+            border: '2px solid white',
+            cursor: 'pointer',
+            transform: 'none',
+            left: 0,
+            top: 0,
+          }}
+        />
+      </div>
+
+      {/* Bottom Handle */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 15,
+          top: 27,
+          width: 10,
+          height: 10,
+          transform: 'translate(-50%, -50%)',
+          pointerEvents: 'all',
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          updateType('bottom');
+        }}
+      >
+        <Handle
+          id="cp-bottom"
+          type={bottomType}
+          position={undefined as any}
+          isConnectable={true}
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            background: getColor(bottomType),
+            borderRadius: '50%',
+            border: '2px solid white',
+            cursor: 'pointer',
+            transform: 'none',
+            left: 0,
+            top: 0,
+          }}
+        />
+      </div>
+
+      {/* Left Handle */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 3,
+          top: 15,
+          width: 10,
+          height: 10,
+          transform: 'translate(-50%, -50%)',
+          pointerEvents: 'all',
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          updateType('left');
+        }}
+      >
+        <Handle
+          id="cp-left"
+          type={leftType}
+          position={undefined as any}
+          isConnectable={true}
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            background: getColor(leftType),
+            borderRadius: '50%',
+            border: '2px solid white',
+            cursor: 'pointer',
+            transform: 'none',
+            left: 0,
+            top: 0,
+          }}
+        />
+      </div>
+
+      {/* Right Handle */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 27,
+          top: 15,
+          width: 10,
+          height: 10,
+          transform: 'translate(-50%, -50%)',
+          pointerEvents: 'all',
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          updateType('right');
+        }}
+      >
+        <Handle
+          id="cp-right"
+          type={rightType}
+          position={undefined as any}
+          isConnectable={true}
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            background: getColor(rightType),
+            borderRadius: '50%',
+            border: '2px solid white',
+            cursor: 'pointer',
+            transform: 'none',
+            left: 0,
+            top: 0,
+          }}
+        />
+      </div>
+    </div>
+  );
+};
+
+export default ConnectionPointNode;

@@ -1,0 +1,333 @@
+{{/*
+=============================================================================
+Aquaculture Platform - Backend Services
+=============================================================================
+*/}}
+
+{{- /* Auth Service */}}
+{{- if .Values.authService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-auth-service
+  labels:
+    {{- include "aquaculture.backendLabels" . | nindent 4 }}
+    app: auth-service
+spec:
+  replicas: {{ .Values.authService.replicaCount }}
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+        tier: backend
+    spec:
+      serviceAccountName: {{ include "aquaculture.serviceAccountName" . }}
+      containers:
+        - name: auth-service
+          image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.authService.image) }}
+          imagePullPolicy: {{ .Values.authService.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.authService.service.targetPort }}
+          env:
+            {{- include "aquaculture.backendEnv" . | nindent 12 }}
+            - name: JWT_EXPIRES_IN
+              value: {{ .Values.authService.env.JWT_EXPIRES_IN | quote }}
+            - name: REFRESH_TOKEN_EXPIRES_IN
+              value: {{ .Values.authService.env.REFRESH_TOKEN_EXPIRES_IN | quote }}
+          resources:
+            {{- toYaml .Values.authService.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.authService.service.targetPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: {{ .Values.authService.service.targetPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-auth-service
+  labels:
+    app: auth-service
+spec:
+  type: {{ .Values.authService.service.type }}
+  ports:
+    - port: {{ .Values.authService.service.port }}
+      targetPort: {{ .Values.authService.service.targetPort }}
+      name: http
+  selector:
+    app: auth-service
+{{- end }}
+
+---
+{{- /* Farm Service */}}
+{{- if .Values.farmService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-farm-service
+  labels:
+    {{- include "aquaculture.backendLabels" . | nindent 4 }}
+    app: farm-service
+spec:
+  replicas: {{ .Values.farmService.replicaCount }}
+  selector:
+    matchLabels:
+      app: farm-service
+  template:
+    metadata:
+      labels:
+        app: farm-service
+        tier: backend
+    spec:
+      serviceAccountName: {{ include "aquaculture.serviceAccountName" . }}
+      containers:
+        - name: farm-service
+          image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.farmService.image) }}
+          imagePullPolicy: {{ .Values.farmService.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.farmService.service.targetPort }}
+          env:
+            {{- include "aquaculture.backendEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.farmService.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.farmService.service.targetPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: {{ .Values.farmService.service.targetPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-farm-service
+  labels:
+    app: farm-service
+spec:
+  type: {{ .Values.farmService.service.type }}
+  ports:
+    - port: {{ .Values.farmService.service.port }}
+      targetPort: {{ .Values.farmService.service.targetPort }}
+      name: http
+  selector:
+    app: farm-service
+{{- end }}
+
+---
+{{- /* Sensor Service */}}
+{{- if .Values.sensorService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-sensor-service
+  labels:
+    {{- include "aquaculture.backendLabels" . | nindent 4 }}
+    app: sensor-service
+spec:
+  {{- if not .Values.sensorService.autoscaling.enabled }}
+  replicas: {{ .Values.sensorService.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app: sensor-service
+  template:
+    metadata:
+      labels:
+        app: sensor-service
+        tier: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+    spec:
+      serviceAccountName: {{ include "aquaculture.serviceAccountName" . }}
+      containers:
+        - name: sensor-service
+          image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.sensorService.image) }}
+          imagePullPolicy: {{ .Values.sensorService.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.sensorService.service.targetPort }}
+          env:
+            {{- include "aquaculture.backendEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.sensorService.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.sensorService.service.targetPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: {{ .Values.sensorService.service.targetPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-sensor-service
+  labels:
+    app: sensor-service
+spec:
+  type: {{ .Values.sensorService.service.type }}
+  ports:
+    - port: {{ .Values.sensorService.service.port }}
+      targetPort: {{ .Values.sensorService.service.targetPort }}
+      name: http
+  selector:
+    app: sensor-service
+
+{{- if .Values.sensorService.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-sensor-service
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "aquaculture.fullname" . }}-sensor-service
+  minReplicas: {{ .Values.sensorService.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.sensorService.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.sensorService.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}
+
+---
+{{- /* Alert Engine */}}
+{{- if .Values.alertEngine.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-alert-engine
+  labels:
+    {{- include "aquaculture.backendLabels" . | nindent 4 }}
+    app: alert-engine
+spec:
+  replicas: {{ .Values.alertEngine.replicaCount }}
+  selector:
+    matchLabels:
+      app: alert-engine
+  template:
+    metadata:
+      labels:
+        app: alert-engine
+        tier: backend
+    spec:
+      serviceAccountName: {{ include "aquaculture.serviceAccountName" . }}
+      containers:
+        - name: alert-engine
+          image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.alertEngine.image) }}
+          imagePullPolicy: {{ .Values.alertEngine.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.alertEngine.service.targetPort }}
+          env:
+            {{- include "aquaculture.backendEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.alertEngine.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.alertEngine.service.targetPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-alert-engine
+  labels:
+    app: alert-engine
+spec:
+  type: {{ .Values.alertEngine.service.type }}
+  ports:
+    - port: {{ .Values.alertEngine.service.port }}
+      targetPort: {{ .Values.alertEngine.service.targetPort }}
+      name: http
+  selector:
+    app: alert-engine
+{{- end }}
+
+---
+{{- /* Notification Service */}}
+{{- if .Values.notificationService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-notification-service
+  labels:
+    {{- include "aquaculture.backendLabels" . | nindent 4 }}
+    app: notification-service
+spec:
+  replicas: {{ .Values.notificationService.replicaCount }}
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+        tier: backend
+    spec:
+      serviceAccountName: {{ include "aquaculture.serviceAccountName" . }}
+      containers:
+        - name: notification-service
+          image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.notificationService.image) }}
+          imagePullPolicy: {{ .Values.notificationService.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.notificationService.service.targetPort }}
+          env:
+            {{- include "aquaculture.backendEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.notificationService.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.notificationService.service.targetPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-notification-service
+  labels:
+    app: notification-service
+spec:
+  type: {{ .Values.notificationService.service.type }}
+  ports:
+    - port: {{ .Values.notificationService.service.port }}
+      targetPort: {{ .Values.notificationService.service.targetPort }}
+      name: http
+  selector:
+    app: notification-service
+{{- end }}

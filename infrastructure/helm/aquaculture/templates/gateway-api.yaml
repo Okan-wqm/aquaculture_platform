@@ -1,0 +1,113 @@
+{{/*
+=============================================================================
+Aquaculture Platform - Gateway API Deployment
+=============================================================================
+*/}}
+{{- if .Values.gatewayApi.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-gateway-api
+  labels:
+    {{- include "aquaculture.backendLabels" . | nindent 4 }}
+    app: gateway-api
+spec:
+  {{- if not .Values.gatewayApi.autoscaling.enabled }}
+  replicas: {{ .Values.gatewayApi.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app: gateway-api
+  template:
+    metadata:
+      labels:
+        app: gateway-api
+        tier: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ include "aquaculture.serviceAccountName" . }}
+      {{- include "aquaculture.podSecurityContext" . | nindent 6 }}
+      containers:
+        - name: gateway-api
+          image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.gatewayApi.image) }}
+          imagePullPolicy: {{ .Values.gatewayApi.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.gatewayApi.service.targetPort }}
+              protocol: TCP
+          env:
+            {{- include "aquaculture.backendEnv" . | nindent 12 }}
+            - name: PORT
+              value: {{ .Values.gatewayApi.service.targetPort | quote }}
+          resources:
+            {{- toYaml .Values.gatewayApi.resources | nindent 12 }}
+          {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.gatewayApi.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.gatewayApi.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.securityContext" . | nindent 10 }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: gateway-api
+                topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-gateway-api
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+    app: gateway-api
+spec:
+  type: {{ .Values.gatewayApi.service.type }}
+  ports:
+    - port: {{ .Values.gatewayApi.service.port }}
+      targetPort: {{ .Values.gatewayApi.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: gateway-api
+
+{{- if .Values.gatewayApi.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-gateway-api
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "aquaculture.fullname" . }}-gateway-api
+  minReplicas: {{ .Values.gatewayApi.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.gatewayApi.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.gatewayApi.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-gateway-api-pdb
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: gateway-api
+{{- end }}

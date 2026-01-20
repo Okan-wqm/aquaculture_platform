@@ -1,0 +1,76 @@
+# =============================================================================
+# Aquaculture Platform - Frontend Dockerfile
+# Multi-stage build for React microfrontends with Nginx
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stage 1: Base with dependencies
+# -----------------------------------------------------------------------------
+FROM node:20-alpine AS base
+
+WORKDIR /app
+
+# Copy root package files
+COPY package*.json ./
+COPY tsconfig*.json ./
+
+# -----------------------------------------------------------------------------
+# Stage 2: Dependencies
+# -----------------------------------------------------------------------------
+FROM base AS deps
+
+# Install dependencies (skip husky prepare script)
+RUN npm ci --legacy-peer-deps --ignore-scripts
+
+# -----------------------------------------------------------------------------
+# Stage 3: Builder
+# -----------------------------------------------------------------------------
+FROM deps AS builder
+
+# Copy web source
+COPY web/ ./web/
+
+# Build argument for module name (shell, dashboard, farm-module, etc.)
+ARG MODULE_NAME
+
+# Build shared-ui first (required by all modules)
+RUN cd web/shared-ui && npm run build
+
+# Build the specific module
+RUN cd web/${MODULE_NAME} && npm run build
+
+# -----------------------------------------------------------------------------
+# Stage 4: Production with Nginx
+# -----------------------------------------------------------------------------
+FROM nginx:alpine AS production
+
+# Install envsubst for runtime configuration
+RUN apk add --no-cache gettext
+
+# Remove default nginx config
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Copy custom nginx config
+COPY infrastructure/docker/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY infrastructure/docker/nginx/default.conf.template /etc/nginx/templates/default.conf.template
+
+# Copy built assets
+ARG MODULE_NAME
+COPY --from=builder /app/web/${MODULE_NAME}/dist /usr/share/nginx/html
+
+# Security: Run as non-root
+RUN chown -R nginx:nginx /usr/share/nginx/html && \
+    chown -R nginx:nginx /var/cache/nginx && \
+    chown -R nginx:nginx /var/log/nginx && \
+    touch /var/run/nginx.pid && \
+    chown -R nginx:nginx /var/run/nginx.pid
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:80/health || exit 1
+
+USER nginx
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

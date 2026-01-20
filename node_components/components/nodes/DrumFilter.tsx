@@ -1,36 +1,40 @@
-import React, { useState, useEffect } from 'react';
-import { Handle, useUpdateNodeInternals, Node } from 'reactflow';
+/**
+ * DrumFilterNode Component
+ * Faivre 200 Drum Filter with 5 toggleable handles
+ */
 
-interface DrumFilterProps {
-  id: string;
-  data: {
-    inletType1?: 'source' | 'target';
-    inletType2?: 'source' | 'target';
-    inletType3?: 'source' | 'target';
-    drainType?: 'source' | 'target';
-    outlet?: 'source' | 'target';
-  };
-  setNodes: React.Dispatch<React.SetStateAction<Node[]>>;
+import React, { useState, useEffect } from 'react';
+import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps } from 'reactflow';
+
+type HandleType = 'source' | 'target';
+
+interface DrumFilterNodeData {
+  inletType1?: HandleType;
+  inletType2?: HandleType;
+  inletType3?: HandleType;
+  drainType?: HandleType;
+  outlet?: HandleType;
+  label?: string;
 }
 
-const DrumFilter: React.FC<DrumFilterProps> & {
-  defaultHandles: DrumFilterProps['data'];
-} = ({ id, data, setNodes }) => {
-  const [inletType1, setInletType1] = useState(data?.inletType1 || 'source');
-  const [inletType2, setInletType2] = useState(data?.inletType2 || 'source');
-  const [inletType3, setInletType3] = useState(data?.inletType3 || 'source');
-  const [drainType, setDrainType] = useState(data?.drainType || 'target');
-  const [outlet, setOutlet] = useState(data?.outlet || 'target');
+const DrumFilterNode: React.FC<NodeProps<DrumFilterNodeData>> = ({ id, data, selected }) => {
+  const [inletType1, setInletType1] = useState<HandleType>(data?.inletType1 || 'target');
+  const [inletType2, setInletType2] = useState<HandleType>(data?.inletType2 || 'target');
+  const [inletType3, setInletType3] = useState<HandleType>(data?.inletType3 || 'target');
+  const [drainType, setDrainType] = useState<HandleType>(data?.drainType || 'source');
+  const [outlet, setOutlet] = useState<HandleType>(data?.outlet || 'source');
 
   const updateNodeInternals = useUpdateNodeInternals();
+  const { setNodes } = useReactFlow();
 
   const toggleHandler = (
-    currentType: 'source' | 'target',
-    setFunc: React.Dispatch<React.SetStateAction<'source' | 'target'>>,
-    fieldName: keyof DrumFilterProps['data']
+    currentType: HandleType,
+    setFunc: React.Dispatch<React.SetStateAction<HandleType>>,
+    fieldName: keyof DrumFilterNodeData
   ) => (e: React.MouseEvent) => {
     e.preventDefault();
-    const newType = currentType === 'source' ? 'target' : 'source';
+    e.stopPropagation();
+    const newType: HandleType = currentType === 'source' ? 'target' : 'source';
     setFunc(newType);
     setNodes((nodes) =>
       nodes.map((node) =>
@@ -47,22 +51,24 @@ const DrumFilter: React.FC<DrumFilterProps> & {
   const baseLeftOffset = 60;
   const baseTopOffset = 105;
 
+  const getColor = (type: HandleType) => type === 'source' ? '#22c55e' : '#3b82f6';
+
   const handleStyle = (
     left: number,
     top: number,
-    color: string
+    type: HandleType
   ): React.CSSProperties => ({
     position: 'absolute',
     left: left - baseLeftOffset,
     top: top - baseTopOffset,
-    width: 10,
-    height: 10,
-    background: color,
+    width: 12,
+    height: 12,
+    background: getColor(type),
     borderRadius: '50%',
+    border: '2px solid white',
     transform: 'translate(-50%, -50%)',
     cursor: 'pointer',
     pointerEvents: 'all',
-
   });
 
   return (
@@ -72,7 +78,8 @@ const DrumFilter: React.FC<DrumFilterProps> & {
         height: 315 * scaleFactor,
         position: 'relative',
         pointerEvents: 'none',
-
+        border: selected ? '2px solid #3b82f6' : '2px solid transparent',
+        borderRadius: 8,
       }}
     >
       <div style={{ transform: `scale(${scaleFactor})`, transformOrigin: 'top left' }}>
@@ -83,7 +90,7 @@ const DrumFilter: React.FC<DrumFilterProps> & {
           <rect x="100" y="180" width="120" height="15" fill="#7b5e57" stroke="#000" strokeWidth="1.5" />
           <text x="105" y="175" fontSize="12" fill="#000">Drenaj Borusu</text>
           <rect x="160" y="150" width="612" height="200" rx="20" ry="20" fill="#e0e0e0" stroke="#333" strokeWidth="2" />
-          <text x="350" y="260" fontSize="16" fill="#000">Faivre 200 Drum Filtre</text>
+          <text x="350" y="260" fontSize="16" fill="#000">{data?.label || 'Faivre 200 Drum Filtre'}</text>
           <defs>
             <pattern id="mesh" patternUnits="userSpaceOnUse" width="20" height="20">
               <path d="M0,0 L20,20 M20,0 L0,20" stroke="#888" strokeWidth="2" />
@@ -134,22 +141,14 @@ const DrumFilter: React.FC<DrumFilterProps> & {
         </svg>
 
         {/* Handles */}
-        <Handle id={`inlet-1-${inletType1}`} type={inletType1} onContextMenu={toggleHandler(inletType1, setInletType1, 'inletType1')} style={handleStyle(90, 245, inletType1 === 'source' ? 'red' : 'blue')} />
-        <Handle id={`inlet-2-${inletType2}`} type={inletType2} onContextMenu={toggleHandler(inletType2, setInletType2, 'inletType2')} style={handleStyle(90, 255, inletType2 === 'source' ? 'red' : 'blue')} />
-        <Handle id={`inlet-3-${inletType3}`} type={inletType3} onContextMenu={toggleHandler(inletType3, setInletType3, 'inletType3')} style={handleStyle(90, 265, inletType3 === 'source' ? 'red' : 'blue')} />
-        <Handle id={`drain-${drainType}`} type={drainType} onContextMenu={toggleHandler(drainType, setDrainType, 'drainType')} style={handleStyle(100, 187, drainType === 'source' ? 'red' : 'blue')} />
-        <Handle id={`outlet-${outlet}`} type={outlet} onContextMenu={toggleHandler(outlet, setOutlet, 'outlet')} style={handleStyle(842, 250, outlet === 'source' ? 'red' : 'blue')} />
+        <Handle id={`inlet-1-${inletType1}`} type={inletType1} position={undefined as any} onContextMenu={toggleHandler(inletType1, setInletType1, 'inletType1')} style={handleStyle(90, 245, inletType1)} />
+        <Handle id={`inlet-2-${inletType2}`} type={inletType2} position={undefined as any} onContextMenu={toggleHandler(inletType2, setInletType2, 'inletType2')} style={handleStyle(90, 255, inletType2)} />
+        <Handle id={`inlet-3-${inletType3}`} type={inletType3} position={undefined as any} onContextMenu={toggleHandler(inletType3, setInletType3, 'inletType3')} style={handleStyle(90, 265, inletType3)} />
+        <Handle id={`drain-${drainType}`} type={drainType} position={undefined as any} onContextMenu={toggleHandler(drainType, setDrainType, 'drainType')} style={handleStyle(100, 187, drainType)} />
+        <Handle id={`outlet-${outlet}`} type={outlet} position={undefined as any} onContextMenu={toggleHandler(outlet, setOutlet, 'outlet')} style={handleStyle(842, 250, outlet)} />
       </div>
     </div>
   );
 };
 
-DrumFilter.defaultHandles = {
-  inletType1: 'source',
-  inletType2: 'source',
-  inletType3: 'source',
-  drainType: 'target',
-  outlet: 'target',
-};
-
-export default DrumFilter;
+export default DrumFilterNode;

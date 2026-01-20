@@ -1,0 +1,24 @@
+{
+  "query": "mutation RegisterSensor($input: RegisterSensorInput!) { registerSensor(input: $input) { success sensor { id name type protocolCode registrationStatus } error connectionTestPassed } }",
+  "variables": {
+    "input": {
+      "name": "Farm-01 Water Quality Monitor",
+      "type": "MULTI_PARAMETER",
+      "protocolCode": "MQTT",
+      "protocolConfiguration": {
+        "brokerUrl": "aqua-mosquitto",
+        "port": 1883,
+        "topic": "sensors/farm-01/pool-01/water-quality",
+        "qos": 1,
+        "payloadFormat": "json"
+      },
+      "manufacturer": "Aqua Sensors Inc",
+      "model": "WQ-5000",
+      "serialNumber": "WQ5000-001",
+      "description": "Multi-parameter water quality monitoring device",
+      "siteId": "4480e275-a10a-4dce-b2ec-53d624d71344",
+      "departmentId": "b891526e-df82-484d-809f-5e7b20b5c010",
+      "skipConnectionTest": true
+    }
+  }
+}

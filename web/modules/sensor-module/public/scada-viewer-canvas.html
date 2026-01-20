@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SCADA Viewer Canvas</title>
+  <!-- React -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-is@18/umd/react-is.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
+  <!-- ReactFlow -->
+  <link href="https://unpkg.com/reactflow@11.11.4/dist/style.css" rel="stylesheet" />
+  <script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+  <!-- Recharts for Chart Widgets -->
+  <script src="https://cdn.jsdelivr.net/npm/recharts@2/umd/Recharts.min.js"></script>
+  <!-- Aquaculture Node Components (UMD Bundle) -->
+  <script src="libs/aquaculture-nodes.umd.js"></script>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html, body, #root {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    .react-flow__node-scadaEquipment,
+    .react-flow__node-equipment,
+    .react-flow__node-blower,
+    .react-flow__node-drumFilter,
+    .react-flow__node-uvUnit,
+    .react-flow__node-radialSettler,
+    .react-flow__node-fishTank,
+    .react-flow__node-connectionPoint,
+    .react-flow__node-tankInlet {
+      padding: 0;
+      border-radius: 8px;
+      background: white;
+      border: 1px solid #e5e7eb;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .react-flow__node-algaeBagRed,
+    .react-flow__node-algaeBagGreen,
+    .react-flow__node-algaeBagYellow,
+    .react-flow__node-demandFeeder,
+    .react-flow__node-automaticFeeder {
+      padding: 0;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+    }
+    .react-flow__node-algaeBagRed.selected,
+    .react-flow__node-algaeBagGreen.selected,
+    .react-flow__node-algaeBagYellow.selected,
+    .react-flow__node-demandFeeder.selected,
+    .react-flow__node-automaticFeeder.selected {
+      box-shadow: none;
+    }
+    .react-flow__node-scadaEquipment.selected,
+    .react-flow__node-equipment.selected,
+    .react-flow__node-blower.selected,
+    .react-flow__node-drumFilter.selected,
+    .react-flow__node-uvUnit.selected,
+    .react-flow__node-radialSettler.selected,
+    .react-flow__node-fishTank.selected,
+    .react-flow__node-connectionPoint.selected,
+    .react-flow__node-tankInlet.selected {
+      box-shadow: 0 0 0 2px #3b82f6;
+    }
+    .react-flow__node-connectionPoint {
+      border-radius: 50%;
+    }
+    .scada-node-wrapper {
+      position: relative;
+    }
+    .react-flow__handle {
+      width: 12px;
+      height: 12px;
+      background: white;
+      border: 2px solid #60a5fa;
+    }
+    .react-flow__handle:hover {
+      background: #eff6ff;
+      border-color: #3b82f6;
+    }
+    .react-flow__edge-path {
+      stroke-width: 2;
+    }
+    .react-flow__controls {
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .react-flow__minimap {
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .sensor-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 500;
+    }
+    .sensor-badge.normal { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .sensor-badge.warning { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }
+    .sensor-badge.critical { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .sensor-badge.offline { background: #f3f4f6; color: #6b7280; border: 1px solid #d1d5db; }
+    .alert-indicator {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #eab308;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.7; transform: scale(1.1); }
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/javascript">
+    const { createElement: h, useState, useCallback, useRef, useEffect, useMemo } = React;
+    const { createRoot } = ReactDOM;
+    const {
+      ReactFlow,
+      ReactFlowProvider,
+      useNodesState,
+      useEdgesState,
+      useUpdateNodeInternals,
+      Controls,
+      Background,
+      MiniMap,
+      Handle,
+      Position,
+      MarkerType,
+    } = window.ReactFlow;
+
+    // ============================================
+    // Import from UMD Bundle (@aquaculture/node-components)
+    // ============================================
+    const {
+      // Node components (base versions)
+      BlowerNode: BaseBlowerNode,
+      DrumFilterNode: BaseDrumFilterNode,
+      UVUnitNode: BaseUVUnitNode,
+      RadialSettlerNode: BaseRadialSettlerNode,
+      FishTankNode: BaseFishTankNode,
+      ConnectionPointNode: BaseConnectionPointNode,
+      TankInletNode: BaseTankInletNode,
+      SensorNode: BaseSensorNode,
+      AlgaeBagNode: BaseAlgaeBagNode,
+      DemandFeederNode: BaseDemandFeederNode,
+      AutomaticFeederNode: BaseAutomaticFeederNode,
+      UltrafiltrationNode: BaseUltrafiltrationNode,
+      DualDrainTankNode: BaseDualDrainTankNode,
+      CleanWaterTankNode: BaseCleanWaterTankNode,
+      DirtyWaterTankNode: BaseDirtyWaterTankNode,
+      WaterSupplyNode: BaseWaterSupplyNode,
+      WaterDischargeNode: BaseWaterDischargeNode,
+      MBBRNode: BaseMBBRNode,
+      HEPAFilterNode: BaseHEPAFilterNode,
+      DosingPumpNode: BaseDosingPumpNode,
+      HeaterNode: BaseHeaterNode,
+      ShellTubeHeatExchangerNode: BaseShellTubeHeatExchangerNode,
+      PlateHeatExchangerNode: BasePlateHeatExchangerNode,
+      ChillerNode: BaseChillerNode,
+      GasGeneratorNode: BaseGasGeneratorNode,
+      DieselGeneratorNode: BaseDieselGeneratorNode,
+      EquipmentNode: BaseEquipmentNode,
+      PumpNode: BasePumpNode,
+      ValveNode: BaseValveNode,
+      OzoneGeneratorNode: BaseOzoneGeneratorNode,
+      OxygenGeneratorNode: BaseOxygenGeneratorNode,
+      // Edge types
+      edgeTypes: baseEdgeTypes,
+      // Config
+      getEdgeStyle,
+      CONNECTION_TYPES,
+    } = window.AquacultureNodes;
+
+    // Sensor readings storage (updated via postMessage)
+    let sensorDataStore = {};
+
+    // Status color mapping
+    const getStatusColor = (status) => {
+      if (status === 'operational' || status === 'active') return '#22c55e';
+      if (status === 'maintenance') return '#eab308';
+      if (status === 'out_of_service') return '#ef4444';
+      return '#94a3b8';
+    };
+
+    // Get sensor status color
+    const getSensorStatusColor = (status) => {
+      if (status === 'normal') return 'normal';
+      if (status === 'warning') return 'warning';
+      if (status === 'critical') return 'critical';
+      return 'offline';
+    };
+
+    // Category icon mapping (emoji)
+    const getCategoryIcon = (type) => {
+      const icons = {
+        'pump': '\u2699\uFE0F',
+        'tank': '\uD83D\uDEE2\uFE0F',
+        'sensor': '\uD83D\uDCE1',
+        'biofilter': '\uD83E\uDDEB',
+        'filter': '\uD83D\uDD32',
+        'heater': '\uD83D\uDD25',
+        'aerator': '\uD83D\uDCA8',
+        'feeder': '\uD83C\uDF7D\uFE0F',
+        'uv_sterilizer': '\u2604\uFE0F',
+        'chiller': '\u2744\uFE0F',
+      };
+      return icons[type?.toLowerCase()] || '\uD83D\uDCE6';
+    };
+
+    // Sensor type labels
+    const getSensorLabel = (type) => {
+      const labels = {
+        'temperature': 'Sicaklik',
+        'ph': 'pH',
+        'dissolved_oxygen': 'DO',
+        'salinity': 'Tuzluluk',
+        'ammonia': 'NH3',
+        'nitrite': 'NO2',
+        'nitrate': 'NO3',
+        'turbidity': 'Bulaniklik',
+        'water_level': 'Seviye',
+      };
+      return labels[type] || type;
+    };
+
+    // ============================================
+    // SCADA Node Wrapper Factory - adds sensor overlay
+    // ============================================
+    function createScadaNode(BaseNodeComponent) {
+      return function ScadaWrapper(props) {
+        const { data } = props;
+        const equipmentId = data?.equipmentId;
+        const sensors = equipmentId ? (sensorDataStore[equipmentId] || []) : [];
+        const hasAlerts = sensors.some(s => s.status === 'warning' || s.status === 'critical');
+
+        // Pass isScadaMode to base node
+        const scadaProps = {
+          ...props,
+          data: { ...props.data, isScadaMode: true }
+        };
+
+        return h('div', {
+          className: 'scada-node-wrapper',
+          style: { position: 'relative' }
+        }, [
+          // Base node render
+          h(BaseNodeComponent, { ...scadaProps, key: 'base-node' }),
+
+          // Sensor overlay (top-right corner)
+          sensors.length > 0 && h('div', {
+            key: 'sensor-overlay',
+            style: {
+              position: 'absolute', top: -8, right: -8, zIndex: 20,
+              display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end'
+            }
+          }, sensors.slice(0, 3).map((sensor, idx) =>
+            h('span', {
+              key: idx,
+              className: `sensor-badge ${getSensorStatusColor(sensor.status)}`,
+            }, `${sensor.value.toFixed(1)} ${sensor.unit}`)
+          )),
+
+          // Alert indicator (top-left corner)
+          hasAlerts && h('div', {
+            key: 'alert',
+            style: {
+              position: 'absolute', top: -4, left: -4, width: 12, height: 12,
+              borderRadius: '50%',
+              background: sensors.some(s => s.status === 'critical') ? '#ef4444' : '#eab308',
+              animation: 'pulse 1.5s infinite', zIndex: 20
+            }
+          })
+        ]);
+      };
+    }
+
+    // ============================================
+    // SCADA-Specific Nodes (not in UMD bundle)
+    // ============================================
+
+    // Generic SCADA Equipment Node with icon
+    function ScadaEquipmentNode({ data, selected }) {
+      const width = data?.width || 160;
+      const height = data?.height || 100;
+
+      return h('div', {
+        className: `equipment-node ${selected ? 'selected' : ''}`,
+        style: { width, minHeight: height }
+      }, [
+        h(Handle, { key: 'target', type: 'target', position: Position.Left, style: { background: 'white', border: '2px solid #3b82f6' } }),
+        h('div', { key: 'content', className: 'bg-white rounded-lg overflow-hidden' }, [
+          h('div', { key: 'header', className: 'px-3 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-2' }, [
+            h('span', { key: 'icon', className: 'text-lg' }, getCategoryIcon(data.equipmentCategory)),
+            h('span', { key: 'name', className: 'text-sm font-medium text-gray-900 truncate flex-1' }, data.equipmentName),
+            h('div', { key: 'status', className: 'w-2 h-2 rounded-full', style: { backgroundColor: getStatusColor(data.status) } })
+          ]),
+          h('div', { key: 'body', className: 'px-3 py-2' }, [
+            h('div', { key: 'code', className: 'text-xs text-gray-500' }, data.equipmentCode),
+            h('div', { key: 'type', className: 'text-xs text-gray-400 capitalize' }, data.equipmentType)
+          ])
+        ]),
+        h(Handle, { key: 'source', type: 'source', position: Position.Right, style: { background: 'white', border: '2px solid #22c55e' } })
+      ]);
+    }
+
+    // Chart Widget Node (SCADA-specific)
+    function ChartWidgetNode({ id, data, selected }) {
+      const { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } = window.Recharts || {};
+
+      const width = data?.width || 320;
+      const height = data?.height || 200;
+      const chartType = data?.chartType || 'line';
+      const title = data?.title || 'Sensor Data';
+      const color = data?.color || '#3b82f6';
+      const chartData = data?.chartData || [];
+
+      if (!LineChart) {
+        return h('div', {
+          style: { width, height, background: '#f8fafc', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', border: selected ? '2px solid #3b82f6' : '1px solid #e2e8f0' }
+        }, h('span', { style: { color: '#94a3b8' } }, 'Recharts not loaded'));
+      }
+
+      const ChartComponent = chartType === 'area' ? AreaChart : LineChart;
+      const DataComponent = chartType === 'area' ? Area : Line;
+
+      return h('div', {
+        style: { width, height, background: 'white', borderRadius: 8, padding: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', border: selected ? '2px solid #3b82f6' : '1px solid #e2e8f0' }
+      }, [
+        h(Handle, { key: 'target', type: 'target', position: Position.Left, style: { background: 'white', border: '2px solid #3b82f6' } }),
+        h('div', { key: 'title', style: { fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 8 } }, title),
+        h(ResponsiveContainer, { key: 'chart', width: '100%', height: height - 50 },
+          h(ChartComponent, { data: chartData },
+            h(XAxis, { dataKey: 'time', tick: { fontSize: 10 }, stroke: '#9ca3af' }),
+            h(YAxis, { tick: { fontSize: 10 }, stroke: '#9ca3af', width: 40 }),
+            h(Tooltip, { contentStyle: { fontSize: 11 } }),
+            h(DataComponent, {
+              type: 'monotone',
+              dataKey: 'value',
+              stroke: color,
+              fill: chartType === 'area' ? color : undefined,
+              fillOpacity: chartType === 'area' ? 0.3 : undefined,
+              strokeWidth: 2,
+              dot: false
+            })
+          )
+        ),
+        h(Handle, { key: 'source', type: 'source', position: Position.Right, style: { background: 'white', border: '2px solid #22c55e' } })
+      ]);
+    }
+
+    // Algae bag color wrappers
+    function AlgaeBagRedNode(props) {
+      return h(createScadaNode(BaseAlgaeBagNode), { ...props, data: { ...props.data, color: 'red' } });
+    }
+    function AlgaeBagGreenNode(props) {
+      return h(createScadaNode(BaseAlgaeBagNode), { ...props, data: { ...props.data, color: 'green' } });
+    }
+    function AlgaeBagYellowNode(props) {
+      return h(createScadaNode(BaseAlgaeBagNode), { ...props, data: { ...props.data, color: 'yellow' } });
+    }
+
+    // ============================================
+    // Node types registration - wraps imported nodes with SCADA overlay
+    // ============================================
+    const nodeTypes = {
+      // Fallback for generic equipment
+      scadaEquipment: ScadaEquipmentNode,
+
+      // Custom nodes with SCADA sensor overlay wrapper
+      equipment: createScadaNode(BaseEquipmentNode),
+      blower: createScadaNode(BaseBlowerNode),
+      drumFilter: createScadaNode(BaseDrumFilterNode),
+      uvUnit: createScadaNode(BaseUVUnitNode),
+      radialSettler: createScadaNode(BaseRadialSettlerNode),
+      fishTank: createScadaNode(BaseFishTankNode),
+      connectionPoint: createScadaNode(BaseConnectionPointNode),
+      tankInlet: createScadaNode(BaseTankInletNode),
+
+      // Sensor and Chart Widget nodes
+      sensor: createScadaNode(BaseSensorNode),
+      chartWidget: createScadaNode(ChartWidgetNode),
+
+      // Algae bag nodes
+      algaeBagRed: AlgaeBagRedNode,
+      algaeBagGreen: AlgaeBagGreenNode,
+      algaeBagYellow: AlgaeBagYellowNode,
+
+      // Feeder nodes
+      demandFeeder: createScadaNode(BaseDemandFeederNode),
+      automaticFeeder: createScadaNode(BaseAutomaticFeederNode),
+
+      // Advanced equipment nodes
+      ultrafiltration: createScadaNode(BaseUltrafiltrationNode),
+      dualDrainTank: createScadaNode(BaseDualDrainTankNode),
+      cleanWaterTank: createScadaNode(BaseCleanWaterTankNode),
+      dirtyWaterTank: createScadaNode(BaseDirtyWaterTankNode),
+      waterSupply: createScadaNode(BaseWaterSupplyNode),
+      waterDischarge: createScadaNode(BaseWaterDischargeNode),
+      mbbr: createScadaNode(BaseMBBRNode),
+      hepaFilter: createScadaNode(BaseHEPAFilterNode),
+      dosingPump: createScadaNode(BaseDosingPumpNode),
+      heater: createScadaNode(BaseHeaterNode),
+      shellAndTubeHeatExchanger: createScadaNode(BaseShellTubeHeatExchangerNode),
+      plateHeatExchanger: createScadaNode(BasePlateHeatExchangerNode),
+      chiller: createScadaNode(BaseChillerNode),
+      gasGenerator: createScadaNode(BaseGasGeneratorNode),
+      dieselGenerator: createScadaNode(BaseDieselGeneratorNode),
+      pump: createScadaNode(BasePumpNode),
+      valve: createScadaNode(BaseValveNode),
+      ozoneGenerator: createScadaNode(BaseOzoneGeneratorNode),
+      oxygenGenerator: createScadaNode(BaseOxygenGeneratorNode),
+    };
+
+    // Edge types - use from UMD bundle
+    const edgeTypes = baseEdgeTypes;
+
+    // Default edge options - matches process editor
+    const defaultEdgeOptions = {
+      type: 'orthogonal',
+      animated: false,
+      markerEnd: { type: MarkerType.ArrowClosed },
+      style: getEdgeStyle('process-pipe')
+    };
+
+    // Main SCADA Viewer Canvas Component
+    function ScadaViewerCanvas() {
+      const reactFlowWrapper = useRef(null);
+      const [nodes, setNodes, onNodesChange] = useNodesState([]);
+      const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+      const [reactFlowInstance, setReactFlowInstance] = useState(null);
+      const [selectedNodeId, setSelectedNodeId] = useState(null);
+      const [, forceUpdate] = useState(0);
+
+      // Handle node click
+      const onNodeClick = useCallback((event, node) => {
+        setSelectedNodeId(node.id);
+        notifyParent('nodeSelected', node);
+      }, []);
+
+      // Handle pane click (deselect)
+      const onPaneClick = useCallback(() => {
+        setSelectedNodeId(null);
+        notifyParent('selectionCleared', null);
+      }, []);
+
+      // Notify parent window
+      const notifyParent = useCallback((type, data) => {
+        window.parent.postMessage({ type, data, source: 'scada-viewer-canvas' }, '*');
+      }, []);
+
+      // Listen for messages from parent
+      useEffect(() => {
+        const handleMessage = (event) => {
+          const { type, data, source } = event.data || {};
+          if (source !== 'scada-viewer-host') return;
+
+          switch (type) {
+            case 'setProcess':
+              if (data) {
+                // Preserve original node types, add SCADA flag
+                // Ensure all nodes have valid positions to prevent ReactFlow errors
+                const processedNodes = (data.nodes || [])
+                  .filter(node => node && node.id) // Filter out invalid nodes
+                  .map(node => ({
+                    ...node,
+                    // Ensure position exists with valid coordinates
+                    position: {
+                      x: node.position?.x ?? 0,
+                      y: node.position?.y ?? 0
+                    },
+                    // Keep original type - don't overwrite!
+                    data: {
+                      ...node.data,
+                      isScadaMode: true
+                    }
+                  }));
+                setNodes(processedNodes);
+
+                // Validate edges and apply styles (same logic as process-editor)
+                const processedEdges = (data.edges || []).map(edge => ({
+                  ...edge,
+                  type: edge.type || 'orthogonal',
+                  style: getEdgeStyle(edge.data?.connectionType || 'process-pipe'),
+                  data: {
+                    connectionType: 'process-pipe',
+                    midX1: null,
+                    midY: null,
+                    midX2: null,
+                    ...(edge.data || {})
+                  }
+                }));
+                console.log('[scada-viewer] setEdges - processed edges:', processedEdges.length, 'sample:', processedEdges[0]);
+                setEdges(processedEdges);
+
+                // Fit view after loading
+                setTimeout(() => {
+                  if (reactFlowInstance) {
+                    reactFlowInstance.fitView({ padding: 0.2 });
+                  }
+                }, 100);
+              }
+              break;
+
+            case 'updateSensorData':
+              if (data && data.equipmentId) {
+                sensorDataStore[data.equipmentId] = data.readings || [];
+                // Force re-render to show updated sensor data
+                forceUpdate(n => n + 1);
+              }
+              break;
+
+            case 'updateAllSensorData':
+              if (data) {
+                // data is an object with equipmentId as key and readings array as value
+                Object.entries(data).forEach(([equipmentId, readings]) => {
+                  sensorDataStore[equipmentId] = readings;
+                });
+                forceUpdate(n => n + 1);
+              }
+              break;
+
+            case 'fitView':
+              if (reactFlowInstance) reactFlowInstance.fitView({ padding: 0.2 });
+              break;
+
+            case 'zoomIn':
+              if (reactFlowInstance) reactFlowInstance.zoomIn();
+              break;
+
+            case 'zoomOut':
+              if (reactFlowInstance) reactFlowInstance.zoomOut();
+              break;
+
+            default:
+              break;
+          }
+        };
+
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+      }, [reactFlowInstance, setNodes, setEdges]);
+
+      // Notify parent when ready
+      useEffect(() => {
+        if (reactFlowInstance) {
+          notifyParent('ready', { ready: true });
+        }
+      }, [reactFlowInstance, notifyParent]);
+
+      return h('div', {
+        ref: reactFlowWrapper,
+        style: { width: '100%', height: '100%' }
+      },
+        h(ReactFlow, {
+          nodes: nodes,
+          edges: edges,
+          onNodesChange: onNodesChange,
+          onEdgesChange: onEdgesChange,
+          onNodeClick: onNodeClick,
+          onPaneClick: onPaneClick,
+          onInit: setReactFlowInstance,
+          nodeTypes: nodeTypes,
+          edgeTypes: edgeTypes,
+          defaultEdgeOptions: defaultEdgeOptions,
+          // Read-only settings
+          nodesDraggable: false,
+          nodesConnectable: false,
+          elementsSelectable: true,
+          panOnDrag: true,
+          zoomOnScroll: true,
+          zoomOnPinch: true,
+          fitView: true,
+          fitViewOptions: { padding: 0.2 },
+          minZoom: 0.2,
+          maxZoom: 2,
+        }, [
+          h(Controls, {
+            key: 'controls',
+            position: 'bottom-left',
+            showInteractive: false
+          }),
+          h(MiniMap, {
+            key: 'minimap',
+            position: 'bottom-right',
+            nodeColor: (node) => getStatusColor(node.data?.status),
+            maskColor: 'rgba(0, 0, 0, 0.1)',
+            style: { width: 150, height: 100 }
+          }),
+          h(Background, {
+            key: 'background',
+            variant: 'dots',
+            gap: 20,
+            size: 1,
+            color: '#e5e7eb'
+          })
+        ])
+      );
+    }
+
+    // Render the app
+    const root = createRoot(document.getElementById('root'));
+    root.render(
+      h(ReactFlowProvider, null,
+        h(ScadaViewerCanvas)
+      )
+    );
+  </script>
+</body>
+</html>

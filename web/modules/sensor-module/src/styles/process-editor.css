@@ -1,0 +1,355 @@
+/**
+ * Process Editor Styles
+ * Custom styles for the ReactFlow-based process editor
+ */
+
+/* ============================================================================
+   Process Editor Container
+   ============================================================================ */
+
+.process-editor-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background-color: #f9fafb;
+}
+
+/* ============================================================================
+   Toolbar
+   ============================================================================ */
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  background-color: white;
+  border-bottom: 1px solid #e5e7eb;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  z-index: 10;
+}
+
+/* ============================================================================
+   Editor Content Layout
+   ============================================================================ */
+
+.editor-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.editor-canvas {
+  flex: 1;
+  background-color: #f9fafb;
+  position: relative;
+}
+
+/* ============================================================================
+   Equipment Panel (Left)
+   ============================================================================ */
+
+.equipment-panel {
+  width: 18rem;
+  background-color: white;
+  border-right: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.equipment-panel .equipment-search {
+  padding: 0.75rem;
+}
+
+.equipment-panel .equipment-categories {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+/* ============================================================================
+   Properties Panel (Right)
+   ============================================================================ */
+
+.properties-panel {
+  width: 18rem;
+  background-color: white;
+  border-left: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.properties-panel.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ============================================================================
+   Equipment Node Styles
+   ============================================================================ */
+
+.equipment-node {
+  background: white;
+  padding: 0;
+  border-radius: 0.5rem;
+  border: 2px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+  min-width: 140px;
+  max-width: 180px;
+}
+
+.equipment-node:hover {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.equipment-node.selected {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+.equipment-node .node-content {
+  padding: 0.75rem;
+}
+
+.equipment-node .node-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 0.5rem;
+  background-color: #f3f4f6;
+  border-radius: 0.5rem;
+}
+
+.equipment-node .node-label {
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: #111827;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.equipment-node .node-code {
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============================================================================
+   ReactFlow Handle Styles
+   ============================================================================ */
+
+.react-flow__handle {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid white;
+}
+
+.react-flow__handle-top {
+  top: -6px;
+}
+
+.react-flow__handle-bottom {
+  bottom: -6px;
+}
+
+.react-flow__handle-left {
+  left: -6px;
+}
+
+.react-flow__handle-right {
+  right: -6px;
+}
+
+/* Handle colors by type */
+.react-flow__handle[data-handletype="target"] {
+  background-color: #3b82f6;
+}
+
+.react-flow__handle[data-handletype="source"] {
+  background-color: #06b6d4;
+}
+
+/* ============================================================================
+   ReactFlow Edge Styles
+   ============================================================================ */
+
+/* Default edge */
+.react-flow__edge-path {
+  stroke: #94a3b8;
+  stroke-width: 2;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #3b82f6;
+  stroke-width: 3;
+}
+
+/* Pipe connection */
+.react-flow__edge.pipe .react-flow__edge-path {
+  stroke: #06b6d4;
+  stroke-width: 3;
+}
+
+/* Electrical cable */
+.react-flow__edge.cable .react-flow__edge-path {
+  stroke: #eab308;
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+}
+
+/* Signal line */
+.react-flow__edge.signal .react-flow__edge-path {
+  stroke: #a855f7;
+  stroke-width: 2;
+  stroke-dasharray: 3 3;
+}
+
+/* Animated edge */
+.react-flow__edge.animated .react-flow__edge-path {
+  animation: flow 1s linear infinite;
+}
+
+@keyframes flow {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -20;
+  }
+}
+
+/* ============================================================================
+   ReactFlow Controls & MiniMap
+   ============================================================================ */
+
+.react-flow__controls {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background-color: white;
+  border: none;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.react-flow__controls-button:hover {
+  background-color: #f3f4f6;
+}
+
+.react-flow__minimap {
+  background-color: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+/* ============================================================================
+   ReactFlow Background
+   ============================================================================ */
+
+.react-flow__background {
+  background-color: #f9fafb;
+}
+
+/* ============================================================================
+   Status-based Node Colors
+   ============================================================================ */
+
+.equipment-node.operational,
+.equipment-node.active {
+  border-color: #22c55e;
+  background-color: #f0fdf4;
+}
+
+.equipment-node.maintenance {
+  border-color: #eab308;
+  background-color: #fefce8;
+}
+
+.equipment-node.repair {
+  border-color: #f97316;
+  background-color: #fff7ed;
+}
+
+.equipment-node.out_of_service {
+  border-color: #ef4444;
+  background-color: #fef2f2;
+}
+
+.equipment-node.decommissioned {
+  border-color: #9ca3af;
+  background-color: #f9fafb;
+  opacity: 0.7;
+}
+
+.equipment-node.standby {
+  border-color: #3b82f6;
+  background-color: #eff6ff;
+}
+
+/* ============================================================================
+   Drag & Drop Visual Feedback
+   ============================================================================ */
+
+.equipment-panel .dragging {
+  opacity: 0.5;
+}
+
+.editor-canvas.drag-over {
+  background-color: #eff6ff;
+}
+
+/* ============================================================================
+   Responsive Adjustments
+   ============================================================================ */
+
+@media (max-width: 1024px) {
+  .equipment-panel,
+  .properties-panel {
+    width: 16rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .equipment-panel {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 20;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+  }
+
+  .equipment-panel.open {
+    transform: translateX(0);
+  }
+
+  .properties-panel {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 20;
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+  }
+
+  .properties-panel.open {
+    transform: translateX(0);
+  }
+}

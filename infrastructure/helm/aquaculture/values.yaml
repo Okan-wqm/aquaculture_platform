@@ -1,0 +1,413 @@
+# =============================================================================
+# Aquaculture Platform - Helm Values
+# =============================================================================
+
+# Global settings
+global:
+  imageRegistry: ghcr.io
+  imagePullSecrets: []
+  storageClass: ""
+
+# Common labels
+commonLabels:
+  app.kubernetes.io/part-of: aquaculture-platform
+
+# Namespace
+namespace: aquaculture
+
+# =============================================================================
+# Backend Services
+# =============================================================================
+
+gatewayApi:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: aquaculture/gateway-api
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  env:
+    NODE_ENV: production
+    PORT: "3000"
+
+authService:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: aquaculture/auth-service
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  env:
+    JWT_EXPIRES_IN: "1h"
+    REFRESH_TOKEN_EXPIRES_IN: "7d"
+
+farmService:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: aquaculture/farm-service
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+sensorService:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: aquaculture/sensor-service
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 15
+    targetCPUUtilizationPercentage: 60
+
+alertEngine:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: aquaculture/alert-engine
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+notificationService:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: aquaculture/notification-service
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+billingService:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: aquaculture/billing-service
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+hrService:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: aquaculture/hr-service
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# =============================================================================
+# Frontend Services
+# =============================================================================
+
+shell:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: aquaculture/shell
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+dashboard:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: aquaculture/dashboard
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+farmModule:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: aquaculture/farm-module
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+processEditor:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: aquaculture/process-editor
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+adminPanel:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: aquaculture/admin-panel
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# =============================================================================
+# Ingress
+# =============================================================================
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: app.aquaculture.io
+      paths:
+        - path: /
+          pathType: Prefix
+          service: shell
+    - host: api.aquaculture.io
+      paths:
+        - path: /
+          pathType: Prefix
+          service: gateway-api
+  tls:
+    - secretName: aquaculture-tls
+      hosts:
+        - app.aquaculture.io
+        - api.aquaculture.io
+
+# =============================================================================
+# Security
+# =============================================================================
+
+serviceAccount:
+  create: true
+  name: aquaculture-sa
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+
+networkPolicy:
+  enabled: true
+
+# =============================================================================
+# Secrets
+# =============================================================================
+
+secrets:
+  # These should be overridden in production
+  databaseUrl: ""
+  redisUrl: ""
+  jwtSecret: ""
+  natsUrl: "nats://nats:4222"
+
+# External secrets (e.g., from AWS Secrets Manager, Vault)
+externalSecrets:
+  enabled: false
+  secretStore:
+    name: ""
+    kind: ClusterSecretStore
+
+# =============================================================================
+# Infrastructure Dependencies
+# =============================================================================
+
+postgresql:
+  enabled: true
+  auth:
+    username: aquaculture
+    password: ""
+    database: aquaculture
+  primary:
+    persistence:
+      size: 20Gi
+
+redis:
+  enabled: true
+  auth:
+    password: ""
+  master:
+    persistence:
+      size: 5Gi
+
+nats:
+  enabled: true
+  config:
+    jetstream:
+      enabled: true
+      memStorage:
+        size: 1Gi
+      fileStorage:
+        enabled: true
+        size: 5Gi
+
+# =============================================================================
+# Monitoring
+# =============================================================================
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+
+# =============================================================================
+# Probes
+# =============================================================================
+
+livenessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3

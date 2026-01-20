@@ -1,0 +1,231 @@
+# =============================================================================
+# Aquaculture Platform - Loki Stack Values
+# For Grafana Loki Helm chart
+# =============================================================================
+
+loki:
+  # Single binary mode for simplicity (use distributed for production scale)
+  deploymentMode: SimpleScalable
+
+  auth_enabled: false
+
+  limits_config:
+    retention_period: 30d
+    max_query_length: 30d
+    max_query_parallelism: 32
+    max_entries_limit_per_query: 5000
+
+  commonConfig:
+    replication_factor: 2
+
+  storage:
+    type: s3
+    bucketNames:
+      chunks: aquaculture-loki-chunks
+      ruler: aquaculture-loki-ruler
+      admin: aquaculture-loki-admin
+    s3:
+      region: eu-west-1
+      # Use IRSA for authentication
+      # s3ForcePathStyle: true
+      # insecure: false
+
+  schemaConfig:
+    configs:
+      - from: 2024-01-01
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+
+  rulerConfig:
+    alertmanager_url: http://prometheus-alertmanager:9093
+    enable_api: true
+    storage:
+      type: local
+      local:
+        directory: /var/loki/rules
+
+# Backend (for SimpleScalable mode)
+backend:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+  persistence:
+    enableStatefulSetAutoDeletePVC: false
+    size: 50Gi
+    storageClass: gp3
+
+# Read path
+read:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+# Write path
+write:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+  persistence:
+    enableStatefulSetAutoDeletePVC: false
+    size: 50Gi
+    storageClass: gp3
+
+# Gateway
+gateway:
+  enabled: true
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# Service monitor for Prometheus
+monitoring:
+  serviceMonitor:
+    enabled: true
+  selfMonitoring:
+    enabled: true
+    grafanaAgent:
+      installOperator: false
+
+---
+# =============================================================================
+# Promtail Configuration
+# =============================================================================
+promtail:
+  enabled: true
+
+  config:
+    clients:
+      - url: http://loki-gateway/loki/api/v1/push
+
+    snippets:
+      pipelineStages:
+        - cri: {}
+        - json:
+            expressions:
+              level: level
+              message: message
+              timestamp: timestamp
+              service: service
+              tenant_id: tenant_id
+              trace_id: trace_id
+        - labels:
+            level:
+            service:
+            tenant_id:
+        - timestamp:
+            source: timestamp
+            format: RFC3339Nano
+
+      scrapeConfigs: |
+        # Kubernetes pods
+        - job_name: kubernetes-pods
+          kubernetes_sd_configs:
+            - role: pod
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_controller_name]
+              regex: ([0-9a-z-.]+?)(-[0-9a-f]{8,10})?
+              action: replace
+              target_label: __tmp_controller_name
+            - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name, __meta_kubernetes_pod_label_app, __tmp_controller_name, __meta_kubernetes_pod_name]
+              regex: ^;*([^;]+)(;.*)?$
+              action: replace
+              target_label: app
+            - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance, __meta_kubernetes_pod_label_release]
+              regex: ^;*([^;]+)(;.*)?$
+              action: replace
+              target_label: instance
+            - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component, __meta_kubernetes_pod_label_component]
+              regex: ^;*([^;]+)(;.*)?$
+              action: replace
+              target_label: component
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_node_name]
+              target_label: node_name
+            - action: replace
+              source_labels: [__meta_kubernetes_namespace]
+              target_label: namespace
+            - action: replace
+              replacement: $1
+              separator: /
+              source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_pod_name]
+              target_label: job
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_container_name]
+              target_label: container
+            - action: labelmap
+              regex: __meta_kubernetes_pod_label_(.+)
+            - replacement: /var/log/pods/*$1/*.log
+              separator: /
+              source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
+              target_label: __path__
+
+        # Aquaculture specific
+        - job_name: aquaculture-services
+          kubernetes_sd_configs:
+            - role: pod
+              namespaces:
+                names:
+                  - aquaculture
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_label_app]
+              action: keep
+              regex: (gateway-api|auth-service|farm-service|sensor-service|alert-engine|notification-service|billing-service|hr-service)
+            - source_labels: [__meta_kubernetes_pod_label_app]
+              target_label: service
+            - source_labels: [__meta_kubernetes_namespace]
+              target_label: namespace
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod
+          pipeline_stages:
+            - json:
+                expressions:
+                  level: level
+                  message: msg
+                  tenant_id: tenantId
+                  trace_id: traceId
+                  user_id: userId
+            - labels:
+                level:
+                tenant_id:
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  tolerations:
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule

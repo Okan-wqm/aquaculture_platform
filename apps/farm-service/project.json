@@ -1,0 +1,66 @@
+{
+  "name": "farm-service",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/farm-service/src",
+  "projectType": "application",
+  "tags": ["scope:backend", "type:service"],
+  "targets": {
+    "build": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "target": "node",
+        "compiler": "tsc",
+        "outputPath": "dist/apps/farm-service",
+        "main": "apps/farm-service/src/main.ts",
+        "tsConfig": "apps/farm-service/tsconfig.app.json",
+        "assets": ["apps/farm-service/src/assets"],
+        "generatePackageJson": true,
+        "webpackConfig": "apps/farm-service/webpack.config.js"
+      },
+      "configurations": {
+        "development": {
+          "optimization": false,
+          "sourceMap": true
+        },
+        "production": {
+          "optimization": true,
+          "extractLicenses": true,
+          "inspect": false,
+          "sourceMap": false
+        }
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "farm-service:build"
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "farm-service:build:development"
+        },
+        "production": {
+          "buildTarget": "farm-service:build:production"
+        }
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["apps/farm-service/**/*.ts"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "apps/farm-service/jest.config.ts",
+        "passWithNoTests": true
+      }
+    }
+  }
+}

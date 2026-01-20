@@ -1,9 +1,0 @@
-{
-  "query": "mutation CreateProcess($input: CreateProcessInput!) { createProcess(input: $input) { success process { id name nodes } } }",
-  "variables": {
-    "input": {
-      "name": "Type Decorator Test",
-      "nodes": [{"id": "n1", "type": "eq", "position": {"x": 10, "y": 20}, "data": {"equipmentName": "Test"}}]
-    }
-  }
-}

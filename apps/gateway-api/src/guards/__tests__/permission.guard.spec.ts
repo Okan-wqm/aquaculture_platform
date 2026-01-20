@@ -715,7 +715,7 @@ describe('PermissionGuard', () => {
   });
 
   describe('Edge Cases', () => {
-    it('should handle user with empty permissions array', async () => {
+    it('should handle user with empty permissions array', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['farms:read'];
         return undefined;
@@ -726,11 +726,11 @@ describe('PermissionGuard', () => {
         permissions: [],
       });
 
-      const result = await guard.canActivate(context);
+      const result = guard.canActivate(context);
       expect(result).toBe(true); // Should still work via role
     });
 
-    it('should handle user with undefined permissions', async () => {
+    it('should handle user with undefined permissions', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['farms:read'];
         return undefined;
@@ -741,11 +741,11 @@ describe('PermissionGuard', () => {
         permissions: undefined,
       } as Partial<JwtPayload>);
 
-      const result = await guard.canActivate(context);
+      const result = guard.canActivate(context);
       expect(result).toBe(true);
     });
 
-    it('should handle multiple roles', async () => {
+    it('should handle multiple roles', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['users:manage', 'reports:view'];
         return undefined;
@@ -756,11 +756,11 @@ describe('PermissionGuard', () => {
         permissions: [],
       });
 
-      const result = await guard.canActivate(context);
+      const result = guard.canActivate(context);
       expect(result).toBe(true);
     });
 
-    it('should handle permission with special characters', async () => {
+    it('should handle permission with special characters', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['resource-name:action_name'];
         return undefined;
@@ -770,13 +770,13 @@ describe('PermissionGuard', () => {
         permissions: ['resource-name:action_name'],
       });
 
-      const result = await guard.canActivate(context);
+      const result = guard.canActivate(context);
       expect(result).toBe(true);
     });
   });
 
   describe('Performance', () => {
-    it('should handle rapid permission checks efficiently', async () => {
+    it('should handle rapid permission checks efficiently', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['farms:read'];
         return undefined;
@@ -791,7 +791,7 @@ describe('PermissionGuard', () => {
           permissions: ['farms:read'],
         });
 
-        await guard.canActivate(context);
+        guard.canActivate(context);
       }
 
       const duration = Date.now() - startTime;

@@ -69,17 +69,17 @@ describe('HealthService', () => {
   });
 
   describe('getLiveness', () => {
-    it('should return ok status', async () => {
-      const result = await service.getLiveness();
+    it('should return ok status', () => {
+      const result = service.getLiveness();
 
       expect(result).toEqual({ status: 'ok' });
     });
 
-    it('should always return ok regardless of service health', async () => {
+    it('should always return ok regardless of service health', () => {
       // Mock all services as unhealthy
       (global.fetch as jest.Mock).mockRejectedValue(new Error('Connection refused'));
 
-      const result = await service.getLiveness();
+      const result = service.getLiveness();
 
       expect(result).toEqual({ status: 'ok' });
     });

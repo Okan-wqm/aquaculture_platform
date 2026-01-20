@@ -85,26 +85,26 @@ describe('HealthController', () => {
   });
 
   describe('liveness', () => {
-    it('should return ok status', async () => {
-      healthService.getLiveness.mockResolvedValue({ status: 'ok' });
+    it('should return ok status', () => {
+      healthService.getLiveness.mockReturnValue({ status: 'ok' });
 
-      const result = await controller.liveness();
+      const result = controller.liveness();
 
       expect(result).toEqual({ status: 'ok' });
     });
 
-    it('should call healthService.getLiveness', async () => {
-      healthService.getLiveness.mockResolvedValue({ status: 'ok' });
+    it('should call healthService.getLiveness', () => {
+      healthService.getLiveness.mockReturnValue({ status: 'ok' });
 
-      await controller.liveness();
+      controller.liveness();
 
       expect(healthService.getLiveness).toHaveBeenCalledTimes(1);
     });
 
-    it('should always succeed regardless of downstream services', async () => {
-      healthService.getLiveness.mockResolvedValue({ status: 'ok' });
+    it('should always succeed regardless of downstream services', () => {
+      healthService.getLiveness.mockReturnValue({ status: 'ok' });
 
-      const result = await controller.liveness();
+      const result = controller.liveness();
 
       expect(result.status).toBe('ok');
     });
@@ -322,10 +322,10 @@ describe('HealthController', () => {
   });
 
   describe('Response Format', () => {
-    it('liveness should return minimal response', async () => {
-      healthService.getLiveness.mockResolvedValue({ status: 'ok' });
+    it('liveness should return minimal response', () => {
+      healthService.getLiveness.mockReturnValue({ status: 'ok' });
 
-      const result = await controller.liveness();
+      const result = controller.liveness();
 
       expect(Object.keys(result)).toEqual(['status']);
     });
@@ -379,10 +379,10 @@ describe('HealthController', () => {
   });
 
   describe('Kubernetes Integration', () => {
-    it('liveness should be suitable for livenessProbe', async () => {
-      healthService.getLiveness.mockResolvedValue({ status: 'ok' });
+    it('liveness should be suitable for livenessProbe', () => {
+      healthService.getLiveness.mockReturnValue({ status: 'ok' });
 
-      const result = await controller.liveness();
+      const result = controller.liveness();
 
       // Should return quickly and simply
       expect(result).toEqual({ status: 'ok' });
@@ -482,14 +482,12 @@ describe('HealthController', () => {
   });
 
   describe('Concurrent Requests', () => {
-    it('should handle multiple concurrent liveness checks', async () => {
-      healthService.getLiveness.mockResolvedValue({ status: 'ok' });
+    it('should handle multiple concurrent liveness checks', () => {
+      healthService.getLiveness.mockReturnValue({ status: 'ok' });
 
-      const promises = Array(10)
+      const results = Array(10)
         .fill(null)
         .map(() => controller.liveness());
-
-      const results = await Promise.all(promises);
 
       results.forEach((result) => {
         expect(result).toEqual({ status: 'ok' });

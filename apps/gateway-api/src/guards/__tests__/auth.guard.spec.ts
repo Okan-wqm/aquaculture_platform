@@ -20,6 +20,42 @@ import {
   JwtPayload,
 } from '../auth.guard';
 
+/**
+ * Interface for authenticated request
+ */
+interface AuthenticatedRequest {
+  headers: Record<string, string>;
+  query: Record<string, string>;
+  ip: string;
+  path: string;
+  method: string;
+  user?: JwtPayload;
+  authMethod?: string;
+}
+
+/**
+ * Interface for mock HTTP context
+ */
+interface MockHttpContext {
+  getRequest: () => AuthenticatedRequest;
+}
+
+/**
+ * Interface for exception response
+ */
+interface ExceptionResponse {
+  code?: string;
+  message?: string;
+  statusCode?: number;
+}
+
+/**
+ * Interface for exception with response
+ */
+interface ExceptionWithResponse extends Error {
+  response: ExceptionResponse;
+}
+
 describe('AuthGuard', () => {
   let guard: AuthGuard;
   let reflector: Reflector;
@@ -72,7 +108,7 @@ describe('AuthGuard', () => {
     headers: Record<string, string> = {},
     query: Record<string, string> = {},
   ): ExecutionContext => {
-    const mockRequest = {
+    const mockRequest: AuthenticatedRequest = {
       headers,
       query,
       ip: '127.0.0.1',
@@ -88,6 +124,27 @@ describe('AuthGuard', () => {
       getClass: () => jest.fn(),
       getType: () => 'http',
     } as unknown as ExecutionContext;
+  };
+
+  /**
+   * Helper to get typed request from context
+   */
+  const getRequest = (context: ExecutionContext): AuthenticatedRequest => {
+    const httpContext = context.switchToHttp() as unknown as MockHttpContext;
+    return httpContext.getRequest();
+  };
+
+  /**
+   * Helper to assert exception response code
+   */
+  const expectExceptionCode = (fn: () => void, expectedCode: string): void => {
+    try {
+      fn();
+      fail('Expected exception to be thrown');
+    } catch (error) {
+      const exception = error as ExceptionWithResponse;
+      expect(exception.response.code).toBe(expectedCode);
+    }
   };
 
   beforeEach(async () => {
@@ -160,7 +217,7 @@ describe('AuthGuard', () => {
         const result = guard.canActivate(context);
 
         expect(result).toBe(true);
-        const request = context.switchToHttp().getRequest();
+        const request = getRequest(context);
         expect(request.user).toBeDefined();
         expect(request.user.sub).toBe('user-123');
         expect(request.authMethod).toBe('jwt');
@@ -179,7 +236,7 @@ describe('AuthGuard', () => {
         const result = guard.canActivate(context);
 
         expect(result).toBe(true);
-        const request = context.switchToHttp().getRequest();
+        const request = getRequest(context);
         expect(request.user.email).toBe('test@example.com');
         expect(request.user.permissions).toEqual(['read', 'write']);
       });
@@ -195,7 +252,7 @@ describe('AuthGuard', () => {
         const result = guard.canActivate(context);
 
         expect(result).toBe(true);
-        const request = context.switchToHttp().getRequest();
+        const request = getRequest(context);
         expect(request.user.roles).toEqual(['admin', 'manager', 'operator']);
       });
     });
@@ -205,15 +262,7 @@ describe('AuthGuard', () => {
         const context = createMockExecutionContext({});
 
         expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        try {
-          guard.canActivate(context);
-        } catch (error) {
-          expect(error).toMatchObject({
-            response: expect.objectContaining({
-              code: 'MISSING_AUTH_HEADER',
-            }),
-          });
-        }
+        expectExceptionCode(() => guard.canActivate(context), 'MISSING_AUTH_HEADER');
       });
 
       it('should reject invalid token format (not 3 parts)', () => {
@@ -231,15 +280,7 @@ describe('AuthGuard', () => {
         });
 
         expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        try {
-          guard.canActivate(context);
-        } catch (error) {
-          expect(error).toMatchObject({
-            response: expect.objectContaining({
-              code: 'INVALID_AUTH_SCHEME',
-            }),
-          });
-        }
+        expectExceptionCode(() => guard.canActivate(context), 'INVALID_AUTH_SCHEME');
       });
 
       it('should reject token with wrong signature', () => {
@@ -249,15 +290,7 @@ describe('AuthGuard', () => {
         });
 
         expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        try {
-          guard.canActivate(context);
-        } catch (error) {
-          expect(error).toMatchObject({
-            response: expect.objectContaining({
-              code: 'INVALID_TOKEN',
-            }),
-          });
-        }
+        expectExceptionCode(() => guard.canActivate(context), 'INVALID_TOKEN');
       });
     });
 
@@ -273,15 +306,7 @@ describe('AuthGuard', () => {
         });
 
         expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        try {
-          guard.canActivate(context);
-        } catch (error) {
-          expect(error).toMatchObject({
-            response: expect.objectContaining({
-              code: 'TOKEN_EXPIRED',
-            }),
-          });
-        }
+        expectExceptionCode(() => guard.canActivate(context), 'TOKEN_EXPIRED');
       });
 
       it('should accept token that expires in the future', () => {
@@ -331,15 +356,7 @@ describe('AuthGuard', () => {
         });
 
         expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        try {
-          guard.canActivate(context);
-        } catch (error) {
-          expect(error).toMatchObject({
-            response: expect.objectContaining({
-              code: 'INVALID_ISSUER',
-            }),
-          });
-        }
+        expectExceptionCode(() => guard.canActivate(context), 'INVALID_ISSUER');
       });
 
       it('should accept token without issuer claim', () => {
@@ -400,15 +417,7 @@ describe('AuthGuard', () => {
         });
 
         expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        try {
-          guard.canActivate(context);
-        } catch (error) {
-          expect(error).toMatchObject({
-            response: expect.objectContaining({
-              code: 'INVALID_AUDIENCE',
-            }),
-          });
-        }
+        expectExceptionCode(() => guard.canActivate(context), 'INVALID_AUDIENCE');
       });
     });
 
@@ -430,15 +439,7 @@ describe('AuthGuard', () => {
         });
 
         expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        try {
-          guard.canActivate(context);
-        } catch (error) {
-          expect(error).toMatchObject({
-            response: expect.objectContaining({
-              code: 'INVALID_TOKEN_TYPE',
-            }),
-          });
-        }
+        expectExceptionCode(() => guard.canActivate(context), 'INVALID_TOKEN_TYPE');
       });
     });
 
@@ -456,15 +457,7 @@ describe('AuthGuard', () => {
         });
 
         expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-        try {
-          guard.canActivate(context);
-        } catch (error) {
-          expect(error).toMatchObject({
-            response: expect.objectContaining({
-              code: 'TOKEN_REVOKED',
-            }),
-          });
-        }
+        expectExceptionCode(() => guard.canActivate(context), 'TOKEN_REVOKED');
       });
 
       it('should accept non-blacklisted token with jti', () => {
@@ -495,7 +488,7 @@ describe('AuthGuard', () => {
       const result = guard.canActivate(context);
 
       expect(result).toBe(true);
-      const request = context.switchToHttp().getRequest();
+      const request = getRequest(context);
       expect(request.authMethod).toBe('api_key');
       expect(request.user.sub).toBe('api-user-1');
     });
@@ -512,15 +505,7 @@ describe('AuthGuard', () => {
       const context = createMockExecutionContext({});
 
       expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-      try {
-        guard.canActivate(context);
-      } catch (error) {
-        expect(error).toMatchObject({
-          response: expect.objectContaining({
-            code: 'MISSING_API_KEY',
-          }),
-        });
-      }
+      expectExceptionCode(() => guard.canActivate(context), 'MISSING_API_KEY');
     });
 
     it('should reject invalid API key', () => {
@@ -529,15 +514,7 @@ describe('AuthGuard', () => {
       });
 
       expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-      try {
-        guard.canActivate(context);
-      } catch (error) {
-        expect(error).toMatchObject({
-          response: expect.objectContaining({
-            code: 'INVALID_API_KEY',
-          }),
-        });
-      }
+      expectExceptionCode(() => guard.canActivate(context), 'INVALID_API_KEY');
     });
 
     it('should reject disabled API key', () => {
@@ -546,15 +523,7 @@ describe('AuthGuard', () => {
       });
 
       expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-      try {
-        guard.canActivate(context);
-      } catch (error) {
-        expect(error).toMatchObject({
-          response: expect.objectContaining({
-            code: 'API_KEY_DISABLED',
-          }),
-        });
-      }
+      expectExceptionCode(() => guard.canActivate(context), 'API_KEY_DISABLED');
     });
 
     it('should prefer header API key over query parameter', () => {
@@ -585,7 +554,7 @@ describe('AuthGuard', () => {
       const result = guard.canActivate(context);
 
       expect(result).toBe(true);
-      const request = context.switchToHttp().getRequest();
+      const request = getRequest(context);
       expect(request.authMethod).toBe('basic');
       expect(request.user.sub).toBe('admin');
     });
@@ -604,15 +573,7 @@ describe('AuthGuard', () => {
       const context = createMockExecutionContext({});
 
       expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-      try {
-        guard.canActivate(context);
-      } catch (error) {
-        expect(error).toMatchObject({
-          response: expect.objectContaining({
-            code: 'MISSING_AUTH_HEADER',
-          }),
-        });
-      }
+      expectExceptionCode(() => guard.canActivate(context), 'MISSING_AUTH_HEADER');
     });
 
     it('should reject invalid auth scheme', () => {
@@ -622,15 +583,7 @@ describe('AuthGuard', () => {
       });
 
       expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-      try {
-        guard.canActivate(context);
-      } catch (error) {
-        expect(error).toMatchObject({
-          response: expect.objectContaining({
-            code: 'INVALID_AUTH_SCHEME',
-          }),
-        });
-      }
+      expectExceptionCode(() => guard.canActivate(context), 'INVALID_AUTH_SCHEME');
     });
 
     it('should reject invalid credentials format (no colon)', () => {
@@ -649,15 +602,7 @@ describe('AuthGuard', () => {
       });
 
       expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-      try {
-        guard.canActivate(context);
-      } catch (error) {
-        expect(error).toMatchObject({
-          response: expect.objectContaining({
-            code: 'INVALID_CREDENTIALS',
-          }),
-        });
-      }
+      expectExceptionCode(() => guard.canActivate(context), 'INVALID_CREDENTIALS');
     });
 
     it('should reject invalid password', () => {
@@ -667,15 +612,7 @@ describe('AuthGuard', () => {
       });
 
       expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
-      try {
-        guard.canActivate(context);
-      } catch (error) {
-        expect(error).toMatchObject({
-          response: expect.objectContaining({
-            code: 'INVALID_CREDENTIALS',
-          }),
-        });
-      }
+      expectExceptionCode(() => guard.canActivate(context), 'INVALID_CREDENTIALS');
     });
   });
 
@@ -726,9 +663,10 @@ describe('AuthGuard', () => {
       // by checking that slightly different signatures are rejected
       const validToken = createJwtToken({});
       const parts = validToken.split('.');
+      const originalSignature = parts[2] ?? '';
 
       // Tamper with one character in the signature
-      const tamperedSignature = parts[2]!.substring(0, parts[2]!.length - 1) + 'X';
+      const tamperedSignature = originalSignature.substring(0, originalSignature.length - 1) + 'X';
       const tamperedToken = `${parts[0]}.${parts[1]}.${tamperedSignature}`;
 
       const context = createMockExecutionContext({

@@ -152,10 +152,10 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     metrics.errorMessage = error.message;
 
     // Try to extract status code from error
-    if ('status' in error) {
-      metrics.statusCode = (error as any).status;
-    } else if ('statusCode' in error) {
-      metrics.statusCode = (error as any).statusCode;
+    if ('status' in error && typeof (error as { status?: unknown }).status === 'number') {
+      metrics.statusCode = (error as { status: number }).status;
+    } else if ('statusCode' in error && typeof (error as { statusCode?: unknown }).statusCode === 'number') {
+      metrics.statusCode = (error as { statusCode: number }).statusCode;
     } else {
       metrics.statusCode = 500;
     }

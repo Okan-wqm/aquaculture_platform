@@ -39,14 +39,14 @@ export const ROLES_KEY = 'roles';
 /**
  * Decorator to require specific permissions (AND logic)
  */
-export const RequirePermissions = (...permissions: string[]) =>
+export const RequirePermissions = (...permissions: string[]): ReturnType<typeof SetMetadata> =>
   SetMetadata(PERMISSIONS_KEY, permissions);
 
 /**
  * Decorator to require any of the permissions (OR logic)
  */
-export const RequireAnyPermission = (...permissions: string[]) => {
-  return (target: object, key?: string | symbol, descriptor?: PropertyDescriptor) => {
+export const RequireAnyPermission = (...permissions: string[]): ((target: object, key?: string | symbol, descriptor?: PropertyDescriptor) => PropertyDescriptor | undefined) => {
+  return (target: object, key?: string | symbol, descriptor?: PropertyDescriptor): PropertyDescriptor | undefined => {
     SetMetadata(PERMISSIONS_KEY, permissions)(target, key as string | symbol, descriptor as PropertyDescriptor);
     SetMetadata(PERMISSION_MODE_KEY, PermissionMode.ANY)(target, key as string | symbol, descriptor as PropertyDescriptor);
     return descriptor;
@@ -56,7 +56,7 @@ export const RequireAnyPermission = (...permissions: string[]) => {
 /**
  * Decorator to require specific roles
  */
-export const RequireRoles = (...roles: string[]) => SetMetadata(ROLES_KEY, roles);
+export const RequireRoles = (...roles: string[]): ReturnType<typeof SetMetadata> => SetMetadata(ROLES_KEY, roles);
 
 /**
  * Resource-based permission check
@@ -75,8 +75,15 @@ export const RESOURCE_PERMISSION_KEY = 'resourcePermission';
 /**
  * Decorator for resource-based permissions
  */
-export const RequireResourcePermission = (permission: ResourcePermission) =>
+export const RequireResourcePermission = (permission: ResourcePermission): ReturnType<typeof SetMetadata> =>
   SetMetadata(RESOURCE_PERMISSION_KEY, permission);
+
+/**
+ * GraphQL context interface
+ */
+interface GqlContext {
+  req: Request;
+}
 
 /**
  * Role hierarchy definition
@@ -144,7 +151,7 @@ export class PermissionGuard implements CanActivate {
     this.enableAuditLog = this.configService.get<boolean>('PERMISSION_AUDIT_LOG', true);
   }
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  canActivate(context: ExecutionContext): boolean {
     const request = this.getRequest(context);
     const user = (request as AuthenticatedRequest).user;
 
@@ -186,7 +193,7 @@ export class PermissionGuard implements CanActivate {
     }
 
     // Get effective permissions for user
-    const effectivePermissions = await this.getEffectivePermissions(user);
+    const effectivePermissions = this.getEffectivePermissions(user);
 
     // Check for wildcard permission (system admin)
     if (effectivePermissions.includes('*')) {
@@ -264,7 +271,7 @@ export class PermissionGuard implements CanActivate {
   /**
    * Get effective permissions for a user (including role-based)
    */
-  private async getEffectivePermissions(user: JwtPayload): Promise<string[]> {
+  private getEffectivePermissions(user: JwtPayload): string[] {
     const cacheKey = `${user.sub}:${user.tenantId}`;
     const cached = this.permissionCache.get(cacheKey);
 
@@ -355,7 +362,7 @@ export class PermissionGuard implements CanActivate {
     }
 
     // Check wildcard match (e.g., "farms:*" matches "farms:read")
-    const [resource, action] = required.split(':');
+    const [resource] = required.split(':');
 
     if (userPermissions.includes(`${resource}:*`)) {
       return true;
@@ -402,7 +409,7 @@ export class PermissionGuard implements CanActivate {
 
     if (contextType === 'graphql') {
       const gqlContext = GqlExecutionContext.create(context);
-      return gqlContext.getContext().req;
+      return gqlContext.getContext<GqlContext>().req;
     }
 
     return context.switchToHttp().getRequest<Request>();

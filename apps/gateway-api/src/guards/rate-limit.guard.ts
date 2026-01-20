@@ -155,7 +155,8 @@ export class RateLimitGuard implements CanActivate {
   private generateKey(request: RateLimitRequest): string {
     // Priority: user > tenant > IP
     const userId = request.user?.sub ?? request.userId;
-    const tenantId = request.tenantId ?? request.headers['x-tenant-id'];
+    const tenantIdHeader = request.headers['x-tenant-id'];
+    const tenantId = request.tenantId ?? (typeof tenantIdHeader === 'string' ? tenantIdHeader : undefined);
     const forwardedFor = request.headers['x-forwarded-for'];
     const forwardedIp = typeof forwardedFor === 'string' ? forwardedFor.split(',')[0] : undefined;
     const ip = request.ip ?? forwardedIp ?? request.connection?.remoteAddress ?? 'unknown';

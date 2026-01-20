@@ -1,4 +1,4 @@
-import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, HttpCode, HttpException, HttpStatus } from '@nestjs/common';
 
 import { Public } from '../guards/graphql-auth.guard';
 
@@ -21,7 +21,7 @@ export class HealthController {
   @Get('live')
   @Public()
   @HttpCode(HttpStatus.OK)
-  async liveness(): Promise<{ status: 'ok' }> {
+  liveness(): { status: 'ok' } {
     return this.healthService.getLiveness();
   }
 
@@ -74,8 +74,6 @@ export class HealthController {
 /**
  * Custom exception for service unavailable
  */
-import { HttpException } from '@nestjs/common';
-
 class ServiceUnavailableException extends HttpException {
   constructor(message?: string) {
     super(

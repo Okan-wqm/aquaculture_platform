@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { JwtService } from '@nestjs/jwt';
+import { Request } from 'express';
 
 /**
  * Metadata key for public routes
@@ -19,7 +20,7 @@ export const IS_PUBLIC_KEY = 'isPublic';
 /**
  * Public decorator - marks a route as publicly accessible
  */
-export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+export const Public = (): ReturnType<typeof SetMetadata> => SetMetadata(IS_PUBLIC_KEY, true);
 
 /**
  * JWT Payload interface
@@ -32,6 +33,22 @@ export interface JwtPayload {
   permissions?: string[];
   iat: number;
   exp: number;
+}
+
+/**
+ * Authenticated request with user info
+ */
+interface AuthenticatedRequest extends Request {
+  user?: JwtPayload;
+  userId?: string;
+  tenantId?: string;
+}
+
+/**
+ * GraphQL context with request
+ */
+interface GqlContext {
+  req?: AuthenticatedRequest;
 }
 
 /**
@@ -62,19 +79,20 @@ export class GraphQLAuthGuard implements CanActivate {
 
     // Get GraphQL context
     const ctx = GqlExecutionContext.create(context);
-    const request = ctx.getContext().req;
+    const gqlContext = ctx.getContext<GqlContext>();
+    const request = gqlContext.req;
 
     if (!request) {
       // REST endpoint
       const httpContext = context.switchToHttp();
-      const httpRequest = httpContext.getRequest();
+      const httpRequest = httpContext.getRequest<AuthenticatedRequest>();
       return this.validateRequest(httpRequest);
     }
 
     return this.validateRequest(request);
   }
 
-  private async validateRequest(request: any): Promise<boolean> {
+  private async validateRequest(request: AuthenticatedRequest): Promise<boolean> {
     const token = this.extractToken(request);
 
     if (!token) {
@@ -102,14 +120,16 @@ export class GraphQLAuthGuard implements CanActivate {
     }
   }
 
-  private extractToken(request: any): string | null {
+  private extractToken(request: AuthenticatedRequest): string | null {
     const authHeader = request.headers?.authorization;
 
     if (!authHeader) {
       return null;
     }
 
-    const [type, token] = authHeader.split(' ');
+    const parts = authHeader.split(' ');
+    const type = parts[0];
+    const token = parts[1];
 
     if (type !== 'Bearer' || !token) {
       return null;

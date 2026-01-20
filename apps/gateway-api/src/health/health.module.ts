@@ -15,4 +15,5 @@ import { HealthService } from './health.service';
   providers: [HealthService],
   exports: [HealthService],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class HealthModule {}

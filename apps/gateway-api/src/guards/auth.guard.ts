@@ -25,19 +25,19 @@ import { Request } from 'express';
  * Public route decorator
  */
 export const IS_PUBLIC_KEY = 'isPublic';
-export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+export const Public = (): ReturnType<typeof SetMetadata> => SetMetadata(IS_PUBLIC_KEY, true);
 
 /**
  * API Key auth decorator
  */
 export const API_KEY_AUTH_KEY = 'apiKeyAuth';
-export const ApiKeyAuth = () => SetMetadata(API_KEY_AUTH_KEY, true);
+export const ApiKeyAuth = (): ReturnType<typeof SetMetadata> => SetMetadata(API_KEY_AUTH_KEY, true);
 
 /**
  * Basic auth decorator
  */
 export const BASIC_AUTH_KEY = 'basicAuth';
-export const BasicAuth = () => SetMetadata(BASIC_AUTH_KEY, true);
+export const BasicAuth = (): ReturnType<typeof SetMetadata> => SetMetadata(BASIC_AUTH_KEY, true);
 
 /**
  * JWT payload interface
@@ -74,6 +74,13 @@ interface BlacklistEntry {
 }
 
 /**
+ * GraphQL context with request
+ */
+interface GqlContext {
+  req: AuthenticatedRequest;
+}
+
+/**
  * Auth Guard
  * Handles all authentication methods
  */
@@ -105,7 +112,7 @@ export class AuthGuard implements CanActivate {
     this.startBlacklistCleanup();
   }
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  canActivate(context: ExecutionContext): boolean {
     // Check if route is public
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
@@ -145,7 +152,7 @@ export class AuthGuard implements CanActivate {
   /**
    * Validate JWT token
    */
-  private async validateJwt(request: AuthenticatedRequest): Promise<boolean> {
+  private validateJwt(request: AuthenticatedRequest): boolean {
     const authHeader = request.headers['authorization'];
 
     if (!authHeader) {
@@ -270,7 +277,7 @@ export class AuthGuard implements CanActivate {
   /**
    * Validate API key
    */
-  private async validateApiKey(request: AuthenticatedRequest): Promise<boolean> {
+  private validateApiKey(request: AuthenticatedRequest): boolean {
     const apiKey =
       (request.headers['x-api-key'] as string) ||
       (request.query['api_key'] as string);
@@ -324,7 +331,7 @@ export class AuthGuard implements CanActivate {
   /**
    * Validate basic auth
    */
-  private async validateBasicAuth(request: AuthenticatedRequest): Promise<boolean> {
+  private validateBasicAuth(request: AuthenticatedRequest): boolean {
     const authHeader = request.headers['authorization'];
 
     if (!authHeader) {
@@ -381,7 +388,7 @@ export class AuthGuard implements CanActivate {
 
     if (contextType === 'graphql') {
       const gqlContext = GqlExecutionContext.create(context);
-      return gqlContext.getContext().req;
+      return gqlContext.getContext<GqlContext>().req;
     }
 
     return context.switchToHttp().getRequest<AuthenticatedRequest>();

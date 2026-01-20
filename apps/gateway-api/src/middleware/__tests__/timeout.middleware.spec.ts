@@ -4,10 +4,11 @@
  * Comprehensive test suite for request timeout middleware
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { GatewayTimeoutException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
 import { Request, Response } from 'express';
+
 import {
   TimeoutMiddleware,
   hasTimedOut,

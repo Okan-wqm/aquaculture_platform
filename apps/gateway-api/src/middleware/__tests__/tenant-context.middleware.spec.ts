@@ -4,10 +4,11 @@
  * Comprehensive test suite for tenant context middleware
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
 import { Request, Response } from 'express';
+
 import {
   TenantContextMiddleware,
   TenantStatus,

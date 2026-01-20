@@ -6,9 +6,10 @@
  * Implements connection pooling, retry logic, and circuit breaker patterns.
  */
 
+import { EventEmitter } from 'events';
+
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EventEmitter } from 'events';
 
 /**
  * OPA evaluation input

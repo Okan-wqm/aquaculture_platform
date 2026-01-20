@@ -4,10 +4,11 @@
  * Comprehensive test suite for rate limiting guard
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionContext, HttpException } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import { RateLimitGuard } from '../rate-limit.guard';
 
 describe('RateLimitGuard', () => {

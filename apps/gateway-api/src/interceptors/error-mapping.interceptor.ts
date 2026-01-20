@@ -6,6 +6,8 @@
  * Supports different error detail levels for development vs production.
  */
 
+import { randomUUID } from 'crypto';
+
 import {
   Injectable,
   NestInterceptor,
@@ -15,11 +17,10 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
+import { GqlExecutionContext } from '@nestjs/graphql';
+import { Request, Response } from 'express';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
-import { Request, Response } from 'express';
-import { GqlExecutionContext } from '@nestjs/graphql';
-import { randomUUID } from 'crypto';
 
 /**
  * Error mapping configuration

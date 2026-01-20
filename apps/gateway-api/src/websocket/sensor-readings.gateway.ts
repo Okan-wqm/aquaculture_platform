@@ -1,3 +1,5 @@
+import { Logger, Inject, Optional } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -6,9 +8,7 @@ import {
   OnGatewayInit,
   SubscribeMessage,
 } from '@nestjs/websockets';
-import { Logger, Inject, Optional } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import { JwtService } from '@nestjs/jwt';
 
 interface SensorReadingEvent {
   sensorId: string;

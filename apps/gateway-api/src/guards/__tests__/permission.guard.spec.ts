@@ -4,10 +4,12 @@
  * Comprehensive test suite for permission-based access control
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
+import { Test, TestingModule } from '@nestjs/testing';
+
+import { JwtPayload } from '../auth.guard';
 import {
   PermissionGuard,
   PERMISSIONS_KEY,
@@ -19,7 +21,6 @@ import {
   userHasPermission,
   userHasRole,
 } from '../permission.guard';
-import { JwtPayload } from '../auth.guard';
 
 describe('PermissionGuard', () => {
   let guard: PermissionGuard;

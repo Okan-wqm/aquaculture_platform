@@ -3,6 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/admin-api-service/src",
   "projectType": "application",
+  "tags": ["scope:backend", "type:service", "domain:admin"],
   "targets": {
     "build": {
       "executor": "@nx/webpack:webpack",
@@ -59,6 +60,5 @@
         "passWithNoTests": true
       }
     }
-  },
-  "tags": ["scope:backend", "type:service", "domain:admin"]
+  }
 }

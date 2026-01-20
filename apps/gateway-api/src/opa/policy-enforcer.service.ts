@@ -8,6 +8,7 @@
 
 import { Injectable, Logger, ForbiddenException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
 import { OpaClientService, OpaResult } from './opa-client.service';
 
 /**

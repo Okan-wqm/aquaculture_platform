@@ -3,6 +3,8 @@
  * Handles file upload operations for the platform
  * @module Upload
  */
+import { randomUUID } from 'crypto';
+
 import {
   Controller,
   Post,
@@ -21,18 +23,19 @@ import {
   Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Request } from 'express';
 import { MinioClientService, UploadResult } from '@platform/storage';
+import { Request } from 'express';
+
 import { AuthGuard, AuthenticatedRequest } from '../guards/auth.guard';
-import {
-  UploadChemicalDocumentDto,
-  ChemicalDocumentType,
-} from './dto/upload-chemical-document.dto';
+
 import {
   UploadBatchDocumentDto,
   BatchDocumentCategory,
 } from './dto/upload-batch-document.dto';
-import { randomUUID } from 'crypto';
+import {
+  UploadChemicalDocumentDto,
+  ChemicalDocumentType,
+} from './dto/upload-chemical-document.dto';
 
 /**
  * Multer file interface

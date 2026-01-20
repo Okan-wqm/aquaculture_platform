@@ -5,8 +5,8 @@ import {
   CallHandler,
   Logger,
 } from '@nestjs/common';
-import { Observable, tap, catchError, throwError } from 'rxjs';
 import { GqlExecutionContext, GqlContextType } from '@nestjs/graphql';
+import { Observable, tap, catchError, throwError } from 'rxjs';
 
 /**
  * Request metrics

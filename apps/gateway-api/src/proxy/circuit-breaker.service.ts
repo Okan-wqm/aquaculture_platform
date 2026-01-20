@@ -6,9 +6,10 @@
  * Provides automatic recovery and fallback mechanisms.
  */
 
+import { EventEmitter } from 'events';
+
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EventEmitter } from 'events';
 
 /**
  * Circuit breaker states

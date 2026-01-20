@@ -4,17 +4,20 @@
  * Comprehensive test suite for policy enforcement service
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
+import { EventEmitter } from 'events';
+
 import { ForbiddenException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
+
+import { OpaClientService, OpaResult } from '../opa-client.service';
 import {
   PolicyEnforcerService,
   AuthorizationContext,
   SubjectContext,
   AuthorizationDecision,
 } from '../policy-enforcer.service';
-import { OpaClientService, OpaResult } from '../opa-client.service';
-import { EventEmitter } from 'events';
+
 
 describe('PolicyEnforcerService', () => {
   let service: PolicyEnforcerService;

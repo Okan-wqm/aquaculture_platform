@@ -4,10 +4,13 @@
  * Comprehensive test suite for response compression middleware
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
-import { Request, Response } from 'express';
 import * as zlib from 'zlib';
+
+import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
+import { Request, Response } from 'express';
+
+
 import {
   CompressionMiddleware,
   compress,

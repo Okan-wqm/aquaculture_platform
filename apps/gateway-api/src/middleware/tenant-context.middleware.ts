@@ -6,10 +6,11 @@
  * Provides tenant-aware configuration and settings.
  */
 
-import { Injectable, NestMiddleware, Logger, BadRequestException } from '@nestjs/common';
-import { Request, Response, NextFunction } from 'express';
-import { ConfigService } from '@nestjs/config';
 import { AsyncLocalStorage } from 'async_hooks';
+
+import { Injectable, NestMiddleware, Logger, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Request, Response, NextFunction } from 'express';
 
 /**
  * Tenant status

@@ -6,10 +6,11 @@
  * Improves bandwidth usage and response times for large payloads.
  */
 
-import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
-import { Request, Response, NextFunction } from 'express';
-import { ConfigService } from '@nestjs/config';
 import * as zlib from 'zlib';
+
+import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Request, Response, NextFunction } from 'express';
 
 /**
  * Compression configuration

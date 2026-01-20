@@ -4,8 +4,9 @@
  * Comprehensive test suite for OPA (Open Policy Agent) client service
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import {
   OpaClientService,
   OpaResult,

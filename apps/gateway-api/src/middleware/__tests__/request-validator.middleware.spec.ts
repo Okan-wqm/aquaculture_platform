@@ -4,10 +4,11 @@
  * Comprehensive test suite for request validation and security threat detection
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
 import { Request, Response } from 'express';
+
 import {
   RequestValidatorMiddleware,
   ValidatedRequest,

@@ -4,9 +4,13 @@
  * Comprehensive test suite for service proxy functionality
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
 import { BadGatewayException, GatewayTimeoutException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
+import { Request, Response } from 'express';
+
+import { CircuitBreakerService, CircuitState } from '../circuit-breaker.service';
+import { LoadBalancerService, InstanceHealth, ServiceInstanceStats } from '../load-balancer.service';
 import {
   ServiceProxyService,
   ServiceProxyConfig,
@@ -16,9 +20,7 @@ import {
   addHeader,
   removeHeader,
 } from '../service-proxy.service';
-import { CircuitBreakerService, CircuitState } from '../circuit-breaker.service';
-import { LoadBalancerService, InstanceHealth, ServiceInstanceStats } from '../load-balancer.service';
-import { Request, Response } from 'express';
+
 
 // Mock fetch globally
 const mockFetch = jest.fn();

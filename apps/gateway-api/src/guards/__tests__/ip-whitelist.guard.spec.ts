@@ -4,10 +4,11 @@
  * Comprehensive test suite for IP-based access control guard
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import { IpWhitelistGuard, BYPASS_IP_WHITELIST } from '../ip-whitelist.guard';
 
 describe('IpWhitelistGuard', () => {

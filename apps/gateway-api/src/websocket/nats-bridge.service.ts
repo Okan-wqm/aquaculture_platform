@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { connect, NatsConnection, Subscription, StringCodec } from 'nats';
+
 import { SensorReadingsGateway } from './sensor-readings.gateway';
 
 interface NatsEvent {

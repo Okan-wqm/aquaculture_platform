@@ -4,9 +4,10 @@
  * Comprehensive test suite for security headers middleware
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
 import { Request, Response } from 'express';
+
 import { SecurityHeadersMiddleware } from '../security-headers.middleware';
 
 describe('SecurityHeadersMiddleware', () => {

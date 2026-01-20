@@ -4,10 +4,12 @@
  * Comprehensive test suite for global exception handling
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { HttpException, HttpStatus, ArgumentsHost } from '@nestjs/common';
-import { GlobalExceptionFilter } from '../global-exception.filter';
+import { Test, TestingModule } from '@nestjs/testing';
 import { GraphQLError } from 'graphql';
+
+import { GlobalExceptionFilter } from '../global-exception.filter';
+
 
 describe('GlobalExceptionFilter', () => {
   let filter: GlobalExceptionFilter;
@@ -94,7 +96,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock; status: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       expect(response.status).toHaveBeenCalledWith(404);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -111,7 +113,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           correlationId: 'corr-123',
@@ -125,7 +127,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           tenantId: 'tenant-456',
@@ -139,7 +141,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       const call = response.json.mock.calls[0][0];
       expect(call.timestamp).toBeDefined();
       expect(new Date(call.timestamp).toISOString()).toBe(call.timestamp);
@@ -154,7 +156,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock; status: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       expect(response.status).toHaveBeenCalledWith(422);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -177,7 +179,7 @@ describe('GlobalExceptionFilter', () => {
       const devFilter = new GlobalExceptionFilter();
       devFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           details: { extra: 'info' },
@@ -197,7 +199,7 @@ describe('GlobalExceptionFilter', () => {
       const prodFilter = new GlobalExceptionFilter();
       prodFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       const call = response.json.mock.calls[0][0];
       expect(call.details).toBeUndefined();
     });
@@ -210,7 +212,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock; status: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       expect(response.status).toHaveBeenCalledWith(500);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -230,7 +232,7 @@ describe('GlobalExceptionFilter', () => {
       const devFilter = new GlobalExceptionFilter();
       devFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       const call = response.json.mock.calls[0][0];
       expect(call.details).toContain('Error: Test error');
     });
@@ -244,7 +246,7 @@ describe('GlobalExceptionFilter', () => {
       const prodFilter = new GlobalExceptionFilter();
       prodFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       const call = response.json.mock.calls[0][0];
       expect(call.details).toBeUndefined();
     });
@@ -255,7 +257,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock; status: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       expect(response.status).toHaveBeenCalledWith(500);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -337,7 +339,7 @@ describe('GlobalExceptionFilter', () => {
       const devFilter = new GlobalExceptionFilter();
       devFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           message: 'Invalid password format',
@@ -366,7 +368,7 @@ describe('GlobalExceptionFilter', () => {
         const prodFilter = new GlobalExceptionFilter();
         prodFilter.catch(exception, host);
 
-        const response = host.switchToHttp().getResponse() as { json: jest.Mock };
+        const response = host.switchToHttp().getResponse();
         const call = response.json.mock.calls[0][0];
         expect(call.message).toBe('An error occurred while processing your request');
       }
@@ -381,7 +383,7 @@ describe('GlobalExceptionFilter', () => {
       const prodFilter = new GlobalExceptionFilter();
       prodFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           message: 'Resource not found',
@@ -409,7 +411,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { status: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       expect(response.status).toHaveBeenCalledWith(expectedStatus);
     });
   });
@@ -421,7 +423,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           error: 'Bad Request',
@@ -438,7 +440,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse() as { json: jest.Mock };
+      const response = host.switchToHttp().getResponse();
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           error: 'Custom Error Type',

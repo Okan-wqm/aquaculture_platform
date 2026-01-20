@@ -7,8 +7,8 @@
  */
 
 import { Module, Controller, Get, Post, Req, Res, UseGuards, Logger } from '@nestjs/common';
-import { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
+import { Request, Response } from 'express';
 
 /**
  * Sensor routes controller

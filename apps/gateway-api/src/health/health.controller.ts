@@ -1,6 +1,8 @@
 import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
-import { HealthService, HealthStatus } from './health.service';
+
 import { Public } from '../guards/graphql-auth.guard';
+
+import { HealthService, HealthStatus } from './health.service';
 
 /**
  * Health Controller

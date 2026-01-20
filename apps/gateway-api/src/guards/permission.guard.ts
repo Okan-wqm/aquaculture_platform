@@ -14,10 +14,11 @@ import {
   Logger,
   SetMetadata,
 } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
-import { Request } from 'express';
-import { GqlExecutionContext } from '@nestjs/graphql';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
+import { GqlExecutionContext } from '@nestjs/graphql';
+import { Request } from 'express';
+
 import { JwtPayload, AuthenticatedRequest } from './auth.guard';
 
 /**

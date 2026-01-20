@@ -4,10 +4,11 @@
  * Comprehensive test suite for OPA policy evaluation guard
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import { OpaPolicyGuard, OPA_POLICY_KEY, BYPASS_OPA_KEY } from '../opa-policy.guard';
 
 describe('OpaPolicyGuard', () => {

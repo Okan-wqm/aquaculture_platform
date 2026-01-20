@@ -6,9 +6,10 @@
  * Supports X-Request-ID and X-Correlation-ID headers.
  */
 
+import { randomUUID } from 'crypto';
+
 import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
-import { randomUUID } from 'crypto';
 
 /**
  * Header names for correlation ID

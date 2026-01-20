@@ -4,9 +4,10 @@
  * Comprehensive test suite for request logging interceptor
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { CallHandler, ExecutionContext } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
 import { of, throwError } from 'rxjs';
+
 import { RequestLoggingInterceptor } from '../request-logging.interceptor';
 
 describe('RequestLoggingInterceptor', () => {
@@ -103,7 +104,7 @@ describe('RequestLoggingInterceptor', () => {
 
   beforeEach(async () => {
     // Reset environment
-    delete process.env['SLOW_REQUEST_THRESHOLD_MS'];
+    delete process.env.SLOW_REQUEST_THRESHOLD_MS;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [RequestLoggingInterceptor],

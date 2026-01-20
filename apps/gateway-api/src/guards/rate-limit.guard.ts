@@ -7,9 +7,9 @@ import {
   Logger,
   SetMetadata,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { ConfigService } from '@nestjs/config';
 
 /**
  * Metadata key for custom rate limits

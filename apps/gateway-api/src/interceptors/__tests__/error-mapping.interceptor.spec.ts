@@ -4,14 +4,16 @@
  * Comprehensive test suite for error mapping and transformation interceptor
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import {
   CallHandler,
   ExecutionContext,
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import { Request, Response } from 'express';
 import { of, throwError } from 'rxjs';
+
 import {
   ErrorMappingInterceptor,
   MappedErrorResponse,
@@ -19,7 +21,7 @@ import {
   createBusinessError,
   throwBusinessError,
 } from '../error-mapping.interceptor';
-import { Request, Response } from 'express';
+
 
 describe('ErrorMappingInterceptor', () => {
   let interceptor: ErrorMappingInterceptor;
@@ -258,7 +260,7 @@ describe('ErrorMappingInterceptor', () => {
         interceptor.intercept(context, handler).subscribe({
           next: () => done.fail('Should have thrown'),
           error: () => {
-            const response = context.switchToHttp().getResponse() as Response;
+            const response = context.switchToHttp().getResponse();
             expect(response.setHeader).toHaveBeenCalledWith('Retry-After', '60');
             done();
           },

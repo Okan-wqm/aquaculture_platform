@@ -6,9 +6,10 @@
  * Provides sticky sessions and weighted distribution.
  */
 
+import { EventEmitter } from 'events';
+
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EventEmitter } from 'events';
 
 /**
  * Load balancing algorithms

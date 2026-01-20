@@ -6,6 +6,8 @@
  * Configurable per-route caching policies.
  */
 
+import { createHash } from 'crypto';
+
 import {
   Injectable,
   NestInterceptor,
@@ -14,12 +16,11 @@ import {
   Logger,
   SetMetadata,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { GqlExecutionContext } from '@nestjs/graphql';
+import { Request, Response } from 'express';
 import { Observable } from 'rxjs';
 import { tap, map } from 'rxjs/operators';
-import { Request, Response } from 'express';
-import { GqlExecutionContext } from '@nestjs/graphql';
-import { Reflector } from '@nestjs/core';
-import { createHash } from 'crypto';
 
 /**
  * Cache policy options
@@ -196,12 +197,12 @@ export class CacheControlInterceptor implements NestInterceptor {
     // These will be validated after response is generated
     // For now, store them for later comparison
     if (ifNoneMatch) {
-      (request as Request & { conditionalETag?: string }).conditionalETag = ifNoneMatch as string;
+      (request as Request & { conditionalETag?: string }).conditionalETag = ifNoneMatch;
     }
 
     if (ifModifiedSince) {
       (request as Request & { conditionalModifiedSince?: string }).conditionalModifiedSince =
-        ifModifiedSince as string;
+        ifModifiedSince;
     }
 
     return { notModified: false };

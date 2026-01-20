@@ -102,3 +102,5 @@ secrets/
 .nx/workspace-datanul
 sens-repo-temp/
 sens-repo/
+
+vite.config.*.timestamp*

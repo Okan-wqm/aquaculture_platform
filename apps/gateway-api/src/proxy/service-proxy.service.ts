@@ -6,10 +6,12 @@
  * Supports HTTP, WebSocket, and SSE proxying.
  */
 
+import { IncomingMessage } from 'http';
+
 import { Injectable, Logger, BadGatewayException, GatewayTimeoutException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
-import { IncomingMessage } from 'http';
+
 import { CircuitBreakerService } from './circuit-breaker.service';
 import { LoadBalancerService, ServiceInstanceStats, LoadBalancerContext } from './load-balancer.service';
 

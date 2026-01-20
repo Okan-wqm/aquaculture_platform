@@ -4,8 +4,9 @@
  * Comprehensive test suite for health monitoring service
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import { HealthService, ServiceHealth, HealthStatus } from '../health.service';
 
 describe('HealthService', () => {
@@ -34,7 +35,7 @@ describe('HealthService', () => {
    */
   const createMockFetchResponse = (
     ok: boolean,
-    status: number = 200,
+    status = 200,
     data: unknown = {},
   ): Response => {
     return {

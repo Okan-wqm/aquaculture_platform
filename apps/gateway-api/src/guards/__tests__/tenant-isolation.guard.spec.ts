@@ -4,10 +4,11 @@
  * Comprehensive test suite for tenant isolation guard
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import { TenantIsolationGuard } from '../tenant-isolation.guard';
 
 describe('TenantIsolationGuard', () => {
@@ -156,7 +157,7 @@ describe('TenantIsolationGuard', () => {
       const context = createMockExecutionContext({ sub: 'user-1', tenantId: 'tenant-123' });
       await guard.canActivate(context);
 
-      const request = context.switchToHttp().getRequest() as { tenantId?: string };
+      const request = context.switchToHttp().getRequest();
       expect(request.tenantId).toBe('tenant-123');
     });
   });

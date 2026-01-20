@@ -7,8 +7,8 @@
  */
 
 import { Injectable, NestMiddleware, Logger, BadRequestException } from '@nestjs/common';
-import { Request, Response, NextFunction } from 'express';
 import { ConfigService } from '@nestjs/config';
+import { Request, Response, NextFunction } from 'express';
 
 /**
  * Validation result interface

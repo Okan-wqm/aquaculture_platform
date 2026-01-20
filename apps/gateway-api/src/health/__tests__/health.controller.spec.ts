@@ -4,8 +4,9 @@
  * Comprehensive test suite for health check endpoints
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { HttpStatus } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import { HealthController } from '../health.controller';
 import { HealthService, HealthStatus, ServiceHealth } from '../health.service';
 

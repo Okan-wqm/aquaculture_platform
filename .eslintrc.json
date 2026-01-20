@@ -1,6 +1,14 @@
 {
   "root": true,
-  "ignorePatterns": ["**/*"],
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    ".nx",
+    "**/*.d.ts",
+    "**/*.js.map"
+  ],
   "plugins": ["@nx", "@typescript-eslint", "import"],
   "extends": [
     "eslint:recommended",
@@ -32,6 +40,9 @@
         "plugin:@nx/typescript",
         "plugin:@typescript-eslint/strict"
       ],
+      "parserOptions": {
+        "project": ["tsconfig.base.json", "apps/*/tsconfig.json", "libs/*/tsconfig.json", "platform/libs/*/tsconfig.json", "web/*/tsconfig.json", "web/modules/*/tsconfig.json"]
+      },
       "rules": {
         "@typescript-eslint/no-explicit-any": "error",
         "@typescript-eslint/no-unused-vars": [

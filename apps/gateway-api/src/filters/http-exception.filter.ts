@@ -98,6 +98,13 @@ const USER_FRIENDLY_MESSAGES: Record<number, string> = {
 };
 
 /**
+ * GraphQL context interface
+ */
+interface GqlContext {
+  req?: Request;
+}
+
+/**
  * HTTP Exception Filter
  * Catches and handles all HTTP exceptions
  */
@@ -148,8 +155,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
    */
   private handleGraphQLException(exception: HttpException, host: ArgumentsHost): void {
     const gqlHost = GqlArgumentsHost.create(host);
-    const ctx = gqlHost.getContext();
-    const request = ctx.req as Request;
+    const ctx = gqlHost.getContext<GqlContext>();
+    const request = ctx.req;
 
     const statusCode = exception.getStatus();
     const exceptionResponse = exception.getResponse();
@@ -174,17 +181,19 @@ export class HttpExceptionFilter implements ExceptionFilter {
     exception: HttpException,
     statusCode: number,
     exceptionResponse: unknown,
-    request: Request,
+    request?: Request,
   ): HttpErrorResponse {
-    const code = STATUS_CODE_MAP[statusCode] || 'ERROR';
+    const code = STATUS_CODE_MAP[statusCode] ?? 'ERROR';
     const timestamp = new Date().toISOString();
-    const path = request.originalUrl || request.url || '/';
-    const method = request.method;
+    const path = request?.originalUrl ?? request?.url ?? '/';
+    const method = request?.method ?? 'UNKNOWN';
 
     // Extract correlation ID
+    const correlationIdHeader = request?.headers?.['x-correlation-id'];
+    const requestIdHeader = request?.headers?.['x-request-id'];
     const correlationId =
-      (request.headers['x-correlation-id'] as string) ||
-      (request.headers['x-request-id'] as string);
+      (typeof correlationIdHeader === 'string' ? correlationIdHeader : undefined) ??
+      (typeof requestIdHeader === 'string' ? requestIdHeader : undefined);
 
     // Extract message and details
     let message: string;
@@ -279,19 +288,19 @@ export class HttpExceptionFilter implements ExceptionFilter {
     exceptionResponse: unknown,
   ): void {
     // Add Retry-After header for rate limiting
-    if (statusCode === HttpStatus.TOO_MANY_REQUESTS) {
+    if (statusCode === 429) {
       const responseObj = exceptionResponse as Record<string, unknown>;
-      const retryAfter = responseObj?.['retryAfter'] || 60;
+      const retryAfter = responseObj?.['retryAfter'] ?? 60;
       response.setHeader('Retry-After', String(retryAfter));
     }
 
     // Add WWW-Authenticate header for unauthorized
-    if (statusCode === HttpStatus.UNAUTHORIZED) {
+    if (statusCode === 401) {
       response.setHeader('WWW-Authenticate', 'Bearer');
     }
 
     // Add Allow header for method not allowed
-    if (statusCode === HttpStatus.METHOD_NOT_ALLOWED) {
+    if (statusCode === 405) {
       const responseObj = exceptionResponse as Record<string, unknown>;
       const allowedMethods = responseObj?.['allowedMethods'];
       if (Array.isArray(allowedMethods)) {
@@ -306,17 +315,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
   private logError(
     exception: HttpException,
     errorResponse: HttpErrorResponse,
-    request: Request,
+    request?: Request,
   ): void {
     const statusCode = exception.getStatus();
+    const userAgentHeader = request?.headers?.['user-agent'];
     const logContext = {
       statusCode,
       path: errorResponse.meta.path,
       method: errorResponse.meta.method,
       correlationId: errorResponse.meta.correlationId,
       errorCode: errorResponse.error.code,
-      ip: request.ip,
-      userAgent: request.headers['user-agent'],
+      ip: request?.ip,
+      userAgent: typeof userAgentHeader === 'string' ? userAgentHeader : undefined,
     };
 
     // Log based on severity

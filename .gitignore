@@ -8,7 +8,7 @@ dist
 build
 tmp
 out-tsc
-.nx/cache
+.nx/
 
 # Testing
 coverage
@@ -98,8 +98,7 @@ secrets/
 .dockerignore
 
 # Nx
-.nx/cache
-.nx/workspace-datanul
+.nx/
 sens-repo-temp/
 sens-repo/
 

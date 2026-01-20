@@ -11,7 +11,6 @@ import { HealthService, ServiceHealth, HealthStatus } from '../health.service';
 
 describe('HealthService', () => {
   let service: HealthService;
-  let configService: ConfigService;
   let originalFetch: typeof global.fetch;
 
   const mockConfigService = {
@@ -187,14 +186,14 @@ describe('HealthService', () => {
     it('should return degraded when some services have slow responses', async () => {
       // Simulate slow response (>2000ms)
       let callCount = 0;
-      (global.fetch as jest.Mock).mockImplementation(async () => {
+      (global.fetch as jest.Mock).mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
           // First service is slow - we can't actually delay here easily,
           // so we'll test the degraded path differently
-          return createMockFetchResponse(true, 200);
+          return Promise.resolve(createMockFetchResponse(true, 200));
         }
-        return createMockFetchResponse(true, 200);
+        return Promise.resolve(createMockFetchResponse(true, 200));
       });
 
       const result = await service.getHealth();
@@ -356,7 +355,8 @@ describe('HealthService', () => {
       await service.getHealth();
 
       // Verify AbortController signal is passed
-      const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
+      const mockFetch = global.fetch as jest.Mock;
+      const fetchCall = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(fetchCall[1].signal).toBeDefined();
     });
 

@@ -41,12 +41,44 @@ describe('OpaPolicyGuard', () => {
     } as unknown as ExecutionContext;
   };
 
-  const mockOpaResponse = (allow: boolean, reason?: string) => ({
+  /**
+   * Interface for OPA input
+   */
+  interface OpaInput {
+    input: {
+      request: {
+        path: string;
+        method: string;
+      };
+      user?: Record<string, unknown>;
+    };
+  }
+
+  /**
+   * Interface for fetch request options
+   */
+  interface FetchRequestOptions {
+    method: string;
+    body: string;
+    headers?: Record<string, string>;
+  }
+
+  const mockOpaResponse = (allow: boolean, reason?: string): { result: { allow: boolean; reason?: string } } => ({
     result: {
       allow,
       reason,
     },
   });
+
+  /**
+   * Helper to get the fetch request body as parsed JSON
+   */
+  const getFetchRequestBody = (): OpaInput => {
+    const mockFetch = global.fetch as jest.Mock;
+    const calls = mockFetch.mock.calls as [string, FetchRequestOptions][];
+    const bodyString = calls[0]?.[1]?.body ?? '{}';
+    return JSON.parse(bodyString) as OpaInput;
+  };
 
   beforeEach(async () => {
     // Mock global fetch
@@ -200,13 +232,12 @@ describe('OpaPolicyGuard', () => {
       const context = createMockExecutionContext(user, '/api/v1/users', 'POST');
       await guard.canActivate(context);
 
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('http://localhost:8181'),
-        expect.objectContaining({
-          method: 'POST',
-          body: expect.stringContaining('user-123'),
-        }),
-      );
+      const mockFetch = global.fetch as jest.Mock;
+      expect(mockFetch).toHaveBeenCalled();
+      const [url, options] = mockFetch.mock.calls[0] as [string, FetchRequestOptions];
+      expect(url).toContain('http://localhost:8181');
+      expect(options.method).toBe('POST');
+      expect(options.body).toContain('user-123');
     });
 
     it('should include request path in input', async () => {
@@ -218,7 +249,7 @@ describe('OpaPolicyGuard', () => {
       const context = createMockExecutionContext({}, '/api/v1/sensitive');
       await guard.canActivate(context);
 
-      const callBody = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+      const callBody = getFetchRequestBody();
       expect(callBody.input.request.path).toBe('/api/v1/sensitive');
     });
 
@@ -231,7 +262,7 @@ describe('OpaPolicyGuard', () => {
       const context = createMockExecutionContext({}, '/api', 'DELETE');
       await guard.canActivate(context);
 
-      const callBody = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+      const callBody = getFetchRequestBody();
       expect(callBody.input.request.method).toBe('DELETE');
     });
   });

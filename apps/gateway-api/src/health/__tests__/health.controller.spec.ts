@@ -4,11 +4,20 @@
  * Comprehensive test suite for health check endpoints
  */
 
-import { HttpStatus } from '@nestjs/common';
+import { HttpException, HttpStatus } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { HealthController } from '../health.controller';
 import { HealthService, HealthStatus, ServiceHealth } from '../health.service';
+
+/**
+ * Interface for HTTP exception response
+ */
+interface HttpExceptionResponse {
+  statusCode?: number;
+  message?: string;
+  error?: string;
+}
 
 describe('HealthController', () => {
   let controller: HealthController;
@@ -137,9 +146,11 @@ describe('HealthController', () => {
       try {
         await controller.readiness();
         fail('Expected exception to be thrown');
-      } catch (error: any) {
-        expect(error.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
-        expect(error.getResponse().message).toBe('Auth service is unavailable');
+      } catch (error) {
+        const httpError = error as HttpException;
+        expect(httpError.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+        const response = httpError.getResponse() as HttpExceptionResponse;
+        expect(response.message).toBe('Auth service is unavailable');
       }
     });
 
@@ -152,8 +163,9 @@ describe('HealthController', () => {
       try {
         await controller.readiness();
         fail('Expected exception to be thrown');
-      } catch (error: any) {
-        expect(error.getStatus()).toBe(503);
+      } catch (error) {
+        const httpError = error as HttpException;
+        expect(httpError.getStatus()).toBe(503);
       }
     });
 
@@ -295,28 +307,27 @@ describe('HealthController', () => {
 
   describe('Controller Decorators', () => {
     it('should be decorated with @Controller("health")', () => {
-      const controllerPath = Reflect.getMetadata('path', HealthController);
+      const controllerPath = Reflect.getMetadata('path', HealthController) as string;
       expect(controllerPath).toBe('health');
     });
 
     it('should have liveness endpoint at GET /health/live', () => {
-      const path = Reflect.getMetadata('path', HealthController.prototype.liveness);
-      const method = Reflect.getMetadata('method', HealthController.prototype.liveness);
+      const path = Reflect.getMetadata('path', HealthController.prototype.liveness) as string;
       expect(path).toBe('live');
     });
 
     it('should have readiness endpoint at GET /health/ready', () => {
-      const path = Reflect.getMetadata('path', HealthController.prototype.readiness);
+      const path = Reflect.getMetadata('path', HealthController.prototype.readiness) as string;
       expect(path).toBe('ready');
     });
 
     it('should have health endpoint at GET /health', () => {
-      const path = Reflect.getMetadata('path', HealthController.prototype.health);
+      const path = Reflect.getMetadata('path', HealthController.prototype.health) as string;
       expect(path).toBe('/');
     });
 
     it('should have ping endpoint at GET /health/ping', () => {
-      const path = Reflect.getMetadata('path', HealthController.prototype.ping);
+      const path = Reflect.getMetadata('path', HealthController.prototype.ping) as string;
       expect(path).toBe('ping');
     });
   });
@@ -406,8 +417,9 @@ describe('HealthController', () => {
       try {
         await controller.readiness();
         fail('Should have thrown');
-      } catch (error: any) {
-        expect(error.getStatus()).toBe(503);
+      } catch (error) {
+        const httpError = error as HttpException;
+        expect(httpError.getStatus()).toBe(503);
       }
     });
   });

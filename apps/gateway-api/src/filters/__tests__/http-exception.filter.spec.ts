@@ -14,7 +14,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { Request, Response } from 'express';
 
 import {
   HttpExceptionFilter,
@@ -23,6 +22,33 @@ import {
   createValidationException,
 } from '../http-exception.filter';
 
+/**
+ * Mock response object with properly typed jest mock functions
+ */
+interface MockResponseObject {
+  status: jest.Mock<MockResponseObject, [number]>;
+  json: jest.Mock<MockResponseObject, [HttpErrorResponse]>;
+  setHeader: jest.Mock<MockResponseObject, [string, string]>;
+}
+
+/**
+ * Mock request object
+ */
+interface MockRequestObject {
+  url: string;
+  originalUrl?: string;
+  method: string;
+  headers: Record<string, string | undefined>;
+  ip: string;
+}
+
+/**
+ * Mock HTTP host
+ */
+interface MockHttpHost {
+  getRequest: () => MockRequestObject;
+  getResponse: () => MockResponseObject;
+}
 
 describe('HttpExceptionFilter', () => {
   let filter: HttpExceptionFilter;
@@ -40,31 +66,61 @@ describe('HttpExceptionFilter', () => {
     ip?: string;
     userAgent?: string;
   } = {}): ArgumentsHost => {
-    const mockRequest: Partial<Request> = {
-      url: options.url || '/api/test',
-      originalUrl: options.originalUrl || options.url || '/api/test',
-      method: options.method || 'GET',
+    const mockRequest: MockRequestObject = {
+      url: options.url ?? '/api/test',
+      originalUrl: options.originalUrl ?? options.url ?? '/api/test',
+      method: options.method ?? 'GET',
       headers: {
         'x-correlation-id': options.correlationId,
         'x-request-id': options.requestId,
-        'user-agent': options.userAgent || 'test-agent',
+        'user-agent': options.userAgent ?? 'test-agent',
       },
-      ip: options.ip || '127.0.0.1',
+      ip: options.ip ?? '127.0.0.1',
     };
 
-    const mockResponse: Partial<Response> = {
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn().mockReturnThis(),
-      setHeader: jest.fn().mockReturnThis(),
+    const mockResponse: MockResponseObject = {
+      status: jest.fn().mockReturnThis() as jest.Mock<MockResponseObject, [number]>,
+      json: jest.fn().mockReturnThis() as jest.Mock<MockResponseObject, [HttpErrorResponse]>,
+      setHeader: jest.fn().mockReturnThis() as jest.Mock<MockResponseObject, [string, string]>,
+    };
+
+    const mockHttpHost: MockHttpHost = {
+      getRequest: () => mockRequest,
+      getResponse: () => mockResponse,
     };
 
     return {
-      switchToHttp: () => ({
-        getRequest: () => mockRequest,
-        getResponse: () => mockResponse,
-      }),
+      switchToHttp: () => mockHttpHost,
       getType: () => 'http',
     } as unknown as ArgumentsHost;
+  };
+
+  /**
+   * Helper to get mock response
+   */
+  const getMockResponse = (host: ArgumentsHost): MockResponseObject => {
+    const httpHost = host.switchToHttp() as unknown as MockHttpHost;
+    return httpHost.getResponse();
+  };
+
+  /**
+   * Helper to get mock request
+   */
+  const getMockRequest = (host: ArgumentsHost): MockRequestObject => {
+    const httpHost = host.switchToHttp() as unknown as MockHttpHost;
+    return httpHost.getRequest();
+  };
+
+  /**
+   * Helper to get response body from mock
+   */
+  const getResponseBody = (host: ArgumentsHost): HttpErrorResponse | undefined => {
+    const response = getMockResponse(host);
+    const calls = response.json.mock.calls;
+    if (calls.length > 0) {
+      return calls[calls.length - 1][0];
+    }
+    return undefined;
   };
 
   beforeEach(async () => {
@@ -88,7 +144,7 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           success: false,
@@ -102,7 +158,7 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           error: expect.objectContaining({
@@ -122,7 +178,7 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           meta: expect.objectContaining({
@@ -141,9 +197,11 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
-      const call = response.json.mock.calls[0][0] as HttpErrorResponse;
-      expect(new Date(call.meta.timestamp).toISOString()).toBe(call.meta.timestamp);
+      const responseBody = getResponseBody(host);
+      expect(responseBody).toBeDefined();
+      if (responseBody) {
+        expect(new Date(responseBody.meta.timestamp).toISOString()).toBe(responseBody.meta.timestamp);
+      }
     });
   });
 
@@ -173,7 +231,7 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           error: expect.objectContaining({
@@ -191,7 +249,7 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           error: expect.objectContaining({
@@ -207,7 +265,7 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           error: expect.objectContaining({
@@ -228,12 +286,10 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
-      const call = response.json.mock.calls[0][0] as HttpErrorResponse;
-
-      expect(call.error.validationErrors).toBeDefined();
-      expect(call.error.validationErrors).toHaveLength(2);
-      expect(call.error.message).toBe('Validation failed');
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.error.validationErrors).toBeDefined();
+      expect(responseBody?.error.validationErrors).toHaveLength(2);
+      expect(responseBody?.error.message).toBe('Validation failed');
     });
 
     it('should extract field name from validation message', () => {
@@ -245,10 +301,8 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
-      const call = response.json.mock.calls[0][0] as HttpErrorResponse;
-
-      expect(call.error.validationErrors?.[0]).toEqual({
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.error.validationErrors?.[0]).toEqual({
         field: 'email',
         message: 'must be valid format',
         code: 'VALIDATION_ERROR',
@@ -264,10 +318,8 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
-      const call = response.json.mock.calls[0][0] as HttpErrorResponse;
-
-      expect(call.error.validationErrors?.[0]?.field).toBe('unknown');
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.error.validationErrors?.[0]?.field).toBe('unknown');
     });
   });
 
@@ -281,7 +333,7 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.setHeader).toHaveBeenCalledWith('Retry-After', '120');
     });
 
@@ -291,7 +343,7 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.setHeader).toHaveBeenCalledWith('Retry-After', '60');
     });
 
@@ -301,7 +353,7 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.setHeader).toHaveBeenCalledWith('WWW-Authenticate', 'Bearer');
     });
 
@@ -314,7 +366,7 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.setHeader).toHaveBeenCalledWith('Allow', 'GET, POST');
     });
   });
@@ -329,7 +381,7 @@ describe('HttpExceptionFilter', () => {
       const prodFilter = new HttpExceptionFilter();
       prodFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           error: expect.objectContaining({
@@ -351,9 +403,8 @@ describe('HttpExceptionFilter', () => {
       const prodFilter = new HttpExceptionFilter();
       prodFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
-      const call = response.json.mock.calls[0][0] as HttpErrorResponse;
-      expect(call.error.details).toBeUndefined();
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.error.details).toBeUndefined();
     });
 
     it('should preserve client error messages in production', () => {
@@ -365,7 +416,7 @@ describe('HttpExceptionFilter', () => {
       const prodFilter = new HttpExceptionFilter();
       prodFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           error: expect.objectContaining({
@@ -383,7 +434,7 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.status).toHaveBeenCalledWith(400);
     });
 
@@ -393,7 +444,7 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.status).toHaveBeenCalledWith(401);
     });
 
@@ -403,7 +454,7 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.status).toHaveBeenCalledWith(403);
     });
 
@@ -413,7 +464,7 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.status).toHaveBeenCalledWith(404);
     });
   });
@@ -425,9 +476,8 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
-      const call = response.json.mock.calls[0][0] as HttpErrorResponse;
-      expect(call.meta.correlationId).toBe('corr-123');
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.meta.correlationId).toBe('corr-123');
     });
 
     it('should fallback to x-request-id header', () => {
@@ -436,9 +486,8 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
-      const call = response.json.mock.calls[0][0] as HttpErrorResponse;
-      expect(call.meta.correlationId).toBe('req-456');
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.meta.correlationId).toBe('req-456');
     });
   });
 
@@ -457,7 +506,7 @@ describe('HttpExceptionFilter', () => {
         });
 
         const response = exception.getResponse() as Record<string, unknown>;
-        expect(response.details).toEqual({ field: 'email' });
+        expect(response['details']).toEqual({ field: 'email' });
       });
     });
 
@@ -472,7 +521,7 @@ describe('HttpExceptionFilter', () => {
 
         expect(exception.getStatus()).toBe(422);
         const response = exception.getResponse() as Record<string, unknown>;
-        expect(response.validationErrors).toEqual(errors);
+        expect(response['validationErrors']).toEqual(errors);
       });
     });
   });
@@ -487,22 +536,21 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
-      const call = response.json.mock.calls[0][0] as HttpErrorResponse;
-      expect(call.meta.path).toBe('/api/v1/original');
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.meta.path).toBe('/api/v1/original');
     });
 
     it('should fallback to url when originalUrl not available', () => {
       const host = createMockHttpHost({ url: '/api/test' });
-      (host.switchToHttp().getRequest()).originalUrl = undefined;
+      const mockRequest = getMockRequest(host);
+      mockRequest.originalUrl = undefined;
 
       const exception = new HttpException('Test', HttpStatus.BAD_REQUEST);
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
-      const call = response.json.mock.calls[0][0] as HttpErrorResponse;
-      expect(call.meta.path).toBe('/api/test');
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.meta.path).toBe('/api/test');
     });
   });
 });

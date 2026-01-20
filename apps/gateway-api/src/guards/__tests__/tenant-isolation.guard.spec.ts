@@ -11,6 +11,26 @@ import { Test, TestingModule } from '@nestjs/testing';
 
 import { TenantIsolationGuard } from '../tenant-isolation.guard';
 
+/**
+ * Interface for mock request with tenant context
+ */
+interface TenantRequest {
+  user: Record<string, unknown> | null;
+  headers: Record<string, string>;
+  params: Record<string, string>;
+  query: Record<string, string>;
+  path: string;
+  method: string;
+  tenantId?: string;
+}
+
+/**
+ * Interface for mock HTTP context
+ */
+interface MockHttpContext {
+  getRequest: () => TenantRequest;
+}
+
 describe('TenantIsolationGuard', () => {
   let guard: TenantIsolationGuard;
   let reflector: Reflector;
@@ -40,6 +60,14 @@ describe('TenantIsolationGuard', () => {
       getType: () => 'http',
       getArgs: () => [{}, {}, { req: mockRequest }, {}],
     } as unknown as ExecutionContext;
+  };
+
+  /**
+   * Helper to get typed request from context
+   */
+  const getRequest = (context: ExecutionContext): TenantRequest => {
+    const httpContext = context.switchToHttp() as unknown as MockHttpContext;
+    return httpContext.getRequest();
   };
 
   beforeEach(async () => {
@@ -157,7 +185,7 @@ describe('TenantIsolationGuard', () => {
       const context = createMockExecutionContext({ sub: 'user-1', tenantId: 'tenant-123' });
       guard.canActivate(context);
 
-      const request = context.switchToHttp().getRequest();
+      const request = getRequest(context);
       expect(request.tenantId).toBe('tenant-123');
     });
   });
@@ -238,7 +266,7 @@ describe('TenantIsolationGuard', () => {
   describe('Tenant Context Injection', () => {
     it('should inject tenant context into request', () => {
       const context = createMockExecutionContext({ sub: 'user-1', tenantId: 'tenant-123' });
-      const request = context.switchToHttp().getRequest();
+      const request = getRequest(context);
 
       guard.canActivate(context);
 
@@ -283,7 +311,7 @@ describe('TenantIsolationGuard', () => {
   describe('Tenant Routing Logic', () => {
     it('should route to correct tenant database', () => {
       const context = createMockExecutionContext({ sub: 'user-1', tenantId: 'tenant-db-1' });
-      const request = context.switchToHttp().getRequest();
+      const request = getRequest(context);
 
       guard.canActivate(context);
 

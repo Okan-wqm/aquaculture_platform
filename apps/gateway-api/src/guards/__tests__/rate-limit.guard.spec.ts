@@ -11,6 +11,29 @@ import { Test, TestingModule } from '@nestjs/testing';
 
 import { RateLimitGuard } from '../rate-limit.guard';
 
+/**
+ * Interface for mock response object
+ */
+interface MockResponseObject {
+  setHeader: jest.Mock;
+  getHeader: jest.Mock;
+}
+
+/**
+ * Interface for mock HTTP context
+ */
+interface MockHttpContext {
+  getRequest: () => Record<string, unknown>;
+  getResponse: () => MockResponseObject;
+}
+
+/**
+ * Interface for rate limit store
+ */
+interface RateLimitStore {
+  clear: () => void;
+}
+
 describe('RateLimitGuard', () => {
   let guard: RateLimitGuard;
   let reflector: Reflector;
@@ -46,6 +69,14 @@ describe('RateLimitGuard', () => {
       getClass: () => jest.fn(),
       getType: () => 'http',
     } as unknown as ExecutionContext;
+  };
+
+  /**
+   * Helper to get typed response from context
+   */
+  const getResponse = (context: ExecutionContext): MockResponseObject => {
+    const httpContext = context.switchToHttp() as unknown as MockHttpContext;
+    return httpContext.getResponse();
   };
 
   beforeEach(async () => {
@@ -84,7 +115,8 @@ describe('RateLimitGuard', () => {
 
   afterEach(() => {
     // Clear rate limit storage between tests
-    guard['rateLimitStore']?.clear();
+    const store = guard['rateLimitStore'] as RateLimitStore | undefined;
+    store?.clear();
   });
 
   describe('Request Limit Enforcement', () => {
@@ -259,7 +291,7 @@ describe('RateLimitGuard', () => {
   describe('Rate Limit Headers', () => {
     it('should set X-RateLimit-Reset header', () => {
       const context = createMockExecutionContext();
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
 
       guard.canActivate(context);
 
@@ -271,7 +303,7 @@ describe('RateLimitGuard', () => {
 
     it('should set X-RateLimit-Remaining header', () => {
       const context = createMockExecutionContext();
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
 
       guard.canActivate(context);
 
@@ -283,7 +315,7 @@ describe('RateLimitGuard', () => {
 
     it('should set X-RateLimit-Limit header', () => {
       const context = createMockExecutionContext();
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
 
       guard.canActivate(context);
 
@@ -295,7 +327,7 @@ describe('RateLimitGuard', () => {
 
     it('should set Retry-After header when limit exceeded', () => {
       const context = createMockExecutionContext();
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
 
       // Exhaust limit
       for (let i = 0; i < 100; i++) {

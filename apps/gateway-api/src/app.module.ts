@@ -1,7 +1,6 @@
 import {
   IntrospectAndCompose,
   RemoteGraphQLDataSource,
-  GraphQLDataSourceProcessOptions,
 } from '@apollo/gateway';
 import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
@@ -36,14 +35,20 @@ interface JwtPayload {
 }
 
 /**
+ * Request headers structure
+ */
+interface RequestHeaders {
+  authorization?: string;
+  'x-tenant-id'?: string;
+  'x-correlation-id'?: string;
+  [key: string]: string | undefined;
+}
+
+/**
  * Request with user information attached
  */
 interface RequestWithUser {
-  headers?: {
-    authorization?: string;
-    'x-tenant-id'?: string;
-    'x-correlation-id'?: string;
-  };
+  headers: RequestHeaders;
   user?: JwtPayload;
 }
 
@@ -51,14 +56,14 @@ interface RequestWithUser {
  * Extended context type for Apollo Gateway
  */
 interface GatewayContext {
-  req?: RequestWithUser;
+  req: RequestWithUser;
 }
 
 /**
  * Extract and decode JWT token from request
  */
 function decodeJwtFromRequest(req: RequestWithUser, _jwtSecret: string): JwtPayload | null {
-  const authHeader = req.headers?.authorization;
+  const authHeader = req.headers.authorization;
   if (!authHeader) return null;
 
   const parts = authHeader.split(' ');
@@ -86,31 +91,43 @@ function decodeJwtFromRequest(req: RequestWithUser, _jwtSecret: string): JwtPayl
  * Custom data source that forwards headers to subgraphs
  */
 class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
-  override willSendRequest(options: GraphQLDataSourceProcessOptions<GatewayContext>): void {
-    const { request, context } = options;
-    const req = context?.req;
+  override willSendRequest(params: {
+    request: { http?: { headers: { set: (key: string, value: string) => void } } };
+    context: GatewayContext;
+  }): void {
+    const { request, context } = params;
+    const req = context.req;
+    const httpRequest = request.http;
 
-    // Forward authentication and tenant headers to subgraphs
-    if (req?.headers?.authorization && request.http) {
-      request.http.headers.set('authorization', req.headers.authorization);
+    if (!httpRequest) {
+      return;
+    }
+
+    // Forward authentication header to subgraphs
+    const authorization = req.headers.authorization;
+    if (authorization) {
+      httpRequest.headers.set('authorization', authorization);
     }
 
     // Forward tenant ID - prefer JWT tenantId, fallback to header
-    const tenantId = req?.user?.tenantId ?? req?.headers?.['x-tenant-id'];
-    if (tenantId && request.http) {
-      request.http.headers.set('x-tenant-id', tenantId);
+    const tenantId = req.user?.tenantId ?? req.headers['x-tenant-id'];
+    if (tenantId) {
+      httpRequest.headers.set('x-tenant-id', tenantId);
     }
 
-    if (req?.headers?.['x-correlation-id'] && request.http) {
-      request.http.headers.set('x-correlation-id', req.headers['x-correlation-id']);
+    // Forward correlation ID
+    const correlationId = req.headers['x-correlation-id'];
+    if (correlationId) {
+      httpRequest.headers.set('x-correlation-id', correlationId);
     }
 
     // Forward user info if decoded
-    if (req?.user && request.http) {
-      request.http.headers.set('x-user-id', req.user.sub);
-      request.http.headers.set('x-user-roles', JSON.stringify(req.user.roles ?? []));
+    const user = req.user;
+    if (user) {
+      httpRequest.headers.set('x-user-id', user.sub);
+      httpRequest.headers.set('x-user-roles', JSON.stringify(user.roles ?? []));
       // Forward full user payload for @CurrentUser() decorator in subgraphs
-      request.http.headers.set('x-user-payload', JSON.stringify(req.user));
+      httpRequest.headers.set('x-user-payload', JSON.stringify(user));
     }
   }
 }
@@ -136,7 +153,7 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
           throw new Error('JWT_SECRET environment variable must be set in production');
         }
         return {
-          secret: secret || 'dev-only-secret-do-not-use-in-production',
+          secret: secret ?? 'dev-only-secret-do-not-use-in-production',
           signOptions: {
             expiresIn: configService.get('JWT_EXPIRES_IN', '15m'),
           },
@@ -187,15 +204,29 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
         server: {
           playground: configService.get('NODE_ENV') !== 'production',
           introspection: true,
-          context: ({ req }: { req: RequestWithUser }): GatewayContext => {
+          context: ({ req }: { req: { headers?: Record<string, string | undefined>; user?: JwtPayload } }): GatewayContext => {
             // Decode JWT in context to make user available in willSendRequest
             // Guard runs after context, so we need to decode here for forwarding
             const jwtSecret = configService.get<string>('JWT_SECRET') ?? 'dev-only-secret-do-not-use-in-production';
-            const user = decodeJwtFromRequest(req, jwtSecret);
+
+            // Ensure headers object exists with proper type
+            const headers: RequestHeaders = {
+              authorization: req.headers?.['authorization'],
+              'x-tenant-id': req.headers?.['x-tenant-id'],
+              'x-correlation-id': req.headers?.['x-correlation-id'],
+            };
+
+            const requestWithUser: RequestWithUser = {
+              headers,
+              user: req.user,
+            };
+
+            const user = decodeJwtFromRequest(requestWithUser, jwtSecret);
             if (user) {
-              req.user = user;
+              requestWithUser.user = user;
             }
-            return { req };
+
+            return { req: requestWithUser };
           },
         },
       }),

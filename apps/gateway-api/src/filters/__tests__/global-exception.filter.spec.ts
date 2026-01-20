@@ -10,6 +10,45 @@ import { GraphQLError } from 'graphql';
 
 import { GlobalExceptionFilter } from '../global-exception.filter';
 
+/**
+ * Error response body structure
+ */
+interface ErrorResponseBody {
+  statusCode: number;
+  message: string;
+  error?: string;
+  path?: string;
+  timestamp?: string;
+  correlationId?: string;
+  tenantId?: string;
+  details?: unknown;
+}
+
+/**
+ * Mock response with properly typed methods
+ */
+interface MockResponseObject {
+  status: jest.Mock<MockResponseObject, [number]>;
+  json: jest.Mock<MockResponseObject, [ErrorResponseBody]>;
+}
+
+/**
+ * Mock request structure
+ */
+interface MockRequestObject {
+  url: string;
+  method: string;
+  headers: Record<string, string | undefined>;
+  tenantId?: string;
+}
+
+/**
+ * Mock HTTP host structure
+ */
+interface MockHttpHost {
+  getRequest: () => MockRequestObject;
+  getResponse: () => MockResponseObject;
+}
 
 describe('GlobalExceptionFilter', () => {
   let filter: GlobalExceptionFilter;
@@ -24,9 +63,9 @@ describe('GlobalExceptionFilter', () => {
     correlationId?: string;
     tenantId?: string;
   } = {}): ArgumentsHost => {
-    const mockRequest = {
-      url: options.url || '/api/test',
-      method: options.method || 'GET',
+    const mockRequest: MockRequestObject = {
+      url: options.url ?? '/api/test',
+      method: options.method ?? 'GET',
       headers: {
         'x-correlation-id': options.correlationId,
         'x-tenant-id': options.tenantId,
@@ -34,16 +73,18 @@ describe('GlobalExceptionFilter', () => {
       tenantId: options.tenantId,
     };
 
-    const mockResponse = {
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn().mockReturnThis(),
+    const mockResponse: MockResponseObject = {
+      status: jest.fn().mockReturnThis() as jest.Mock<MockResponseObject, [number]>,
+      json: jest.fn().mockReturnThis() as jest.Mock<MockResponseObject, [ErrorResponseBody]>,
+    };
+
+    const mockHttpHost: MockHttpHost = {
+      getRequest: () => mockRequest,
+      getResponse: () => mockResponse,
     };
 
     return {
-      switchToHttp: () => ({
-        getRequest: () => mockRequest,
-        getResponse: () => mockResponse,
-      }),
+      switchToHttp: () => mockHttpHost,
       getType: () => 'http',
     } as unknown as ArgumentsHost;
   };
@@ -56,8 +97,9 @@ describe('GlobalExceptionFilter', () => {
     correlationId?: string;
     tenantId?: string;
   } = {}): ArgumentsHost => {
-    const mockRequest = {
-      url: options.url || '/graphql',
+    const mockRequest: MockRequestObject = {
+      url: options.url ?? '/graphql',
+      method: 'POST',
       headers: {
         'x-correlation-id': options.correlationId,
         'x-tenant-id': options.tenantId,
@@ -73,6 +115,27 @@ describe('GlobalExceptionFilter', () => {
       getType: () => 'graphql',
       getArgs: () => [{}, {}, { req: mockRequest }, {}],
     } as unknown as ArgumentsHost;
+  };
+
+  /**
+   * Helper to get response body from mock
+   */
+  const getResponseBody = (host: ArgumentsHost): ErrorResponseBody | undefined => {
+    const httpHost = host.switchToHttp() as MockHttpHost;
+    const response = httpHost.getResponse();
+    const calls = response.json.mock.calls;
+    if (calls.length > 0) {
+      return calls[calls.length - 1][0];
+    }
+    return undefined;
+  };
+
+  /**
+   * Helper to get mock response
+   */
+  const getMockResponse = (host: ArgumentsHost): MockResponseObject => {
+    const httpHost = host.switchToHttp() as MockHttpHost;
+    return httpHost.getResponse();
   };
 
   beforeEach(async () => {
@@ -96,7 +159,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.status).toHaveBeenCalledWith(404);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -113,7 +176,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           correlationId: 'corr-123',
@@ -127,7 +190,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           tenantId: 'tenant-456',
@@ -141,10 +204,12 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
-      const call = response.json.mock.calls[0][0];
-      expect(call.timestamp).toBeDefined();
-      expect(new Date(call.timestamp).toISOString()).toBe(call.timestamp);
+      const responseBody = getResponseBody(host);
+      expect(responseBody).toBeDefined();
+      expect(responseBody?.timestamp).toBeDefined();
+      if (responseBody?.timestamp) {
+        expect(new Date(responseBody.timestamp).toISOString()).toBe(responseBody.timestamp);
+      }
     });
 
     it('should handle HttpException with object response', () => {
@@ -156,7 +221,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.status).toHaveBeenCalledWith(422);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -179,7 +244,7 @@ describe('GlobalExceptionFilter', () => {
       const devFilter = new GlobalExceptionFilter();
       devFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           details: { extra: 'info' },
@@ -199,9 +264,8 @@ describe('GlobalExceptionFilter', () => {
       const prodFilter = new GlobalExceptionFilter();
       prodFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
-      const call = response.json.mock.calls[0][0];
-      expect(call.details).toBeUndefined();
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.details).toBeUndefined();
     });
   });
 
@@ -212,7 +276,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.status).toHaveBeenCalledWith(500);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -232,9 +296,8 @@ describe('GlobalExceptionFilter', () => {
       const devFilter = new GlobalExceptionFilter();
       devFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
-      const call = response.json.mock.calls[0][0];
-      expect(call.details).toContain('Error: Test error');
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.details).toContain('Error: Test error');
     });
 
     it('should hide stack trace in production', () => {
@@ -246,9 +309,8 @@ describe('GlobalExceptionFilter', () => {
       const prodFilter = new GlobalExceptionFilter();
       prodFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
-      const call = response.json.mock.calls[0][0];
-      expect(call.details).toBeUndefined();
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.details).toBeUndefined();
     });
 
     it('should handle unknown exception types', () => {
@@ -257,7 +319,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.status).toHaveBeenCalledWith(500);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -339,7 +401,7 @@ describe('GlobalExceptionFilter', () => {
       const devFilter = new GlobalExceptionFilter();
       devFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           message: 'Invalid password format',
@@ -368,9 +430,8 @@ describe('GlobalExceptionFilter', () => {
         const prodFilter = new GlobalExceptionFilter();
         prodFilter.catch(exception, host);
 
-        const response = host.switchToHttp().getResponse();
-        const call = response.json.mock.calls[0][0];
-        expect(call.message).toBe('An error occurred while processing your request');
+        const responseBody = getResponseBody(host);
+        expect(responseBody?.message).toBe('An error occurred while processing your request');
       }
     });
 
@@ -383,7 +444,7 @@ describe('GlobalExceptionFilter', () => {
       const prodFilter = new GlobalExceptionFilter();
       prodFilter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           message: 'Resource not found',
@@ -411,7 +472,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.status).toHaveBeenCalledWith(expectedStatus);
     });
   });
@@ -423,7 +484,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           error: 'Bad Request',
@@ -440,7 +501,7 @@ describe('GlobalExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = host.switchToHttp().getResponse();
+      const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           error: 'Custom Error Type',

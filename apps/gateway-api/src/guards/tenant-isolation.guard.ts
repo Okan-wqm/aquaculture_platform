@@ -18,6 +18,13 @@ import {
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
+import {
+  AuthenticatedRequest,
+  AuthenticatedUser,
+  TenantContext,
+  GqlContext,
+} from '../types';
+
 /**
  * Metadata key for public endpoints (no tenant required)
  */
@@ -26,7 +33,7 @@ export const IS_PUBLIC_KEY = 'isPublic';
 /**
  * Decorator for public endpoints
  */
-export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+export const Public = (): ReturnType<typeof SetMetadata> => SetMetadata(IS_PUBLIC_KEY, true);
 
 /**
  * Metadata key for admin-only endpoints (can access any tenant)
@@ -36,18 +43,12 @@ export const IS_ADMIN_KEY = 'isAdmin';
 /**
  * Decorator for admin endpoints
  */
-export const AdminOnly = () => SetMetadata(IS_ADMIN_KEY, true);
+export const AdminOnly = (): ReturnType<typeof SetMetadata> => SetMetadata(IS_ADMIN_KEY, true);
 
 /**
- * Tenant context for the request
+ * Re-export TenantContext for consumers
  */
-export interface TenantContext {
-  tenantId: string;
-  tenantName?: string;
-  plan?: string;
-  modules?: string[];
-  isActive: boolean;
-}
+export type { TenantContext };
 
 /**
  * Tenant Isolation Guard
@@ -59,7 +60,7 @@ export class TenantIsolationGuard implements CanActivate {
 
   constructor(private readonly reflector: Reflector) {}
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  canActivate(context: ExecutionContext): boolean {
     // Check if endpoint is public
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
@@ -125,48 +126,52 @@ export class TenantIsolationGuard implements CanActivate {
   /**
    * Get request from execution context (supports HTTP and GraphQL)
    */
-  private getRequest(context: ExecutionContext): any {
-    const gqlContext = GqlExecutionContext.create(context);
-    const gqlRequest = gqlContext.getContext()?.req;
+  private getRequest(context: ExecutionContext): AuthenticatedRequest {
+    const contextType = context.getType<string>();
 
-    if (gqlRequest) {
-      return gqlRequest;
+    if (contextType === 'graphql') {
+      const gqlContext = GqlExecutionContext.create(context);
+      const ctx = gqlContext.getContext<GqlContext>();
+      return ctx.req;
     }
 
-    return context.switchToHttp().getRequest();
+    return context.switchToHttp().getRequest<AuthenticatedRequest>();
   }
 
   /**
    * Extract requested tenant ID from various sources
    */
-  private extractRequestedTenantId(request: any): string | null {
+  private extractRequestedTenantId(request: AuthenticatedRequest): string | null {
     // Check header
-    const headerTenantId = request.headers?.['x-tenant-id'];
-    if (headerTenantId) {
+    const headerTenantId = request.headers['x-tenant-id'];
+    if (typeof headerTenantId === 'string') {
       return headerTenantId;
     }
 
     // Check query parameter
-    const queryTenantId = request.query?.tenantId;
-    if (queryTenantId) {
+    const queryTenantId = request.query?.['tenantId'];
+    if (typeof queryTenantId === 'string') {
       return queryTenantId;
     }
 
     // Check URL parameter
-    const paramTenantId = request.params?.tenantId;
-    if (paramTenantId) {
+    const paramTenantId = request.params?.['tenantId'];
+    if (typeof paramTenantId === 'string') {
       return paramTenantId;
     }
 
     // Check request body
-    const bodyTenantId = request.body?.tenantId;
-    if (bodyTenantId) {
-      return bodyTenantId;
-    }
+    const body = request.body as Record<string, unknown> | undefined;
+    if (body) {
+      if (typeof body['tenantId'] === 'string') {
+        return body['tenantId'];
+      }
 
-    // Check GraphQL variables
-    if (request.body?.variables?.tenantId) {
-      return request.body.variables.tenantId;
+      // Check GraphQL variables
+      const variables = body['variables'] as Record<string, unknown> | undefined;
+      if (variables && typeof variables['tenantId'] === 'string') {
+        return variables['tenantId'];
+      }
     }
 
     return null;
@@ -175,12 +180,12 @@ export class TenantIsolationGuard implements CanActivate {
   /**
    * Build tenant context from user and tenant ID
    */
-  private buildTenantContext(tenantId: string, user: any): TenantContext {
+  private buildTenantContext(tenantId: string, user: AuthenticatedUser): TenantContext {
     return {
       tenantId,
       tenantName: user.tenantName,
       plan: user.plan,
-      modules: user.modules || [],
+      modules: user.modules ?? [],
       isActive: user.tenantActive !== false,
     };
   }
@@ -188,7 +193,7 @@ export class TenantIsolationGuard implements CanActivate {
   /**
    * Check if user has cross-tenant access
    */
-  private hasCrossTenantAccess(user: any, targetTenantId: string): boolean {
+  private hasCrossTenantAccess(user: AuthenticatedUser, targetTenantId: string): boolean {
     // Platform admins can access any tenant
     if (user.role === 'platform_admin' || user.role === 'super_admin') {
       return true;
@@ -210,7 +215,7 @@ export class TenantIsolationGuard implements CanActivate {
   /**
    * Log cross-tenant access attempt for audit
    */
-  private logCrossTenantAttempt(user: any, targetTenantId: string): void {
+  private logCrossTenantAttempt(user: AuthenticatedUser, targetTenantId: string): void {
     this.logger.warn('Cross-tenant access attempt blocked', {
       userId: user.sub,
       userEmail: user.email,
@@ -237,14 +242,14 @@ export class TenantIsolationGuard implements CanActivate {
   /**
    * Get tenant context from request
    */
-  static getTenantContext(request: any): TenantContext | null {
-    return request.tenantContext || null;
+  static getTenantContext(request: AuthenticatedRequest): TenantContext | null {
+    return request.tenantContext ?? null;
   }
 
   /**
    * Get tenant ID from request
    */
-  static getTenantId(request: any): string | null {
-    return request.tenantId || null;
+  static getTenantId(request: AuthenticatedRequest): string | null {
+    return request.tenantId ?? null;
   }
 }

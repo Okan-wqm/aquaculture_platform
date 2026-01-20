@@ -10,6 +10,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
+import { Response } from 'express';
+
+import { AuthenticatedRequest, GqlContext } from '../types';
 
 /**
  * Metadata key for custom rate limits
@@ -27,7 +30,7 @@ export interface RateLimitConfig {
 /**
  * Rate limit decorator
  */
-export const RateLimit = (config: RateLimitConfig) =>
+export const RateLimit = (config: RateLimitConfig): ReturnType<typeof SetMetadata> =>
   SetMetadata(RATE_LIMIT_KEY, config);
 
 /**
@@ -36,6 +39,15 @@ export const RateLimit = (config: RateLimitConfig) =>
 interface RateLimitEntry {
   count: number;
   resetTime: number;
+}
+
+/**
+ * Extended request with response for rate limiting
+ */
+interface RateLimitRequest extends AuthenticatedRequest {
+  res?: Response;
+  connection?: { remoteAddress?: string };
+  userId?: string;
 }
 
 /**
@@ -84,7 +96,7 @@ export class RateLimitGuard implements CanActivate {
     );
   }
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  canActivate(context: ExecutionContext): boolean {
     const request = this.getRequest(context);
     const key = this.generateKey(request);
     const config = this.getRateLimitConfig(context, request);
@@ -128,29 +140,25 @@ export class RateLimitGuard implements CanActivate {
     return true;
   }
 
-  private getRequest(context: ExecutionContext): any {
-    // Check if it's a GraphQL request
-    const gqlContext = GqlExecutionContext.create(context);
-    const gqlRequest = gqlContext.getContext()?.req;
+  private getRequest(context: ExecutionContext): RateLimitRequest {
+    const contextType = context.getType<string>();
 
-    if (gqlRequest) {
-      return gqlRequest;
+    if (contextType === 'graphql') {
+      const gqlContext = GqlExecutionContext.create(context);
+      const ctx = gqlContext.getContext<GqlContext>();
+      return ctx.req as RateLimitRequest;
     }
 
-    // Fall back to HTTP request
-    return context.switchToHttp().getRequest();
+    return context.switchToHttp().getRequest<RateLimitRequest>();
   }
 
-  private generateKey(request: any): string {
+  private generateKey(request: RateLimitRequest): string {
     // Priority: user > tenant > IP
-    const userId = request.user?.sub || request.userId;
-    const tenantId =
-      request.tenantId ||
-      request.headers?.['x-tenant-id'];
-    const ip =
-      request.ip ||
-      request.headers?.['x-forwarded-for']?.split(',')[0] ||
-      request.connection?.remoteAddress;
+    const userId = request.user?.sub ?? request.userId;
+    const tenantId = request.tenantId ?? request.headers['x-tenant-id'];
+    const forwardedFor = request.headers['x-forwarded-for'];
+    const forwardedIp = typeof forwardedFor === 'string' ? forwardedFor.split(',')[0] : undefined;
+    const ip = request.ip ?? forwardedIp ?? request.connection?.remoteAddress ?? 'unknown';
 
     if (userId) {
       return `user:${userId}`;
@@ -165,7 +173,7 @@ export class RateLimitGuard implements CanActivate {
 
   private getRateLimitConfig(
     context: ExecutionContext,
-    request: any,
+    request: RateLimitRequest,
   ): RateLimitConfig {
     // Check for custom rate limit on handler/class
     const customConfig = this.reflector.getAllAndOverride<RateLimitConfig>(
@@ -178,7 +186,7 @@ export class RateLimitGuard implements CanActivate {
     }
 
     // Use tenant limit if authenticated
-    const tenantId = request.tenantId || request.headers?.['x-tenant-id'];
+    const tenantId = request.tenantId ?? request.headers['x-tenant-id'];
     if (tenantId) {
       return {
         limit: this.tenantLimit,
@@ -201,21 +209,21 @@ export class RateLimitGuard implements CanActivate {
   }
 
   private setRateLimitHeaders(
-    request: any,
+    request: RateLimitRequest,
     config: RateLimitConfig,
     entry: RateLimitEntry,
   ): void {
     // Get response object to set headers
     const response = request.res;
     if (response?.setHeader) {
-      response.setHeader('X-RateLimit-Limit', config.limit);
+      response.setHeader('X-RateLimit-Limit', config.limit.toString());
       response.setHeader(
         'X-RateLimit-Remaining',
-        Math.max(0, config.limit - entry.count),
+        Math.max(0, config.limit - entry.count).toString(),
       );
       response.setHeader(
         'X-RateLimit-Reset',
-        Math.ceil(entry.resetTime / 1000),
+        Math.ceil(entry.resetTime / 1000).toString(),
       );
     }
   }

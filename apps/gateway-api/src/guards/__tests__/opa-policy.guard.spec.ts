@@ -14,7 +14,6 @@ import { OpaPolicyGuard, OPA_POLICY_KEY, BYPASS_OPA_KEY } from '../opa-policy.gu
 describe('OpaPolicyGuard', () => {
   let guard: OpaPolicyGuard;
   let reflector: Reflector;
-  let configService: ConfigService;
 
   const createMockExecutionContext = (
     user: Record<string, unknown> = {},
@@ -82,7 +81,6 @@ describe('OpaPolicyGuard', () => {
 
     guard = module.get<OpaPolicyGuard>(OpaPolicyGuard);
     reflector = module.get<Reflector>(Reflector);
-    configService = module.get<ConfigService>(ConfigService);
   });
 
   afterEach(() => {

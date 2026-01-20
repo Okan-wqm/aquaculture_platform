@@ -158,14 +158,8 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = getMockResponse(host);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          error: expect.objectContaining({
-            code: 'NOT_FOUND',
-          }),
-        }),
-      );
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.error.code).toBe('NOT_FOUND');
     });
 
     it('should include meta information', () => {
@@ -178,17 +172,11 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = getMockResponse(host);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          meta: expect.objectContaining({
-            path: '/api/users',
-            method: 'POST',
-            statusCode: 400,
-            correlationId: 'corr-123',
-          }),
-        }),
-      );
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.meta.path).toBe('/api/users');
+      expect(responseBody?.meta.method).toBe('POST');
+      expect(responseBody?.meta.statusCode).toBe(400);
+      expect(responseBody?.meta.correlationId).toBe('corr-123');
     });
 
     it('should include timestamp in ISO format', () => {
@@ -231,14 +219,8 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = getMockResponse(host);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          error: expect.objectContaining({
-            code: expectedCode,
-          }),
-        }),
-      );
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.error.code).toBe(expectedCode);
     });
   });
 
@@ -249,14 +231,8 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = getMockResponse(host);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          error: expect.objectContaining({
-            message: 'Custom message',
-          }),
-        }),
-      );
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.error.message).toBe('Custom message');
     });
 
     it('should use default message when no message provided', () => {
@@ -265,14 +241,8 @@ describe('HttpExceptionFilter', () => {
 
       filter.catch(exception, host);
 
-      const response = getMockResponse(host);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          error: expect.objectContaining({
-            message: 'The requested resource was not found.',
-          }),
-        }),
-      );
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.error.message).toBe('The requested resource was not found.');
     });
   });
 
@@ -381,14 +351,8 @@ describe('HttpExceptionFilter', () => {
       const prodFilter = new HttpExceptionFilter();
       prodFilter.catch(exception, host);
 
-      const response = getMockResponse(host);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          error: expect.objectContaining({
-            message: 'An unexpected error occurred. Please try again later.',
-          }),
-        }),
-      );
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.error.message).toBe('An unexpected error occurred. Please try again later.');
     });
 
     it('should hide details in production', () => {
@@ -416,14 +380,8 @@ describe('HttpExceptionFilter', () => {
       const prodFilter = new HttpExceptionFilter();
       prodFilter.catch(exception, host);
 
-      const response = getMockResponse(host);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          error: expect.objectContaining({
-            message: 'Resource not found',
-          }),
-        }),
-      );
+      const responseBody = getResponseBody(host);
+      expect(responseBody?.error.message).toBe('Resource not found');
     });
   });
 

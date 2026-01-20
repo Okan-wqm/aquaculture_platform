@@ -100,7 +100,7 @@ export class CacheControlInterceptor implements NestInterceptor {
 
     if (isGraphQL) {
       const gqlContext = GqlExecutionContext.create(context);
-      const ctx = gqlContext.getContext();
+      const ctx = gqlContext.getContext<{ req: Request; res: Response }>();
       request = ctx.req;
       response = ctx.res;
     } else {
@@ -136,7 +136,7 @@ export class CacheControlInterceptor implements NestInterceptor {
           response.setHeader('Last-Modified', lastModified.toUTCString());
         }
       }),
-      map((data) => {
+      map((data: unknown) => {
         // Set cache control headers
         this.setCacheHeaders(response, policy);
 
@@ -189,7 +189,7 @@ export class CacheControlInterceptor implements NestInterceptor {
    */
   private handleConditionalRequest(
     request: Request,
-    response: Response,
+    _response: Response,
   ): { notModified: boolean } {
     const ifNoneMatch = request.headers['if-none-match'];
     const ifModifiedSince = request.headers['if-modified-since'];

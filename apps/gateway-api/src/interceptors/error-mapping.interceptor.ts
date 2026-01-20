@@ -146,7 +146,7 @@ export class ErrorMappingInterceptor implements NestInterceptor {
 
     if (isGraphQL) {
       const gqlContext = GqlExecutionContext.create(context);
-      const ctx = gqlContext.getContext();
+      const ctx = gqlContext.getContext<{ req: Request; res?: Response }>();
       request = ctx.req;
       response = ctx.res;
     } else {
@@ -155,7 +155,7 @@ export class ErrorMappingInterceptor implements NestInterceptor {
     }
 
     return next.handle().pipe(
-      catchError((error) => {
+      catchError((error: Error) => {
         const mappedError = this.mapError(error, request, response);
         return throwError(() => mappedError);
       }),

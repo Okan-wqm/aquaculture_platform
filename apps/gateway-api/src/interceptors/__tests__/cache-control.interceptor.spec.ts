@@ -11,10 +11,25 @@ import { of } from 'rxjs';
 
 import {
   CacheControlInterceptor,
-  CachePolicy,
-  CACHE_POLICY_KEY,
   buildCacheControlHeader,
 } from '../cache-control.interceptor';
+
+/**
+ * Interface for mock response object
+ */
+interface MockResponseObject {
+  setHeader: jest.Mock<void, [string, string | string[]]>;
+  getHeader: jest.Mock<string | string[] | undefined, [string]>;
+  _headers: Record<string, string | string[]>;
+}
+
+/**
+ * Interface for mock HTTP context
+ */
+interface MockHttpContext {
+  getRequest: () => Record<string, unknown>;
+  getResponse: () => MockResponseObject;
+}
 
 describe('CacheControlInterceptor', () => {
   let interceptor: CacheControlInterceptor;
@@ -57,6 +72,14 @@ describe('CacheControlInterceptor', () => {
   };
 
   /**
+   * Helper to get typed response from context
+   */
+  const getResponse = (context: ExecutionContext): MockResponseObject => {
+    const httpContext = context.switchToHttp() as unknown as MockHttpContext;
+    return httpContext.getResponse();
+  };
+
+  /**
    * Create mock call handler
    */
   const createMockCallHandler = (responseData: unknown = { data: 'test' }): CallHandler => ({
@@ -83,7 +106,7 @@ describe('CacheControlInterceptor', () => {
   describe('ETag Generation', () => {
     it('should generate ETag header', (done) => {
       const context = createMockExecutionContext();
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
       const handler = createMockCallHandler({ data: 'test content' });
 
       interceptor.intercept(context, handler).subscribe({
@@ -98,16 +121,16 @@ describe('CacheControlInterceptor', () => {
       const content = { data: 'consistent content' };
       const context1 = createMockExecutionContext();
       const context2 = createMockExecutionContext();
-      const response1 = context1.switchToHttp().getResponse();
-      const response2 = context2.switchToHttp().getResponse();
+      const response1 = getResponse(context1);
+      const response2 = getResponse(context2);
 
       interceptor.intercept(context1, createMockCallHandler(content)).subscribe({
         next: () => {
-          const etag1 = response1.setHeader.mock.calls.find((c: string[]) => c[0] === 'ETag')?.[1];
+          const etag1 = response1.setHeader.mock.calls.find((c) => c[0] === 'ETag')?.[1] as string | undefined;
 
           interceptor.intercept(context2, createMockCallHandler(content)).subscribe({
             next: () => {
-              const etag2 = response2.setHeader.mock.calls.find((c: string[]) => c[0] === 'ETag')?.[1];
+              const etag2 = response2.setHeader.mock.calls.find((c) => c[0] === 'ETag')?.[1] as string | undefined;
               expect(etag1).toBe(etag2);
               done();
             },
@@ -119,16 +142,16 @@ describe('CacheControlInterceptor', () => {
     it('should generate different ETags for different content', (done) => {
       const context1 = createMockExecutionContext();
       const context2 = createMockExecutionContext();
-      const response1 = context1.switchToHttp().getResponse();
-      const response2 = context2.switchToHttp().getResponse();
+      const response1 = getResponse(context1);
+      const response2 = getResponse(context2);
 
       interceptor.intercept(context1, createMockCallHandler({ data: 'content1' })).subscribe({
         next: () => {
-          const etag1 = response1.setHeader.mock.calls.find((c: string[]) => c[0] === 'ETag')?.[1];
+          const etag1 = response1.setHeader.mock.calls.find((c) => c[0] === 'ETag')?.[1] as string | undefined;
 
           interceptor.intercept(context2, createMockCallHandler({ data: 'content2' })).subscribe({
             next: () => {
-              const etag2 = response2.setHeader.mock.calls.find((c: string[]) => c[0] === 'ETag')?.[1];
+              const etag2 = response2.setHeader.mock.calls.find((c) => c[0] === 'ETag')?.[1] as string | undefined;
               expect(etag1).not.toBe(etag2);
               done();
             },
@@ -141,7 +164,7 @@ describe('CacheControlInterceptor', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ noStore: true });
 
       const context = createMockExecutionContext();
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
       const handler = createMockCallHandler();
 
       interceptor.intercept(context, handler).subscribe({
@@ -157,7 +180,7 @@ describe('CacheControlInterceptor', () => {
     it('should set Last-Modified when response has updatedAt', (done) => {
       const updatedAt = new Date('2024-01-01T12:00:00Z');
       const context = createMockExecutionContext();
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
       const handler = createMockCallHandler({ data: 'test', updatedAt });
 
       interceptor.intercept(context, handler).subscribe({
@@ -173,7 +196,7 @@ describe('CacheControlInterceptor', () => {
 
     it('should not set Last-Modified when response lacks updatedAt', (done) => {
       const context = createMockExecutionContext();
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
       const handler = createMockCallHandler({ data: 'test' });
 
       interceptor.intercept(context, handler).subscribe({
@@ -194,7 +217,7 @@ describe('CacheControlInterceptor', () => {
         jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ public: true, maxAge: 3600 });
 
         const context = createMockExecutionContext();
-        const response = context.switchToHttp().getResponse();
+        const response = getResponse(context);
         const handler = createMockCallHandler();
 
         interceptor.intercept(context, handler).subscribe({
@@ -214,7 +237,7 @@ describe('CacheControlInterceptor', () => {
         jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ private: true, maxAge: 300 });
 
         const context = createMockExecutionContext();
-        const response = context.switchToHttp().getResponse();
+        const response = getResponse(context);
         const handler = createMockCallHandler();
 
         interceptor.intercept(context, handler).subscribe({
@@ -234,7 +257,7 @@ describe('CacheControlInterceptor', () => {
         jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ noCache: true });
 
         const context = createMockExecutionContext();
-        const response = context.switchToHttp().getResponse();
+        const response = getResponse(context);
         const handler = createMockCallHandler();
 
         interceptor.intercept(context, handler).subscribe({
@@ -252,7 +275,7 @@ describe('CacheControlInterceptor', () => {
         jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ noCache: true });
 
         const context = createMockExecutionContext();
-        const response = context.switchToHttp().getResponse();
+        const response = getResponse(context);
         const handler = createMockCallHandler();
 
         interceptor.intercept(context, handler).subscribe({
@@ -269,7 +292,7 @@ describe('CacheControlInterceptor', () => {
         jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ noStore: true });
 
         const context = createMockExecutionContext();
-        const response = context.switchToHttp().getResponse();
+        const response = getResponse(context);
         const handler = createMockCallHandler();
 
         interceptor.intercept(context, handler).subscribe({
@@ -289,7 +312,7 @@ describe('CacheControlInterceptor', () => {
         jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ maxAge: 3600 });
 
         const context = createMockExecutionContext();
-        const response = context.switchToHttp().getResponse();
+        const response = getResponse(context);
         const handler = createMockCallHandler();
 
         interceptor.intercept(context, handler).subscribe({
@@ -307,7 +330,7 @@ describe('CacheControlInterceptor', () => {
         jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ maxAge: 3600 });
 
         const context = createMockExecutionContext();
-        const response = context.switchToHttp().getResponse();
+        const response = getResponse(context);
         const handler = createMockCallHandler();
 
         interceptor.intercept(context, handler).subscribe({
@@ -327,7 +350,7 @@ describe('CacheControlInterceptor', () => {
         jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ sMaxAge: 7200 });
 
         const context = createMockExecutionContext();
-        const response = context.switchToHttp().getResponse();
+        const response = getResponse(context);
         const handler = createMockCallHandler();
 
         interceptor.intercept(context, handler).subscribe({
@@ -347,7 +370,7 @@ describe('CacheControlInterceptor', () => {
         jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ mustRevalidate: true });
 
         const context = createMockExecutionContext();
-        const response = context.switchToHttp().getResponse();
+        const response = getResponse(context);
         const handler = createMockCallHandler();
 
         interceptor.intercept(context, handler).subscribe({
@@ -367,7 +390,7 @@ describe('CacheControlInterceptor', () => {
         jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ immutable: true, maxAge: 86400 });
 
         const context = createMockExecutionContext();
-        const response = context.switchToHttp().getResponse();
+        const response = getResponse(context);
         const handler = createMockCallHandler();
 
         interceptor.intercept(context, handler).subscribe({
@@ -387,7 +410,7 @@ describe('CacheControlInterceptor', () => {
         jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ staleWhileRevalidate: 60 });
 
         const context = createMockExecutionContext();
-        const response = context.switchToHttp().getResponse();
+        const response = getResponse(context);
         const handler = createMockCallHandler();
 
         interceptor.intercept(context, handler).subscribe({
@@ -407,7 +430,7 @@ describe('CacheControlInterceptor', () => {
         jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue({ staleIfError: 300 });
 
         const context = createMockExecutionContext();
-        const response = context.switchToHttp().getResponse();
+        const response = getResponse(context);
         const handler = createMockCallHandler();
 
         interceptor.intercept(context, handler).subscribe({
@@ -426,7 +449,7 @@ describe('CacheControlInterceptor', () => {
   describe('Vary Header', () => {
     it('should set default Vary headers', (done) => {
       const context = createMockExecutionContext();
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
       const handler = createMockCallHandler();
 
       interceptor.intercept(context, handler).subscribe({
@@ -446,7 +469,7 @@ describe('CacheControlInterceptor', () => {
       });
 
       const context = createMockExecutionContext();
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
       const handler = createMockCallHandler();
 
       interceptor.intercept(context, handler).subscribe({
@@ -464,7 +487,7 @@ describe('CacheControlInterceptor', () => {
   describe('Default Policies', () => {
     it('should apply health endpoint policy', (done) => {
       const context = createMockExecutionContext({ path: '/health' });
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
       const handler = createMockCallHandler();
 
       interceptor.intercept(context, handler).subscribe({
@@ -480,7 +503,7 @@ describe('CacheControlInterceptor', () => {
 
     it('should apply static assets policy', (done) => {
       const context = createMockExecutionContext({ path: '/api/v1/static/logo.png' });
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
       const handler = createMockCallHandler();
 
       interceptor.intercept(context, handler).subscribe({
@@ -496,7 +519,7 @@ describe('CacheControlInterceptor', () => {
 
     it('should apply no-store for GraphQL path', (done) => {
       const context = createMockExecutionContext({ path: '/graphql' });
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
       const handler = createMockCallHandler();
 
       interceptor.intercept(context, handler).subscribe({
@@ -512,7 +535,7 @@ describe('CacheControlInterceptor', () => {
 
     it('should apply no-store for non-GET requests', (done) => {
       const context = createMockExecutionContext({ method: 'POST' });
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
       const handler = createMockCallHandler();
 
       interceptor.intercept(context, handler).subscribe({
@@ -625,7 +648,7 @@ describe('CacheControlInterceptor', () => {
 
     it('should handle string response data', (done) => {
       const context = createMockExecutionContext();
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
       const handler = createMockCallHandler('string response');
 
       interceptor.intercept(context, handler).subscribe({
@@ -638,7 +661,7 @@ describe('CacheControlInterceptor', () => {
 
     it('should handle array response data', (done) => {
       const context = createMockExecutionContext();
-      const response = context.switchToHttp().getResponse();
+      const response = getResponse(context);
       const handler = createMockCallHandler([1, 2, 3]);
 
       interceptor.intercept(context, handler).subscribe({

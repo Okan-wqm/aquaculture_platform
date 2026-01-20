@@ -1,0 +1,72 @@
+# =============================================================================
+# Aquaculture Platform - Farm Service
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: farm-service
+  namespace: aquaculture
+  labels:
+    app: farm-service
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: farm-service
+  template:
+    metadata:
+      labels:
+        app: farm-service
+        tier: backend
+    spec:
+      serviceAccountName: aquaculture-sa
+      containers:
+        - name: farm-service
+          image: ghcr.io/aquaculture/farm-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: aquaculture-config
+            - secretRef:
+                name: aquaculture-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: farm-service
+  namespace: aquaculture
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 3000
+      name: http
+  selector:
+    app: farm-service

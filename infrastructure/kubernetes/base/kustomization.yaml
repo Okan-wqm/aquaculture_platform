@@ -1,0 +1,53 @@
+# =============================================================================
+# Aquaculture Platform - Kustomize Base Configuration
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: aquaculture
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secrets.yaml
+  - rbac.yaml
+  # Backend services
+  - gateway-api.yaml
+  - auth-service.yaml
+  - farm-service.yaml
+  - sensor-service.yaml
+  - alert-engine.yaml
+  - notification-service.yaml
+  # Frontend services
+  - shell.yaml
+  - frontend-modules.yaml
+  # Networking
+  - ingress.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: aquaculture-platform
+  app.kubernetes.io/managed-by: kustomize
+
+images:
+  - name: ghcr.io/aquaculture/gateway-api
+    newTag: latest
+  - name: ghcr.io/aquaculture/auth-service
+    newTag: latest
+  - name: ghcr.io/aquaculture/farm-service
+    newTag: latest
+  - name: ghcr.io/aquaculture/sensor-service
+    newTag: latest
+  - name: ghcr.io/aquaculture/alert-engine
+    newTag: latest
+  - name: ghcr.io/aquaculture/notification-service
+    newTag: latest
+  - name: ghcr.io/aquaculture/shell
+    newTag: latest
+  - name: ghcr.io/aquaculture/dashboard
+    newTag: latest
+  - name: ghcr.io/aquaculture/farm-module
+    newTag: latest
+  - name: ghcr.io/aquaculture/process-editor
+    newTag: latest
+  - name: ghcr.io/aquaculture/admin-panel
+    newTag: latest

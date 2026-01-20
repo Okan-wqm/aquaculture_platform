@@ -1,0 +1,11 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Heater - Placeholder SVG -->
+  <rect x="12" y="16" width="40" height="32" rx="4" stroke="currentColor" stroke-width="2" fill="none"/>
+  <path d="M12 26h40" stroke="currentColor" stroke-width="2"/>
+  <path d="M12 38h40" stroke="currentColor" stroke-width="2"/>
+  <path d="M20 16v-6" stroke="currentColor" stroke-width="2"/>
+  <path d="M44 16v-6" stroke="currentColor" stroke-width="2"/>
+  <path d="M20 48v6" stroke="currentColor" stroke-width="2"/>
+  <path d="M44 48v6" stroke="currentColor" stroke-width="2"/>
+  <path d="M24 32c2-4 4-4 6 0s4 4 6 0" stroke="#ef4444" stroke-width="2" fill="none"/>
+</svg>

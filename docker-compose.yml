@@ -1,0 +1,556 @@
+# =============================================================================
+# Aquaculture Platform - Docker Compose (Development)
+# Local development environment with all services
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # Infrastructure Services
+  # ===========================================================================
+
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: aqua-postgres
+    environment:
+      POSTGRES_USER: aquaculture
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
+      POSTGRES_DB: aquaculture
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aquaculture"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aqua-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: aqua-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-devpassword}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aqua-network
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: aqua-nats
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 4222 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aqua-network
+
+  minio:
+    image: minio/minio:latest
+    container_name: aqua-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - aqua-network
+
+  # ===========================================================================
+  # Backend Microservices
+  # ===========================================================================
+
+  gateway-api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend
+      args:
+        SERVICE_NAME: gateway-api
+    container_name: aqua-gateway
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgres://aquaculture:${DB_PASSWORD:-devpassword}@postgres:5432/aquaculture
+      REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      AUTH_SERVICE_URL: http://auth-service:3000/graphql
+      FARM_SERVICE_URL: http://farm-service:3000/graphql
+      SENSOR_SERVICE_URL: http://sensor-service:3000/graphql
+      ALERT_SERVICE_URL: http://alert-engine:3000/graphql
+      HR_SERVICE_URL: http://hr-service:3000/graphql
+      BILLING_SERVICE_URL: http://billing-service:3000/graphql
+      # MinIO Storage Configuration
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-aquaculture}
+      MINIO_REGION: us-east-1
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      farm-service:
+        condition: service_started
+      sensor-service:
+        condition: service_started
+      alert-engine:
+        condition: service_started
+      hr-service:
+        condition: service_started
+      billing-service:
+        condition: service_started
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend
+      args:
+        SERVICE_NAME: auth-service
+    container_name: aqua-auth
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: aquaculture
+      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      DATABASE_NAME: aquaculture
+      DATABASE_SYNC: "true"
+      REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      JWT_EXPIRES_IN: 1h
+      REFRESH_TOKEN_EXPIRES_IN: 7d
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  farm-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend
+      args:
+        SERVICE_NAME: farm-service
+    container_name: aqua-farm
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: aquaculture
+      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      DATABASE_NAME: aquaculture
+      DATABASE_SCHEMA: farm
+      DATABASE_SYNC: "true"
+      DATABASE_LOGGING: "true"
+      REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
+      NATS_URL: nats://nats:4222
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  sensor-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend
+      args:
+        SERVICE_NAME: sensor-service
+    container_name: aqua-sensor
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: aquaculture
+      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      DATABASE_NAME: aquaculture
+      DATABASE_SYNC: "true"
+      REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
+      NATS_URL: nats://nats:4222
+      MQTT_ENABLED: "true"
+      MQTT_BROKER_URL: mqtt://host.docker.internal:1883
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  alert-engine:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend
+      args:
+        SERVICE_NAME: alert-engine
+    container_name: aqua-alert
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: aquaculture
+      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      DATABASE_NAME: aquaculture
+      DATABASE_SYNC: "true"
+      REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
+      NATS_URL: nats://nats:4222
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  billing-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend
+      args:
+        SERVICE_NAME: billing-service
+    container_name: aqua-billing
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: aquaculture
+      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      DATABASE_NAME: aquaculture
+      DATABASE_SYNC: "true"
+      REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
+      NATS_URL: nats://nats:4222
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  hr-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend
+      args:
+        SERVICE_NAME: hr-service
+    container_name: aqua-hr
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: aquaculture
+      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      DATABASE_NAME: aquaculture
+      DATABASE_SYNC: "true"
+      REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
+      NATS_URL: nats://nats:4222
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend
+      args:
+        SERVICE_NAME: notification-service
+    container_name: aqua-notification
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: aquaculture
+      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      DATABASE_NAME: aquaculture
+      DATABASE_SYNC: "true"
+      REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
+      NATS_URL: nats://nats:4222
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  admin-api-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend
+      args:
+        SERVICE_NAME: admin-api-service
+    container_name: aqua-admin-api
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: aquaculture
+      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      DATABASE_NAME: aquaculture
+      DATABASE_SYNC: "true"
+      REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Frontend Services (Module Federation)
+  # ===========================================================================
+
+  shell:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.shell
+    container_name: aqua-shell
+    environment:
+      DASHBOARD_URL: http://dashboard:80
+      FARM_MODULE_URL: http://farm-module:80
+      PROCESS_EDITOR_URL: http://process-editor:80
+      HR_MODULE_URL: http://hr-module:80
+      SENSOR_MODULE_URL: http://sensor-module:80
+      ADMIN_PANEL_URL: http://admin-panel:80
+      TENANT_ADMIN_URL: http://tenant-admin:80
+    ports:
+      - "8080:80"
+    depends_on:
+      - dashboard
+      - farm-module
+      - process-editor
+      - hr-module
+      - sensor-module
+      - admin-panel
+      - tenant-admin
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+      args:
+        MODULE_PATH: web/modules/dashboard
+    container_name: aqua-dashboard
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  farm-module:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+      args:
+        MODULE_PATH: web/modules/farm-module
+    container_name: aqua-farm-module
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  process-editor:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+      args:
+        MODULE_PATH: web/modules/process-editor
+    container_name: aqua-process-editor
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  admin-panel:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+      args:
+        MODULE_PATH: web/modules/admin-panel
+    container_name: aqua-admin-panel
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  tenant-admin:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+      args:
+        MODULE_PATH: web/modules/tenant-admin
+    container_name: aqua-tenant-admin
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  hr-module:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+      args:
+        MODULE_PATH: web/modules/hr-module
+    container_name: aqua-hr-module
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  sensor-module:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+      args:
+        MODULE_PATH: web/modules/sensor-module
+    container_name: aqua-sensor-module
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Development Tools
+  # ===========================================================================
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: aqua-mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - aqua-network
+
+  adminer:
+    image: adminer:latest
+    container_name: aqua-adminer
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+    networks:
+      - aqua-network
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  aqua-network:
+    driver: bridge
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres_data:
+  redis_data:
+  nats_data:
+  minio_data:

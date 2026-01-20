@@ -1,0 +1,96 @@
+# =============================================================================
+# Aquaculture Platform - Backend Services Dockerfile
+# Multi-stage build for NestJS microservices
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stage 1: Base image with dependencies
+# -----------------------------------------------------------------------------
+FROM node:20-alpine AS base
+
+# Install build dependencies
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY tsconfig*.json ./
+
+# -----------------------------------------------------------------------------
+# Stage 2: Dependencies installation
+# -----------------------------------------------------------------------------
+FROM base AS deps
+
+# Install all dependencies (including devDependencies for build)
+# Skip prepare script (husky) in Docker
+RUN npm ci --legacy-peer-deps --ignore-scripts
+
+# -----------------------------------------------------------------------------
+# Stage 3: Builder - Compile TypeScript
+# -----------------------------------------------------------------------------
+FROM deps AS builder
+
+# Copy source code
+COPY apps/ ./apps/
+COPY libs/ ./libs/
+COPY platform/ ./platform/
+
+# Build argument for service name
+ARG SERVICE_NAME
+
+# Build the specific service using NX
+RUN npx nx build ${SERVICE_NAME} --skip-nx-cache
+
+# -----------------------------------------------------------------------------
+# Stage 4: Production dependencies only
+# -----------------------------------------------------------------------------
+FROM base AS prod-deps
+
+# Skip prepare script (husky) in Docker
+RUN npm ci --legacy-peer-deps --omit=dev --ignore-scripts
+
+# -----------------------------------------------------------------------------
+# Stage 5: Production image
+# -----------------------------------------------------------------------------
+FROM node:20-alpine AS production
+
+# Install curl for health checks and other utilities
+RUN apk add --no-cache curl dumb-init
+
+# Security: Run as non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nestjs -u 1001
+
+WORKDIR /app
+
+# Copy production dependencies
+COPY --from=prod-deps /app/node_modules ./node_modules
+
+# Copy built application
+ARG SERVICE_NAME
+COPY --from=builder /app/dist/apps/${SERVICE_NAME} ./dist
+
+# Copy package.json for version info
+COPY package.json ./
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV PORT=3000
+
+# Health check - uses /health/live endpoint for liveness probe
+# Increased start-period for NestJS bootstrap time
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl --fail --silent http://127.0.0.1:${PORT}/health/live || exit 1
+
+# Switch to non-root user
+USER nestjs
+
+# Expose port
+EXPOSE 3000
+
+# Use dumb-init to handle signals properly for graceful shutdown
+ENTRYPOINT ["dumb-init", "--"]
+
+# Start the service
+CMD ["node", "dist/main.js"]

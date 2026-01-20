@@ -1,0 +1,49 @@
+{
+  "name": "shell",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "web/shell/src",
+  "projectType": "application",
+  "tags": ["scope:web", "type:app", "module-federation:host"],
+  "targets": {
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "web/shell",
+        "command": "npm run dev"
+      },
+      "dependsOn": ["^build"]
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": ["{projectRoot}/dist"],
+      "options": {
+        "cwd": "web/shell",
+        "command": "npm run build"
+      },
+      "dependsOn": ["shared-ui:build"]
+    },
+    "preview": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "web/shell",
+        "command": "npm run preview"
+      },
+      "dependsOn": ["build"]
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "web/shell",
+        "command": "npm run lint"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "web/shell",
+        "command": "npm run test"
+      }
+    }
+  },
+  "implicitDependencies": ["shared-ui"]
+}

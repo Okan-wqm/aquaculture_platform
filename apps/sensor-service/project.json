@@ -1,0 +1,66 @@
+{
+  "name": "sensor-service",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/sensor-service/src",
+  "projectType": "application",
+  "tags": ["scope:backend", "type:service"],
+  "targets": {
+    "build": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "target": "node",
+        "compiler": "tsc",
+        "outputPath": "dist/apps/sensor-service",
+        "main": "apps/sensor-service/src/main.ts",
+        "tsConfig": "apps/sensor-service/tsconfig.app.json",
+        "assets": ["apps/sensor-service/src/assets"],
+        "generatePackageJson": true,
+        "webpackConfig": "apps/sensor-service/webpack.config.js"
+      },
+      "configurations": {
+        "development": {
+          "optimization": false,
+          "sourceMap": true
+        },
+        "production": {
+          "optimization": true,
+          "extractLicenses": true,
+          "inspect": false,
+          "sourceMap": false
+        }
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "sensor-service:build"
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "sensor-service:build:development"
+        },
+        "production": {
+          "buildTarget": "sensor-service:build:production"
+        }
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["apps/sensor-service/**/*.ts"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "apps/sensor-service/jest.config.ts",
+        "passWithNoTests": true
+      }
+    }
+  }
+}

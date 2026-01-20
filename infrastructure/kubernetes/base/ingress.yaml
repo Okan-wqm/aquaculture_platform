@@ -1,0 +1,130 @@
+# =============================================================================
+# Aquaculture Platform - Ingress Configuration
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aquaculture-ingress
+  namespace: aquaculture
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-XSS-Protection "1; mode=block" always;
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+spec:
+  tls:
+    - hosts:
+        - aquaculture.example.com
+        - api.aquaculture.example.com
+      secretName: aquaculture-tls
+  rules:
+    # Main application
+    - host: aquaculture.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: shell
+                port:
+                  number: 80
+          # Microfrontend modules (for direct access / debugging)
+          - path: /mf/dashboard
+            pathType: Prefix
+            backend:
+              service:
+                name: dashboard
+                port:
+                  number: 80
+          - path: /mf/farm
+            pathType: Prefix
+            backend:
+              service:
+                name: farm-module
+                port:
+                  number: 80
+          - path: /mf/process
+            pathType: Prefix
+            backend:
+              service:
+                name: process-editor
+                port:
+                  number: 80
+          - path: /mf/admin
+            pathType: Prefix
+            backend:
+              service:
+                name: admin-panel
+                port:
+                  number: 80
+
+    # API Gateway
+    - host: api.aquaculture.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway-api
+                port:
+                  number: 80
+
+---
+# Internal ingress for module federation assets
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aquaculture-mf-ingress
+  namespace: aquaculture
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Origin, Content-Type, Accept"
+spec:
+  rules:
+    - host: mf.aquaculture.example.com
+      http:
+        paths:
+          - path: /dashboard
+            pathType: Prefix
+            backend:
+              service:
+                name: dashboard
+                port:
+                  number: 80
+          - path: /farm-module
+            pathType: Prefix
+            backend:
+              service:
+                name: farm-module
+                port:
+                  number: 80
+          - path: /process-editor
+            pathType: Prefix
+            backend:
+              service:
+                name: process-editor
+                port:
+                  number: 80
+          - path: /admin-panel
+            pathType: Prefix
+            backend:
+              service:
+                name: admin-panel
+                port:
+                  number: 80

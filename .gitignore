@@ -99,4 +99,6 @@ secrets/
 
 # Nx
 .nx/cache
-.nx/workspace-data
+.nx/workspace-datanul
+sens-repo-temp/
+sens-repo/

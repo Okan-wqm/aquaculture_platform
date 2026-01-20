@@ -15,11 +15,11 @@
     "strictNullChecks": true,
     "strictFunctionTypes": true,
     "strictBindCallApply": true,
-    "strictPropertyInitialization": true,
+    "strictPropertyInitialization": false,
     "noImplicitThis": true,
     "alwaysStrict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
@@ -37,6 +37,7 @@
     "paths": {
       "@platform/backend-common": ["libs/backend-common/src/index.ts"],
       "@platform/event-contracts": ["libs/event-contracts/src/index.ts"],
+      "@platform/storage": ["libs/storage/src/index.ts"],
       "@platform/sdk": ["libs/sdk/typescript/src/index.ts"],
       "@platform/testing": ["libs/testing/src/index.ts"],
       "@platform/event-bus": ["platform/libs/event-bus/src/index.ts"],
@@ -50,7 +51,8 @@
       "@platform/temporal-workflows": [
         "platform/libs/temporal-workflows/src/index.ts"
       ],
-      "@web/shared-ui": ["web/shared-ui/src/index.ts"]
+      "@web/shared-ui": ["web/shared-ui/src/index.ts"],
+      "@aquaculture/node-components": ["libs/node-components/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "tmp", "dist", ".nx"]

@@ -3286,13 +3286,13 @@ SGR = ((ln(Son) - ln(Baş)) ÷ Gün) × 100
 
 ## 10.5 Yetki Seviyeleri
 
-| Rol | Açıklama |
-|-----|----------|
-| VIEWER | Sadece görüntüleme |
-| TECHNICIAN | Günlük operasyonlar |
-| SUPERVISOR | Batch + stok yönetimi |
-| MANAGER | Setup + tüm operasyonlar |
-| ADMIN | Tam yetki (silme dahil) |
+| Rol          | Açıklama |
+|--------------|----------|
+| VIEWER       | Sadece görüntüleme |
+| TECHNICIAN   | Günlük operasyonlar |
+| SUPERVISOR   | Batch + stok yönetimi |
+| MANAGER      | Setup + tüm operasyonlar |
+| TENANT ADMIN | Tam yetki (silme dahil) |
 
 ---
 

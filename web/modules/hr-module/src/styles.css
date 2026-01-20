@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* HR Module Custom Styles */
+.hr-module {
+  @apply min-h-screen;
+}
+
+/* Employee Status Badge Colors */
+.status-active {
+  @apply bg-green-100 text-green-800;
+}
+
+.status-inactive {
+  @apply bg-gray-100 text-gray-800;
+}
+
+.status-on-leave {
+  @apply bg-yellow-100 text-yellow-800;
+}
+
+.status-terminated {
+  @apply bg-red-100 text-red-800;
+}
+
+/* Attendance Badge Colors */
+.attendance-present {
+  @apply bg-green-100 text-green-800;
+}
+
+.attendance-absent {
+  @apply bg-red-100 text-red-800;
+}
+
+.attendance-late {
+  @apply bg-yellow-100 text-yellow-800;
+}
+
+.attendance-leave {
+  @apply bg-blue-100 text-blue-800;
+}

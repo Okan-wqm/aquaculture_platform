@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Tenant Admin Custom Styles */
+@layer components {
+  /* Tenant Admin Sidebar */
+  .tenant-sidebar {
+    @apply bg-tenant-sidebar text-white;
+  }
+
+  /* Tenant Admin Card */
+  .tenant-card {
+    @apply bg-white dark:bg-dark-800 rounded-xl shadow-sm border border-gray-100 dark:border-dark-700;
+  }
+
+  /* Tenant Admin Stat Card */
+  .tenant-stat-card {
+    @apply tenant-card p-6 hover:shadow-md transition-shadow duration-200;
+  }
+
+  /* Tenant Admin Button Primary */
+  .tenant-btn-primary {
+    @apply bg-tenant-600 hover:bg-tenant-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+  }
+
+  /* Tenant Admin Button Secondary */
+  .tenant-btn-secondary {
+    @apply bg-tenant-100 hover:bg-tenant-200 text-tenant-800 font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+  }
+
+  /* Tenant Admin Badge */
+  .tenant-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-tenant-100 text-tenant-800;
+  }
+
+  /* Tenant Admin Table */
+  .tenant-table {
+    @apply w-full divide-y divide-gray-200 dark:divide-dark-700;
+  }
+
+  .tenant-table th {
+    @apply px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-dark-400 uppercase tracking-wider bg-gray-50 dark:bg-dark-800;
+  }
+
+  .tenant-table td {
+    @apply px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-dark-100;
+  }
+
+  .tenant-table tbody tr {
+    @apply bg-white dark:bg-dark-900 hover:bg-gray-50 dark:hover:bg-dark-800 transition-colors;
+  }
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-100 dark:bg-dark-800;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-tenant-400 dark:bg-tenant-600 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-tenant-500 dark:bg-tenant-700;
+}

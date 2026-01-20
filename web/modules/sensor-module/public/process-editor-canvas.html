@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Process Editor Canvas</title>
+  <!-- React -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-is@18/umd/react-is.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
+  <!-- ReactFlow -->
+  <link href="https://unpkg.com/reactflow@11.11.4/dist/style.css" rel="stylesheet" />
+  <script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+  <!-- Recharts for Chart Widgets -->
+  <script src="https://cdn.jsdelivr.net/npm/recharts@2/umd/Recharts.min.js"></script>
+  <!-- Aquaculture Node Components (UMD Bundle) -->
+  <script src="libs/aquaculture-nodes.umd.js"></script>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html, body, #root {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    .react-flow__node-equipment,
+    .react-flow__node-blower,
+    .react-flow__node-drumFilter,
+    .react-flow__node-uvUnit,
+    .react-flow__node-radialSettler,
+    .react-flow__node-fishTank,
+    .react-flow__node-connectionPoint,
+    .react-flow__node-tankInlet,
+    .react-flow__node-sensor,
+    .react-flow__node-algaeBagRed,
+    .react-flow__node-algaeBagGreen,
+    .react-flow__node-algaeBagYellow,
+    .react-flow__node-ultrafiltration,
+    .react-flow__node-dualDrainTank {
+      padding: 0;
+      border-radius: 8px;
+      background: white;
+      border: 1px solid #e5e7eb;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .react-flow__node-equipment.selected,
+    .react-flow__node-blower.selected,
+    .react-flow__node-drumFilter.selected,
+    .react-flow__node-uvUnit.selected,
+    .react-flow__node-radialSettler.selected,
+    .react-flow__node-fishTank.selected,
+    .react-flow__node-connectionPoint.selected,
+    .react-flow__node-tankInlet.selected,
+    .react-flow__node-sensor.selected,
+    .react-flow__node-algaeBagRed.selected,
+    .react-flow__node-algaeBagGreen.selected,
+    .react-flow__node-algaeBagYellow.selected,
+    .react-flow__node-ultrafiltration.selected,
+    .react-flow__node-dualDrainTank.selected {
+      box-shadow: 0 0 0 2px #22c55e;
+    }
+    .react-flow__node-sensor {
+      border: 1px solid #86efac;
+    }
+    /* Algae bag node specific styles - SVG gorünür olsun */
+    .react-flow__node-algaeBagRed,
+    .react-flow__node-algaeBagGreen,
+    .react-flow__node-algaeBagYellow {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+    }
+    /* SCADA node styles - transparent background for SVG visibility */
+    .react-flow__node-cleanWaterTank,
+    .react-flow__node-dirtyWaterTank,
+    .react-flow__node-waterSupply,
+    .react-flow__node-waterDischarge,
+    .react-flow__node-mbbr,
+    .react-flow__node-hepaFilter,
+    .react-flow__node-dosingPump,
+    .react-flow__node-ultrafiltration,
+    .react-flow__node-dualDrainTank {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+    }
+    /* Heat exchanger node styles - transparent background for SVG visibility */
+    .react-flow__node-heater,
+    .react-flow__node-shellAndTubeHeatExchanger,
+    .react-flow__node-plateHeatExchanger,
+    .react-flow__node-chiller {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+    }
+    /* Generator node styles - transparent background for SVG visibility */
+    .react-flow__node-gasGenerator,
+    .react-flow__node-dieselGenerator {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+    }
+    /* Chart Widget Node styles */
+    .react-flow__node-chartWidget {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      border: 1px solid #e5e7eb;
+      overflow: hidden;
+    }
+    .react-flow__node-chartWidget.selected {
+      box-shadow: 0 0 0 2px #3b82f6;
+    }
+    .chart-widget-header {
+      padding: 6px 10px;
+      background: #f0f9ff;
+      border-bottom: 1px solid #e0f2fe;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: move;
+    }
+    .chart-widget-content {
+      padding: 8px;
+      min-height: 120px;
+    }
+    .chart-widget-footer {
+      padding: 4px 10px;
+      background: #f9fafb;
+      border-top: 1px solid #f3f4f6;
+      font-size: 11px;
+      color: #6b7280;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .react-flow__node-connectionPoint {
+      border-radius: 50%;
+    }
+    .react-flow__handle {
+      width: 10px;
+      height: 10px;
+      background: white;
+      border: 2px solid #9ca3af;
+    }
+    .react-flow__handle:hover {
+      background: #eff6ff;
+      border-color: #3b82f6;
+    }
+    .react-flow__edge-path {
+      stroke-width: 2;
+    }
+    /* Edge'lerin node SVG'lerinin ustunde gorunmesi icin */
+    .react-flow__edges {
+      z-index: 1000 !important;
+      pointer-events: auto;
+    }
+    .react-flow__edge {
+      pointer-events: all;
+    }
+    .react-flow__connection-line {
+      z-index: 1001 !important;
+    }
+    /* Orthogonal edge segment indicators */
+    .segment-indicator {
+      transition: transform 0.1s ease;
+    }
+    .react-flow__edge-orthogonal:hover .segment-indicator {
+      opacity: 0.6 !important;
+    }
+    .react-flow__controls {
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .react-flow__minimap {
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    /* Node highlight animation */
+    @keyframes node-highlight-pulse {
+      0%, 100% { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.8); }
+      50% { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.4); }
+    }
+    .node-highlighted {
+      animation: node-highlight-pulse 0.5s ease-in-out 3;
+    }
+    /* Node Resize Handle Styles */
+    .node-resize-handle {
+      position: absolute;
+      background: #3b82f6;
+      border: 2px solid white;
+      border-radius: 2px;
+      z-index: 100;
+      pointer-events: all;
+    }
+    .node-resize-handle.corner {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+    }
+    .node-resize-handle.corner.nw { top: -5px; left: -5px; cursor: nwse-resize; }
+    .node-resize-handle.corner.ne { top: -5px; right: -5px; cursor: nesw-resize; }
+    .node-resize-handle.corner.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+    .node-resize-handle.corner.se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+    .node-resize-handle.edge {
+      width: 6px;
+      height: 6px;
+    }
+    .node-resize-handle.edge.n { top: -3px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+    .node-resize-handle.edge.s { bottom: -3px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+    .node-resize-handle.edge.e { right: -3px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+    .node-resize-handle.edge.w { left: -3px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+    /* Feeder node styles - transparent background for SVG visibility */
+    .react-flow__node-demandFeeder,
+    .react-flow__node-automaticFeeder {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+    }
+    .react-flow__node-demandFeeder.selected,
+    .react-flow__node-automaticFeeder.selected {
+      box-shadow: 0 0 0 2px #22c55e !important;
+    }
+    /* Pump node styles - transparent background for SVG visibility */
+    .react-flow__node-pump,
+    .react-flow__node-valve,
+    .react-flow__node-ozoneGenerator,
+    .react-flow__node-oxygenGenerator {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+    }
+    .react-flow__node-pump.selected,
+    .react-flow__node-valve.selected,
+    .react-flow__node-ozoneGenerator.selected,
+    .react-flow__node-oxygenGenerator.selected {
+      box-shadow: 0 0 0 2px #22c55e !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/javascript">
+    const { createElement: h, useState, useCallback, useRef, useEffect, useMemo } = React;
+    const { createRoot } = ReactDOM;
+    const {
+      ReactFlow,
+      ReactFlowProvider,
+      useNodesState,
+      useEdgesState,
+      useReactFlow,
+      useUpdateNodeInternals,
+      addEdge,
+      Controls,
+      Background,
+      MiniMap,
+      Handle,
+      Position,
+      MarkerType,
+    } = window.ReactFlow;
+
+    // ============================================
+    // Import from UMD Bundle (@aquaculture/node-components)
+    // ============================================
+    const {
+      // Node components
+      BlowerNode,
+      DrumFilterNode,
+      UVUnitNode,
+      RadialSettlerNode,
+      FishTankNode,
+      ConnectionPointNode,
+      TankInletNode,
+      SensorNode,
+      AlgaeBagNode,
+      DemandFeederNode,
+      AutomaticFeederNode,
+      UltrafiltrationNode,
+      DualDrainTankNode,
+      CleanWaterTankNode,
+      DirtyWaterTankNode,
+      WaterSupplyNode,
+      WaterDischargeNode,
+      MBBRNode,
+      HEPAFilterNode,
+      DosingPumpNode,
+      HeaterNode,
+      ShellTubeHeatExchangerNode,
+      PlateHeatExchangerNode,
+      ChillerNode,
+      GasGeneratorNode,
+      DieselGeneratorNode,
+      EquipmentNode,
+      PumpNode,
+      ValveNode,
+      OzoneGeneratorNode,
+      OxygenGeneratorNode,
+      // Edge types
+      edgeTypes: baseEdgeTypes,
+      // Config
+      getEdgeStyle,
+      CONNECTION_TYPES,
+    } = window.AquacultureNodes;
+
+    // Status color mapping
+    const getStatusColor = (status) => {
+      if (status === 'operational' || status === 'active') return '#22c55e';
+      if (status === 'maintenance') return '#eab308';
+      if (status === 'out_of_service') return '#ef4444';
+      return '#94a3b8';
+    };
+
+    // ============================================
+    // Chart Widget Node (Editor-specific)
+    // ============================================
+    function ChartWidgetNode({ id, data, selected }) {
+      const { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar } = window.Recharts || {};
+
+      const width = data?.width || 320;
+      const height = data?.height || 200;
+      const widgetType = data?.widgetType || 'line-chart';
+      const title = data?.title || 'Chart Widget';
+      const color = data?.color || '#3b82f6';
+      const mode = data?.mode || 'demo';
+
+      // Demo data for preview
+      const demoData = useMemo(() => [
+        { time: '00:00', value: 22.5 },
+        { time: '04:00', value: 23.1 },
+        { time: '08:00', value: 24.2 },
+        { time: '12:00', value: 25.8 },
+        { time: '16:00', value: 24.5 },
+        { time: '20:00', value: 23.2 },
+      ], []);
+
+      const chartData = data?.chartData?.length > 0 ? data.chartData : demoData;
+
+      if (!LineChart) {
+        return h('div', {
+          style: { width, height, background: '#f8fafc', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', border: selected ? '2px solid #3b82f6' : '1px solid #e2e8f0' }
+        }, h('span', { style: { color: '#94a3b8' } }, 'Recharts not loaded'));
+      }
+
+      // Select chart component based on type
+      let ChartComponent, DataComponent;
+      if (widgetType === 'area-chart') {
+        ChartComponent = AreaChart;
+        DataComponent = (props) => h(Area, { ...props, fillOpacity: 0.3 });
+      } else if (widgetType === 'bar-chart') {
+        ChartComponent = BarChart;
+        DataComponent = Bar;
+      } else {
+        ChartComponent = LineChart;
+        DataComponent = Line;
+      }
+
+      return h('div', {
+        style: { width, height }
+      }, [
+        h(Handle, { key: 'target-left', type: 'target', position: Position.Left, style: { background: '#3b82f6', border: '2px solid white' } }),
+        h(Handle, { key: 'target-top', type: 'target', position: Position.Top, style: { background: '#3b82f6', border: '2px solid white' } }),
+
+        // Header
+        h('div', { key: 'header', className: 'chart-widget-header' }, [
+          h('span', { key: 'icon', style: { fontSize: 14 } }, '\uD83D\uDCC8'),
+          h('span', { key: 'title', style: { fontSize: 12, fontWeight: 600, color: '#1e40af', flex: 1 } }, title),
+          mode === 'demo' && h('span', { key: 'badge', style: { fontSize: 9, background: '#fef3c7', color: '#92400e', padding: '1px 4px', borderRadius: 3 } }, 'DEMO')
+        ]),
+
+        // Chart content
+        h('div', { key: 'content', className: 'chart-widget-content' },
+          h(ResponsiveContainer, { width: '100%', height: height - 70 },
+            h(ChartComponent, { data: chartData },
+              h(XAxis, { dataKey: 'time', tick: { fontSize: 9 }, stroke: '#9ca3af' }),
+              h(YAxis, { tick: { fontSize: 9 }, stroke: '#9ca3af', width: 35 }),
+              h(Tooltip, { contentStyle: { fontSize: 10 } }),
+              h(DataComponent, {
+                type: 'monotone',
+                dataKey: 'value',
+                stroke: color,
+                fill: color,
+                strokeWidth: 2,
+                dot: false
+              })
+            )
+          )
+        ),
+
+        // Footer
+        h('div', { key: 'footer', className: 'chart-widget-footer' }, [
+          h('span', { key: 'channels' }, `${data?.selectedChannels?.length || 0} channels`),
+          h('span', { key: 'refresh' }, data?.timeRange || 'live')
+        ]),
+
+        h(Handle, { key: 'source-right', type: 'source', position: Position.Right, style: { background: '#22c55e', border: '2px solid white' } }),
+        h(Handle, { key: 'source-bottom', type: 'source', position: Position.Bottom, style: { background: '#22c55e', border: '2px solid white' } })
+      ]);
+    }
+
+    // Algae bag color wrappers
+    function AlgaeBagRedNode(props) {
+      return h(AlgaeBagNode, { ...props, data: { ...props.data, color: 'red' } });
+    }
+    function AlgaeBagGreenNode(props) {
+      return h(AlgaeBagNode, { ...props, data: { ...props.data, color: 'green' } });
+    }
+    function AlgaeBagYellowNode(props) {
+      return h(AlgaeBagNode, { ...props, data: { ...props.data, color: 'yellow' } });
+    }
+
+    // Edge types registration - use from UMD bundle
+    const edgeTypes = baseEdgeTypes;
+
+    // Node types registration - use from UMD bundle
+    const nodeTypes = {
+      equipment: EquipmentNode,
+      blower: BlowerNode,
+      drumFilter: DrumFilterNode,
+      uvUnit: UVUnitNode,
+      radialSettler: RadialSettlerNode,
+      fishTank: FishTankNode,
+      connectionPoint: ConnectionPointNode,
+      tankInlet: TankInletNode,
+      sensor: SensorNode,
+      algaeBagRed: AlgaeBagRedNode,
+      algaeBagGreen: AlgaeBagGreenNode,
+      algaeBagYellow: AlgaeBagYellowNode,
+      chartWidget: ChartWidgetNode,
+      demandFeeder: DemandFeederNode,
+      automaticFeeder: AutomaticFeederNode,
+      ultrafiltration: UltrafiltrationNode,
+      dualDrainTank: DualDrainTankNode,
+      cleanWaterTank: CleanWaterTankNode,
+      dirtyWaterTank: DirtyWaterTankNode,
+      waterSupply: WaterSupplyNode,
+      waterDischarge: WaterDischargeNode,
+      mbbr: MBBRNode,
+      hepaFilter: HEPAFilterNode,
+      dosingPump: DosingPumpNode,
+      heater: HeaterNode,
+      shellAndTubeHeatExchanger: ShellTubeHeatExchangerNode,
+      plateHeatExchanger: PlateHeatExchangerNode,
+      chiller: ChillerNode,
+      gasGenerator: GasGeneratorNode,
+      dieselGenerator: DieselGeneratorNode,
+      pump: PumpNode,
+      valve: ValveNode,
+      ozoneGenerator: OzoneGeneratorNode,
+      oxygenGenerator: OxygenGeneratorNode,
+    };
+
+    // Equipment type to node type mapping
+    // Maps database equipment type codes to ReactFlow node types
+    // Codes are normalized: lowercase and hyphens replaced with underscores
+    const equipmentTypeToNodeType = {
+      // Blower types (aeration equipment)
+      'blower': 'blower',
+      'root_blower': 'blower',
+      'lobe_blower': 'blower',
+      'aerator': 'blower',
+      // Drum Filter types (mechanical filtration)
+      'filter_drum': 'drumFilter',
+      'drum_filter': 'drumFilter',
+      'filter_mechanical': 'drumFilter',
+      'mechanical_filter': 'drumFilter',
+      // UV types (water treatment)
+      'filter_uv': 'uvUnit',
+      'uv_sterilizer': 'uvUnit',
+      'uv_filter': 'uvUnit',
+      'uv': 'uvUnit',
+      // Settler/Biofilter types (biological filtration)
+      'settler': 'radialSettler',
+      'radial_settler': 'radialSettler',
+      'settling_tank': 'radialSettler',
+      'filter_bead': 'radialSettler',
+      'filter_biological': 'radialSettler',
+      'biofilter': 'radialSettler',
+      'biological_filter': 'radialSettler',
+      // Tank types (all tanks use fishTank node)
+      'tank_circular': 'fishTank',
+      'tank_raceway': 'fishTank',
+      'tank_rectangular': 'fishTank',
+      'fish_tank': 'fishTank',
+      'raceway': 'fishTank',
+      'tank': 'fishTank',
+      'ras_tank': 'fishTank',
+      'nursery_tank': 'fishTank',
+      'grow_out_tank': 'fishTank',
+      // Connection point types
+      'connection_point': 'connectionPoint',
+      'junction': 'connectionPoint',
+      'tee': 'connectionPoint',
+      // Tank inlet types
+      'tank_inlet': 'tankInlet',
+      'inlet': 'tankInlet',
+      'water_inlet': 'tankInlet',
+      // Sensor types
+      'sensor': 'sensor',
+      'sensor_node_template': 'sensor',
+      // Algae cultivation bag types
+      'algae_bag_red': 'algaeBagRed',
+      'algae_bag_rhodomonas': 'algaeBagRed',
+      'rhodomonas_bag': 'algaeBagRed',
+      'algae_bag_green': 'algaeBagGreen',
+      'algae_bag_chlorella': 'algaeBagGreen',
+      'chlorella_bag': 'algaeBagGreen',
+      'algae_bag_yellow': 'algaeBagYellow',
+      'algae_bag_dunaliella': 'algaeBagYellow',
+      'dunaliella_bag': 'algaeBagYellow',
+      'algae_bag': 'algaeBagGreen',
+      // Feeder types - database codes (normalized from feeder-*)
+      'feeder_automatic': 'automaticFeeder',
+      'feeder_demand': 'demandFeeder',
+      // Legacy/alternative codes for backwards compatibility
+      'demand_feeder': 'demandFeeder',
+      'pendulum_feeder': 'demandFeeder',
+      'fish_activated_feeder': 'demandFeeder',
+      'automatic_feeder': 'automaticFeeder',
+      'auto_feeder': 'automaticFeeder',
+      'motorized_feeder': 'automaticFeeder',
+      'auger_feeder': 'automaticFeeder',
+      'feeder': 'automaticFeeder',
+      // Ultrafiltration types (membrane filtration)
+      'ultrafiltration': 'ultrafiltration',
+      'uf_membrane': 'ultrafiltration',
+      'membrane_filter': 'ultrafiltration',
+      // Dual Drain Tank types
+      'dual_drain_tank': 'dualDrainTank',
+      'dual_drain': 'dualDrainTank',
+      'cornell_tank': 'dualDrainTank',
+      // Water tanks
+      'clean_water_tank': 'cleanWaterTank',
+      'dirty_water_tank': 'dirtyWaterTank',
+      'sump_tank': 'dirtyWaterTank',
+      'water_supply': 'waterSupply',
+      'water_discharge': 'waterDischarge',
+      // MBBR
+      'mbbr': 'mbbr',
+      'moving_bed': 'mbbr',
+      // HEPA Filter
+      'hepa_filter': 'hepaFilter',
+      'hepa': 'hepaFilter',
+      // Dosing Pump
+      'dosing_pump': 'dosingPump',
+      'chemical_pump': 'dosingPump',
+      // Heat exchangers
+      'heater': 'heater',
+      'water_heater': 'heater',
+      'shell_tube_heat_exchanger': 'shellAndTubeHeatExchanger',
+      'shell_and_tube': 'shellAndTubeHeatExchanger',
+      'plate_heat_exchanger': 'plateHeatExchanger',
+      'plate_exchanger': 'plateHeatExchanger',
+      'chiller': 'chiller',
+      'water_chiller': 'chiller',
+      // Generators
+      'gas_generator': 'gasGenerator',
+      'diesel_generator': 'dieselGenerator',
+      'backup_generator': 'dieselGenerator',
+      // Pump types
+      'pump': 'pump',
+      'centrifugal_pump': 'pump',
+      'submersible_pump': 'pump',
+      'water_pump': 'pump',
+      // Valve types
+      'valve': 'valve',
+      'ball_valve': 'valve',
+      'gate_valve': 'valve',
+      'butterfly_valve': 'valve',
+      // Ozone/Oxygen
+      'ozone_generator': 'ozoneGenerator',
+      'ozonator': 'ozoneGenerator',
+      'oxygen_generator': 'oxygenGenerator',
+      'oxygen_concentrator': 'oxygenGenerator',
+      'lox': 'oxygenGenerator',
+      'psa': 'oxygenGenerator',
+      // Chart Widget types
+      'line_chart': 'chartWidget',
+      'area_chart': 'chartWidget',
+      'bar_chart': 'chartWidget',
+      'gauge_widget': 'chartWidget',
+      'chart_widget': 'chartWidget',
+      'widget': 'chartWidget',
+    };
+
+    // Default edge options with P&ID styling
+    const defaultEdgeOptions = {
+      type: 'orthogonal',
+      animated: false,
+      markerEnd: { type: MarkerType.ArrowClosed },
+      style: getEdgeStyle('process-pipe'),
+      data: {
+        connectionType: 'process-pipe',
+        midX1: null,
+        midY: null,
+        midX2: null
+      }
+    };
+
+    // ============================================
+    // Main Process Editor Canvas Component
+    // ============================================
+    function ProcessEditorCanvas() {
+      const reactFlowWrapper = useRef(null);
+      const [nodes, setNodes, onNodesChange] = useNodesState([]);
+      const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+      const [reactFlowInstance, setReactFlowInstance] = useState(null);
+      const [selectedNodeId, setSelectedNodeId] = useState(null);
+      const [selectedEdgeId, setSelectedEdgeId] = useState(null);
+      const [highlightedNodeId, setHighlightedNodeId] = useState(null);
+
+      // Handle new connection
+      const onConnect = useCallback((params) => {
+        // Get edge style from data or use default
+        const newEdge = {
+          ...params,
+          id: `e-${params.source}-${params.sourceHandle || 'default'}-${params.target}-${params.targetHandle || 'default'}-${Date.now()}`,
+          type: 'orthogonal',
+          data: {
+            connectionType: 'process-pipe',
+            midX1: null,
+            midY: null,
+            midX2: null
+          },
+          style: getEdgeStyle('process-pipe')
+        };
+        setEdges((eds) => addEdge(newEdge, eds));
+        notifyParent('edgeAdded', newEdge);
+      }, [setEdges]);
+
+      // Handle node click
+      const onNodeClick = useCallback((event, node) => {
+        setSelectedNodeId(node.id);
+        setSelectedEdgeId(null);
+        notifyParent('nodeSelected', node);
+      }, []);
+
+      // Handle edge click
+      const onEdgeClick = useCallback((event, edge) => {
+        setSelectedEdgeId(edge.id);
+        setSelectedNodeId(null);
+        notifyParent('edgeSelected', edge);
+      }, []);
+
+      // Handle pane click (deselect)
+      const onPaneClick = useCallback(() => {
+        setSelectedNodeId(null);
+        setSelectedEdgeId(null);
+        notifyParent('selectionCleared', null);
+      }, []);
+
+      // Handle drag over for drop
+      const onDragOver = useCallback((event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+      }, []);
+
+      // Handle drop from palette
+      const onDrop = useCallback((event) => {
+        event.preventDefault();
+
+        if (!reactFlowInstance) return;
+
+        const equipmentData = event.dataTransfer.getData('application/reactflow');
+        if (!equipmentData) return;
+
+        const equipment = JSON.parse(equipmentData);
+
+        const position = reactFlowInstance.screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY,
+        });
+
+        // Normalize equipment type code for mapping
+        const normalizedCode = (equipment.equipmentType?.code || equipment.type || 'equipment')
+          .toLowerCase()
+          .replace(/-/g, '_');
+
+        // Map equipment type to node type
+        const nodeType = equipmentTypeToNodeType[normalizedCode] || 'equipment';
+
+        // Build node data from equipment
+        let nodeData = {
+          label: equipment.name || equipment.label || normalizedCode,
+          equipmentId: equipment.id,
+          equipmentCode: equipment.code,
+          equipmentName: equipment.name,
+          equipmentType: equipment.equipmentType?.name || normalizedCode,
+          equipmentCategory: equipment.equipmentType?.category || 'equipment',
+          status: equipment.status || 'operational',
+          width: equipment.equipmentType?.defaultWidth,
+          height: equipment.equipmentType?.defaultHeight,
+        };
+
+        // ChartWidget nodes have additional widget-specific data
+        if (nodeType === 'chartWidget') {
+          nodeData = {
+            ...nodeData,
+            widgetType: equipment.equipmentType?.widgetType || 'line-chart',
+            title: equipment.name || 'New Chart',
+            width: equipment.equipmentType?.defaultWidth || 320,
+            height: equipment.equipmentType?.defaultHeight || 200,
+            // Data channel config - user will configure via modal
+            dataChannelIds: [],
+            selectedChannels: [],
+            timeRange: 'live',
+            refreshInterval: 5000,
+            mode: 'demo', // Start in demo mode with mock data
+          };
+        }
+
+        const newNode = {
+          id: `${nodeType}-${Date.now()}`,
+          type: nodeType,
+          position,
+          data: nodeData,
+        };
+
+        setNodes((nds) => nds.concat(newNode));
+        notifyParent('nodeAdded', newNode);
+      }, [reactFlowInstance, setNodes]);
+
+      // Notify parent window
+      const notifyParent = useCallback((type, data) => {
+        window.parent.postMessage({ type, data, source: 'process-editor-canvas' }, '*');
+      }, []);
+
+      // Listen for messages from parent
+      useEffect(() => {
+        notifyParent('edgesChange', edges);
+        const handleMessage = (event) => {
+          const { type, data, source } = event.data || {};
+          if (source !== 'process-editor-host') return;
+
+          switch (type) {
+            case 'setNodes':
+              // Validate nodes to ensure all have valid positions
+              const validatedNodes = (data || [])
+                .filter(node => node && node.id) // Filter out invalid nodes
+                .map(node => ({
+                  ...node,
+                  // Ensure position exists with valid coordinates
+                  position: {
+                    x: node.position?.x ?? 0,
+                    y: node.position?.y ?? 0
+                  }
+                }));
+              setNodes(validatedNodes);
+              break;
+            case 'setEdges':
+              // Validate edge.data and apply styles on load
+              const validatedEdges = (data || []).map(edge => ({
+                ...edge,
+                type: edge.type || 'orthogonal',
+                style: getEdgeStyle(edge.data?.connectionType || 'process-pipe'),
+                data: {
+                  connectionType: 'process-pipe',
+                  midX1: null,
+                  midY: null,
+                  midX2: null,
+                  ...(edge.data || {})  // Preserve existing edge.data
+                }
+              }));
+              console.log('[canvas] setEdges - validated edges:', validatedEdges.length, 'sample data:', validatedEdges[0]?.data);
+              setEdges(validatedEdges);
+              break;
+            case 'addNode':
+              setNodes((nds) => nds.concat(data));
+              break;
+            case 'removeNode':
+              setNodes((nds) => nds.filter((n) => n.id !== data));
+              setEdges((eds) => eds.filter((e) => e.source !== data && e.target !== data));
+              break;
+            case 'fitView':
+              if (reactFlowInstance) reactFlowInstance.fitView();
+              break;
+            case 'zoomIn':
+              if (reactFlowInstance) reactFlowInstance.zoomIn();
+              break;
+            case 'zoomOut':
+              if (reactFlowInstance) reactFlowInstance.zoomOut();
+              break;
+            case 'getState':
+              notifyParent('state', { nodes, edges });
+              break;
+            case 'highlightNode':
+              // Highlight a specific node with flash animation
+              setHighlightedNodeId(data);
+              // Also center the view on the node
+              if (reactFlowInstance) {
+                const node = nodes.find(n => n.id === data);
+                if (node) {
+                  reactFlowInstance.setCenter(node.position.x + 80, node.position.y + 50, { duration: 500, zoom: 1 });
+                }
+              }
+              // Clear highlight after animation
+              setTimeout(() => setHighlightedNodeId(null), 1500);
+              break;
+            case 'updateNodeData':
+              // Update a specific node's data (used after linking/unlinking equipment)
+              console.log('[canvas] updateNodeData received:', data);
+              if (data && data.nodeId) {
+                console.log('[canvas] Updating node:', data.nodeId, 'with data:', data.data);
+
+                // Check if this is a handle type change (source <-> target)
+                const handleTypeKeys = Object.keys(data.data || {}).filter(key =>
+                  key.includes('Type') || key === 'inlet' || key === 'outlet' ||
+                  key === 'top' || key === 'bottom' || key === 'left' || key === 'right' ||
+                  key.startsWith('inlet') || key.startsWith('drain')
+                );
+
+                if (handleTypeKeys.length > 0) {
+                  // A handle type changed - need to update connected edges
+                  const nodeId = data.nodeId;
+
+                  // Map handle keys to handle IDs based on node type patterns
+                  const getHandleId = (key) => {
+                    const keyToHandleId = {
+                      'inlet': 'blower-inlet',
+                      'outlet': 'blower-outlet',
+                      'leftType': ['uv-left', 'radial-left', 'ddt-left', 'algae-left'],
+                      'rightType': ['uv-right', 'radial-right', 'ddt-right', 'algae-right'],
+                      'bottomType': ['radial-bottom', 'cp-bottom', 'feeder-bottom', 'algae-bottom'],
+                      'inletType1': 'inlet-1',
+                      'inletType2': 'inlet-2',
+                      'inletType3': 'inlet-3',
+                      'drainType': 'drain',
+                      'topType': ['cp-top', 'feeder-top'],
+                      'top': 'inlet-top',
+                      'bottom': 'inlet-bottom',
+                      'top1Type': 'algae-top1',
+                      'top2Type': 'algae-top2',
+                      'top3Type': 'algae-top3',
+                      'top4Type': 'algae-top4',
+                      'backflushType': 'uf-backflush',
+                      'feedType': 'uf-feed',
+                      'cleanWaterType': 'uf-cleanwater',
+                      'plc1Type': 'uf-plc1',
+                      'plc2Type': 'uf-plc2',
+                      'plc3Type': 'uf-plc3',
+                      'elec1Type': 'uf-elec1',
+                      'elec2Type': 'uf-elec2',
+                      'elec3Type': 'uf-elec3',
+                      'sideDrainType': 'ddt-sideDrain',
+                      'bottomLeftType': 'ddt-bottomLeft',
+                      'bottomRightType': 'ddt-bottomRight'
+                    };
+                    return keyToHandleId[key] || key;
+                  };
+
+                  const matchesHandleId = (edgeHandleId, mappedHandleId) => {
+                    if (Array.isArray(mappedHandleId)) {
+                      return mappedHandleId.includes(edgeHandleId);
+                    }
+                    return edgeHandleId === mappedHandleId;
+                  };
+
+                  handleTypeKeys.forEach(key => {
+                    const newType = data.data[key];
+                    const handleIds = getHandleId(key);
+
+                    console.log('[canvas] Handle type changed:', nodeId, handleIds, '->', newType);
+
+                    setEdges((eds) => eds.map((edge) => {
+                      if (edge.source === nodeId && matchesHandleId(edge.sourceHandle, handleIds)) {
+                        if (newType === 'target') {
+                          console.log('[canvas] Flipping edge (source->target):', edge.id);
+                          return {
+                            ...edge,
+                            source: edge.target,
+                            target: edge.source,
+                            sourceHandle: edge.targetHandle,
+                            targetHandle: edge.sourceHandle
+                          };
+                        }
+                      }
+                      if (edge.target === nodeId && matchesHandleId(edge.targetHandle, handleIds)) {
+                        if (newType === 'source') {
+                          console.log('[canvas] Flipping edge (target->source):', edge.id);
+                          return {
+                            ...edge,
+                            source: edge.target,
+                            target: edge.source,
+                            sourceHandle: edge.targetHandle,
+                            targetHandle: edge.sourceHandle
+                          };
+                        }
+                      }
+                      return edge;
+                    }));
+                  });
+                }
+
+                setNodes((nds) => {
+                  const updatedNodes = nds.map((n) =>
+                    n.id === data.nodeId
+                      ? { ...n, data: { ...n.data, ...data.data } }
+                      : n
+                  );
+                  console.log('[canvas] Updated nodes:', updatedNodes.find(n => n.id === data.nodeId)?.data);
+                  return updatedNodes;
+                });
+              }
+              break;
+            case 'updateEdgeData':
+              // Update a specific edge's data (used for changing connection type)
+              console.log('[canvas] updateEdgeData received:', data);
+              if (data && data.edgeId) {
+                setEdges((eds) => eds.map((e) =>
+                  e.id === data.edgeId
+                    ? {
+                        ...e,
+                        data: { ...e.data, ...data.data },
+                        style: getEdgeStyle(data.data?.connectionType || e.data?.connectionType)
+                      }
+                    : e
+                ));
+              }
+              break;
+            default:
+              break;
+          }
+        };
+
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+      }, [reactFlowInstance, nodes, edges, setNodes, setEdges, notifyParent]);
+
+
+      // Notify parent when nodes change
+      useEffect(() => {
+        notifyParent('nodesChange', nodes);
+      }, [nodes, notifyParent]);
+
+      // Notify parent when edges change
+      useEffect(() => {
+        notifyParent('edgesChange', edges);
+      }, [edges, notifyParent]);
+
+      // Notify parent when ready
+      useEffect(() => {
+        if (reactFlowInstance) {
+          notifyParent('ready', { ready: true });
+        }
+      }, [reactFlowInstance, notifyParent]);
+
+
+      // Add highlight class to nodes when highlighted
+      const displayNodes = useMemo(() =>
+        nodes.map(node => ({
+          ...node,
+          className: node.id === highlightedNodeId ? 'node-highlighted' : ''
+        })),
+        [nodes, highlightedNodeId]
+      );
+
+      // Apply P&ID connection type styles to edges
+      const displayEdges = useMemo(() =>
+        edges.map(edge => ({
+          ...edge,
+          style: {
+            ...edge.style,
+            ...getEdgeStyle(edge.data?.connectionType)
+          }
+        })),
+        [edges]
+      );
+
+      return h('div', {
+        ref: reactFlowWrapper,
+        style: { width: '100%', height: '100%' }
+      },
+        h(ReactFlow, {
+          nodes: displayNodes,
+          edges: displayEdges,
+          onNodesChange: onNodesChange,
+          onEdgesChange: onEdgesChange,
+          onConnect: onConnect,
+          onNodeClick: onNodeClick,
+          onEdgeClick: onEdgeClick,
+          onPaneClick: onPaneClick,
+          onDrop: onDrop,
+          onDragOver: onDragOver,
+          onInit: setReactFlowInstance,
+          nodeTypes: nodeTypes,
+          edgeTypes: edgeTypes,
+          defaultEdgeOptions: defaultEdgeOptions,
+          fitView: true,
+          snapToGrid: true,
+          snapGrid: [15, 15],
+          connectionLineStyle: { stroke: '#1f2937', strokeWidth: 3 },
+          deleteKeyCode: ['Backspace', 'Delete'],
+        }, [
+          h(Controls, { key: 'controls', position: 'bottom-left' }),
+          h(MiniMap, {
+            key: 'minimap',
+            position: 'bottom-right',
+            nodeColor: (node) => getStatusColor(node.data?.status),
+            maskColor: 'rgba(0, 0, 0, 0.1)'
+          }),
+          h(Background, {
+            key: 'background',
+            variant: 'dots',
+            gap: 15,
+            size: 1,
+            color: '#d1d5db'
+          })
+        ])
+      );
+    }
+
+    // Render the app
+    const root = createRoot(document.getElementById('root'));
+    root.render(
+      h(ReactFlowProvider, null,
+        h(ProcessEditorCanvas)
+      )
+    );
+  </script>
+</body>
+</html>

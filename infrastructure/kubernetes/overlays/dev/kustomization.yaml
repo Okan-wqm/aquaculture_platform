@@ -1,0 +1,66 @@
+# =============================================================================
+# Aquaculture Platform - Development Overlay
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: aquaculture-dev
+
+resources:
+  - ../../base
+
+namePrefix: dev-
+
+commonLabels:
+  environment: development
+
+# Reduce replicas for development
+replicas:
+  - name: gateway-api
+    count: 1
+  - name: auth-service
+    count: 1
+  - name: farm-service
+    count: 1
+  - name: sensor-service
+    count: 1
+  - name: alert-engine
+    count: 1
+  - name: notification-service
+    count: 1
+  - name: shell
+    count: 1
+  - name: dashboard
+    count: 1
+  - name: farm-module
+    count: 1
+  - name: process-editor
+    count: 1
+  - name: admin-panel
+    count: 1
+
+patches:
+  # Reduce resource limits for development
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "512Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "100m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "128Mi"
+    target:
+      kind: Deployment
+      labelSelector: "tier=backend"
+
+configMapGenerator:
+  - name: aquaculture-config
+    behavior: merge
+    literals:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug

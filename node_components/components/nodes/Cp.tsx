@@ -1,35 +1,33 @@
-import React, { useState, useEffect } from 'react';
-import { Handle, useUpdateNodeInternals } from 'reactflow';
+/**
+ * ConnectionPointNode (Cp) Component
+ * Small connection point with 4 toggleable handles (top, bottom, left, right)
+ */
 
-interface CPProps {
-  id: string;
-  data: {
-    topType?: 'source' | 'target';
-    bottomType?: 'source' | 'target';
-    leftType?: 'source' | 'target';
-    rightType?: 'source' | 'target';
-    fillColor?: string;
-    strokeColor?: string;
-  };
-  setNodes: React.Dispatch<React.SetStateAction<any[]>>;
+import React, { useState, useEffect } from 'react';
+import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps } from 'reactflow';
+
+type HandleType = 'source' | 'target';
+
+interface ConnectionPointNodeData {
+  topType?: HandleType;
+  bottomType?: HandleType;
+  leftType?: HandleType;
+  rightType?: HandleType;
+  fillColor?: string;
+  strokeColor?: string;
+  label?: string;
 }
 
-const CP: React.FC<CPProps> & {
-  defaultHandles: {
-    topType: 'source' | 'target';
-    bottomType: 'source' | 'target';
-    leftType: 'source' | 'target';
-    rightType: 'source' | 'target';
-  };
-} = ({ id, data, setNodes }) => {
+const ConnectionPointNode: React.FC<NodeProps<ConnectionPointNodeData>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
+  const { setNodes } = useReactFlow();
 
-  const [topType, setTopType] = useState(data?.topType || CP.defaultHandles.topType);
-  const [bottomType, setBottomType] = useState(data?.bottomType || CP.defaultHandles.bottomType);
-  const [leftType, setLeftType] = useState(data?.leftType || CP.defaultHandles.leftType);
-  const [rightType, setRightType] = useState(data?.rightType || CP.defaultHandles.rightType);
+  const [topType, setTopType] = useState<HandleType>(data?.topType || 'target');
+  const [bottomType, setBottomType] = useState<HandleType>(data?.bottomType || 'source');
+  const [leftType, setLeftType] = useState<HandleType>(data?.leftType || 'target');
+  const [rightType, setRightType] = useState<HandleType>(data?.rightType || 'source');
 
-  const toggleType = (current: 'source' | 'target') => (current === 'source' ? 'target' : 'source');
+  const toggleType = (current: HandleType): HandleType => (current === 'source' ? 'target' : 'source');
 
   const updateType = (side: 'top' | 'bottom' | 'left' | 'right') => {
     const currentType = { top: topType, bottom: bottomType, left: leftType, right: rightType }[side];
@@ -37,7 +35,9 @@ const CP: React.FC<CPProps> & {
 
     setNodes((nodes) =>
       nodes.map((node) =>
-        node.id === id ? { ...node, data: { ...node.data, [`${side}Type`]: newType } } : node
+        node.id === id
+          ? { ...node, data: { ...node.data, [`${side}Type`]: newType } }
+          : node
       )
     );
 
@@ -51,8 +51,18 @@ const CP: React.FC<CPProps> & {
     updateNodeInternals(id);
   }, [topType, bottomType, leftType, rightType, id, updateNodeInternals]);
 
+  const getColor = (type: HandleType) => type === 'source' ? '#22c55e' : '#3b82f6';
+
   return (
-    <div style={{ position: 'relative', width: 30, height: 30 }}>
+    <div
+      style={{
+        position: 'relative',
+        width: 30,
+        height: 30,
+        border: selected ? '2px solid #3b82f6' : '2px solid transparent',
+        borderRadius: '50%',
+      }}
+    >
       <svg width="30" height="30">
         <circle
           cx="15"
@@ -65,101 +75,150 @@ const CP: React.FC<CPProps> & {
       </svg>
 
       {/* Top Handle */}
-      <Handle
-        id={`cp-top-${topType}`}
-        type={topType}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          updateType('top');
-        }}
+      <div
         style={{
           position: 'absolute',
           left: 15,
           top: 3,
-          width: 8,
-          height: 8,
-          background: topType === 'source' ? 'red' : 'blue',
-          borderRadius: '50%',
+          width: 10,
+          height: 10,
           transform: 'translate(-50%, -50%)',
-          cursor: 'pointer',
           pointerEvents: 'all',
         }}
-      />
-
-      {/* Bottom Handle */}
-      <Handle
-        id={`cp-bottom-${bottomType}`}
-        type={bottomType}
         onContextMenu={(e) => {
           e.preventDefault();
-          updateType('bottom');
+          e.stopPropagation();
+          updateType('top');
         }}
+      >
+        <Handle
+          id={`cp-top-${topType}`}
+          type={topType}
+          position={undefined as any}
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            background: getColor(topType),
+            borderRadius: '50%',
+            border: '2px solid white',
+            cursor: 'pointer',
+            transform: 'none',
+            left: 0,
+            top: 0,
+          }}
+        />
+      </div>
+
+      {/* Bottom Handle */}
+      <div
         style={{
           position: 'absolute',
           left: 15,
           top: 27,
-          width: 8,
-          height: 8,
-          background: bottomType === 'source' ? 'red' : 'blue',
-          borderRadius: '50%',
+          width: 10,
+          height: 10,
           transform: 'translate(-50%, -50%)',
-          cursor: 'pointer',
           pointerEvents: 'all',
         }}
-      />
-
-      {/* Left Handle */}
-      <Handle
-        id={`cp-left-${leftType}`}
-        type={leftType}
         onContextMenu={(e) => {
           e.preventDefault();
-          updateType('left');
+          e.stopPropagation();
+          updateType('bottom');
         }}
+      >
+        <Handle
+          id={`cp-bottom-${bottomType}`}
+          type={bottomType}
+          position={undefined as any}
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            background: getColor(bottomType),
+            borderRadius: '50%',
+            border: '2px solid white',
+            cursor: 'pointer',
+            transform: 'none',
+            left: 0,
+            top: 0,
+          }}
+        />
+      </div>
+
+      {/* Left Handle */}
+      <div
         style={{
           position: 'absolute',
           left: 3,
           top: 15,
-          width: 8,
-          height: 8,
-          background: leftType === 'source' ? 'red' : 'blue',
-          borderRadius: '50%',
+          width: 10,
+          height: 10,
           transform: 'translate(-50%, -50%)',
-          cursor: 'pointer',
           pointerEvents: 'all',
         }}
-      />
-
-      {/* Right Handle */}
-      <Handle
-        id={`cp-right-${rightType}`}
-        type={rightType}
         onContextMenu={(e) => {
           e.preventDefault();
-          updateType('right');
+          e.stopPropagation();
+          updateType('left');
         }}
+      >
+        <Handle
+          id={`cp-left-${leftType}`}
+          type={leftType}
+          position={undefined as any}
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            background: getColor(leftType),
+            borderRadius: '50%',
+            border: '2px solid white',
+            cursor: 'pointer',
+            transform: 'none',
+            left: 0,
+            top: 0,
+          }}
+        />
+      </div>
+
+      {/* Right Handle */}
+      <div
         style={{
           position: 'absolute',
           left: 27,
           top: 15,
-          width: 8,
-          height: 8,
-          background: rightType === 'source' ? 'red' : 'blue',
-          borderRadius: '50%',
+          width: 10,
+          height: 10,
           transform: 'translate(-50%, -50%)',
-          cursor: 'pointer',
           pointerEvents: 'all',
         }}
-      />
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          updateType('right');
+        }}
+      >
+        <Handle
+          id={`cp-right-${rightType}`}
+          type={rightType}
+          position={undefined as any}
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            background: getColor(rightType),
+            borderRadius: '50%',
+            border: '2px solid white',
+            cursor: 'pointer',
+            transform: 'none',
+            left: 0,
+            top: 0,
+          }}
+        />
+      </div>
     </div>
   );
 };
 
-CP.defaultHandles = {
-  topType: 'source',
-  bottomType: 'target',
-  leftType: 'source',
-  rightType: 'target',
-};
-
-export default CP;
+export default ConnectionPointNode;

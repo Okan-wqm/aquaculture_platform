@@ -1,0 +1,204 @@
+# =============================================================================
+# Aquaculture Platform - Custom Prometheus Rules
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aquaculture-rules
+  namespace: aquaculture
+  labels:
+    app: aquaculture
+    prometheus: kube-prometheus
+spec:
+  groups:
+    # ==========================================================================
+    # Service Health Rules
+    # ==========================================================================
+    - name: aquaculture.service.health
+      rules:
+        - alert: ServiceDown
+          expr: up{namespace="aquaculture"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Service {{ $labels.app }} is down"
+            description: "Service {{ $labels.app }} in namespace {{ $labels.namespace }} has been down for more than 1 minute."
+
+        - alert: HighErrorRate
+          expr: |
+            sum(rate(http_request_duration_seconds_count{namespace="aquaculture",status=~"5.."}[5m])) by (app)
+            /
+            sum(rate(http_request_duration_seconds_count{namespace="aquaculture"}[5m])) by (app)
+            > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High error rate on {{ $labels.app }}"
+            description: "Service {{ $labels.app }} has error rate above 5% for 5 minutes."
+
+        - alert: CriticalErrorRate
+          expr: |
+            sum(rate(http_request_duration_seconds_count{namespace="aquaculture",status=~"5.."}[5m])) by (app)
+            /
+            sum(rate(http_request_duration_seconds_count{namespace="aquaculture"}[5m])) by (app)
+            > 0.10
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Critical error rate on {{ $labels.app }}"
+            description: "Service {{ $labels.app }} has error rate above 10% for 2 minutes."
+
+    # ==========================================================================
+    # Performance Rules
+    # ==========================================================================
+    - name: aquaculture.performance
+      rules:
+        - alert: HighLatency
+          expr: |
+            histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace="aquaculture"}[5m])) by (le, app))
+            > 2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High latency on {{ $labels.app }}"
+            description: "95th percentile latency for {{ $labels.app }} is above 2 seconds."
+
+        - alert: CriticalLatency
+          expr: |
+            histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{namespace="aquaculture"}[5m])) by (le, app))
+            > 5
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Critical latency on {{ $labels.app }}"
+            description: "99th percentile latency for {{ $labels.app }} is above 5 seconds."
+
+    # ==========================================================================
+    # Resource Rules
+    # ==========================================================================
+    - name: aquaculture.resources
+      rules:
+        - alert: HighCPUUsage
+          expr: |
+            sum(rate(container_cpu_usage_seconds_total{namespace="aquaculture"}[5m])) by (pod)
+            /
+            sum(kube_pod_container_resource_limits{namespace="aquaculture",resource="cpu"}) by (pod)
+            > 0.8
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High CPU usage on {{ $labels.pod }}"
+            description: "Pod {{ $labels.pod }} is using more than 80% of CPU limit."
+
+        - alert: HighMemoryUsage
+          expr: |
+            sum(container_memory_working_set_bytes{namespace="aquaculture"}) by (pod)
+            /
+            sum(kube_pod_container_resource_limits{namespace="aquaculture",resource="memory"}) by (pod)
+            > 0.85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High memory usage on {{ $labels.pod }}"
+            description: "Pod {{ $labels.pod }} is using more than 85% of memory limit."
+
+        - alert: PodRestarting
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace="aquaculture"}[1h]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.pod }} is restarting frequently"
+            description: "Pod {{ $labels.pod }} has restarted more than 3 times in the last hour."
+
+    # ==========================================================================
+    # Sensor Data Rules
+    # ==========================================================================
+    - name: aquaculture.sensors
+      rules:
+        - alert: SensorDataIngestionLag
+          expr: |
+            time() - max(sensor_reading_timestamp{namespace="aquaculture"}) by (sensor_type)
+            > 300
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Sensor data ingestion lag for {{ $labels.sensor_type }}"
+            description: "No new sensor data received for {{ $labels.sensor_type }} in the last 5 minutes."
+
+        - alert: HighSensorErrorRate
+          expr: |
+            sum(rate(sensor_reading_errors_total{namespace="aquaculture"}[5m])) by (sensor_type)
+            > 10
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High sensor error rate for {{ $labels.sensor_type }}"
+            description: "Sensor {{ $labels.sensor_type }} is reporting more than 10 errors per second."
+
+    # ==========================================================================
+    # Database Rules
+    # ==========================================================================
+    - name: aquaculture.database
+      rules:
+        - alert: DatabaseConnectionPoolExhausted
+          expr: |
+            pg_stat_activity_count{namespace="aquaculture"}
+            /
+            pg_settings_max_connections{namespace="aquaculture"}
+            > 0.9
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Database connection pool nearly exhausted"
+            description: "Database connection pool is at 90% capacity."
+
+        - alert: SlowQueries
+          expr: |
+            rate(pg_stat_statements_seconds_total{namespace="aquaculture"}[5m])
+            /
+            rate(pg_stat_statements_calls_total{namespace="aquaculture"}[5m])
+            > 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Slow database queries detected"
+            description: "Average query execution time is above 1 second."
+
+    # ==========================================================================
+    # Alert Engine Rules
+    # ==========================================================================
+    - name: aquaculture.alerts
+      rules:
+        - alert: AlertProcessingDelay
+          expr: |
+            histogram_quantile(0.95, sum(rate(alert_processing_duration_seconds_bucket{namespace="aquaculture"}[5m])) by (le))
+            > 30
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alert processing is delayed"
+            description: "95th percentile alert processing time is above 30 seconds."
+
+        - alert: UnacknowledgedCriticalAlerts
+          expr: |
+            sum(aquaculture_alerts_total{severity="critical",status="open"}) > 5
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Multiple unacknowledged critical alerts"
+            description: "There are more than 5 unacknowledged critical alerts."

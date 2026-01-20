@@ -1,53 +1,70 @@
-// src/components/nodes/TankInlet.tsx
-import React, { useState, useEffect } from 'react';
-import { Handle, useUpdateNodeInternals, Node } from 'reactflow';
+/**
+ * TankInletNode Component
+ * Water inlet pipe with distribution holes, rotation support and toggleable handles
+ */
 
-interface TankInletProps {
-  id: string;
-  data: {
-    top?: 'source' | 'target';
-    bottom?: 'source' | 'target';
-    rotation?: number;
-  };
-  setNodes: React.Dispatch<React.SetStateAction<Node[]>>;
+import React, { useState, useEffect } from 'react';
+import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps } from 'reactflow';
+import { rotatePoint } from '../../utils/rotatePoint';
+
+type HandleType = 'source' | 'target';
+
+interface TankInletNodeData {
+  top?: HandleType;
+  bottom?: HandleType;
+  rotation?: number;
+  label?: string;
 }
 
-const TankInlet: React.FC<TankInletProps> & {
-  defaultHandles: { top: 'source' | 'target'; bottom: 'source' | 'target' };
-} = ({ id, data, setNodes }) => {
+const TankInletNode: React.FC<NodeProps<TankInletNodeData>> = ({ id, data, selected }) => {
   const width = 100;
   const height = 160;
   const rotation = data?.rotation ?? 0;
 
   const updateNodeInternals = useUpdateNodeInternals();
+  const { setNodes } = useReactFlow();
 
-  const [top, setTop] = useState(data?.top ?? TankInlet.defaultHandles.top);
-  const [bottom, setBottom] = useState(
-    data?.bottom ?? TankInlet.defaultHandles.bottom
-  );
+  const [top, setTop] = useState<HandleType>(data?.top ?? 'target');
+  const [bottom, setBottom] = useState<HandleType>(data?.bottom ?? 'source');
 
-  const topColor = top === 'source' ? 'red' : 'blue';
-  const bottomColor = bottom === 'source' ? 'red' : 'blue';
+  const getColor = (type: HandleType) => type === 'source' ? '#22c55e' : '#3b82f6';
 
-  const handleTypeChange = (
-    e: React.MouseEvent,
-    current: 'source' | 'target',
-    setFunc: React.Dispatch<React.SetStateAction<'source' | 'target'>>,
-    key: 'top' | 'bottom'
-  ) => {
-    e.preventDefault();
-    const newVal = current === 'source' ? 'target' : 'source';
-    setFunc(newVal);
-    setNodes((prev) =>
-      prev.map((node) =>
+  const centerX = width / 2;
+  const centerY = height / 2;
+
+  // Calculate rotated handle positions
+  const topPos = rotatePoint(centerX, centerY, 30, 20, rotation);
+  const bottomPos = rotatePoint(centerX, centerY, 30, 140, rotation);
+
+  const updateNodeData = (updates: Partial<TankInletNodeData>) => {
+    setNodes((nodes) =>
+      nodes.map((node) =>
         node.id === id
-          ? { ...node, data: { ...node.data, [key]: newVal } }
+          ? { ...node, data: { ...node.data, ...updates } }
           : node
       )
     );
   };
 
-  // rotation da eklendi!
+  const handleTypeChange = (
+    e: React.MouseEvent,
+    current: HandleType,
+    setFunc: React.Dispatch<React.SetStateAction<HandleType>>,
+    key: 'top' | 'bottom'
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const newVal: HandleType = current === 'source' ? 'target' : 'source';
+    setFunc(newVal);
+    updateNodeData({ [key]: newVal });
+  };
+
+  const rotateNode = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newRotation = ((rotation || 0) + 90) % 360;
+    updateNodeData({ rotation: newRotation });
+  };
+
   useEffect(() => {
     updateNodeInternals(id);
   }, [id, top, bottom, rotation, updateNodeInternals]);
@@ -61,82 +78,133 @@ const TankInlet: React.FC<TankInletProps> & {
         height,
         position: 'relative',
         pointerEvents: 'none',
-        transform: `rotate(${rotation}deg)`,
-        transformOrigin: 'center center',
+        border: selected ? '2px solid #3b82f6' : '2px solid transparent',
+        borderRadius: 8,
       }}
     >
-      <svg width={width} height={height} style={{ pointerEvents: 'auto' }}>
-        {/* Gri dikey boru */}
-        <rect
-          x={25}
-          y={20}
-          width={10}
-          height={120}
-          fill="#888"
-          stroke="#333"
-          strokeWidth={1.5}
-          rx={3}
-        />
-        {/* Delikler ve oklar */}
-        {holeY.map((y, i) => (
-          <g key={i}>
-            <circle cx={30} cy={y} r={1.8} fill="#b3d9ff" />
-            <polygon
-              points={`${32},${y} ${42},${y - 4} ${42},${y + 4}`}
-              fill="#1ca3ec"
-              opacity={0.8}
-            />
-          </g>
-        ))}
-        <text x={50} y={150} textAnchor="middle" fontSize={10} fill="#000">
-          Tank Inlet
-        </text>
-      </svg>
+      {/* Rotation button */}
+      <button
+        onClick={rotateNode}
+        style={{
+          position: 'absolute',
+          top: 2,
+          right: 2,
+          zIndex: 10,
+          fontSize: 12,
+          cursor: 'pointer',
+          background: '#f3f4f6',
+          border: '1px solid #d1d5db',
+          borderRadius: 4,
+          padding: '2px 6px',
+          pointerEvents: 'all',
+        }}
+      >
+        ↻
+      </button>
 
-      {/* Üst Handle */}
-      <Handle
-        id={`tankinlet-top-${top}`}
-        type={top}
+      <div
+        style={{
+          transform: `rotate(${rotation}deg)`,
+          transformOrigin: 'center center',
+          width,
+          height,
+          pointerEvents: 'auto',
+        }}
+      >
+        <svg width={width} height={height}>
+          {/* Gray vertical pipe */}
+          <rect
+            x={25}
+            y={20}
+            width={10}
+            height={120}
+            fill="#888"
+            stroke="#333"
+            strokeWidth={1.5}
+            rx={3}
+          />
+          {/* Holes and arrows */}
+          {holeY.map((y, i) => (
+            <g key={i}>
+              <circle cx={30} cy={y} r={1.8} fill="#b3d9ff" />
+              <polygon
+                points={`${32},${y} ${42},${y - 4} ${42},${y + 4}`}
+                fill="#1ca3ec"
+                opacity={0.8}
+              />
+            </g>
+          ))}
+          <text x={50} y={150} textAnchor="middle" fontSize={10} fill="#000">
+            {data?.label || 'Tank Inlet'}
+          </text>
+        </svg>
+      </div>
+
+      {/* Top Handle */}
+      <div
+        style={{
+          position: 'absolute',
+          left: topPos.x,
+          top: topPos.y,
+          width: 12,
+          height: 12,
+          transform: 'translate(-50%, -50%)',
+          pointerEvents: 'all',
+        }}
         onContextMenu={(e) => handleTypeChange(e, top, setTop, 'top')}
-        style={{
-          position: 'absolute',
-          left: 30,
-          top: 20,
-          width: 10,
-          height: 10,
-          background: topColor,
-          borderRadius: '50%',
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-          cursor: 'pointer',
-        }}
-      />
+      >
+        <Handle
+          id={`tankinlet-top-${top}`}
+          type={top}
+          position={undefined as any}
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            background: getColor(top),
+            borderRadius: '50%',
+            border: '2px solid white',
+            cursor: 'pointer',
+            transform: 'none',
+            left: 0,
+            top: 0,
+          }}
+        />
+      </div>
 
-      {/* Alt Handle */}
-      <Handle
-        id={`tankinlet-bottom-${bottom}`}
-        type={bottom}
-        onContextMenu={(e) => handleTypeChange(e, bottom, setBottom, 'bottom')}
+      {/* Bottom Handle */}
+      <div
         style={{
           position: 'absolute',
-          left: 30,
-          top: 140,
-          width: 10,
-          height: 10,
-          background: bottomColor,
-          borderRadius: '50%',
+          left: bottomPos.x,
+          top: bottomPos.y,
+          width: 12,
+          height: 12,
           transform: 'translate(-50%, -50%)',
           pointerEvents: 'all',
-          cursor: 'pointer',
         }}
-      />
+        onContextMenu={(e) => handleTypeChange(e, bottom, setBottom, 'bottom')}
+      >
+        <Handle
+          id={`tankinlet-bottom-${bottom}`}
+          type={bottom}
+          position={undefined as any}
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            background: getColor(bottom),
+            borderRadius: '50%',
+            border: '2px solid white',
+            cursor: 'pointer',
+            transform: 'none',
+            left: 0,
+            top: 0,
+          }}
+        />
+      </div>
     </div>
   );
 };
 
-TankInlet.defaultHandles = {
-  top: 'target',
-  bottom: 'source',
-};
-
-export default TankInlet;
+export default TankInletNode;

@@ -1,0 +1,10 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Root Blower - Placeholder SVG -->
+  <ellipse cx="32" cy="32" rx="22" ry="16" stroke="currentColor" stroke-width="2" fill="none"/>
+  <circle cx="22" cy="32" r="8" stroke="currentColor" stroke-width="2" fill="none"/>
+  <circle cx="42" cy="32" r="8" stroke="currentColor" stroke-width="2" fill="none"/>
+  <path d="M22 24v-8" stroke="currentColor" stroke-width="2"/>
+  <path d="M42 24v-8" stroke="currentColor" stroke-width="2"/>
+  <path d="M10 32H6" stroke="currentColor" stroke-width="2"/>
+  <path d="M58 32h-4" stroke="currentColor" stroke-width="2"/>
+</svg>

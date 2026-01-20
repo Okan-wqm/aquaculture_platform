@@ -1,0 +1,11 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Drum Filter - Placeholder SVG -->
+  <ellipse cx="32" cy="32" rx="24" ry="12" stroke="currentColor" stroke-width="2" fill="none"/>
+  <path d="M8 32c0 6.6 10.7 12 24 12s24-5.4 24-12" stroke="currentColor" stroke-width="2" fill="none"/>
+  <path d="M8 32c0-6.6 10.7-12 24-12s24 5.4 24 12" stroke="currentColor" stroke-width="2" fill="none"/>
+  <line x1="32" y1="20" x2="32" y2="44" stroke="currentColor" stroke-width="2"/>
+  <line x1="20" y1="22" x2="20" y2="42" stroke="currentColor" stroke-width="2"/>
+  <line x1="44" y1="22" x2="44" y2="42" stroke="currentColor" stroke-width="2"/>
+  <path d="M6 32H2" stroke="currentColor" stroke-width="2"/>
+  <path d="M62 32h-4" stroke="currentColor" stroke-width="2"/>
+</svg>

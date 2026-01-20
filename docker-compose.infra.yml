@@ -1,0 +1,113 @@
+# =============================================================================
+# Aquaculture Platform - Infrastructure Only (Development)
+# Use this for local development with NX serve
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # Database
+  # ===========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: aqua-postgres
+    environment:
+      POSTGRES_USER: aquaculture
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
+      POSTGRES_DB: aquaculture
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aquaculture"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aqua-network
+
+  # ===========================================================================
+  # Cache
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: aqua-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-devpassword}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-devpassword}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aqua-network
+
+  # ===========================================================================
+  # Message Broker
+  # ===========================================================================
+  nats:
+    image: nats:2.10-alpine
+    container_name: aqua-nats
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
+    networks:
+      - aqua-network
+
+  # ===========================================================================
+  # Object Storage
+  # ===========================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: aqua-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - aqua-network
+
+  # ===========================================================================
+  # Development Tools
+  # ===========================================================================
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: aqua-mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - aqua-network
+
+  adminer:
+    image: adminer:latest
+    container_name: aqua-adminer
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+    networks:
+      - aqua-network
+
+networks:
+  aqua-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  nats_data:
+  minio_data:

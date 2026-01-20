@@ -1,44 +1,42 @@
-import React, { useEffect, useState } from 'react';
-import { Handle, useUpdateNodeInternals } from 'reactflow';
+/**
+ * RadialSettlerNode Component
+ * Conical settling tank with 3 toggleable handles
+ */
 
-interface RadialSettlerProps {
-  id: string;
-  data: {
-    label?: string;
-    leftType?: 'source' | 'target';
-    rightType?: 'source' | 'target';
-    bottomType?: 'source' | 'target';
-  };
-  setNodes: React.Dispatch<React.SetStateAction<any[]>>;
+import React, { useEffect, useState } from 'react';
+import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps } from 'reactflow';
+
+type HandleType = 'source' | 'target';
+
+interface RadialSettlerNodeData {
+  label?: string;
+  leftType?: HandleType;
+  rightType?: HandleType;
+  bottomType?: HandleType;
 }
 
-const RadialSettler: React.FC<RadialSettlerProps> & {
-  defaultHandles: {
-    leftType: 'source' | 'target';
-    rightType: 'source' | 'target';
-    bottomType: 'source' | 'target';
-  };
-} = ({ id, data, setNodes }) => {
+const RadialSettlerNode: React.FC<NodeProps<RadialSettlerNodeData>> = ({ id, data, selected }) => {
   const width = 120;
   const height = 160;
 
   const updateNodeInternals = useUpdateNodeInternals();
+  const { setNodes } = useReactFlow();
 
-  const [leftType, setLeftType] = useState(data?.leftType || RadialSettler.defaultHandles.leftType);
-  const [rightType, setRightType] = useState(data?.rightType || RadialSettler.defaultHandles.rightType);
-  const [bottomType, setBottomType] = useState(data?.bottomType || RadialSettler.defaultHandles.bottomType);
+  const [leftType, setLeftType] = useState<HandleType>(data?.leftType || 'target');
+  const [rightType, setRightType] = useState<HandleType>(data?.rightType || 'target');
+  const [bottomType, setBottomType] = useState<HandleType>(data?.bottomType || 'source');
 
-  const leftColor = leftType === 'source' ? 'red' : 'blue';
-  const rightColor = rightType === 'source' ? 'red' : 'blue';
-  const bottomColor = bottomType === 'source' ? 'red' : 'blue';
+  const getColor = (type: HandleType) => type === 'source' ? '#22c55e' : '#3b82f6';
 
-  const toggleType = (type: 'source' | 'target') => (type === 'source' ? 'target' : 'source');
+  const toggleType = (type: HandleType): HandleType => (type === 'source' ? 'target' : 'source');
 
   const handleRightClick = (
     e: React.MouseEvent,
     side: 'left' | 'right' | 'bottom'
   ) => {
     e.preventDefault();
+    e.stopPropagation();
+
     const newVal =
       side === 'left'
         ? toggleType(leftType)
@@ -46,8 +44,8 @@ const RadialSettler: React.FC<RadialSettlerProps> & {
         ? toggleType(rightType)
         : toggleType(bottomType);
 
-    setNodes((prev) =>
-      prev.map((node) =>
+    setNodes((nodes) =>
+      nodes.map((node) =>
         node.id === id
           ? {
               ...node,
@@ -70,7 +68,16 @@ const RadialSettler: React.FC<RadialSettlerProps> & {
   }, [leftType, rightType, bottomType, id, updateNodeInternals]);
 
   return (
-    <div style={{ width, height, position: 'relative', pointerEvents: 'none' }}>
+    <div
+      style={{
+        width,
+        height,
+        position: 'relative',
+        pointerEvents: 'none',
+        border: selected ? '2px solid #3b82f6' : '2px solid transparent',
+        borderRadius: 8,
+      }}
+    >
       <svg width={width} height={height} style={{ pointerEvents: 'auto' }}>
         {/* Tank Body */}
         <rect x="20" y="40" width="80" height="80" fill="#8e7c66" opacity="0.8" />
@@ -96,68 +103,103 @@ const RadialSettler: React.FC<RadialSettlerProps> & {
         </text>
       </svg>
 
-      {/* Handles */}
-      <Handle
-        id={`radial-left-${leftType}`}
-        type={leftType}
-        onContextMenu={(e) => handleRightClick(e, 'left')}
+      {/* Left Handle */}
+      <div
         style={{
           position: 'absolute',
           left: 10,
           top: 60,
-          width: 10,
-          height: 10,
-          background: leftColor,
-          borderRadius: '50%',
+          width: 12,
+          height: 12,
           transform: 'translate(-50%, -50%)',
-          cursor: 'pointer',
           pointerEvents: 'all',
         }}
-      />
+        onContextMenu={(e) => handleRightClick(e, 'left')}
+      >
+        <Handle
+          id={`radial-left-${leftType}`}
+          type={leftType}
+          position={undefined as any}
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            background: getColor(leftType),
+            borderRadius: '50%',
+            border: '2px solid white',
+            cursor: 'pointer',
+            transform: 'none',
+            left: 0,
+            top: 0,
+          }}
+        />
+      </div>
 
-      <Handle
-        id={`radial-right-${rightType}`}
-        type={rightType}
-        onContextMenu={(e) => handleRightClick(e, 'right')}
+      {/* Right Handle */}
+      <div
         style={{
           position: 'absolute',
           left: 110,
           top: 60,
-          width: 10,
-          height: 10,
-          background: rightColor,
-          borderRadius: '50%',
+          width: 12,
+          height: 12,
           transform: 'translate(-50%, -50%)',
-          cursor: 'pointer',
           pointerEvents: 'all',
         }}
-      />
+        onContextMenu={(e) => handleRightClick(e, 'right')}
+      >
+        <Handle
+          id={`radial-right-${rightType}`}
+          type={rightType}
+          position={undefined as any}
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            background: getColor(rightType),
+            borderRadius: '50%',
+            border: '2px solid white',
+            cursor: 'pointer',
+            transform: 'none',
+            left: 0,
+            top: 0,
+          }}
+        />
+      </div>
 
-      <Handle
-        id={`radial-bottom-${bottomType}`}
-        type={bottomType}
-        onContextMenu={(e) => handleRightClick(e, 'bottom')}
+      {/* Bottom Handle */}
+      <div
         style={{
           position: 'absolute',
           left: 60,
           top: 160,
-          width: 10,
-          height: 10,
-          background: bottomColor,
-          borderRadius: '50%',
+          width: 12,
+          height: 12,
           transform: 'translate(-50%, -50%)',
-          cursor: 'pointer',
           pointerEvents: 'all',
         }}
-      />
+        onContextMenu={(e) => handleRightClick(e, 'bottom')}
+      >
+        <Handle
+          id={`radial-bottom-${bottomType}`}
+          type={bottomType}
+          position={undefined as any}
+          style={{
+            position: 'relative',
+            width: '100%',
+            height: '100%',
+            background: getColor(bottomType),
+            borderRadius: '50%',
+            border: '2px solid white',
+            cursor: 'pointer',
+            transform: 'none',
+            left: 0,
+            top: 0,
+          }}
+        />
+      </div>
     </div>
   );
 };
 
-RadialSettler.defaultHandles = {
-  leftType: 'source',
-  rightType: 'source',
-  bottomType: 'target',
-};
-
-export default RadialSettler;
+export default RadialSettlerNode;

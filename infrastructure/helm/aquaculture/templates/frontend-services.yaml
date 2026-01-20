@@ -1,0 +1,304 @@
+{{/*
+=============================================================================
+Aquaculture Platform - Frontend Services
+=============================================================================
+*/}}
+
+{{- /* Shell (Host Application) */}}
+{{- if .Values.shell.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-shell
+  labels:
+    {{- include "aquaculture.frontendLabels" . | nindent 4 }}
+    app: shell
+spec:
+  replicas: {{ .Values.shell.replicaCount }}
+  selector:
+    matchLabels:
+      app: shell
+  template:
+    metadata:
+      labels:
+        app: shell
+        tier: frontend
+    spec:
+      containers:
+        - name: shell
+          image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.shell.image) }}
+          imagePullPolicy: {{ .Values.shell.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.shell.service.targetPort }}
+          env:
+            - name: DASHBOARD_URL
+              value: "http://{{ include "aquaculture.fullname" . }}-dashboard"
+            - name: FARM_MODULE_URL
+              value: "http://{{ include "aquaculture.fullname" . }}-farm-module"
+            - name: PROCESS_EDITOR_URL
+              value: "http://{{ include "aquaculture.fullname" . }}-process-editor"
+            - name: ADMIN_PANEL_URL
+              value: "http://{{ include "aquaculture.fullname" . }}-admin-panel"
+          resources:
+            {{- toYaml .Values.shell.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.shell.service.targetPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.shell.service.targetPort }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-shell
+  labels:
+    app: shell
+spec:
+  type: {{ .Values.shell.service.type }}
+  ports:
+    - port: {{ .Values.shell.service.port }}
+      targetPort: {{ .Values.shell.service.targetPort }}
+      name: http
+  selector:
+    app: shell
+{{- end }}
+
+---
+{{- /* Dashboard Module */}}
+{{- if .Values.dashboard.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-dashboard
+  labels:
+    {{- include "aquaculture.frontendLabels" . | nindent 4 }}
+    app: dashboard
+spec:
+  replicas: {{ .Values.dashboard.replicaCount }}
+  selector:
+    matchLabels:
+      app: dashboard
+  template:
+    metadata:
+      labels:
+        app: dashboard
+        tier: frontend
+    spec:
+      containers:
+        - name: dashboard
+          image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.dashboard.image) }}
+          imagePullPolicy: {{ .Values.dashboard.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.dashboard.service.targetPort }}
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.dashboard.service.targetPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-dashboard
+  labels:
+    app: dashboard
+spec:
+  type: {{ .Values.dashboard.service.type }}
+  ports:
+    - port: {{ .Values.dashboard.service.port }}
+      targetPort: {{ .Values.dashboard.service.targetPort }}
+      name: http
+  selector:
+    app: dashboard
+{{- end }}
+
+---
+{{- /* Farm Module */}}
+{{- if .Values.farmModule.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-farm-module
+  labels:
+    {{- include "aquaculture.frontendLabels" . | nindent 4 }}
+    app: farm-module
+spec:
+  replicas: {{ .Values.farmModule.replicaCount }}
+  selector:
+    matchLabels:
+      app: farm-module
+  template:
+    metadata:
+      labels:
+        app: farm-module
+        tier: frontend
+    spec:
+      containers:
+        - name: farm-module
+          image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.farmModule.image) }}
+          imagePullPolicy: {{ .Values.farmModule.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.farmModule.service.targetPort }}
+          resources:
+            {{- toYaml .Values.farmModule.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.farmModule.service.targetPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-farm-module
+  labels:
+    app: farm-module
+spec:
+  type: {{ .Values.farmModule.service.type }}
+  ports:
+    - port: {{ .Values.farmModule.service.port }}
+      targetPort: {{ .Values.farmModule.service.targetPort }}
+      name: http
+  selector:
+    app: farm-module
+{{- end }}
+
+---
+{{- /* Process Editor Module */}}
+{{- if .Values.processEditor.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-process-editor
+  labels:
+    {{- include "aquaculture.frontendLabels" . | nindent 4 }}
+    app: process-editor
+spec:
+  replicas: {{ .Values.processEditor.replicaCount }}
+  selector:
+    matchLabels:
+      app: process-editor
+  template:
+    metadata:
+      labels:
+        app: process-editor
+        tier: frontend
+    spec:
+      containers:
+        - name: process-editor
+          image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.processEditor.image) }}
+          imagePullPolicy: {{ .Values.processEditor.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.processEditor.service.targetPort }}
+          resources:
+            {{- toYaml .Values.processEditor.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.processEditor.service.targetPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-process-editor
+  labels:
+    app: process-editor
+spec:
+  type: {{ .Values.processEditor.service.type }}
+  ports:
+    - port: {{ .Values.processEditor.service.port }}
+      targetPort: {{ .Values.processEditor.service.targetPort }}
+      name: http
+  selector:
+    app: process-editor
+{{- end }}
+
+---
+{{- /* Admin Panel Module */}}
+{{- if .Values.adminPanel.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-admin-panel
+  labels:
+    {{- include "aquaculture.frontendLabels" . | nindent 4 }}
+    app: admin-panel
+spec:
+  replicas: {{ .Values.adminPanel.replicaCount }}
+  selector:
+    matchLabels:
+      app: admin-panel
+  template:
+    metadata:
+      labels:
+        app: admin-panel
+        tier: frontend
+    spec:
+      containers:
+        - name: admin-panel
+          image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.adminPanel.image) }}
+          imagePullPolicy: {{ .Values.adminPanel.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.adminPanel.service.targetPort }}
+          resources:
+            {{- toYaml .Values.adminPanel.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.adminPanel.service.targetPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-admin-panel
+  labels:
+    app: admin-panel
+spec:
+  type: {{ .Values.adminPanel.service.type }}
+  ports:
+    - port: {{ .Values.adminPanel.service.port }}
+      targetPort: {{ .Values.adminPanel.service.targetPort }}
+      name: http
+  selector:
+    app: admin-panel
+{{- end }}

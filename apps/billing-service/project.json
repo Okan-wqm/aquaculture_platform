@@ -1,0 +1,66 @@
+{
+  "name": "billing-service",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/billing-service/src",
+  "projectType": "application",
+  "tags": ["scope:backend", "type:service"],
+  "targets": {
+    "build": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "target": "node",
+        "compiler": "tsc",
+        "outputPath": "dist/apps/billing-service",
+        "main": "apps/billing-service/src/main.ts",
+        "tsConfig": "apps/billing-service/tsconfig.app.json",
+        "assets": ["apps/billing-service/src/assets"],
+        "generatePackageJson": true,
+        "webpackConfig": "apps/billing-service/webpack.config.js"
+      },
+      "configurations": {
+        "development": {
+          "optimization": false,
+          "sourceMap": true
+        },
+        "production": {
+          "optimization": true,
+          "extractLicenses": true,
+          "inspect": false,
+          "sourceMap": false
+        }
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "billing-service:build"
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "billing-service:build:development"
+        },
+        "production": {
+          "buildTarget": "billing-service:build:production"
+        }
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["apps/billing-service/**/*.ts"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "apps/billing-service/jest.config.ts",
+        "passWithNoTests": true
+      }
+    }
+  }
+}

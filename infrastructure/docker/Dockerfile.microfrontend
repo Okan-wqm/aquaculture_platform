@@ -1,0 +1,25 @@
+# Generic Dockerfile for microfrontend modules
+# Usage: docker build -f Dockerfile.microfrontend --build-arg MODULE_PATH=web/modules/dashboard -t dashboard .
+
+ARG MODULE_PATH
+
+FROM nginx:alpine AS production
+
+# Remove default nginx config
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Copy nginx config
+COPY infrastructure/docker/nginx/microfrontend.conf /etc/nginx/conf.d/default.conf
+
+# Copy pre-built dist folder
+ARG MODULE_PATH
+COPY ${MODULE_PATH}/dist /usr/share/nginx/html
+
+# Expose port
+EXPOSE 80
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost/assets/remoteEntry.js || exit 1
+
+CMD ["nginx", "-g", "daemon off;"]

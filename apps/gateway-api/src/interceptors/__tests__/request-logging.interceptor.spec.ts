@@ -10,6 +10,14 @@ import { of, throwError } from 'rxjs';
 
 import { RequestLoggingInterceptor } from '../request-logging.interceptor';
 
+/**
+ * Interface for error object in log context
+ */
+interface LoggedError {
+  message: string;
+  stack?: string;
+}
+
 describe('RequestLoggingInterceptor', () => {
   let interceptor: RequestLoggingInterceptor;
 
@@ -49,46 +57,6 @@ describe('RequestLoggingInterceptor', () => {
       getHandler: () => jest.fn(),
       getClass: () => jest.fn(),
       getType: () => 'http',
-    } as unknown as ExecutionContext;
-  };
-
-  /**
-   * Create mock GraphQL execution context
-   */
-  const createMockGraphQLContext = (
-    options: {
-      operationName?: string;
-      operationType?: string;
-      headers?: Record<string, string>;
-      user?: { sub?: string };
-      tenantId?: string;
-    } = {},
-  ): ExecutionContext => {
-    const mockRequest = {
-      headers: {
-        'user-agent': 'GraphQL Client/1.0',
-        ...options.headers,
-      },
-      user: options.user,
-      tenantId: options.tenantId,
-      ip: '127.0.0.1',
-    };
-
-    const mockInfo = {
-      operation: {
-        name: { value: options.operationName || 'TestQuery' },
-        operation: options.operationType || 'query',
-      },
-    };
-
-    return {
-      switchToHttp: () => ({
-        getRequest: () => mockRequest,
-        getResponse: () => ({}),
-      }),
-      getHandler: () => jest.fn(),
-      getClass: () => jest.fn(),
-      getType: () => 'graphql',
     } as unknown as ExecutionContext;
   };
 
@@ -259,7 +227,8 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         error: () => {
           const logContext = errorSpy.mock.calls[0][2] as Record<string, unknown>;
-          expect((logContext.error as any).message).toBe('Something went wrong');
+          const loggedError = logContext.error as LoggedError;
+          expect(loggedError.message).toBe('Something went wrong');
           done();
         },
       });
@@ -322,34 +291,27 @@ describe('RequestLoggingInterceptor', () => {
   });
 
   describe('Slow Request Detection', () => {
-    it('should warn for slow requests', (done) => {
+    it('should warn for slow requests', async () => {
       // Set a very low threshold for testing
       process.env['SLOW_REQUEST_THRESHOLD_MS'] = '1';
 
-      const module = Test.createTestingModule({
+      const module = await Test.createTestingModule({
         providers: [RequestLoggingInterceptor],
       }).compile();
 
-      module.then((m) => {
-        const slowInterceptor = m.get<RequestLoggingInterceptor>(RequestLoggingInterceptor);
-        const warnSpy = jest.spyOn(slowInterceptor['logger'], 'warn');
-        const context = createMockHttpContext();
+      const slowInterceptor = module.get<RequestLoggingInterceptor>(RequestLoggingInterceptor);
+      // Set up spy (not asserted as timing is unreliable in tests)
+      jest.spyOn(slowInterceptor['logger'], 'warn');
+      const context = createMockHttpContext();
 
-        // Create a handler that takes some time
-        const handler: CallHandler = {
-          handle: () =>
-            new Promise((resolve) => {
-              setTimeout(() => resolve({ data: 'test' }), 10);
-            }).then((data) => of(data)),
-        } as CallHandler;
-
-        // Just test with regular handler since timing is tricky in tests
-        const regularHandler = createMockCallHandler();
+      // Just test with regular handler since timing is tricky in tests
+      const regularHandler = createMockCallHandler();
+      await new Promise<void>((resolve) => {
         slowInterceptor.intercept(context, regularHandler).subscribe({
           complete: () => {
             // The test verifies the interceptor works, actual slow detection
             // depends on timing which is unreliable in tests
-            done();
+            resolve();
           },
         });
       });
@@ -428,7 +390,7 @@ describe('RequestLoggingInterceptor', () => {
 
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
-          const message = logSpy.mock.calls[0][0];
+          const message = logSpy.mock.calls[0][0] as string;
           expect(message).toMatch(/GET \/api\/test/);
           expect(message).toMatch(/200/);
           expect(message).toMatch(/\d+ms/);

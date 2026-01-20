@@ -9,6 +9,19 @@ import { GqlExecutionContext, GqlContextType } from '@nestjs/graphql';
 import { Observable, tap, catchError, throwError } from 'rxjs';
 
 /**
+ * Extended request with optional properties
+ */
+interface LoggingRequest {
+  method: string;
+  url: string;
+  ip?: string;
+  headers?: Record<string, string | undefined>;
+  tenantId?: string;
+  user?: { sub?: string };
+  connection?: { remoteAddress?: string };
+}
+
+/**
  * Request metrics
  */
 interface RequestMetrics {
@@ -55,7 +68,7 @@ export class RequestLoggingInterceptor implements NestInterceptor {
       tap((response) => {
         this.logSuccess(metrics, response);
       }),
-      catchError((error) => {
+      catchError((error: Error) => {
         this.logError(metrics, error);
         return throwError(() => error);
       }),
@@ -79,7 +92,7 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     context: ExecutionContext,
     startTime: number,
   ): RequestMetrics {
-    const request = context.switchToHttp().getRequest();
+    const request = context.switchToHttp().getRequest<LoggingRequest>();
 
     return {
       method: request.method,

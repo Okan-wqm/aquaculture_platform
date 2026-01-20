@@ -23,21 +23,6 @@ import {
 } from '../error-mapping.interceptor';
 
 /**
- * Interface for mock response with setHeader
- */
-interface MockResponse {
-  setHeader: jest.Mock;
-}
-
-/**
- * Interface for mock HTTP context
- */
-interface MockHttpContext {
-  getRequest: () => Partial<Request>;
-  getResponse: () => MockResponse;
-}
-
-/**
  * Interface for mapped error response with tracking
  */
 interface ErrorResponseWithTracking {
@@ -48,6 +33,36 @@ interface ErrorResponseWithTracking {
   statusCode?: number;
   path?: string;
 }
+
+/**
+ * Interface for mock response with setHeader
+ */
+interface MockResponseWithSetHeader {
+  setHeader: jest.Mock;
+}
+
+/**
+ * Interface for typed HTTP context
+ */
+interface TypedHttpContext {
+  getRequest: () => Partial<Request>;
+  getResponse: () => MockResponseWithSetHeader;
+}
+
+/**
+ * Helper to get typed response from context
+ */
+const getTypedResponse = (context: ExecutionContext): MockResponseWithSetHeader => {
+  const httpContext = context.switchToHttp() as unknown as TypedHttpContext;
+  return httpContext.getResponse();
+};
+
+/**
+ * Helper to call done.fail properly to avoid unbound method lint error
+ */
+const failTest = (done: jest.DoneCallback, message: string): void => {
+  done.fail(message);
+};
 
 describe('ErrorMappingInterceptor', () => {
   let interceptor: ErrorMappingInterceptor;
@@ -130,7 +145,7 @@ describe('ErrorMappingInterceptor', () => {
           expect(result).toEqual({ data: 'test' });
           done();
         },
-        error: done.fail,
+        error: (err: unknown) => failTest(done, `Unexpected error: ${String(err)}`),
       });
     });
   });
@@ -142,7 +157,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(originalError);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const error = err as HttpException;
           expect(error).toBeInstanceOf(HttpException);
@@ -160,7 +175,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(originalError);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const error = err as HttpException;
           const response = error.getResponse() as ErrorResponseWithTracking;
@@ -179,7 +194,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(originalError);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const error = err as HttpException;
           const response = error.getResponse() as ErrorResponseWithTracking;
@@ -207,7 +222,7 @@ describe('ErrorMappingInterceptor', () => {
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({
-          next: () => (done as jest.DoneCallback).fail('Should have thrown'),
+          next: () => failTest(done as jest.DoneCallback, 'Should have thrown'),
           error: (err: unknown) => {
             const httpError = err as HttpException;
             expect(httpError.getStatus()).toBe(expectedStatus);
@@ -232,7 +247,7 @@ describe('ErrorMappingInterceptor', () => {
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({
-          next: () => (done as jest.DoneCallback).fail('Should have thrown'),
+          next: () => failTest(done as jest.DoneCallback, 'Should have thrown'),
           error: (err: unknown) => {
             const httpError = err as HttpException;
             expect(httpError.getStatus()).toBe(expectedStatus);
@@ -255,7 +270,7 @@ describe('ErrorMappingInterceptor', () => {
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({
-          next: () => (done as jest.DoneCallback).fail('Should have thrown'),
+          next: () => failTest(done as jest.DoneCallback, 'Should have thrown'),
           error: (err: unknown) => {
             const httpError = err as HttpException;
             expect(httpError.getStatus()).toBe(expectedStatus);
@@ -274,7 +289,7 @@ describe('ErrorMappingInterceptor', () => {
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({
-          next: () => done.fail('Should have thrown'),
+          next: () => failTest(done, 'Should have thrown'),
           error: (err: unknown) => {
             const httpError = err as HttpException;
             expect(httpError.getStatus()).toBe(429);
@@ -291,9 +306,9 @@ describe('ErrorMappingInterceptor', () => {
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({
-          next: () => done.fail('Should have thrown'),
+          next: () => failTest(done, 'Should have thrown'),
           error: () => {
-            const response = context.switchToHttp().getResponse();
+            const response = getTypedResponse(context);
             expect(response.setHeader).toHaveBeenCalledWith('Retry-After', '60');
             done();
           },
@@ -312,7 +327,7 @@ describe('ErrorMappingInterceptor', () => {
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({
-          next: () => (done as jest.DoneCallback).fail('Should have thrown'),
+          next: () => failTest(done as jest.DoneCallback, 'Should have thrown'),
           error: (err: unknown) => {
             const httpError = err as HttpException;
             expect(httpError.getStatus()).toBe(expectedStatus);
@@ -335,7 +350,7 @@ describe('ErrorMappingInterceptor', () => {
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({
-          next: () => (done as jest.DoneCallback).fail('Should have thrown'),
+          next: () => failTest(done as jest.DoneCallback, 'Should have thrown'),
           error: (err: unknown) => {
             const httpError = err as HttpException;
             expect(httpError.getStatus()).toBe(expectedStatus);
@@ -402,7 +417,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const httpError = err as HttpException;
           expect(httpError.getStatus()).toBe(422);
@@ -418,7 +433,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const httpError = err as HttpException;
           expect(httpError.getStatus()).toBe(404);
@@ -465,7 +480,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const httpError = err as HttpException;
           const response = httpError.getResponse() as MappedErrorResponse;
@@ -481,7 +496,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const httpError = err as HttpException;
           const response = httpError.getResponse() as MappedErrorResponse;
@@ -503,7 +518,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const httpError = err as HttpException;
           const response = httpError.getResponse() as MappedErrorResponse;
@@ -531,7 +546,7 @@ describe('ErrorMappingInterceptor', () => {
         const handler = createErrorCallHandler(error);
 
         devInterceptor.intercept(context, handler).subscribe({
-          next: () => done.fail('Should have thrown'),
+          next: () => failTest(done, 'Should have thrown'),
           error: (err: unknown) => {
             const httpError = err as HttpException;
             const response = httpError.getResponse() as MappedErrorResponse;
@@ -558,7 +573,7 @@ describe('ErrorMappingInterceptor', () => {
           const handler = createErrorCallHandler(error);
 
           prodInterceptor.intercept(context, handler).subscribe({
-            next: () => done.fail('Should have thrown'),
+            next: () => failTest(done, 'Should have thrown'),
             error: (err: unknown) => {
               const httpError = err as HttpException;
               const response = httpError.getResponse() as MappedErrorResponse;
@@ -584,7 +599,7 @@ describe('ErrorMappingInterceptor', () => {
           const handler = createErrorCallHandler(error);
 
           prodInterceptor.intercept(context, handler).subscribe({
-            next: () => done.fail('Should have thrown'),
+            next: () => failTest(done, 'Should have thrown'),
             error: (err: unknown) => {
               const httpError = err as HttpException;
               const response = httpError.getResponse() as MappedErrorResponse;
@@ -603,7 +618,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const httpError = err as HttpException;
           expect(httpError.getStatus()).toBe(500);
@@ -673,7 +688,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const httpError = err as HttpException;
           const response = httpError.getResponse() as MappedErrorResponse;
@@ -689,7 +704,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const httpError = err as HttpException;
           const response = httpError.getResponse() as MappedErrorResponse;
@@ -710,7 +725,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const httpError = err as HttpException;
           const response = httpError.getResponse() as MappedErrorResponse;
@@ -743,7 +758,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const httpError = err as HttpException;
           const response = httpError.getResponse() as MappedErrorResponse;
@@ -761,7 +776,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const httpError = err as HttpException;
           const response = httpError.getResponse() as MappedErrorResponse;
@@ -779,7 +794,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           const httpError = err as HttpException;
           expect(httpError.getStatus()).toBe(500);
@@ -796,7 +811,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           expect(err).toBeInstanceOf(HttpException);
           done();
@@ -810,7 +825,7 @@ describe('ErrorMappingInterceptor', () => {
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
+        next: () => failTest(done, 'Should have thrown'),
         error: (err: unknown) => {
           expect(err).toBeInstanceOf(HttpException);
           done();

@@ -523,12 +523,16 @@ export class TenantService {
     const versionQuery = `SELECT version()`;
 
     try {
-      const [tableResults, sizeResult, connResult, versionResult] = await Promise.all([
-        this.dataSource.query(tablesQuery, [tenantSchemaName]) as Promise<TableQueryRow[]>,
-        this.dataSource.query(schemaSizeQuery, [tenantSchemaName]) as Promise<SizeQueryRow[]>,
-        this.dataSource.query(connectionQuery) as Promise<ConnectionQueryRow[]>,
-        this.dataSource.query(versionQuery) as Promise<VersionQueryRow[]>,
+      const results = await Promise.all([
+        this.dataSource.query(tablesQuery, [tenantSchemaName]),
+        this.dataSource.query(schemaSizeQuery, [tenantSchemaName]),
+        this.dataSource.query(connectionQuery),
+        this.dataSource.query(versionQuery),
       ]);
+      const tableResults = results[0] as TableQueryRow[];
+      const sizeResult = results[1] as SizeQueryRow[];
+      const connResult = results[2] as ConnectionQueryRow[];
+      const versionResult = results[3] as VersionQueryRow[];
 
       // Get actual row counts for important tables (pg_stat may be stale)
       const tables: TableInfo[] = [];
@@ -539,9 +543,9 @@ export class TenantService {
         // For time-series tables, get exact count
         if (['sensor_readings', 'sensor_metrics', 'sensors'].includes(row.name)) {
           try {
-            const countResult = await this.dataSource.query(
+            const countResult: CountQueryRow[] = await this.dataSource.query(
               `SELECT COUNT(*) as cnt FROM "${tenantSchemaName}"."${row.name}"`
-            ) as CountQueryRow[];
+            );
             rowCount = parseInt(countResult[0]?.cnt) || 0;
           } catch (err) {
             this.logger.debug(`Could not count ${row.name}: ${(err as Error).message}`);
@@ -551,11 +555,11 @@ export class TenantService {
         // For TimescaleDB hypertables, get proper size including chunks
         if (['sensor_readings', 'sensor_metrics'].includes(row.name)) {
           try {
-            const hypertableSizeResult = await this.dataSource.query(
+            const hypertableSizeResult: HypertableSizeRow[] = await this.dataSource.query(
               `SELECT pg_size_pretty(total_bytes) as size
                FROM hypertable_detailed_size($1)`,
               [`${tenantSchemaName}.${row.name}`]
-            ) as HypertableSizeRow[];
+            );
             if (hypertableSizeResult[0]?.size) {
               size = hypertableSizeResult[0].size;
             }
@@ -660,7 +664,7 @@ export class TenantService {
       SELECT 1 FROM pg_tables
       WHERE schemaname = $1 AND tablename = $2
     `;
-    const tableExists = await this.dataSource.query(tableExistsQuery, [schemaName, tableName]) as unknown[];
+    const tableExists: unknown[] = await this.dataSource.query(tableExistsQuery, [schemaName, tableName]);
 
     if (tableExists.length === 0) {
       throw new NotFoundException(`Table '${schemaName}.${tableName}' not found`);
@@ -718,10 +722,12 @@ export class TenantService {
     `;
 
     try {
-      const [columnsResult, indexesResult] = await Promise.all([
-        this.dataSource.query(columnsQuery, [schemaName, tableName]) as Promise<ColumnQueryRow[]>,
-        this.dataSource.query(indexesQuery, [schemaName, tableName]) as Promise<IndexQueryRow[]>,
+      const queryResults = await Promise.all([
+        this.dataSource.query(columnsQuery, [schemaName, tableName]),
+        this.dataSource.query(indexesQuery, [schemaName, tableName]),
       ]);
+      const columnsResult = queryResults[0] as ColumnQueryRow[];
+      const indexesResult = queryResults[1] as IndexQueryRow[];
 
       const columns: ColumnInfo[] = columnsResult.map((row) => ({
         columnName: row.column_name,

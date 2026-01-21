@@ -57,13 +57,13 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
 
     // Start health check interval
     this.healthCheckInterval = setInterval(() => {
-      this.performHealthCheck();
+      void this.performHealthCheck();
     }, 30000); // Every 30 seconds
 
     this.logger.log(`Data Ingestion Service initialized with ${this.activeConnections.size} active connections`);
   }
 
-  async onModuleDestroy() {
+  async onModuleDestroy(): Promise<void> {
     this.logger.log('Shutting down Data Ingestion Service...');
     this.isShuttingDown = true;
 
@@ -137,8 +137,8 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       // Subscribe to data
       const subscription = await this.mqttAdapter.subscribeToData(
         handle,
-        (data) => this.handleSensorData(sensor, data),
-        (error) => this.handleSensorError(sensor, error),
+        (data) => { void this.handleSensorData(sensor, data); },
+        (error) => { void this.handleSensorError(sensor, error); },
       );
 
       // Store active connection
@@ -405,7 +405,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       sensorId: sensor.id,
       tenantId: sensor.tenantId,
       timestamp: data.timestamp,
-      readings: data.values as any,
+      readings: data.values as Record<string, number | string | boolean | null>,
       pondId: sensor.pondId,
       farmId: sensor.farmId,
       quality: data.quality,
@@ -437,7 +437,8 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
         await this.stopSensorDataCollection(sensor.id);
 
         // Wait a bit before reconnecting
-        setTimeout(async () => {
+        setTimeout(() => {
+          void (async () => {
           if (!this.isShuttingDown) {
             try {
               const freshSensor = await this.sensorRepository.findOne({
@@ -452,7 +453,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
                 `Failed to reconnect sensor ${sensor.id}: ${(reconnectError as Error).message}`,
               );
             }
-          }
+          })();
         }, 5000);
       }
     }
@@ -462,9 +463,9 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
    * Extract value from nested object by path
    * e.g., "data.temperature" or "sensors[0].value"
    */
-  private extractValueByPath(obj: Record<string, any>, path: string): any {
+  private extractValueByPath(obj: Record<string, unknown>, path: string): unknown {
     const parts = path.split('.');
-    let current: any = obj;
+    let current: unknown = obj;
 
     for (const part of parts) {
       // Handle array notation like "sensors[0]"
@@ -473,10 +474,12 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
         const key = arrayMatch[1];
         const indexStr = arrayMatch[2];
         if (key && indexStr) {
-          current = current?.[key]?.[parseInt(indexStr, 10)];
+          const obj = current as Record<string, unknown> | undefined;
+          const arr = obj?.[key] as unknown[] | undefined;
+          current = arr?.[parseInt(indexStr, 10)];
         }
       } else {
-        current = current?.[part];
+        current = (current as Record<string, unknown> | undefined)?.[part];
       }
 
       if (current === undefined) {

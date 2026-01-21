@@ -45,10 +45,20 @@ export class SensorReadingEventHandler
       `Processing sensor reading from ${event.sensorId}`,
     );
 
+    // SECURITY: tenantId is required for multi-tenant isolation
+    // Empty string fallback could cause cross-tenant data leakage
+    if (!event.tenantId) {
+      this.logger.error(
+        `Missing tenantId for sensor reading from ${event.sensorId}. ` +
+        'Skipping alert evaluation to prevent multi-tenant isolation breach.',
+      );
+      return;
+    }
+
     try {
       await this.evaluationService.evaluateSensorReading({
         sensorId: event.sensorId,
-        tenantId: event.tenantId || '',
+        tenantId: event.tenantId,
         readings: event.readings,
         farmId: event.farmId,
         pondId: event.pondId,

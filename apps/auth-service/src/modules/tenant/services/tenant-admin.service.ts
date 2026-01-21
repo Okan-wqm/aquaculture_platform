@@ -36,13 +36,6 @@ interface CountRow {
   count: string;
 }
 
-interface ColumnInfoRow {
-  column_name: string;
-  data_type: string;
-  is_nullable: string;
-  column_default: string | null;
-}
-
 interface DataRow {
   [key: string]: unknown;
 }

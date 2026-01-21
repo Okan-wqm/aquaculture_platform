@@ -11,7 +11,7 @@ import { Role, SchemaManagerService } from '@platform/backend-common';
 import { IEventBus } from '@platform/event-bus';
 import { TenantCreatedEvent, TenantUpdatedEvent } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
-import { Repository, In, DataSource } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 
 import { User } from '../../authentication/entities/user.entity';
 import { Module } from '../../system-module/entities/module.entity';
@@ -408,7 +408,8 @@ export class TenantService {
    * Get tenant statistics
    */
   async getTenantStats(tenantId: string): Promise<TenantStats> {
-    const tenant = await this.findById(tenantId);
+    // Validate tenant exists (throws NotFoundException if not found)
+    await this.findById(tenantId);
 
     // Count users by status
     const [users, activeModules] = await Promise.all([

@@ -200,8 +200,11 @@ export class EdgeDeviceResolver {
     @Args('reason', { type: () => String, nullable: true }) reason?: string,
     @Tenant() tenantId?: string,
   ): Promise<boolean> {
+    if (!tenantId) {
+      throw new Error('Tenant context is required');
+    }
     this.logger.log(`Rebooting edge device: ${id}, reason: ${reason || 'User requested'}`);
-    return await this.edgeDeviceService.rebootDevice(id, tenantId!, reason);
+    return await this.edgeDeviceService.rebootDevice(id, tenantId, reason);
   }
 
   // ==================== Provisioning Mutations ====================
@@ -299,9 +302,9 @@ export class EdgeDeviceResolver {
    * TODO: Implement when sensor-edgeDevice relation is added
    */
   @ResolveField(() => Int, { name: 'sensorCount', nullable: true })
-  async resolveSensorCount(
-    @Parent() device: EdgeDevice,
-  ): Promise<number> {
+  resolveSensorCount(
+    @Parent() _device: EdgeDevice,
+  ): number {
     // Placeholder - will be implemented when sensor relation is added
     return 0;
   }
@@ -311,9 +314,9 @@ export class EdgeDeviceResolver {
    * TODO: Implement when automation module is added
    */
   @ResolveField(() => Int, { name: 'programCount', nullable: true })
-  async resolveProgramCount(
-    @Parent() device: EdgeDevice,
-  ): Promise<number> {
+  resolveProgramCount(
+    @Parent() _device: EdgeDevice,
+  ): number {
     // Placeholder - will be implemented in Sprint 3
     return 0;
   }
@@ -323,9 +326,9 @@ export class EdgeDeviceResolver {
    * TODO: Implement when alarm module is added
    */
   @ResolveField(() => Int, { name: 'activeAlarmCount', nullable: true })
-  async resolveActiveAlarmCount(
-    @Parent() device: EdgeDevice,
-  ): Promise<number> {
+  resolveActiveAlarmCount(
+    @Parent() _device: EdgeDevice,
+  ): number {
     // Placeholder - will be implemented in Sprint 2
     return 0;
   }

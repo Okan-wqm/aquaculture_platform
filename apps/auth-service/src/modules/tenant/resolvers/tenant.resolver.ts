@@ -1,5 +1,5 @@
 import { UseGuards } from '@nestjs/common';
-import { Resolver, Query, Mutation, Args, ID, Context, Int, ResolveField, Parent } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Context, Int } from '@nestjs/graphql';
 import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher } from '@platform/backend-common';
 
 import { User } from '../../authentication/entities/user.entity';

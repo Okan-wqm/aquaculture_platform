@@ -250,7 +250,7 @@ export class SensorIngestionService {
         const calibratedValue = (rawValue * multiplier) + offset;
 
         // Update the reading with calibrated value
-        (transformed as any)[key] = calibratedValue;
+        (transformed as Record<string, number | undefined>)[key] = calibratedValue;
 
         this.logger.debug(
           `Calibrated ${channel.channelKey}: ${rawValue} -> ${calibratedValue} ` +
@@ -447,8 +447,9 @@ export class SensorIngestionService {
 
     // Map sensor type to reading key
     const readings: SensorReadings = {};
+    const sensorType = String(child.type);
 
-    switch (child.type) {
+    switch (sensorType) {
       case 'temperature':
         readings.temperature = value;
         break;
@@ -478,7 +479,7 @@ export class SensorIngestionService {
         break;
       default:
         // For other types, use a generic "value" key or the dataPath
-        (readings as any)[child.dataPath || 'value'] = value;
+        (readings as Record<string, number>)[child.dataPath || 'value'] = value;
     }
 
     return readings;

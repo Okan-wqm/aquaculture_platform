@@ -62,7 +62,8 @@ export class JwtAuthGuard {
 
     if (contextType === 'graphql') {
       const gqlCtx = GqlExecutionContext.create(context);
-      return (gqlCtx.getContext() as GqlContext).req;
+      const ctx = gqlCtx.getContext<GqlContext>();
+      return ctx.req;
     }
 
     return context.switchToHttp().getRequest<AuthenticatedRequest>();

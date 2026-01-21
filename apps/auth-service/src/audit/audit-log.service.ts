@@ -11,9 +11,9 @@ export interface CreateAuditLogDto {
   action: string;
   entityType: string;
   entityId?: string;
-  details?: Record<string, any>;
-  previousValue?: Record<string, any>;
-  newValue?: Record<string, any>;
+  details?: Record<string, unknown>;
+  previousValue?: Record<string, unknown>;
+  newValue?: Record<string, unknown>;
   severity?: AuditLogSeverity;
   requestId?: string;
   sessionId?: string;

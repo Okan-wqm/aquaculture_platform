@@ -439,19 +439,20 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
         // Wait a bit before reconnecting
         setTimeout(() => {
           void (async () => {
-          if (!this.isShuttingDown) {
-            try {
-              const freshSensor = await this.sensorRepository.findOne({
-                where: { id: sensor.id },
-                relations: ['protocol'],
-              });
-              if (freshSensor) {
-                await this.startSensorDataCollection(freshSensor);
+            if (!this.isShuttingDown) {
+              try {
+                const freshSensor = await this.sensorRepository.findOne({
+                  where: { id: sensor.id },
+                  relations: ['protocol'],
+                });
+                if (freshSensor) {
+                  await this.startSensorDataCollection(freshSensor);
+                }
+              } catch (reconnectError) {
+                this.logger.error(
+                  `Failed to reconnect sensor ${sensor.id}: ${(reconnectError as Error).message}`,
+                );
               }
-            } catch (reconnectError) {
-              this.logger.error(
-                `Failed to reconnect sensor ${sensor.id}: ${(reconnectError as Error).message}`,
-              );
             }
           })();
         }, 5000);

@@ -58,6 +58,33 @@ interface EdgeResponsePayload {
 }
 
 /**
+ * Tenant edge telemetry payload (Edge Agent TelemetryMetrics format)
+ */
+interface TenantEdgeTelemetryPayload {
+  cpu_usage_percent?: number;
+  cpuUsage?: number;
+  memory_usage_percent?: number;
+  memoryUsage?: number;
+  disk_usage_percent?: number;
+  storageUsage?: number;
+  temperature_celsius?: number;
+  temperatureCelsius?: number;
+  uptime_secs?: number;
+  uptimeSeconds?: number;
+  agent_version?: string;
+  firmwareVersion?: string;
+}
+
+/**
+ * Tenant edge status payload
+ */
+interface TenantEdgeStatusPayload {
+  online?: boolean;
+  isOnline?: boolean;
+  timestamp?: string;
+}
+
+/**
  * MQTT Listener Service
  * Global MQTT listener that subscribes to all sensor topics
  * and routes data to appropriate sensors
@@ -490,19 +517,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      const payload = JSON.parse(message.toString());
+      const payload = JSON.parse(message.toString()) as Record<string, unknown>;
 
       switch (messageType) {
         case 'telemetry':
-          await this.handleTenantEdgeTelemetry(tenantId, deviceCode, payload);
+          await this.handleTenantEdgeTelemetry(tenantId, deviceCode, payload as TenantEdgeTelemetryPayload);
           break;
 
         case 'status':
-          await this.handleTenantEdgeStatus(tenantId, deviceCode, payload);
+          await this.handleTenantEdgeStatus(tenantId, deviceCode, payload as TenantEdgeStatusPayload);
           break;
 
         case 'response':
-          await this.handleEdgeResponse(deviceCode, payload);
+          await this.handleEdgeResponse(deviceCode, payload as EdgeResponsePayload);
           break;
 
         default:
@@ -520,7 +547,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private async handleTenantEdgeTelemetry(
     tenantId: string,
     deviceCode: string,
-    payload: Record<string, any>,
+    payload: TenantEdgeTelemetryPayload,
   ): Promise<void> {
     // Edge Agent TelemetryMetrics uses snake_case field names
     const heartbeat: DeviceHeartbeat = {
@@ -535,7 +562,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       firmwareVersion: payload.agent_version ?? payload.firmwareVersion,
     };
 
-    const device = await this.edgeDeviceService!.updateHeartbeat(heartbeat);
+    if (!this.edgeDeviceService) return;
+    const device = await this.edgeDeviceService.updateHeartbeat(heartbeat);
 
     if (device) {
       this.logger.debug(
@@ -581,26 +609,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private async handleTenantEdgeStatus(
     tenantId: string,
     deviceCode: string,
-    payload: Record<string, any>,
+    payload: TenantEdgeStatusPayload,
   ): Promise<void> {
-    const status = (payload.status || '').toLowerCase();
+    const isOnline = payload.online ?? payload.isOnline ?? false;
 
-    if (status === 'online') {
+    if (isOnline) {
       this.logger.log(`Tenant ${tenantId} edge device online: ${deviceCode}`);
-      await this.handleEdgeBirth(deviceCode, payload);
-    } else if (status === 'offline') {
-      this.logger.warn(`Tenant ${tenantId} edge device offline: ${deviceCode}`);
-      await this.handleEdgeDeath(deviceCode, payload);
-    } else if (status === 'error') {
-      this.logger.error(`Tenant ${tenantId} edge device error: ${deviceCode} - ${payload.message || 'Unknown error'}`);
-      // Mark as offline with error
-      const heartbeat: DeviceHeartbeat = {
-        deviceCode,
-        isOnline: false,
-      };
-      await this.edgeDeviceService!.updateHeartbeat(heartbeat);
+      await this.handleEdgeBirth(deviceCode, { firmwareVersion: undefined, ipAddress: undefined });
     } else {
-      this.logger.debug(`Unknown edge status: ${status} for device ${deviceCode}`);
+      this.logger.warn(`Tenant ${tenantId} edge device offline: ${deviceCode}`);
+      await this.handleEdgeDeath(deviceCode);
     }
   }
 
@@ -611,7 +629,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    */
   private async publishSensorReadingEvent(
     sensor: Sensor,
-    data: Record<string, any>,
+    data: Record<string, unknown>,
     timestamp: Date,
   ): Promise<void> {
     if (!this.eventBus) {

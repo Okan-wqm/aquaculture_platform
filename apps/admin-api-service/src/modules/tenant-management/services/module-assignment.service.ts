@@ -148,60 +148,87 @@ export class ModuleAssignmentService {
     // Prepare modules for pricing calculation
     const moduleSelections: ModuleSelection[] = [];
 
-    // Process each module
-    for (const moduleRequest of modules) {
-      const { moduleId, quantities = {} } = moduleRequest;
+    // Process each module within a transaction for atomicity
+    await this.dataSource.transaction(async (manager) => {
+      for (const moduleRequest of modules) {
+        const { moduleId, quantities = {} } = moduleRequest;
 
-      try {
-        const moduleInfo = moduleInfoMap.get(moduleId);
-        if (!moduleInfo) {
-          failedModules.push({
-            moduleId,
-            error: `Module ${moduleId} not found`,
-          });
-          continue;
-        }
+        try {
+          const moduleInfo = moduleInfoMap.get(moduleId);
+          if (!moduleInfo) {
+            failedModules.push({
+              moduleId,
+              error: `Module ${moduleId} not found`,
+            });
+            continue;
+          }
 
-        // Check if already assigned
-        const existing = await this.isModuleAssigned(tenantId, moduleId);
-        if (existing) {
-          // Update quantities instead of failing
-          await this.updateModuleQuantities(tenantId, moduleId, quantities, assignedBy);
-          assignedModules.push(moduleId);
-          this.logger.log(`Updated quantities for module ${moduleId} on tenant ${tenantId}`);
-        } else {
-          // Insert new assignment
-          await this.insertModuleAssignment(
-            tenantId,
-            moduleId,
-            quantities,
-            assignedBy,
+          // Check if already assigned
+          const existingResult = await manager.query(
+            `SELECT EXISTS(
+              SELECT 1 FROM tenant_modules
+              WHERE tenant_id = $1 AND module_id = $2 AND is_active = true
+            ) as exists`,
+            [tenantId, moduleId],
           );
-          assignedModules.push(moduleId);
-          this.logger.log(`Assigned module ${moduleId} to tenant ${tenantId}`);
-        }
+          const existing = existingResult[0]?.exists === true ||
+                          existingResult[0]?.exists === 't' ||
+                          existingResult[0]?.exists === 'true';
 
-        // Add to pricing calculation
-        moduleSelections.push({
-          moduleId,
-          moduleCode: moduleInfo.code,
-          moduleName: moduleInfo.name,
-          quantities: {
-            users: quantities.users ?? 5,
-            farms: quantities.farms ?? 1,
-            ponds: quantities.ponds ?? 10,
-            sensors: quantities.sensors ?? 5,
-            ...quantities,
-          },
-        });
-      } catch (error) {
-        const errorMessage = (error as Error).message;
-        this.logger.error(
-          `Failed to assign module ${moduleId} to tenant ${tenantId}: ${errorMessage}`,
-        );
-        failedModules.push({ moduleId, error: errorMessage });
+          if (existing) {
+            // Update quantities instead of failing
+            await manager.query(
+              `UPDATE tenant_modules
+               SET quantities = $3, updated_at = NOW(), assigned_by = $4
+               WHERE tenant_id = $1 AND module_id = $2`,
+              [tenantId, moduleId, JSON.stringify(quantities), assignedBy],
+            );
+            assignedModules.push(moduleId);
+            this.logger.log(`Updated quantities for module ${moduleId} on tenant ${tenantId}`);
+          } else {
+            // Insert new assignment
+            await manager.query(
+              `INSERT INTO tenant_modules (
+                id, tenant_id, module_id, is_active, assigned_at,
+                assigned_by, quantities, created_at, updated_at
+              ) VALUES (
+                gen_random_uuid(), $1, $2, true, NOW(), $3, $4, NOW(), NOW()
+              )
+              ON CONFLICT (tenant_id, module_id)
+              DO UPDATE SET
+                is_active = true,
+                assigned_at = NOW(),
+                assigned_by = $3,
+                quantities = $4,
+                updated_at = NOW()`,
+              [tenantId, moduleId, assignedBy, JSON.stringify(quantities)],
+            );
+            assignedModules.push(moduleId);
+            this.logger.log(`Assigned module ${moduleId} to tenant ${tenantId}`);
+          }
+
+          // Add to pricing calculation
+          moduleSelections.push({
+            moduleId,
+            moduleCode: moduleInfo.code,
+            moduleName: moduleInfo.name,
+            quantities: {
+              users: quantities.users ?? 5,
+              farms: quantities.farms ?? 1,
+              ponds: quantities.ponds ?? 10,
+              sensors: quantities.sensors ?? 5,
+              ...quantities,
+            },
+          });
+        } catch (error) {
+          const errorMessage = (error as Error).message;
+          this.logger.error(
+            `Failed to assign module ${moduleId} to tenant ${tenantId}: ${errorMessage}`,
+          );
+          failedModules.push({ moduleId, error: errorMessage });
+        }
       }
-    }
+    });
 
     // Calculate pricing for assigned modules
     let pricing: PricingCalculation | undefined;
@@ -363,7 +390,9 @@ export class ModuleAssignmentService {
       `,
       [tenantId, moduleId],
     );
-    return result[0]?.exists === true;
+    // PostgreSQL returns boolean as true/false or 't'/'f' depending on driver
+    const exists = result[0]?.exists;
+    return exists === true || exists === 't' || exists === 'true';
   }
 
   /**

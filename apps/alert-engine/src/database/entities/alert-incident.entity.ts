@@ -8,6 +8,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import * as crypto from 'crypto';
 import { ObjectType, Field, ID, Int, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 import { AlertRule, AlertSeverity } from './alert-rule.entity';
@@ -238,7 +239,7 @@ export class AlertIncident {
   addTimelineEvent(event: Omit<IncidentTimelineEvent, 'id' | 'timestamp'> & { data?: Record<string, unknown> }): void {
     this.timeline.push({
       ...event,
-      id: `evt-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `evt-${Date.now()}-${crypto.randomBytes(6).toString('hex')}`,
       timestamp: new Date(),
       metadata: event.data,
     });
@@ -276,13 +277,15 @@ export class AlertIncident {
       throw new Error('Cannot start investigation on a closed incident');
     }
 
+    // Capture previous status BEFORE changing it
+    const previousStatus = this.status;
     this.status = IncidentStatus.INVESTIGATING;
 
     this.addTimelineEvent({
       type: TimelineEventType.STATUS_CHANGE,
       userId,
       description: 'Investigation started',
-      data: { previousStatus: this.status, newStatus: IncidentStatus.INVESTIGATING },
+      data: { previousStatus, newStatus: IncidentStatus.INVESTIGATING },
     });
   }
 

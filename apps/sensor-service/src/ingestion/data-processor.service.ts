@@ -314,7 +314,7 @@ export class DataProcessorService {
           break;
 
         case 'linear':
-        default:
+        default: {
           // Find previous and next non-null values
           let prevIndex = -1;
           let nextIndex = -1;
@@ -361,6 +361,7 @@ export class DataProcessorService {
             }
           }
           break;
+        }
       }
 
       if (interpolatedValue !== null) {

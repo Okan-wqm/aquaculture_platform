@@ -51,6 +51,7 @@ export class VfdRegisterMappingService {
   /**
    * Get critical parameters for real-time monitoring
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async getCriticalMappings(brand: VfdBrand): Promise<VfdRegisterMapping[]> {
     const criticalInputs = getCriticalParameters(brand);
     return this.convertToEntities(criticalInputs);
@@ -59,6 +60,7 @@ export class VfdRegisterMappingService {
   /**
    * Get parameters by category
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async getMappingsByCategory(
     brand: VfdBrand,
     category: VfdParameterCategory
@@ -70,6 +72,7 @@ export class VfdRegisterMappingService {
   /**
    * Get writable parameters (for control operations)
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async getWritableMappings(brand: VfdBrand): Promise<VfdRegisterMapping[]> {
     const writableInputs = getWritableParameters(brand);
     return this.convertToEntities(writableInputs);
@@ -195,6 +198,7 @@ export class VfdRegisterMappingService {
   /**
    * Get all supported brands with their parameter counts
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async getBrandsSummary(): Promise<Array<{
     brand: VfdBrand;
     totalParameters: number;

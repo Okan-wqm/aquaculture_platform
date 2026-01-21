@@ -21,7 +21,8 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
   name = 'CreateContinuousAggregates1735900001000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    const schema = await queryRunner.query(`SELECT current_schema()`);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const schema: Array<{ current_schema: string }> = await queryRunner.query(`SELECT current_schema()`);
     console.log('Running CreateContinuousAggregates migration in schema:', schema);
 
     // Check if TimescaleDB is available
@@ -283,13 +284,14 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
 
   private async checkTimescaleDB(queryRunner: QueryRunner): Promise<boolean> {
     try {
-      const result = await queryRunner.query(`
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const result: Array<{ exists: boolean }> = await queryRunner.query(`
         SELECT EXISTS (
           SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'
         )
       `);
       return result[0]?.exists === true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }

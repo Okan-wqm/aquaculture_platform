@@ -95,6 +95,15 @@ export interface SfcDefinition {
 }
 
 /**
+ * Trigger configuration for scheduled/triggered programs
+ */
+export interface TriggerConfig {
+  schedule?: string;        // Cron expression
+  condition?: string;       // ST expression
+  eventType?: string;       // Event to listen for
+}
+
+/**
  * AutomationProgram entity - IEC 61131-3 compliant automation program
  */
 @ObjectType()
@@ -182,11 +191,7 @@ export class AutomationProgram {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ name: 'trigger_config', type: 'jsonb', nullable: true })
-  triggerConfig?: {
-    schedule?: string;        // Cron expression
-    condition?: string;       // ST expression
-    eventType?: string;       // Event to listen for
-  };
+  triggerConfig?: TriggerConfig;
 
   // Versioning
   @Field(() => Int)

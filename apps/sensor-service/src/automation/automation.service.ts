@@ -1229,7 +1229,7 @@ export class AutomationService {
     const total = await this.programRepo.count({ where: { tenantId } });
 
     // By status
-    const statusResult = await this.programRepo
+    const statusResult: Array<{ status: ProgramStatus; count: string }> = await this.programRepo
       .createQueryBuilder('p')
       .select('p.status', 'status')
       .addSelect('COUNT(*)', 'count')
@@ -1243,7 +1243,7 @@ export class AutomationService {
     }));
 
     // By type
-    const typeResult = await this.programRepo
+    const typeResult: Array<{ type: ProgramType; count: string }> = await this.programRepo
       .createQueryBuilder('p')
       .select('p.program_type', 'type')
       .addSelect('COUNT(*)', 'count')

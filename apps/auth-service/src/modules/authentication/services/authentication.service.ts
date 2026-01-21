@@ -124,7 +124,7 @@ export class AuthenticationService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    this.logger.debug(`User found: ${user.email}, role: ${user.role}, hasPassword: ${!!user.password}, passwordLength: ${user.password?.length}`);
+    this.logger.debug(`User found: ${user.email}, role: ${user.role}`);
 
     // Check if user is pending invitation (no password set)
     if (user.isPendingInvitation()) {
@@ -147,9 +147,7 @@ export class AuthenticationService {
     }
 
     // Validate password
-    this.logger.debug(`Validating password for: ${user.email}`);
     const isPasswordValid = await user.validatePassword(input.password);
-    this.logger.debug(`Password validation result for ${user.email}: ${isPasswordValid}`);
 
     if (!isPasswordValid) {
       await this.handleFailedLogin(user);

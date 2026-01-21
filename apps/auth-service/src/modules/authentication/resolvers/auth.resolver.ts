@@ -9,6 +9,7 @@ import {
   MePayload,
   InvitationValidationResponse,
 } from '../dto/auth-response.dto';
+import { AcceptInvitationInput } from '../dto/accept-invitation.dto';
 import { LoginInput } from '../dto/login.dto';
 import { RefreshTokenInput } from '../dto/refresh-token.dto';
 import { RegisterInput } from '../dto/register.dto';
@@ -47,18 +48,22 @@ export class AuthResolver {
 
   /**
    * Accept invitation and set password
+   * Password validation: min 8 chars, uppercase, lowercase, number, special char
    */
   @Public()
   @Mutation(() => AuthPayload)
   async acceptInvitation(
-    @Args('token') token: string,
-    @Args('password') password: string,
-    @Args('firstName', { nullable: true }) firstName?: string,
-    @Args('lastName', { nullable: true }) lastName?: string,
+    @Args('input') input: AcceptInvitationInput,
     @Context() context?: { req: Request & { ip?: string; headers: Record<string, string> } },
   ): Promise<AuthPayload> {
     const ipAddress = context?.req?.ip || context?.req?.headers?.['x-forwarded-for'];
-    return this.authService.acceptInvitation(token, password, firstName, lastName, ipAddress);
+    return this.authService.acceptInvitation(
+      input.token,
+      input.password,
+      input.firstName,
+      input.lastName,
+      ipAddress,
+    );
   }
 
   /**

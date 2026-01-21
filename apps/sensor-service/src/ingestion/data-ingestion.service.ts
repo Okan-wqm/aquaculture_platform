@@ -57,7 +57,9 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
 
     // Start health check interval
     this.healthCheckInterval = setInterval(() => {
-      void this.performHealthCheck();
+      this.performHealthCheck().catch((error: Error) => {
+        this.logger.error(`Health check failed: ${error.message}`, error.stack);
+      });
     }, 30000); // Every 30 seconds
 
     this.logger.log(`Data Ingestion Service initialized with ${this.activeConnections.size} active connections`);
@@ -500,7 +502,10 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     const now = Date.now();
     const staleThreshold = 30 * 1000; // 30 seconds - faster detection for sensor issues
 
-    for (const [sensorId, connection] of this.activeConnections) {
+    // Create a snapshot of entries to avoid concurrent modification during iteration
+    const connectionEntries = Array.from(this.activeConnections.entries());
+
+    for (const [sensorId, connection] of connectionEntries) {
       // Check if subscription is still active
       if (!connection.subscription.isActive()) {
         this.logger.warn(`Sensor ${sensorId} subscription is inactive, reconnecting...`);

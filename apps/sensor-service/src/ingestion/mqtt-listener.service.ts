@@ -190,7 +190,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       });
 
       this.client.on('message', (topic, message) => {
-        void this.handleMessage(topic, message);
+        this.handleMessage(topic, message).catch((error: Error) => {
+          this.logger.error(`Unhandled error in message handler for topic ${topic}: ${error.message}`, error.stack);
+        });
       });
     });
   }

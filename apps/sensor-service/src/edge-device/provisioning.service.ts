@@ -346,14 +346,14 @@ export class ProvisioningService {
    */
   private buildProvisioningResponse(
     device: EdgeDevice,
-    token: string,
+    _token: string,
   ): ProvisionedDeviceResponse {
     return {
       deviceId: device.id,
       deviceCode: device.deviceCode,
       installerUrl: this.buildInstallerUrl(device.deviceCode),
       installerCommand: this.buildInstallerCommand(device.deviceCode),
-      tokenExpiresAt: device.tokenExpiresAt!,
+      tokenExpiresAt: device.tokenExpiresAt ?? new Date(),
       status: device.lifecycleState,
     };
   }

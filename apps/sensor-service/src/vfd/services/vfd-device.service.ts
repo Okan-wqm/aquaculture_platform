@@ -1,6 +1,11 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, DeepPartial } from 'typeorm';
+import { Repository, DeepPartial } from 'typeorm';
+
+interface StatusCountResult {
+  status: string;
+  count: string;
+}
 
 import { VfdDevice } from '../entities/vfd-device.entity';
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../entities/vfd.enums';
@@ -306,7 +311,7 @@ export class VfdDeviceService {
       .addSelect('COUNT(*)', 'count')
       .where('vfd.tenantId = :tenantId', { tenantId })
       .groupBy('vfd.status')
-      .getRawMany();
+      .getRawMany<StatusCountResult>();
 
     const result: Record<string, number> = {};
     for (const status of Object.values(VfdDeviceStatus)) {

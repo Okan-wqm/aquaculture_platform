@@ -1,7 +1,6 @@
 import { InputType, Field, Float, ID } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
 import {
-  IsString,
   IsOptional,
   IsNumber,
   IsUUID,

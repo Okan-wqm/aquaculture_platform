@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-// Entities
 import { VfdBacnetAdapter } from './adapters/vfd-bacnet.adapter';
 import { VfdCanopenAdapter } from './adapters/vfd-canopen.adapter';
 import { VfdEthernetIpAdapter } from './adapters/vfd-ethernet-ip.adapter';
@@ -12,20 +11,11 @@ import { VfdProfinetAdapter } from './adapters/vfd-profinet.adapter';
 import { VfdDevice } from './entities/vfd-device.entity';
 import { VfdReading } from './entities/vfd-reading.entity';
 import { VfdRegisterMapping } from './entities/vfd-register-mapping.entity';
-
-// Services
-import { VfdDeviceResolver } from './resolvers/vfd-device.resolver';
 import { VfdCommandService } from './services/vfd-command.service';
+import { VfdConnectionTesterService } from './services/vfd-connection-tester.service';
 import { VfdDataReaderService } from './services/vfd-data-reader.service';
 import { VfdDeviceService } from './services/vfd-device.service';
 import { VfdRegisterMappingService } from './services/vfd-register-mapping.service';
-import { VfdConnectionTesterService } from './services/vfd-connection-tester.service';
-
-// Resolvers
-import { VfdReadingResolver } from './resolvers/vfd-reading.resolver';
-import { VfdCommandResolver } from './resolvers/vfd-command.resolver';
-
-// Adapters
 
 /**
  * VFD (Variable Frequency Drive) Module
@@ -54,12 +44,6 @@ import { VfdCommandResolver } from './resolvers/vfd-command.resolver';
     VfdCommandService,
     VfdConnectionTesterService,
 
-    // Resolvers - Temporarily disabled due to schema-first vs code-first GraphQL issues
-    // TODO: Convert these resolvers to code-first approach
-    // VfdDeviceResolver,
-    // VfdReadingResolver,
-    // VfdCommandResolver,
-
     // Protocol Adapters
     VfdModbusRtuAdapter,
     VfdModbusTcpAdapter,
@@ -78,4 +62,5 @@ import { VfdCommandResolver } from './resolvers/vfd-command.resolver';
     VfdConnectionTesterService,
   ],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class VfdModule {}

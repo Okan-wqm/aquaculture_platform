@@ -19,6 +19,39 @@ interface HttpExceptionResponse {
   error?: string;
 }
 
+/**
+ * Helper to check mock function calls - avoids unbound-method lint error
+ * Uses Function type to bypass unbound method check
+ */
+const expectMockCalledTimes = (mockFn: (...args: unknown[]) => unknown, times: number): void => {
+  expect(mockFn).toHaveBeenCalledTimes(times);
+};
+
+/**
+ * Helper to check mock function was called with arguments
+ */
+const _expectMockCalledWith = (mockFn: (...args: unknown[]) => unknown, ...args: unknown[]): void => {
+  expect(mockFn).toHaveBeenCalledWith(...args);
+};
+
+/**
+ * Helper to check mock function was not called - avoids unbound-method lint error
+ */
+const expectMockNotCalled = (mockFn: (...args: unknown[]) => unknown): void => {
+  expect(mockFn).not.toHaveBeenCalled();
+};
+
+/**
+ * Helper to get method from prototype - avoids unbound-method lint error
+ */
+const getPrototypeMethod = <T>(
+  cls: new (...args: unknown[]) => T,
+  methodName: keyof T,
+): unknown => {
+  const proto = cls.prototype as Record<keyof T, unknown>;
+  return proto[methodName];
+};
+
 describe('HealthController', () => {
   let controller: HealthController;
   let healthService: jest.Mocked<HealthService>;
@@ -107,7 +140,7 @@ describe('HealthController', () => {
 
       controller.liveness();
 
-      expect(healthService.getLiveness).toHaveBeenCalledTimes(1);
+      expectMockCalledTimes(healthService.getLiveness, 1);
     });
 
     it('should always succeed regardless of downstream services', () => {
@@ -174,7 +207,7 @@ describe('HealthController', () => {
 
       await controller.readiness();
 
-      expect(healthService.getReadiness).toHaveBeenCalledTimes(1);
+      expectMockCalledTimes(healthService.getReadiness, 1);
     });
   });
 
@@ -239,7 +272,7 @@ describe('HealthController', () => {
 
       await controller.health();
 
-      expect(healthService.getHealth).toHaveBeenCalledTimes(1);
+      expectMockCalledTimes(healthService.getHealth, 1);
     });
 
     it('should return healthy status when all services healthy', async () => {
@@ -290,9 +323,9 @@ describe('HealthController', () => {
     it('should not call health service', () => {
       controller.ping();
 
-      expect(healthService.getLiveness).not.toHaveBeenCalled();
-      expect(healthService.getReadiness).not.toHaveBeenCalled();
-      expect(healthService.getHealth).not.toHaveBeenCalled();
+      expectMockNotCalled(healthService.getLiveness);
+      expectMockNotCalled(healthService.getReadiness);
+      expectMockNotCalled(healthService.getHealth);
     });
 
     it('should return consistent structure', () => {
@@ -312,22 +345,26 @@ describe('HealthController', () => {
     });
 
     it('should have liveness endpoint at GET /health/live', () => {
-      const path = Reflect.getMetadata('path', HealthController.prototype.liveness) as string;
+      const method = getPrototypeMethod(HealthController, 'liveness');
+      const path = Reflect.getMetadata('path', method) as string;
       expect(path).toBe('live');
     });
 
     it('should have readiness endpoint at GET /health/ready', () => {
-      const path = Reflect.getMetadata('path', HealthController.prototype.readiness) as string;
+      const method = getPrototypeMethod(HealthController, 'readiness');
+      const path = Reflect.getMetadata('path', method) as string;
       expect(path).toBe('ready');
     });
 
     it('should have health endpoint at GET /health', () => {
-      const path = Reflect.getMetadata('path', HealthController.prototype.health) as string;
+      const method = getPrototypeMethod(HealthController, 'health');
+      const path = Reflect.getMetadata('path', method) as string;
       expect(path).toBe('/');
     });
 
     it('should have ping endpoint at GET /health/ping', () => {
-      const path = Reflect.getMetadata('path', HealthController.prototype.ping) as string;
+      const method = getPrototypeMethod(HealthController, 'ping');
+      const path = Reflect.getMetadata('path', method) as string;
       expect(path).toBe('ping');
     });
   });

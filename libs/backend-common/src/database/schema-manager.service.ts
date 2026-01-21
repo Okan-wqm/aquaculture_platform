@@ -249,7 +249,10 @@ export class SchemaManagerService {
 
   /**
    * Generate tenant schema name from tenant ID
-   * Format: tenant_{first8chars_of_uuid}
+   * Format: tenant_{first16chars_of_uuid} (uses 16 chars to avoid collisions)
+   *
+   * Note: Using 16 hex characters provides 2^64 possible combinations,
+   * making collisions practically impossible (birthday problem threshold ~4 billion tenants)
    *
    * @throws BadRequestException if tenant ID is not a valid UUID
    */
@@ -260,8 +263,9 @@ export class SchemaManagerService {
       throw new BadRequestException(`Invalid tenant ID format: ${tenantId}`);
     }
 
-    // Use tenant_ prefix + first 8 chars of UUID (without dashes)
-    const cleanId = tenantId.replace(/-/g, '').substring(0, 8).toLowerCase();
+    // Use tenant_ prefix + first 16 chars of UUID (without dashes)
+    // 16 hex chars = 64 bits = collision-safe for billions of tenants
+    const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
     return `tenant_${cleanId}`;
   }
 
@@ -280,7 +284,8 @@ export class SchemaManagerService {
    * Additional safety layer beyond UUID validation
    */
   private isValidSchemaName(schemaName: string): boolean {
-    return /^tenant_[a-f0-9]{8}$/.test(schemaName);
+    // Match tenant_ prefix + 16 hex characters
+    return /^tenant_[a-f0-9]{16}$/.test(schemaName);
   }
 
   /**
@@ -509,22 +514,45 @@ export class SchemaManagerService {
       return 0;
     }
 
+    // Get source row count first
+    const sourceCountResult = await this.dataSource.query(
+      `SELECT COUNT(*) as count FROM "${sourceSchema}"."${tableName}"`,
+    );
+    const sourceCount = parseInt(sourceCountResult[0]?.count || '0', 10);
+
+    if (sourceCount === 0) {
+      this.logger.debug(`Source table ${sourceSchema}.${tableName} is empty, skipping copy`);
+      return 0;
+    }
+
     // Copy data from source to target
-    const result = await this.dataSource.query(`
+    await this.dataSource.query(`
       INSERT INTO "${targetSchema}"."${tableName}"
       SELECT * FROM "${sourceSchema}"."${tableName}"
     `);
 
-    const rowsCopied = result?.length || result?.rowCount || 0;
+    // Verify rows were copied by counting target
+    const targetCountResult = await this.dataSource.query(
+      `SELECT COUNT(*) as count FROM "${targetSchema}"."${tableName}"`,
+    );
+    const rowsCopied = parseInt(targetCountResult[0]?.count || '0', 10);
+
     this.logger.debug(`Copied ${rowsCopied} rows to ${targetSchema}.${tableName}`);
     return rowsCopied;
   }
 
   /**
    * Delete a tenant schema and all its data
+   * Uses advisory lock to prevent race conditions with concurrent operations
    */
   async deleteTenantSchema(tenantId: string): Promise<{ success: boolean; error?: string }> {
     const schemaName = this.getTenantSchemaName(tenantId);
+    const lockKey = this.getAdvisoryLockKey(tenantId);
+
+    this.logger.log(`Acquiring advisory lock for tenant deletion ${tenantId} (key: ${lockKey})`);
+
+    // Acquire advisory lock - blocks if another process is operating on same schema
+    await this.dataSource.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
 
     try {
       this.logger.log(`Deleting tenant schema: ${schemaName}`);
@@ -541,6 +569,10 @@ export class SchemaManagerService {
       const errorMsg = `Failed to delete tenant schema: ${(error as Error).message}`;
       this.logger.error(errorMsg);
       return { success: false, error: errorMsg };
+    } finally {
+      // ALWAYS release advisory lock
+      await this.dataSource.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
+      this.logger.debug(`Released advisory lock for tenant deletion ${tenantId}`);
     }
   }
 
@@ -704,10 +736,12 @@ export class SchemaManagerService {
   private async addCompressionPolicy(schemaName: string, tableName: string): Promise<void> {
     try {
       // First enable compression on the hypertable
+      // Note: tenant_id excluded from segmentby because in tenant-isolated schema
+      // all rows have same tenant_id (would waste space)
       await this.dataSource.query(`
         ALTER TABLE "${schemaName}"."${tableName}" SET (
           timescaledb.compress,
-          timescaledb.compress_segmentby = 'sensor_id, tenant_id',
+          timescaledb.compress_segmentby = 'sensor_id',
           timescaledb.compress_orderby = 'timestamp DESC'
         )
       `);
@@ -838,15 +872,27 @@ export class SchemaManagerService {
         `Migrating data from ${sourceSchema}.${tableName} to ${schemaName}.${tableName}`,
       );
 
+      // Count rows before migration
+      const beforeCountResult = await this.dataSource.query(
+        `SELECT COUNT(*) as count FROM "${schemaName}"."${tableName}"`,
+      );
+      const beforeCount = parseInt(beforeCountResult[0]?.count || '0', 10);
+
       // Insert data with tenant filter
-      const result = await this.dataSource.query(`
+      await this.dataSource.query(`
         INSERT INTO "${schemaName}"."${tableName}"
         SELECT * FROM "${sourceSchema}"."${tableName}"
         WHERE "tenantId" = $1
         ON CONFLICT DO NOTHING
       `, [tenantId]);
 
-      const rowsMigrated = result?.length || 0;
+      // Count rows after migration to get actual migrated count
+      const afterCountResult = await this.dataSource.query(
+        `SELECT COUNT(*) as count FROM "${schemaName}"."${tableName}"`,
+      );
+      const afterCount = parseInt(afterCountResult[0]?.count || '0', 10);
+      const rowsMigrated = afterCount - beforeCount;
+
       this.logger.log(`Migrated ${rowsMigrated} rows to ${schemaName}.${tableName}`);
 
       return { rowsMigrated };
@@ -885,7 +931,18 @@ export class SchemaManagerService {
 
   /**
    * Set search_path for tenant context
-   * Call this at the beginning of each request to isolate tenant data
+   *
+   * WARNING: This method sets search_path at connection level.
+   * In a connection pool, the next query might use a different connection.
+   * For reliable tenant isolation, use one of these approaches:
+   *
+   * 1. Use setTenantSearchPathInTransaction() within a transaction
+   * 2. Use explicit schema prefixes in queries: SELECT * FROM "tenant_xxx"."table"
+   * 3. Use a request-scoped connection (not recommended for performance)
+   *
+   * This method is safe to use only when:
+   * - You're within a transaction that holds the connection
+   * - You immediately execute queries after this call
    */
   async setTenantSearchPath(tenantId: string): Promise<void> {
     const schemaName = this.getTenantSchemaName(tenantId);
@@ -893,7 +950,28 @@ export class SchemaManagerService {
   }
 
   /**
+   * Set search_path within a transaction (connection-safe)
+   * Use this for reliable tenant isolation in connection pools
+   *
+   * @example
+   * await dataSource.transaction(async (manager) => {
+   *   await schemaManager.setTenantSearchPathInTransaction(manager, tenantId);
+   *   // All queries in this transaction will use tenant schema
+   *   await manager.query('SELECT * FROM sensors');
+   * });
+   */
+  async setTenantSearchPathInTransaction(
+    manager: { query: (sql: string) => Promise<unknown> },
+    tenantId: string,
+  ): Promise<void> {
+    const schemaName = this.getTenantSchemaName(tenantId);
+    await manager.query(`SET LOCAL search_path TO "${schemaName}", public`);
+  }
+
+  /**
    * Reset search_path to default
+   *
+   * WARNING: Same connection pool limitations as setTenantSearchPath()
    */
   async resetSearchPath(): Promise<void> {
     await this.dataSource.query(`SET search_path TO public`);
@@ -943,10 +1021,12 @@ export class SchemaManagerService {
       this.logger.log(`Created hypertable: ${schemaName}.${tableName}`);
 
       // Enable compression
+      // Note: tenant_id excluded from segmentby because in tenant-isolated schema
+      // all rows have same tenant_id (would waste space)
       await this.dataSource.query(`
         ALTER TABLE "${schemaName}"."${tableName}" SET (
           timescaledb.compress,
-          timescaledb.compress_segmentby = 'tenant_id, sensor_id, channel_id',
+          timescaledb.compress_segmentby = 'sensor_id, channel_id',
           timescaledb.compress_orderby = 'time DESC'
         )
       `);

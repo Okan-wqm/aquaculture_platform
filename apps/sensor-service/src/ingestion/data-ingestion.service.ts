@@ -6,8 +6,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
-import { SensorMetric, QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
-import { SensorProtocol } from '../database/entities/sensor-protocol.entity';
+import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor, SensorStatus, SensorRegistrationStatus } from '../database/entities/sensor.entity';
 import { ConnectionHandle, DataSubscription, SensorReadingData } from '../protocol/adapters/base-protocol.adapter';
@@ -50,7 +49,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     this.mqttAdapter = new MqttAdapter(configService);
   }
 
-  async onModuleInit() {
+  async onModuleInit(): Promise<void> {
     this.logger.log('Initializing Data Ingestion Service...');
 
     // Start connecting to active sensors

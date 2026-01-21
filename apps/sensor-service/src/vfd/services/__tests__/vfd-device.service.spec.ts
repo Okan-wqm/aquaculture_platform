@@ -2,13 +2,14 @@
  * VFD Device Service Unit Tests
  */
 
+import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { VfdDeviceService, CreateVfdDeviceInput, UpdateVfdDeviceInput } from '../vfd-device.service';
+
 import { VfdDevice } from '../../entities/vfd-device.entity';
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../../entities/vfd.enums';
+import { VfdDeviceService, CreateVfdDeviceInput, UpdateVfdDeviceInput } from '../vfd-device.service';
 
 describe('VfdDeviceService', () => {
   let service: VfdDeviceService;

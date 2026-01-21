@@ -1,6 +1,7 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Subscription } from '@nestjs/graphql';
-import { VfdDataReaderService, TimeRange } from '../services/vfd-data-reader.service';
+
 import { VfdReading } from '../entities/vfd-reading.entity';
+import { VfdDataReaderService, TimeRange } from '../services/vfd-data-reader.service';
 
 /**
  * VFD Reading GraphQL Resolver

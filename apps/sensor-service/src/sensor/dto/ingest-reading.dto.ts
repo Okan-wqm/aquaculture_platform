@@ -1,4 +1,5 @@
 import { InputType, Field, Float, ID } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import {
   IsString,
   IsOptional,
@@ -9,7 +10,6 @@ import {
   Min,
   Max,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 
 /**
  * Sensor Readings Input

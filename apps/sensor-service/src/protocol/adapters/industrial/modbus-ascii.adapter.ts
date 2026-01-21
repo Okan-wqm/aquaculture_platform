@@ -1,5 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
+import {
+  ProtocolCategory,
+  ProtocolSubcategory,
+  ConnectionType,
+  ProtocolConfigurationSchema,
+} from '../../../database/entities/sensor-protocol.entity';
 import {
   BaseProtocolAdapter,
   ConnectionHandle,
@@ -8,12 +15,6 @@ import {
   ValidationResult,
   ProtocolCapabilities,
 } from '../base-protocol.adapter';
-import {
-  ProtocolCategory,
-  ProtocolSubcategory,
-  ConnectionType,
-  ProtocolConfigurationSchema,
-} from '../../../database/entities/sensor-protocol.entity';
 
 export interface ModbusAsciiConfiguration {
   comPort: string;

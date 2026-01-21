@@ -1,4 +1,9 @@
 import { Injectable } from '@nestjs/common';
+
+import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
+import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
+import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
+
 import {
   BaseVfdAdapter,
   VfdConnectionHandle,
@@ -7,9 +12,6 @@ import {
   ConnectionTestResult,
   ValidationResult,
 } from './base-vfd.adapter';
-import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
-import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
-import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
 
 /**
  * Modbus TCP Configuration
@@ -355,7 +357,7 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
       // Basic IP/hostname validation
       const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
       const hostnameRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9](?:\.[a-zA-Z]{2,})+$/;
-      if (!ipRegex.test(cfg.host as string) && !hostnameRegex.test(cfg.host as string) && cfg.host !== 'localhost') {
+      if (!ipRegex.test(cfg.host) && !hostnameRegex.test(cfg.host) && cfg.host !== 'localhost') {
         errors.push('host must be a valid IP address or hostname');
       }
     }

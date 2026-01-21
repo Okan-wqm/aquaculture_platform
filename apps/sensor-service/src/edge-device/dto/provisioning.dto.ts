@@ -1,4 +1,5 @@
 import { InputType, Field, ObjectType, ID } from '@nestjs/graphql';
+
 import { DeviceModel } from '../entities/edge-device.entity';
 
 // ============================================

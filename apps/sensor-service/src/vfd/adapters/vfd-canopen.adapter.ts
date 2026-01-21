@@ -1,4 +1,9 @@
 import { Injectable } from '@nestjs/common';
+
+import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
+import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
+import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
+
 import {
   BaseVfdAdapter,
   VfdConnectionHandle,
@@ -7,9 +12,6 @@ import {
   ConnectionTestResult,
   ValidationResult,
 } from './base-vfd.adapter';
-import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
-import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
-import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
 
 /**
  * CANopen Configuration
@@ -421,12 +423,12 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
       running: Boolean(value & 0x0004),         // Bit 2: Operation enabled
       fault: Boolean(value & 0x0008),           // Bit 3: Fault
       voltageEnabled: Boolean(value & 0x0010),  // Bit 4: Voltage enabled
-      quickStopActive: !Boolean(value & 0x0020), // Bit 5: Quick stop (inverted)
+      quickStopActive: !(value & 0x0020), // Bit 5: Quick stop (inverted)
       switchOnDisabled: Boolean(value & 0x0040), // Bit 6: Switch on disabled
       warning: Boolean(value & 0x0080),         // Bit 7: Warning
       atSetpoint: Boolean(value & 0x0400),      // Bit 10: Target reached
       internalLimit: Boolean(value & 0x0800),   // Bit 11: Internal limit active
-      direction: Boolean(value & 0x4000) ? 'reverse' : 'forward', // Bit 14
+      direction: value & 0x4000 ? 'reverse' : 'forward', // Bit 14
     };
   }
 }

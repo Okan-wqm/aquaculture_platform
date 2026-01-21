@@ -67,8 +67,8 @@ describe('VfdDevice Entity', () => {
 
       expect(device.protocol).toBe(VfdProtocol.MODBUS_RTU);
       expect(device.protocolConfiguration).toEqual(config);
-      expect((device.protocolConfiguration as ModbusRtuConfiguration).serialPort).toBe('COM1');
-      expect((device.protocolConfiguration as ModbusRtuConfiguration).slaveId).toBe(1);
+      expect((device.protocolConfiguration).serialPort).toBe('COM1');
+      expect((device.protocolConfiguration).slaveId).toBe(1);
     });
 
     it('should set Modbus TCP configuration', () => {
@@ -84,8 +84,8 @@ describe('VfdDevice Entity', () => {
       device.protocolConfiguration = config;
 
       expect(device.protocol).toBe(VfdProtocol.MODBUS_TCP);
-      expect((device.protocolConfiguration as ModbusTcpConfiguration).host).toBe('192.168.1.100');
-      expect((device.protocolConfiguration as ModbusTcpConfiguration).port).toBe(502);
+      expect((device.protocolConfiguration).host).toBe('192.168.1.100');
+      expect((device.protocolConfiguration).port).toBe(502);
     });
 
     it('should support all protocol types', () => {

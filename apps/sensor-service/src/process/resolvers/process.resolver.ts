@@ -1,6 +1,7 @@
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
-import { ProcessService } from '../services/process.service';
+import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
+import { Tenant, CurrentUser, CurrentUserPayload } from '@platform/backend-common';
+
 import {
   CreateProcessInput,
   UpdateProcessInput,
@@ -12,7 +13,8 @@ import {
   DeleteProcessResultType,
 } from '../dto/process.dto';
 import { Process } from '../entities/process.entity';
-import { Tenant, CurrentUser, CurrentUserPayload } from '@platform/backend-common';
+import { ProcessService } from '../services/process.service';
+
 
 @Resolver(() => ProcessType)
 export class ProcessResolver {

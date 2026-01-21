@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+
 import {
   Injectable,
   Logger,
@@ -10,17 +12,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, ILike, In } from 'typeorm';
-import { randomUUID } from 'crypto';
-import {
-  AutomationProgram,
-  ProgramStatus,
-  ProgramType,
-  ExecutionMode,
-} from './entities/automation-program.entity';
-import { ProgramStep, StepType } from './entities/program-step.entity';
-import { StepAction } from './entities/step-action.entity';
-import { ProgramTransition } from './entities/program-transition.entity';
-import { ProgramVariable } from './entities/program-variable.entity';
+
+import { EdgeDeviceService } from '../edge-device/edge-device.service';
+import { MqttListenerService } from '../ingestion/mqtt-listener.service';
+
 import {
   CreateProgramInput,
   UpdateProgramInput,
@@ -36,8 +31,17 @@ import {
   ProgramStats,
   DeploymentResult,
 } from './dto/automation.dto';
-import { EdgeDeviceService } from '../edge-device/edge-device.service';
-import { MqttListenerService } from '../ingestion/mqtt-listener.service';
+import {
+  AutomationProgram,
+  ProgramStatus,
+  ProgramType,
+  ExecutionMode,
+} from './entities/automation-program.entity';
+import { ProgramStep, StepType } from './entities/program-step.entity';
+import { ProgramTransition } from './entities/program-transition.entity';
+import { ProgramVariable } from './entities/program-variable.entity';
+import { StepAction } from './entities/step-action.entity';
+
 
 /**
  * Automation Service
@@ -192,8 +196,8 @@ export class AutomationService {
   async findAll(
     tenantId: string,
     filter?: ProgramFilterInput,
-    page: number = 1,
-    limit: number = 20,
+    page = 1,
+    limit = 20,
   ): Promise<{ items: AutomationProgram[]; total: number }> {
     const where: FindOptionsWhere<AutomationProgram> = { tenantId };
 

@@ -1,7 +1,9 @@
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
+import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
+import { ObjectType, Field, Int } from '@nestjs/graphql';
 import { Tenant, CurrentUser } from '@platform/backend-common';
-import { SensorRegistrationService, RegistrationResult, SensorListResult, ParentWithChildrenResult } from '../services/sensor-registration.service';
+import { GraphQLJSON } from 'graphql-scalars';
+
 import {
   RegisterSensorInput,
   UpdateSensorProtocolInput,
@@ -17,8 +19,7 @@ import {
   ParentDeviceType,
   ChildSensorType,
 } from '../dto/register-sensor.dto';
-import { ObjectType, Field, Int } from '@nestjs/graphql';
-import { GraphQLJSON } from 'graphql-scalars';
+import { SensorRegistrationService, RegistrationResult, SensorListResult, ParentWithChildrenResult } from '../services/sensor-registration.service';
 
 /**
  * User context interface from JWT

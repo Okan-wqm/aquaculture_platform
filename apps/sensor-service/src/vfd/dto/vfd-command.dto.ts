@@ -1,3 +1,4 @@
+import { InputType, Field, Float, ObjectType, Int } from '@nestjs/graphql';
 import {
   IsString,
   IsOptional,
@@ -7,7 +8,7 @@ import {
   Min,
   Max,
 } from 'class-validator';
-import { InputType, Field, Float, ObjectType, Int } from '@nestjs/graphql';
+
 import { VfdCommandType } from '../entities/vfd.enums';
 
 /**

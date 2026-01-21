@@ -1,5 +1,11 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { EdgeDeviceModule } from '../edge-device/edge-device.module';
+import { IngestionModule } from '../ingestion/ingestion.module';
+
+import { AutomationResolver, ProgramStepResolver } from './automation.resolver';
+import { AutomationService } from './automation.service';
 import {
   AutomationProgram,
   ProgramStep,
@@ -7,10 +13,6 @@ import {
   ProgramTransition,
   ProgramVariable,
 } from './entities';
-import { AutomationService } from './automation.service';
-import { AutomationResolver, ProgramStepResolver } from './automation.resolver';
-import { EdgeDeviceModule } from '../edge-device/edge-device.module';
-import { IngestionModule } from '../ingestion/ingestion.module';
 
 /**
  * Automation Module

@@ -1,8 +1,9 @@
-import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { DashboardLayout } from './entities/dashboard-layout.entity';
+import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
+
 import { DashboardService } from './dashboard.service';
 import { SaveDashboardLayoutInput, CreateSystemDefaultLayoutInput } from './dto/dashboard-layout.dto';
+import { DashboardLayout } from './entities/dashboard-layout.entity';
 
 /**
  * GraphQL Resolver for Dashboard Layout operations

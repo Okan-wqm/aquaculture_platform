@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
+
 import {
   SensorDataChannel,
   ChannelDataType,
@@ -8,6 +9,7 @@ import {
   AlertThresholdConfig,
   ChannelDisplaySettings,
 } from '../../database/entities/sensor-data-channel.entity';
+
 import { DiscoveredChannel } from './channel-discovery.service';
 
 /**

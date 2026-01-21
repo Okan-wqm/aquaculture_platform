@@ -1,3 +1,4 @@
+import { ObjectType, Field, ID, Float, GraphQLISODateTime } from '@nestjs/graphql';
 import {
   Entity,
   Column,
@@ -5,7 +6,6 @@ import {
   Index,
   CreateDateColumn,
 } from 'typeorm';
-import { ObjectType, Field, ID, Float, GraphQLISODateTime } from '@nestjs/graphql';
 
 /**
  * Sensor readings JSONB structure

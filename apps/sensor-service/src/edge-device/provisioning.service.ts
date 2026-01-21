@@ -1,3 +1,5 @@
+import { randomBytes } from 'crypto';
+
 import {
   Injectable,
   Logger,
@@ -6,15 +8,10 @@ import {
   UnauthorizedException,
   BadRequestException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
-import { randomBytes } from 'crypto';
-import {
-  EdgeDevice,
-  DeviceLifecycleState,
-  DeviceModel,
-} from './entities/edge-device.entity';
+
 import {
   CreateProvisionedDeviceInput,
   ProvisionedDeviceResponse,
@@ -24,6 +21,11 @@ import {
   ActivationErrorCode,
   InstallerScriptVariables,
 } from './dto/provisioning.dto';
+import {
+  EdgeDevice,
+  DeviceLifecycleState,
+  DeviceModel,
+} from './entities/edge-device.entity';
 import { MqttAuthService } from './mqtt-auth.service';
 
 /**

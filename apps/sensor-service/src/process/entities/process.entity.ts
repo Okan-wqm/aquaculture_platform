@@ -1,4 +1,11 @@
 import {
+  ObjectType,
+  Field,
+  ID,
+  registerEnumType,
+} from '@nestjs/graphql';
+import { GraphQLJSON } from 'graphql-scalars';
+import {
   Entity,
   Column,
   PrimaryGeneratedColumn,
@@ -6,13 +13,6 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import {
-  ObjectType,
-  Field,
-  ID,
-  registerEnumType,
-} from '@nestjs/graphql';
-import { GraphQLJSON } from 'graphql-scalars';
 
 /**
  * Process status enum

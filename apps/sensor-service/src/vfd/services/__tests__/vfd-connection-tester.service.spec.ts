@@ -3,11 +3,12 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
+
+import { VfdDevice } from '../../entities/vfd-device.entity';
+import { VfdProtocol, VfdBrand, VfdDeviceStatus } from '../../entities/vfd.enums';
 import { VfdConnectionTesterService, TestConnectionInput } from '../vfd-connection-tester.service';
 import { VfdDeviceService } from '../vfd-device.service';
 import { VfdRegisterMappingService } from '../vfd-register-mapping.service';
-import { VfdProtocol, VfdBrand, VfdDeviceStatus } from '../../entities/vfd.enums';
-import { VfdDevice } from '../../entities/vfd-device.entity';
 
 // Mock the adapters module
 jest.mock('../../adapters', () => ({

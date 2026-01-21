@@ -1,6 +1,7 @@
 import { Injectable, Inject, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+
 import { SensorProtocol, ProtocolCategory } from '../../database/entities/sensor-protocol.entity';
 import { BaseProtocolAdapter, ProtocolCapabilities } from '../adapters/base-protocol.adapter';
 

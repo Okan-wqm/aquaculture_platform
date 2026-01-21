@@ -1,11 +1,12 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, FindOptionsWhere, DataSource } from 'typeorm';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+
 import { Sensor, SensorType, SensorRegistrationStatus, SensorConnectionStatus, SensorRole } from '../../database/entities/sensor.entity';
+import { ConnectionTesterService, ExtendedTestResult } from '../../protocol/services/connection-tester.service';
 import { ProtocolRegistryService } from '../../protocol/services/protocol-registry.service';
 import { ProtocolValidatorService } from '../../protocol/services/protocol-validator.service';
-import { ConnectionTesterService, ExtendedTestResult } from '../../protocol/services/connection-tester.service';
 import {
   RegisterSensorInput,
   UpdateSensorProtocolInput,

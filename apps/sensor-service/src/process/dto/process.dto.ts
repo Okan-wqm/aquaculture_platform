@@ -1,7 +1,8 @@
 import { InputType, ObjectType, Field, ID, Int } from '@nestjs/graphql';
-import { IsString, IsOptional, IsEnum, IsUUID, MaxLength, IsInt } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsString, IsOptional, IsEnum, IsUUID, MaxLength, IsInt } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
+
 import { ProcessStatus, ProcessNode, ProcessEdge } from '../entities/process.entity';
 
 // ============================================================================

@@ -7,6 +7,7 @@ import {
   Index,
   Unique,
 } from 'typeorm';
+
 import { VfdBrand, VfdParameterCategory, VfdDataType, ByteOrder } from './vfd.enums';
 
 /**

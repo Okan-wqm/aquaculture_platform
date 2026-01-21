@@ -1,4 +1,12 @@
 import {
+  ObjectType,
+  Field,
+  ID,
+  Int,
+  registerEnumType,
+} from '@nestjs/graphql';
+import { GraphQLJSON } from 'graphql-scalars';
+import {
   Entity,
   Column,
   PrimaryGeneratedColumn,
@@ -8,14 +16,6 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Int,
-  registerEnumType,
-} from '@nestjs/graphql';
-import { GraphQLJSON } from 'graphql-scalars';
 
 /**
  * IEC 61131-3 Action Qualifiers

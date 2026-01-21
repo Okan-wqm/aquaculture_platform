@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import Ajv, { ValidateFunction, ErrorObject } from 'ajv';
 import addFormats from 'ajv-formats';
-import { ProtocolRegistryService } from './protocol-registry.service';
+
 import { ValidationResult, ValidationError } from '../adapters/base-protocol.adapter';
+
+import { ProtocolRegistryService } from './protocol-registry.service';
 
 export interface SchemaValidationResult {
   isValid: boolean;

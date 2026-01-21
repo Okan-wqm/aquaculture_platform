@@ -1,5 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
+import {
+  ProtocolCategory,
+  ProtocolSubcategory,
+  ConnectionType,
+  ProtocolConfigurationSchema,
+} from '../../../database/entities/sensor-protocol.entity';
 import {
   BaseProtocolAdapter,
   ConnectionHandle,
@@ -8,12 +15,6 @@ import {
   ValidationResult,
   ProtocolCapabilities,
 } from '../base-protocol.adapter';
-import {
-  ProtocolCategory,
-  ProtocolSubcategory,
-  ConnectionType,
-  ProtocolConfigurationSchema,
-} from '../../../database/entities/sensor-protocol.entity';
 
 /**
  * HTTP REST Configuration
@@ -276,7 +277,7 @@ export class HttpRestAdapter extends BaseProtocolAdapter {
 
   private parseResponse(response: Response, config: HttpRestConfiguration): SensorReadingData {
     const timestamp = new Date();
-    let values: Record<string, number | string | boolean | null> = {};
+    const values: Record<string, number | string | boolean | null> = {};
 
     // Note: In a real implementation, we'd read the response body here
     // For now, we return a placeholder

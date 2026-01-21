@@ -1,17 +1,18 @@
-import { Resolver, Query, Mutation, Args, ID, Context, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
-import { VfdDeviceService } from '../services/vfd-device.service';
-import { VfdConnectionTesterService } from '../services/vfd-connection-tester.service';
-import { VfdDataReaderService } from '../services/vfd-data-reader.service';
-import { VfdDevice } from '../entities/vfd-device.entity';
-import { VfdReading } from '../entities/vfd-reading.entity';
-import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../entities/vfd.enums';
+import { Resolver, Query, Mutation, Args, ID, Context, ResolveField, Parent } from '@nestjs/graphql';
+
 import {
   VfdDeviceFilterDto,
   VfdPaginationDto,
   RegisterVfdDto,
   UpdateVfdDto,
 } from '../dto';
+import { VfdDevice } from '../entities/vfd-device.entity';
+import { VfdReading } from '../entities/vfd-reading.entity';
+import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../entities/vfd.enums';
+import { VfdConnectionTesterService } from '../services/vfd-connection-tester.service';
+import { VfdDataReaderService } from '../services/vfd-data-reader.service';
+import { VfdDeviceService } from '../services/vfd-device.service';
 
 /**
  * VFD Device GraphQL Resolver

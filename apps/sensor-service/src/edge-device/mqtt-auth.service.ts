@@ -1,8 +1,9 @@
+import { pbkdf2Sync, randomBytes } from 'crypto';
+import { promises as fs } from 'fs';
+import * as path from 'path';
+
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { promises as fs } from 'fs';
-import { pbkdf2Sync, randomBytes } from 'crypto';
-import * as path from 'path';
 
 /**
  * MQTT Authentication Service

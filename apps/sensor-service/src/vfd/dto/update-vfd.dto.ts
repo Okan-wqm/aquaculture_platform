@@ -1,3 +1,5 @@
+import { InputType, Field, ID, Int } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import {
   IsString,
   IsOptional,
@@ -13,9 +15,9 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
-import { InputType, Field, ID, Int } from '@nestjs/graphql';
+
 import { VfdProtocol, VfdDeviceStatus } from '../entities/vfd.enums';
+
 import { ProtocolConfigurationDto } from './protocol-config.dto';
 
 /**

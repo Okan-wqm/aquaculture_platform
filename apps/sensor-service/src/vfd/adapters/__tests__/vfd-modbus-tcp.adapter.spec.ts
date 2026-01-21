@@ -2,8 +2,8 @@
  * VFD Modbus TCP Adapter Unit Tests
  */
 
-import { VfdModbusTcpAdapter } from '../vfd-modbus-tcp.adapter';
 import { VfdProtocol } from '../../entities/vfd.enums';
+import { VfdModbusTcpAdapter } from '../vfd-modbus-tcp.adapter';
 
 // Mock the modbus-serial library
 jest.mock('modbus-serial', () => {

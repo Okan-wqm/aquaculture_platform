@@ -1,5 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
+import {
+  ProtocolCategory,
+  ProtocolSubcategory,
+  ConnectionType,
+  ProtocolConfigurationSchema,
+} from '../../../database/entities/sensor-protocol.entity';
 import {
   BaseProtocolAdapter,
   ConnectionHandle,
@@ -11,12 +18,6 @@ import {
   DataCallback,
   ErrorCallback,
 } from '../base-protocol.adapter';
-import {
-  ProtocolCategory,
-  ProtocolSubcategory,
-  ConnectionType,
-  ProtocolConfigurationSchema,
-} from '../../../database/entities/sensor-protocol.entity';
 
 export interface OpcUaConfiguration {
   endpointUrl: string;

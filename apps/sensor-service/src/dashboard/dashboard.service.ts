@@ -1,8 +1,9 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
-import { DashboardLayout } from './entities/dashboard-layout.entity';
+
 import { SaveDashboardLayoutInput, CreateSystemDefaultLayoutInput } from './dto/dashboard-layout.dto';
+import { DashboardLayout } from './entities/dashboard-layout.entity';
 
 @Injectable()
 export class DashboardService {
@@ -132,7 +133,7 @@ export class DashboardService {
     userId: string,
   ): Promise<DashboardLayout> {
     // Check if system default already exists
-    let systemDefault = await this.getSystemDefaultLayout(tenantId);
+    const systemDefault = await this.getSystemDefaultLayout(tenantId);
 
     if (systemDefault) {
       // Update existing system default

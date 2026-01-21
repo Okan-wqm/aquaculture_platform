@@ -8,12 +8,13 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
+
+import { IoType, IoDataType } from '../entities/device-io-config.entity';
 import {
   DeviceLifecycleState,
   DeviceModel,
   EdgeDevice,
 } from '../entities/edge-device.entity';
-import { IoType, IoDataType } from '../entities/device-io-config.entity';
 
 // Re-export enums for GraphQL schema
 export { DeviceLifecycleState, DeviceModel };

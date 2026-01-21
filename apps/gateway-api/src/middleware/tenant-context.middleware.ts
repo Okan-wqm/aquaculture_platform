@@ -313,19 +313,17 @@ export class TenantContextMiddleware implements NestMiddleware {
       return headerTenantId;
     }
 
-    // Priority 2: JWT claim (if authenticated)
+    // Priority 2: JWT claim (if authenticated) - TRUSTED source
     const user = (req as TenantContextRequest & { user?: { tenantId?: string } }).user;
     if (user?.tenantId) {
       return user.tenantId;
     }
 
-    // Priority 3: Query parameter
-    const queryTenantId = req.query['tenantId'] as string;
-    if (queryTenantId) {
-      return queryTenantId;
-    }
+    // SECURITY: Query parameter tenant extraction removed
+    // Allowing tenant ID from query params enables tenant spoofing attacks
+    // Tenant ID should only come from trusted sources: header (set by gateway) or JWT claim
 
-    // Priority 4: Subdomain
+    // Priority 3: Subdomain
     const host = req.headers['host'] || '';
     const subdomain = this.extractSubdomain(host);
     if (subdomain && !['www', 'api', 'app'].includes(subdomain)) {
@@ -362,8 +360,20 @@ export class TenantContextMiddleware implements NestMiddleware {
       return cached.tenant;
     }
 
-    // In production, this would fetch from database
-    // For now, create mock tenant based on ID
+    // SECURITY: In production, mock tenants must not be created
+    // This could allow access to non-existent tenants
+    const isProduction = process.env['NODE_ENV'] === 'production';
+
+    if (isProduction) {
+      // In production, tenant must exist in database
+      // TODO: Implement actual database lookup via tenant service
+      this.logger.warn(
+        `Tenant ${tenantId} not found in cache. In production, database lookup required.`,
+      );
+      return null;
+    }
+
+    // Development only: create mock tenant based on ID
     const tenant = this.createMockTenant(tenantId);
 
     if (tenant) {
@@ -377,7 +387,8 @@ export class TenantContextMiddleware implements NestMiddleware {
   }
 
   /**
-   * Create mock tenant for development
+   * Create mock tenant for development only
+   * SECURITY: Must never be called in production
    */
   private createMockTenant(tenantId: string): TenantMetadata {
     const plan = 'professional'; // Default plan

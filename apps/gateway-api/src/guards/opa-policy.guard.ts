@@ -181,7 +181,17 @@ export class OpaPolicyGuard implements CanActivate {
     );
 
     if (!policyConfig) {
-      // No policy configured, allow by default
+      // No policy configured
+      // SECURITY: In production, consider this a configuration error
+      const isProduction = process.env['NODE_ENV'] === 'production';
+      if (isProduction) {
+        this.logger.warn(
+          `No OPA policy configured for ${request.path}. ` +
+          'In production, endpoints should have explicit policies.',
+        );
+      }
+      // Allow by default for backwards compatibility
+      // TODO: Consider fail-closed in production
       return true;
     }
 
@@ -219,9 +229,18 @@ export class OpaPolicyGuard implements CanActivate {
       });
 
       // Fail open or closed based on configuration
-      if (this.failOpen) {
-        this.logger.warn('OPA failed, allowing request (fail-open mode)');
+      // SECURITY: Fail-open is disabled in production for security
+      const isProduction = process.env['NODE_ENV'] === 'production';
+      if (this.failOpen && !isProduction) {
+        this.logger.warn('OPA failed, allowing request (fail-open mode - dev only)');
         return true;
+      }
+
+      if (this.failOpen && isProduction) {
+        this.logger.error(
+          'OPA_FAIL_OPEN is enabled but ignored in production. ' +
+          'Policy evaluation failed, denying access.',
+        );
       }
 
       throw new ForbiddenException('Policy evaluation failed');

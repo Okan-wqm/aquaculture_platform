@@ -477,6 +477,7 @@ export function ProtocolAdapterMetadata(metadata: {
   connectionType: ConnectionType;
   description?: string;
 }): ClassDecorator {
+  // eslint-disable-next-line @typescript-eslint/ban-types
   return (target: Function) => {
     Reflect.defineMetadata('protocol:code', metadata.code, target);
     Reflect.defineMetadata('protocol:name', metadata.name, target);

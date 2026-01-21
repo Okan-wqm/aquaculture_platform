@@ -1,4 +1,4 @@
-import { Logger, Inject, Optional } from '@nestjs/common';
+import { Logger, Optional } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import {
   WebSocketGateway,
@@ -22,6 +22,11 @@ interface SubscribedClient {
   socket: Socket;
   tenantId: string;
   sensorIds: Set<string>;
+}
+
+interface TokenPayload {
+  tenantId?: string;
+  [key: string]: unknown;
 }
 
 /**
@@ -50,11 +55,11 @@ export class SensorReadingsGateway
     private readonly jwtService: JwtService | null,
   ) {}
 
-  afterInit() {
+  afterInit(): void {
     this.logger.log('WebSocket Gateway initialized');
   }
 
-  async handleConnection(client: Socket) {
+  handleConnection(client: Socket): void {
     try {
       // Extract and validate JWT token
       const token = this.extractToken(client);
@@ -65,31 +70,33 @@ export class SensorReadingsGateway
         return;
       }
 
-      const payload = await this.validateToken(token);
-      if (!payload || !payload.tenantId) {
+      const payload = this.validateToken(token);
+      if (!payload?.tenantId) {
         this.logger.warn(`Client ${client.id} has invalid token`);
         client.emit('error', { message: 'Invalid token' });
         client.disconnect();
         return;
       }
 
+      const tenantId = payload.tenantId;
+
       // Store client with tenant context
       this.clients.set(client.id, {
         socket: client,
-        tenantId: payload.tenantId,
+        tenantId,
         sensorIds: new Set(),
       });
 
       // Join tenant-specific room
-      client.join(`tenant:${payload.tenantId}`);
+      void client.join(`tenant:${tenantId}`);
 
       this.logger.log(
-        `Client ${client.id} connected for tenant ${payload.tenantId}`,
+        `Client ${client.id} connected for tenant ${tenantId}`,
       );
 
       client.emit('connected', {
         message: 'Connected to sensor readings stream',
-        tenantId: payload.tenantId,
+        tenantId,
       });
     } catch (error) {
       this.logger.error(`Connection error: ${(error as Error).message}`);
@@ -97,7 +104,7 @@ export class SensorReadingsGateway
     }
   }
 
-  handleDisconnect(client: Socket) {
+  handleDisconnect(client: Socket): void {
     this.clients.delete(client.id);
     this.logger.log(`Client ${client.id} disconnected`);
   }
@@ -118,7 +125,7 @@ export class SensorReadingsGateway
     // Add sensor IDs to subscription
     for (const sensorId of payload.sensorIds) {
       clientData.sensorIds.add(sensorId);
-      client.join(`sensor:${sensorId}`);
+      void client.join(`sensor:${sensorId}`);
     }
 
     this.logger.debug(
@@ -146,7 +153,7 @@ export class SensorReadingsGateway
 
     for (const sensorId of payload.sensorIds) {
       clientData.sensorIds.delete(sensorId);
-      client.leave(`sensor:${sensorId}`);
+      void client.leave(`sensor:${sensorId}`);
     }
 
     return { success: true };
@@ -193,27 +200,30 @@ export class SensorReadingsGateway
     }
 
     // Try auth object
-    if (client.handshake.auth && client.handshake.auth.token) {
-      return client.handshake.auth.token;
+    const auth = client.handshake.auth as Record<string, unknown> | undefined;
+    if (auth && typeof auth.token === 'string') {
+      return auth.token;
     }
 
     return null;
   }
 
-  private async validateToken(token: string): Promise<any> {
+  private validateToken(token: string): TokenPayload | null {
     if (!this.jwtService) {
       // If no JWT service, decode without verification (dev mode)
       try {
         const parts = token.split('.');
         if (parts.length !== 3 || !parts[1]) return null;
-        return JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+        const decoded = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8')) as unknown;
+        return decoded as TokenPayload;
       } catch {
         return null;
       }
     }
 
     try {
-      return this.jwtService.verify(token);
+      const result: unknown = this.jwtService.verify(token);
+      return result as TokenPayload;
     } catch {
       return null;
     }

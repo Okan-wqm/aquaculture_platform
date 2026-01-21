@@ -10,4 +10,5 @@ import { UploadController } from './upload.controller';
 @Module({
   controllers: [UploadController],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class UploadModule {}

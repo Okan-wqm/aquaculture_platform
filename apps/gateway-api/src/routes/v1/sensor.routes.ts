@@ -6,7 +6,7 @@
  * (e.g., file uploads, streaming data, WebSocket connections).
  */
 
-import { Module, Controller, Get, Post, Req, Res, UseGuards, Logger } from '@nestjs/common';
+import { Module, Controller, Get, Post, Req, Res, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 
@@ -61,7 +61,7 @@ export class SensorRoutesController {
         },
       });
 
-      const data = await response.json();
+      const data: unknown = await response.json();
       res.status(response.status).json(data);
     } catch (error) {
       this.logger.error('Failed to fetch MQTT status', { error });
@@ -94,11 +94,11 @@ export class SensorRoutesController {
             'X-Tenant-Id': req.headers['x-tenant-id'] as string || '',
             'Content-Type': req.headers['content-type'] || 'application/octet-stream',
           },
-          body: req.body,
+          body: req.body as BodyInit,
         }
       );
 
-      const data = await response.json();
+      const data: unknown = await response.json();
       res.status(response.status).json(data);
     } catch (error) {
       this.logger.error('Failed to upload firmware', { sensorId, error });
@@ -145,10 +145,13 @@ export class SensorRoutesController {
       // Stream the response
       const reader = response.body?.getReader();
       if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          res.write(value);
+        let done = false;
+        while (!done) {
+          const result = await reader.read();
+          done = result.done;
+          if (!done && result.value) {
+            res.write(result.value);
+          }
         }
       }
       res.end();
@@ -168,4 +171,5 @@ export class SensorRoutesController {
 @Module({
   controllers: [SensorRoutesController],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class SensorRoutesModule {}

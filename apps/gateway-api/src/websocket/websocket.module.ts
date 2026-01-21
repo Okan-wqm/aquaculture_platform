@@ -10,4 +10,5 @@ import { SensorReadingsGateway } from './sensor-readings.gateway';
   providers: [SensorReadingsGateway, NatsBridgeService],
   exports: [SensorReadingsGateway],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class WebSocketModule {}

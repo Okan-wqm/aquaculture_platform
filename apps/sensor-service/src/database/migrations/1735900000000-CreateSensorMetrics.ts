@@ -16,7 +16,8 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
   name = 'CreateSensorMetrics1735900000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    const schema = await queryRunner.query(`SELECT current_schema()`);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const schema: Array<{ current_schema: string }> = await queryRunner.query(`SELECT current_schema()`);
     console.log('Running CreateSensorMetrics migration in schema:', schema);
 
     // 1. Create sensor_metrics table
@@ -185,7 +186,8 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
   }
 
   private async tableExists(queryRunner: QueryRunner, tableName: string): Promise<boolean> {
-    const result = await queryRunner.query(`
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const result: Array<{ exists: boolean }> = await queryRunner.query(`
       SELECT EXISTS (
         SELECT 1
         FROM information_schema.tables
@@ -200,7 +202,8 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
     tableName: string,
     columnName: string
   ): Promise<boolean> {
-    const result = await queryRunner.query(`
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const result: Array<{ exists: boolean }> = await queryRunner.query(`
       SELECT EXISTS (
         SELECT 1
         FROM information_schema.columns

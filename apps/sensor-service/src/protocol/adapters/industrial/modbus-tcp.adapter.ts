@@ -1,20 +1,21 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import {
-  ProtocolCategory,
-  ProtocolSubcategory,
   ConnectionType,
+  ProtocolCategory,
   ProtocolConfigurationSchema,
+  ProtocolSubcategory,
 } from '../../../database/entities/sensor-protocol.entity';
 import {
   BaseProtocolAdapter,
   ConnectionHandle,
   ConnectionTestResult,
+  ProtocolCapabilities,
   SensorReadingData,
   ValidationResult,
-  ProtocolCapabilities,
 } from '../base-protocol.adapter';
+
+import { createModbusClient, ModbusRTUClient } from './types';
 
 export interface ModbusTcpConfiguration {
   host: string;
@@ -54,18 +55,13 @@ export class ModbusTcpAdapter extends BaseProtocolAdapter {
   readonly displayName = 'Modbus TCP/IP';
   readonly description = 'Modbus TCP/IP protocol for industrial automation and SCADA systems';
 
-  private clients = new Map<string, any>();
-
-  constructor(configService: ConfigService) {
-    super(configService);
-  }
+  private clients = new Map<string, { client: ModbusRTUClient; config: ModbusTcpConfiguration }>();
 
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
     const modbusConfig = config as unknown as ModbusTcpConfiguration;
 
-    // Dynamic import modbus-serial library
-    const ModbusRTU = (await import('modbus-serial')).default;
-    const client = new ModbusRTU();
+    // Create typed Modbus client
+    const client = await createModbusClient();
 
     await this.withTimeout(
       client.connectTCP(modbusConfig.host, { port: modbusConfig.port }),
@@ -87,11 +83,11 @@ export class ModbusTcpAdapter extends BaseProtocolAdapter {
     return handle;
   }
 
-  async disconnect(handle: ConnectionHandle): Promise<void> {
+  disconnect(handle: ConnectionHandle): void {
     const clientData = this.clients.get(handle.id);
     if (clientData) {
       try {
-        clientData.client.close(() => {});
+        clientData.client.close();
       } catch (e) {
         this.logger.warn('Error closing Modbus connection', e);
       }
@@ -142,7 +138,7 @@ export class ModbusTcpAdapter extends BaseProtocolAdapter {
         latencyMs: Date.now() - startTime,
       };
     } finally {
-      if (handle) await this.disconnect(handle);
+      if (handle) this.disconnect(handle);
     }
   }
 
@@ -177,16 +173,16 @@ export class ModbusTcpAdapter extends BaseProtocolAdapter {
     return { timestamp, values, quality: 100, source: 'modbus_tcp' };
   }
 
-  private async readRegister(client: any, address: number, count: number, functionCode: number): Promise<number[]> {
+  private async readRegister(client: ModbusRTUClient, address: number, count: number, functionCode: number): Promise<number[]> {
     switch (functionCode) {
       case 1:
-        return (await client.readCoils(address, count)).data;
+        return (await client.readCoils(address, count)).data as number[];
       case 2:
-        return (await client.readDiscreteInputs(address, count)).data;
+        return (await client.readDiscreteInputs(address, count)).data as number[];
       case 3:
-        return (await client.readHoldingRegisters(address, count)).data;
+        return (await client.readHoldingRegisters(address, count)).data as number[];
       case 4:
-        return (await client.readInputRegisters(address, count)).data;
+        return (await client.readInputRegisters(address, count)).data as number[];
       default:
         throw new Error(`Unsupported function code: ${functionCode}`);
     }
@@ -232,7 +228,7 @@ export class ModbusTcpAdapter extends BaseProtocolAdapter {
       case 'boolean':
         return data[0] ? 1 : 0;
       default:
-        return data[0]!;
+        return data[0] ?? 0;
     }
   }
 

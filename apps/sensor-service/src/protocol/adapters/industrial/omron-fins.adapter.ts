@@ -1,8 +1,14 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
-import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
+import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult } from '../base-protocol.adapter';
+
+interface OmronFinsConfig {
+  sensorId?: string;
+  tenantId?: string;
+  host?: string;
+  destNode?: number;
+}
 
 @Injectable()
 export class OmronFinsAdapter extends BaseProtocolAdapter {
@@ -13,17 +19,20 @@ export class OmronFinsAdapter extends BaseProtocolAdapter {
   readonly displayName = 'Omron FINS';
   readonly description = 'Omron FINS (Factory Interface Network Service) protocol';
 
-  constructor(configService: ConfigService) { super(configService); }
-
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    return this.createConnectionHandle(config.sensorId as string || 'unknown', config.tenantId as string || 'unknown', config);
+    const cfg = config as OmronFinsConfig;
+    return this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
   }
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> { this.removeConnectionHandle(handle.id); }
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> { return { success: true, latencyMs: 0 }; }
-  async readData(handle: ConnectionHandle): Promise<SensorReadingData> { return { timestamp: new Date(), values: {}, quality: 100, source: 'omron_fins' }; }
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> { return { success: true, latencyMs: 0 }; }
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async readData(_handle: ConnectionHandle): Promise<SensorReadingData> { return { timestamp: new Date(), values: {}, quality: 100, source: 'omron_fins' }; }
 
   validateConfiguration(config: unknown): ValidationResult {
-    const cfg = config as any;
+    const cfg = config as OmronFinsConfig;
     const errors = [];
     if (!cfg.host) errors.push(this.validationError('host', 'IP address is required'));
     if (cfg.destNode === undefined || cfg.destNode < 0 || cfg.destNode > 254) errors.push(this.validationError('destNode', 'Destination node must be 0-254'));

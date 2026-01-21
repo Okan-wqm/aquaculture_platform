@@ -215,7 +215,7 @@ export class TimeoutMiddleware implements NestMiddleware {
     }
 
     try {
-      const parsed = JSON.parse(routesConfig);
+      const parsed: unknown = JSON.parse(routesConfig);
       return parsed as Record<string, number>;
     } catch {
       this.logger.warn('Failed to parse routes timeout config');
@@ -233,7 +233,7 @@ export function Timeout(ms: number) {
     _propertyKey: string,
     descriptor: PropertyDescriptor,
   ) {
-    const originalMethod = descriptor.value;
+    const originalMethod = descriptor.value as (...args: unknown[]) => unknown;
 
     descriptor.value = async function (...args: unknown[]) {
       // The timeout will be handled by the middleware

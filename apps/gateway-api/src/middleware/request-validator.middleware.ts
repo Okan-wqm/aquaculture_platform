@@ -173,7 +173,7 @@ export class RequestValidatorMiddleware implements NestMiddleware {
 
       // Validate and sanitize body
       if (req.body && typeof req.body === 'object') {
-        const bodyValidation = this.validateObject(req.body, 'body', 0);
+        const bodyValidation = this.validateObject(req.body as Record<string, unknown>, 'body', 0);
         errors.push(...bodyValidation.errors);
         validatedReq.sanitizedBody = bodyValidation.sanitizedData as Record<string, unknown>;
       }
@@ -302,7 +302,7 @@ export class RequestValidatorMiddleware implements NestMiddleware {
 
         const sanitizedArray: unknown[] = [];
         for (let i = 0; i < Math.min(value.length, this.config.maxArrayLength); i++) {
-          const item = value[i];
+          const item: unknown = value[i];
           if (typeof item === 'string') {
             const itemErrors = this.validateString(item, `${fieldPath}[${i}]`);
             errors.push(...itemErrors);

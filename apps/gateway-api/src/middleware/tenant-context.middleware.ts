@@ -250,7 +250,7 @@ export class TenantContextMiddleware implements NestMiddleware {
       }
 
       // Load tenant metadata
-      const tenant = await this.loadTenant(tenantId);
+      const tenant = this.loadTenant(tenantId);
 
       if (!tenant) {
         throw new BadRequestException({
@@ -355,7 +355,7 @@ export class TenantContextMiddleware implements NestMiddleware {
   /**
    * Load tenant metadata
    */
-  private async loadTenant(tenantId: string): Promise<TenantMetadata | null> {
+  private loadTenant(tenantId: string): TenantMetadata | null {
     // Check cache
     const cached = this.tenantCache.get(tenantId);
     if (cached && cached.expiry > Date.now()) {

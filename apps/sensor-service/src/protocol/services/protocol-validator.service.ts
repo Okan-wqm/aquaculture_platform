@@ -116,11 +116,13 @@ export class ProtocolValidatorService {
       };
     }
 
-    const required = (schema as any).required || [];
+    const schemaTyped = schema as { required?: string[] };
+    const required = schemaTyped.required || [];
     const errors: ValidationError[] = [];
 
     for (const field of required) {
-      if (config[field] === undefined || config[field] === null || config[field] === '') {
+      const configRecord = config as Record<string, unknown>;
+      if (configRecord[field] === undefined || configRecord[field] === null || configRecord[field] === '') {
         errors.push({
           field,
           message: `${field} is required`,
@@ -139,7 +141,7 @@ export class ProtocolValidatorService {
    */
   private getOrCreateValidator(protocolCode: string): ValidateFunction | null {
     if (this.validatorCache.has(protocolCode)) {
-      return this.validatorCache.get(protocolCode)!;
+      return this.validatorCache.get(protocolCode) ?? null;
     }
 
     const schema = this.protocolRegistry.getConfigurationSchema(protocolCode);
@@ -223,7 +225,7 @@ export class ProtocolValidatorService {
    * Sanitize configuration by removing unknown fields
    */
   sanitize(protocolCode: string, config: Record<string, unknown>): Record<string, unknown> {
-    const schema = this.protocolRegistry.getConfigurationSchema(protocolCode) as any;
+    const schema = this.protocolRegistry.getConfigurationSchema(protocolCode) as { properties?: Record<string, unknown> } | undefined;
     if (!schema?.properties) {
       return config;
     }

@@ -701,11 +701,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private async findSensorByTopic(topic: string, parsed: ParsedTopic | null): Promise<Sensor | null> {
     try {
       // Get all tenant schemas
-      const tenantSchemas = await this.dataSource.query(`
+      const tenantSchemas = (await this.dataSource.query(`
         SELECT schema_name FROM information_schema.schemata
         WHERE schema_name LIKE 'tenant_%'
         ORDER BY schema_name
-      `);
+      `)) as Array<{ schema_name: string }>;
 
       // Search in each tenant schema
       for (const { schema_name } of tenantSchemas) {
@@ -716,10 +716,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           await this.dataSource.query(`SET search_path TO "${safeSchemaName}", public`);
 
           // Check if sensors table exists in this schema
-          const tableCheck = await this.dataSource.query(`
+          const tableCheck = (await this.dataSource.query(`
             SELECT 1 FROM information_schema.tables
             WHERE table_schema = $1 AND table_name = 'sensors'
-          `, [schema_name]);
+          `, [schema_name])) as Array<{ 1: number }>;
 
           if (tableCheck.length === 0) {
             continue; // Skip schemas without sensors table
@@ -809,19 +809,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Parse message payload
    */
-  private parsePayload(payload: string, sensor: Sensor): Record<string, any> | null {
+  private parsePayload(payload: string, sensor: Sensor): Record<string, unknown> | null {
     const format = sensor.protocolConfiguration?.payloadFormat || 'json';
 
     switch (format) {
       case 'json':
         try {
-          return JSON.parse(payload);
+          return JSON.parse(payload) as Record<string, unknown>;
         } catch {
           this.logger.warn(`Failed to parse JSON payload: ${payload.substring(0, 50)}`);
           return null;
         }
 
-      case 'csv':
+      case 'csv': {
         const parts = payload.split(',');
         const result: Record<string, number> = {};
         parts.forEach((part, index) => {
@@ -831,17 +831,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           }
         });
         return result;
+      }
 
-      case 'text':
+      case 'text': {
         const num = parseFloat(payload.trim());
         if (!isNaN(num)) {
           return { value: num };
         }
         return { raw: payload };
+      }
 
       default:
         try {
-          return JSON.parse(payload);
+          return JSON.parse(payload) as Record<string, unknown>;
         } catch {
           return { raw: payload };
         }
@@ -852,7 +854,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Save sensor reading to database using narrow table format
    * Each channel value becomes a separate row in sensor_metrics
    */
-  private async saveReading(sensor: Sensor, data: Record<string, any>): Promise<void> {
+  private async saveReading(sensor: Sensor, data: Record<string, unknown>): Promise<void> {
     const now = new Date();
 
     // Get all channels for this sensor
@@ -1007,7 +1009,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Write to legacy sensor_readings table for backward compatibility
    * TODO: Remove after migration is complete
    */
-  private async writeLegacyReading(sensor: Sensor, data: Record<string, any>): Promise<void> {
+  private async writeLegacyReading(sensor: Sensor, data: Record<string, unknown>): Promise<void> {
     const reading = this.readingRepository.create({
       id: randomUUID(),
       sensorId: sensor.id,
@@ -1026,20 +1028,29 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Extract value from object by path
    */
-  private extractValue(obj: Record<string, any>, path: string): any {
+  private extractValue(obj: Record<string, unknown>, path: string): unknown {
     const parts = path.split('.');
-    let current: any = obj;
+    let current: unknown = obj;
 
     for (const part of parts) {
+      if (current === null || typeof current !== 'object') {
+        return undefined;
+      }
       const arrayMatch = part.match(/^(\w+)\[(\d+)\]$/);
       if (arrayMatch) {
         const key = arrayMatch[1];
         const indexStr = arrayMatch[2];
         if (key && indexStr) {
-          current = current?.[key]?.[parseInt(indexStr, 10)];
+          const objCurrent = current as Record<string, unknown>;
+          const arr = objCurrent[key];
+          if (Array.isArray(arr)) {
+            current = arr[parseInt(indexStr, 10)];
+          } else {
+            return undefined;
+          }
         }
       } else {
-        current = current?.[part];
+        current = (current as Record<string, unknown>)[part];
       }
 
       if (current === undefined) {
@@ -1077,7 +1088,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       this.logger.debug(`Schema set to: ${schemaName}`);
     } catch (error) {
       // If tenant schema doesn't exist, fallback to sensor schema
-      this.logger.warn(`Failed to set schema ${schemaName}, falling back to sensor: ${error}`);
+      this.logger.warn(`Failed to set schema ${schemaName}, falling back to sensor: ${String(error)}`);
       await this.dataSource.query(`SET search_path TO "sensor", public`);
     }
   }
@@ -1100,7 +1111,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     const payload = typeof message === 'string' ? message : JSON.stringify(message);
 
     return new Promise((resolve, reject) => {
-      this.client!.publish(topic, payload, { qos: 1 }, (err) => {
+      if (!this.client) {
+        reject(new Error('MQTT client not available'));
+        return;
+      }
+      this.client.publish(topic, payload, { qos: 1 }, (err) => {
         if (err) {
           reject(err);
         } else {

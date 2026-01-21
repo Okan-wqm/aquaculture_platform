@@ -590,7 +590,7 @@ export class MqttAdapter extends BaseProtocolAdapter {
     switch (config.payloadFormat) {
       case 'json':
         try {
-          const parsed = JSON.parse(message.toString());
+          const parsed = JSON.parse(message.toString()) as Record<string, unknown>;
           if (config.dataMapping) {
             for (const [key, path] of Object.entries(config.dataMapping)) {
               values[key] = this.getNestedValue(parsed, path);

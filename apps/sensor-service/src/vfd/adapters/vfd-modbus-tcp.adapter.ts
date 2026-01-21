@@ -51,6 +51,7 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     super('VfdModbusTcpAdapter');
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     const validatedConfig = this.validateAndCastConfig(config);
     const connectionId = this.generateConnectionId();
@@ -91,6 +92,7 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: VfdConnectionHandle): Promise<void> {
     const connection = this.connections.get(handle.id);
     if (!connection) {
@@ -113,7 +115,7 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     let handle: VfdConnectionHandle | null = null;
 
     try {
-      const validatedConfig = this.validateAndCastConfig(config);
+      this.validateAndCastConfig(config);
       handle = await this.connect(config);
 
       // Try to read a basic status register

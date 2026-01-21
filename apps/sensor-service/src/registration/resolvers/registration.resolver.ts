@@ -1,9 +1,9 @@
-import { UseGuards, Logger } from '@nestjs/common';
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { ObjectType, Field, Int } from '@nestjs/graphql';
+import { Logger } from '@nestjs/common';
+import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Int } from '@nestjs/graphql';
 import { Tenant, CurrentUser } from '@platform/backend-common';
 import { GraphQLJSON } from 'graphql-scalars';
 
+import { Sensor } from '../../database/entities/sensor.entity';
 import {
   RegisterSensorInput,
   UpdateSensorProtocolInput,
@@ -19,7 +19,7 @@ import {
   ParentDeviceType,
   ChildSensorType,
 } from '../dto/register-sensor.dto';
-import { SensorRegistrationService, RegistrationResult, SensorListResult, ParentWithChildrenResult } from '../services/sensor-registration.service';
+import { SensorRegistrationService } from '../services/sensor-registration.service';
 
 /**
  * User context interface from JWT
@@ -200,7 +200,7 @@ export class RegistrationResolver {
   }
 
   // Helper to map entity to GraphQL type
-  private mapSensorToType(sensor: any): RegisteredSensorType {
+  private mapSensorToType(sensor: Sensor): RegisteredSensorType {
     return {
       id: sensor.id,
       name: sensor.name,
@@ -312,7 +312,7 @@ export class RegistrationResolver {
   }
 
   // Helper to map parent entity to GraphQL type
-  private mapToParentDeviceType(sensor: any): ParentDeviceType {
+  private mapToParentDeviceType(sensor: Sensor): ParentDeviceType {
     return {
       id: sensor.id,
       name: sensor.name,
@@ -328,7 +328,7 @@ export class RegistrationResolver {
       pondId: sensor.pondId,
       tankId: sensor.tankId,
       location: sensor.location,
-      childSensors: sensor.childSensors?.map((c: any) => this.mapToChildSensorType(c)),
+      childSensors: sensor.childSensors?.map((c: Sensor) => this.mapToChildSensorType(c)),
       tenantId: sensor.tenantId,
       createdAt: sensor.createdAt,
       updatedAt: sensor.updatedAt,
@@ -336,7 +336,7 @@ export class RegistrationResolver {
   }
 
   // Helper to map child entity to GraphQL type
-  private mapToChildSensorType(sensor: any): ChildSensorType {
+  private mapToChildSensorType(sensor: Sensor): ChildSensorType {
     return {
       id: sensor.id,
       name: sensor.name,

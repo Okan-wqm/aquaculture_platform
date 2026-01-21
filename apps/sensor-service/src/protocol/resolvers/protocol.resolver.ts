@@ -1,5 +1,8 @@
-import { Resolver, Query, Mutation, Args } from '@nestjs/graphql';
 import {
+  Resolver,
+  Query,
+  Mutation,
+  Args,
   ObjectType,
   Field,
   ID,
@@ -11,7 +14,7 @@ import { IsString, IsOptional, IsBoolean, IsNumber, IsObject } from 'class-valid
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { ProtocolCategory } from '../../database/entities/sensor-protocol.entity';
-import { ConnectionTesterService, ExtendedTestResult } from '../services/connection-tester.service';
+import { ConnectionTesterService } from '../services/connection-tester.service';
 import { ProtocolRegistryService, ProtocolInfo, ProtocolSummary } from '../services/protocol-registry.service';
 import { ProtocolValidatorService } from '../services/protocol-validator.service';
 

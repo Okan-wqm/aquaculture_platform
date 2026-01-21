@@ -3,6 +3,10 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { SkipTenantGuard } from '@platform/backend-common';
 import { DataSource } from 'typeorm';
 
+interface ExtensionQueryResult {
+  extname: string;
+}
+
 /**
  * Health Controller
  * Provides health check endpoints for kubernetes probes
@@ -40,7 +44,7 @@ export class HealthController {
     let isTimescaleReady = false;
     if (isDbConnected) {
       try {
-        const result = await this.dataSource.query(
+        const result = await this.dataSource.query<ExtensionQueryResult[]>(
           "SELECT extname FROM pg_extension WHERE extname = 'timescaledb'",
         );
         isTimescaleReady = result.length > 0;
@@ -74,7 +78,7 @@ export class HealthController {
   }> {
     let timescale = false;
     try {
-      const result = await this.dataSource.query(
+      const result = await this.dataSource.query<ExtensionQueryResult[]>(
         "SELECT extname FROM pg_extension WHERE extname = 'timescaledb'",
       );
       timescale = result.length > 0;

@@ -52,4 +52,4 @@ async function bootstrap() {
   logger.log(`GraphQL Playground: http://localhost:${port}/graphql`);
 }
 
-bootstrap();
+void bootstrap();

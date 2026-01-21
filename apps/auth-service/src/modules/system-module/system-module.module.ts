@@ -18,4 +18,5 @@ import { Module as SystemModuleEntity } from './entities/module.entity';
   providers: [SeedService],
   exports: [TypeOrmModule, SeedService],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class SystemModule {}

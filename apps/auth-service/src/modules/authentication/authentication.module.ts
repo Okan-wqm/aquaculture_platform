@@ -21,4 +21,5 @@ import { AuthenticationService } from './services/authentication.service';
   providers: [AuthenticationService, AuthResolver, JwtAuthGuard],
   exports: [AuthenticationService, JwtAuthGuard, TypeOrmModule],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class AuthenticationModule {}

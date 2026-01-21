@@ -214,7 +214,7 @@ export class AmqpAdapter extends BaseProtocolAdapter {
     switch (config.messageFormat) {
       case 'json':
         try {
-          values = JSON.parse(content.toString());
+          values = JSON.parse(content.toString()) as Record<string, number | string | boolean | null>;
         } catch {
           values = { raw: content.toString() };
         }

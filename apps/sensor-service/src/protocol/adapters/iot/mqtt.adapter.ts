@@ -271,6 +271,7 @@ export class MqttAdapter extends BaseProtocolAdapter {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async subscribeToData(
     handle: ConnectionHandle,
     onData: DataCallback,
@@ -284,7 +285,7 @@ export class MqttAdapter extends BaseProtocolAdapter {
     const { client, config } = clientData;
     let isActive = true;
 
-    const messageHandler = (topic: string, message: Buffer) => {
+    const messageHandler = (topic: string, message: Buffer): void => {
       if (topic === config.topic || this.topicMatches(config.topic, topic)) {
         try {
           const data = this.parsePayload(message, config);

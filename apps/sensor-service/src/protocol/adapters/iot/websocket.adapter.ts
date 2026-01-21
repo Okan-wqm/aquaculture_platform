@@ -141,6 +141,7 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     const socketData = this.sockets.get(handle.id);
     if (socketData) {
@@ -211,6 +212,7 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async subscribeToData(
     handle: ConnectionHandle,
     onData: DataCallback,

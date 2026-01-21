@@ -90,6 +90,7 @@ export class HttpRestAdapter extends BaseProtocolAdapter {
     return handle;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     // Stop polling if active
     const pollingInterval = this.pollingIntervals.get(handle.id);
@@ -223,12 +224,13 @@ export class HttpRestAdapter extends BaseProtocolAdapter {
         }
         break;
 
-      case 'oauth2':
+      case 'oauth2': {
         const token = await this.getOAuth2Token(config);
         if (token) {
           headers['Authorization'] = `Bearer ${token}`;
         }
         break;
+      }
     }
   }
 

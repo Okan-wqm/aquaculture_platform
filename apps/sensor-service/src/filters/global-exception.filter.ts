@@ -7,7 +7,12 @@ import {
   Logger,
 } from '@nestjs/common';
 import { GqlArgumentsHost, GqlContextType } from '@nestjs/graphql';
+import { Request, Response } from 'express';
 import { GraphQLError } from 'graphql';
+
+interface GqlContext {
+  req?: Request;
+}
 
 /**
  * Global Exception Filter for Sensor Service
@@ -18,7 +23,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name);
   private readonly isProduction = process.env['NODE_ENV'] === 'production';
 
-  catch(exception: unknown, host: ArgumentsHost): void | GraphQLError {
+  catch(exception: unknown, host: ArgumentsHost): GraphQLError | undefined {
     const contextType = host.getType<GqlContextType>();
 
     if (contextType === 'graphql') {
@@ -26,12 +31,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     }
 
     this.handleHttpException(exception, host);
+    return undefined;
   }
 
   private handleHttpException(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
-    const response = ctx.getResponse();
-    const request = ctx.getRequest();
+    const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
 
     const { statusCode, message } = this.parseException(exception);
 
@@ -40,7 +46,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       message: this.isProduction ? this.sanitizeMessage(message) : message,
       timestamp: new Date().toISOString(),
       path: request.url,
-      correlationId: request.headers?.['x-correlation-id'],
+      correlationId: request.headers?.['x-correlation-id'] as string | undefined,
     };
 
     this.logError(exception, errorResponse);
@@ -53,7 +59,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     host: ArgumentsHost,
   ): GraphQLError {
     const gqlHost = GqlArgumentsHost.create(host);
-    const context = gqlHost.getContext();
+    const context = gqlHost.getContext<GqlContext>();
     const request = context?.req;
 
     const { statusCode, message } = this.parseException(exception);
@@ -62,7 +68,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       statusCode,
       message,
       timestamp: new Date().toISOString(),
-      correlationId: request?.headers?.['x-correlation-id'],
+      correlationId: request?.headers?.['x-correlation-id'] as string | undefined,
     };
 
     this.logError(exception, errorResponse);
@@ -149,15 +155,17 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     errorResponse: Record<string, unknown>,
   ): void {
     const statusCode = errorResponse['statusCode'] as number;
+    const correlationId = String(errorResponse['correlationId'] || 'N/A');
+    const message = String(errorResponse['message'] || '');
 
     if (statusCode >= 500) {
       this.logger.error(
-        `[${errorResponse['correlationId'] || 'N/A'}] ${errorResponse['message']}`,
+        `[${correlationId}] ${message}`,
         exception instanceof Error ? exception.stack : undefined,
       );
     } else if (statusCode >= 400) {
       this.logger.warn(
-        `[${errorResponse['correlationId'] || 'N/A'}] ${errorResponse['message']}`,
+        `[${correlationId}] ${message}`,
       );
     }
   }

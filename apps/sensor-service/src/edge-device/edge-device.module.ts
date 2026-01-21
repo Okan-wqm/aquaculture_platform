@@ -26,4 +26,5 @@ import { ProvisioningService } from './provisioning.service';
   ],
   exports: [EdgeDeviceService, ProvisioningService, MqttAuthService],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class EdgeDeviceModule {}

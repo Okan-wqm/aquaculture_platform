@@ -2,6 +2,8 @@ import { InputType, Field, ID } from '@nestjs/graphql';
 import { IsNotEmpty, IsOptional, IsString, IsBoolean, IsArray } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
+import { WidgetConfig } from '../entities/dashboard-layout.entity';
+
 @InputType()
 export class SaveDashboardLayoutInput {
   @Field(() => ID, { nullable: true })
@@ -21,7 +23,7 @@ export class SaveDashboardLayoutInput {
 
   @Field(() => GraphQLJSON)
   @IsArray()
-  widgets: any[];
+  widgets: WidgetConfig[];
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
@@ -64,5 +66,5 @@ export class CreateSystemDefaultLayoutInput {
 
   @Field(() => GraphQLJSON)
   @IsArray()
-  widgets: any[];
+  widgets: WidgetConfig[];
 }

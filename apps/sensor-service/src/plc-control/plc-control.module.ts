@@ -55,4 +55,5 @@ import { PlcTelemetry } from './entities/plc-telemetry.entity';
     // PlcConnectionService,
   ],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class PlcControlModule {}

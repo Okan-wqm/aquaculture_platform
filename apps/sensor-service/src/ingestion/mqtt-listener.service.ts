@@ -27,6 +27,37 @@ interface ParsedTopic {
 }
 
 /**
+ * Edge device payload types
+ */
+interface EdgeHeartbeatPayload {
+  isOnline?: boolean;
+  cpuUsage?: number;
+  memoryUsage?: number;
+  storageUsage?: number;
+  temperatureCelsius?: number;
+  uptimeSeconds?: number;
+  firmwareVersion?: string;
+  ipAddress?: string;
+}
+
+interface EdgeBirthPayload {
+  firmwareVersion?: string;
+  ipAddress?: string;
+  properties?: {
+    firmwareVersion?: string;
+    ipAddress?: string;
+  };
+}
+
+interface EdgeResponsePayload {
+  command?: string;
+  commandId?: string;
+  success?: boolean;
+  data?: unknown;
+  error?: string;
+}
+
+/**
  * MQTT Listener Service
  * Global MQTT listener that subscribes to all sensor topics
  * and routes data to appropriate sensors
@@ -76,9 +107,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Connect to MQTT broker
    */
   async connect(): Promise<void> {
-    const brokerUrl = this.configService.get('MQTT_BROKER_URL', 'mqtt://localhost:1883');
-    const username = this.configService.get('MQTT_USERNAME');
-    const password = this.configService.get('MQTT_PASSWORD');
+    const brokerUrl = this.configService.get<string>('MQTT_BROKER_URL', 'mqtt://localhost:1883');
+    const username = this.configService.get<string>('MQTT_USERNAME');
+    const password = this.configService.get<string>('MQTT_PASSWORD');
     const clientId = `aqua-sensor-service-${process.pid}-${Date.now()}`;
 
     this.logger.log(`Connecting to MQTT broker: ${brokerUrl}`);
@@ -132,7 +163,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       });
 
       this.client.on('message', (topic, message) => {
-        this.handleMessage(topic, message);
+        void this.handleMessage(topic, message);
       });
     });
   }
@@ -142,8 +173,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    */
   async disconnect(): Promise<void> {
     if (this.client) {
+      const client = this.client;
       return new Promise((resolve) => {
-        this.client!.end(false, {}, () => {
+        client.end(false, {}, () => {
           this.logger.log('Disconnected from MQTT broker');
           resolve();
         });
@@ -274,20 +306,20 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     const messageType = parts[2] as string;
 
     try {
-      const payload = JSON.parse(message.toString());
+      const payload = JSON.parse(message.toString()) as Record<string, unknown>;
 
       switch (messageType) {
         case 'heartbeat':
-          await this.handleEdgeHeartbeat(deviceCode, payload);
+          await this.handleEdgeHeartbeat(deviceCode, payload as EdgeHeartbeatPayload);
           break;
         case 'birth':
-          await this.handleEdgeBirth(deviceCode, payload);
+          await this.handleEdgeBirth(deviceCode, payload as EdgeBirthPayload);
           break;
         case 'death':
-          await this.handleEdgeDeath(deviceCode, payload);
+          await this.handleEdgeDeath(deviceCode);
           break;
         case 'response':
-          await this.handleEdgeResponse(deviceCode, payload);
+          await this.handleEdgeResponse(deviceCode, payload as EdgeResponsePayload);
           break;
         default:
           this.logger.debug(`Unknown edge device message type: ${messageType}`);
@@ -301,7 +333,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Handle edge device heartbeat message
    * Updates device health metrics in database
    */
-  private async handleEdgeHeartbeat(deviceCode: string, payload: Record<string, any>): Promise<void> {
+  private async handleEdgeHeartbeat(deviceCode: string, payload: EdgeHeartbeatPayload): Promise<void> {
     this.logger.debug(`Edge heartbeat from ${deviceCode}: CPU=${payload.cpuUsage}%, Mem=${payload.memoryUsage}%`);
 
     const heartbeat: DeviceHeartbeat = {
@@ -316,7 +348,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       ipAddress: payload.ipAddress,
     };
 
-    const device = await this.edgeDeviceService!.updateHeartbeat(heartbeat);
+    if (!this.edgeDeviceService) return;
+    const device = await this.edgeDeviceService.updateHeartbeat(heartbeat);
 
     if (device) {
       this.logger.debug(`Updated heartbeat for device ${deviceCode} (${device.id})`);
@@ -349,24 +382,25 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Handle edge device birth message (device came online)
    */
-  private async handleEdgeBirth(deviceCode: string, payload: Record<string, any>): Promise<void> {
+  private async handleEdgeBirth(deviceCode: string, payload: EdgeBirthPayload): Promise<void> {
     this.logger.log(`Edge device birth: ${deviceCode}`);
 
     // Update device as online with birth certificate data
     const heartbeat: DeviceHeartbeat = {
       deviceCode,
       isOnline: true,
-      firmwareVersion: payload.firmwareVersion || payload.properties?.firmwareVersion,
-      ipAddress: payload.ipAddress || payload.properties?.ipAddress,
+      firmwareVersion: payload.firmwareVersion ?? payload.properties?.firmwareVersion,
+      ipAddress: payload.ipAddress ?? payload.properties?.ipAddress,
     };
 
-    await this.edgeDeviceService!.updateHeartbeat(heartbeat);
+    if (!this.edgeDeviceService) return;
+    await this.edgeDeviceService.updateHeartbeat(heartbeat);
   }
 
   /**
    * Handle edge device death message (device went offline - LWT)
    */
-  private async handleEdgeDeath(deviceCode: string, payload: Record<string, any>): Promise<void> {
+  private async handleEdgeDeath(deviceCode: string): Promise<void> {
     this.logger.warn(`Edge device death: ${deviceCode}`);
 
     // Mark device as offline
@@ -375,18 +409,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       isOnline: false,
     };
 
-    await this.edgeDeviceService!.updateHeartbeat(heartbeat);
+    if (!this.edgeDeviceService) return;
+    await this.edgeDeviceService.updateHeartbeat(heartbeat);
   }
 
   /**
    * Handle edge device command response
    */
-  private async handleEdgeResponse(deviceCode: string, payload: Record<string, any>): Promise<void> {
+  private async handleEdgeResponse(deviceCode: string, payload: EdgeResponsePayload): Promise<void> {
     this.logger.debug(`Edge response from ${deviceCode}: ${JSON.stringify(payload)}`);
 
     // Route ping responses to EdgeDeviceService for promise resolution
     if (payload.command === 'ping' && this.edgeDeviceService) {
-      this.edgeDeviceService.handlePingResponse(deviceCode, payload);
+      this.edgeDeviceService.handlePingResponse(deviceCode, payload as Record<string, unknown>);
     }
 
     // Publish response event for command tracking

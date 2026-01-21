@@ -1,8 +1,9 @@
-import { Module, Global, DynamicModule } from '@nestjs/common';
+import { Module, Global } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { SensorProtocol } from '../database/entities/sensor-protocol.entity';
+
 import { AllenBradleyDf1Adapter } from './adapters/industrial/allen-bradley-df1.adapter';
 import { AllenBradleyEthernetAdapter } from './adapters/industrial/allen-bradley-ethernet.adapter';
 import { BacnetIpAdapter } from './adapters/industrial/bacnet-ip.adapter';

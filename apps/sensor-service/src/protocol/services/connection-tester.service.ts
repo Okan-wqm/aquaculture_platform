@@ -235,9 +235,10 @@ export class ConnectionTesterService {
   /**
    * Discover available devices/endpoints for protocols that support discovery
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async discoverDevices(
     protocolCode: string,
-    config: Record<string, unknown>,
+    _config: Record<string, unknown>,
   ): Promise<{ discovered: unknown[]; error?: string }> {
     const adapter = this.protocolRegistry.getAdapter(protocolCode);
     if (!adapter) {
@@ -283,7 +284,9 @@ export class ConnectionTesterService {
     }
 
     const successes = samples.filter((s) => s.success);
-    const latencies = successes.filter((s) => s.latencyMs !== undefined).map((s) => s.latencyMs!);
+    const latencies = successes
+      .map((s) => s.latencyMs)
+      .filter((latency): latency is number => latency !== undefined);
 
     let avgLatencyMs = 0;
     let stdDevLatencyMs = 0;

@@ -126,7 +126,7 @@ export class MetricQueryService {
         AND time <= $3
     `;
 
-    const params: any[] = [tenantId, startTime, endTime];
+    const params: (string | Date | number)[] = [tenantId, startTime, endTime];
     let paramIndex = 4;
 
     if (sensorId) {
@@ -149,7 +149,7 @@ export class MetricQueryService {
 
     query += ` ORDER BY time DESC LIMIT ${limit}`;
 
-    const results = await this.dataSource.query(query, params);
+    const results = (await this.dataSource.query(query, params)) as AggregatedMetric[];
     return results;
   }
 
@@ -182,7 +182,7 @@ export class MetricQueryService {
         AND bucket <= $3
     `;
 
-    const params: any[] = [tenantId, startTime, endTime];
+    const params: (string | Date | number)[] = [tenantId, startTime, endTime];
     let paramIndex = 4;
 
     if (sensorId) {
@@ -205,7 +205,7 @@ export class MetricQueryService {
 
     query += ` ORDER BY bucket DESC LIMIT ${limit}`;
 
-    const results = await this.dataSource.query(query, params);
+    const results = (await this.dataSource.query(query, params)) as AggregatedMetric[];
     return results;
   }
 
@@ -240,7 +240,7 @@ export class MetricQueryService {
       ORDER BY m.channel_id, m.time DESC
     `;
 
-    const results = await this.dataSource.query(query, [sensorId, tenantId]);
+    const results = (await this.dataSource.query(query, [sensorId, tenantId])) as CurrentReading[];
     return results;
   }
 
@@ -275,7 +275,7 @@ export class MetricQueryService {
       ORDER BY m.sensor_id, m.channel_id, m.time DESC
     `;
 
-    const results = await this.dataSource.query(query, [tankId, tenantId]);
+    const results = (await this.dataSource.query(query, [tankId, tenantId])) as CurrentReading[];
     return results;
   }
 
@@ -299,7 +299,7 @@ export class MetricQueryService {
       LIMIT $3
     `;
 
-    const results = await this.dataSource.query(query, [channelId, tenantId, count]);
+    const results = (await this.dataSource.query(query, [channelId, tenantId, count])) as { time: Date; value: number; qualityCode: number }[];
     return results;
   }
 
@@ -355,7 +355,15 @@ export class MetricQueryService {
       `;
     }
 
-    const results = await this.dataSource.query(query, [channelId, tenantId, startTime, endTime]);
+    interface ChannelStats {
+      avg: number;
+      min: number;
+      max: number;
+      stddev: number;
+      count: number;
+      qualityPct: number;
+    }
+    const results = (await this.dataSource.query(query, [channelId, tenantId, startTime, endTime])) as ChannelStats[];
     return results[0] || { avg: 0, min: 0, max: 0, stddev: 0, count: 0, qualityPct: 0 };
   }
 

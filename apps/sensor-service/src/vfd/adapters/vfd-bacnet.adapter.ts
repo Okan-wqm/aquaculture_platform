@@ -135,7 +135,7 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
       handle = await this.connect(config);
 
       // Read device object, object-name property
-      const testBuffer = await this.readRegister(handle, 0, 1, 0);
+      await this.readRegister(handle, 0, 1, 0);
       const latencyMs = Date.now() - startTime;
 
       await this.disconnect(handle);

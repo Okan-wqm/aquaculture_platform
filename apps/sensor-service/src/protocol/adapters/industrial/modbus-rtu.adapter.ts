@@ -14,6 +14,7 @@ import {
   ValidationResult,
   ProtocolCapabilities,
 } from '../base-protocol.adapter';
+
 import { createModbusClient, ModbusRTUClient } from './types';
 
 export interface ModbusRtuConfiguration {
@@ -143,7 +144,7 @@ export class ModbusRtuAdapter extends BaseProtocolAdapter {
         data = (await client.readInputRegisters(config.registerAddress, config.registerCount)).data;
         break;
       default:
-        throw new Error(`Unsupported function code: ${config.functionCode}`);
+        throw new Error(`Unsupported function code: ${String(config.functionCode)}`);
     }
 
     const value = this.parseData(data, config);

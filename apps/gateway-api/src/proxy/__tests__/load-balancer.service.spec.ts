@@ -61,7 +61,7 @@ describe('LoadBalancerService', () => {
     }).compile();
 
     service = module.get<LoadBalancerService>(LoadBalancerService);
-    await service.onModuleInit();
+    service.onModuleInit();
   });
 
   afterEach(() => {

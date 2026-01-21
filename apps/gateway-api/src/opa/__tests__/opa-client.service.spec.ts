@@ -10,7 +10,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import {
   OpaClientService,
   OpaResult,
-  OpaHealthStatus,
 } from '../opa-client.service';
 
 // Mock fetch globally
@@ -85,7 +84,7 @@ describe('OpaClientService', () => {
   });
 
   describe('Module Lifecycle', () => {
-    it('should initialize and check health on module init', async () => {
+    it('should initialize and check health on module init', () => {
       expect(mockFetch).toHaveBeenCalled();
     });
 

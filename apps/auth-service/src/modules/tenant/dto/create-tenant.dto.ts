@@ -10,6 +10,7 @@ import {
   Min,
 } from 'class-validator';
 import GraphQLJSON from 'graphql-type-json';
+
 import { TenantPlan, TenantStatus } from '../entities/tenant.entity';
 
 @InputType()

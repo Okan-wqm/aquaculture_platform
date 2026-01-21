@@ -1,10 +1,8 @@
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
-import { SupportService } from '../services/support.service';
-import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
+import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { TenantAdminOrHigher, SuperAdminOnly, CurrentUser } from '@platform/backend-common';
-import { SupportTicket, TicketStatus, TicketPriority } from '../entities/support-ticket.entity';
-import { TicketComment } from '../entities/ticket-comment.entity';
+
+import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
 import {
   CreateTicketInput,
   AddTicketCommentInput,
@@ -15,6 +13,9 @@ import {
   CommentItem,
   SupportStats,
 } from '../dto/support.dto';
+import { SupportTicket, TicketStatus, TicketPriority } from '../entities/support-ticket.entity';
+import { TicketComment } from '../entities/ticket-comment.entity';
+import { SupportService } from '../services/support.service';
 
 /**
  * SupportResolver

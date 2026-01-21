@@ -6,23 +6,24 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Role } from '@platform/backend-common';
 import { Repository, In } from 'typeorm';
-import {
-  Announcement,
-  AnnouncementType,
-  AnnouncementStatus,
-  AnnouncementScope,
-} from '../entities/announcement.entity';
-import { AnnouncementAcknowledgment } from '../entities/announcement-acknowledgment.entity';
+
 import { User } from '../../authentication/entities/user.entity';
 import { Tenant } from '../../tenant/entities/tenant.entity';
-import { Role } from '@platform/backend-common';
 import {
   CreatePlatformAnnouncementInput,
   CreateTenantAnnouncementInput,
   AnnouncementListItem,
   AnnouncementStats,
 } from '../dto/announcement.dto';
+import { AnnouncementAcknowledgment } from '../entities/announcement-acknowledgment.entity';
+import {
+  Announcement,
+  AnnouncementType,
+  AnnouncementStatus,
+  AnnouncementScope,
+} from '../entities/announcement.entity';
 
 /**
  * AnnouncementService
@@ -393,7 +394,7 @@ export class AnnouncementService {
     }
 
     // First view (creates record if not exists)
-    let ack = await this.viewAnnouncement(userId, announcementId);
+    const ack = await this.viewAnnouncement(userId, announcementId);
 
     if (ack.acknowledgedAt) {
       return ack; // Already acknowledged

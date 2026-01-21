@@ -1,3 +1,5 @@
+import { ObjectType, Field, ID, registerEnumType, Int } from '@nestjs/graphql';
+import { Role } from '@platform/backend-common';
 import {
   Entity,
   Column,
@@ -6,8 +8,6 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { ObjectType, Field, ID, registerEnumType, Int } from '@nestjs/graphql';
-import { Role } from '@platform/backend-common';
 
 /**
  * Invitation status

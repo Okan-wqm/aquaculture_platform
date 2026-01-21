@@ -1,3 +1,5 @@
+import * as crypto from 'crypto';
+
 import {
   Injectable,
   UnauthorizedException,
@@ -6,20 +8,21 @@ import {
   Inject,
   Logger,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { User } from '../entities/user.entity';
-import { RefreshToken } from '../entities/refresh-token.entity';
-import { Invitation, InvitationStatus } from '../entities/invitation.entity';
-import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
-import { RegisterInput } from '../dto/register.dto';
-import { LoginInput } from '../dto/login.dto';
-import { AuthPayload, MePayload } from '../dto/auth-response.dto';
-import { IEventBus } from '@platform/event-bus';
+import { JwtService } from '@nestjs/jwt';
+import { InjectRepository } from '@nestjs/typeorm';
 import { Role } from '@platform/backend-common';
-import * as crypto from 'crypto';
+import { IEventBus } from '@platform/event-bus';
+import { Repository } from 'typeorm';
+
+import { AuthPayload, MePayload } from '../dto/auth-response.dto';
+import { LoginInput } from '../dto/login.dto';
+import { RegisterInput } from '../dto/register.dto';
+import { Invitation, InvitationStatus } from '../entities/invitation.entity';
+import { RefreshToken } from '../entities/refresh-token.entity';
+import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
+import { User } from '../entities/user.entity';
+
 
 /**
  * JWT Payload structure

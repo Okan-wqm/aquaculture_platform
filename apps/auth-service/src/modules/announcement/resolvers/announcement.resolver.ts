@@ -1,20 +1,21 @@
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
-import { AnnouncementService } from '../services/announcement.service';
-import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
+import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { TenantAdminOrHigher, SuperAdminOnly, CurrentUser } from '@platform/backend-common';
-import {
-  Announcement,
-  AnnouncementType,
-  AnnouncementStatus,
-} from '../entities/announcement.entity';
-import { AnnouncementAcknowledgment } from '../entities/announcement-acknowledgment.entity';
+
+import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
 import {
   CreatePlatformAnnouncementInput,
   CreateTenantAnnouncementInput,
   AnnouncementListItem,
   AnnouncementStats,
 } from '../dto/announcement.dto';
+import { AnnouncementAcknowledgment } from '../entities/announcement-acknowledgment.entity';
+import {
+  Announcement,
+  AnnouncementType,
+  AnnouncementStatus,
+} from '../entities/announcement.entity';
+import { AnnouncementService } from '../services/announcement.service';
 
 /**
  * AnnouncementResolver

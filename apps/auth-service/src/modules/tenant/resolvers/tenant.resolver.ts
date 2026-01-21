@@ -1,13 +1,14 @@
-import { Resolver, Query, Mutation, Args, ID, Context, Int, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
-import { TenantService } from '../services/tenant.service';
-import { Tenant } from '../entities/tenant.entity';
-import { TenantModule } from '../entities/tenant-module.entity';
+import { Resolver, Query, Mutation, Args, ID, Context, Int, ResolveField, Parent } from '@nestjs/graphql';
+import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher } from '@platform/backend-common';
+
+import { User } from '../../authentication/entities/user.entity';
+import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
 import { CreateTenantInput, UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
 import { TenantStats, TenantDatabaseInfo, TableSchemaInfo } from '../dto/tenant-stats.dto';
-import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
-import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher } from '@platform/backend-common';
-import { User } from '../../authentication/entities/user.entity';
+import { TenantModule } from '../entities/tenant-module.entity';
+import { Tenant } from '../entities/tenant.entity';
+import { TenantService } from '../services/tenant.service';
 
 @Resolver(() => Tenant)
 export class TenantResolver {

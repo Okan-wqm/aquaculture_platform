@@ -1,14 +1,15 @@
+import { NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Role } from '@platform/backend-common';
 import { Repository } from 'typeorm';
-import { NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 
-import { MessagingService } from '../services/messaging.service';
-import { MessageThread, ThreadStatus } from '../entities/message-thread.entity';
-import { Message, SenderType, MessageStatus } from '../entities/message.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { Tenant } from '../../tenant/entities/tenant.entity';
-import { Role } from '@platform/backend-common';
+import { MessageThread, ThreadStatus } from '../entities/message-thread.entity';
+import { Message, SenderType, MessageStatus } from '../entities/message.entity';
+import { MessagingService } from '../services/messaging.service';
+
 
 // ============================================================================
 // Mock Helpers

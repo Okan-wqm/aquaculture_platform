@@ -1,11 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Role } from '@platform/backend-common';
 import * as bcrypt from 'bcryptjs';
+import { Repository } from 'typeorm';
 
 import { User } from '../modules/authentication/entities/user.entity';
 import { Module } from '../modules/system-module/entities/module.entity';
-import { Role } from '@platform/backend-common';
+
 
 /**
  * Database Seed Service

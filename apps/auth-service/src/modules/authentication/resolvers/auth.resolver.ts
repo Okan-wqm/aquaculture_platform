@@ -1,9 +1,7 @@
-import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
-import { AuthenticationService } from '../services/authentication.service';
-import { RegisterInput } from '../dto/register.dto';
-import { LoginInput } from '../dto/login.dto';
-import { RefreshTokenInput } from '../dto/refresh-token.dto';
+import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
+import { CurrentUser, Public } from '@platform/backend-common';
+
 import {
   AuthPayload,
   LogoutResponse,
@@ -11,9 +9,13 @@ import {
   MePayload,
   InvitationValidationResponse,
 } from '../dto/auth-response.dto';
+import { LoginInput } from '../dto/login.dto';
+import { RefreshTokenInput } from '../dto/refresh-token.dto';
+import { RegisterInput } from '../dto/register.dto';
 import { User } from '../entities/user.entity';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
-import { CurrentUser, Public } from '@platform/backend-common';
+import { AuthenticationService } from '../services/authentication.service';
+
 
 @Resolver(() => User)
 export class AuthResolver {

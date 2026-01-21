@@ -6,12 +6,11 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Role } from '@platform/backend-common';
 import { Repository } from 'typeorm';
-import { MessageThread, ThreadStatus } from '../entities/message-thread.entity';
-import { Message, SenderType, MessageStatus } from '../entities/message.entity';
+
 import { User } from '../../authentication/entities/user.entity';
 import { Tenant } from '../../tenant/entities/tenant.entity';
-import { Role } from '@platform/backend-common';
 import {
   CreateThreadInput,
   SendMessageInput,
@@ -19,6 +18,8 @@ import {
   MessageItem,
   MessagingStats,
 } from '../dto/messaging.dto';
+import { MessageThread, ThreadStatus } from '../entities/message-thread.entity';
+import { Message, SenderType, MessageStatus } from '../entities/message.entity';
 
 /**
  * MessagingService

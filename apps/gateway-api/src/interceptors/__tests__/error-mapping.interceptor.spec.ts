@@ -618,29 +618,29 @@ describe('ErrorMappingInterceptor', () => {
       });
     });
 
-    it('should hide stack trace in production', (done) => {
+    it('should hide stack trace in production', async () => {
       process.env['NODE_ENV'] = 'production';
 
-      Test.createTestingModule({
+      const module = await Test.createTestingModule({
         providers: [ErrorMappingInterceptor],
-      })
-        .compile()
-        .then((module) => {
-          const prodInterceptor = module.get<ErrorMappingInterceptor>(ErrorMappingInterceptor);
-          const context = createMockExecutionContext();
-          const error = new Error('Test error');
-          const handler = createErrorCallHandler(error);
+      }).compile();
 
-          prodInterceptor.intercept(context, handler).subscribe({
-            next: () => failTest(done, 'Should have thrown'),
-            error: (err: unknown) => {
-              const httpError = err as HttpException;
-              const response = httpError.getResponse() as MappedErrorResponse;
-              expect(response.error.stack).toBeUndefined();
-              done();
-            },
-          });
+      const prodInterceptor = module.get<ErrorMappingInterceptor>(ErrorMappingInterceptor);
+      const context = createMockExecutionContext();
+      const error = new Error('Test error');
+      const handler = createErrorCallHandler(error);
+
+      await new Promise<void>((resolve, reject) => {
+        prodInterceptor.intercept(context, handler).subscribe({
+          next: () => reject(new Error('Should have thrown')),
+          error: (err: unknown) => {
+            const httpError = err as HttpException;
+            const response = httpError.getResponse() as MappedErrorResponse;
+            expect(response.error.stack).toBeUndefined();
+            resolve();
+          },
         });
+      });
     });
   });
 

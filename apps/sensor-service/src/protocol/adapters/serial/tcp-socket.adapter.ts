@@ -1,10 +1,17 @@
 import * as net from 'net';
 
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
 import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
+
+interface TcpSocketConfig {
+  sensorId?: string;
+  tenantId?: string;
+  host?: string;
+  port?: number;
+  timeout?: number;
+}
 
 @Injectable()
 export class TcpSocketAdapter extends BaseProtocolAdapter {
@@ -17,10 +24,9 @@ export class TcpSocketAdapter extends BaseProtocolAdapter {
 
   private sockets: Map<string, net.Socket> = new Map();
 
-  constructor(configService: ConfigService) { super(configService); }
-
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const handle = this.createConnectionHandle(config.sensorId as string || 'unknown', config.tenantId as string || 'unknown', config);
+    const cfg = config as TcpSocketConfig;
+    const handle = this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
 
     return new Promise((resolve, reject) => {
       const socket = new net.Socket();
@@ -75,7 +81,7 @@ export class TcpSocketAdapter extends BaseProtocolAdapter {
   }
 
   validateConfiguration(config: unknown): ValidationResult {
-    const cfg = config as any;
+    const cfg = config as TcpSocketConfig;
     const errors = [];
     if (!cfg.host) errors.push(this.validationError('host', 'Host is required'));
     if (!cfg.port || cfg.port < 1 || cfg.port > 65535) errors.push(this.validationError('port', 'Port must be 1-65535'));

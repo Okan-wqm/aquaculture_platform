@@ -80,6 +80,23 @@ const createErrorWithCode = (message: string, code: string): ErrorWithCode => {
   return error;
 };
 
+/**
+ * Map of error type names to their constructors
+ */
+const errorConstructors: Record<string, new (message: string) => Error> = {
+  TypeError: TypeError,
+  ReferenceError: ReferenceError,
+  SyntaxError: SyntaxError,
+};
+
+/**
+ * Helper to create typed error by name
+ */
+const createTypedError = (errorType: string, message: string): Error => {
+  const Constructor = errorConstructors[errorType] ?? Error;
+  return new Constructor(message);
+};
+
 describe('ErrorMappingInterceptor', () => {
   let interceptor: ErrorMappingInterceptor;
   const originalEnv = process.env['NODE_ENV'];
@@ -386,7 +403,7 @@ describe('ErrorMappingInterceptor', () => {
       ])('should map %s to status %d', (code: string, expectedStatus: number, expectedMessage: string) => {
         return new Promise<void>((resolve, reject) => {
           const context = createMockExecutionContext();
-          const error = createErrorWithCode('Internal error', code as string);
+          const error = createErrorWithCode('Internal error', code);
           const handler = createErrorCallHandler(error);
 
           interceptor.intercept(context, handler).subscribe({
@@ -412,7 +429,7 @@ describe('ErrorMappingInterceptor', () => {
     ])('should map %s to status %d', (errorType: string, expectedStatus: number) => {
       return new Promise<void>((resolve, reject) => {
         const context = createMockExecutionContext();
-        const error = new (global as any)[errorType]('Test error');
+        const error = createTypedError(errorType, 'Test error');
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({

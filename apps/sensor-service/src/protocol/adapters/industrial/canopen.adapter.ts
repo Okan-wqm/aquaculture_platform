@@ -1,8 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
 import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
+
+interface CanopenConfig {
+  sensorId?: string;
+  tenantId?: string;
+  nodeId?: number;
+}
 
 @Injectable()
 export class CanopenAdapter extends BaseProtocolAdapter {
@@ -13,17 +18,20 @@ export class CanopenAdapter extends BaseProtocolAdapter {
   readonly displayName = 'CANopen';
   readonly description = 'CANopen CAN-based industrial communication protocol';
 
-  constructor(configService: ConfigService) { super(configService); }
-
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    return this.createConnectionHandle(config.sensorId as string || 'unknown', config.tenantId as string || 'unknown', config);
+    const cfg = config as CanopenConfig;
+    return this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
   }
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> { this.removeConnectionHandle(handle.id); }
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> { return { success: true, latencyMs: 0 }; }
-  async readData(handle: ConnectionHandle): Promise<SensorReadingData> { return { timestamp: new Date(), values: {}, quality: 100, source: 'canopen' }; }
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> { return { success: true, latencyMs: 0 }; }
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async readData(_handle: ConnectionHandle): Promise<SensorReadingData> { return { timestamp: new Date(), values: {}, quality: 100, source: 'canopen' }; }
 
   validateConfiguration(config: unknown): ValidationResult {
-    const cfg = config as any;
+    const cfg = config as CanopenConfig;
     const errors = [];
     if (cfg.nodeId === undefined || cfg.nodeId < 1 || cfg.nodeId > 127) errors.push(this.validationError('nodeId', 'Node ID must be 1-127'));
     return { isValid: errors.length === 0, errors };

@@ -64,6 +64,22 @@ const failTest = (done: jest.DoneCallback, message: string): void => {
   done.fail(message);
 };
 
+/**
+ * Interface for error with code property
+ */
+interface ErrorWithCode extends Error {
+  code: string;
+}
+
+/**
+ * Helper to create error with code property - avoids Object.assign returning any
+ */
+const createErrorWithCode = (message: string, code: string): ErrorWithCode => {
+  const error = new Error(message) as ErrorWithCode;
+  error.code = code;
+  return error;
+};
+
 describe('ErrorMappingInterceptor', () => {
   let interceptor: ErrorMappingInterceptor;
   const originalEnv = process.env['NODE_ENV'];
@@ -218,7 +234,7 @@ describe('ErrorMappingInterceptor', () => {
         ['AUTH_ACCOUNT_DISABLED', 403, 'Account is disabled'],
       ])('should map %s to status %d', (code, expectedStatus, expectedMessage, done) => {
         const context = createMockExecutionContext();
-        const error = Object.assign(new Error('Internal error'), { code });
+        const error = createErrorWithCode('Internal error', code as string);
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({
@@ -243,7 +259,7 @@ describe('ErrorMappingInterceptor', () => {
         ['RESOURCE_GONE', 410, 'Resource no longer available'],
       ])('should map %s to status %d', (code, expectedStatus, expectedMessage, done) => {
         const context = createMockExecutionContext();
-        const error = Object.assign(new Error('Internal error'), { code });
+        const error = createErrorWithCode('Internal error', code as string);
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({
@@ -266,7 +282,7 @@ describe('ErrorMappingInterceptor', () => {
         ['MISSING_REQUIRED_FIELD', 400, 'Missing required field'],
       ])('should map %s to status %d', (code, expectedStatus, expectedMessage, done) => {
         const context = createMockExecutionContext();
-        const error = Object.assign(new Error('Internal error'), { code });
+        const error = createErrorWithCode('Internal error', code as string);
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({
@@ -285,7 +301,7 @@ describe('ErrorMappingInterceptor', () => {
     describe('Rate Limiting Errors', () => {
       it('should map RATE_LIMIT_EXCEEDED to 429', (done) => {
         const context = createMockExecutionContext();
-        const error = Object.assign(new Error('Rate limit'), { code: 'RATE_LIMIT_EXCEEDED' });
+        const error = createErrorWithCode('Rate limit', 'RATE_LIMIT_EXCEEDED');
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({
@@ -302,7 +318,7 @@ describe('ErrorMappingInterceptor', () => {
 
       it('should set Retry-After header for rate limit errors', (done) => {
         const context = createMockExecutionContext();
-        const error = Object.assign(new Error('Rate limit'), { code: 'RATE_LIMIT_EXCEEDED' });
+        const error = createErrorWithCode('Rate limit', 'RATE_LIMIT_EXCEEDED');
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({
@@ -323,7 +339,7 @@ describe('ErrorMappingInterceptor', () => {
         ['TENANT_LIMIT_EXCEEDED', 429, 'Tenant limit exceeded'],
       ])('should map %s to status %d', (code, expectedStatus, expectedMessage, done) => {
         const context = createMockExecutionContext();
-        const error = Object.assign(new Error('Internal error'), { code });
+        const error = createErrorWithCode('Internal error', code as string);
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({
@@ -346,7 +362,7 @@ describe('ErrorMappingInterceptor', () => {
         ['EXTERNAL_SERVICE_UNAVAILABLE', 503, 'External service unavailable'],
       ])('should map %s to status %d', (code, expectedStatus, expectedMessage, done) => {
         const context = createMockExecutionContext();
-        const error = Object.assign(new Error('Internal error'), { code });
+        const error = createErrorWithCode('Internal error', code as string);
         const handler = createErrorCallHandler(error);
 
         interceptor.intercept(context, handler).subscribe({
@@ -370,7 +386,7 @@ describe('ErrorMappingInterceptor', () => {
       ])('should map %s to status %d', (code: string, expectedStatus: number, expectedMessage: string) => {
         return new Promise<void>((resolve, reject) => {
           const context = createMockExecutionContext();
-          const error = Object.assign(new Error('Internal error'), { code });
+          const error = createErrorWithCode('Internal error', code as string);
           const handler = createErrorCallHandler(error);
 
           interceptor.intercept(context, handler).subscribe({
@@ -476,7 +492,7 @@ describe('ErrorMappingInterceptor', () => {
   describe('Error Response Format', () => {
     it('should include success: false', (done) => {
       const context = createMockExecutionContext();
-      const error = Object.assign(new Error('Test'), { code: 'RESOURCE_NOT_FOUND' });
+      const error = createErrorWithCode('Test', 'RESOURCE_NOT_FOUND');
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
@@ -492,7 +508,7 @@ describe('ErrorMappingInterceptor', () => {
 
     it('should include tracking ID', (done) => {
       const context = createMockExecutionContext();
-      const error = Object.assign(new Error('Test'), { code: 'RESOURCE_NOT_FOUND' });
+      const error = createErrorWithCode('Test', 'RESOURCE_NOT_FOUND');
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
@@ -514,7 +530,7 @@ describe('ErrorMappingInterceptor', () => {
         method: 'POST',
         headers: { 'x-correlation-id': 'corr-123' },
       });
-      const error = Object.assign(new Error('Test'), { code: 'RESOURCE_NOT_FOUND' });
+      const error = createErrorWithCode('Test', 'RESOURCE_NOT_FOUND');
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({
@@ -542,7 +558,7 @@ describe('ErrorMappingInterceptor', () => {
       module.compile().then((compiled) => {
         const devInterceptor = compiled.get<ErrorMappingInterceptor>(ErrorMappingInterceptor);
         const context = createMockExecutionContext();
-        const error = Object.assign(new Error('Detailed error message'), { code: 'RESOURCE_NOT_FOUND' });
+        const error = createErrorWithCode('Detailed error message', 'RESOURCE_NOT_FOUND');
         const handler = createErrorCallHandler(error);
 
         devInterceptor.intercept(context, handler).subscribe({
@@ -821,7 +837,7 @@ describe('ErrorMappingInterceptor', () => {
 
     it('should handle circular reference in error details', (done) => {
       const context = createMockExecutionContext();
-      const error = Object.assign(new Error('Circular error'), { code: 'RESOURCE_NOT_FOUND' });
+      const error = createErrorWithCode('Circular error', 'RESOURCE_NOT_FOUND');
       const handler = createErrorCallHandler(error);
 
       interceptor.intercept(context, handler).subscribe({

@@ -34,7 +34,7 @@ export class MqttAuthService implements OnModuleInit {
     this.enabled = this.configService.get<boolean>('MQTT_AUTH_ENABLED', false);
   }
 
-  async onModuleInit() {
+  async onModuleInit(): Promise<void> {
     if (this.enabled) {
       this.logger.log('MQTT Authentication Service initialized');
       this.logger.log(`Password file: ${this.passwordFilePath}`);
@@ -273,6 +273,7 @@ alert_service:$7$101$Xt5yNzRqMwLpKjHg$aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1uV2wX3yZ4aB5
    * 2. Using a database-backed auth backend
    * 3. Mounting a shared volume and using inotify
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async reloadMosquitto(): Promise<boolean> {
     // In development, Mosquitto typically reloads automatically
     // For production, implement proper signal/API mechanism

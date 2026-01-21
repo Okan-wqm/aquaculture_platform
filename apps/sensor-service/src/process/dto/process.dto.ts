@@ -29,12 +29,12 @@ export class CreateProcessInput {
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
   @Type(() => Object)
-  nodes?: any[];
+  nodes?: ProcessNode[];
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
   @Type(() => Object)
-  edges?: any[];
+  edges?: ProcessEdge[];
 
   @Field({ nullable: true })
   @IsOptional()
@@ -85,12 +85,12 @@ export class UpdateProcessInput {
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
   @Type(() => Object)
-  nodes?: any[];
+  nodes?: ProcessNode[];
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
   @Type(() => Object)
-  edges?: any[];
+  edges?: ProcessEdge[];
 
   @Field({ nullable: true })
   @IsOptional()

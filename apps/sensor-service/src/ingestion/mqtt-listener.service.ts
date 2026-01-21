@@ -9,7 +9,7 @@ import { MqttClient } from 'mqtt';
 import { Repository, DataSource } from 'typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
-import { SensorMetric, QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
+import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor, SensorStatus } from '../database/entities/sensor.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
@@ -57,7 +57,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     private readonly edgeDeviceService: EdgeDeviceService | null,
   ) {}
 
-  async onModuleInit() {
+  async onModuleInit(): Promise<void> {
     const mqttEnabled = this.configService.get('MQTT_ENABLED', 'true') === 'true';
 
     if (!mqttEnabled) {
@@ -68,7 +68,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     await this.connect();
   }
 
-  async onModuleDestroy() {
+  async onModuleDestroy(): Promise<void> {
     await this.disconnect();
   }
 

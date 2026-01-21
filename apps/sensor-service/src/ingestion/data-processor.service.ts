@@ -10,8 +10,8 @@ import { Sensor } from '../database/entities/sensor.entity';
  */
 export interface ProcessingResult {
   success: boolean;
-  originalValue: any;
-  processedValue: any;
+  originalValue: number | string | Record<string, unknown>;
+  processedValue: number | string | Record<string, unknown>;
   quality: number;
   alerts?: AlertTrigger[];
   error?: string;
@@ -47,10 +47,11 @@ export class DataProcessorService {
   /**
    * Process a sensor reading
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async processReading(
     sensor: Sensor,
-    rawValue: number | string | Record<string, any>,
-    timestamp: Date = new Date(),
+    rawValue: number | string | Record<string, unknown>,
+    _timestamp: Date = new Date(),
   ): Promise<ProcessingResult> {
     try {
       let processedValue = rawValue;
@@ -177,7 +178,7 @@ export class DataProcessorService {
    */
   async processBulkReadings(
     sensorId: string,
-    readings: { value: any; timestamp: Date }[],
+    readings: { value: number | string | Record<string, unknown>; timestamp: Date }[],
   ): Promise<ProcessingResult[]> {
     const sensor = await this.sensorRepository.findOne({
       where: { id: sensorId },

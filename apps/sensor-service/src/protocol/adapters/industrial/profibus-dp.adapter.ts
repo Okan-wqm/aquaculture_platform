@@ -1,8 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
 import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
+
+interface ProfibusDpConfig {
+  sensorId?: string;
+  tenantId?: string;
+  stationAddress?: number;
+}
 
 @Injectable()
 export class ProfibusDpAdapter extends BaseProtocolAdapter {
@@ -13,15 +18,17 @@ export class ProfibusDpAdapter extends BaseProtocolAdapter {
   readonly displayName = 'PROFIBUS DP';
   readonly description = 'PROFIBUS Decentralized Peripherals for industrial fieldbus';
 
-  constructor(configService: ConfigService) { super(configService); }
-
-  async connect(config: Record<string, unknown>): Promise<ConnectionHandle> { return this.createConnectionHandle(config.sensorId as string || 'unknown', config.tenantId as string || 'unknown', config); }
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async connect(config: Record<string, unknown>): Promise<ConnectionHandle> { const cfg = config as ProfibusDpConfig; return this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config); }
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> { this.removeConnectionHandle(handle.id); }
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> { return { success: true, latencyMs: 0 }; }
-  async readData(handle: ConnectionHandle): Promise<SensorReadingData> { return { timestamp: new Date(), values: {}, quality: 100, source: 'profibus_dp' }; }
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> { return { success: true, latencyMs: 0 }; }
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async readData(_handle: ConnectionHandle): Promise<SensorReadingData> { return { timestamp: new Date(), values: {}, quality: 100, source: 'profibus_dp' }; }
 
   validateConfiguration(config: unknown): ValidationResult {
-    const cfg = config as any;
+    const cfg = config as ProfibusDpConfig;
     const errors = [];
     if (cfg.stationAddress === undefined || cfg.stationAddress < 1 || cfg.stationAddress > 125) errors.push(this.validationError('stationAddress', 'Station address must be 1-125'));
     return { isValid: errors.length === 0, errors };

@@ -69,8 +69,13 @@ describe('ResponseTransformInterceptor', () => {
       ],
     }).compile();
 
-    interceptor = module.get<ResponseTransformInterceptor>(ResponseTransformInterceptor);
-    reflector = module.get<Reflector>(Reflector);
+    // Using indirect assignment to satisfy type checker
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const resolved: ResponseTransformInterceptor = module.get(ResponseTransformInterceptor);
+    interceptor = resolved;
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const resolvedReflector: Reflector = module.get(Reflector);
+    reflector = resolvedReflector;
   });
 
   describe('Standard Response Format', () => {

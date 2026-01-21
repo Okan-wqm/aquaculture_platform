@@ -465,7 +465,7 @@ export class TenantAdminService {
 
     try {
       // Query PostgreSQL information_schema
-      const tables = (await this.dataSource.query(
+      const tables: TableInfoRow[] = await this.dataSource.query(
         `
         SELECT
           table_name as "tableName",
@@ -478,7 +478,7 @@ export class TenantAdminService {
         ORDER BY table_name
       `,
         [schemaName],
-      )) as TableInfoRow[];
+      );
 
       // Map tables to modules (based on naming convention)
       return tables.map((t) => ({
@@ -550,7 +550,7 @@ export class TenantAdminService {
 
     try {
       // Get columns
-      const columnsResult = (await this.dataSource.query(
+      const columnsResult: Array<{ column_name: string }> = await this.dataSource.query(
         `
         SELECT column_name
         FROM information_schema.columns
@@ -558,7 +558,7 @@ export class TenantAdminService {
         ORDER BY ordinal_position
       `,
         [input.schemaName, input.tableName],
-      )) as Array<{ column_name: string }>;
+      );
 
       if (columnsResult.length === 0) {
         throw new NotFoundException(`Table not found: ${input.schemaName}.${input.tableName}`);
@@ -572,30 +572,30 @@ export class TenantAdminService {
       // Get total count (with tenant filter if applicable)
       let totalRows = 0;
       if (hasTenantId) {
-        const countResult = (await this.dataSource.query(
+        const countResult: CountRow[] = await this.dataSource.query(
           `SELECT COUNT(*) as count FROM ${fullTableName} WHERE "tenantId" = $1`,
           [tenantId],
-        )) as CountRow[];
+        );
         totalRows = Number(countResult[0]?.count) || 0;
       } else {
-        const countResult = (await this.dataSource.query(
+        const countResult: CountRow[] = await this.dataSource.query(
           `SELECT COUNT(*) as count FROM ${fullTableName}`,
-        )) as CountRow[];
+        );
         totalRows = Number(countResult[0]?.count) || 0;
       }
 
       // Get data (with tenant filter if applicable)
       let rows: DataRow[];
       if (hasTenantId) {
-        rows = (await this.dataSource.query(
+        rows = await this.dataSource.query(
           `SELECT * FROM ${fullTableName} WHERE "tenantId" = $1 ORDER BY 1 LIMIT $2 OFFSET $3`,
           [tenantId, limit, offset],
-        )) as DataRow[];
+        );
       } else {
-        rows = (await this.dataSource.query(
+        rows = await this.dataSource.query(
           `SELECT * FROM ${fullTableName} ORDER BY 1 LIMIT $1 OFFSET $2`,
           [limit, offset],
-        )) as DataRow[];
+        );
       }
 
       return {
@@ -682,10 +682,10 @@ export class TenantAdminService {
 
     for (const tableName of tenantTables) {
       try {
-        const countResult = (await this.dataSource.query(
+        const countResult: CountRow[] = await this.dataSource.query(
           `SELECT COUNT(*) as count FROM "${tableName}" WHERE "tenantId" = $1`,
           [tenantId],
-        )) as CountRow[];
+        );
 
         result.push({
           tableName,
@@ -714,7 +714,7 @@ export class TenantAdminService {
       const tableName = input.tableName;
 
       // Get columns
-      const columnsResult = (await this.dataSource.query(
+      const columnsResult: Array<{ column_name: string }> = await this.dataSource.query(
         `
         SELECT column_name
         FROM information_schema.columns
@@ -722,22 +722,22 @@ export class TenantAdminService {
         ORDER BY ordinal_position
       `,
         [tableName],
-      )) as Array<{ column_name: string }>;
+      );
 
       const columns = columnsResult.map((c) => c.column_name);
 
       // Get total count (filtered by tenant)
-      const countResult = (await this.dataSource.query(
+      const countResult: CountRow[] = await this.dataSource.query(
         `SELECT COUNT(*) as count FROM "${tableName}" WHERE "tenantId" = $1`,
         [tenantId],
-      )) as CountRow[];
+      );
       const totalRows = Number(countResult[0]?.count) || 0;
 
       // Get data (filtered by tenant)
-      const rows = (await this.dataSource.query(
+      const rows: DataRow[] = await this.dataSource.query(
         `SELECT * FROM "${tableName}" WHERE "tenantId" = $1 ORDER BY 1 LIMIT $2 OFFSET $3`,
         [tenantId, limit, offset],
-      )) as DataRow[];
+      );
 
       return {
         tableName,

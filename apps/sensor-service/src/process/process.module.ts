@@ -10,4 +10,5 @@ import { ProcessService } from './services/process.service';
   providers: [ProcessService, ProcessResolver],
   exports: [ProcessService],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class ProcessModule {}

@@ -29,4 +29,5 @@ import { MqttListenerService } from './mqtt-listener.service';
     DataProcessorService,
   ],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class IngestionModule {}

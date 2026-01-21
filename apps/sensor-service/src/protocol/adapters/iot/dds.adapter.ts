@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import {
   ProtocolCategory,
@@ -17,6 +16,8 @@ import {
 } from '../base-protocol.adapter';
 
 export interface DdsConfiguration {
+  sensorId?: string;
+  tenantId?: string;
   domainId: number;
   participantName: string;
   topicName: string;
@@ -38,18 +39,15 @@ export class DdsAdapter extends BaseProtocolAdapter {
   readonly displayName = 'DDS';
   readonly description = 'Data Distribution Service - Real-time publish-subscribe middleware';
 
-  constructor(configService: ConfigService) {
-    super(configService);
-  }
-
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
     const ddsConfig = config as unknown as DdsConfiguration;
 
     // DDS requires specific vendor library (RTI, OpenDDS, etc.)
     // This is a placeholder implementation
     const handle = this.createConnectionHandle(
-      config.sensorId as string || 'unknown',
-      config.tenantId as string || 'unknown',
+      ddsConfig.sensorId ?? 'unknown',
+      ddsConfig.tenantId ?? 'unknown',
       { domainId: ddsConfig.domainId, topicName: ddsConfig.topicName }
     );
 
@@ -57,12 +55,14 @@ export class DdsAdapter extends BaseProtocolAdapter {
     return handle;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     this.removeConnectionHandle(handle.id);
     this.logConnectionEvent('disconnect', handle);
   }
 
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> {
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> {
     const startTime = Date.now();
     const latencyMs = Date.now() - startTime;
 
@@ -74,6 +74,7 @@ export class DdsAdapter extends BaseProtocolAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readData(handle: ConnectionHandle): Promise<SensorReadingData> {
     this.updateLastActivity(handle);
 

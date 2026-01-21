@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import {
   ProtocolCategory,
@@ -17,6 +16,8 @@ import {
 } from '../base-protocol.adapter';
 
 export interface CoapConfiguration {
+  sensorId?: string;
+  tenantId?: string;
   serverUri: string;
   port: number;
   resourcePath: string;
@@ -47,17 +48,14 @@ export class CoapAdapter extends BaseProtocolAdapter {
   readonly displayName = 'CoAP';
   readonly description = 'Constrained Application Protocol - Lightweight IoT protocol for constrained devices';
 
-  constructor(configService: ConfigService) {
-    super(configService);
-  }
-
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
     const coapConfig = config as unknown as CoapConfiguration;
 
     // CoAP is connectionless (UDP), so we just validate and create handle
     const handle = this.createConnectionHandle(
-      config.sensorId as string || 'unknown',
-      config.tenantId as string || 'unknown',
+      coapConfig.sensorId ?? 'unknown',
+      coapConfig.tenantId ?? 'unknown',
       { serverUri: coapConfig.serverUri, resourcePath: coapConfig.resourcePath }
     );
 
@@ -65,11 +63,13 @@ export class CoapAdapter extends BaseProtocolAdapter {
     return handle;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     this.removeConnectionHandle(handle.id);
     this.logConnectionEvent('disconnect', handle);
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> {
     const coapConfig = config as unknown as CoapConfiguration;
     const startTime = Date.now();
@@ -100,6 +100,7 @@ export class CoapAdapter extends BaseProtocolAdapter {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readData(handle: ConnectionHandle): Promise<SensorReadingData> {
     this.updateLastActivity(handle);
 

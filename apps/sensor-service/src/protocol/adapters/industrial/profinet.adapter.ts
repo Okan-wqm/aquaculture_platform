@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
 import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
 
 export interface ProfinetConfiguration {
+  sensorId?: string;
+  tenantId?: string;
   deviceName: string;
   host: string;
   subnetMask: string;
@@ -26,22 +27,24 @@ export class ProfinetAdapter extends BaseProtocolAdapter {
   readonly displayName = 'PROFINET';
   readonly description = 'PROFINET industrial Ethernet standard for automation';
 
-  constructor(configService: ConfigService) { super(configService); }
-
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const handle = this.createConnectionHandle(config.sensorId as string || 'unknown', config.tenantId as string || 'unknown', config);
-    return handle;
+    const cfg = config as ProfinetConfiguration;
+    return this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     this.removeConnectionHandle(handle.id);
   }
 
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> {
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> {
     return { success: true, latencyMs: 0 };
   }
 
-  async readData(handle: ConnectionHandle): Promise<SensorReadingData> {
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async readData(_handle: ConnectionHandle): Promise<SensorReadingData> {
     return { timestamp: new Date(), values: {}, quality: 100, source: 'profinet' };
   }
 

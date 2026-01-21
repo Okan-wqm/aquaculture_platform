@@ -430,23 +430,27 @@ export class SupportService {
     ).length;
 
     // Calculate averages
-    const ticketsWithResponse = tickets.filter((t) => t.firstResponseAt);
+    const ticketsWithResponse = tickets.filter(
+      (t): t is typeof t & { firstResponseAt: Date } => t.firstResponseAt !== null,
+    );
     const avgResponseMinutes =
       ticketsWithResponse.length > 0
         ? ticketsWithResponse.reduce((sum, t) => {
             const diff =
-              new Date(t.firstResponseAt!).getTime() -
+              new Date(t.firstResponseAt).getTime() -
               new Date(t.createdAt).getTime();
             return sum + diff / 60000;
           }, 0) / ticketsWithResponse.length
         : 0;
 
-    const ticketsResolved = tickets.filter((t) => t.resolvedAt);
+    const ticketsResolved = tickets.filter(
+      (t): t is typeof t & { resolvedAt: Date } => t.resolvedAt !== null,
+    );
     const avgResolutionMinutes =
       ticketsResolved.length > 0
         ? ticketsResolved.reduce((sum, t) => {
             const diff =
-              new Date(t.resolvedAt!).getTime() -
+              new Date(t.resolvedAt).getTime() -
               new Date(t.createdAt).getTime();
             return sum + diff / 60000;
           }, 0) / ticketsResolved.length

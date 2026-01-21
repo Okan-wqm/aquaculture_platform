@@ -1,7 +1,5 @@
 import { InputType, Field, ObjectType, ID } from '@nestjs/graphql';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength, IsUUID, IsInt, Min, Max } from 'class-validator';
-
-import { Module } from '../../system-module/entities/module.entity';
+import { IsEmail, IsNotEmpty, IsString, MinLength, IsUUID, IsInt, Min, Max } from 'class-validator';
 
 /**
  * Input for assigning a user to a module

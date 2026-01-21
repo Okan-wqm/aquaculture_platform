@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import {
   ProtocolCategory,
@@ -17,6 +16,8 @@ import {
 } from '../base-protocol.adapter';
 
 export interface ModbusAsciiConfiguration {
+  sensorId?: string;
+  tenantId?: string;
   comPort: string;
   baudRate: number;
   dataBits: 7 | 8;
@@ -40,12 +41,8 @@ export class ModbusAsciiAdapter extends BaseProtocolAdapter {
   readonly displayName = 'Modbus ASCII';
   readonly description = 'Modbus ASCII mode over serial connection';
 
-  constructor(configService: ConfigService) {
-    super(configService);
-  }
-
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const asciiConfig = config as unknown as ModbusAsciiConfiguration;
+    const asciiConfig = config as Partial<ModbusAsciiConfiguration>;
 
     const ModbusRTU = (await import('modbus-serial')).default;
     const client = new ModbusRTU();
@@ -61,14 +58,15 @@ export class ModbusAsciiAdapter extends BaseProtocolAdapter {
     client.setTimeout(asciiConfig.timeout);
 
     const handle = this.createConnectionHandle(
-      config.sensorId as string || 'unknown',
-      config.tenantId as string || 'unknown',
+      asciiConfig.sensorId ?? 'unknown',
+      asciiConfig.tenantId ?? 'unknown',
       { comPort: asciiConfig.comPort }
     );
 
     return handle;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     this.removeConnectionHandle(handle.id);
     this.logConnectionEvent('disconnect', handle);
@@ -89,6 +87,7 @@ export class ModbusAsciiAdapter extends BaseProtocolAdapter {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readData(handle: ConnectionHandle): Promise<SensorReadingData> {
     this.updateLastActivity(handle);
     return { timestamp: new Date(), values: {}, quality: 100, source: 'modbus_ascii' };

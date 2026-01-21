@@ -1,4 +1,3 @@
-import { UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args } from '@nestjs/graphql';
 import {
   ObjectType,
@@ -7,13 +6,11 @@ import {
   InputType,
   registerEnumType,
   Int,
-  Float,
 } from '@nestjs/graphql';
 import { IsString, IsOptional, IsBoolean, IsNumber, IsObject } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
-import { SensorProtocol, ProtocolCategory } from '../../database/entities/sensor-protocol.entity';
-import { ValidationResult } from '../adapters/base-protocol.adapter';
+import { ProtocolCategory } from '../../database/entities/sensor-protocol.entity';
 import { ConnectionTesterService, ExtendedTestResult } from '../services/connection-tester.service';
 import { ProtocolRegistryService, ProtocolInfo, ProtocolSummary } from '../services/protocol-registry.service';
 import { ProtocolValidatorService } from '../services/protocol-validator.service';

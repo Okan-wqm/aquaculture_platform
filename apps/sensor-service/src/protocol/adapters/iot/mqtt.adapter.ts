@@ -302,6 +302,7 @@ export class MqttAdapter extends BaseProtocolAdapter {
 
     return {
       id: `sub_${handle.id}_${Date.now()}`,
+      // eslint-disable-next-line @typescript-eslint/require-await
       unsubscribe: async () => {
         isActive = false;
         client.unsubscribe(config.topic);

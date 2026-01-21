@@ -24,6 +24,38 @@ export type AggregationInterval =
   | '1 week';
 
 /**
+ * Query result row for aggregated readings
+ */
+interface AggregatedReadingRow {
+  bucket: Date;
+  count: string;
+  avg_temperature?: string;
+  avg_ph?: string;
+  avg_dissolved_oxygen?: string;
+  avg_salinity?: string;
+  avg_ammonia?: string;
+  avg_nitrite?: string;
+  avg_nitrate?: string;
+  min_temperature?: string;
+  max_temperature?: string;
+  min_ph?: string;
+  max_ph?: string;
+  min_dissolved_oxygen?: string;
+  max_dissolved_oxygen?: string;
+  min_salinity?: string;
+  max_salinity?: string;
+}
+
+/**
+ * Query result row for sensor stats
+ */
+interface SensorStatsRow {
+  total_readings?: string;
+  average_quality?: string;
+  last_reading?: Date;
+}
+
+/**
  * Aggregated sensor data
  */
 export interface AggregatedSensorData {
@@ -134,7 +166,7 @@ export class SensorQueryService {
       ORDER BY bucket ASC
     `;
 
-    const results = await this.dataSource.query(query, [
+    const results = await this.dataSource.query<AggregatedReadingRow[]>(query, [
       interval,
       sensorId,
       tenantId,
@@ -143,18 +175,78 @@ export class SensorQueryService {
     ]);
 
     return results.map(
-      (row: {
-        bucket: Date;
-        count: string;
-        avg_temperature?: string;
-        avg_ph?: string;
-        avg_dissolved_oxygen?: string;
-        avg_salinity?: string;
-        avg_ammonia?: string;
-        avg_nitrite?: string;
-        avg_nitrate?: string;
-        min_temperature?: string;
-        max_temperature?: string;
+      (row: AggregatedReadingRow) => ({
+        bucket: row.bucket,
+        count: parseInt(row.count, 10),
+        averages: {
+          temperature: row.avg_temperature
+            ? parseFloat(row.avg_temperature)
+            : undefined,
+          ph: row.avg_ph ? parseFloat(row.avg_ph) : undefined,
+          dissolvedOxygen: row.avg_dissolved_oxygen
+            ? parseFloat(row.avg_dissolved_oxygen)
+            : undefined,
+          salinity: row.avg_salinity
+            ? parseFloat(row.avg_salinity)
+            : undefined,
+          ammonia: row.avg_ammonia
+            ? parseFloat(row.avg_ammonia)
+            : undefined,
+          nitrite: row.avg_nitrite
+            ? parseFloat(row.avg_nitrite)
+            : undefined,
+          nitrate: row.avg_nitrate
+            ? parseFloat(row.avg_nitrate)
+            : undefined,
+        },
+        minimums: {
+          temperature: row.min_temperature
+            ? parseFloat(row.min_temperature)
+            : undefined,
+        },
+        maximums: {
+          temperature: row.max_temperature
+            ? parseFloat(row.max_temperature)
+            : undefined,
+        },
+      }),
+    );
+  }
+
+  /**
+   * Get aggregated readings with full min/max for all metrics
+   * Optimized for frontend chart rendering
+   */
+  async getAggregatedReadings(
+    sensorId: string,
+    tenantId: string,
+    startTime: Date,
+    endTime: Date,
+    interval?: AggregationInterval,
+  ): Promise<AggregatedReadingsResponse> {
+    // Auto-select optimal interval if not provided
+    const effectiveInterval = interval || getOptimalInterval(startTime, endTime);
+
+    const query = `
+      SELECT
+        time_bucket($1::interval, timestamp) AS bucket,
+        COUNT(*) AS count,
+        -- Temperature
+        AVG((readings->>'temperature')::numeric) AS avg_temperature,
+        MIN((readings->>'temperature')::numeric) AS min_temperature,
+        MAX((readings->>'temperature')::numeric) AS max_temperature,
+        -- pH
+        AVG((readings->>'ph')::numeric) AS avg_ph,
+        MIN((readings->>'ph')::numeric) AS min_ph,
+        MAX((readings->>'ph')::numeric) AS max_ph,
+        -- Dissolved Oxygen
+        AVG((readings->>'dissolvedOxygen')::numeric) AS avg_dissolved_oxygen,
+        MIN((readings->>'dissolvedOxygen')::numeric) AS min_dissolved_oxygen,
+        MAX((readings->>'dissolvedOxygen')::numeric) AS max_dissolved_oxygen,
+        -- Salinity
+        AVG((readings->>'salinity')::numeric) AS avg_salinity,
+        MIN((readings->>'salinity')::numeric) AS min_salinity,
+        MAX((readings->>'salinity')::numeric) AS max_salinity
       }) => ({
         bucket: row.bucket,
         count: parseInt(row.count, 10),

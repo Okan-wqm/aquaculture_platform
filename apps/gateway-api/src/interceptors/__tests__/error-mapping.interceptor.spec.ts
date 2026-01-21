@@ -565,26 +565,26 @@ describe('ErrorMappingInterceptor', () => {
       });
     });
 
-    it('should include details in development mode', (done) => {
+    it('should include details in development mode', async () => {
       process.env['NODE_ENV'] = 'development';
 
-      const module = Test.createTestingModule({
+      const compiled = await Test.createTestingModule({
         providers: [ErrorMappingInterceptor],
-      });
+      }).compile();
 
-      module.compile().then((compiled) => {
-        const devInterceptor = compiled.get<ErrorMappingInterceptor>(ErrorMappingInterceptor);
-        const context = createMockExecutionContext();
-        const error = createErrorWithCode('Detailed error message', 'RESOURCE_NOT_FOUND');
-        const handler = createErrorCallHandler(error);
+      const devInterceptor = compiled.get<ErrorMappingInterceptor>(ErrorMappingInterceptor);
+      const context = createMockExecutionContext();
+      const error = createErrorWithCode('Detailed error message', 'RESOURCE_NOT_FOUND');
+      const handler = createErrorCallHandler(error);
 
+      await new Promise<void>((resolve, reject) => {
         devInterceptor.intercept(context, handler).subscribe({
-          next: () => failTest(done, 'Should have thrown'),
+          next: () => reject(new Error('Should have thrown')),
           error: (err: unknown) => {
             const httpError = err as HttpException;
             const response = httpError.getResponse() as MappedErrorResponse;
             expect(response.error.details).toBe('Detailed error message');
-            done();
+            resolve();
           },
         });
       });
@@ -592,30 +592,30 @@ describe('ErrorMappingInterceptor', () => {
   });
 
   describe('Production Mode', () => {
-    it('should hide error details in production', (done) => {
+    it('should hide error details in production', async () => {
       process.env['NODE_ENV'] = 'production';
 
-      Test.createTestingModule({
+      const module = await Test.createTestingModule({
         providers: [ErrorMappingInterceptor],
-      })
-        .compile()
-        .then((module) => {
-          const prodInterceptor = module.get<ErrorMappingInterceptor>(ErrorMappingInterceptor);
-          const context = createMockExecutionContext();
-          const error = new Error('Sensitive internal error');
-          const handler = createErrorCallHandler(error);
+      }).compile();
 
-          prodInterceptor.intercept(context, handler).subscribe({
-            next: () => failTest(done, 'Should have thrown'),
-            error: (err: unknown) => {
-              const httpError = err as HttpException;
-              const response = httpError.getResponse() as MappedErrorResponse;
-              expect(response.error.message).toBe('An unexpected error occurred. Please try again later.');
-              expect(response.error.stack).toBeUndefined();
-              done();
-            },
-          });
+      const prodInterceptor = module.get<ErrorMappingInterceptor>(ErrorMappingInterceptor);
+      const context = createMockExecutionContext();
+      const error = new Error('Sensitive internal error');
+      const handler = createErrorCallHandler(error);
+
+      await new Promise<void>((resolve, reject) => {
+        prodInterceptor.intercept(context, handler).subscribe({
+          next: () => reject(new Error('Should have thrown')),
+          error: (err: unknown) => {
+            const httpError = err as HttpException;
+            const response = httpError.getResponse() as MappedErrorResponse;
+            expect(response.error.message).toBe('An unexpected error occurred. Please try again later.');
+            expect(response.error.stack).toBeUndefined();
+            resolve();
+          },
         });
+      });
     });
 
     it('should hide stack trace in production', (done) => {

@@ -1,5 +1,6 @@
 import { Module, Global } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
 import { AuditLog } from './audit-log.entity';
 import { AuditLogService } from './audit-log.service';
 

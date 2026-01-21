@@ -6,13 +6,12 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
-import { Tenant, TenantStatus } from '../entities/tenant.entity';
-import { TenantModule } from '../entities/tenant-module.entity';
-import { User } from '../../authentication/entities/user.entity';
-import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
-import { Module } from '../../system-module/entities/module.entity';
 import { Role } from '@platform/backend-common';
+import { Repository, DataSource } from 'typeorm';
+
+import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
+import { User } from '../../authentication/entities/user.entity';
+import { Module } from '../../system-module/entities/module.entity';
 import {
   AssignUserToModuleInput,
   AssignmentResult,
@@ -22,6 +21,8 @@ import {
   TableDataResult,
   GetTableDataInput,
 } from '../dto/tenant-admin.dto';
+import { TenantModule } from '../entities/tenant-module.entity';
+import { Tenant, TenantStatus } from '../entities/tenant.entity';
 
 /**
  * TenantAdminService

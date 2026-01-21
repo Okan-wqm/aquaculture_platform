@@ -1,10 +1,8 @@
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
-import { MessagingService } from '../services/messaging.service';
-import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
+import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { TenantAdminOrHigher, CurrentUser } from '@platform/backend-common';
-import { MessageThread, ThreadStatus } from '../entities/message-thread.entity';
-import { Message } from '../entities/message.entity';
+
+import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
 import {
   CreateThreadInput,
   SendMessageInput,
@@ -12,6 +10,9 @@ import {
   MessageItem,
   MessagingStats,
 } from '../dto/messaging.dto';
+import { MessageThread, ThreadStatus } from '../entities/message-thread.entity';
+import { Message } from '../entities/message.entity';
+import { MessagingService } from '../services/messaging.service';
 
 /**
  * MessagingResolver

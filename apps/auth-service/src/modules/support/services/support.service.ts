@@ -6,16 +6,11 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Role } from '@platform/backend-common';
 import { Repository } from 'typeorm';
-import {
-  SupportTicket,
-  TicketPriority,
-  TicketStatus,
-} from '../entities/support-ticket.entity';
-import { TicketComment, CommentAuthorType } from '../entities/ticket-comment.entity';
+
 import { User } from '../../authentication/entities/user.entity';
 import { Tenant } from '../../tenant/entities/tenant.entity';
-import { Role } from '@platform/backend-common';
 import {
   CreateTicketInput,
   AddTicketCommentInput,
@@ -26,6 +21,12 @@ import {
   CommentItem,
   SupportStats,
 } from '../dto/support.dto';
+import {
+  SupportTicket,
+  TicketPriority,
+  TicketStatus,
+} from '../entities/support-ticket.entity';
+import { TicketComment, CommentAuthorType } from '../entities/ticket-comment.entity';
 
 /**
  * SLA configuration (in minutes)

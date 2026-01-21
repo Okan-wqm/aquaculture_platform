@@ -1,9 +1,9 @@
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
-import { TenantAdminService } from '../services/tenant-admin.service';
-import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
+import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { TenantAdminOrHigher, CurrentUser } from '@platform/backend-common';
+
 import { User } from '../../authentication/entities/user.entity';
+import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
 import {
   AssignUserToModuleInput,
   AssignmentResult,
@@ -13,6 +13,7 @@ import {
   TableDataResult,
   GetTableDataInput,
 } from '../dto/tenant-admin.dto';
+import { TenantAdminService } from '../services/tenant-admin.service';
 
 /**
  * TenantAdminResolver

@@ -1,7 +1,7 @@
 import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import { SkipTenantGuard } from '@platform/backend-common';
+import { DataSource } from 'typeorm';
 
 @Controller('health')
 @SkipTenantGuard()

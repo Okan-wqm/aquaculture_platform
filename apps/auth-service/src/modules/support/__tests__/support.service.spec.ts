@@ -1,9 +1,11 @@
+import { NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Role } from '@platform/backend-common';
 import { Repository } from 'typeorm';
-import { NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 
-import { SupportService } from '../services/support.service';
+import { User } from '../../authentication/entities/user.entity';
+import { Tenant } from '../../tenant/entities/tenant.entity';
 import {
   SupportTicket,
   TicketPriority,
@@ -11,9 +13,8 @@ import {
   TicketCategory,
 } from '../entities/support-ticket.entity';
 import { TicketComment, CommentAuthorType } from '../entities/ticket-comment.entity';
-import { User } from '../../authentication/entities/user.entity';
-import { Tenant } from '../../tenant/entities/tenant.entity';
-import { Role } from '@platform/backend-common';
+import { SupportService } from '../services/support.service';
+
 
 // ============================================================================
 // Mock Helpers

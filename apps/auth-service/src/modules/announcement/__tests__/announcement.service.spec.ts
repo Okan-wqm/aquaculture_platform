@@ -1,19 +1,20 @@
+import { NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Role } from '@platform/backend-common';
 import { Repository } from 'typeorm';
-import { NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 
-import { AnnouncementService } from '../services/announcement.service';
+import { User } from '../../authentication/entities/user.entity';
+import { Tenant } from '../../tenant/entities/tenant.entity';
+import { AnnouncementAcknowledgment } from '../entities/announcement-acknowledgment.entity';
 import {
   Announcement,
   AnnouncementType,
   AnnouncementStatus,
   AnnouncementScope,
 } from '../entities/announcement.entity';
-import { AnnouncementAcknowledgment } from '../entities/announcement-acknowledgment.entity';
-import { User } from '../../authentication/entities/user.entity';
-import { Tenant } from '../../tenant/entities/tenant.entity';
-import { Role } from '@platform/backend-common';
+import { AnnouncementService } from '../services/announcement.service';
+
 
 // ============================================================================
 // Mock Helpers

@@ -1,5 +1,6 @@
 import { InputType, Field, ObjectType, ID } from '@nestjs/graphql';
 import { IsNotEmpty, IsString, IsUUID, IsOptional, IsBoolean } from 'class-validator';
+
 import { ThreadStatus } from '../entities/message-thread.entity';
 import { SenderType, MessageStatus, MessageAttachment } from '../entities/message.entity';
 

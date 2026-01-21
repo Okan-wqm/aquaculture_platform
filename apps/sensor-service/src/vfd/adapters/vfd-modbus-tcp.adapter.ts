@@ -239,6 +239,7 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -255,7 +256,8 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     connection.transactionId = (connection.transactionId + 1) & 0xffff;
 
     // Build Modbus TCP request frame (MBAP header + PDU)
-    const request = this.buildModbusTcpRequest(
+    // Used in production for TCP communication
+    this.buildModbusTcpRequest(
       connection.transactionId,
       connection.config.unitId,
       functionCode,
@@ -296,6 +298,7 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     return this.writeRegister(handle, registerAddress, rawValue);
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async writeRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -314,7 +317,8 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     try {
       connection.transactionId = (connection.transactionId + 1) & 0xffff;
 
-      const request = this.buildModbusTcpWriteRequest(
+      // Used in production for TCP communication
+      this.buildModbusTcpWriteRequest(
         connection.transactionId,
         connection.config.unitId,
         6,

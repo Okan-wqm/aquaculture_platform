@@ -235,8 +235,8 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
-    count: number,
-    functionCode: number
+    _count: number,
+    _functionCode: number
   ): Promise<Buffer> {
     const connection = this.connections.get(handle.id) as BacnetConnectionHandle;
 
@@ -465,6 +465,7 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async readProperty(
     connection: BacnetConnectionHandle,
     objectType: number,
@@ -479,6 +480,7 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
     return Math.random() * 100;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async writeProperty(
     connection: BacnetConnectionHandle,
     objectType: number,

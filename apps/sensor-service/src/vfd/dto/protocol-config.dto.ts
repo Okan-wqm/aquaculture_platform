@@ -5,11 +5,9 @@ import {
   IsInt,
   IsEnum,
   IsBoolean,
-  IsIP,
   Min,
   Max,
   Matches,
-  ValidateIf,
 } from 'class-validator';
 
 import { VfdProtocol } from '../entities/vfd.enums';

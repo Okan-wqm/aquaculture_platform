@@ -172,7 +172,7 @@ export function getCriticalParameters(brand: VfdBrand): VfdRegisterMappingInput[
  */
 export function getParametersByCategory(
   brand: VfdBrand,
-  category: string
+  category: VfdParameterCategory
 ): VfdRegisterMappingInput[] {
   const registers = getVfdRegisterMappings(brand);
   return registers.filter(r => r.category === category);

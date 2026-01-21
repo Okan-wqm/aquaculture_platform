@@ -227,11 +227,12 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
     count: number,
-    functionCode: number
+    _functionCode: number
   ): Promise<Buffer> {
     const connection = this.connections.get(handle.id) as ProfibusConnectionHandle;
 
@@ -270,6 +271,7 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
     return this.writeRegister(handle, registerAddress, rawValue);
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async writeRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -434,6 +436,7 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async readCyclicData(connection: ProfibusConnectionHandle): Promise<Buffer> {
     // Read cyclic process data from PROFIBUS
     // This would interact with PROFIBUS master hardware

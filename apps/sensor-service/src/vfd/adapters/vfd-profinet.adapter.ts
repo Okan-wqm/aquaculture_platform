@@ -225,11 +225,12 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
     count: number,
-    functionCode: number
+    _functionCode: number
   ): Promise<Buffer> {
     const connection = this.connections.get(handle.id) as ProfinetConnectionHandle;
 
@@ -267,6 +268,7 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
     return this.writeRegister(handle, registerAddress, rawValue);
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async writeRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -448,7 +450,8 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
     };
   }
 
-  private async readCyclicData(connection: ProfinetConnectionHandle): Promise<Buffer> {
+  // eslint-disable-next-line @typescript-eslint/require-await
+  private async readCyclicData(_connection: ProfinetConnectionHandle): Promise<Buffer> {
     // Read cyclic IO data from PROFINET
     // In production, this would use RT Ethernet frames
     const data = Buffer.alloc(32); // Typical telegram size

@@ -114,7 +114,7 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
       handle = await this.connect(config);
 
       // Read identity object (Class 1, Instance 1)
-      const testBuffer = await this.readRegister(handle, 1, 1, 0x0e); // Get Attribute Single
+      await this.readRegister(handle, 1, 1, 0x0e); // Get Attribute Single
       const latencyMs = Date.now() - startTime;
 
       await this.disconnect(handle);
@@ -223,6 +223,7 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -265,6 +266,7 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
     return this.writeRegister(handle, registerAddress, rawValue);
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async writeRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -443,8 +445,9 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async readAssemblyData(
-    connection: EthernetIpConnectionHandle,
+    _connection: EthernetIpConnectionHandle,
     assemblyInstance: number
   ): Promise<Buffer> {
     // Read assembly object instance data

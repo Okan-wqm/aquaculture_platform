@@ -5,7 +5,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/require-await */
 /* eslint-disable @typescript-eslint/no-floating-promises */
-import { NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Role } from '@platform/backend-common';
@@ -398,7 +398,7 @@ describe('AnnouncementService', () => {
       announcementRepository.findOne.mockResolvedValue(announcement);
       announcementRepository.save.mockImplementation((a) => Promise.resolve(a as Announcement));
 
-      const result = await service.publishAnnouncement(superAdmin.id, announcement.id);
+      await service.publishAnnouncement(superAdmin.id, announcement.id);
 
       expect(announcementRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({

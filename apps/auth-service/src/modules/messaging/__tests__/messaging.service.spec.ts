@@ -280,7 +280,7 @@ describe('MessagingService', () => {
       threadRepository.save.mockResolvedValue(createMockThread({ tenantId: 'target-tenant' }));
       messageRepository.save.mockResolvedValue(createMockMessage());
 
-      const result = await service.createThread(superAdmin.id, input);
+      await service.createThread(superAdmin.id, input);
 
       expect(threadRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -315,7 +315,7 @@ describe('MessagingService', () => {
       threadRepository.save.mockResolvedValue({ ...thread, messageCount: 2 });
       messageRepository.save.mockResolvedValue(createMockMessage({ content: 'My message' }));
 
-      const result = await service.sendMessage(tenantAdmin.id, input);
+      await service.sendMessage(tenantAdmin.id, input);
 
       expect(messageRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -423,7 +423,7 @@ describe('MessagingService', () => {
       (messageRepository.createQueryBuilder().getMany as jest.Mock).mockResolvedValue(messages);
       threadRepository.update.mockResolvedValue({ affected: 1 } as any);
 
-      const result = await service.getMessages(tenantAdmin.id, thread.id);
+      await service.getMessages(tenantAdmin.id, thread.id);
 
       // Verify internal filter was applied
       expect(messageRepository.createQueryBuilder().andWhere).toHaveBeenCalledWith(
@@ -444,7 +444,7 @@ describe('MessagingService', () => {
       (messageRepository.createQueryBuilder().getMany as jest.Mock).mockResolvedValue(messages);
       threadRepository.update.mockResolvedValue({ affected: 1 } as any);
 
-      const result = await service.getMessages(superAdmin.id, thread.id);
+      await service.getMessages(superAdmin.id, thread.id);
 
       // Internal filter should NOT be applied for SuperAdmin
       // The andWhere for isInternal should not be called
@@ -460,7 +460,7 @@ describe('MessagingService', () => {
       threadRepository.findOne.mockResolvedValue(thread);
       threadRepository.save.mockResolvedValue({ ...thread, status: ThreadStatus.CLOSED });
 
-      const result = await service.closeThread(user.id, thread.id);
+      await service.closeThread(user.id, thread.id);
 
       expect(threadRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ status: ThreadStatus.CLOSED }),
@@ -477,7 +477,7 @@ describe('MessagingService', () => {
       threadRepository.findOne.mockResolvedValue(thread);
       threadRepository.save.mockResolvedValue({ ...thread, status: ThreadStatus.OPEN });
 
-      const result = await service.reopenThread(user.id, thread.id);
+      await service.reopenThread(user.id, thread.id);
 
       expect(threadRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ status: ThreadStatus.OPEN }),
@@ -494,7 +494,7 @@ describe('MessagingService', () => {
       threadRepository.findOne.mockResolvedValue(thread);
       threadRepository.save.mockResolvedValue({ ...thread, status: ThreadStatus.ARCHIVED });
 
-      const result = await service.archiveThread(superAdmin.id, thread.id);
+      await service.archiveThread(superAdmin.id, thread.id);
 
       expect(threadRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ status: ThreadStatus.ARCHIVED }),

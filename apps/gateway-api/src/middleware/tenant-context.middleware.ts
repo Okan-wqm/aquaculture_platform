@@ -230,7 +230,7 @@ export class TenantContextMiddleware implements NestMiddleware {
       .map((p) => p.trim());
   }
 
-  async use(req: Request, res: Response, next: NextFunction): Promise<void> {
+  use(req: Request, res: Response, next: NextFunction): void {
     const tenantReq = req as TenantContextRequest;
 
     // Skip tenant resolution for public paths

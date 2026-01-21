@@ -235,14 +235,16 @@ export function Timeout(ms: number) {
   ) {
     const originalMethod = descriptor.value as (...args: unknown[]) => unknown;
 
-    descriptor.value = async function (...args: unknown[]) {
+    const wrappedMethod = function (...args: unknown[]) {
       // The timeout will be handled by the middleware
       // This decorator is for documentation/metadata purposes
       return originalMethod.apply(this, args);
     };
 
+    descriptor.value = wrappedMethod;
+
     // Store timeout metadata
-    Reflect.defineMetadata('timeout', ms, descriptor.value);
+    Reflect.defineMetadata('timeout', ms, wrappedMethod);
 
     return descriptor;
   };

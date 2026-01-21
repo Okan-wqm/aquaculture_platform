@@ -133,7 +133,7 @@ export class ResponseTransformInterceptor<T> implements NestInterceptor<T, ApiRe
     );
 
     return next.handle().pipe(
-      map((data) => {
+      map((data: T) => {
         // Apply custom wrapper if defined
         if (customWrapper) {
           return customWrapper(data) as ApiResponse<T>;

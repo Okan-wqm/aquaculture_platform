@@ -301,7 +301,8 @@ export class ProvisioningService {
     await this.deviceRepository.save(device);
 
     // Add MQTT credentials to password file (for Mosquitto auth)
-    await this.mqttAuthService.addDeviceCredentials(device.mqttClientId!, mqttPasswordHash);
+    const mqttClientId = device.mqttClientId ?? '';
+    await this.mqttAuthService.addDeviceCredentials(mqttClientId, mqttPasswordHash);
 
     this.logger.log(`Device ${device.deviceCode} activated successfully`);
 
@@ -310,7 +311,7 @@ export class ProvisioningService {
       success: true,
       mqtt_broker: this.MQTT_BROKER,
       mqtt_port: this.MQTT_PORT,
-      mqtt_username: device.mqttClientId!,
+      mqtt_username: mqttClientId,
       mqtt_password: mqttPassword,
       tenant_id: device.tenantId,
       device_code: device.deviceCode,

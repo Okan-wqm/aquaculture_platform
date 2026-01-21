@@ -20,28 +20,6 @@ interface HttpExceptionResponse {
 }
 
 /**
- * Helper to check mock function calls - avoids unbound-method lint error
- * Uses Function type to bypass unbound method check
- */
-const expectMockCalledTimes = (mockFn: (...args: unknown[]) => unknown, times: number): void => {
-  expect(mockFn).toHaveBeenCalledTimes(times);
-};
-
-/**
- * Helper to check mock function was called with arguments
- */
-const _expectMockCalledWith = (mockFn: (...args: unknown[]) => unknown, ...args: unknown[]): void => {
-  expect(mockFn).toHaveBeenCalledWith(...args);
-};
-
-/**
- * Helper to check mock function was not called - avoids unbound-method lint error
- */
-const expectMockNotCalled = (mockFn: (...args: unknown[]) => unknown): void => {
-  expect(mockFn).not.toHaveBeenCalled();
-};
-
-/**
  * Helper to get method from prototype - avoids unbound-method lint error
  */
 const getPrototypeMethod = <T>(
@@ -140,7 +118,7 @@ describe('HealthController', () => {
 
       controller.liveness();
 
-      expectMockCalledTimes(healthService.getLiveness, 1);
+      expect(healthService.getLiveness.mock.calls).toHaveLength(1);
     });
 
     it('should always succeed regardless of downstream services', () => {
@@ -207,7 +185,7 @@ describe('HealthController', () => {
 
       await controller.readiness();
 
-      expectMockCalledTimes(healthService.getReadiness, 1);
+      expect(healthService.getReadiness.mock.calls).toHaveLength(1);
     });
   });
 
@@ -272,7 +250,7 @@ describe('HealthController', () => {
 
       await controller.health();
 
-      expectMockCalledTimes(healthService.getHealth, 1);
+      expect(healthService.getHealth.mock.calls).toHaveLength(1);
     });
 
     it('should return healthy status when all services healthy', async () => {
@@ -323,9 +301,9 @@ describe('HealthController', () => {
     it('should not call health service', () => {
       controller.ping();
 
-      expectMockNotCalled(healthService.getLiveness);
-      expectMockNotCalled(healthService.getReadiness);
-      expectMockNotCalled(healthService.getHealth);
+      expect(healthService.getLiveness.mock.calls).toHaveLength(0);
+      expect(healthService.getReadiness.mock.calls).toHaveLength(0);
+      expect(healthService.getHealth.mock.calls).toHaveLength(0);
     });
 
     it('should return consistent structure', () => {

@@ -105,7 +105,7 @@ export class TenantContextInterceptor implements NestInterceptor {
 
     if (isGraphQL) {
       const gqlContext = GqlExecutionContext.create(context);
-      const ctx = gqlContext.getContext();
+      const ctx = gqlContext.getContext<{ req: TenantAwareRequest; res?: Response }>();
       request = ctx.req;
       response = ctx.res;
     } else {

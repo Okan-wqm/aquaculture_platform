@@ -117,7 +117,7 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
       handle = await this.connect(config);
 
       // Read device type (Object 0x1000)
-      const testBuffer = await this.readRegister(handle, 0x1000, 1, 0);
+      await this.readRegister(handle, 0x1000, 1, 0);
       const latencyMs = Date.now() - startTime;
 
       await this.disconnect(handle);
@@ -223,8 +223,8 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
-    count: number,
-    functionCode: number
+    _count: number,
+    _functionCode: number
   ): Promise<Buffer> {
     const connection = this.connections.get(handle.id) as CanopenConnectionHandle;
 
@@ -239,7 +239,7 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
   async writeControlWord(
     handle: VfdConnectionHandle,
     controlWord: number,
-    registerAddress: number
+    _registerAddress: number
   ): Promise<VfdCommandResult> {
     // CiA 402 controlword is at object 0x6040
     return this.writeRegister(handle, 0x6040, controlWord);
@@ -387,8 +387,9 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async sdoRead(
-    connection: CanopenConnectionHandle,
+    _connection: CanopenConnectionHandle,
     index: number,
     subIndex: number
   ): Promise<Buffer> {
@@ -401,8 +402,9 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
     return data;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async sdoWrite(
-    connection: CanopenConnectionHandle,
+    _connection: CanopenConnectionHandle,
     index: number,
     subIndex: number,
     value: number

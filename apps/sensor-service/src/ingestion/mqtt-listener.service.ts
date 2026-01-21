@@ -701,11 +701,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private async findSensorByTopic(topic: string, parsed: ParsedTopic | null): Promise<Sensor | null> {
     try {
       // Get all tenant schemas
-      const tenantSchemas = (await this.dataSource.query(`
+      const tenantSchemas: Array<{ schema_name: string }> = await this.dataSource.query(`
         SELECT schema_name FROM information_schema.schemata
         WHERE schema_name LIKE 'tenant_%'
         ORDER BY schema_name
-      `)) as Array<{ schema_name: string }>;
+      `);
 
       // Search in each tenant schema
       for (const { schema_name } of tenantSchemas) {
@@ -716,10 +716,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           await this.dataSource.query(`SET search_path TO "${safeSchemaName}", public`);
 
           // Check if sensors table exists in this schema
-          const tableCheck = (await this.dataSource.query(`
+          const tableCheck: Array<{ '1': number }> = await this.dataSource.query(`
             SELECT 1 FROM information_schema.tables
             WHERE table_schema = $1 AND table_name = 'sensors'
-          `, [schema_name])) as Array<{ 1: number }>;
+          `, [schema_name]);
 
           if (tableCheck.length === 0) {
             continue; // Skip schemas without sensors table

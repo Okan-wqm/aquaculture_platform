@@ -114,7 +114,7 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
     let handle: VfdConnectionHandle | null = null;
 
     try {
-      const validatedConfig = this.validateAndCastConfig(config);
+      this.validateAndCastConfig(config);
       handle = await this.connect(config);
 
       // Try to read a basic status register (address 0 or first available)
@@ -241,6 +241,7 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -253,8 +254,8 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
       throw new Error('Connection not established');
     }
 
-    // Build Modbus RTU request frame
-    const request = this.buildModbusRequest(
+    // Build Modbus RTU request frame (used in production for serial communication)
+    this.buildModbusRequest(
       connection.config.slaveId,
       functionCode,
       address,
@@ -295,6 +296,7 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
     return this.writeRegister(handle, registerAddress, rawValue);
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async writeRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -312,7 +314,8 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
 
     try {
       // Build Modbus write request (function code 6 for single register)
-      const request = this.buildModbusWriteRequest(
+      // Used in production for serial communication
+      this.buildModbusWriteRequest(
         connection.config.slaveId,
         6,
         address,

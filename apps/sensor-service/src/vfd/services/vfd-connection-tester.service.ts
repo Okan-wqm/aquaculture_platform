@@ -170,9 +170,10 @@ export class VfdConnectionTesterService {
   /**
    * Discover devices on a network (for protocols that support discovery)
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async discoverDevices(
     protocol: VfdProtocol,
-    discoveryParams: Record<string, unknown>
+    _discoveryParams: Record<string, unknown>
   ): Promise<Array<{
     address: string;
     deviceInfo?: Record<string, unknown>;

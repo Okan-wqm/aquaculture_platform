@@ -121,8 +121,7 @@ export class ProtocolValidatorService {
     const errors: ValidationError[] = [];
 
     for (const field of required) {
-      const configRecord = config as Record<string, unknown>;
-      if (configRecord[field] === undefined || configRecord[field] === null || configRecord[field] === '') {
+      if (config[field] === undefined || config[field] === null || config[field] === '') {
         errors.push({
           field,
           message: `${field} is required`,

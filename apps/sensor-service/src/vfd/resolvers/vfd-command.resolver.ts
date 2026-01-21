@@ -127,6 +127,7 @@ export class VfdCommandResolver {
   /**
    * Get supported protocols for a brand
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   @Query('vfdProtocols')
   async getVfdProtocols() {
     return this.connectionTesterService.getSupportedProtocols();
@@ -135,6 +136,7 @@ export class VfdCommandResolver {
   /**
    * Get protocol configuration schema
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   @Query('vfdProtocolSchema')
   async getProtocolSchema(
     @Args('protocol') protocol: VfdProtocol
@@ -145,6 +147,7 @@ export class VfdCommandResolver {
   /**
    * Get default configuration for a protocol
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   @Query('vfdProtocolDefaultConfig')
   async getProtocolDefaultConfig(
     @Args('protocol') protocol: VfdProtocol
@@ -177,6 +180,7 @@ export class VfdCommandResolver {
   /**
    * Get control commands for a brand
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   @Query('vfdBrandCommands')
   async getBrandCommands(
     @Args('brand') brand: VfdBrand
@@ -187,6 +191,7 @@ export class VfdCommandResolver {
   /**
    * Validate protocol configuration
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   @Query('validateVfdConfig')
   async validateConfig(
     @Args('protocol') protocol: VfdProtocol,

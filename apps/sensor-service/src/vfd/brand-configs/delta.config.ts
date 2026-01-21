@@ -1,5 +1,5 @@
 import { VfdRegisterMappingInput } from '../entities/vfd-register-mapping.entity';
-import { VfdBrand, VfdParameterCategory, VfdDataType, ByteOrder } from '../entities/vfd.enums';
+import { VfdBrand, VfdParameterCategory, VfdDataType } from '../entities/vfd.enums';
 
 /**
  * Delta VFD Register Mappings

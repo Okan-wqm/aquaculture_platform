@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
+import { Repository, Between, LessThanOrEqual } from 'typeorm';
 
 import {
   createVfdAdapter,
@@ -8,9 +8,7 @@ import {
   VfdReadResult,
 } from '../adapters';
 import { VfdDevice } from '../entities/vfd-device.entity';
-import { VfdReading, VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
-import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
-import { VfdDeviceStatus } from '../entities/vfd.enums';
+import { VfdReading } from '../entities/vfd-reading.entity';
 
 import { VfdDeviceService } from './vfd-device.service';
 import { VfdRegisterMappingService } from './vfd-register-mapping.service';
@@ -156,7 +154,20 @@ export class VfdDataReaderService {
     faultCount: number;
     warningCount: number;
   }> {
-    const result = await this.vfdReadingRepository
+    interface VfdStatisticsRaw {
+      avgoutputfrequency: string | null;
+      maxoutputfrequency: string | null;
+      minoutputfrequency: string | null;
+      avgmotorcurrent: string | null;
+      maxmotorcurrent: string | null;
+      avgoutputpower: string | null;
+      maxoutputpower: string | null;
+      readingcount: string;
+      faultcount: string;
+      warningcount: string;
+    }
+
+    const result: VfdStatisticsRaw | undefined = await this.vfdReadingRepository
       .createQueryBuilder('reading')
       .select([
         "AVG((reading.parameters->>'outputFrequency')::float) as avgOutputFrequency",
@@ -178,14 +189,22 @@ export class VfdDataReaderService {
       })
       .getRawOne();
 
+    if (!result) {
+      return {
+        readingCount: 0,
+        faultCount: 0,
+        warningCount: 0,
+      };
+    }
+
     return {
-      avgOutputFrequency: parseFloat(result.avgoutputfrequency) || undefined,
-      maxOutputFrequency: parseFloat(result.maxoutputfrequency) || undefined,
-      minOutputFrequency: parseFloat(result.minoutputfrequency) || undefined,
-      avgMotorCurrent: parseFloat(result.avgmotorcurrent) || undefined,
-      maxMotorCurrent: parseFloat(result.maxmotorcurrent) || undefined,
-      avgOutputPower: parseFloat(result.avgoutputpower) || undefined,
-      maxOutputPower: parseFloat(result.maxoutputpower) || undefined,
+      avgOutputFrequency: result.avgoutputfrequency ? parseFloat(result.avgoutputfrequency) : undefined,
+      maxOutputFrequency: result.maxoutputfrequency ? parseFloat(result.maxoutputfrequency) : undefined,
+      minOutputFrequency: result.minoutputfrequency ? parseFloat(result.minoutputfrequency) : undefined,
+      avgMotorCurrent: result.avgmotorcurrent ? parseFloat(result.avgmotorcurrent) : undefined,
+      maxMotorCurrent: result.maxmotorcurrent ? parseFloat(result.maxmotorcurrent) : undefined,
+      avgOutputPower: result.avgoutputpower ? parseFloat(result.avgoutputpower) : undefined,
+      maxOutputPower: result.maxoutputpower ? parseFloat(result.maxoutputpower) : undefined,
       readingCount: parseInt(result.readingcount, 10) || 0,
       faultCount: parseInt(result.faultcount, 10) || 0,
       warningCount: parseInt(result.warningcount, 10) || 0,

@@ -5,8 +5,6 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
-  ManyToOne,
-  JoinColumn,
 } from 'typeorm';
 
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from './vfd.enums';

@@ -6,8 +6,6 @@
  * Supports HTTP, WebSocket, and SSE proxying.
  */
 
-import { IncomingMessage } from 'http';
-
 import { Injectable, Logger, BadGatewayException, GatewayTimeoutException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
@@ -129,7 +127,7 @@ export class ServiceProxyService {
         return this.executeProxyRequest(config, serviceConfig, instance);
       },
       {
-        fallback: async (error) => {
+        fallback: (error) => {
           this.logger.error(`Proxy failed for ${config.serviceName}`, {
             error: error.message,
             path: config.path,
@@ -192,12 +190,12 @@ export class ServiceProxyService {
   /**
    * Proxy WebSocket connection
    */
-  async proxyWebSocket(
+  proxyWebSocket(
     req: Request,
-    socket: unknown,
-    head: Buffer,
+    _socket: unknown,
+    _head: Buffer,
     serviceName: string,
-  ): Promise<void> {
+  ): void {
     const instance = this.loadBalancer.getNextInstance(serviceName);
 
     if (!instance) {
@@ -232,7 +230,8 @@ export class ServiceProxyService {
 
     try {
       const controller = new AbortController();
-      const timeout = this.getServiceConfig(serviceName).timeout;
+      // Timeout from config available for future SSE timeout handling
+      const _timeout = this.getServiceConfig(serviceName).timeout;
 
       // Set SSE headers
       res.setHeader('Content-Type', 'text/event-stream');
@@ -262,12 +261,14 @@ export class ServiceProxyService {
 
       // Stream the response
       const decoder = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        res.write(chunk);
+      let done = false;
+      while (!done) {
+        const result = await reader.read();
+        done = result.done;
+        if (!done && result.value) {
+          const chunk = decoder.decode(result.value, { stream: true });
+          res.write(chunk);
+        }
       }
 
       res.end();
@@ -376,24 +377,20 @@ export class ServiceProxyService {
     const targetUrl = this.buildTargetUrl(instance, path, config.query);
 
     // Build headers
-    const headers: Record<string, string> = {
+    const rawHeaders: Record<string, string> = {
       ...serviceConfig.headers,
       ...config.headers,
     };
 
     // Preserve or override host header
-    if (serviceConfig.preserveHost) {
-      // Keep original host
-    } else {
-      headers['host'] = `${instance.host}:${instance.port}`;
+    if (!serviceConfig.preserveHost) {
+      rawHeaders['host'] = `${instance.host}:${instance.port}`;
     }
 
-    // Remove hop-by-hop headers
-    for (const header of Object.keys(headers)) {
-      if (this.isHopByHopHeader(header)) {
-        delete headers[header];
-      }
-    }
+    // Remove hop-by-hop headers by filtering
+    const headers = Object.fromEntries(
+      Object.entries(rawHeaders).filter(([key]) => !this.isHopByHopHeader(key)),
+    );
 
     // Build request object
     let proxyRequest: ProxyRequest = {

@@ -7,7 +7,7 @@
 
 import { ExecutionContext, CallHandler, ArgumentsHost } from '@nestjs/common';
 import { HttpArgumentsHost } from '@nestjs/common/interfaces';
-import { GqlExecutionContext, GqlContextType } from '@nestjs/graphql';
+import { GqlContextType } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 import { Observable, of } from 'rxjs';
 

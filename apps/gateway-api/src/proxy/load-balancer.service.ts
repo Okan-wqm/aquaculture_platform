@@ -166,9 +166,9 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
     super();
   }
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     // Load default services from config
-    await this.loadServicesFromConfig();
+    this.loadServicesFromConfig();
     this.logger.log('Load Balancer Service initialized');
   }
 
@@ -627,17 +627,19 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
     const healthCheckPath = config.healthCheckPath || '/health';
     const timeout = config.healthCheckTimeout || 5000;
 
-    const intervalId = setInterval(async () => {
-      for (const instance of config.instances) {
-        await this.performHealthCheck(config.name, instance, healthCheckPath, timeout);
-      }
+    const intervalId = setInterval(() => {
+      void (async () => {
+        for (const instance of config.instances) {
+          await this.performHealthCheck(config.name, instance, healthCheckPath, timeout);
+        }
+      })();
     }, interval);
 
     this.healthCheckIntervals.set(config.name, intervalId);
 
     // Perform initial health check
     for (const instance of config.instances) {
-      this.performHealthCheck(config.name, instance, healthCheckPath, timeout);
+      void this.performHealthCheck(config.name, instance, healthCheckPath, timeout);
     }
   }
 
@@ -692,7 +694,7 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
     }
   }
 
-  private async loadServicesFromConfig(): Promise<void> {
+  private loadServicesFromConfig(): void {
     // Load services from environment/config
     const servicesConfig = this.configService.get<string>('LOAD_BALANCER_SERVICES', '');
 

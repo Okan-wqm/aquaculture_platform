@@ -559,14 +559,14 @@ export function WithCircuitBreaker(
     _propertyKey: string,
     descriptor: PropertyDescriptor,
   ) {
-    const originalMethod = descriptor.value;
+    const originalMethod = descriptor.value as (...args: unknown[]) => Promise<unknown>;
 
     descriptor.value = async function (...args: unknown[]) {
       const circuitBreaker = (this as { circuitBreakerService?: CircuitBreakerService })
         .circuitBreakerService;
 
       if (!circuitBreaker) {
-        return originalMethod.apply(this, args);
+        return originalMethod.apply(this, args) as unknown;
       }
 
       return circuitBreaker.execute(

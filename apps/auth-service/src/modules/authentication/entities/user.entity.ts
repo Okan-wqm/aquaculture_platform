@@ -10,8 +10,6 @@ import {
   Index,
   BeforeInsert,
   BeforeUpdate,
-  ManyToOne,
-  JoinColumn,
 } from 'typeorm';
 
 // Register Role enum for GraphQL

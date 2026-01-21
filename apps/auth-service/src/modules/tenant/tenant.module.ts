@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SchemaManagerService } from '@platform/backend-common';
 import { EventBusModule } from '@platform/event-bus';
@@ -37,4 +37,5 @@ import { TenantService } from './services/tenant.service';
   ],
   exports: [TenantService, TenantAdminService, TypeOrmModule],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class TenantModule {}

@@ -10,4 +10,5 @@ import { AuditLogService } from './audit-log.service';
   providers: [AuditLogService],
   exports: [AuditLogService],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class AuditModule {}

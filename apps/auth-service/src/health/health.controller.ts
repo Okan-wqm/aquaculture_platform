@@ -19,7 +19,7 @@ export class HealthController {
 
   @Get('ready')
   @HttpCode(HttpStatus.OK)
-  async readiness(): Promise<{ status: 'ok' | 'not_ready'; database: boolean }> {
+  readiness(): { status: 'ok' | 'not_ready'; database: boolean } {
     return {
       status: this.dataSource.isInitialized ? 'ok' : 'not_ready',
       database: this.dataSource.isInitialized,
@@ -28,12 +28,12 @@ export class HealthController {
 
   @Get()
   @HttpCode(HttpStatus.OK)
-  async health(): Promise<{
+  health(): {
     status: 'ok';
     timestamp: string;
     uptime: number;
     database: boolean;
-  }> {
+  } {
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),

@@ -22,4 +22,5 @@ import { AnnouncementService } from './services/announcement.service';
   providers: [AnnouncementService, AnnouncementResolver],
   exports: [AnnouncementService],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class AnnouncementModule {}

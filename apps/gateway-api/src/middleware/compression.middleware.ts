@@ -102,13 +102,15 @@ export class CompressionMiddleware implements NestMiddleware {
     compressibleRes.write = function (
       chunk: unknown,
       encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
-      callback?: (error?: Error | null) => void,
+      _callback?: (error?: Error | null) => void,
     ): boolean {
       if (chunk) {
         const buffer = Buffer.isBuffer(chunk)
           ? chunk
           : Buffer.from(chunk as string, typeof encodingOrCallback === 'string' ? encodingOrCallback : 'utf8');
-        compressibleRes._chunks!.push(buffer);
+        if (compressibleRes._chunks) {
+          compressibleRes._chunks.push(buffer);
+        }
       }
       return true;
     };
@@ -117,13 +119,15 @@ export class CompressionMiddleware implements NestMiddleware {
     compressibleRes.end = function (
       chunk?: unknown,
       encodingOrCallback?: BufferEncoding | (() => void),
-      callback?: () => void,
+      _callback?: () => void,
     ): Response {
       if (chunk) {
         const buffer = Buffer.isBuffer(chunk)
           ? chunk
           : Buffer.from(chunk as string, typeof encodingOrCallback === 'string' ? encodingOrCallback : 'utf8');
-        compressibleRes._chunks!.push(buffer);
+        if (compressibleRes._chunks) {
+          compressibleRes._chunks.push(buffer);
+        }
       }
 
       // Combine all chunks

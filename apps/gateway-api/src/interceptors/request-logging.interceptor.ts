@@ -120,11 +120,14 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     const gqlCtx = gqlContext.getContext<{ req?: LoggingRequest }>();
     const request = gqlCtx?.req;
 
+    // Type the GraphQL info object
+    const gqlInfo = info as { operation?: { name?: { value?: string }; operation?: string } } | undefined;
+
     return {
       method: 'POST',
       path: '/graphql',
-      operationName: info?.operation?.name?.value || 'anonymous',
-      operationType: info?.operation?.operation || 'unknown',
+      operationName: gqlInfo?.operation?.name?.value || 'anonymous',
+      operationType: gqlInfo?.operation?.operation || 'unknown',
       correlationId: request?.headers?.['x-correlation-id'],
       tenantId: request?.tenantId || request?.headers?.['x-tenant-id'],
       userId: request?.user?.sub,

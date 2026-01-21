@@ -15,8 +15,9 @@ import {
 } from '../response-transform.interceptor';
 
 describe('ResponseTransformInterceptor', () => {
-  let interceptor: ResponseTransformInterceptor;
-  let reflector: Reflector;
+  // Using definite assignment assertion - assigned in beforeEach
+  let interceptor!: ResponseTransformInterceptor;
+  let reflector!: Reflector;
 
   /**
    * Create mock execution context
@@ -69,13 +70,10 @@ describe('ResponseTransformInterceptor', () => {
       ],
     }).compile();
 
-    // Using indirect assignment to satisfy type checker
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const resolved: ResponseTransformInterceptor = module.get(ResponseTransformInterceptor);
-    interceptor = resolved;
+    interceptor = module.get(ResponseTransformInterceptor);
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const resolvedReflector: Reflector = module.get(Reflector);
-    reflector = resolvedReflector;
+    reflector = module.get(Reflector);
   });
 
   describe('Standard Response Format', () => {

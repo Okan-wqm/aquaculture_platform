@@ -13,9 +13,6 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
-  OneToMany,
-  ManyToOne,
-  JoinColumn,
 } from 'typeorm';
 
 /**

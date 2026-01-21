@@ -47,7 +47,7 @@ export class TenantSchemaMiddleware implements NestMiddleware {
         this.logger.debug('Schema search_path set to: sensor (default)');
       }
     } catch (error) {
-      this.logger.error(`Failed to set tenant schema: ${error}`);
+      this.logger.error(`Failed to set tenant schema: ${error instanceof Error ? error.message : String(error)}`);
       // Don't block the request, fallback to default schema
       try {
         await this.dataSource.query(`SET search_path TO "sensor", public`);

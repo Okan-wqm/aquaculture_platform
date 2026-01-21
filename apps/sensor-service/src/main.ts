@@ -5,7 +5,7 @@ import helmet from 'helmet';
 
 import { AppModule } from './app.module';
 
-async function bootstrap() {
+async function bootstrap(): Promise<void> {
   const logger = new Logger('SensorService');
 
   const app = await NestFactory.create(AppModule, {
@@ -24,7 +24,7 @@ async function bootstrap() {
 
   // CORS configuration
   app.enableCors({
-    origin: configService.get('CORS_ORIGINS', '*').split(','),
+    origin: (configService.get<string>('CORS_ORIGINS') ?? '*').split(','),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',

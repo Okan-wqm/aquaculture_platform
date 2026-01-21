@@ -1,4 +1,3 @@
-import { UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { Tenant, CurrentUser, CurrentUserPayload } from '@platform/backend-common';
 
@@ -40,7 +39,7 @@ export class ProcessResolver {
     @Args('pagination', { nullable: true }) pagination?: ProcessPaginationInput,
     @Tenant() tenantId?: string,
   ): Promise<ProcessListType> {
-    const result = await this.processService.listProcesses(tenantId!, filter, pagination);
+    const result = await this.processService.listProcesses(tenantId ?? '', filter, pagination);
     return {
       items: result.items.map((p) => this.mapToType(p)),
       total: result.total,
@@ -55,7 +54,7 @@ export class ProcessResolver {
     @Args('siteId', { type: () => ID, nullable: true }) siteId?: string,
     @Tenant() tenantId?: string,
   ): Promise<ProcessType[]> {
-    const processes = await this.processService.getActiveProcesses(tenantId!, siteId);
+    const processes = await this.processService.getActiveProcesses(tenantId ?? '', siteId);
     return processes.map((p) => this.mapToType(p));
   }
 

@@ -362,7 +362,13 @@ describe('TenantContextMiddleware', () => {
 
       await middleware.use(req, res, next);
 
-      expect(res.setHeader).toHaveBeenCalledWith('X-Tenant-ID', 'test-tenant');
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      const setHeaderMock = res.setHeader as jest.Mock;
+      expect(setHeaderMock.mock.calls).toEqual(
+        expect.arrayContaining([
+          expect.arrayContaining(['X-Tenant-ID', 'test-tenant']),
+        ]),
+      );
     });
 
     it('should set X-Tenant-Name header in response', async () => {

@@ -115,15 +115,17 @@ describe('TimeoutMiddleware', () => {
       // Fast-forward past timeout
       jest.advanceTimersByTime(35000);
 
-      expect(res.status).toHaveBeenCalledWith(504);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          success: false,
-          error: expect.objectContaining({
-            code: 'GATEWAY_TIMEOUT',
-          }),
+      /* eslint-disable @typescript-eslint/unbound-method */
+      const statusMock = res.status as jest.Mock;
+      const jsonMock = res.json as jest.Mock;
+      /* eslint-enable @typescript-eslint/unbound-method */
+      expect(statusMock.mock.calls).toEqual([[504]]);
+      expect(jsonMock.mock.calls[0][0]).toMatchObject({
+        success: false,
+        error: expect.objectContaining({
+          code: 'GATEWAY_TIMEOUT',
         }),
-      );
+      });
     });
 
     it('should not timeout if response completes in time', () => {

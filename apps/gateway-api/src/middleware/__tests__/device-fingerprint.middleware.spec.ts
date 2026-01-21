@@ -315,10 +315,13 @@ describe('DeviceFingerprintMiddleware', () => {
 
       middleware.use(req, res, next);
 
-      expect(res.setHeader).toHaveBeenCalledWith(
-        'x-device-fingerprint',
-        expect.stringMatching(/^fp_[a-f0-9]{32}$/),
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      const setHeaderMock = res.setHeader as jest.Mock;
+      const fingerprintCall = setHeaderMock.mock.calls.find(
+        (call: unknown[]) => call[0] === 'x-device-fingerprint',
       );
+      expect(fingerprintCall).toBeDefined();
+      expect(fingerprintCall[1]).toMatch(/^fp_[a-f0-9]{32}$/);
     });
   });
 

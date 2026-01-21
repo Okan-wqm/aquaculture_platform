@@ -12,7 +12,8 @@ import { SecurityHeadersMiddleware } from '../security-headers.middleware';
 
 describe('SecurityHeadersMiddleware', () => {
   let middleware: SecurityHeadersMiddleware;
-  let configService: ConfigService;
+  // Reserved for future tests requiring config access
+  let _configService: ConfigService;
 
   /**
    * Create mock request
@@ -62,7 +63,7 @@ describe('SecurityHeadersMiddleware', () => {
       }).compile();
 
       middleware = module.get<SecurityHeadersMiddleware>(SecurityHeadersMiddleware);
-      configService = module.get<ConfigService>(ConfigService);
+      _configService = module.get<ConfigService>(ConfigService);
     });
 
     describe('Content-Security-Policy', () => {

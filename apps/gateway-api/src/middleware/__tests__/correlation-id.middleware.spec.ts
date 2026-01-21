@@ -217,9 +217,12 @@ describe('CorrelationIdMiddleware', () => {
       middleware.use(req, res, next);
 
       const correlatedReq = req as CorrelatedRequest;
-      expect(res.setHeader).toHaveBeenCalledWith(
-        CORRELATION_ID_HEADER,
-        correlatedReq.correlationId,
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      const setHeaderMock = res.setHeader as jest.Mock;
+      expect(setHeaderMock.mock.calls).toEqual(
+        expect.arrayContaining([
+          expect.arrayContaining([CORRELATION_ID_HEADER, correlatedReq.correlationId]),
+        ]),
       );
     });
 

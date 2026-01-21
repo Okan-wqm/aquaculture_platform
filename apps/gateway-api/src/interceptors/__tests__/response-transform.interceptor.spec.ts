@@ -70,10 +70,8 @@ describe('ResponseTransformInterceptor', () => {
       ],
     }).compile();
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    interceptor = module.get(ResponseTransformInterceptor);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    reflector = module.get(Reflector);
+    interceptor = module.get<ResponseTransformInterceptor>(ResponseTransformInterceptor);
+    reflector = module.get<Reflector>(Reflector);
   });
 
   describe('Standard Response Format', () => {

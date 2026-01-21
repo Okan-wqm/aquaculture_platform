@@ -63,7 +63,8 @@ describe('CompressionMiddleware', () => {
         headers[name] = value;
       }),
       removeHeader: jest.fn((name: string) => {
-        delete headers[name];
+        // Use Reflect.deleteProperty to avoid dynamic delete lint error
+        Reflect.deleteProperty(headers, name);
       }),
     } as unknown as Response & {
       _writtenData: Buffer[];
@@ -358,7 +359,8 @@ describe('CompressionMiddleware', () => {
 
       // If compression doesn't help, Content-Encoding should not be set
       // This depends on the actual data - test verifies the logic exists
-      expect(res.end).toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect((res.end as jest.Mock).mock.calls.length).toBeGreaterThan(0);
     });
   });
 
@@ -376,7 +378,8 @@ describe('CompressionMiddleware', () => {
       res.write(JSON.stringify({ part3: 'z'.repeat(500) }));
       res.end();
 
-      expect(res.end).toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect((res.end as jest.Mock).mock.calls.length).toBeGreaterThan(0);
     });
 
     it('should handle write with callback', () => {

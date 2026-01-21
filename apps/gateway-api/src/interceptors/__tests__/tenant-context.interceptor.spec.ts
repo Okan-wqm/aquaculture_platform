@@ -70,8 +70,9 @@ describe('TenantContextInterceptor', () => {
 
   /**
    * Create mock GraphQL execution context
+   * Note: Reserved for future GraphQL tests
    */
-  const createMockGraphQLContext = (
+  const _createMockGraphQLContext = (
     options: {
       headers?: Record<string, string>;
       path?: string;

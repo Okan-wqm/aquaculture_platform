@@ -49,10 +49,10 @@ interface AggregatedReadingRow {
 /**
  * Query result row for sensor stats
  */
-interface _SensorStatsRow {
-  total_readings?: string;
-  average_quality?: string;
-  last_reading?: Date;
+interface SensorStatsRow {
+  total_readings: string;
+  average_quality: string | null;
+  last_reading: Date | null;
 }
 
 /**
@@ -372,13 +372,7 @@ export class SensorQueryService {
         AND timestamp >= $3
     `;
 
-    interface StatsResult {
-      total_readings: string;
-      average_quality: string | null;
-      last_reading: Date | null;
-    }
-
-    const results: StatsResult[] = await this.dataSource.query(query, [
+    const results: SensorStatsRow[] = await this.dataSource.query(query, [
       sensorId,
       tenantId,
       startTime,

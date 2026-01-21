@@ -284,7 +284,9 @@ export class SubscriptionManagementService {
     }
 
     if (filters.expiringWithinDays) {
-      query += ` AND s."currentPeriodEnd" <= NOW() + INTERVAL '${filters.expiringWithinDays} days'`;
+      query += ` AND s."currentPeriodEnd" <= NOW() + ($${paramIndex}::integer * INTERVAL '1 day')`;
+      params.push(filters.expiringWithinDays);
+      paramIndex++;
     }
 
     if (filters.pastDueOnly) {
@@ -701,6 +703,7 @@ export class SubscriptionManagementService {
     );
 
     // Grace period ending
+    const gracePeriodWarningDays = config.gracePeriodDays - 3;
     const gracePeriodEnding = await this.dataSource.query(
       `
       SELECT
@@ -713,9 +716,10 @@ export class SubscriptionManagementService {
       FROM public.subscriptions s
       LEFT JOIN public.tenants t ON t.id::text = s."tenantId"
       WHERE s.status = 'past_due'
-        AND s."currentPeriodEnd" < NOW() - INTERVAL '${config.gracePeriodDays - 3} days'
+        AND s."currentPeriodEnd" < NOW() - ($1::integer * INTERVAL '1 day')
       ORDER BY s."currentPeriodEnd" ASC
     `,
+      [gracePeriodWarningDays],
     );
 
     return { upcomingDue, pastDue, gracePeriodEnding };
@@ -761,8 +765,10 @@ export class SubscriptionManagementService {
 
         // Create renewal invoice
         const invoiceNumber = `INV-${Date.now()}-${sub.tenantId.substring(0, 8)}`;
-        const pricing = typeof sub.pricing === 'string' ? JSON.parse(sub.pricing) : sub.pricing;
-        const amount = pricing.basePrice || 0;
+        const pricing = sub.pricing
+          ? (typeof sub.pricing === 'string' ? JSON.parse(sub.pricing) : sub.pricing)
+          : { basePrice: 0 };
+        const amount = pricing?.basePrice || 0;
 
         await this.dataSource.transaction(async (manager) => {
           // Update subscription period

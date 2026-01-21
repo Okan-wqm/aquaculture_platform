@@ -532,6 +532,9 @@ export class SchemaManagerService {
       // CASCADE drops all objects in the schema
       await this.dataSource.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
 
+      // Invalidate cache entry for deleted schema
+      this.schemaCache.delete(schemaName);
+
       this.logger.log(`Tenant schema ${schemaName} deleted successfully`);
       return { success: true };
     } catch (error) {

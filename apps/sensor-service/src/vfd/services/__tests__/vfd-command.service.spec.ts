@@ -2,13 +2,14 @@
  * VFD Command Service Unit Tests
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+
+import { VfdDevice } from '../../entities/vfd-device.entity';
+import { VfdProtocol, VfdBrand, VfdDeviceStatus, VfdCommandType } from '../../entities/vfd.enums';
 import { VfdCommandService, VfdCommandInput } from '../vfd-command.service';
 import { VfdDeviceService } from '../vfd-device.service';
 import { VfdRegisterMappingService } from '../vfd-register-mapping.service';
-import { VfdProtocol, VfdBrand, VfdDeviceStatus, VfdCommandType } from '../../entities/vfd.enums';
-import { VfdDevice } from '../../entities/vfd-device.entity';
 
 // Mock the adapters module
 jest.mock('../../adapters', () => ({

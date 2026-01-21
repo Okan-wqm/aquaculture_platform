@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
+
+import { ConnectionTestResult, SensorReadingData, ConnectionDiagnostics } from '../adapters/base-protocol.adapter';
+
 import { ProtocolRegistryService } from './protocol-registry.service';
 import { ProtocolValidatorService } from './protocol-validator.service';
-import { ConnectionTestResult, SensorReadingData, ConnectionDiagnostics } from '../adapters/base-protocol.adapter';
 
 export interface ExtendedTestResult extends ConnectionTestResult {
   protocolCode: string;
@@ -190,7 +192,7 @@ export class ConnectionTesterService {
   async pingTest(
     protocolCode: string,
     config: Record<string, unknown>,
-    count: number = 3,
+    count = 3,
   ): Promise<{ avgLatencyMs: number; minLatencyMs: number; maxLatencyMs: number; loss: number }> {
     const latencies: number[] = [];
     let failures = 0;
@@ -258,7 +260,7 @@ export class ConnectionTesterService {
   async getConnectionStats(
     protocolCode: string,
     config: Record<string, unknown>,
-    sampleCount: number = 10,
+    sampleCount = 10,
   ): Promise<{
     successRate: number;
     avgLatencyMs: number;

@@ -1,10 +1,11 @@
 import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { IEventBus } from '@platform/event-bus';
 import { Repository } from 'typeorm';
+
+import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
 import { SensorReading, SensorReadings } from '../../database/entities/sensor-reading.entity';
 import { Sensor, SensorRole } from '../../database/entities/sensor.entity';
-import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
-import { IEventBus } from '@platform/event-bus';
 
 /**
  * Ingest reading data

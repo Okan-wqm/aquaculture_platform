@@ -1,15 +1,17 @@
+import { randomUUID } from 'crypto';
+
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
-import { Sensor, SensorStatus, SensorRegistrationStatus } from '../database/entities/sensor.entity';
-import { SensorReading } from '../database/entities/sensor-reading.entity';
-import { SensorMetric, QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
+
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
+import { SensorMetric, QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { SensorProtocol } from '../database/entities/sensor-protocol.entity';
-import { MqttAdapter } from '../protocol/adapters/iot/mqtt.adapter';
+import { SensorReading } from '../database/entities/sensor-reading.entity';
+import { Sensor, SensorStatus, SensorRegistrationStatus } from '../database/entities/sensor.entity';
 import { ConnectionHandle, DataSubscription, SensorReadingData } from '../protocol/adapters/base-protocol.adapter';
-import { randomUUID } from 'crypto';
+import { MqttAdapter } from '../protocol/adapters/iot/mqtt.adapter';
 
 /**
  * Active sensor connection info

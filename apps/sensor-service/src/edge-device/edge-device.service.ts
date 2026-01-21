@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+
 import {
   Injectable,
   Logger,
@@ -10,14 +12,16 @@ import {
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
-import { randomUUID } from 'crypto';
+
+import { MqttListenerService } from '../ingestion/mqtt-listener.service';
+
+import { DeviceIoConfig, IoType, IoDataType } from './entities/device-io-config.entity';
 import {
   EdgeDevice,
   DeviceLifecycleState,
   DeviceModel,
 } from './entities/edge-device.entity';
-import { DeviceIoConfig, IoType, IoDataType } from './entities/device-io-config.entity';
-import { MqttListenerService } from '../ingestion/mqtt-listener.service';
+
 
 /**
  * Input type for registering a new edge device
@@ -388,7 +392,7 @@ export class EdgeDeviceService {
   /**
    * Mark devices as offline if no heartbeat received
    */
-  async markStaleDevicesOffline(timeoutMinutes: number = 5): Promise<number> {
+  async markStaleDevicesOffline(timeoutMinutes = 5): Promise<number> {
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
 
     const result = await this.deviceRepository

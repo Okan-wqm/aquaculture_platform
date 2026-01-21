@@ -1,13 +1,16 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { EdgeDevice } from './entities/edge-device.entity';
-import { DeviceIoConfig } from './entities/device-io-config.entity';
-import { EdgeDeviceService } from './edge-device.service';
-import { EdgeDeviceResolver } from './edge-device.resolver';
-import { ProvisioningService } from './provisioning.service';
-import { ProvisioningController } from './provisioning.controller';
-import { MqttAuthService } from './mqtt-auth.service';
+
 import { IngestionModule } from '../ingestion/ingestion.module';
+
+import { EdgeDeviceResolver } from './edge-device.resolver';
+import { EdgeDeviceService } from './edge-device.service';
+import { DeviceIoConfig } from './entities/device-io-config.entity';
+import { EdgeDevice } from './entities/edge-device.entity';
+import { MqttAuthService } from './mqtt-auth.service';
+import { ProvisioningController } from './provisioning.controller';
+import { ProvisioningService } from './provisioning.service';
+
 
 @Module({
   imports: [

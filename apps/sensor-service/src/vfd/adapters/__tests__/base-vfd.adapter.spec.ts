@@ -2,6 +2,8 @@
  * Base VFD Adapter Unit Tests
  */
 
+import { VfdRegisterMapping } from '../../entities/vfd-register-mapping.entity';
+import { VfdProtocol, VfdDataType, ByteOrder } from '../../entities/vfd.enums';
 import {
   BaseVfdAdapter,
   VfdConnectionHandle,
@@ -10,8 +12,6 @@ import {
   ConnectionTestResult,
   ValidationResult,
 } from '../base-vfd.adapter';
-import { VfdProtocol, VfdDataType, ByteOrder } from '../../entities/vfd.enums';
-import { VfdRegisterMapping } from '../../entities/vfd-register-mapping.entity';
 
 // Create a concrete implementation for testing
 class TestVfdAdapter extends BaseVfdAdapter {

@@ -1,10 +1,11 @@
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
+
+import { VFD_BRAND_COMMANDS } from '../brand-configs';
+import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
+import { VfdBrand, VfdProtocol, VfdParameterCategory, VfdCommandType } from '../entities/vfd.enums';
 import { VfdCommandService, VfdCommandInput } from '../services/vfd-command.service';
 import { VfdConnectionTesterService } from '../services/vfd-connection-tester.service';
 import { VfdRegisterMappingService } from '../services/vfd-register-mapping.service';
-import { VfdBrand, VfdProtocol, VfdParameterCategory, VfdCommandType } from '../entities/vfd.enums';
-import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
-import { VFD_BRAND_COMMANDS } from '../brand-configs';
 
 /**
  * VFD Command and Configuration GraphQL Resolver

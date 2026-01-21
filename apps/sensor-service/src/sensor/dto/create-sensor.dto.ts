@@ -8,6 +8,7 @@ import {
   MaxLength,
   IsNotEmpty,
 } from 'class-validator';
+
 import { SensorType, SensorStatus } from '../../database/entities/sensor.entity';
 
 /**

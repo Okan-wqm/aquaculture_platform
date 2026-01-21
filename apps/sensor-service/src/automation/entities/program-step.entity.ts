@@ -1,4 +1,11 @@
 import {
+  ObjectType,
+  Field,
+  ID,
+  Int,
+  registerEnumType,
+} from '@nestjs/graphql';
+import {
   Entity,
   Column,
   PrimaryGeneratedColumn,
@@ -9,13 +16,6 @@ import {
   OneToMany,
   JoinColumn,
 } from 'typeorm';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Int,
-  registerEnumType,
-} from '@nestjs/graphql';
 
 /**
  * Step type in SFC

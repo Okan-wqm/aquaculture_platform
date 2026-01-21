@@ -1,5 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
+import {
+  ProtocolCategory,
+  ProtocolSubcategory,
+  ConnectionType,
+  ProtocolConfigurationSchema,
+} from '../../../database/entities/sensor-protocol.entity';
 import {
   BaseProtocolAdapter,
   ConnectionHandle,
@@ -8,12 +15,6 @@ import {
   ValidationResult,
   ProtocolCapabilities,
 } from '../base-protocol.adapter';
-import {
-  ProtocolCategory,
-  ProtocolSubcategory,
-  ConnectionType,
-  ProtocolConfigurationSchema,
-} from '../../../database/entities/sensor-protocol.entity';
 
 export interface ModbusTcpConfiguration {
   host: string;
@@ -158,7 +159,7 @@ export class ModbusTcpAdapter extends BaseProtocolAdapter {
       for (const reg of config.registers) {
         try {
           const data = await this.readRegister(client, reg.address, reg.count, reg.functionCode);
-          const value = this.parseRegisterData(data, reg.dataType as any, config.byteOrder, config.wordOrder);
+          const value = this.parseRegisterData(data, reg.dataType, config.byteOrder, config.wordOrder);
           values[reg.name] = reg.scaling ? value * reg.scaling : value;
         } catch (error) {
           this.logger.warn(`Failed to read register ${reg.name}`, error);

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, Between, DataSource } from 'typeorm';
+
 import {
   SensorReading,
   SensorReadings,
@@ -86,7 +87,7 @@ export class SensorQueryService {
     tenantId: string,
     startTime: Date,
     endTime: Date,
-    limit: number = 1000,
+    limit = 1000,
   ): Promise<SensorReading[]> {
     // Order by DESC to get most recent readings first
     // Frontend will sort for charts if needed
@@ -330,7 +331,7 @@ export class SensorQueryService {
   async getSensorStatistics(
     sensorId: string,
     tenantId: string,
-    days: number = 7,
+    days = 7,
   ): Promise<{
     totalReadings: number;
     averageQuality: number;

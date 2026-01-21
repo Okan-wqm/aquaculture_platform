@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+
 import { AggregatedMetric } from '../../database/entities/sensor-metric.entity';
 
 /**
@@ -284,7 +285,7 @@ export class MetricQueryService {
   async getLastReadings(
     channelId: string,
     tenantId: string,
-    count: number = 100,
+    count = 100,
   ): Promise<{ time: Date; value: number; qualityCode: number }[]> {
     const query = `
       SELECT
@@ -367,7 +368,7 @@ export class MetricQueryService {
     tenantId: string,
     startTime: Date,
     endTime: Date,
-    maxPoints: number = 500,
+    maxPoints = 500,
   ): Promise<AggregatedMetric[]> {
     const totalSeconds = (endTime.getTime() - startTime.getTime()) / 1000;
     const bucketSeconds = Math.ceil(totalSeconds / maxPoints);

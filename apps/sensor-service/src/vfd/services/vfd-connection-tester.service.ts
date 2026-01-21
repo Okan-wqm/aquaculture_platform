@@ -1,13 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { VfdProtocol, VfdBrand, VfdDeviceStatus } from '../entities/vfd.enums';
-import { VfdDeviceService } from './vfd-device.service';
-import { VfdRegisterMappingService } from './vfd-register-mapping.service';
+
 import {
   createVfdAdapter,
   ConnectionTestResult,
   ValidationResult,
   getProtocolInfoList,
 } from '../adapters';
+import { VfdProtocol, VfdBrand, VfdDeviceStatus } from '../entities/vfd.enums';
+
+import { VfdDeviceService } from './vfd-device.service';
+import { VfdRegisterMappingService } from './vfd-register-mapping.service';
 
 /**
  * Test connection input

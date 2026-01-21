@@ -1,6 +1,6 @@
 import { InputType, Field, ID } from '@nestjs/graphql';
-import { GraphQLJSON } from 'graphql-scalars';
 import { IsNotEmpty, IsOptional, IsString, IsBoolean, IsArray } from 'class-validator';
+import { GraphQLJSON } from 'graphql-scalars';
 
 @InputType()
 export class SaveDashboardLayoutInput {

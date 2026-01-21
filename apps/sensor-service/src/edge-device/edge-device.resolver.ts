@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import {
   Resolver,
   Query,
@@ -8,12 +9,8 @@ import {
   ResolveField,
   Parent,
 } from '@nestjs/graphql';
-import { Logger } from '@nestjs/common';
 import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
-import { EdgeDevice, DeviceLifecycleState } from './entities/edge-device.entity';
-import { DeviceIoConfig } from './entities/device-io-config.entity';
-import { EdgeDeviceService } from './edge-device.service';
-import { ProvisioningService } from './provisioning.service';
+
 import {
   RegisterEdgeDeviceInput,
   UpdateEdgeDeviceInput,
@@ -28,6 +25,10 @@ import {
   ProvisionedDeviceResponse,
   RegenerateTokenResponse,
 } from './dto/provisioning.dto';
+import { EdgeDeviceService } from './edge-device.service';
+import { DeviceIoConfig } from './entities/device-io-config.entity';
+import { EdgeDevice, DeviceLifecycleState } from './entities/edge-device.entity';
+import { ProvisioningService } from './provisioning.service';
 
 /**
  * User context interface

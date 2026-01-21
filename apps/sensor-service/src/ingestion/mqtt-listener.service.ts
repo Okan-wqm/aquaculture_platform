@@ -1,16 +1,19 @@
+import { randomUUID } from 'crypto';
+
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { IEventBus } from '@platform/event-bus';
 import * as mqtt from 'mqtt';
 import { MqttClient } from 'mqtt';
-import { Sensor, SensorStatus } from '../database/entities/sensor.entity';
-import { SensorReading } from '../database/entities/sensor-reading.entity';
-import { SensorMetric, QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
+import { Repository, DataSource } from 'typeorm';
+
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
+import { SensorMetric, QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
+import { SensorReading } from '../database/entities/sensor-reading.entity';
+import { Sensor, SensorStatus } from '../database/entities/sensor.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
-import { IEventBus } from '@platform/event-bus';
-import { randomUUID } from 'crypto';
+
 
 /**
  * MQTT Topic Pattern for tenant-aware sensor data

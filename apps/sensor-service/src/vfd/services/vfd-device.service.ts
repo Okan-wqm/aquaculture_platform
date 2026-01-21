@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, DeepPartial } from 'typeorm';
+
 import { VfdDevice } from '../entities/vfd-device.entity';
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../entities/vfd.enums';
 

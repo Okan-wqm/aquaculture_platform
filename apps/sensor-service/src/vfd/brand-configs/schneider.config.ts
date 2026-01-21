@@ -1,5 +1,5 @@
-import { VfdBrand, VfdParameterCategory, VfdDataType, ByteOrder } from '../entities/vfd.enums';
 import { VfdRegisterMappingInput } from '../entities/vfd-register-mapping.entity';
+import { VfdBrand, VfdParameterCategory, VfdDataType, ByteOrder } from '../entities/vfd.enums';
 
 /**
  * Schneider Electric Altivar Register Mappings

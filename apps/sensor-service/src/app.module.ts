@@ -1,12 +1,12 @@
-import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { GraphQLModule } from '@nestjs/graphql';
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { GraphQLModule } from '@nestjs/graphql';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   UserContextMiddleware,
   TenantContextMiddleware,
@@ -14,32 +14,8 @@ import {
   TenantGuard,
 } from '@platform/backend-common';
 import { EventBusModule } from '@platform/event-bus';
-import { SensorModule } from './sensor/sensor.module';
-import { HealthModule } from './health/health.module';
-import { GlobalExceptionFilter } from './filters/global-exception.filter';
-import { ProtocolModule } from './protocol/protocol.module';
-import { RegistrationModule } from './registration/registration.module';
-import { VfdModule } from './vfd/vfd.module';
-import { IngestionModule } from './ingestion/ingestion.module';
-import { ProcessModule } from './process/process.module';
-import { DashboardModule } from './dashboard/dashboard.module';
-import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
 
-// Explicitly import all entities (required for webpack bundle)
-import { Sensor } from './database/entities/sensor.entity';
-import { SensorReading } from './database/entities/sensor-reading.entity';
-import { SensorProtocol } from './database/entities/sensor-protocol.entity';
-import { SensorDataChannel } from './database/entities/sensor-data-channel.entity';
-import { VfdDevice } from './vfd/entities/vfd-device.entity';
-import { VfdReading } from './vfd/entities/vfd-reading.entity';
-import { VfdRegisterMapping } from './vfd/entities/vfd-register-mapping.entity';
-import { Process } from './process/entities/process.entity';
-import { DashboardLayout } from './dashboard/entities/dashboard-layout.entity';
-import { EdgeDevice } from './edge-device/entities/edge-device.entity';
-import { DeviceIoConfig } from './edge-device/entities/device-io-config.entity';
-import { EdgeDeviceModule } from './edge-device/edge-device.module';
-
-// Automation entities (IEC 61131-3 SFC programs)
+import { AutomationModule } from './automation/automation.module';
 import {
   AutomationProgram,
   ProgramStep,
@@ -47,7 +23,32 @@ import {
   ProgramTransition,
   ProgramVariable,
 } from './automation/entities';
-import { AutomationModule } from './automation/automation.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { DashboardLayout } from './dashboard/entities/dashboard-layout.entity';
+import { SensorDataChannel } from './database/entities/sensor-data-channel.entity';
+import { SensorProtocol } from './database/entities/sensor-protocol.entity';
+import { SensorReading } from './database/entities/sensor-reading.entity';
+import { Sensor } from './database/entities/sensor.entity';
+import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { HealthModule } from './health/health.module';
+import { SensorModule } from './sensor/sensor.module';
+import { ProtocolModule } from './protocol/protocol.module';
+import { RegistrationModule } from './registration/registration.module';
+import { VfdDevice } from './vfd/entities/vfd-device.entity';
+import { VfdReading } from './vfd/entities/vfd-reading.entity';
+import { VfdModule } from './vfd/vfd.module';
+import { IngestionModule } from './ingestion/ingestion.module';
+import { ProcessModule } from './process/process.module';
+import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
+
+// Explicitly import all entities (required for webpack bundle)
+import { VfdRegisterMapping } from './vfd/entities/vfd-register-mapping.entity';
+import { Process } from './process/entities/process.entity';
+import { EdgeDevice } from './edge-device/entities/edge-device.entity';
+import { DeviceIoConfig } from './edge-device/entities/device-io-config.entity';
+import { EdgeDeviceModule } from './edge-device/edge-device.module';
+
+// Automation entities (IEC 61131-3 SFC programs)
 
 @Module({
   imports: [

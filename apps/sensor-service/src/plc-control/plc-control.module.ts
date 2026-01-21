@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { PlcConnection } from './entities/plc-connection.entity';
+
 import { FeedingParameter } from './entities/feeding-parameter.entity';
-import { PlcTelemetry } from './entities/plc-telemetry.entity';
 import { PlcAlarm } from './entities/plc-alarm.entity';
+import { PlcConnection } from './entities/plc-connection.entity';
+import { PlcTelemetry } from './entities/plc-telemetry.entity';
 // TODO: Implement these services in future sprints
 // import { OpcUaClientService } from './services/opc-ua-client.service';
 // import { ParameterPublisherService } from './services/parameter-publisher.service';

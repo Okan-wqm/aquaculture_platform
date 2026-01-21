@@ -11,13 +11,14 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { ProvisioningService } from './provisioning.service';
+
 import {
   DeviceActivationRequest,
   DeviceActivationResponse,
   ActivationErrorResponse,
   ActivationErrorCode,
 } from './dto/provisioning.dto';
+import { ProvisioningService } from './provisioning.service';
 
 /**
  * Provisioning Controller

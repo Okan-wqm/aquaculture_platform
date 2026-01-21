@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Sensor } from '../database/entities/sensor.entity';
+
 import { SensorReading } from '../database/entities/sensor-reading.entity';
+import { Sensor } from '../database/entities/sensor.entity';
 
 /**
  * Processing result
@@ -376,7 +377,7 @@ export class DataProcessorService {
   /**
    * Apply moving average smoothing
    */
-  applyMovingAverage(values: number[], windowSize: number = 5): number[] {
+  applyMovingAverage(values: number[], windowSize = 5): number[] {
     if (values.length < windowSize) {
       return values;
     }

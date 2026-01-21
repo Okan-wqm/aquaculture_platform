@@ -7,6 +7,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+
 import { VfdDevice } from './vfd-device.entity';
 
 /**

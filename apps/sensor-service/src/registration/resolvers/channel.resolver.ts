@@ -1,7 +1,7 @@
-import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
-import { ChannelDiscoveryService } from '../services/channel-discovery.service';
-import { ChannelManagementService, CreateChannelInput } from '../services/channel-management.service';
+import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
+
+import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
 import {
   DataChannelType,
   DiscoveredChannelType,
@@ -12,7 +12,8 @@ import {
   SaveDiscoveredChannelsInput,
   ReorderChannelsInput,
 } from '../dto/data-channel.dto';
-import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
+import { ChannelDiscoveryService } from '../services/channel-discovery.service';
+import { ChannelManagementService, CreateChannelInput } from '../services/channel-management.service';
 
 /**
  * GraphQL resolver for data channel operations

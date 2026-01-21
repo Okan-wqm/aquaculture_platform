@@ -1,8 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { VfdRegisterMapping, VfdRegisterMappingInput } from '../entities/vfd-register-mapping.entity';
-import { VfdBrand, VfdParameterCategory, VfdDataType, ByteOrder } from '../entities/vfd.enums';
+
 import {
   VFD_BRAND_REGISTERS,
   getVfdRegisterMappings,
@@ -10,6 +9,8 @@ import {
   getParametersByCategory,
   getWritableParameters,
 } from '../brand-configs';
+import { VfdRegisterMapping, VfdRegisterMappingInput } from '../entities/vfd-register-mapping.entity';
+import { VfdBrand, VfdParameterCategory, VfdDataType, ByteOrder } from '../entities/vfd.enums';
 
 /**
  * VFD Register Mapping Service
@@ -225,7 +226,7 @@ export class VfdRegisterMappingService {
   async validateRegisterAddress(
     brand: VfdBrand,
     address: number,
-    isWrite: boolean = false
+    isWrite = false
   ): Promise<{
     valid: boolean;
     mapping?: VfdRegisterMapping;

@@ -1,3 +1,5 @@
+import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
+import { GraphQLJSON } from 'graphql-scalars';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -8,8 +10,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
-import { GraphQLJSON } from 'graphql-scalars';
+
 import { PlcConnection } from './plc-connection.entity';
 
 export enum ParameterStatus {

@@ -1,17 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
-import { VfdDevice } from '../entities/vfd-device.entity';
-import { VfdReading, VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
-import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
-import { VfdDeviceService } from './vfd-device.service';
-import { VfdRegisterMappingService } from './vfd-register-mapping.service';
+
 import {
   createVfdAdapter,
   VfdConnectionHandle,
   VfdReadResult,
 } from '../adapters';
+import { VfdDevice } from '../entities/vfd-device.entity';
+import { VfdReading, VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
+import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
 import { VfdDeviceStatus } from '../entities/vfd.enums';
+
+import { VfdDeviceService } from './vfd-device.service';
+import { VfdRegisterMappingService } from './vfd-register-mapping.service';
 
 /**
  * Time range for reading queries

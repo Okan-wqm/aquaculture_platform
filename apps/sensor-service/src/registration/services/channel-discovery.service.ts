@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+
 import { ChannelDataType, DiscoverySource } from '../../database/entities/sensor-data-channel.entity';
 
 /**

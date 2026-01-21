@@ -27,10 +27,23 @@ async function bootstrap() {
   );
 
   // CORS configuration
+  // SECURITY: Wildcard origin with credentials is dangerous
+  // In production, CORS_ORIGINS must be set to explicit list of allowed origins
   const corsOrigins = configService.get<string>('CORS_ORIGINS', '*');
+  const isProduction = process.env['NODE_ENV'] === 'production';
+
+  if (isProduction && corsOrigins === '*') {
+    logger.warn(
+      'SECURITY WARNING: CORS_ORIGINS is set to wildcard in production. ' +
+      'This is insecure. Set CORS_ORIGINS to explicit allowed origins.',
+    );
+  }
+
   app.enableCors({
-    origin: corsOrigins === '*' ? '*' : corsOrigins.split(','),
-    credentials: true,
+    origin: corsOrigins === '*'
+      ? (isProduction ? false : '*')  // Disable CORS wildcard in production
+      : corsOrigins.split(',').map(o => o.trim()),
+    credentials: corsOrigins !== '*',  // Only allow credentials with explicit origins
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',

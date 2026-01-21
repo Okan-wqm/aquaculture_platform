@@ -48,6 +48,7 @@ export class UdpSocketAdapter extends BaseProtocolAdapter {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     const socket = this.sockets.get(handle.id);
     if (socket) {

@@ -405,7 +405,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       sensorId: sensor.id,
       tenantId: sensor.tenantId,
       timestamp: data.timestamp,
-      readings: data.values as Record<string, number | string | boolean | null>,
+      readings: data.values,
       pondId: sensor.pondId,
       farmId: sensor.farmId,
       quality: data.quality,

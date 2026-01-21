@@ -236,6 +236,7 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
 
     return {
       id: `sub_${handle.id}_${Date.now()}`,
+      // eslint-disable-next-line @typescript-eslint/require-await
       unsubscribe: async () => {
         isActive = false;
         socketData.ws.removeListener('message', messageHandler);

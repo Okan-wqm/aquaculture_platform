@@ -3,6 +3,22 @@ import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
 /**
+ * HTML escape function to prevent XSS in email templates
+ * Escapes <, >, &, ", and ' characters
+ */
+function escapeHtml(str: string | undefined | null): string {
+  if (str === null || str === undefined) {
+    return '';
+  }
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
  * Alert email data
  */
 export interface AlertEmailData {
@@ -193,39 +209,39 @@ export class EmailService {
             <div class="content">
               <div class="field">
                 <div class="field-label">Alert Rule</div>
-                <div class="field-value">${data.ruleName}</div>
+                <div class="field-value">${escapeHtml(data.ruleName)}</div>
               </div>
               <div class="field">
                 <div class="field-label">Severity</div>
                 <div class="field-value" style="color: ${bgColor}; font-weight: 600; text-transform: uppercase;">
-                  ${data.severity}
+                  ${escapeHtml(data.severity)}
                 </div>
               </div>
               <div class="message-box">
                 <div class="field-label">Message</div>
-                <div class="field-value">${data.message}</div>
+                <div class="field-value">${escapeHtml(data.message)}</div>
               </div>
               ${data.farmName ? `
               <div class="field">
                 <div class="field-label">Farm</div>
-                <div class="field-value">${data.farmName}</div>
+                <div class="field-value">${escapeHtml(data.farmName)}</div>
               </div>
               ` : ''}
               ${data.pondName ? `
               <div class="field">
                 <div class="field-label">Pond</div>
-                <div class="field-value">${data.pondName}</div>
+                <div class="field-value">${escapeHtml(data.pondName)}</div>
               </div>
               ` : ''}
               ${data.sensorId ? `
               <div class="field">
                 <div class="field-label">Sensor ID</div>
-                <div class="field-value">${data.sensorId}</div>
+                <div class="field-value">${escapeHtml(data.sensorId)}</div>
               </div>
               ` : ''}
               <div class="field">
                 <div class="field-label">Time</div>
-                <div class="field-value">${(data.timestamp || new Date()).toLocaleString()}</div>
+                <div class="field-value">${escapeHtml((data.timestamp || new Date()).toLocaleString())}</div>
               </div>
             </div>
             <div class="footer">
@@ -388,19 +404,19 @@ export class EmailService {
                 <div class="section-title">Facility Information / Tesis Bilgileri</div>
                 <div class="field">
                   <span class="field-label">Site Name / Tesis Adı:</span>
-                  <span class="field-value"><strong>${data.siteName}</strong></span>
+                  <span class="field-value"><strong>${escapeHtml(data.siteName)}</strong></span>
                 </div>
                 <div class="field">
                   <span class="field-label">Site Code / Tesis Kodu:</span>
-                  <span class="field-value">${data.siteCode}</span>
+                  <span class="field-value">${escapeHtml(data.siteCode)}</span>
                 </div>
                 <div class="field">
                   <span class="field-label">Lokalitetsnummer:</span>
-                  <span class="field-value">${data.lokalitetsnummer}</span>
+                  <span class="field-value">${escapeHtml(data.lokalitetsnummer)}</span>
                 </div>
                 <div class="field">
                   <span class="field-label">Org.nummer:</span>
-                  <span class="field-value">${data.organisasjonsnummer}</span>
+                  <span class="field-value">${escapeHtml(data.organisasjonsnummer)}</span>
                 </div>
               </div>
 
@@ -412,16 +428,16 @@ export class EmailService {
                 <div class="section-title">Contact Information / İletişim Bilgileri</div>
                 <div class="field">
                   <span class="field-label">Contact Person / İlgili Kişi:</span>
-                  <span class="field-value">${data.contactPerson}</span>
+                  <span class="field-value">${escapeHtml(data.contactPerson)}</span>
                 </div>
                 <div class="field">
                   <span class="field-label">Email:</span>
-                  <span class="field-value">${data.contactEmail}</span>
+                  <span class="field-value">${escapeHtml(data.contactEmail)}</span>
                 </div>
                 ${data.contactPhone ? `
                 <div class="field">
                   <span class="field-label">Phone / Telefon:</span>
-                  <span class="field-value">${data.contactPhone}</span>
+                  <span class="field-value">${escapeHtml(data.contactPhone)}</span>
                 </div>
                 ` : ''}
               </div>
@@ -431,15 +447,15 @@ export class EmailService {
                 <div class="section-title">Report Details / Rapor Detayları</div>
                 <div class="field">
                   <span class="field-label">Detected At / Tespit Zamanı:</span>
-                  <span class="field-value">${this.formatDateTime(data.detectedAt)}</span>
+                  <span class="field-value">${escapeHtml(this.formatDateTime(data.detectedAt))}</span>
                 </div>
                 <div class="field">
                   <span class="field-label">Reported By / Raporlayan:</span>
-                  <span class="field-value">${data.reportedBy}</span>
+                  <span class="field-value">${escapeHtml(data.reportedBy)}</span>
                 </div>
                 <div class="field">
                   <span class="field-label">Report Time / Rapor Zamanı:</span>
-                  <span class="field-value">${this.formatDateTime(new Date())}</span>
+                  <span class="field-value">${escapeHtml(this.formatDateTime(new Date()))}</span>
                 </div>
               </div>
             </div>
@@ -465,37 +481,37 @@ export class EmailService {
         <div class="section-title">Welfare Event Details / Refah Olayı Detayları</div>
         <div class="field">
           <span class="field-label">Event Type / Olay Türü:</span>
-          <span class="field-value">${data.eventType}</span>
+          <span class="field-value">${escapeHtml(data.eventType)}</span>
         </div>
         <div class="field">
           <span class="field-label">Severity / Şiddet:</span>
           <span class="field-value" style="color: ${data.severity === 'critical' ? '#dc3545' : '#ff6600'}; font-weight: 600;">
-            ${data.severity.toUpperCase()}
+            ${escapeHtml(data.severity.toUpperCase())}
           </span>
         </div>
         ${data.mortalityRate !== undefined ? `
         <div class="highlight-box">
           <div class="field">
             <span class="field-label">Mortality Rate / Ölüm Oranı:</span>
-            <span class="field-value"><strong>${data.mortalityRate}%</strong> (${data.mortalityPeriod || 'N/A'})</span>
+            <span class="field-value"><strong>${escapeHtml(String(data.mortalityRate))}%</strong> (${escapeHtml(data.mortalityPeriod || 'N/A')})</span>
           </div>
         </div>
         ` : ''}
         <div class="field">
           <span class="field-label">Description / Açıklama:</span>
-          <span class="field-value">${data.description}</span>
+          <span class="field-value">${escapeHtml(data.description)}</span>
         </div>
         ${data.affectedBatches && data.affectedBatches.length > 0 ? `
         <div class="field">
           <span class="field-label">Affected Batches / Etkilenen Partiler:</span>
-          <span class="field-value">${data.affectedBatches.join(', ')}</span>
+          <span class="field-value">${data.affectedBatches.map(b => escapeHtml(b)).join(', ')}</span>
         </div>
         ` : ''}
         <div class="field">
           <span class="field-label">Immediate Actions / Alınan Önlemler:</span>
           <span class="field-value">
             <ul class="list-items">
-              ${data.immediateActions.map(action => `<li>${action}</li>`).join('')}
+              ${data.immediateActions.map(action => `<li>${escapeHtml(action)}</li>`).join('')}
             </ul>
           </span>
         </div>
@@ -507,7 +523,7 @@ export class EmailService {
    * Generate disease outbreak section HTML
    */
   private generateDiseaseSection(data: NonNullable<RegulatoryReportEmailData['diseaseData']>): string {
-    const categoryDescriptions = {
+    const categoryDescriptions: Record<string, string> = {
       A: 'Liste A - Exotic Disease / Egzotik Hastalık',
       C: 'Liste C - Non-Exotic Notifiable / Bildirilmesi Zorunlu',
       F: 'Liste F - Other Notifiable / Diğer Bildirilebilir',
@@ -519,11 +535,11 @@ export class EmailService {
         <div class="highlight-box" style="background-color: #ffebee; border-color: #f44336;">
           <div class="field">
             <span class="field-label">Disease / Hastalık:</span>
-            <span class="field-value"><strong>${data.diseaseName}</strong></span>
+            <span class="field-value"><strong>${escapeHtml(data.diseaseName)}</strong></span>
           </div>
           <div class="field">
             <span class="field-label">Category / Kategori:</span>
-            <span class="field-value">${categoryDescriptions[data.diseaseCategory]}</span>
+            <span class="field-value">${escapeHtml(categoryDescriptions[data.diseaseCategory] || data.diseaseCategory)}</span>
           </div>
           <div class="field">
             <span class="field-label">Status / Durum:</span>
@@ -534,20 +550,20 @@ export class EmailService {
         </div>
         <div class="field">
           <span class="field-label">Affected Population / Etkilenen Popülasyon:</span>
-          <span class="field-value">${data.affectedCount.toLocaleString()} fish (${data.affectedPercentage}%)</span>
+          <span class="field-value">${escapeHtml(data.affectedCount.toLocaleString())} fish (${escapeHtml(String(data.affectedPercentage))}%)</span>
         </div>
         <div class="field">
           <span class="field-label">Clinical Signs / Klinik Belirtiler:</span>
           <span class="field-value">
             <ul class="list-items">
-              ${data.clinicalSigns.map(sign => `<li>${sign}</li>`).join('')}
+              ${data.clinicalSigns.map(sign => `<li>${escapeHtml(sign)}</li>`).join('')}
             </ul>
           </span>
         </div>
         <div class="field">
           <span class="field-label">Veterinarian Notified / Veteriner Bilgilendirildi:</span>
           <span class="field-value">
-            ${data.veterinarianNotified ? `Yes / Evet${data.veterinarianName ? ` - ${data.veterinarianName}` : ''}` : 'No / Hayır'}
+            ${data.veterinarianNotified ? `Yes / Evet${data.veterinarianName ? ` - ${escapeHtml(data.veterinarianName)}` : ''}` : 'No / Hayır'}
           </span>
         </div>
       </div>
@@ -564,28 +580,28 @@ export class EmailService {
         <div class="highlight-box" style="background-color: #f3e5f5; border-color: #9c27b0;">
           <div class="field">
             <span class="field-label">Estimated Escaped / Tahmini Kaçan:</span>
-            <span class="field-value"><strong>${data.estimatedCount.toLocaleString()} fish</strong></span>
+            <span class="field-value"><strong>${escapeHtml(data.estimatedCount.toLocaleString())} fish</strong></span>
           </div>
           <div class="field">
             <span class="field-label">Total Biomass / Toplam Biyokütle:</span>
-            <span class="field-value"><strong>${data.totalBiomassKg.toLocaleString()} kg</strong></span>
+            <span class="field-value"><strong>${escapeHtml(data.totalBiomassKg.toLocaleString())} kg</strong></span>
           </div>
         </div>
         <div class="field">
           <span class="field-label">Species / Tür:</span>
-          <span class="field-value">${data.species}</span>
+          <span class="field-value">${escapeHtml(data.species)}</span>
         </div>
         <div class="field">
           <span class="field-label">Average Weight / Ortalama Ağırlık:</span>
-          <span class="field-value">${data.avgWeightG} g</span>
+          <span class="field-value">${escapeHtml(String(data.avgWeightG))} g</span>
         </div>
         <div class="field">
           <span class="field-label">Cause / Sebep:</span>
-          <span class="field-value">${data.cause}</span>
+          <span class="field-value">${escapeHtml(data.cause)}</span>
         </div>
         <div class="field">
           <span class="field-label">Affected Units / Etkilenen Üniteler:</span>
-          <span class="field-value">${data.affectedUnits.join(', ')}</span>
+          <span class="field-value">${data.affectedUnits.map(u => escapeHtml(u)).join(', ')}</span>
         </div>
         <div class="field">
           <span class="field-label">Recovery Ongoing / Kurtarma Devam Ediyor:</span>

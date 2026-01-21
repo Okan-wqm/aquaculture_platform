@@ -96,7 +96,7 @@ describe('CircuitBreakerService', () => {
       const fn = jest.fn().mockRejectedValue(new Error('failure'));
       const fallback = jest.fn().mockReturnValue('fallback-result');
 
-      const result = await service.execute('fallback-service', fn, { fallback });
+      const result: unknown = await service.execute('fallback-service', fn, { fallback });
 
       expect(result).toBe('fallback-result');
       expect(fallback).toHaveBeenCalledWith(expect.any(Error), 'fallback-service');
@@ -119,7 +119,7 @@ describe('CircuitBreakerService', () => {
       const fn = jest.fn().mockResolvedValue('success');
       const fallback = jest.fn().mockReturnValue('fallback');
 
-      const result = await service.execute('open-fallback-service', fn, { fallback });
+      const result: unknown = await service.execute('open-fallback-service', fn, { fallback });
 
       expect(result).toBe('fallback');
       expect(fn).not.toHaveBeenCalled();

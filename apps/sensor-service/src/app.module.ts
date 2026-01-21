@@ -29,26 +29,22 @@ import { SensorDataChannel } from './database/entities/sensor-data-channel.entit
 import { SensorProtocol } from './database/entities/sensor-protocol.entity';
 import { SensorReading } from './database/entities/sensor-reading.entity';
 import { Sensor } from './database/entities/sensor.entity';
+import { EdgeDeviceModule } from './edge-device/edge-device.module';
+import { DeviceIoConfig } from './edge-device/entities/device-io-config.entity';
+import { EdgeDevice } from './edge-device/entities/edge-device.entity';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
-import { SensorModule } from './sensor/sensor.module';
+import { IngestionModule } from './ingestion/ingestion.module';
+import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
+import { Process } from './process/entities/process.entity';
+import { ProcessModule } from './process/process.module';
 import { ProtocolModule } from './protocol/protocol.module';
 import { RegistrationModule } from './registration/registration.module';
+import { SensorModule } from './sensor/sensor.module';
 import { VfdDevice } from './vfd/entities/vfd-device.entity';
 import { VfdReading } from './vfd/entities/vfd-reading.entity';
-import { VfdModule } from './vfd/vfd.module';
-import { IngestionModule } from './ingestion/ingestion.module';
-import { ProcessModule } from './process/process.module';
-import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
-
-// Explicitly import all entities (required for webpack bundle)
 import { VfdRegisterMapping } from './vfd/entities/vfd-register-mapping.entity';
-import { Process } from './process/entities/process.entity';
-import { EdgeDevice } from './edge-device/entities/edge-device.entity';
-import { DeviceIoConfig } from './edge-device/entities/device-io-config.entity';
-import { EdgeDeviceModule } from './edge-device/edge-device.module';
-
-// Automation entities (IEC 61131-3 SFC programs)
+import { VfdModule } from './vfd/vfd.module';
 
 @Module({
   imports: [
@@ -129,8 +125,8 @@ import { EdgeDeviceModule } from './edge-device/edge-device.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        natsUrl: configService.get('NATS_URL', 'nats://localhost:4222'),
-        streamName: configService.get('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
+        natsUrl: configService.get<string>('NATS_URL', 'nats://localhost:4222'),
+        streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
       }),
     }),
 
@@ -174,7 +170,7 @@ import { EdgeDeviceModule } from './edge-device/edge-device.module';
   ],
 })
 export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
+  configure(consumer: MiddlewareConsumer): void {
     consumer
       .apply(
         CorrelationIdMiddleware,

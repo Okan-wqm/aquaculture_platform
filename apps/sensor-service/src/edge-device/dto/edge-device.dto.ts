@@ -1,11 +1,9 @@
 import {
   InputType,
   Field,
-  ID,
   Int,
   Float,
   ObjectType,
-  registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
 

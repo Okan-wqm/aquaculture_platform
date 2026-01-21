@@ -1,4 +1,4 @@
-import { UseGuards, Logger } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
 
 import { DashboardService } from './dashboard.service';

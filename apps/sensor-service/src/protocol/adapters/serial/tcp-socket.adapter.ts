@@ -73,10 +73,26 @@ export class TcpSocketAdapter extends BaseProtocolAdapter {
     if (!socket) throw new Error('Not connected');
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Read timeout')), 5000);
-      socket.once('data', (data) => {
+      const timeout = setTimeout(() => {
+        socket.removeAllListeners('data');
+        socket.removeAllListeners('error');
+        reject(new Error('Read timeout'));
+      }, 5000);
+
+      const cleanup = (): void => {
         clearTimeout(timeout);
+        socket.removeAllListeners('data');
+        socket.removeAllListeners('error');
+      };
+
+      socket.once('data', (data) => {
+        cleanup();
         resolve({ timestamp: new Date(), values: { raw: data.toString() }, quality: 100, source: 'tcp_socket' });
+      });
+
+      socket.once('error', (error) => {
+        cleanup();
+        reject(new Error(`Socket error: ${error.message}`));
       });
     });
   }

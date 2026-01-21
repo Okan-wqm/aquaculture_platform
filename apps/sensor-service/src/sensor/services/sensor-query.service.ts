@@ -49,7 +49,7 @@ interface AggregatedReadingRow {
 /**
  * Query result row for sensor stats
  */
-interface SensorStatsRow {
+interface _SensorStatsRow {
   total_readings?: string;
   average_quality?: string;
   last_reading?: Date;
@@ -246,78 +246,6 @@ export class SensorQueryService {
         -- Salinity
         AVG((readings->>'salinity')::numeric) AS avg_salinity,
         MIN((readings->>'salinity')::numeric) AS min_salinity,
-        MAX((readings->>'salinity')::numeric) AS max_salinity
-      }) => ({
-        bucket: row.bucket,
-        count: parseInt(row.count, 10),
-        averages: {
-          temperature: row.avg_temperature
-            ? parseFloat(row.avg_temperature)
-            : undefined,
-          ph: row.avg_ph ? parseFloat(row.avg_ph) : undefined,
-          dissolvedOxygen: row.avg_dissolved_oxygen
-            ? parseFloat(row.avg_dissolved_oxygen)
-            : undefined,
-          salinity: row.avg_salinity
-            ? parseFloat(row.avg_salinity)
-            : undefined,
-          ammonia: row.avg_ammonia
-            ? parseFloat(row.avg_ammonia)
-            : undefined,
-          nitrite: row.avg_nitrite
-            ? parseFloat(row.avg_nitrite)
-            : undefined,
-          nitrate: row.avg_nitrate
-            ? parseFloat(row.avg_nitrate)
-            : undefined,
-        },
-        minimums: {
-          temperature: row.min_temperature
-            ? parseFloat(row.min_temperature)
-            : undefined,
-        },
-        maximums: {
-          temperature: row.max_temperature
-            ? parseFloat(row.max_temperature)
-            : undefined,
-        },
-      }),
-    );
-  }
-
-  /**
-   * Get aggregated readings with full min/max for all metrics
-   * Optimized for frontend chart rendering
-   */
-  async getAggregatedReadings(
-    sensorId: string,
-    tenantId: string,
-    startTime: Date,
-    endTime: Date,
-    interval?: AggregationInterval,
-  ): Promise<AggregatedReadingsResponse> {
-    // Auto-select optimal interval if not provided
-    const effectiveInterval = interval || getOptimalInterval(startTime, endTime);
-
-    const query = `
-      SELECT
-        time_bucket($1::interval, timestamp) AS bucket,
-        COUNT(*) AS count,
-        -- Temperature
-        AVG((readings->>'temperature')::numeric) AS avg_temperature,
-        MIN((readings->>'temperature')::numeric) AS min_temperature,
-        MAX((readings->>'temperature')::numeric) AS max_temperature,
-        -- pH
-        AVG((readings->>'ph')::numeric) AS avg_ph,
-        MIN((readings->>'ph')::numeric) AS min_ph,
-        MAX((readings->>'ph')::numeric) AS max_ph,
-        -- Dissolved Oxygen
-        AVG((readings->>'dissolvedOxygen')::numeric) AS avg_dissolved_oxygen,
-        MIN((readings->>'dissolvedOxygen')::numeric) AS min_dissolved_oxygen,
-        MAX((readings->>'dissolvedOxygen')::numeric) AS max_dissolved_oxygen,
-        -- Salinity
-        AVG((readings->>'salinity')::numeric) AS avg_salinity,
-        MIN((readings->>'salinity')::numeric) AS min_salinity,
         MAX((readings->>'salinity')::numeric) AS max_salinity,
         -- Ammonia
         AVG((readings->>'ammonia')::numeric) AS avg_ammonia,
@@ -340,7 +268,7 @@ export class SensorQueryService {
       ORDER BY bucket ASC
     `;
 
-    const results = await this.dataSource.query(query, [
+    const results: Array<Record<string, string | null>> = await this.dataSource.query(query, [
       effectiveInterval,
       sensorId,
       tenantId,
@@ -349,7 +277,7 @@ export class SensorQueryService {
     ]);
 
     const data: AggregatedReadingType[] = results.map(
-      (row: Record<string, string | null>) => ({
+      (row) => ({
         bucket: new Date(row.bucket as string),
         count: parseInt(row.count || '0', 10),
         avgTemperature: row.avg_temperature ? parseFloat(row.avg_temperature) : undefined,
@@ -377,7 +305,7 @@ export class SensorQueryService {
     // Get sensor name
     let sensorName: string | undefined;
     try {
-      const sensor = await this.dataSource.query(
+      const sensor: Array<{ name: string }> = await this.dataSource.query(
         `SELECT name FROM sensors WHERE id = $1 AND "tenantId" = $2`,
         [sensorId, tenantId],
       );
@@ -444,20 +372,27 @@ export class SensorQueryService {
         AND timestamp >= $3
     `;
 
-    const [result] = await this.dataSource.query(query, [
+    interface StatsResult {
+      total_readings: string;
+      average_quality: string | null;
+      last_reading: Date | null;
+    }
+
+    const results: StatsResult[] = await this.dataSource.query(query, [
       sensorId,
       tenantId,
       startTime,
     ]);
 
-    const totalReadings = parseInt(result.total_readings || '0', 10);
+    const result = results[0];
+    const totalReadings = parseInt(result?.total_readings || '0', 10);
 
     return {
       totalReadings,
-      averageQuality: result.average_quality
+      averageQuality: result?.average_quality
         ? parseFloat(result.average_quality)
         : 0,
-      lastReading: result.last_reading || null,
+      lastReading: result?.last_reading || null,
       readingsPerDay: totalReadings / days,
     };
   }

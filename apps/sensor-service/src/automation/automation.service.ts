@@ -36,6 +36,8 @@ import {
   ProgramStatus,
   ProgramType,
   ExecutionMode,
+  SfcDefinition,
+  TriggerConfig,
 } from './entities/automation-program.entity';
 import { ProgramStep, StepType } from './entities/program-step.entity';
 import { ProgramTransition } from './entities/program-transition.entity';
@@ -101,12 +103,12 @@ export class AutomationService {
       executionMode: input.executionMode,
       deviceId: input.deviceId,
       processTemplateId: input.processTemplateId,
-      sfcDefinition: input.sfcDefinition as any,
+      sfcDefinition: input.sfcDefinition as SfcDefinition,
       structuredTextCode: input.structuredTextCode,
       scanCycleMs: input.scanCycleMs || 100,
       priority: input.priority || 5,
       category: input.category,
-      triggerConfig: input.triggerConfig as any,
+      triggerConfig: input.triggerConfig as TriggerConfig,
       tags: input.tags,
       status: ProgramStatus.DRAFT,
       version: 1,
@@ -140,12 +142,12 @@ export class AutomationService {
     if (input.programName !== undefined) program.programName = input.programName;
     if (input.description !== undefined) program.description = input.description;
     if (input.executionMode !== undefined) program.executionMode = input.executionMode;
-    if (input.sfcDefinition !== undefined) program.sfcDefinition = input.sfcDefinition as any;
+    if (input.sfcDefinition !== undefined) program.sfcDefinition = input.sfcDefinition as SfcDefinition;
     if (input.structuredTextCode !== undefined) program.structuredTextCode = input.structuredTextCode;
     if (input.scanCycleMs !== undefined) program.scanCycleMs = input.scanCycleMs;
     if (input.priority !== undefined) program.priority = input.priority;
     if (input.category !== undefined) program.category = input.category;
-    if (input.triggerConfig !== undefined) program.triggerConfig = input.triggerConfig as any;
+    if (input.triggerConfig !== undefined) program.triggerConfig = input.triggerConfig as TriggerConfig;
     if (input.tags !== undefined) program.tags = input.tags;
     if (input.metadata !== undefined) program.metadata = input.metadata;
 
@@ -1115,7 +1117,7 @@ export class AutomationService {
    */
   private extractFunctionBlocks(
     program: AutomationProgram,
-    variables: ProgramVariable[],
+    _variables: ProgramVariable[],
   ): Array<Record<string, unknown>> {
     const functionBlocks: Array<Record<string, unknown>> = [];
 

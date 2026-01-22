@@ -370,7 +370,7 @@ export function useRenewCertification() {
       queryClient.invalidateQueries({
         queryKey: certificationKeys.employee(data.renewCertification.employeeId),
       });
-      queryClient.invalidateQueries({ queryKey: certificationKeys.expiring });
+      queryClient.invalidateQueries({ queryKey: [...certificationKeys.all, 'expiring'] });
     },
   });
 }

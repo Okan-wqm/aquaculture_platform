@@ -14,8 +14,8 @@ import {
   XCircle,
   Eye,
 } from 'lucide-react';
-import { cn } from '@shared-ui/utils';
-import { useAuth } from '@shared-ui/hooks';
+import { cn } from '@aquaculture/shared-ui';
+import { useAuth } from '@aquaculture/shared-ui';
 import {
   useLeaveRequests,
   usePendingLeaveApprovals,

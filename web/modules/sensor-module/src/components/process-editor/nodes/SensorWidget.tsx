@@ -18,6 +18,15 @@ import type { NodeProps } from 'reactflow';
 /* -------------------------------------------------- */
 /*  Types                                             */
 /* -------------------------------------------------- */
+
+/**
+ * MQTT Client interface for dynamic import
+ */
+interface MqttClient {
+  on: (event: string, callback: (...args: unknown[]) => void) => void;
+  subscribe: (topic: string) => void;
+  end: () => void;
+}
 export interface SensorWidgetData {
   label?: string;
   widgetName?: string;
@@ -55,23 +64,24 @@ const SensorWidget: React.FC<NodeProps<SensorWidgetData>> = ({ data, selected })
   useEffect(() => {
     if (data.mode !== 'push' || !data.mqttUrl || !data.mqttTopic) return;
 
-    let client: any = null;
+    let client: MqttClient | null = null;
 
     // Dynamic import mqtt to avoid build issues if not installed
-    const connectMqtt = async () => {
+    const connectMqtt = async (): Promise<void> => {
       try {
         const mqtt = await import('mqtt');
         client = mqtt.connect(data.mqttUrl!, {
           protocol: 'ws',
           reconnectPeriod: 2000,
-        });
+        }) as MqttClient;
 
         client.on('connect', () => {
-          client.subscribe(data.mqttTopic!);
+          client?.subscribe(data.mqttTopic!);
         });
 
-        client.on('message', (_: string, msg: Buffer) => {
-          const num = parseFloat(msg.toString());
+        client.on('message', (_topic: unknown, msg: unknown) => {
+          const message = msg as Buffer;
+          const num = parseFloat(message.toString());
           setValue(isNaN(num) ? 0 : num);
         });
       } catch (err) {

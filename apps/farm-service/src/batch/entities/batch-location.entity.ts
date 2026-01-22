@@ -30,7 +30,8 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { Batch } from './batch.entity';
-// Note: Tank is referenced via string to avoid circular dependency
+// Type-only import to avoid circular dependency at runtime
+import type { Tank } from '../../tank/entities/tank.entity';
 
 // ============================================================================
 // ENUMS
@@ -120,7 +121,7 @@ export class BatchLocation {
 
   @ManyToOne('Tank', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'tankId' })
-  tank?: any;
+  tank?: Tank;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })

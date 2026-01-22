@@ -11,6 +11,41 @@ import { Request, Response } from 'express';
 import { GraphQLError } from 'graphql';
 
 /**
+ * Interface for structured exception response objects
+ */
+interface ExceptionResponseObject {
+  message?: string | string[];
+  error?: string;
+  statusCode?: number;
+  details?: unknown;
+}
+
+/**
+ * Type guard to check if exception response is an object
+ */
+function isExceptionResponseObject(
+  response: string | object,
+): response is ExceptionResponseObject {
+  return typeof response === 'object' && response !== null;
+}
+
+/**
+ * Extract message from exception response
+ */
+function extractMessage(
+  response: string | object,
+  fallback: string,
+): string | string[] {
+  if (typeof response === 'string') {
+    return response;
+  }
+  if (isExceptionResponseObject(response) && response.message !== undefined) {
+    return response.message;
+  }
+  return fallback;
+}
+
+/**
  * HTTP Exception Filter
  * Provides consistent error responses for REST endpoints
  */
@@ -30,18 +65,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
       timestamp: new Date().toISOString(),
       path: request.url,
       method: request.method,
-      message:
-        typeof exceptionResponse === 'string'
-          ? exceptionResponse
-          : (exceptionResponse as any).message || exception.message,
-      error:
-        typeof exceptionResponse === 'object'
-          ? (exceptionResponse as any).error
-          : undefined,
-      details:
-        typeof exceptionResponse === 'object'
-          ? (exceptionResponse as any).details
-          : undefined,
+      message: extractMessage(exceptionResponse, exception.message),
+      error: isExceptionResponseObject(exceptionResponse)
+        ? exceptionResponse.error
+        : undefined,
+      details: isExceptionResponseObject(exceptionResponse)
+        ? exceptionResponse.details
+        : undefined,
       correlationId: request.headers['x-correlation-id'] || undefined,
       tenantId: request.headers['x-tenant-id'] || undefined,
     };
@@ -122,10 +152,8 @@ export class GraphQLExceptionFilter implements GqlExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const response = exception.getResponse();
-      message =
-        typeof response === 'string'
-          ? response
-          : (response as any).message || exception.message;
+      const extracted = extractMessage(response, exception.message);
+      message = Array.isArray(extracted) ? extracted.join(', ') : extracted;
       code = this.getErrorCode(status);
     } else if (exception instanceof Error) {
       message = exception.message;

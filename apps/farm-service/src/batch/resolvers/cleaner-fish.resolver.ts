@@ -35,6 +35,16 @@ interface UserContext {
   tenantId: string;
   roles: string[];
 }
+
+/**
+ * Query filter interface for cleaner fish batches
+ */
+interface CleanerFishBatchQueryFilter {
+  tenantId: string;
+  batchType: BatchType;
+  isActive: boolean;
+  status?: BatchStatus;
+}
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType, MortalityReason } from '../entities/tank-operation.entity';
 import { Species } from '../../species/entities/species.entity';
@@ -452,7 +462,7 @@ export class CleanerFishResolver {
   ): Promise<Batch[]> {
     this.logger.debug(`Getting cleaner fish batches for tenant: ${tenantId}`);
 
-    const where: any = {
+    const where: CleanerFishBatchQueryFilter = {
       tenantId,
       batchType: BatchType.CLEANER_FISH,
       isActive: true,

@@ -25,6 +25,32 @@
 
 import { Logger } from '@nestjs/common';
 
+/**
+ * Interface for Redis cache service operations
+ */
+interface RedisCacheService {
+  getJson: (key: string) => Promise<unknown>;
+  setJson: (key: string, value: unknown, ttl?: number) => Promise<void>;
+  del: (key: string) => Promise<void>;
+  deletePattern?: (pattern: string) => Promise<number>;
+}
+
+/**
+ * Interface for services that support caching
+ */
+interface CacheableService {
+  redisService?: RedisCacheService;
+  redis?: RedisCacheService;
+  cacheService?: RedisCacheService;
+}
+
+/**
+ * Get Redis service from a cacheable service instance
+ */
+function getRedisService(instance: CacheableService): RedisCacheService | undefined {
+  return instance.redisService || instance.redis || instance.cacheService;
+}
+
 export interface CacheableOptions {
   /**
    * Skip caching if this function returns true
@@ -100,14 +126,12 @@ export function Cacheable(
     const originalMethod = descriptor.value;
     const className = target.constructor.name;
 
-    descriptor.value = async function (...args: unknown[]) {
+    descriptor.value = async function (this: CacheableService, ...args: unknown[]) {
       // Get RedisService from the class instance
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const self = this as any;
-      const redisService = self.redisService || self.redis || self.cacheService;
+      const redisService = getRedisService(this);
 
       // If no Redis service, just execute the method
-      if (!redisService || typeof redisService.getJson !== 'function') {
+      if (!redisService) {
         if (options.debug) {
           logger.warn(`No RedisService found in ${className}, skipping cache`);
         }
@@ -183,16 +207,14 @@ export function CacheInvalidate(keyPattern: string) {
     const originalMethod = descriptor.value;
     const className = target.constructor.name;
 
-    descriptor.value = async function (...args: unknown[]) {
+    descriptor.value = async function (this: CacheableService, ...args: unknown[]) {
       // Execute original method first
       const result = await originalMethod.apply(this, args);
 
       // Get RedisService from the class instance
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const self = this as any;
-      const redisService = self.redisService || self.redis || self.cacheService;
+      const redisService = getRedisService(this);
 
-      if (redisService && typeof redisService.del === 'function') {
+      if (redisService) {
         const cacheKey = interpolateKey(keyPattern, args);
         try {
           await redisService.del(cacheKey);
@@ -229,16 +251,14 @@ export function CacheInvalidatePattern(keyPattern: string) {
   ) {
     const originalMethod = descriptor.value;
 
-    descriptor.value = async function (...args: unknown[]) {
+    descriptor.value = async function (this: CacheableService, ...args: unknown[]) {
       // Execute original method first
       const result = await originalMethod.apply(this, args);
 
       // Get RedisService from the class instance
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const self = this as any;
-      const redisService = self.redisService || self.redis || self.cacheService;
+      const redisService = getRedisService(this);
 
-      if (redisService && typeof redisService.deletePattern === 'function') {
+      if (redisService?.deletePattern) {
         const pattern = interpolateKey(keyPattern, args);
         try {
           const count = await redisService.deletePattern(pattern);

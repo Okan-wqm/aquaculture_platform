@@ -30,7 +30,8 @@ import {
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 import { Batch } from './batch.entity';
-// Note: Tank is referenced via string to avoid circular dependency
+// Type-only import to avoid circular dependency at runtime
+import type { Tank } from '../../tank/entities/tank.entity';
 
 // ============================================================================
 // ENUMS
@@ -138,7 +139,7 @@ export class TankOperation {
 
   @ManyToOne('Tank', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'tankId' })
-  tank: any;
+  tank?: Tank;
 
   // Denormalized tank name for quick access
   @Field({ nullable: true })
@@ -156,7 +157,7 @@ export class TankOperation {
 
   @ManyToOne('Tank', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'sourceTankId' })
-  sourceTank?: any;
+  sourceTank?: Tank;
 
   // -------------------------------------------------------------------------
   // BATCH İLİŞKİSİ
@@ -245,7 +246,7 @@ export class TankOperation {
 
   @ManyToOne('Tank', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'destinationTankId' })
-  destinationTank?: any;
+  destinationTank?: Tank;
 
   // Denormalized destination tank name
   @Field({ nullable: true })

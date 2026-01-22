@@ -33,7 +33,7 @@ export interface ICommandHandler<
 /**
  * Type helper for class constructors
  */
-export type Type<T = any> = new (...args: any[]) => T;
+export type Type<T = unknown> = new (...args: unknown[]) => T;
 
 /**
  * Command Bus Interface
@@ -51,7 +51,7 @@ export interface ICommandBus {
    * Register a handler for a command type
    */
   register<TCommand extends ICommand>(
-    commandType: new (...args: any[]) => TCommand,
+    commandType: new (...args: unknown[]) => TCommand,
     handler: Type<ICommandHandler<TCommand>>,
   ): void;
 }
@@ -61,7 +61,7 @@ export interface ICommandBus {
  */
 export interface CommandMetadata {
   commandType: string;
-  handlerType: new (...args: any[]) => ICommandHandler;
+  handlerType: new (...args: unknown[]) => ICommandHandler;
 }
 
 /**

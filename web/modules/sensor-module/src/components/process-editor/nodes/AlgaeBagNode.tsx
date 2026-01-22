@@ -5,10 +5,15 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, useUpdateNodeInternals, NodeProps } from 'reactflow';
+import { Handle, useUpdateNodeInternals, NodeProps, Position } from 'reactflow';
 import { useProcessStore } from '../../../store/processStore';
 
 type HandleType = 'source' | 'target';
+
+/**
+ * Node data keys that can be updated for handles
+ */
+type HandleDataKey = 'top1Type' | 'top2Type' | 'top3Type' | 'top4Type' | 'leftType' | 'rightType' | 'bottomType';
 
 interface AlgaeBagNodeData {
   color?: 'red' | 'green' | 'yellow';
@@ -68,13 +73,13 @@ const AlgaeBagNode: React.FC<NodeProps<AlgaeBagNodeData>> = ({ id, data, selecte
     e: React.MouseEvent,
     current: HandleType,
     setFunc: React.Dispatch<React.SetStateAction<HandleType>>,
-    key: string
+    key: HandleDataKey
   ) => {
     e.preventDefault();
     e.stopPropagation();
     const newVal: HandleType = current === 'source' ? 'target' : 'source';
     setFunc(newVal);
-    updateNodeData(id, { [key]: newVal } as any);
+    updateNodeData(id, { [key]: newVal } as Partial<AlgaeBagNodeData>);
   };
 
   useEffect(() => {
@@ -222,7 +227,7 @@ const AlgaeBagNode: React.FC<NodeProps<AlgaeBagNodeData>> = ({ id, data, selecte
         <Handle
           id="algae-top1"
           type={top1Type}
-          position={undefined as any}
+          position={Position.Top}
           isConnectable={true}
           style={{
             position: 'relative',
@@ -255,7 +260,7 @@ const AlgaeBagNode: React.FC<NodeProps<AlgaeBagNodeData>> = ({ id, data, selecte
         <Handle
           id="algae-top2"
           type={top2Type}
-          position={undefined as any}
+          position={Position.Top}
           isConnectable={true}
           style={{
             position: 'relative',
@@ -288,7 +293,7 @@ const AlgaeBagNode: React.FC<NodeProps<AlgaeBagNodeData>> = ({ id, data, selecte
         <Handle
           id="algae-top3"
           type={top3Type}
-          position={undefined as any}
+          position={Position.Top}
           isConnectable={true}
           style={{
             position: 'relative',
@@ -321,7 +326,7 @@ const AlgaeBagNode: React.FC<NodeProps<AlgaeBagNodeData>> = ({ id, data, selecte
         <Handle
           id="algae-top4"
           type={top4Type}
-          position={undefined as any}
+          position={Position.Top}
           isConnectable={true}
           style={{
             position: 'relative',
@@ -354,7 +359,7 @@ const AlgaeBagNode: React.FC<NodeProps<AlgaeBagNodeData>> = ({ id, data, selecte
         <Handle
           id="algae-left"
           type={leftType}
-          position={undefined as any}
+          position={Position.Top}
           isConnectable={true}
           style={{
             position: 'relative',
@@ -387,7 +392,7 @@ const AlgaeBagNode: React.FC<NodeProps<AlgaeBagNodeData>> = ({ id, data, selecte
         <Handle
           id="algae-right"
           type={rightType}
-          position={undefined as any}
+          position={Position.Top}
           isConnectable={true}
           style={{
             position: 'relative',
@@ -420,7 +425,7 @@ const AlgaeBagNode: React.FC<NodeProps<AlgaeBagNodeData>> = ({ id, data, selecte
         <Handle
           id="algae-bottom"
           type={bottomType}
-          position={undefined as any}
+          position={Position.Top}
           isConnectable={true}
           style={{
             position: 'relative',

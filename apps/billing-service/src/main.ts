@@ -57,7 +57,8 @@ async function bootstrap() {
   logger.log(`GraphQL playground: http://localhost:${port}/graphql`);
 }
 
+const bootstrapLogger = new Logger('BillingServiceBootstrap');
 bootstrap().catch((error) => {
-  console.error('Billing Service failed to start:', error);
+  bootstrapLogger.error('Billing Service failed to start:', error);
   process.exit(1);
 });

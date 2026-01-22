@@ -7,6 +7,7 @@ import { AttendanceRecord, AttendanceStatus, ApprovalStatus, ClockMethod } from 
 import { Schedule, ScheduleStatus } from '../entities/schedule.entity';
 import { Shift } from '../entities/shift.entity';
 import { Employee } from '../../hr/entities/employee.entity';
+import { EmployeeClockedInEvent } from '../events/attendance.events';
 
 @CommandHandler(ClockInCommand)
 export class ClockInHandler implements ICommandHandler<ClockInCommand> {
@@ -119,8 +120,8 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
 
     const savedRecord = await this.attendanceRepository.save(attendanceRecord);
 
-    // TODO: Publish EmployeeClockedInEvent
-    // this.eventBus.publish(new EmployeeClockedInEvent(savedRecord));
+    // Publish event for notification/audit purposes
+    this.eventBus.publish(new EmployeeClockedInEvent(savedRecord));
 
     return savedRecord;
   }

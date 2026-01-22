@@ -5,6 +5,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ClockOutCommand } from '../commands/clock-out.command';
 import { AttendanceRecord, AttendanceStatus, ApprovalStatus } from '../entities/attendance-record.entity';
 import { Shift } from '../entities/shift.entity';
+import { EmployeeClockedOutEvent } from '../events/attendance.events';
 
 @CommandHandler(ClockOutCommand)
 export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
@@ -117,8 +118,8 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
 
     const savedRecord = await this.attendanceRepository.save(attendanceRecord);
 
-    // TODO: Publish EmployeeClockedOutEvent
-    // this.eventBus.publish(new EmployeeClockedOutEvent(savedRecord));
+    // Publish event for notification/audit purposes
+    this.eventBus.publish(new EmployeeClockedOutEvent(savedRecord));
 
     return savedRecord;
   }

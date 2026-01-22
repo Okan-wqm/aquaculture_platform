@@ -5,6 +5,7 @@ import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { CompleteTrainingCommand } from '../commands/complete-training.command';
 import { TrainingEnrollment, EnrollmentStatus, AssessmentAttempt } from '../entities/training-enrollment.entity';
 import { TrainingCourse } from '../entities/training-course.entity';
+import { TrainingCompletedEvent } from '../events/training.events';
 
 @CommandHandler(CompleteTrainingCommand)
 export class CompleteTrainingHandler
@@ -91,10 +92,10 @@ export class CompleteTrainingHandler
 
     const savedEnrollment = await this.enrollmentRepository.save(enrollment);
 
-    // TODO: Publish TrainingCompletedEvent
-    // if (enrollment.status === EnrollmentStatus.PASSED || enrollment.status === EnrollmentStatus.COMPLETED) {
-    //   this.eventBus.publish(new TrainingCompletedEvent(savedEnrollment));
-    // }
+    // Publish event for notification/audit purposes when training is completed
+    if (savedEnrollment.status === EnrollmentStatus.PASSED || savedEnrollment.status === EnrollmentStatus.COMPLETED) {
+      this.eventBus.publish(new TrainingCompletedEvent(savedEnrollment));
+    }
 
     return savedEnrollment;
   }

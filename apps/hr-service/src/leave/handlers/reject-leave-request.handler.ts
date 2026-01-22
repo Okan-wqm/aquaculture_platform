@@ -5,6 +5,7 @@ import { BadRequestException, NotFoundException, ForbiddenException } from '@nes
 import { RejectLeaveRequestCommand } from '../commands/reject-leave-request.command';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { LeaveBalance } from '../entities/leave-balance.entity';
+import { LeaveRejectedEvent } from '../events/leave.events';
 
 @CommandHandler(RejectLeaveRequestCommand)
 export class RejectLeaveRequestHandler
@@ -80,8 +81,8 @@ export class RejectLeaveRequestHandler
 
     const savedRequest = await this.leaveRequestRepository.save(leaveRequest);
 
-    // TODO: Publish LeaveRejectedEvent
-    // this.eventBus.publish(new LeaveRejectedEvent(savedRequest));
+    // Publish event for notification/audit purposes
+    this.eventBus.publish(new LeaveRejectedEvent(savedRequest));
 
     return savedRequest;
   }

@@ -59,7 +59,8 @@ async function bootstrap() {
   );
 }
 
+const bootstrapLogger = new Logger('FarmServiceBootstrap');
 bootstrap().catch((error) => {
-  console.error('Farm Service failed to start:', error);
+  bootstrapLogger.error('Farm Service failed to start:', error);
   process.exit(1);
 });

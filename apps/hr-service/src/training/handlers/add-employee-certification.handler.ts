@@ -6,6 +6,7 @@ import { AddEmployeeCertificationCommand } from '../commands/add-employee-certif
 import { EmployeeCertification, CertificationStatus, VerificationStatus } from '../entities/employee-certification.entity';
 import { CertificationType } from '../entities/certification-type.entity';
 import { Employee } from '../../hr/entities/employee.entity';
+import { CertificationAddedEvent } from '../events/training.events';
 
 @CommandHandler(AddEmployeeCertificationCommand)
 export class AddEmployeeCertificationHandler
@@ -108,8 +109,8 @@ export class AddEmployeeCertificationHandler
 
     const savedCertification = await this.certificationRepository.save(certification);
 
-    // TODO: Publish CertificationAddedEvent
-    // this.eventBus.publish(new CertificationAddedEvent(savedCertification));
+    // Publish event for notification/audit purposes
+    this.eventBus.publish(new CertificationAddedEvent(savedCertification));
 
     return savedCertification;
   }

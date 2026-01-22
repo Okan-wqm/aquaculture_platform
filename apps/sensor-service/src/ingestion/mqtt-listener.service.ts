@@ -926,8 +926,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       await this.batchInsertMetrics(metrics);
     }
 
-    // Also write to legacy table for backward compatibility
-    await this.writeLegacyReading(sensor, data);
+    // Write to legacy table for backward compatibility (deprecated, will be removed)
+    // Set LEGACY_SENSOR_READINGS_ENABLED=false when migration to sensor_metrics is complete
+    const legacyEnabled = this.configService.get('LEGACY_SENSOR_READINGS_ENABLED', 'true') === 'true';
+    if (legacyEnabled) {
+      await this.writeLegacyReading(sensor, data);
+    }
 
     this.logger.debug(`Saved ${metrics.length} metrics for sensor ${sensor.id}`);
   }
@@ -1009,7 +1013,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Write to legacy sensor_readings table for backward compatibility
-   * TODO: Remove after migration is complete
+   * @deprecated Use sensor_metrics table instead. Controlled by LEGACY_SENSOR_READINGS_ENABLED env var.
+   * This method will be removed once all consumers migrate to sensor_metrics.
    */
   private async writeLegacyReading(sensor: Sensor, data: Record<string, unknown>): Promise<void> {
     const reading = this.readingRepository.create({

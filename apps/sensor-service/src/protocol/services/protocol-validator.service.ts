@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import Ajv, { ValidateFunction, ErrorObject } from 'ajv';
 import addFormats from 'ajv-formats';
 
@@ -20,6 +20,7 @@ export interface SchemaValidationError {
 
 @Injectable()
 export class ProtocolValidatorService {
+  private readonly logger = new Logger(ProtocolValidatorService.name);
   private ajv: Ajv;
   private validatorCache: Map<string, ValidateFunction> = new Map();
 
@@ -153,7 +154,7 @@ export class ProtocolValidatorService {
       this.validatorCache.set(protocolCode, validator);
       return validator;
     } catch (error) {
-      console.error(`Failed to compile schema for ${protocolCode}:`, error);
+      this.logger.error(`Failed to compile schema for ${protocolCode}:`, error);
       return null;
     }
   }

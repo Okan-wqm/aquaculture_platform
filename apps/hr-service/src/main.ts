@@ -57,7 +57,8 @@ async function bootstrap() {
   logger.log(`GraphQL playground: http://localhost:${port}/graphql`);
 }
 
+const bootstrapLogger = new Logger('HRServiceBootstrap');
 bootstrap().catch((error) => {
-  console.error('HR Service failed to start:', error);
+  bootstrapLogger.error('HR Service failed to start:', error);
   process.exit(1);
 });

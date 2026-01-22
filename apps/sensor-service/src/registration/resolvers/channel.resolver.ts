@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
 import { Request } from 'express';
 
@@ -26,6 +27,8 @@ interface GqlContext {
  */
 @Resolver(() => DataChannelType)
 export class ChannelResolver {
+  private readonly logger = new Logger(ChannelResolver.name);
+
   constructor(
     private readonly discoveryService: ChannelDiscoveryService,
     private readonly managementService: ChannelManagementService,
@@ -57,7 +60,7 @@ export class ChannelResolver {
     }
 
     if (!tenantId) {
-      console.warn('[ChannelResolver] No tenantId found in request context');
+      this.logger.warn('No tenantId found in request context');
       return [];
     }
 

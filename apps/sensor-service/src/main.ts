@@ -55,7 +55,8 @@ async function bootstrap(): Promise<void> {
   logger.log(`GraphQL playground: http://localhost:${port}/graphql`);
 }
 
+const bootstrapLogger = new Logger('SensorServiceBootstrap');
 bootstrap().catch((error) => {
-  console.error('Sensor Service failed to start:', error);
+  bootstrapLogger.error('Sensor Service failed to start:', error);
   process.exit(1);
 });

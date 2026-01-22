@@ -230,8 +230,8 @@ export class ServiceProxyService {
 
     try {
       const controller = new AbortController();
-      // Timeout from config available for future SSE timeout handling
-      const _timeout = this.getServiceConfig(serviceName).timeout;
+      const timeout = this.getServiceConfig(serviceName).timeout;
+      const sseIdleTimeout = timeout * 2; // SSE idle timeout is 2x the regular timeout
 
       // Set SSE headers
       res.setHeader('Content-Type', 'text/event-stream');
@@ -259,16 +259,36 @@ export class ServiceProxyService {
         throw new BadGatewayException('No response body for SSE');
       }
 
-      // Stream the response
+      // Stream the response with idle timeout handling
       const decoder = new TextDecoder();
       let done = false;
-      while (!done) {
-        const result = await reader.read();
-        done = result.done;
-        if (!done && result.value) {
-          const chunk = decoder.decode(result.value, { stream: true });
-          res.write(chunk);
+      let lastActivityTime = Date.now();
+
+      // SSE idle timeout checker - terminates connection if no data received
+      const idleTimeoutChecker = setInterval(() => {
+        const idleTime = Date.now() - lastActivityTime;
+        if (idleTime > sseIdleTimeout) {
+          this.logger.warn(`SSE connection idle for ${idleTime}ms, terminating`, {
+            service: serviceName,
+            timeout: sseIdleTimeout,
+          });
+          clearInterval(idleTimeoutChecker);
+          controller.abort();
         }
+      }, Math.min(sseIdleTimeout / 2, 30000)); // Check at half the timeout interval, max 30s
+
+      try {
+        while (!done) {
+          const result = await reader.read();
+          done = result.done;
+          if (!done && result.value) {
+            lastActivityTime = Date.now(); // Reset idle timer on data received
+            const chunk = decoder.decode(result.value, { stream: true });
+            res.write(chunk);
+          }
+        }
+      } finally {
+        clearInterval(idleTimeoutChecker);
       }
 
       res.end();

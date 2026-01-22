@@ -8,9 +8,11 @@
 
 import { AsyncLocalStorage } from 'async_hooks';
 
-import { Injectable, NestMiddleware, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, NestMiddleware, Logger, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response, NextFunction } from 'express';
+
+import { TenantLookupService } from '../services/tenant-lookup.service';
 
 /**
  * Tenant status
@@ -222,7 +224,10 @@ export class TenantContextMiddleware implements NestMiddleware {
   private readonly cacheTtl: number;
   private readonly publicPaths: string[];
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() @Inject(TenantLookupService) private readonly tenantLookupService?: TenantLookupService,
+  ) {
     this.cacheTtl = this.configService.get<number>('TENANT_CACHE_TTL', 300000); // 5 minutes
     this.publicPaths = this.configService
       .get<string>('TENANT_PUBLIC_PATHS', '/health,/api/v1/auth/login,/api/v1/auth/register')
@@ -230,7 +235,7 @@ export class TenantContextMiddleware implements NestMiddleware {
       .map((p) => p.trim());
   }
 
-  use(req: Request, res: Response, next: NextFunction): void {
+  async use(req: Request, res: Response, next: NextFunction): Promise<void> {
     const tenantReq = req as TenantContextRequest;
 
     // Skip tenant resolution for public paths
@@ -249,8 +254,8 @@ export class TenantContextMiddleware implements NestMiddleware {
         });
       }
 
-      // Load tenant metadata
-      const tenant = this.loadTenant(tenantId);
+      // Load tenant metadata (async for production database lookup)
+      const tenant = await this.loadTenant(tenantId);
 
       if (!tenant) {
         throw new BadRequestException({
@@ -353,24 +358,33 @@ export class TenantContextMiddleware implements NestMiddleware {
   /**
    * Load tenant metadata
    */
-  private loadTenant(tenantId: string): TenantMetadata | null {
+  private async loadTenant(tenantId: string): Promise<TenantMetadata | null> {
     // Check cache
     const cached = this.tenantCache.get(tenantId);
     if (cached && cached.expiry > Date.now()) {
       return cached.tenant;
     }
 
-    // SECURITY: In production, mock tenants must not be created
-    // This could allow access to non-existent tenants
     const isProduction = process.env['NODE_ENV'] === 'production';
 
+    // Production: Use TenantLookupService to fetch from auth-service
     if (isProduction) {
-      // In production, tenant must exist in database
-      // TODO: Implement actual database lookup via tenant service
-      this.logger.warn(
-        `Tenant ${tenantId} not found in cache. In production, database lookup required.`,
-      );
-      return null;
+      if (!this.tenantLookupService) {
+        this.logger.error(
+          'TenantLookupService not available in production. ' +
+          'Ensure TenantLookupService is properly injected.',
+        );
+        return null;
+      }
+
+      const tenant = await this.tenantLookupService.lookupTenant(tenantId);
+      if (tenant) {
+        this.tenantCache.set(tenantId, {
+          tenant,
+          expiry: Date.now() + this.cacheTtl,
+        });
+      }
+      return tenant;
     }
 
     // Development only: create mock tenant based on ID

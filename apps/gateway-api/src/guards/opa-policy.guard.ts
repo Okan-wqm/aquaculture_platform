@@ -180,22 +180,26 @@ export class OpaPolicyGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
 
+    const request = this.getRequest(context);
+
     if (!policyConfig) {
       // No policy configured
-      // SECURITY: In production, consider this a configuration error
+      // SECURITY: In production, fail-closed for security
       const isProduction = process.env['NODE_ENV'] === 'production';
       if (isProduction) {
-        this.logger.warn(
+        this.logger.error(
           `No OPA policy configured for ${request.path}. ` +
-          'In production, endpoints should have explicit policies.',
+          'Production requires explicit policy configuration. Access denied.',
         );
+        throw new ForbiddenException({
+          message: 'Access denied: No policy configured',
+          reason: 'Endpoints must have explicit OPA policy configuration in production',
+        });
       }
-      // Allow by default for backwards compatibility
-      // TODO: Consider fail-closed in production
+      // Development: Allow by default for backwards compatibility
+      this.logger.debug(`No OPA policy configured for ${request.path}, allowing in development mode`);
       return true;
     }
-
-    const request = this.getRequest(context);
     const input = this.buildOpaInput(request, policyConfig, context);
 
     try {

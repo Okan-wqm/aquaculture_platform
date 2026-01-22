@@ -65,7 +65,8 @@ async function bootstrap() {
   logger.log(`Environment: ${configService.get('NODE_ENV', 'development')}`);
 }
 
+const bootstrapLogger = new Logger('ConfigServiceBootstrap');
 bootstrap().catch((error) => {
-  console.error('Config Service failed to start:', error);
+  bootstrapLogger.error('Config Service failed to start:', error);
   process.exit(1);
 });

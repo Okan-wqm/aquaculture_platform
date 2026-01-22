@@ -414,7 +414,7 @@ export class AuditTrailService {
     };
     } catch (error) {
       // Return empty summary on error to prevent 500
-      console.error('Error fetching audit summary:', error);
+      this.logger.error('Error fetching audit summary:', error);
       return {
         period: { start: startDate, end: endDate },
         totalEvents: 0,

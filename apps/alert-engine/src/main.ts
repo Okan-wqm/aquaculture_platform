@@ -57,7 +57,8 @@ async function bootstrap() {
   logger.log(`GraphQL playground: http://localhost:${port}/graphql`);
 }
 
+const bootstrapLogger = new Logger('AlertEngineBootstrap');
 bootstrap().catch((error) => {
-  console.error('Alert Engine failed to start:', error);
+  bootstrapLogger.error('Alert Engine failed to start:', error);
   process.exit(1);
 });

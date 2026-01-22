@@ -255,9 +255,9 @@ export const TicketsPage: React.FC = () => {
     return new Date(deadline) < new Date();
   };
 
-  const handleAssign = async (ticketId: string, assigneeId: string) => {
+  const handleAssign = async (ticketId: string, assigneeId: string, assigneeName: string) => {
     try {
-      const updated = await supportApi.assignTicket(ticketId, assigneeId);
+      const updated = await supportApi.assignTicket(ticketId, assigneeId, assigneeName);
       fetchTickets();
       if (selectedTicket?.id === ticketId) {
         setSelectedTicket(updated);
@@ -568,7 +568,12 @@ export const TicketsPage: React.FC = () => {
                 {/* Assign */}
                 <select
                   value={selectedTicket.assignedTo || ''}
-                  onChange={(e) => handleAssign(selectedTicket.id, e.target.value)}
+                  onChange={(e) => {
+                    const member = supportTeam.find(m => m.id === e.target.value);
+                    if (member) {
+                      handleAssign(selectedTicket.id, member.id, member.name);
+                    }
+                  }}
                   className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Assign to...</option>

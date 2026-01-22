@@ -153,6 +153,33 @@ export class EnvironmentalImpactResponse {
   co2EqWithoutLuc?: number;
 }
 
+/**
+ * 2D Feeding Matrix Response - Temperature x Weight
+ */
+@ObjectType()
+export class FeedingMatrix2DResponse {
+  @Field(() => [Float], { description: 'Temperature axis values (°C)' })
+  temperatures!: number[];
+
+  @Field(() => [Float], { description: 'Weight axis values (grams)' })
+  weights!: number[];
+
+  @Field(() => [[Float]], { description: '2D array: rates[tempIndex][weightIndex] = feeding rate %' })
+  rates!: number[][];
+
+  @Field(() => [[Float]], { nullable: true, description: 'Optional: FCR values at each point' })
+  fcrMatrix?: number[][];
+
+  @Field({ nullable: true, description: 'Temperature unit' })
+  temperatureUnit?: string;
+
+  @Field({ nullable: true, description: 'Weight unit' })
+  weightUnit?: string;
+
+  @Field({ nullable: true, description: 'Notes about this feeding matrix' })
+  notes?: string;
+}
+
 @ObjectType()
 export class FeedResponse {
   @Field(() => ID)
@@ -248,8 +275,11 @@ export class FeedResponse {
   @Field(() => EnvironmentalImpactResponse, { nullable: true, description: 'Environmental impact data' })
   environmentalImpact?: EnvironmentalImpactResponse;
 
-  @Field(() => [FeedingCurvePointResponse], { nullable: true, description: 'Feeding curve data points' })
+  @Field(() => [FeedingCurvePointResponse], { nullable: true, description: 'Feeding curve data points (1D - weight only)' })
   feedingCurve?: FeedingCurvePointResponse[];
+
+  @Field(() => FeedingMatrix2DResponse, { nullable: true, description: '2D feeding matrix (temperature x weight) with bilinear interpolation' })
+  feedingMatrix2D?: FeedingMatrix2DResponse;
 
   @Field()
   isActive!: boolean;

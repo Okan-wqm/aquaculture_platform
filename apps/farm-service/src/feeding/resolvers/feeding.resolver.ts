@@ -21,6 +21,7 @@ import {
   ObjectType,
   registerEnumType,
 } from '@nestjs/graphql';
+import { IsOptional, IsUUID, IsNumber, IsPositive, IsInt, Min, IsArray, IsDate } from 'class-validator';
 import { CommandBus, QueryBus } from '@platform/cqrs';
 import GraphQLJSON from 'graphql-type-json';
 
@@ -40,6 +41,10 @@ import { GetFeedingRecordsQuery } from '../queries/get-feeding-records.query';
 import { GetDailyFeedingPlanQuery } from '../queries/get-daily-feeding-plan.query';
 import { GetFeedInventoryQuery } from '../queries/get-feed-inventory.query';
 import { GetFeedingSummaryQuery } from '../queries/get-feeding-summary.query';
+
+// Services
+import { GrowthSimulatorService, GrowthSimulationResult } from '../services/growth-simulator.service';
+import { FeedConsumptionForecastService, FeedForecastSummary } from '../services/feed-consumption-forecast.service';
 
 // ============================================================================
 // ENUM REGISTRATIONS
@@ -454,6 +459,308 @@ export class FeedInventoryConnection {
 }
 
 // ============================================================================
+// GROWTH SIMULATION TYPES
+// ============================================================================
+
+@InputType()
+export class GrowthSimulationInput {
+  @Field(() => ID, { nullable: true, description: 'Tank ID - preferred for tank-based simulation' })
+  @IsOptional()
+  @IsUUID()
+  tankId?: string;
+
+  @Field(() => ID, { nullable: true, description: 'Batch ID - legacy batch-based simulation' })
+  @IsOptional()
+  @IsUUID()
+  batchId?: string;
+
+  @Field(() => Float, { description: 'Current average weight in grams' })
+  @IsNumber()
+  @IsPositive()
+  currentWeightG: number;
+
+  @Field(() => Int, { description: 'Current fish count' })
+  @IsInt()
+  @Min(1)
+  currentCount: number;
+
+  @Field(() => Float, { description: 'Daily Specific Growth Rate (%)' })
+  @IsNumber()
+  @IsPositive()
+  sgr: number;
+
+  @Field(() => Int, { description: 'Number of days to project' })
+  @IsInt()
+  @Min(1)
+  projectionDays: number;
+
+  @Field(() => Float, { nullable: true, description: 'Daily mortality rate (default 0.01%)' })
+  @IsOptional()
+  @IsNumber()
+  mortalityRate?: number;
+
+  @Field(() => [Float], { nullable: true, description: 'Optional daily temperature forecast' })
+  @IsOptional()
+  @IsArray()
+  temperatureForecast?: number[];
+
+  @Field({ nullable: true, description: 'Projection start date' })
+  @IsOptional()
+  startDate?: Date;
+}
+
+@ObjectType()
+export class GrowthProjectionResponse {
+  @Field(() => Int)
+  day: number;
+
+  @Field()
+  date: Date;
+
+  @Field(() => Float)
+  avgWeightG: number;
+
+  @Field(() => Int)
+  fishCount: number;
+
+  @Field(() => Float)
+  biomassKg: number;
+
+  @Field(() => Float)
+  sgr: number;
+
+  @Field({ nullable: true })
+  feedCode?: string;
+
+  @Field({ nullable: true })
+  feedName?: string;
+
+  @Field(() => Float)
+  feedingRatePercent: number;
+
+  @Field(() => Float)
+  dailyFeedKg: number;
+
+  @Field(() => Float)
+  cumulativeFeedKg: number;
+
+  @Field(() => Float, { nullable: true })
+  fcr?: number;
+
+  @Field(() => Float, { nullable: true })
+  temperature?: number;
+
+  @Field(() => Int)
+  mortality: number;
+
+  @Field(() => Int)
+  cumulativeMortality: number;
+}
+
+@ObjectType()
+export class GrowthSimulationSummary {
+  @Field(() => Float)
+  startWeight: number;
+
+  @Field(() => Float)
+  endWeight: number;
+
+  @Field(() => Float)
+  startBiomass: number;
+
+  @Field(() => Float)
+  endBiomass: number;
+
+  @Field(() => Float)
+  totalFeedKg: number;
+
+  @Field(() => Float)
+  avgFCR: number;
+
+  @Field(() => Int)
+  totalMortality: number;
+
+  @Field({ nullable: true })
+  harvestDate?: Date;
+
+  @Field(() => Float, { nullable: true })
+  harvestWeight?: number;
+}
+
+@ObjectType()
+export class FeedRequirementResponse {
+  @Field()
+  feedCode: string;
+
+  @Field()
+  feedName: string;
+
+  @Field(() => Float)
+  totalKg: number;
+
+  @Field(() => Int)
+  daysUsed: number;
+
+  @Field(() => Int)
+  startDay: number;
+
+  @Field(() => Int)
+  endDay: number;
+}
+
+@ObjectType()
+export class GrowthSimulationResponse {
+  @Field(() => [GrowthProjectionResponse])
+  projections: GrowthProjectionResponse[];
+
+  @Field(() => GrowthSimulationSummary)
+  summary: GrowthSimulationSummary;
+
+  @Field(() => [FeedRequirementResponse])
+  feedRequirements: FeedRequirementResponse[];
+}
+
+// ============================================================================
+// FEED CONSUMPTION FORECAST TYPES
+// ============================================================================
+
+@InputType()
+export class FeedForecastInput {
+  @Field(() => ID, { nullable: true, description: 'Filter by site' })
+  siteId?: string;
+
+  @Field(() => Int, { defaultValue: 30, description: 'Number of days to forecast' })
+  forecastDays: number;
+
+  @Field(() => Int, { nullable: true, description: 'Lead time before stockout to recommend reorder' })
+  leadTimeDays?: number;
+
+  @Field(() => Int, { nullable: true, description: 'Safety stock days to maintain' })
+  safetyStockDays?: number;
+}
+
+@ObjectType()
+export class FeedConsumptionBatchInfo {
+  @Field(() => ID)
+  batchId: string;
+
+  @Field()
+  batchCode: string;
+
+  @Field(() => Float)
+  consumption: number;
+}
+
+@ObjectType()
+export class FeedConsumptionByTypeResponse {
+  @Field(() => ID)
+  feedId: string;
+
+  @Field()
+  feedCode: string;
+
+  @Field()
+  feedName: string;
+
+  @Field(() => [Float])
+  dailyConsumption: number[];
+
+  @Field(() => Float)
+  totalConsumption: number;
+
+  @Field(() => Float)
+  currentStock: number;
+
+  @Field(() => Int)
+  daysUntilStockout: number;
+
+  @Field({ nullable: true })
+  stockoutDate?: Date;
+
+  @Field({ nullable: true })
+  reorderDate?: Date;
+
+  @Field(() => Float)
+  reorderQuantity: number;
+
+  @Field(() => [FeedConsumptionBatchInfo])
+  batches: FeedConsumptionBatchInfo[];
+}
+
+@ObjectType()
+export class FeedForecastAlert {
+  @Field(() => ID)
+  feedId: string;
+
+  @Field()
+  feedCode: string;
+
+  @Field()
+  type: string;
+
+  @Field()
+  message: string;
+
+  @Field(() => Int)
+  daysUntilStockout: number;
+}
+
+@ObjectType()
+export class FeedForecastResponse {
+  @Field(() => Int)
+  forecastDays: number;
+
+  @Field()
+  startDate: Date;
+
+  @Field()
+  endDate: Date;
+
+  @Field(() => [FeedConsumptionByTypeResponse])
+  byFeedType: FeedConsumptionByTypeResponse[];
+
+  @Field(() => [FeedForecastAlert])
+  alerts: FeedForecastAlert[];
+
+  @Field(() => Float)
+  totalConsumption: number;
+
+  @Field(() => Float)
+  totalCurrentStock: number;
+}
+
+// ============================================================================
+// ACTIVE TANKS TYPES
+// ============================================================================
+
+@ObjectType()
+export class ActiveTankResponse {
+  @Field(() => ID)
+  tankId: string;
+
+  @Field({ nullable: true })
+  tankName?: string;
+
+  @Field({ nullable: true })
+  tankCode?: string;
+
+  @Field(() => ID, { nullable: true })
+  batchId?: string;
+
+  @Field({ nullable: true })
+  batchNumber?: string;
+
+  @Field(() => Int)
+  fishCount: number;
+
+  @Field(() => Float)
+  avgWeightG: number;
+
+  @Field(() => Float)
+  biomassKg: number;
+}
+
+// ============================================================================
 // RESOLVER
 // ============================================================================
 
@@ -462,6 +769,8 @@ export class FeedingResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    private readonly growthSimulator: GrowthSimulatorService,
+    private readonly feedForecastService: FeedConsumptionForecastService,
   ) {}
 
   // ==========================================================================
@@ -564,6 +873,138 @@ export class FeedingResolver {
         pagination?.limit ?? 20,
       ),
     );
+  }
+
+  /**
+   * Simulate growth for a tank, batch, or manual input
+   * Projects fish growth over time using SGR formula
+   * Tank-based simulation is preferred for per-tank feed management
+   */
+  @Query(() => GrowthSimulationResponse, { description: 'Simulate fish growth and feed requirements' })
+  async growthSimulation(
+    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @Args('schemaName') schemaName: string,
+    @Args('input') input: GrowthSimulationInput,
+  ): Promise<GrowthSimulationResponse> {
+    const result = await this.growthSimulator.simulateGrowth({
+      tenantId,
+      schemaName,
+      tankId: input.tankId,
+      batchId: input.batchId,
+      currentWeightG: input.currentWeightG,
+      currentCount: input.currentCount,
+      sgr: input.sgr,
+      projectionDays: input.projectionDays,
+      mortalityRate: input.mortalityRate,
+      temperatureForecast: input.temperatureForecast,
+      startDate: input.startDate,
+    });
+
+    return {
+      projections: result.projections,
+      summary: result.summary,
+      feedRequirements: result.feedRequirements,
+    };
+  }
+
+  /**
+   * Forecast feed consumption across all active batches
+   * Calculates stockout dates and reorder recommendations
+   */
+  @Query(() => FeedForecastResponse, { description: 'Forecast feed consumption and stockout dates' })
+  async feedConsumptionForecast(
+    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @Args('schemaName') schemaName: string,
+    @Args('input', { nullable: true }) input?: FeedForecastInput,
+  ): Promise<FeedForecastResponse> {
+    const result = await this.feedForecastService.forecastConsumption({
+      tenantId,
+      schemaName,
+      siteId: input?.siteId,
+      forecastDays: input?.forecastDays ?? 30,
+      leadTimeDays: input?.leadTimeDays,
+      safetyStockDays: input?.safetyStockDays,
+    });
+
+    return {
+      forecastDays: result.forecastDays,
+      startDate: result.startDate,
+      endDate: result.endDate,
+      byFeedType: result.byFeedType.map(f => ({
+        feedId: f.feedId,
+        feedCode: f.feedCode,
+        feedName: f.feedName,
+        dailyConsumption: f.dailyConsumption,
+        totalConsumption: f.totalConsumption,
+        currentStock: f.currentStock,
+        daysUntilStockout: f.daysUntilStockout,
+        stockoutDate: f.stockoutDate ?? undefined,
+        reorderDate: f.reorderDate ?? undefined,
+        reorderQuantity: f.reorderQuantity,
+        batches: f.batches,
+      })),
+      alerts: result.alerts.map(a => ({
+        feedId: a.feedId,
+        feedCode: a.feedCode,
+        type: a.type,
+        message: a.message,
+        daysUntilStockout: a.daysUntilStockout,
+      })),
+      totalConsumption: result.totalConsumption,
+      totalCurrentStock: result.totalCurrentStock,
+    };
+  }
+
+  /**
+   * Calculate recommended harvest date based on target weight
+   */
+  @Query(() => Date, { description: 'Project harvest date for target weight' })
+  async projectHarvestDate(
+    @Args('currentWeightG', { type: () => Float }) currentWeightG: number,
+    @Args('targetWeightG', { type: () => Float }) targetWeightG: number,
+    @Args('sgr', { type: () => Float }) sgr: number,
+    @Args('startDate', { nullable: true }) startDate?: Date,
+  ): Promise<Date> {
+    const result = this.growthSimulator.projectHarvestDate(
+      currentWeightG,
+      targetWeightG,
+      sgr,
+      startDate,
+    );
+    return result.harvestDate;
+  }
+
+  /**
+   * Estimate SGR based on species and temperature
+   */
+  @Query(() => Float, { description: 'Estimate SGR for species at temperature' })
+  estimateSGR(
+    @Args('species') species: string,
+    @Args('temperature', { type: () => Float }) temperature: number,
+  ): number {
+    return this.growthSimulator.estimateSGR(species, temperature);
+  }
+
+  /**
+   * Get all active tanks with fish
+   * Returns tanks that have fish (totalQuantity > 0) for tank selection in UI
+   */
+  @Query(() => [ActiveTankResponse], { description: 'Get all active tanks with fish for simulation' })
+  async activeTanks(
+    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @Args('schemaName') schemaName: string,
+  ): Promise<ActiveTankResponse[]> {
+    const tanks = await this.growthSimulator.getActiveTanks(tenantId);
+    return tanks.map(t => ({
+      tankId: t.tankId,
+      tankName: t.tankName,
+      tankCode: t.tankCode,
+      batchId: t.batchId,
+      batchNumber: t.batchNumber,
+      fishCount: t.fishCount,
+      avgWeightG: t.avgWeightG,
+      biomassKg: t.biomassKg,
+    }));
   }
 
   // ==========================================================================

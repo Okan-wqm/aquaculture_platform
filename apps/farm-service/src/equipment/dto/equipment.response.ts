@@ -195,6 +195,23 @@ export class EquipmentBatchMetrics {
 
   @Field(() => GraphQLJSON, { nullable: true, description: 'Cleaner fish batch details array' })
   cleanerFishDetails?: unknown[];
+
+  // Species information
+  @Field({ nullable: true, description: 'Species code' })
+  speciesCode?: string;
+
+  // Feeding information (populated when batch has feed assignment)
+  @Field({ nullable: true, description: 'Current feed code' })
+  feedCode?: string;
+
+  @Field({ nullable: true, description: 'Current feed name' })
+  feedName?: string;
+
+  @Field(() => Float, { nullable: true, description: 'Feeding rate (% body weight)' })
+  feedingRatePercent?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Daily feed amount (kg)' })
+  dailyFeedKg?: number;
 }
 
 @ObjectType()

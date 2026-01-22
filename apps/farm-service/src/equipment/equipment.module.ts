@@ -1,7 +1,7 @@
 /**
  * Equipment Module
  */
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 
@@ -16,6 +16,11 @@ import { System } from '../system/entities/system.entity';
 import { SubSystem } from '../system/entities/sub-system.entity';
 import { Supplier } from '../supplier/entities/supplier.entity';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
+import { BatchFeedAssignment } from '../batch/entities/batch-feed-assignment.entity';
+import { Feed } from '../feed/entities/feed.entity';
+
+// Modules
+import { FeedingModule } from '../feeding/feeding.module';
 
 // Resolver
 import { EquipmentResolver } from './equipment.resolver';
@@ -57,8 +62,11 @@ const QueryHandlers = [
       SubSystem,
       Supplier,
       TankBatch,
+      BatchFeedAssignment,
+      Feed,
     ]),
     CqrsModule,
+    forwardRef(() => FeedingModule),
   ],
   providers: [
     EquipmentResolver,

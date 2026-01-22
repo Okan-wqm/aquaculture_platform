@@ -247,7 +247,11 @@
       "Bash(timeout 5 bash:*)",
       "Bash(timeout 3 docker logs:*)",
       "Bash(docker inspect:*)",
-      "Bash(timeout 20 bash:*)"
+      "Bash(timeout 20 bash:*)",
+      "Bash(git remote set-url:*)",
+      "Bash(timeout 60 bash:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjNzk5YjY2My0yZjFmLTRjNGEtOTgxZS0yZmE1OGRkMzY0ZTEiLCJlbWFpbCI6Im9rYW5Ac3VkZXJyYS5jb20iLCJyb2xlIjoiVEVOQU5UX0FETUlOIiwidGVuYW50SWQiOiI0YjUyOTgyOS1lYTc5LTQ4ZGEtOTgyYy1jZDZmYmVjOGZmYjciLCJtb2R1bGVzIjpbImZhcm0iLCJociIsInNlbnNvciJdLCJpYXQiOjE3Njg5Mjk0OTcsImV4cCI6MTc2ODkzMzA5NywiaXNzIjoiYXF1YWN1bHR1cmUtcGxhdGZvcm0ifQ.a3NRdu-FH5jf3bZ2O_KnWoZGB6R_-EFI9dvrr677x4k\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjNzk5YjY2My0yZjFmLTRjNGEtOTgxZS0yZmE1OGRkMzY0ZTEiLCJlbWFpbCI6Im9rYW5Ac3VkZXJyYS5jb20iLCJyb2xlIjoiVEVOQU5UX0FETUlOIiwidGVuYW50SWQiOiI0YjUyOTgyOS1lYTc5LTQ4ZGEtOTgyYy1jZDZmYmVjOGZmYjciLCJtb2R1bGVzIjpbImZhcm0iLCJociIsInNlbnNvciJdLCJpYXQiOjE3Njg5MzAyNzEsImV4cCI6MTc2ODkzMzg3MSwiaXNzIjoiYXF1YWN1bHR1cmUtcGxhdGZvcm0ifQ.oV6SI1G0vYHXQzoHfqnd1r8YmJLKmddoeAck28AsXU4\")"
     ],
     "deny": [],
     "ask": []

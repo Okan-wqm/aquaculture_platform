@@ -45,6 +45,13 @@ export interface TankBatchMetrics {
   totalCull?: number;
   fcr?: number;
   sgr?: number;
+  // Species information
+  speciesCode?: string;
+  // Feeding information
+  feedCode?: string;
+  feedName?: string;
+  feedingRatePercent?: number;
+  dailyFeedKg?: number;
   // Cleaner Fish metrics
   cleanerFishQuantity?: number;
   cleanerFishBiomassKg?: number;
@@ -183,6 +190,11 @@ const EQUIPMENT_WITH_BATCHES_QUERY = `
           totalCull
           fcr
           sgr
+          speciesCode
+          feedCode
+          feedName
+          feedingRatePercent
+          dailyFeedKg
           cleanerFishQuantity
           cleanerFishBiomassKg
           cleanerFishDetails

@@ -50,6 +50,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'batches',
       'batches_v2',
       'batch_documents',
+      'batch_feed_assignments',
       'batch_locations',
       'species',
 

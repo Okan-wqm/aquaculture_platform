@@ -146,6 +146,17 @@ export class CreateFeedHandler implements ICommandHandler<CreateFeedCommand> {
           uploadedBy: userId,
         })),
         notes: input.notes,
+        // Yeni alanlar - Pelet ve ürün bilgileri
+        pelletSizeLabel: input.pelletSizeLabel,
+        productStage: input.productStage,
+        composition: input.composition,
+        // Yeni alanlar - Fiyatlama
+        unitSize: input.unitSize,
+        unitPrice: input.unitPrice,
+        // Yeni alanlar - Çevresel etki ve besleme eğrisi
+        environmentalImpact: input.environmentalImpact,
+        feedingCurve: input.feedingCurve,
+        feedingMatrix2D: input.feedingMatrix2D,
         isActive: true,
         createdBy: userId,
         updatedBy: userId,

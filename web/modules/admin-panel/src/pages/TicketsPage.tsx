@@ -25,51 +25,37 @@ import {
   Loader2,
   Inbox,
 } from 'lucide-react';
-import { supportApi } from '../services/adminApi';
+import {
+  supportApi,
+  type SupportTicket as ApiSupportTicket,
+  type TicketComment as ApiTicketComment,
+  type TicketStats as ApiTicketStats,
+  type TicketPriority,
+  type TicketStatus,
+  type TicketCategory,
+} from '../services/adminApi';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type TicketPriority = 'critical' | 'high' | 'medium' | 'low';
-type TicketStatus = 'open' | 'in_progress' | 'waiting_customer' | 'resolved' | 'closed';
-type TicketCategory = 'technical' | 'billing' | 'feature_request' | 'bug' | 'general';
-
-interface SupportTicket {
-  id: string;
-  ticketNumber: string;
-  tenantId: string;
+// Extend API types with UI-specific computed fields
+interface SupportTicket extends Omit<ApiSupportTicket, 'tenantName' | 'tags'> {
   tenantName: string;
-  subject: string;
-  description: string;
-  category: TicketCategory;
-  priority: TicketPriority;
-  status: TicketStatus;
-  assignedTo?: string;
-  assignedToName?: string;
-  reportedBy: string;
-  reportedByName: string;
-  commentCount: number;
+  tags: string[];
+  // Computed/aliased fields for UI backwards compatibility
+  reportedBy?: string;
+  reportedByName?: string;
+  commentCount?: number;
+  // SLA deadline fields computed from slaResponseMinutes/slaResolutionMinutes
   slaResponseDeadline?: string;
   slaResolutionDeadline?: string;
-  firstResponseAt?: string;
-  resolvedAt?: string;
-  satisfactionRating?: number;
-  tags: string[];
-  createdAt: string;
-  updatedAt: string;
 }
 
-interface TicketComment {
-  id: string;
-  ticketId: string;
-  authorId: string;
+interface TicketComment extends Omit<ApiTicketComment, 'authorType' | 'attachments' | 'authorName'> {
+  authorType: string; // Allow any string for flexibility
   authorName: string;
-  authorType: 'admin' | 'tenant';
-  content: string;
-  isInternal: boolean;
   attachments: TicketAttachment[];
-  createdAt: string;
 }
 
 interface TicketAttachment {
@@ -79,11 +65,8 @@ interface TicketAttachment {
   size: number;
 }
 
-interface TicketStats {
-  total: number;
-  open: number;
-  inProgress: number;
-  resolved: number;
+interface TicketStats extends Omit<ApiTicketStats, 'avgFirstResponseMinutes' | 'avgResolutionMinutes'> {
+  // Aliased fields for UI
   avgResponseMinutes: number;
   avgResolutionMinutes: number;
   slaComplianceRate: number;
@@ -128,7 +111,28 @@ export const TicketsPage: React.FC = () => {
       if (categoryFilter !== 'all') params.category = [categoryFilter];
 
       const result = await supportApi.getTickets(params);
-      setTickets(result.data || []);
+      // Map API response to UI type
+      const mappedTickets: SupportTicket[] = (result.data || []).map((ticket: ApiSupportTicket) => {
+        // Compute SLA deadlines from createdAt + slaMinutes if available
+        const createdDate = new Date(ticket.createdAt);
+        const slaResponseDeadline = ticket.slaResponseMinutes
+          ? new Date(createdDate.getTime() + ticket.slaResponseMinutes * 60 * 1000).toISOString()
+          : undefined;
+        const slaResolutionDeadline = ticket.slaResolutionMinutes
+          ? new Date(createdDate.getTime() + ticket.slaResolutionMinutes * 60 * 1000).toISOString()
+          : ticket.dueAt;
+        return {
+          ...ticket,
+          tenantName: ticket.tenantName || '',
+          tags: ticket.tags || [],
+          reportedBy: ticket.createdBy,
+          reportedByName: ticket.createdByName || '',
+          commentCount: 0, // Not provided by API
+          slaResponseDeadline,
+          slaResolutionDeadline,
+        };
+      });
+      setTickets(mappedTickets);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setTickets([]);
@@ -141,7 +145,15 @@ export const TicketsPage: React.FC = () => {
   const fetchStats = useCallback(async () => {
     try {
       const data = await supportApi.getTicketStats();
-      setStats(data);
+      // Map API response to UI type
+      const mappedStats: TicketStats = {
+        ...data,
+        avgResponseMinutes: data.avgFirstResponseMinutes || data.avgResponseTime || 0,
+        avgResolutionMinutes: data.avgResolutionMinutes || data.avgResolutionTime || 0,
+        slaComplianceRate: data.slaBreachCount ? 100 - (data.slaBreachCount / Math.max(data.total, 1)) * 100 : 100,
+        satisfactionAvg: data.avgSatisfactionRating || data.satisfactionScore || 0,
+      };
+      setStats(mappedStats);
     } catch (err) {
       console.error('Failed to fetch stats:', err);
     }
@@ -162,7 +174,24 @@ export const TicketsPage: React.FC = () => {
     try {
       setCommentsLoading(true);
       const data = await supportApi.getTicketComments(ticketId);
-      setComments(data || []);
+      // Map API response to UI type - handle flexible response format
+      const mappedComments: TicketComment[] = (data || []).map((comment: Record<string, unknown>) => ({
+        id: comment.id as string,
+        ticketId: comment.ticketId as string,
+        authorId: comment.authorId as string,
+        authorName: (comment.authorName as string) || '',
+        authorType: comment.authorType as string,
+        content: comment.content as string,
+        isInternal: comment.isInternal as boolean,
+        createdAt: comment.createdAt as string,
+        attachments: ((comment.attachments as Array<Record<string, unknown>>) || []).map((att) => ({
+          id: att.id as string,
+          filename: (att.fileName || att.filename) as string,
+          url: att.url as string,
+          size: (att.fileSize || att.size || 0) as number,
+        })),
+      }));
+      setComments(mappedComments);
     } catch (err) {
       console.error('Failed to fetch comments:', err);
     } finally {
@@ -260,7 +289,26 @@ export const TicketsPage: React.FC = () => {
       const updated = await supportApi.assignTicket(ticketId, assigneeId, assigneeName);
       fetchTickets();
       if (selectedTicket?.id === ticketId) {
-        setSelectedTicket(updated);
+        // Compute SLA deadlines
+        const createdDate = new Date(updated.createdAt);
+        const slaResponseDeadline = updated.slaResponseMinutes
+          ? new Date(createdDate.getTime() + updated.slaResponseMinutes * 60 * 1000).toISOString()
+          : selectedTicket.slaResponseDeadline;
+        const slaResolutionDeadline = updated.slaResolutionMinutes
+          ? new Date(createdDate.getTime() + updated.slaResolutionMinutes * 60 * 1000).toISOString()
+          : selectedTicket.slaResolutionDeadline;
+        // Map API response to UI type
+        const mappedTicket: SupportTicket = {
+          ...updated,
+          tenantName: updated.tenantName || '',
+          tags: updated.tags || [],
+          reportedBy: updated.createdBy,
+          reportedByName: updated.createdByName || '',
+          commentCount: selectedTicket.commentCount || 0,
+          slaResponseDeadline,
+          slaResolutionDeadline,
+        };
+        setSelectedTicket(mappedTicket);
       }
     } catch (err) {
       console.error('Failed to assign ticket:', err);

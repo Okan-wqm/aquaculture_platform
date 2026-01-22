@@ -143,14 +143,20 @@ interface DashboardData {
 // API Service - Using centralized securityApi with auth headers
 // ============================================================================
 
-const getAuthHeader = () => {
+const getAuthHeaders = (): HeadersInit => {
   const token = localStorage.getItem('access_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
 };
 
 async function fetchDashboardData(): Promise<DashboardData> {
   const response = await fetch('/api/security/monitoring/dashboard', {
-    headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
   });
   if (!response.ok) {
     throw new Error('Failed to fetch dashboard data');
@@ -171,7 +177,34 @@ async function fetchSecurityEvents(params: {
   if (params.severity && params.severity !== 'all') apiParams.severity = [params.severity];
   if (params.status && params.status !== 'all') apiParams.isResolved = params.status === 'resolved';
 
-  return securityApi.getSecurityEvents(apiParams);
+  const result = await securityApi.getSecurityEvents(apiParams);
+  // Map API response to local SecurityEvent type
+  const anyEvent = (e: typeof result.data[0]) => e as unknown as Record<string, unknown>;
+  return {
+    data: result.data.map((event) => {
+      // Map API status to local EventStatus
+      const apiStatus = anyEvent(event).status as string | undefined;
+      const status: EventStatus = event.isResolved
+        ? 'resolved'
+        : (apiStatus === 'investigating' ? 'investigating' : apiStatus === 'dismissed' ? 'dismissed' : 'new');
+      const timestamp = (anyEvent(event).timestamp as string) || (anyEvent(event).createdAt as string) || '';
+      return {
+        id: event.id,
+        eventType: (anyEvent(event).eventType as string) || event.type,
+        severity: event.severity as EventSeverity,
+        status,
+        source: (anyEvent(event).source as string) || 'unknown',
+        sourceIp: event.sourceIp,
+        description: (anyEvent(event).description as string) || '',
+        details: event.metadata,
+        tenantId: event.tenantId,
+        userId: event.userId,
+        timestamp,
+        detectedAt: (anyEvent(event).detectedAt as string) || timestamp,
+      };
+    }),
+    total: result.total,
+  };
 }
 
 async function fetchIncidents(): Promise<SecurityIncident[]> {
@@ -186,7 +219,7 @@ async function fetchThreatIndicators(): Promise<ThreatIndicator[]> {
 
 async function fetchHealthScore(): Promise<{ score: number; status: string; details: HealthMetric[] }> {
   const response = await fetch('/api/security/monitoring/health-score', {
-    headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
   });
   if (!response.ok) {
     throw new Error('Failed to fetch health score');

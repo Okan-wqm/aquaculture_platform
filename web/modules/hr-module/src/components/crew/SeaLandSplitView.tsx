@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Ship, Building2, Plane, Calendar, Users } from 'lucide-react';
-import { cn } from '@shared-ui/utils';
+import { cn } from '@aquaculture/shared-ui';
 import { useSeaLandSplit, useOffshoreHeadcount } from '../../hooks';
 import { EmployeeAvatar } from '../common/EmployeeAvatar';
 

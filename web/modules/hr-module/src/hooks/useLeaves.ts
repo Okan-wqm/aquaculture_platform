@@ -361,7 +361,7 @@ export function useApproveLeaveRequest() {
       ),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: leaveKeys.requests() });
-      queryClient.invalidateQueries({ queryKey: leaveKeys.pendingApprovals });
+      queryClient.invalidateQueries({ queryKey: [...leaveKeys.all, 'pendingApprovals'] });
       queryClient.invalidateQueries({
         queryKey: leaveKeys.balances(data.approveLeaveRequest.employeeId, new Date().getFullYear()),
       });
@@ -386,7 +386,7 @@ export function useRejectLeaveRequest() {
       ),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: leaveKeys.requests() });
-      queryClient.invalidateQueries({ queryKey: leaveKeys.pendingApprovals });
+      queryClient.invalidateQueries({ queryKey: [...leaveKeys.all, 'pendingApprovals'] });
       queryClient.invalidateQueries({
         queryKey: leaveKeys.balances(data.rejectLeaveRequest.employeeId, new Date().getFullYear()),
       });

@@ -5,7 +5,7 @@
 
 import { useMemo } from 'react';
 import { GraphQLClient } from 'graphql-request';
-import { useAuth } from '@shared-ui/hooks';
+import { useAuth } from '@aquaculture/shared-ui';
 
 const GRAPHQL_ENDPOINT = import.meta.env.VITE_HR_SERVICE_URL || '/api/hr/graphql';
 

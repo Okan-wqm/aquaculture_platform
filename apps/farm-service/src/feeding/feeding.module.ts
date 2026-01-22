@@ -24,9 +24,17 @@ import { FeedInventory } from './entities/feed-inventory.entity';
 
 // Related entities
 import { Batch } from '../batch/entities/batch.entity';
+import { BatchFeedAssignment } from '../batch/entities/batch-feed-assignment.entity';
+import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Tank } from '../tank/entities/tank.entity';
 import { Site } from '../site/entities/site.entity';
+
+// Services
+import { FeedSelectorService } from './services/feed-selector.service';
+import { BilinearInterpolationService } from './services/bilinear-interpolation.service';
+import { GrowthSimulatorService } from './services/growth-simulator.service';
+import { FeedConsumptionForecastService } from './services/feed-consumption-forecast.service';
 
 // Handlers
 import { FeedingCommandHandlers } from './handlers';
@@ -42,6 +50,8 @@ import { FeedingResolvers } from './resolvers';
       FeedingRecord,
       FeedInventory,
       Batch,
+      BatchFeedAssignment,
+      TankBatch,
       Feed,
       Tank,
       Site,
@@ -49,12 +59,20 @@ import { FeedingResolvers } from './resolvers';
     CqrsModule,
   ],
   providers: [
+    FeedSelectorService,
+    BilinearInterpolationService,
+    GrowthSimulatorService,
+    FeedConsumptionForecastService,
     ...FeedingCommandHandlers,
     ...FeedingQueryHandlers,
     ...FeedingResolvers,
   ],
   exports: [
     TypeOrmModule,
+    FeedSelectorService,
+    BilinearInterpolationService,
+    GrowthSimulatorService,
+    FeedConsumptionForecastService,
   ],
 })
 export class FeedingModule {}

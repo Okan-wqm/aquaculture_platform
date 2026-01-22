@@ -106,12 +106,43 @@ export interface EnvironmentalImpact {
 }
 
 /**
- * Besleme Eğrisi Noktası
+ * Besleme Eğrisi Noktası (1D - sadece ağırlık bazlı)
  */
 export interface FeedingCurvePoint {
   fishWeightG: number;       // Balık ağırlığı (gram)
   feedingRatePercent: number; // Besleme oranı (%BW - Body Weight)
   fcr: number;               // Feed Conversion Ratio
+}
+
+/**
+ * 2D Besleme Matrisi - Sıcaklık x Ağırlık
+ *
+ * Bilinear interpolasyon ile ara değerler hesaplanır.
+ *
+ * Örnek:
+ * {
+ *   temperatures: [12, 14, 16, 18],  // °C ekseni
+ *   weights: [5, 10, 20, 50, 100],   // gram ekseni
+ *   rates: [                          // 2D dizi: rates[sıcaklıkIndex][ağırlıkIndex]
+ *     [2.5, 2.2, 1.8, 1.4, 1.1],     // 12°C'de
+ *     [3.0, 2.6, 2.1, 1.6, 1.2],     // 14°C'de
+ *     [3.5, 3.0, 2.4, 1.8, 1.3],     // 16°C'de
+ *     [4.0, 3.4, 2.7, 2.0, 1.4],     // 18°C'de
+ *   ],
+ *   fcrMatrix: [                      // Opsiyonel: FCR değerleri için aynı yapı
+ *     [0.8, 0.9, 1.0, 1.1, 1.2],
+ *     ...
+ *   ]
+ * }
+ */
+export interface FeedingMatrix2D {
+  temperatures: number[];        // Sıcaklık ekseni değerleri (°C)
+  weights: number[];             // Ağırlık ekseni değerleri (gram)
+  rates: number[][];             // 2D dizi: rates[tempIndex][weightIndex] = yemleme oranı %
+  fcrMatrix?: number[][];        // Opsiyonel: Her noktadaki FCR değerleri
+  temperatureUnit?: 'celsius' | 'fahrenheit';
+  weightUnit?: 'gram' | 'kg';
+  notes?: string;
 }
 
 @Entity('feeds')
@@ -234,8 +265,13 @@ export class Feed {
   @Column({ type: 'jsonb', nullable: true })
   environmentalImpact?: EnvironmentalImpact;
 
+  // 1D Besleme Eğrisi (sadece ağırlık bazlı - legacy)
   @Column({ type: 'jsonb', nullable: true })
   feedingCurve?: FeedingCurvePoint[];
+
+  // 2D Besleme Matrisi (sıcaklık x ağırlık)
+  @Column({ type: 'jsonb', nullable: true })
+  feedingMatrix2D?: FeedingMatrix2D;
 
   @Column({ default: true })
   isActive: boolean;

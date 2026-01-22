@@ -20,6 +20,7 @@ import { CqrsModule } from '@platform/cqrs';
 // Entities
 import { Batch } from './entities/batch.entity';
 import { BatchDocument } from './entities/batch-document.entity';
+import { BatchFeedAssignment } from './entities/batch-feed-assignment.entity';
 import { BatchLocation } from './entities/batch-location.entity';
 import { MortalityRecord } from './entities/mortality-record.entity';
 import { TankAllocation } from './entities/tank-allocation.entity';
@@ -30,6 +31,7 @@ import { TankOperation } from './entities/tank-operation.entity';
 import { Species } from '../species/entities/species.entity';
 import { Tank } from '../tank/entities/tank.entity';
 import { Equipment } from '../equipment/entities/equipment.entity';
+import { Feed } from '../feed/entities/feed.entity';
 
 // Services
 import { BatchService } from './services/batch.service';
@@ -59,6 +61,7 @@ import { BatchResolvers } from './resolvers';
     TypeOrmModule.forFeature([
       Batch,
       BatchDocument,
+      BatchFeedAssignment,
       BatchLocation,
       MortalityRecord,
       TankAllocation,
@@ -67,6 +70,7 @@ import { BatchResolvers } from './resolvers';
       Species,
       Tank,
       Equipment,
+      Feed,
       GrowthMeasurement,
     ]),
     CqrsModule,

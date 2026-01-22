@@ -16,7 +16,7 @@ import { Batch } from '../entities/batch.entity';
 import { MortalityRecord } from '../entities/mortality-record.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
-import { Tank } from '../../tank/entities/tank.entity';
+import { Equipment } from '../../equipment/entities/equipment.entity';
 
 @Injectable()
 @CommandHandler(RecordMortalityCommand)
@@ -30,8 +30,8 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     private readonly operationRepository: Repository<TankOperation>,
     @InjectRepository(TankBatch)
     private readonly tankBatchRepository: Repository<TankBatch>,
-    @InjectRepository(Tank)
-    private readonly tankRepository: Repository<Tank>,
+    @InjectRepository(Equipment)
+    private readonly equipmentRepository: Repository<Equipment>,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -48,8 +48,8 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       throw new NotFoundException(`Batch ${batchId} bulunamadı`);
     }
 
-    // Tank bul
-    const tank = await this.tankRepository.findOne({
+    // Tank bul (Equipment entity kullanılıyor)
+    const tank = await this.equipmentRepository.findOne({
       where: { id: payload.tankId, tenantId, isActive: true },
     });
 
@@ -138,7 +138,7 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
 
       if (tankBatch.totalQuantity > 0) {
         tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
-        const effectiveVolume = tank.waterVolume || tank.volume;
+        const effectiveVolume = tank.volume;
         tankBatch.densityKgM3 = effectiveVolume ? Number(tankBatch.totalBiomassKg) / Number(effectiveVolume) : 0;
       }
 
@@ -148,7 +148,7 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     // Tank biomass güncelle
     tank.currentBiomass = Number(tank.currentBiomass || 0) - biomassKg;
     tank.currentCount = (tank.currentCount || 0) - payload.quantity;
-    await this.tankRepository.save(tank);
+    await this.equipmentRepository.save(tank);
 
     // Domain event yayınla
     // await this.eventBus.publish(new MortalityRecordedEvent({

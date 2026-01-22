@@ -16,12 +16,14 @@ import {
   FloatingType,
   CreateFeedInput,
   FeedingCurvePoint,
+  FeedingMatrix2D,
   EnvironmentalImpact,
   FeedDocument,
   NutritionalContent,
 } from '../../../hooks/useFeeds';
 import { useSupplierList } from '../../../hooks/useSuppliers';
 import { useSiteList } from '../../../hooks/useSites';
+import { FeedingMatrixEditor } from '../../../components/feeding';
 
 const typeColors: Record<string, string> = {
   STARTER: 'bg-yellow-100 text-yellow-800',
@@ -114,6 +116,8 @@ interface FeedFormData {
 
   // Besleme Eğrisi
   feedingCurve: FeedingCurvePoint[];
+  feedingMatrix2D: FeedingMatrix2D | null;
+  curveType: '1d' | '2d';
 
   // Çevresel Etki
   environmentalImpact: {
@@ -158,6 +162,8 @@ const initialFormData: FeedFormData = {
   },
   composition: '',
   feedingCurve: [],
+  feedingMatrix2D: null,
+  curveType: '1d',
   environmentalImpact: {
     co2EqWithLuc: '',
     co2EqWithoutLuc: '',
@@ -283,7 +289,8 @@ export const FeedsTab: React.FC = () => {
         co2EqWithLuc: formData.environmentalImpact.co2EqWithLuc ? Number(formData.environmentalImpact.co2EqWithLuc) : undefined,
         co2EqWithoutLuc: formData.environmentalImpact.co2EqWithoutLuc ? Number(formData.environmentalImpact.co2EqWithoutLuc) : undefined,
       },
-      feedingCurve: formData.feedingCurve.length > 0 ? formData.feedingCurve : undefined,
+      feedingCurve: formData.curveType === '1d' && formData.feedingCurve.length > 0 ? formData.feedingCurve : undefined,
+      feedingMatrix2D: formData.curveType === '2d' && formData.feedingMatrix2D ? formData.feedingMatrix2D : undefined,
       documents: formData.documents.length > 0 ? formData.documents : undefined,
     };
 
@@ -329,6 +336,8 @@ export const FeedsTab: React.FC = () => {
       },
       composition: feed.composition || '',
       feedingCurve: feed.feedingCurve || [],
+      feedingMatrix2D: feed.feedingMatrix2D || null,
+      curveType: feed.feedingMatrix2D ? '2d' : '1d',
       environmentalImpact: {
         co2EqWithLuc: feed.environmentalImpact?.co2EqWithLuc || '',
         co2EqWithoutLuc: feed.environmentalImpact?.co2EqWithoutLuc || '',
@@ -904,107 +913,148 @@ export const FeedsTab: React.FC = () => {
                   {/* Section 5: Feeding Curve */}
                   <CollapsibleSection title="Feeding Curve">
                     <div className="space-y-4">
-                      {formData.feedingCurve.length > 0 && (
-                        <div className="border rounded-lg overflow-hidden">
-                          <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50">
-                              <tr>
-                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Fish Weight (g)</th>
-                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Feeding Rate (%BW)</th>
-                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">FCR</th>
-                                <th className="px-4 py-2"></th>
-                              </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                              {formData.feedingCurve.map((point, index) => (
-                                <tr key={index}>
-                                  <td className="px-4 py-2">
-                                    <input
-                                      type="number"
-                                      step="0.1"
-                                      min="0"
-                                      value={point.fishWeightG}
-                                      onChange={e => updateFeedingCurvePoint(index, 'fishWeightG', parseFloat(e.target.value) || 0)}
-                                      className="w-full border border-gray-300 rounded px-2 py-1"
-                                    />
-                                  </td>
-                                  <td className="px-4 py-2">
-                                    <input
-                                      type="number"
-                                      step="0.1"
-                                      min="0"
-                                      value={point.feedingRatePercent}
-                                      onChange={e => updateFeedingCurvePoint(index, 'feedingRatePercent', parseFloat(e.target.value) || 0)}
-                                      className="w-full border border-gray-300 rounded px-2 py-1"
-                                    />
-                                  </td>
-                                  <td className="px-4 py-2">
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      value={point.fcr}
-                                      onChange={e => updateFeedingCurvePoint(index, 'fcr', parseFloat(e.target.value) || 0)}
-                                      className="w-full border border-gray-300 rounded px-2 py-1"
-                                    />
-                                  </td>
-                                  <td className="px-4 py-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => removeFeedingCurvePoint(index)}
-                                      className="text-red-600 hover:text-red-800"
-                                    >
-                                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                      </svg>
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={addFeedingCurvePoint}
-                        className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                      >
-                        <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                        </svg>
-                        Add Point
-                      </button>
+                      {/* Mode Toggle */}
+                      <div className="flex items-center gap-4 mb-4 p-3 bg-gray-50 rounded-lg">
+                        <span className="text-sm font-medium text-gray-700">Curve Type:</span>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="curveType"
+                            value="1d"
+                            checked={formData.curveType === '1d'}
+                            onChange={() => setFormData(prev => ({ ...prev, curveType: '1d' }))}
+                            className="text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-sm text-gray-600">Simple (Weight only)</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="curveType"
+                            value="2d"
+                            checked={formData.curveType === '2d'}
+                            onChange={() => setFormData(prev => ({ ...prev, curveType: '2d' }))}
+                            className="text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-sm text-gray-600">Advanced (Temperature x Weight)</span>
+                        </label>
+                      </div>
 
-                      {/* Calculator */}
-                      {formData.feedingCurve.length > 0 && (
-                        <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                          <h5 className="text-sm font-medium text-blue-800 mb-2">Feeding Rate Calculator</h5>
-                          <div className="flex items-center gap-4">
-                            <div className="flex-1">
-                              <label className="block text-xs text-blue-700">Fish Weight (g)</label>
-                              <input
-                                type="number"
-                                min="0"
-                                value={calculatorWeight}
-                                onChange={e => setCalculatorWeight(e.target.value ? parseFloat(e.target.value) : '')}
-                                className="mt-1 block w-full border border-blue-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                              />
+                      {/* 1D Curve Editor */}
+                      {formData.curveType === '1d' && (
+                        <>
+                          {formData.feedingCurve.length > 0 && (
+                            <div className="border rounded-lg overflow-hidden">
+                              <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Fish Weight (g)</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Feeding Rate (%BW)</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">FCR</th>
+                                    <th className="px-4 py-2"></th>
+                                  </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                  {formData.feedingCurve.map((point, index) => (
+                                    <tr key={index}>
+                                      <td className="px-4 py-2">
+                                        <input
+                                          type="number"
+                                          step="0.1"
+                                          min="0"
+                                          value={point.fishWeightG}
+                                          onChange={e => updateFeedingCurvePoint(index, 'fishWeightG', parseFloat(e.target.value) || 0)}
+                                          className="w-full border border-gray-300 rounded px-2 py-1"
+                                        />
+                                      </td>
+                                      <td className="px-4 py-2">
+                                        <input
+                                          type="number"
+                                          step="0.1"
+                                          min="0"
+                                          value={point.feedingRatePercent}
+                                          onChange={e => updateFeedingCurvePoint(index, 'feedingRatePercent', parseFloat(e.target.value) || 0)}
+                                          className="w-full border border-gray-300 rounded px-2 py-1"
+                                        />
+                                      </td>
+                                      <td className="px-4 py-2">
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          value={point.fcr}
+                                          onChange={e => updateFeedingCurvePoint(index, 'fcr', parseFloat(e.target.value) || 0)}
+                                          className="w-full border border-gray-300 rounded px-2 py-1"
+                                        />
+                                      </td>
+                                      <td className="px-4 py-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => removeFeedingCurvePoint(index)}
+                                          className="text-red-600 hover:text-red-800"
+                                        >
+                                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                          </svg>
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
                             </div>
-                            <div className="flex-1">
-                              <label className="block text-xs text-blue-700">Estimated Feeding Rate</label>
-                              <div className="mt-1 py-2 px-3 bg-white border border-blue-300 rounded-md">
-                                {calculatedRate ? `${calculatedRate.feedingRate.toFixed(2)}% BW` : '-'}
+                          )}
+                          <button
+                            type="button"
+                            onClick={addFeedingCurvePoint}
+                            className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                          >
+                            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                            </svg>
+                            Add Point
+                          </button>
+
+                          {/* 1D Calculator */}
+                          {formData.feedingCurve.length > 0 && (
+                            <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                              <h5 className="text-sm font-medium text-blue-800 mb-2">Feeding Rate Calculator</h5>
+                              <div className="flex items-center gap-4">
+                                <div className="flex-1">
+                                  <label className="block text-xs text-blue-700">Fish Weight (g)</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={calculatorWeight}
+                                    onChange={e => setCalculatorWeight(e.target.value ? parseFloat(e.target.value) : '')}
+                                    className="mt-1 block w-full border border-blue-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                  />
+                                </div>
+                                <div className="flex-1">
+                                  <label className="block text-xs text-blue-700">Estimated Feeding Rate</label>
+                                  <div className="mt-1 py-2 px-3 bg-white border border-blue-300 rounded-md">
+                                    {calculatedRate ? `${calculatedRate.feedingRate.toFixed(2)}% BW` : '-'}
+                                  </div>
+                                </div>
+                                <div className="flex-1">
+                                  <label className="block text-xs text-blue-700">Estimated FCR</label>
+                                  <div className="mt-1 py-2 px-3 bg-white border border-blue-300 rounded-md">
+                                    {calculatedRate ? calculatedRate.fcr.toFixed(2) : '-'}
+                                  </div>
+                                </div>
                               </div>
                             </div>
-                            <div className="flex-1">
-                              <label className="block text-xs text-blue-700">Estimated FCR</label>
-                              <div className="mt-1 py-2 px-3 bg-white border border-blue-300 rounded-md">
-                                {calculatedRate ? calculatedRate.fcr.toFixed(2) : '-'}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+                          )}
+                        </>
+                      )}
+
+                      {/* 2D Matrix Editor */}
+                      {formData.curveType === '2d' && (
+                        <FeedingMatrixEditor
+                          matrix={formData.feedingMatrix2D}
+                          onChange={(matrix) => setFormData(prev => ({ ...prev, feedingMatrix2D: matrix }))}
+                          showFCR={true}
+                        />
                       )}
                     </div>
                   </CollapsibleSection>

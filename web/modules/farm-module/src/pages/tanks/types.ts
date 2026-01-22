@@ -20,7 +20,7 @@ export interface TankColumn {
   sortable?: boolean;
   align?: 'left' | 'center' | 'right';
   width?: string;
-  group?: 'basic' | 'specifications' | 'batch' | 'metrics' | 'operations' | 'cleanerFish' | 'cleanerFishMortality';
+  group?: 'basic' | 'specifications' | 'batch' | 'metrics' | 'operations' | 'feeding' | 'cleanerFish' | 'cleanerFishMortality';
 }
 
 // ============================================================================
@@ -84,6 +84,15 @@ export interface TankWithBatch {
   daysSinceStocking?: number;
   projectedHarvestDate?: string;
   stockedAt?: string;
+
+  // Species information
+  speciesCode?: string;
+
+  // Feeding information
+  feedCode?: string;
+  feedName?: string;
+  feedingRatePercent?: number;
+  dailyFeedKg?: number;
 
   // Cleaner Fish metrics
   cleanerFishQuantity?: number;

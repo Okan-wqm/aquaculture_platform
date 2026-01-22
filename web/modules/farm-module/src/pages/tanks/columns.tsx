@@ -96,6 +96,13 @@ export const tankColumns: TankColumn[] = [
 
   // Batch Info Group
   {
+    key: 'speciesCode',
+    header: 'Species',
+    defaultVisible: true,
+    sortable: true,
+    group: 'batch',
+  },
+  {
     key: 'batchNumber',
     header: 'Batch',
     defaultVisible: true,
@@ -214,6 +221,31 @@ export const tankColumns: TankColumn[] = [
     defaultVisible: true,
     sortable: true,
     group: 'operations',
+  },
+
+  // Feeding Group
+  {
+    key: 'feedCode',
+    header: 'Feed Type',
+    defaultVisible: true,
+    sortable: true,
+    group: 'feeding',
+  },
+  {
+    key: 'feedingRatePercent',
+    header: 'Feed Rate (%)',
+    defaultVisible: true,
+    sortable: true,
+    align: 'right',
+    group: 'feeding',
+  },
+  {
+    key: 'dailyFeedKg',
+    header: 'Daily Feed (kg)',
+    defaultVisible: true,
+    sortable: true,
+    align: 'right',
+    group: 'feeding',
   },
 ];
 
@@ -383,6 +415,7 @@ export const columnGroups = [
   { key: 'batch', label: 'Batch Info' },
   { key: 'metrics', label: 'Performance Metrics' },
   { key: 'operations', label: 'Operations' },
+  { key: 'feeding', label: 'Feeding' },
 ];
 
 export const cleanerFishColumnGroups = [

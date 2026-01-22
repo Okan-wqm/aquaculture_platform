@@ -9,6 +9,7 @@ import { Repository } from 'typeorm';
 import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard } from '@platform/backend-common';
 import { EquipmentResponse, PaginatedEquipmentResponse, EquipmentTypeResponse, EquipmentSystemResponse, EquipmentBatchMetrics } from './dto/equipment.response';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
+import { FeedSelectorService } from '../feeding/services/feed-selector.service';
 import { EquipmentDeletePreviewResponse } from './dto/equipment-delete-preview.response';
 import { CreateEquipmentInput } from './dto/create-equipment.input';
 import { UpdateEquipmentInput } from './dto/update-equipment.input';
@@ -34,6 +35,7 @@ export class EquipmentResolver {
     private readonly queryBus: QueryBus,
     @InjectRepository(TankBatch)
     private readonly tankBatchRepository: Repository<TankBatch>,
+    private readonly feedSelectorService: FeedSelectorService,
   ) {}
 
   /**
@@ -253,7 +255,7 @@ export class EquipmentResolver {
       daysSinceStocking = Math.floor((now.getTime() - stocked.getTime()) / (1000 * 60 * 60 * 24));
     }
 
-    // Fetch batch entity to get mortality/performance metrics
+    // Fetch batch entity to get mortality/performance metrics + species
     let batchMetrics: {
       initialQuantity?: number;
       totalMortality?: number;
@@ -262,18 +264,21 @@ export class EquipmentResolver {
       totalCull?: number;
       fcr?: number;
       sgr?: number;
+      speciesCode?: string;
     } = {};
 
     if (tankBatch.primaryBatchId) {
       const batchResult = await this.tankBatchRepository.query(
         `SELECT
-          "initialQuantity",
-          "totalMortality",
-          "cullCount",
-          "sgr",
-          "fcr"
-        FROM "${schemaName}".batches_v2
-        WHERE "tenantId" = $1 AND "id" = $2
+          b."initialQuantity",
+          b."totalMortality",
+          b."cullCount",
+          b."sgr",
+          b."fcr",
+          s."code" as "speciesCode"
+        FROM "${schemaName}".batches_v2 b
+        LEFT JOIN "${schemaName}".species s ON b."speciesId" = s."id"
+        WHERE b."tenantId" = $1 AND b."id" = $2
         LIMIT 1`,
         [tenantId, tankBatch.primaryBatchId]
       );
@@ -291,7 +296,42 @@ export class EquipmentResolver {
           survivalRate: initialQty > 0 ? ((initialQty - totalMort) / initialQty) * 100 : 100,
           fcr: batch.fcr?.actual,
           sgr: batch.sgr ? Number(batch.sgr) : undefined,
+          speciesCode: batch.speciesCode || undefined,
         };
+      }
+    }
+
+    // Get feed information if we have batch, avgWeight and biomass
+    let feedInfo: {
+      feedCode?: string;
+      feedName?: string;
+      feedingRatePercent?: number;
+      dailyFeedKg?: number;
+    } = {};
+
+    const avgWeightG = Number(tankBatch.avgWeightG);
+    const biomassKg = Number(tankBatch.currentBiomassKg ?? tankBatch.totalBiomassKg);
+
+    if (tankBatch.primaryBatchId && avgWeightG > 0 && biomassKg > 0) {
+      try {
+        const feedResult = await this.feedSelectorService.selectFeedForBatch(
+          tenantId,
+          schemaName,
+          tankBatch.primaryBatchId,
+          avgWeightG,
+          biomassKg,
+        );
+
+        if (feedResult) {
+          feedInfo = {
+            feedCode: feedResult.feedCode,
+            feedName: feedResult.feedName,
+            feedingRatePercent: feedResult.feedingRatePercent,
+            dailyFeedKg: feedResult.dailyFeedKg,
+          };
+        }
+      } catch (error: unknown) {
+        this.logger.warn(`Error getting feed info for tank ${equipment.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
 
@@ -299,8 +339,8 @@ export class EquipmentResolver {
       batchNumber: tankBatch.primaryBatchNumber,
       batchId: tankBatch.primaryBatchId,
       pieces: tankBatch.currentQuantity ?? tankBatch.totalQuantity,
-      avgWeight: Number(tankBatch.avgWeightG) || undefined,
-      biomass: Number(tankBatch.currentBiomassKg ?? tankBatch.totalBiomassKg) || undefined,
+      avgWeight: avgWeightG || undefined,
+      biomass: biomassKg || undefined,
       density: Number(tankBatch.densityKgM3) || undefined,
       capacityUsedPercent: Number(tankBatch.capacityUsedPercent) || undefined,
       isOverCapacity: tankBatch.isOverCapacity,
@@ -311,6 +351,8 @@ export class EquipmentResolver {
       daysSinceStocking,
       // Mortality & Performance metrics from Batch
       ...batchMetrics,
+      // Feed information
+      ...feedInfo,
       // Cleaner Fish metrics
       cleanerFishQuantity: tankBatch.cleanerFishQuantity || undefined,
       cleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg) || undefined,

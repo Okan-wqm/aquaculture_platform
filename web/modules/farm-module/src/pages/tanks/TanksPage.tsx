@@ -124,6 +124,15 @@ function tankToTankWithBatch(equipment: Tank): TankWithBatch {
     projectedHarvestDate: undefined,
     stockedAt: undefined,
 
+    // Species information
+    speciesCode: bm?.speciesCode,
+
+    // Feeding information
+    feedCode: bm?.feedCode,
+    feedName: bm?.feedName,
+    feedingRatePercent: bm?.feedingRatePercent,
+    dailyFeedKg: bm?.dailyFeedKg,
+
     // Cleaner Fish metrics
     cleanerFishQuantity: bm?.cleanerFishQuantity,
     cleanerFishBiomassKg: bm?.cleanerFishBiomassKg,
@@ -731,6 +740,30 @@ export const TanksPage: React.FC = () => {
         return formatDate(tank.lastSamplingAt);
       case 'projectedHarvestDate':
         return formatDate(tank.projectedHarvestDate);
+      case 'speciesCode':
+        return tank.speciesCode ? (
+          <span className="font-medium text-gray-700">{tank.speciesCode}</span>
+        ) : (
+          <span className="text-gray-400">-</span>
+        );
+      case 'feedCode':
+        return tank.feedCode ? (
+          <span className="text-blue-600">{tank.feedCode}</span>
+        ) : (
+          <span className="text-gray-400">-</span>
+        );
+      case 'feedingRatePercent':
+        return tank.feedingRatePercent !== undefined ? (
+          <span>{formatNumber(tank.feedingRatePercent, 2)}%</span>
+        ) : (
+          '-'
+        );
+      case 'dailyFeedKg':
+        return tank.dailyFeedKg !== undefined ? (
+          <span className="font-medium">{formatNumber(tank.dailyFeedKg, 2)}</span>
+        ) : (
+          '-'
+        );
       default:
         return '-';
     }

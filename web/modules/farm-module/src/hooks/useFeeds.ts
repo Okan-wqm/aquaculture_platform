@@ -71,6 +71,20 @@ export interface FeedingCurvePoint {
   fcr: number;
 }
 
+/**
+ * 2D Feeding Matrix - Temperature x Weight
+ * Allows bilinear interpolation for accurate feeding rate calculation
+ */
+export interface FeedingMatrix2D {
+  temperatures: number[];        // Temperature axis values (°C)
+  weights: number[];             // Weight axis values (grams)
+  rates: number[][];             // 2D array: rates[weightIndex][tempIndex] = feeding rate %
+  fcrMatrix?: number[][];        // Optional: FCR values at each point
+  temperatureUnit?: 'celsius' | 'fahrenheit';
+  weightUnit?: 'gram' | 'kg';
+  notes?: string;
+}
+
 export interface EnvironmentalImpact {
   co2EqWithLuc?: number;
   co2EqWithoutLuc?: number;
@@ -151,6 +165,7 @@ export interface Feed {
   unitPrice?: number;
   environmentalImpact?: EnvironmentalImpact;
   feedingCurve?: FeedingCurvePoint[];
+  feedingMatrix2D?: FeedingMatrix2D;
   documents?: FeedDocument[];
 }
 
@@ -185,6 +200,7 @@ export interface CreateFeedInput {
   unitPrice?: number;
   environmentalImpact?: EnvironmentalImpact;
   feedingCurve?: FeedingCurvePoint[];
+  feedingMatrix2D?: FeedingMatrix2D;
   documents?: FeedDocument[];
 }
 
@@ -261,6 +277,15 @@ const FEEDS_LIST_QUERY = `
           feedingRatePercent
           fcr
         }
+        feedingMatrix2D {
+          temperatures
+          weights
+          rates
+          fcrMatrix
+          temperatureUnit
+          weightUnit
+          notes
+        }
         documents {
           id
           name
@@ -334,6 +359,15 @@ const FEED_QUERY = `
         fishWeightG
         feedingRatePercent
         fcr
+      }
+      feedingMatrix2D {
+        temperatures
+        weights
+        rates
+        fcrMatrix
+        temperatureUnit
+        weightUnit
+        notes
       }
       documents {
         id

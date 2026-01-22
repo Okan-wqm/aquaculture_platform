@@ -192,6 +192,48 @@ export class EnvironmentalImpactInput {
   co2EqWithoutLuc?: number;
 }
 
+/**
+ * 2D Feeding Matrix Input - Temperature x Weight
+ * Allows bilinear interpolation between temperature and weight axes
+ */
+@InputType()
+export class FeedingMatrix2DInput {
+  @Field(() => [Float], { description: 'Temperature axis values (°C)' })
+  @IsArray()
+  @IsNumber({}, { each: true })
+  temperatures: number[];
+
+  @Field(() => [Float], { description: 'Weight axis values (grams)' })
+  @IsArray()
+  @IsNumber({}, { each: true })
+  weights: number[];
+
+  @Field(() => [[Float]], { description: '2D array: rates[tempIndex][weightIndex] = feeding rate %' })
+  @IsArray()
+  rates: number[][];
+
+  @Field(() => [[Float]], { nullable: true, description: 'Optional: FCR values at each point' })
+  @IsOptional()
+  @IsArray()
+  fcrMatrix?: number[][];
+
+  @Field({ nullable: true, defaultValue: 'celsius', description: 'Temperature unit' })
+  @IsOptional()
+  @IsString()
+  temperatureUnit?: 'celsius' | 'fahrenheit';
+
+  @Field({ nullable: true, defaultValue: 'gram', description: 'Weight unit' })
+  @IsOptional()
+  @IsString()
+  weightUnit?: 'gram' | 'kg';
+
+  @Field({ nullable: true, description: 'Notes about this feeding matrix' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string;
+}
+
 @InputType()
 export class CreateFeedInput {
   @Field()
@@ -366,10 +408,16 @@ export class CreateFeedInput {
   @Type(() => EnvironmentalImpactInput)
   environmentalImpact?: EnvironmentalImpactInput;
 
-  @Field(() => [FeedingCurvePointInput], { nullable: true, description: 'Feeding curve data points' })
+  @Field(() => [FeedingCurvePointInput], { nullable: true, description: 'Feeding curve data points (1D - weight only)' })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => FeedingCurvePointInput)
   feedingCurve?: FeedingCurvePointInput[];
+
+  @Field(() => FeedingMatrix2DInput, { nullable: true, description: '2D feeding matrix (temperature x weight) with bilinear interpolation' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => FeedingMatrix2DInput)
+  feedingMatrix2D?: FeedingMatrix2DInput;
 }

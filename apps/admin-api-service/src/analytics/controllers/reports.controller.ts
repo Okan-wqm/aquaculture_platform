@@ -8,16 +8,28 @@ import {
   Controller,
   Get,
   Post,
+  Put,
+  Delete,
   Body,
   Param,
   Query,
   Res,
+  HttpCode,
   HttpStatus,
   BadRequestException,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ReportsService } from '../services/reports.service';
-import { ReportType, ReportFormat, ReportRequest } from '../entities/analytics-snapshot.entity';
+import {
+  ReportType,
+  ReportFormat,
+  ReportRequest,
+  ReportDefinition,
+  ReportExecution,
+  ReportDefinitionStatus,
+  ReportSchedule,
+  ReportExecutionStatus,
+} from '../entities/analytics-snapshot.entity';
 
 // ============================================================================
 // DTOs
@@ -32,6 +44,41 @@ class GenerateReportDto {
   includeCharts?: boolean;
 }
 
+class CreateDefinitionDto {
+  name: string;
+  description?: string;
+  type: ReportType;
+  defaultFormat?: ReportFormat;
+  schedule?: ReportSchedule;
+  defaultFilters?: Record<string, unknown>;
+  recipients?: string[];
+  includeCharts?: boolean;
+}
+
+class UpdateDefinitionDto {
+  name?: string;
+  description?: string;
+  defaultFormat?: ReportFormat;
+  status?: ReportDefinitionStatus;
+  schedule?: ReportSchedule;
+  defaultFilters?: Record<string, unknown>;
+  recipients?: string[];
+  includeCharts?: boolean;
+}
+
+class ExecuteReportDto {
+  reportId?: string;
+  format: ReportFormat;
+  filters?: Record<string, unknown>;
+  startDate?: string;
+  endDate?: string;
+}
+
+class QuickReportDto {
+  format: ReportFormat;
+  filters?: Record<string, unknown>;
+}
+
 // ============================================================================
 // Controller
 // ============================================================================
@@ -39,6 +86,124 @@ class GenerateReportDto {
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
+
+  // ============================================================================
+  // Report Definitions (Saved Reports)
+  // ============================================================================
+
+  @Get('definitions')
+  async getDefinitions(
+    @Query('status') status?: ReportDefinitionStatus,
+    @Query('type') type?: ReportType,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ): Promise<{ data: ReportDefinition[]; total: number; page: number; limit: number }> {
+    return this.reportsService.getDefinitions({
+      status,
+      type,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('definitions/:id')
+  async getDefinition(@Param('id') id: string): Promise<ReportDefinition> {
+    return this.reportsService.getDefinition(id);
+  }
+
+  @Post('definitions')
+  @HttpCode(HttpStatus.CREATED)
+  async createDefinition(@Body() dto: CreateDefinitionDto): Promise<ReportDefinition> {
+    return this.reportsService.createDefinition(dto);
+  }
+
+  @Put('definitions/:id')
+  async updateDefinition(
+    @Param('id') id: string,
+    @Body() dto: UpdateDefinitionDto,
+  ): Promise<ReportDefinition> {
+    return this.reportsService.updateDefinition(id, dto);
+  }
+
+  @Delete('definitions/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteDefinition(@Param('id') id: string): Promise<void> {
+    return this.reportsService.deleteDefinition(id);
+  }
+
+  // ============================================================================
+  // Report Executions (Execution History)
+  // ============================================================================
+
+  @Get('executions')
+  async getExecutions(
+    @Query('definitionId') definitionId?: string,
+    @Query('status') status?: ReportExecutionStatus,
+    @Query('reportType') reportType?: ReportType,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ): Promise<{ data: ReportExecution[]; total: number; page: number; limit: number }> {
+    return this.reportsService.getExecutions({
+      definitionId,
+      status,
+      reportType,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('executions/:id')
+  async getExecution(@Param('id') id: string): Promise<ReportExecution> {
+    return this.reportsService.getExecution(id);
+  }
+
+  @Get('executions/:id/download')
+  async downloadExecution(@Param('id') id: string, @Res() res: Response) {
+    const download = await this.reportsService.getExecutionDownload(id);
+
+    res.setHeader('Content-Type', download.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename=${download.filename}`);
+
+    if (download.execution.format === 'json') {
+      res.send(JSON.stringify(download.data, null, 2));
+    } else if (download.execution.format === 'pdf') {
+      const pdfBuffer = await this.reportsService.generatePdfBuffer(
+        download.execution.reportType,
+        download.data,
+      );
+      res.send(pdfBuffer);
+    } else {
+      res.send(download.data);
+    }
+  }
+
+  // ============================================================================
+  // Quick Reports (Frontend Compatible)
+  // ============================================================================
+
+  @Post('quick/tenants')
+  @HttpCode(HttpStatus.OK)
+  async quickTenantsReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
+    return this.reportsService.generateQuickTenantsReport(dto.format, dto.filters);
+  }
+
+  @Post('quick/users')
+  @HttpCode(HttpStatus.OK)
+  async quickUsersReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
+    return this.reportsService.generateQuickUsersReport(dto.format, dto.filters);
+  }
+
+  @Post('quick/revenue')
+  @HttpCode(HttpStatus.OK)
+  async quickRevenueReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
+    return this.reportsService.generateQuickRevenueReport(dto.format, dto.filters);
+  }
+
+  @Post('quick/audit')
+  @HttpCode(HttpStatus.OK)
+  async quickAuditReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
+    return this.reportsService.generateQuickAuditReport(dto.format, dto.filters);
+  }
 
   // ============================================================================
   // Report Types

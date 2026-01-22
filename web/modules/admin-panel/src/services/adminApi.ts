@@ -601,31 +601,61 @@ export const databaseApi = {
 // ============================================================================
 
 export type TicketStatus = 'open' | 'in_progress' | 'waiting_customer' | 'waiting_internal' | 'resolved' | 'closed';
-export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent';
-export type TicketCategory = 'technical' | 'billing' | 'feature_request' | 'bug_report' | 'general' | 'account';
+export type TicketPriority = 'low' | 'medium' | 'high' | 'critical';
+export type TicketCategory = 'technical' | 'billing' | 'feature_request' | 'bug_report' | 'bug' | 'general' | 'account';
+
+export interface TicketAttachmentInfo {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  url: string;
+  uploadedAt?: string;
+}
 
 export interface SupportTicket {
   id: string;
   ticketNumber: string;
+  tenantId: string;
+  tenantName?: string;
+  createdBy: string;
+  createdByName?: string;
+  createdByEmail?: string;
   subject: string;
   description: string;
   category: TicketCategory;
   priority: TicketPriority;
   status: TicketStatus;
-  tenantId: string;
-  tenantName: string;
-  createdBy: string;
-  createdByEmail: string;
   assignedTo?: string;
   assignedToName?: string;
-  tags: string[];
-  attachments: Array<{ id: string; filename: string; url: string; size: number }>;
+  tags?: string[];
   firstResponseAt?: string;
   resolvedAt?: string;
   closedAt?: string;
+  dueAt?: string;
+  slaResponseMinutes?: number;
+  slaResolutionMinutes?: number;
+  slaBreached?: boolean;
   satisfactionRating?: number;
+  satisfactionFeedback?: string;
+  metadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+}
+
+export type TicketCommentAuthorType = 'admin' | 'tenant_user' | 'system';
+
+export interface TicketComment {
+  id: string;
+  ticketId: string;
+  authorId: string;
+  authorType: TicketCommentAuthorType;
+  authorName?: string;
+  content: string;
+  isInternal: boolean;
+  attachments?: TicketAttachmentInfo[];
+  emailSent?: boolean;
+  createdAt: string;
 }
 
 export interface TicketReply {
@@ -644,58 +674,93 @@ export interface TicketStats {
   total: number;
   open: number;
   inProgress: number;
+  waitingCustomer?: number;
   resolved: number;
-  avgResponseTime: number;
-  avgResolutionTime: number;
-  satisfactionScore: number;
-  byCategory: Array<{ category: string; count: number }>;
-  byPriority: Array<{ priority: string; count: number }>;
+  closed?: number;
+  avgFirstResponseMinutes?: number;
+  avgResolutionMinutes?: number;
+  avgResponseTime?: number;
+  avgResolutionTime?: number;
+  slaBreachCount?: number;
+  avgSatisfactionRating?: number;
+  satisfactionScore?: number;
+  byCategory?: Array<{ category: string; count: number }>;
+  byPriority?: Array<{ priority: string; count: number }>;
+}
+
+export type MessageSenderType = 'super_admin' | 'tenant_admin' | 'system';
+export type MessageStatus = 'sent' | 'delivered' | 'read';
+export type ThreadStatus = 'open' | 'closed' | 'archived';
+
+export interface MessageAttachment {
+  id: string;
+  filename: string;
+  url: string;
+  size: number;
+  mimeType: string;
 }
 
 export interface Message {
   id: string;
   threadId: string;
-  tenantId: string;
-  tenantName: string;
-  subject: string;
-  content: string;
-  isFromAdmin: boolean;
+  senderId: string;
+  senderType: MessageSenderType;
   senderName: string;
-  senderEmail: string;
-  isRead: boolean;
-  attachments: Array<{ id: string; filename: string; url: string }>;
+  content: string;
+  status: MessageStatus;
+  isInternal: boolean;
+  attachments: MessageAttachment[] | null;
+  readAt: string | null;
   createdAt: string;
 }
 
 export interface MessageThread {
   id: string;
   tenantId: string;
-  tenantName: string;
+  tenantName?: string;
   subject: string;
-  lastMessage: string;
-  lastMessageAt: string;
+  lastMessage: string | null;
+  lastMessageAt: string | null;
+  lastMessageBy: string | null;
+  status: ThreadStatus;
   messageCount: number;
-  unreadCount: number;
-  status: 'active' | 'archived';
+  unreadCountAdmin: number;
+  unreadCountTenant: number;
+  createdBy: string;
+  createdByAdmin: boolean;
   createdAt: string;
+  updatedAt: string;
+}
+
+export type AnnouncementType = 'info' | 'warning' | 'critical' | 'maintenance' | 'success';
+export type AnnouncementStatus = 'draft' | 'scheduled' | 'published' | 'expired' | 'cancelled';
+
+export interface AnnouncementTarget {
+  tenantIds?: string[];
+  excludeTenantIds?: string[];
+  plans?: string[];
+  modules?: string[];
+  regions?: string[];
 }
 
 export interface Announcement {
   id: string;
   title: string;
   content: string;
-  type: 'info' | 'warning' | 'success' | 'error' | 'maintenance';
-  priority: 'low' | 'normal' | 'high';
-  targetAudience: 'all' | 'admins' | 'specific_tenants';
-  targetTenantIds?: string[];
-  isPublished: boolean;
-  publishedAt?: string;
+  type: AnnouncementType;
+  status: AnnouncementStatus;
+  isGlobal: boolean;
+  targetCriteria?: AnnouncementTarget;
+  createdBy?: string;
+  createdByName?: string;
+  publishAt?: string;
   expiresAt?: string;
+  requiresAcknowledgment: boolean;
   viewCount: number;
-  acknowledgedCount: number;
-  createdBy: string;
+  acknowledgmentCount: number;
+  metadata?: Record<string, unknown>;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;
 }
 
 export interface OnboardingStep {
@@ -1659,18 +1724,29 @@ export interface TenantConfiguration {
   updatedAt: string;
 }
 
+export interface EmailTemplateVariable {
+  name: string;
+  description: string;
+  required: boolean;
+  defaultValue?: string;
+}
+
 export interface EmailTemplate {
   id: string;
   code: string;
   name: string;
-  subject: string;
-  htmlBody: string;
-  textBody?: string;
-  variables: string[];
+  description?: string;
   category: string;
+  subject: string;
+  bodyHtml: string;
+  bodyText?: string;
+  variables: EmailTemplateVariable[];
   isActive: boolean;
+  isSystem: boolean;
+  tenantId?: string;
   createdAt: string;
   updatedAt: string;
+  updatedBy?: string;
 }
 
 export interface IpAccessRule {
@@ -2626,7 +2702,7 @@ export const billingApi = {
 
   // Custom Plans
   getCustomPlans: (filter?: CustomPlanFilter) =>
-    apiFetch<PaginatedCustomPlans>(`/billing/custom-plans?${buildQueryString(filter || {})}`),
+    apiFetch<PaginatedCustomPlans>(`/billing/custom-plans?${buildQueryString((filter || {}) as Record<string, unknown>)}`),
   getCustomPlan: (planId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`),
   getCustomPlanByTenant: (tenantId: string) =>

@@ -465,7 +465,7 @@ const BillingDashboardPage: React.FC = () => {
             </Link>
           </div>
           <div className="space-y-1">
-            {transactions.length === 0 ? (
+            {(!transactions || transactions.length === 0) ? (
               <div className="py-8 text-center text-gray-500">
                 No recent transactions
               </div>

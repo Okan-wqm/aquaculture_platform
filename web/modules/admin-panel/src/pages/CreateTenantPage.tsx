@@ -22,6 +22,9 @@ import {
   modulesApi,
   billingApi,
   PricingMetricType,
+  TenantTier,
+  PlanTier,
+  BillingCycle,
   type SystemModule,
   type CreateTenantDto,
   type ModulePricingWithModule,
@@ -510,10 +513,10 @@ const CreateTenantPage: React.FC = () => {
       total: localTotal,
       monthlyTotal: localTotal,
       annualTotal: localTotal * 12,
-      billingCycle: 'monthly' as any,
+      billingCycle: BillingCycle.MONTHLY,
       billingCycleMultiplier: 1,
       currency: 'USD',
-      tier: 'starter' as any,
+      tier: PlanTier.STARTER,
       calculatedAt: new Date().toISOString(),
       modules: [],
     };
@@ -529,8 +532,8 @@ const CreateTenantPage: React.FC = () => {
           moduleName: c.moduleName,
           quantities: c.quantities,
         })),
-        tier: formData.pricingTier as any,
-        billingCycle: 'monthly',
+        tier: formData.pricingTier as PlanTier,
+        billingCycle: BillingCycle.MONTHLY,
       };
 
       const calculation = await billingApi.calculatePricing(request);
@@ -658,7 +661,7 @@ const CreateTenantPage: React.FC = () => {
         name: formData.name,
         slug: formData.slug || undefined,
         description: formData.description || undefined,
-        tier: formData.pricingTier === 'free' ? 'starter' : formData.pricingTier as 'starter' | 'professional' | 'enterprise',
+        tier: formData.pricingTier === 'free' ? TenantTier.STARTER : formData.pricingTier as TenantTier,
         domain: formData.domain || undefined,
         country: formData.country || undefined,
         region: formData.region || undefined,
@@ -681,7 +684,7 @@ const CreateTenantPage: React.FC = () => {
           sensors: m.quantities.sensors,
         })),
         // NEW: Billing cycle
-        billingCycle: 'monthly',
+        billingCycle: BillingCycle.MONTHLY,
       };
 
       const tenant = await tenantsApi.create(createData);

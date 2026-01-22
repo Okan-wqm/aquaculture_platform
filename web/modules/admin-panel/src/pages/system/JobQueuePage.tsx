@@ -649,9 +649,9 @@ export const JobQueuePage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {mockJobs
-                  .filter((j) => j.jobType === 'scheduled' || j.jobType === 'recurring')
-                  .map((job) => (
+                {jobs
+                  .filter((j: BackgroundJob) => j.jobType === 'scheduled' || j.jobType === 'recurring')
+                  .map((job: BackgroundJob) => (
                     <tr key={job.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
                         <span className="font-medium text-gray-900">{job.name}</span>

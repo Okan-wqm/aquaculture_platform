@@ -424,8 +424,8 @@ const AnalyticsDashboardPage: React.FC = () => {
       // Process tenant growth trend
       if (tenantTrendResponse.status === 'fulfilled' && tenantTrendResponse.value) {
         const trendData = tenantTrendResponse.value.map(item => ({
-          date: item.date,
-          value: item.value,
+          date: item.period,
+          value: item.tenants,
         }));
         setTenantTrend(trendData);
         // Use the same data for user trend (as they're correlated)

@@ -154,6 +154,37 @@ export class DebugToolsService {
     });
   }
 
+  async querySessions(params: {
+    tenantId?: string;
+    sessionType?: DebugSessionType;
+    isActive?: boolean;
+    page?: number;
+    limit?: number;
+  }): Promise<{ data: DebugSession[]; total: number; page: number; limit: number }> {
+    const page = params.page || 1;
+    const limit = params.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const query = this.debugSessionRepo.createQueryBuilder('s');
+
+    if (params.tenantId) {
+      query.andWhere('s.tenantId = :tenantId', { tenantId: params.tenantId });
+    }
+    if (params.sessionType) {
+      query.andWhere('s.sessionType = :sessionType', { sessionType: params.sessionType });
+    }
+    if (params.isActive !== undefined) {
+      query.andWhere('s.isActive = :isActive', { isActive: params.isActive });
+    }
+
+    query.orderBy('s.createdAt', 'DESC');
+    query.skip(skip).take(limit);
+
+    const [data, total] = await query.getManyAndCount();
+
+    return { data, total, page, limit };
+  }
+
   // ============================================================================
   // Query Inspector
   // ============================================================================
@@ -321,6 +352,62 @@ export class DebugToolsService {
   async getQueryExplainPlan(queryId: string): Promise<Record<string, unknown> | null> {
     const query = await this.queryRepo.findOne({ where: { id: queryId } });
     return query?.explainPlan || null;
+  }
+
+  async getSlowQueryAnalysis(
+    tenantId: string,
+    threshold?: number,
+  ): Promise<{
+    slowQueries: CapturedQuery[];
+    patterns: Array<{ pattern: string; count: number; avgDuration: number }>;
+    recommendations: string[];
+  }> {
+    const thresholdMs = threshold || 100;
+
+    // Get slow queries
+    const slowQueries = await this.queryRepo.find({
+      where: {
+        tenantId,
+        isSlowQuery: true,
+      },
+      order: { durationMs: 'DESC' },
+      take: 50,
+    });
+
+    // Analyze patterns
+    const patternStats: Record<string, { count: number; totalDuration: number }> = {};
+    for (const query of slowQueries) {
+      const pattern = query.normalizedQuery || 'unknown';
+      if (!patternStats[pattern]) {
+        patternStats[pattern] = { count: 0, totalDuration: 0 };
+      }
+      patternStats[pattern].count++;
+      patternStats[pattern].totalDuration += query.durationMs;
+    }
+
+    const patterns = Object.entries(patternStats)
+      .map(([pattern, stats]) => ({
+        pattern: pattern.substring(0, 100),
+        count: stats.count,
+        avgDuration: Math.round(stats.totalDuration / stats.count),
+      }))
+      .sort((a, b) => b.avgDuration - a.avgDuration)
+      .slice(0, 10);
+
+    // Generate recommendations
+    const recommendations: string[] = [];
+    if (slowQueries.length > 20) {
+      recommendations.push('High number of slow queries detected. Consider reviewing database indexes.');
+    }
+    const selectQueries = slowQueries.filter(q => q.queryType === QueryLogType.SELECT);
+    if (selectQueries.length > 10) {
+      recommendations.push('Many slow SELECT queries. Consider adding appropriate indexes or optimizing queries.');
+    }
+    if (patterns.some(p => p.avgDuration > 500)) {
+      recommendations.push('Some query patterns have very high average duration. Review execution plans.');
+    }
+
+    return { slowQueries, patterns, recommendations };
   }
 
   private normalizeQuery(query: string): string {
@@ -556,6 +643,95 @@ export class DebugToolsService {
     return body;
   }
 
+  async getApiCallDetails(id: string): Promise<CapturedApiCall> {
+    const call = await this.apiCallRepo.findOne({ where: { id } });
+    if (!call) {
+      throw new NotFoundException(`API call not found: ${id}`);
+    }
+    return call;
+  }
+
+  async getApiUsageSummary(
+    tenantId: string,
+    period?: string,
+  ): Promise<{
+    totalCalls: number;
+    avgResponseTime: number;
+    errorRate: number;
+    topEndpoints: Array<{ endpoint: string; count: number; avgDuration: number }>;
+    statusDistribution: Record<string, number>;
+  }> {
+    const query = this.apiCallRepo.createQueryBuilder('a');
+    query.where('a.tenantId = :tenantId', { tenantId });
+
+    // Apply period filter
+    if (period) {
+      const now = new Date();
+      let startDate: Date;
+      switch (period) {
+        case '1h':
+          startDate = new Date(now.getTime() - 60 * 60 * 1000);
+          break;
+        case '24h':
+          startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          break;
+        case '7d':
+          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          break;
+        default:
+          startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      }
+      query.andWhere('a.timestamp >= :startDate', { startDate });
+    }
+
+    const summaryRaw = await query
+      .select('COUNT(*)', 'totalCalls')
+      .addSelect('AVG(a.durationMs)', 'avgResponseTime')
+      .addSelect('SUM(CASE WHEN a.hasError THEN 1 ELSE 0 END)', 'errorCount')
+      .getRawOne();
+
+    const totalCalls = parseInt(summaryRaw?.totalCalls, 10) || 0;
+    const errorCount = parseInt(summaryRaw?.errorCount, 10) || 0;
+
+    // Top endpoints
+    const topEndpointsRaw = await this.apiCallRepo
+      .createQueryBuilder('a')
+      .select('a.endpoint', 'endpoint')
+      .addSelect('COUNT(*)', 'count')
+      .addSelect('AVG(a.durationMs)', 'avgDuration')
+      .where('a.tenantId = :tenantId', { tenantId })
+      .groupBy('a.endpoint')
+      .orderBy('count', 'DESC')
+      .limit(10)
+      .getRawMany();
+
+    // Status distribution
+    const statusRaw = await this.apiCallRepo
+      .createQueryBuilder('a')
+      .select('a.responseStatus', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .where('a.tenantId = :tenantId', { tenantId })
+      .groupBy('a.responseStatus')
+      .getRawMany();
+
+    const statusDistribution: Record<string, number> = {};
+    for (const item of statusRaw) {
+      statusDistribution[item.status] = parseInt(item.count, 10);
+    }
+
+    return {
+      totalCalls,
+      avgResponseTime: parseFloat(summaryRaw?.avgResponseTime) || 0,
+      errorRate: totalCalls > 0 ? (errorCount / totalCalls) * 100 : 0,
+      topEndpoints: topEndpointsRaw.map(e => ({
+        endpoint: e.endpoint,
+        count: parseInt(e.count, 10),
+        avgDuration: parseFloat(e.avgDuration) || 0,
+      })),
+      statusDistribution,
+    };
+  }
+
   // ============================================================================
   // Cache Inspector
   // ============================================================================
@@ -637,6 +813,19 @@ export class DebugToolsService {
     return this.cacheSnapshotRepo.save(snapshot);
   }
 
+  async getCacheEntry(key: string): Promise<CacheEntrySnapshot | null> {
+    const entry = await this.cacheSnapshotRepo.findOne({
+      where: { key },
+      order: { capturedAt: 'DESC' },
+    });
+    return entry;
+  }
+
+  async invalidateCacheByKey(key: string): Promise<void> {
+    // In production, this would invalidate the actual cache key
+    this.logger.log(`[Cache] Invalidated key: ${key}`);
+  }
+
   async invalidateCacheKey(tenantId: string, key: string): Promise<void> {
     // In production, this would invalidate the actual cache key
     this.logger.log(`[Cache] Invalidated key: ${key} for tenant: ${tenantId}`);
@@ -709,6 +898,14 @@ export class DebugToolsService {
       where: { tenantId, isActive: true },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  async getFeatureOverride(id: string): Promise<FeatureFlagOverride> {
+    const override = await this.overrideRepo.findOne({ where: { id } });
+    if (!override) {
+      throw new NotFoundException(`Feature override not found: ${id}`);
+    }
+    return override;
   }
 
   async getFeatureFlagValue(tenantId: string, featureKey: string, defaultValue: unknown): Promise<unknown> {

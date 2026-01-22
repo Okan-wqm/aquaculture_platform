@@ -10,7 +10,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 
 // Entities
-import { AnalyticsSnapshot } from './entities/analytics-snapshot.entity';
+import { AnalyticsSnapshot, ReportDefinition, ReportExecution } from './entities/analytics-snapshot.entity';
 
 // External Entities (read-only references to other services' data)
 import { TenantReadOnly } from './entities/external/tenant.entity';
@@ -33,6 +33,8 @@ import { AuditLogModule } from '../audit/audit.module';
   imports: [
     TypeOrmModule.forFeature([
       AnalyticsSnapshot,
+      ReportDefinition,
+      ReportExecution,
       // External entities for cross-service analytics
       // These are read-only - source of truth is in their respective services
       TenantReadOnly,

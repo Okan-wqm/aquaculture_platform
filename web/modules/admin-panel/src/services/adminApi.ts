@@ -1676,13 +1676,14 @@ export interface EmailTemplate {
 export interface IpAccessRule {
   id: string;
   tenantId?: string;
-  type: 'allow' | 'deny';
-  ipPattern: string;
+  ruleType: 'whitelist' | 'blacklist';
+  ipAddress: string;
   description?: string;
   isActive: boolean;
+  expiresAt?: string;
   hitCount: number;
   lastHitAt?: string;
-  createdBy: string;
+  createdBy?: string;
   createdAt: string;
 }
 
@@ -1754,7 +1755,7 @@ export const settingsApi = {
   deleteIpAccessRule: (id: string) =>
     apiFetch<void>(`/settings/ip-access/${id}`, { method: 'DELETE' }),
   checkIpAccess: (ip: string, tenantId?: string) =>
-    apiFetch<{ allowed: boolean; matchedRule?: IpAccessRule }>(`/settings/ip-access/check?ip=${ip}${tenantId ? `&tenantId=${tenantId}` : ''}`),
+    apiFetch<{ allowed: boolean; matchedRule?: IpAccessRule }>('/settings/ip-access/check', { method: 'POST', body: JSON.stringify({ ip, tenantId }) }),
 };
 
 // ============================================================================

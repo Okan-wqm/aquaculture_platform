@@ -1,4 +1,9 @@
 import { Injectable } from '@nestjs/common';
+
+import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
+import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
+import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
+
 import {
   BaseVfdAdapter,
   VfdConnectionHandle,
@@ -7,9 +12,6 @@ import {
   ConnectionTestResult,
   ValidationResult,
 } from './base-vfd.adapter';
-import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
-import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
-import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
 
 /**
  * EtherNet/IP Configuration
@@ -50,6 +52,7 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
     super('VfdEthernetIpAdapter');
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     const validatedConfig = this.validateAndCastConfig(config);
     const connectionId = this.generateConnectionId();
@@ -85,6 +88,7 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: VfdConnectionHandle): Promise<void> {
     const connection = this.connections.get(handle.id);
     if (!connection) {
@@ -110,7 +114,7 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
       handle = await this.connect(config);
 
       // Read identity object (Class 1, Instance 1)
-      const testBuffer = await this.readRegister(handle, 1, 1, 0x0e); // Get Attribute Single
+      await this.readRegister(handle, 1, 1, 0x0e); // Get Attribute Single
       const latencyMs = Date.now() - startTime;
 
       await this.disconnect(handle);
@@ -219,6 +223,7 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -261,6 +266,7 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
     return this.writeRegister(handle, registerAddress, rawValue);
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async writeRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -309,7 +315,7 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
       errors.push('host is required and must be a string');
     } else {
       const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-      if (!ipRegex.test(cfg.host as string) && cfg.host !== 'localhost') {
+      if (!ipRegex.test(cfg.host) && cfg.host !== 'localhost') {
         errors.push('host must be a valid IP address');
       }
     }
@@ -439,8 +445,9 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async readAssemblyData(
-    connection: EthernetIpConnectionHandle,
+    _connection: EthernetIpConnectionHandle,
     assemblyInstance: number
   ): Promise<Buffer> {
     // Read assembly object instance data

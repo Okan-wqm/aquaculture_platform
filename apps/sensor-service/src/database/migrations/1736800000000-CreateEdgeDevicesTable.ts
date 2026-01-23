@@ -13,7 +13,8 @@ export class CreateEdgeDevicesTable1736800000000 implements MigrationInterface {
   name = 'CreateEdgeDevicesTable1736800000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    const schema = await queryRunner.query(`SELECT current_schema()`);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const schema: Array<{ current_schema: string }> = await queryRunner.query(`SELECT current_schema()`);
     console.log('Running CreateEdgeDevicesTable migration in schema:', schema);
 
     // Check if table already exists
@@ -219,7 +220,8 @@ export class CreateEdgeDevicesTable1736800000000 implements MigrationInterface {
   }
 
   private async tableExists(queryRunner: QueryRunner, tableName: string): Promise<boolean> {
-    const result = await queryRunner.query(`
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const result: Array<{ exists: boolean }> = await queryRunner.query(`
       SELECT EXISTS (
         SELECT 1
         FROM information_schema.tables

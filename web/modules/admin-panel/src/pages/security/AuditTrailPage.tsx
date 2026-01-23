@@ -128,7 +128,31 @@ async function fetchAuditEntries(params: {
   if (params.startDate) apiParams.startDate = params.startDate;
   if (params.endDate) apiParams.endDate = params.endDate;
 
-  return securityApi.getAuditTrail(apiParams);
+  const result = await securityApi.getAuditTrail(apiParams);
+  // Map API response to local AuditEntry type
+  const anyEntry = (e: typeof result.data[0]) => e as unknown as Record<string, unknown>;
+  return {
+    data: result.data.map((entry) => ({
+      id: entry.id,
+      action: entry.action as AuditAction,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      entityName: anyEntry(entry).entityName as string | undefined,
+      severity: (anyEntry(entry).severity as AuditSeverity) || 'info',
+      tenantId: (anyEntry(entry).tenantId as string) || '',
+      tenantName: anyEntry(entry).tenantName as string | undefined,
+      userId: entry.performedBy,
+      userName: anyEntry(entry).userName as string | undefined,
+      userEmail: entry.performedByEmail,
+      ipAddress: anyEntry(entry).ipAddress as string | undefined,
+      changes: anyEntry(entry).changes as AuditEntry['changes'],
+      metadata: anyEntry(entry).metadata as Record<string, unknown> | undefined,
+      createdAt: (anyEntry(entry).createdAt as string) || entry.timestamp,
+    })),
+    total: result.total,
+    page: result.page,
+    limit: result.limit,
+  };
 }
 
 async function fetchAuditSummary(): Promise<AuditStats> {
@@ -146,7 +170,18 @@ async function fetchAuditSummary(): Promise<AuditStats> {
 }
 
 async function fetchRetentionPolicies(): Promise<RetentionPolicy[]> {
-  return securityApi.getRetentionPolicies();
+  const policies = await securityApi.getRetentionPolicies();
+  // Map API response to local RetentionPolicy type
+  return policies.map((policy) => ({
+    id: policy.id,
+    name: policy.name,
+    entityTypes: (policy as unknown as { entityTypes?: string[] }).entityTypes || [],
+    retentionDays: policy.retentionDays,
+    archiveBeforeDelete: (policy as unknown as { archiveBeforeDelete?: boolean }).archiveBeforeDelete ?? false,
+    enabled: (policy as unknown as { enabled?: boolean }).enabled ?? true,
+    createdAt: (policy as unknown as { createdAt?: string }).createdAt || '',
+    updatedAt: (policy as unknown as { updatedAt?: string }).updatedAt,
+  }));
 }
 
 async function fetchAlertRules(): Promise<AlertRule[]> {

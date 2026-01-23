@@ -1,3 +1,4 @@
+import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 import {
   Entity,
   Column,
@@ -6,7 +7,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
+
 import { SensorDataChannel } from './sensor-data-channel.entity';
 import { Sensor } from './sensor.entity';
 

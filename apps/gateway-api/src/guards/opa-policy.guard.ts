@@ -14,9 +14,10 @@ import {
   Logger,
   SetMetadata,
 } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
+import { Request } from 'express';
 
 /**
  * Metadata key for OPA policy
@@ -35,7 +36,7 @@ export interface OpaPolicyConfig {
 /**
  * Decorator to specify OPA policy for an endpoint
  */
-export const OpaPolicy = (config: OpaPolicyConfig) =>
+export const OpaPolicy = (config: OpaPolicyConfig): ReturnType<typeof SetMetadata> =>
   SetMetadata(OPA_POLICY_KEY, config);
 
 /**
@@ -46,7 +47,7 @@ export const BYPASS_OPA_KEY = 'bypassOpa';
 /**
  * Decorator to bypass OPA policy check
  */
-export const BypassOpa = () => SetMetadata(BYPASS_OPA_KEY, true);
+export const BypassOpa = (): ReturnType<typeof SetMetadata> => SetMetadata(BYPASS_OPA_KEY, true);
 
 /**
  * OPA decision result
@@ -72,6 +73,7 @@ export interface OpaInput {
     type: string;
     id?: string;
     tenantId?: string;
+    [key: string]: unknown;
   };
   action: string;
   context: {
@@ -80,6 +82,46 @@ export interface OpaInput {
     path?: string;
     method?: string;
     correlationId?: string;
+  };
+}
+
+/**
+ * User payload for OPA requests
+ */
+interface OpaUserPayload {
+  sub?: string;
+  email?: string;
+  role?: string;
+  tenantId?: string;
+  permissions?: string[];
+}
+
+/**
+ * OPA request interface
+ */
+interface OpaRequest extends Request {
+  user?: OpaUserPayload;
+  tenantId?: string;
+  connection?: {
+    remoteAddress?: string;
+  };
+}
+
+/**
+ * GraphQL context interface
+ */
+interface GqlContext {
+  req?: OpaRequest;
+}
+
+/**
+ * OPA response result structure
+ */
+interface OpaResultResponse {
+  result?: boolean | {
+    allow?: boolean;
+    reason?: string;
+    violations?: string[];
   };
 }
 
@@ -138,12 +180,26 @@ export class OpaPolicyGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
 
+    const request = this.getRequest(context);
+
     if (!policyConfig) {
-      // No policy configured, allow by default
+      // No policy configured
+      // SECURITY: In production, fail-closed for security
+      const isProduction = process.env['NODE_ENV'] === 'production';
+      if (isProduction) {
+        this.logger.error(
+          `No OPA policy configured for ${request.path}. ` +
+          'Production requires explicit policy configuration. Access denied.',
+        );
+        throw new ForbiddenException({
+          message: 'Access denied: No policy configured',
+          reason: 'Endpoints must have explicit OPA policy configuration in production',
+        });
+      }
+      // Development: Allow by default for backwards compatibility
+      this.logger.debug(`No OPA policy configured for ${request.path}, allowing in development mode`);
       return true;
     }
-
-    const request = this.getRequest(context);
     const input = this.buildOpaInput(request, policyConfig, context);
 
     try {
@@ -177,9 +233,18 @@ export class OpaPolicyGuard implements CanActivate {
       });
 
       // Fail open or closed based on configuration
-      if (this.failOpen) {
-        this.logger.warn('OPA failed, allowing request (fail-open mode)');
+      // SECURITY: Fail-open is disabled in production for security
+      const isProduction = process.env['NODE_ENV'] === 'production';
+      if (this.failOpen && !isProduction) {
+        this.logger.warn('OPA failed, allowing request (fail-open mode - dev only)');
         return true;
+      }
+
+      if (this.failOpen && isProduction) {
+        this.logger.error(
+          'OPA_FAIL_OPEN is enabled but ignored in production. ' +
+          'Policy evaluation failed, denying access.',
+        );
       }
 
       throw new ForbiddenException('Policy evaluation failed');
@@ -189,53 +254,57 @@ export class OpaPolicyGuard implements CanActivate {
   /**
    * Get request from execution context
    */
-  private getRequest(context: ExecutionContext): any {
+  private getRequest(context: ExecutionContext): OpaRequest {
     const gqlContext = GqlExecutionContext.create(context);
-    const gqlRequest = gqlContext.getContext()?.req;
+    const ctx = gqlContext.getContext<GqlContext>();
+    const gqlRequest = ctx?.req;
 
     if (gqlRequest) {
       return gqlRequest;
     }
 
-    return context.switchToHttp().getRequest();
+    return context.switchToHttp().getRequest<OpaRequest>();
   }
 
   /**
    * Build OPA input from request and policy config
    */
   private buildOpaInput(
-    request: any,
+    request: OpaRequest,
     config: OpaPolicyConfig,
     context: ExecutionContext,
   ): OpaInput {
-    const user = request.user || {};
+    const user = request.user ?? {};
     const handler = context.getHandler();
     const className = context.getClass().name;
+    const forwardedFor = request.headers?.['x-forwarded-for'];
+    const tenantIdHeader = request.headers?.['x-tenant-id'];
+    const correlationId = request.headers?.['x-correlation-id'];
 
     return {
       subject: {
-        id: user.sub || 'anonymous',
+        id: user.sub ?? 'anonymous',
         email: user.email,
         role: user.role,
-        tenantId: user.tenantId || request.tenantId,
-        permissions: user.permissions || [],
+        tenantId: user.tenantId ?? request.tenantId,
+        permissions: user.permissions ?? [],
       },
       resource: {
         type: className,
         id: request.params?.id,
-        tenantId: request.tenantId || request.headers?.['x-tenant-id'],
+        tenantId: request.tenantId ?? (typeof tenantIdHeader === 'string' ? tenantIdHeader : undefined),
         ...config.input,
       },
       action: handler.name,
       context: {
         timestamp: new Date().toISOString(),
         ip:
-          request.ip ||
-          request.headers?.['x-forwarded-for']?.split(',')[0] ||
+          request.ip ??
+          (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0] : undefined) ??
           request.connection?.remoteAddress,
         path: request.url,
         method: request.method,
-        correlationId: request.headers?.['x-correlation-id'],
+        correlationId: typeof correlationId === 'string' ? correlationId : undefined,
       },
     };
   }
@@ -279,7 +348,7 @@ export class OpaPolicyGuard implements CanActivate {
         throw new Error(`OPA returned ${response.status}`);
       }
 
-      const result = await response.json();
+      const result = (await response.json()) as OpaResultResponse;
       const decision = this.parseOpaResult(result);
 
       // Cache the decision
@@ -298,7 +367,7 @@ export class OpaPolicyGuard implements CanActivate {
   /**
    * Parse OPA result into decision
    */
-  private parseOpaResult(result: any): OpaDecision {
+  private parseOpaResult(result: OpaResultResponse): OpaDecision {
     if (!result.result) {
       return { allow: false, reason: 'No policy result' };
     }

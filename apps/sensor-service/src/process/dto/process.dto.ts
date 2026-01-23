@@ -1,7 +1,8 @@
 import { InputType, ObjectType, Field, ID, Int } from '@nestjs/graphql';
-import { IsString, IsOptional, IsEnum, IsUUID, MaxLength, IsInt } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsString, IsOptional, IsEnum, IsUUID, MaxLength, IsInt } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
+
 import { ProcessStatus, ProcessNode, ProcessEdge } from '../entities/process.entity';
 
 // ============================================================================
@@ -28,12 +29,12 @@ export class CreateProcessInput {
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
   @Type(() => Object)
-  nodes?: any[];
+  nodes?: ProcessNode[];
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
   @Type(() => Object)
-  edges?: any[];
+  edges?: ProcessEdge[];
 
   @Field({ nullable: true })
   @IsOptional()
@@ -84,12 +85,12 @@ export class UpdateProcessInput {
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
   @Type(() => Object)
-  nodes?: any[];
+  nodes?: ProcessNode[];
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
   @Type(() => Object)
-  edges?: any[];
+  edges?: ProcessEdge[];
 
   @Field({ nullable: true })
   @IsOptional()

@@ -1,14 +1,16 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { VfdDevice } from '../entities/vfd-device.entity';
-import { VfdCommandType, VfdDeviceStatus } from '../entities/vfd.enums';
-import { VfdDeviceService } from './vfd-device.service';
-import { VfdRegisterMappingService } from './vfd-register-mapping.service';
+
 import {
   createVfdAdapter,
   VfdCommandResult,
   VfdConnectionHandle,
 } from '../adapters';
 import { VFD_BRAND_COMMANDS } from '../brand-configs';
+import { VfdDevice } from '../entities/vfd-device.entity';
+import { VfdCommandType, VfdDeviceStatus } from '../entities/vfd.enums';
+
+import { VfdDeviceService } from './vfd-device.service';
+import { VfdRegisterMappingService } from './vfd-register-mapping.service';
 
 /**
  * Command input structure

@@ -1,4 +1,9 @@
 import { Injectable } from '@nestjs/common';
+
+import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
+import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
+import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
+
 import {
   BaseVfdAdapter,
   VfdConnectionHandle,
@@ -7,9 +12,6 @@ import {
   ConnectionTestResult,
   ValidationResult,
 } from './base-vfd.adapter';
-import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
-import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
-import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
 
 /**
  * Modbus RTU Configuration
@@ -49,6 +51,7 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
     super('VfdModbusRtuAdapter');
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     const validatedConfig = this.validateAndCastConfig(config);
     const connectionId = this.generateConnectionId();
@@ -88,6 +91,7 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: VfdConnectionHandle): Promise<void> {
     const connection = this.connections.get(handle.id);
     if (!connection) {
@@ -110,7 +114,7 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
     let handle: VfdConnectionHandle | null = null;
 
     try {
-      const validatedConfig = this.validateAndCastConfig(config);
+      this.validateAndCastConfig(config);
       handle = await this.connect(config);
 
       // Try to read a basic status register (address 0 or first available)
@@ -237,6 +241,7 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -249,8 +254,8 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
       throw new Error('Connection not established');
     }
 
-    // Build Modbus RTU request frame
-    const request = this.buildModbusRequest(
+    // Build Modbus RTU request frame (used in production for serial communication)
+    this.buildModbusRequest(
       connection.config.slaveId,
       functionCode,
       address,
@@ -291,6 +296,7 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
     return this.writeRegister(handle, registerAddress, rawValue);
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async writeRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -308,7 +314,8 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
 
     try {
       // Build Modbus write request (function code 6 for single register)
-      const request = this.buildModbusWriteRequest(
+      // Used in production for serial communication
+      this.buildModbusWriteRequest(
         connection.config.slaveId,
         6,
         address,

@@ -4,10 +4,15 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, useUpdateNodeInternals, NodeProps } from 'reactflow';
+import { Handle, useUpdateNodeInternals, NodeProps, Position } from 'reactflow';
 import { useProcessStore } from '../../../store/processStore';
 
 type HandleType = 'source' | 'target';
+
+/**
+ * Valid handle field names for DrumFilterNodeData
+ */
+type HandleFieldName = 'inletType1' | 'inletType2' | 'inletType3' | 'drainType' | 'outlet';
 
 interface DrumFilterNodeData {
   inletType1?: HandleType;
@@ -37,13 +42,13 @@ const DrumFilterNode: React.FC<NodeProps<DrumFilterNodeData>> = ({ id, data, sel
   const toggleHandler = (
     currentType: HandleType,
     setFunc: React.Dispatch<React.SetStateAction<HandleType>>,
-    fieldName: keyof DrumFilterNodeData
+    fieldName: HandleFieldName
   ) => (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const newType: HandleType = currentType === 'source' ? 'target' : 'source';
     setFunc(newType);
-    updateNodeData(id, { [fieldName]: newType } as any);
+    updateNodeData(id, { [fieldName]: newType } as Partial<DrumFilterNodeData>);
   };
 
   useEffect(() => {
@@ -159,7 +164,7 @@ const DrumFilterNode: React.FC<NodeProps<DrumFilterNodeData>> = ({ id, data, sel
         <Handle
           id="inlet-1"
           type={inletType1}
-          position={undefined as any}
+          position={Position.Top}
           isConnectable={true}
           style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
         />
@@ -172,7 +177,7 @@ const DrumFilterNode: React.FC<NodeProps<DrumFilterNodeData>> = ({ id, data, sel
         <Handle
           id="inlet-2"
           type={inletType2}
-          position={undefined as any}
+          position={Position.Top}
           isConnectable={true}
           style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
         />
@@ -185,7 +190,7 @@ const DrumFilterNode: React.FC<NodeProps<DrumFilterNodeData>> = ({ id, data, sel
         <Handle
           id="inlet-3"
           type={inletType3}
-          position={undefined as any}
+          position={Position.Top}
           isConnectable={true}
           style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
         />
@@ -198,7 +203,7 @@ const DrumFilterNode: React.FC<NodeProps<DrumFilterNodeData>> = ({ id, data, sel
         <Handle
           id="drain"
           type={drainType}
-          position={undefined as any}
+          position={Position.Top}
           isConnectable={true}
           style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
         />
@@ -211,7 +216,7 @@ const DrumFilterNode: React.FC<NodeProps<DrumFilterNodeData>> = ({ id, data, sel
         <Handle
           id="outlet"
           type={outlet}
-          position={undefined as any}
+          position={Position.Top}
           isConnectable={true}
           style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
         />

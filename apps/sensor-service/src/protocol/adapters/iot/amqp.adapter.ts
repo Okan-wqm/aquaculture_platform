@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+
+import {
+  ProtocolCategory,
+  ProtocolSubcategory,
+  ConnectionType,
+  ProtocolConfigurationSchema,
+} from '../../../database/entities/sensor-protocol.entity';
 import {
   BaseProtocolAdapter,
   ConnectionHandle,
@@ -11,14 +17,10 @@ import {
   DataCallback,
   ErrorCallback,
 } from '../base-protocol.adapter';
-import {
-  ProtocolCategory,
-  ProtocolSubcategory,
-  ConnectionType,
-  ProtocolConfigurationSchema,
-} from '../../../database/entities/sensor-protocol.entity';
 
 export interface AmqpConfiguration {
+  sensorId?: string;
+  tenantId?: string;
   host: string;
   port: number;
   vhost: string;
@@ -40,6 +42,34 @@ export interface AmqpConfiguration {
   messageFormat: 'json' | 'text' | 'binary';
 }
 
+interface AmqpMessage {
+  content: Buffer;
+}
+
+interface AmqpChannel {
+  prefetch: (count: number) => Promise<void>;
+  assertExchange: (name: string, type: string, options: { durable: boolean }) => Promise<void>;
+  assertQueue: (name: string, options: { durable: boolean }) => Promise<{ queue: string }>;
+  bindQueue: (queue: string, exchange: string, routingKey: string) => Promise<void>;
+  close: () => Promise<void>;
+  get: (queue: string, options: { noAck: boolean }) => Promise<AmqpMessage | false>;
+  consume: (queue: string, callback: (msg: AmqpMessage | null) => void) => Promise<{ consumerTag: string }>;
+  ack: (msg: AmqpMessage) => void;
+  cancel: (consumerTag: string) => Promise<void>;
+}
+
+interface AmqpConnection {
+  createChannel: () => Promise<AmqpChannel>;
+  close: () => Promise<void>;
+}
+
+interface AmqpConnectionData {
+  connection: AmqpConnection;
+  channel: AmqpChannel;
+  config: AmqpConfiguration;
+  queueName: string;
+}
+
 @Injectable()
 export class AmqpAdapter extends BaseProtocolAdapter {
   readonly protocolCode = 'AMQP';
@@ -49,11 +79,7 @@ export class AmqpAdapter extends BaseProtocolAdapter {
   readonly displayName = 'AMQP';
   readonly description = 'Advanced Message Queuing Protocol - Enterprise messaging (RabbitMQ, etc.)';
 
-  protected amqpConnections = new Map<string, any>();
-
-  constructor(configService: ConfigService) {
-    super(configService);
-  }
+  protected amqpConnections = new Map<string, AmqpConnectionData>();
 
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
     const amqpConfig = config as unknown as AmqpConfiguration;
@@ -66,7 +92,7 @@ export class AmqpAdapter extends BaseProtocolAdapter {
 
     const connection = await amqp.connect(url, {
       heartbeat: amqpConfig.heartbeat,
-    });
+    }) as unknown as AmqpConnection;
 
     const channel = await connection.createChannel();
     await channel.prefetch(amqpConfig.prefetchCount);
@@ -77,8 +103,8 @@ export class AmqpAdapter extends BaseProtocolAdapter {
     await channel.bindQueue(q.queue, amqpConfig.exchangeName, amqpConfig.routingKey);
 
     const handle = this.createConnectionHandle(
-      config.sensorId as string || 'unknown',
-      config.tenantId as string || 'unknown',
+      amqpConfig.sensorId ?? 'unknown',
+      amqpConfig.tenantId ?? 'unknown',
       { host: amqpConfig.host, queueName: amqpConfig.queueName }
     );
 
@@ -133,7 +159,7 @@ export class AmqpAdapter extends BaseProtocolAdapter {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Read timeout')), 30000);
 
-      connData.channel.get(connData.queueName, { noAck: true }).then((msg: any) => {
+      connData.channel.get(connData.queueName, { noAck: true }).then((msg: AmqpMessage | false) => {
         clearTimeout(timeout);
         if (msg) {
           const data = this.parseMessage(msg.content, connData.config);
@@ -158,7 +184,7 @@ export class AmqpAdapter extends BaseProtocolAdapter {
     if (!connData) throw new Error('Connection not found');
 
     let isActive = true;
-    const consumerTag = await connData.channel.consume(connData.queueName, (msg: any) => {
+    const consumerTag = await connData.channel.consume(connData.queueName, (msg: AmqpMessage | null) => {
       if (msg) {
         try {
           const data = this.parseMessage(msg.content, connData.config);
@@ -188,7 +214,7 @@ export class AmqpAdapter extends BaseProtocolAdapter {
     switch (config.messageFormat) {
       case 'json':
         try {
-          values = JSON.parse(content.toString());
+          values = JSON.parse(content.toString()) as Record<string, number | string | boolean | null>;
         } catch {
           values = { raw: content.toString() };
         }

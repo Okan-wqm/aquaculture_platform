@@ -1,3 +1,4 @@
+import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -5,11 +6,10 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
-  OneToMany,
   JoinColumn,
   Index,
 } from 'typeorm';
-import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
+
 import { Tenant } from '../../tenant/entities/tenant.entity';
 
 /**

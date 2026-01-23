@@ -1,3 +1,15 @@
+/* eslint-disable @typescript-eslint/unbound-method */
+/* eslint-disable @typescript-eslint/no-dynamic-delete */
+/* eslint-disable @typescript-eslint/no-empty-function */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
 /**
  * CorrelationIdMiddleware Tests
  *
@@ -6,6 +18,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { Request, Response } from 'express';
+
 import {
   CorrelationIdMiddleware,
   CORRELATION_ID_HEADER,
@@ -216,9 +229,12 @@ describe('CorrelationIdMiddleware', () => {
       middleware.use(req, res, next);
 
       const correlatedReq = req as CorrelatedRequest;
-      expect(res.setHeader).toHaveBeenCalledWith(
-        CORRELATION_ID_HEADER,
-        correlatedReq.correlationId,
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      const setHeaderMock = res.setHeader as jest.Mock;
+      expect(setHeaderMock.mock.calls).toEqual(
+        expect.arrayContaining([
+          expect.arrayContaining([CORRELATION_ID_HEADER, correlatedReq.correlationId]),
+        ]),
       );
     });
 

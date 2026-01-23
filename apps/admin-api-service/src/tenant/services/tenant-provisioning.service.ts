@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
@@ -125,11 +125,16 @@ export class TenantProvisioningService {
 
       updateStep(0, 'completed', Date.now() - startValidate);
 
-      // Step 2: Create schema
+      // Step 2: Create schema (unless skipped)
       updateStep(1, 'in_progress');
       const startSchema = Date.now();
-      await this.createTenantSchema(tenant);
-      updateStep(1, 'completed', Date.now() - startSchema);
+      if (skipSchemaCreation) {
+        this.logger.log(`Skipping schema creation for tenant ${tenantId} (skipSchemaCreation=true)`);
+        updateStep(1, 'completed', Date.now() - startSchema);
+      } else {
+        await this.createTenantSchema(tenant);
+        updateStep(1, 'completed', Date.now() - startSchema);
+      }
 
       // Step 3: Setup default roles
       updateStep(2, 'in_progress');

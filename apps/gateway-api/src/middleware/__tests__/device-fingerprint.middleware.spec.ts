@@ -1,3 +1,14 @@
+/* eslint-disable @typescript-eslint/no-dynamic-delete */
+/* eslint-disable @typescript-eslint/no-empty-function */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
 /**
  * DeviceFingerprintMiddleware Tests
  *
@@ -6,6 +17,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { Request, Response } from 'express';
+
 import {
   DeviceFingerprintMiddleware,
   FingerprintedRequest,
@@ -314,10 +326,13 @@ describe('DeviceFingerprintMiddleware', () => {
 
       middleware.use(req, res, next);
 
-      expect(res.setHeader).toHaveBeenCalledWith(
-        'x-device-fingerprint',
-        expect.stringMatching(/^fp_[a-f0-9]{32}$/),
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      const setHeaderMock = res.setHeader as jest.Mock;
+      const fingerprintCall = setHeaderMock.mock.calls.find(
+        (call: unknown[]) => call[0] === 'x-device-fingerprint',
       );
+      expect(fingerprintCall).toBeDefined();
+      expect(fingerprintCall[1]).toMatch(/^fp_[a-f0-9]{32}$/);
     });
   });
 

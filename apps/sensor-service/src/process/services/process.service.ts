@@ -1,13 +1,14 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, FindOptionsWhere } from 'typeorm';
-import { Process, ProcessStatus } from '../entities/process.entity';
+import { Repository, FindOptionsWhere } from 'typeorm';
+
 import {
   CreateProcessInput,
   UpdateProcessInput,
   ProcessFilterInput,
   ProcessPaginationInput,
 } from '../dto/process.dto';
+import { Process, ProcessStatus } from '../entities/process.entity';
 
 export interface ProcessListResult {
   items: Process[];

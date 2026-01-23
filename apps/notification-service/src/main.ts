@@ -56,7 +56,8 @@ async function bootstrap() {
   logger.log(`Notification Service running on port ${port}`);
 }
 
+const bootstrapLogger = new Logger('NotificationServiceBootstrap');
 bootstrap().catch((error) => {
-  console.error('Notification Service failed to start:', error);
+  bootstrapLogger.error('Notification Service failed to start:', error);
   process.exit(1);
 });

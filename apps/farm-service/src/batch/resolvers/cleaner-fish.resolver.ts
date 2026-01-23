@@ -21,9 +21,30 @@ import {
 import { Logger } from '@nestjs/common';
 import { IsUUID, IsNotEmpty, IsInt, Min, IsOptional, IsNumber, IsString, IsEnum, IsDateString } from 'class-validator';
 import { CommandBus, QueryBus } from '@platform/cqrs';
+import { Tenant, CurrentUser } from '@platform/backend-common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Batch, BatchStatus, BatchType } from '../entities/batch.entity';
+
+/**
+ * User context interface for CurrentUser decorator
+ */
+interface UserContext {
+  sub: string;
+  email: string;
+  tenantId: string;
+  roles: string[];
+}
+
+/**
+ * Query filter interface for cleaner fish batches
+ */
+interface CleanerFishBatchQueryFilter {
+  tenantId: string;
+  batchType: BatchType;
+  isActive: boolean;
+  status?: BatchStatus;
+}
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType, MortalityReason } from '../entities/tank-operation.entity';
 import { Species } from '../../species/entities/species.entity';
@@ -415,7 +436,7 @@ export class CleanerFishResolver {
 
   @Query(() => [CleanerFishSpeciesInfo], { name: 'cleanerFishSpecies' })
   async getCleanerFishSpecies(
-    @Args('tenantId') tenantId: string,
+    @Tenant() tenantId: string,
   ): Promise<CleanerFishSpeciesInfo[]> {
     this.logger.debug(`Getting cleaner fish species for tenant: ${tenantId}`);
 
@@ -436,12 +457,12 @@ export class CleanerFishResolver {
 
   @Query(() => [Batch], { name: 'cleanerFishBatches' })
   async getCleanerFishBatches(
-    @Args('tenantId') tenantId: string,
+    @Tenant() tenantId: string,
     @Args('status', { type: () => BatchStatus, nullable: true }) status?: BatchStatus,
   ): Promise<Batch[]> {
     this.logger.debug(`Getting cleaner fish batches for tenant: ${tenantId}`);
 
-    const where: any = {
+    const where: CleanerFishBatchQueryFilter = {
       tenantId,
       batchType: BatchType.CLEANER_FISH,
       isActive: true,
@@ -459,7 +480,7 @@ export class CleanerFishResolver {
 
   @Query(() => TankCleanerFishInfo, { name: 'tankCleanerFish', nullable: true })
   async getTankCleanerFish(
-    @Args('tenantId') tenantId: string,
+    @Tenant() tenantId: string,
     @Args('tankId', { type: () => ID }) tankId: string,
   ): Promise<TankCleanerFishInfo | null> {
     this.logger.debug(`Getting cleaner fish info for tank: ${tankId}`);
@@ -495,7 +516,7 @@ export class CleanerFishResolver {
 
   @Query(() => CleanerFishReport, { name: 'cleanerFishReport', nullable: true })
   async getCleanerFishReport(
-    @Args('tenantId') tenantId: string,
+    @Tenant() tenantId: string,
     @Args('siteId', { type: () => ID }) siteId: string,
     @Args('month', { type: () => Int }) month: number,
     @Args('year', { type: () => Int }) year: number,
@@ -524,8 +545,8 @@ export class CleanerFishResolver {
   @Mutation(() => Batch, { name: 'createCleanerFishBatch' })
   async createCleanerFishBatch(
     @Args('input') input: CreateCleanerBatchInput,
-    @Args('tenantId') tenantId: string,
-    @Args('userId') userId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Creating cleaner fish batch for species: ${input.speciesId}`);
 
@@ -543,15 +564,15 @@ export class CleanerFishResolver {
     };
 
     return this.commandBus.execute(
-      new CreateCleanerBatchCommand(tenantId, payload, userId),
+      new CreateCleanerBatchCommand(tenantId, payload, user.sub),
     );
   }
 
   @Mutation(() => Batch, { name: 'deployCleanerFish' })
   async deployCleanerFish(
     @Args('input') input: DeployCleanerFishInput,
-    @Args('tenantId') tenantId: string,
-    @Args('userId') userId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Deploying cleaner fish from batch ${input.cleanerBatchId} to tank ${input.targetTankId}`);
 
@@ -565,15 +586,15 @@ export class CleanerFishResolver {
     };
 
     return this.commandBus.execute(
-      new DeployCleanerFishCommand(tenantId, payload, userId),
+      new DeployCleanerFishCommand(tenantId, payload, user.sub),
     );
   }
 
   @Mutation(() => Batch, { name: 'recordCleanerMortality' })
   async recordCleanerMortality(
     @Args('input') input: RecordCleanerMortalityInput,
-    @Args('tenantId') tenantId: string,
-    @Args('userId') userId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Recording cleaner fish mortality for batch ${input.cleanerBatchId}`);
 
@@ -588,15 +609,15 @@ export class CleanerFishResolver {
     };
 
     return this.commandBus.execute(
-      new RecordCleanerMortalityCommand(tenantId, payload, userId),
+      new RecordCleanerMortalityCommand(tenantId, payload, user.sub),
     );
   }
 
   @Mutation(() => Batch, { name: 'transferCleanerFish' })
   async transferCleanerFish(
     @Args('input') input: TransferCleanerFishInput,
-    @Args('tenantId') tenantId: string,
-    @Args('userId') userId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Transferring cleaner fish from tank ${input.sourceTankId} to ${input.destinationTankId}`);
 
@@ -611,15 +632,15 @@ export class CleanerFishResolver {
     };
 
     return this.commandBus.execute(
-      new TransferCleanerFishCommand(tenantId, payload, userId),
+      new TransferCleanerFishCommand(tenantId, payload, user.sub),
     );
   }
 
   @Mutation(() => Batch, { name: 'removeCleanerFish' })
   async removeCleanerFish(
     @Args('input') input: RemoveCleanerFishInput,
-    @Args('tenantId') tenantId: string,
-    @Args('userId') userId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Removing cleaner fish from tank ${input.tankId}, reason: ${input.reason}`);
 
@@ -634,7 +655,7 @@ export class CleanerFishResolver {
     };
 
     return this.commandBus.execute(
-      new RemoveCleanerFishCommand(tenantId, payload, userId),
+      new RemoveCleanerFishCommand(tenantId, payload, user.sub),
     );
   }
 }

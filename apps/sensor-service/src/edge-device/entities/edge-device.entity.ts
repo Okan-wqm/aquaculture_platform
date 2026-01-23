@@ -1,13 +1,4 @@
 import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  CreateDateColumn,
-  UpdateDateColumn,
-  Index,
-  OneToMany,
-} from 'typeorm';
-import {
   ObjectType,
   Field,
   ID,
@@ -16,6 +7,14 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from 'typeorm';
 
 /**
  * Device lifecycle state enum (IEC 62443 compliant)

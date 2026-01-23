@@ -349,7 +349,7 @@ export function useSubmitManagerAssessment() {
       ),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: reviewKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: reviewKeys.pending });
+      queryClient.invalidateQueries({ queryKey: [...reviewKeys.all, 'pending'] });
       queryClient.setQueryData(
         reviewKeys.detail(data.submitManagerAssessment.id),
         data.submitManagerAssessment

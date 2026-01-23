@@ -1,4 +1,13 @@
 import {
+  ObjectType,
+  Field,
+  ID,
+  Float,
+  Int,
+  registerEnumType,
+} from '@nestjs/graphql';
+import { GraphQLJSON } from 'graphql-scalars';
+import {
   Entity,
   Column,
   PrimaryGeneratedColumn,
@@ -9,15 +18,7 @@ import {
   JoinColumn,
   Unique,
 } from 'typeorm';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Float,
-  Int,
-  registerEnumType,
-} from '@nestjs/graphql';
-import { GraphQLJSON } from 'graphql-scalars';
+
 import { Sensor } from './sensor.entity';
 
 /**

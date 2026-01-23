@@ -63,17 +63,17 @@ export {
   ROCKWELL_MODELS,
 } from './rockwell.config';
 
-import { VfdBrand } from '../entities/vfd.enums';
 import { VfdRegisterMappingInput } from '../entities/vfd-register-mapping.entity';
+import { VfdBrand } from '../entities/vfd.enums';
 
-import { DANFOSS_FC_REGISTERS, DANFOSS_CONTROL_COMMANDS, DANFOSS_DEFAULT_CONFIG } from './danfoss.config';
 import { ABB_ACS_REGISTERS, ABB_CONTROL_COMMANDS, ABB_DEFAULT_CONFIG } from './abb.config';
-import { SIEMENS_SINAMICS_REGISTERS, SIEMENS_CONTROL_COMMANDS, SIEMENS_DEFAULT_CONFIG } from './siemens.config';
-import { SCHNEIDER_ALTIVAR_REGISTERS, SCHNEIDER_CONTROL_COMMANDS, SCHNEIDER_DEFAULT_CONFIG } from './schneider.config';
-import { YASKAWA_REGISTERS, YASKAWA_CONTROL_COMMANDS, YASKAWA_DEFAULT_CONFIG } from './yaskawa.config';
+import { DANFOSS_FC_REGISTERS, DANFOSS_CONTROL_COMMANDS, DANFOSS_DEFAULT_CONFIG } from './danfoss.config';
 import { DELTA_VFD_REGISTERS, DELTA_CONTROL_COMMANDS, DELTA_DEFAULT_CONFIG } from './delta.config';
 import { MITSUBISHI_FR_REGISTERS, MITSUBISHI_CONTROL_COMMANDS, MITSUBISHI_DEFAULT_CONFIG } from './mitsubishi.config';
 import { ROCKWELL_POWERFLEX_REGISTERS, ROCKWELL_CONTROL_COMMANDS, ROCKWELL_DEFAULT_CONFIG } from './rockwell.config';
+import { SCHNEIDER_ALTIVAR_REGISTERS, SCHNEIDER_CONTROL_COMMANDS, SCHNEIDER_DEFAULT_CONFIG } from './schneider.config';
+import { SIEMENS_SINAMICS_REGISTERS, SIEMENS_CONTROL_COMMANDS, SIEMENS_DEFAULT_CONFIG } from './siemens.config';
+import { YASKAWA_REGISTERS, YASKAWA_CONTROL_COMMANDS, YASKAWA_DEFAULT_CONFIG } from './yaskawa.config';
 
 /**
  * Map of brand to register mappings
@@ -172,7 +172,7 @@ export function getCriticalParameters(brand: VfdBrand): VfdRegisterMappingInput[
  */
 export function getParametersByCategory(
   brand: VfdBrand,
-  category: string
+  category: VfdParameterCategory
 ): VfdRegisterMappingInput[] {
   const registers = getVfdRegisterMappings(brand);
   return registers.filter(r => r.category === category);

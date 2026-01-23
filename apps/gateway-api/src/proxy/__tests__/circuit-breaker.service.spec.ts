@@ -1,12 +1,25 @@
+/* eslint-disable @typescript-eslint/no-dynamic-delete */
+/* eslint-disable @typescript-eslint/no-empty-function */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/unbound-method */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
 /**
  * Circuit Breaker Service Tests
  *
  * Comprehensive test suite for circuit breaker functionality
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
 import { ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import {
   CircuitBreakerService,
   CircuitState,
@@ -95,7 +108,7 @@ describe('CircuitBreakerService', () => {
       const fn = jest.fn().mockRejectedValue(new Error('failure'));
       const fallback = jest.fn().mockReturnValue('fallback-result');
 
-      const result = await service.execute('fallback-service', fn, { fallback });
+      const result: unknown = await service.execute('fallback-service', fn, { fallback });
 
       expect(result).toBe('fallback-result');
       expect(fallback).toHaveBeenCalledWith(expect.any(Error), 'fallback-service');
@@ -118,7 +131,7 @@ describe('CircuitBreakerService', () => {
       const fn = jest.fn().mockResolvedValue('success');
       const fallback = jest.fn().mockReturnValue('fallback');
 
-      const result = await service.execute('open-fallback-service', fn, { fallback });
+      const result: unknown = await service.execute('open-fallback-service', fn, { fallback });
 
       expect(result).toBe('fallback');
       expect(fn).not.toHaveBeenCalled();

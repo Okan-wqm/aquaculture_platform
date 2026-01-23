@@ -1,3 +1,4 @@
+import { Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import {
   Resolver,
   Query,
@@ -7,20 +8,20 @@ import {
   ID,
   ResolveReference,
 } from '@nestjs/graphql';
-import { Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
-import { Sensor, SensorStatus } from '../../database/entities/sensor.entity';
+import { Repository } from 'typeorm';
+
 import { SensorReading } from '../../database/entities/sensor-reading.entity';
-import { SensorIngestionService } from '../services/sensor-ingestion.service';
-import { SensorQueryService } from '../services/sensor-query.service';
-import { CreateSensorInput, UpdateSensorInput } from '../dto/create-sensor.dto';
-import { IngestReadingInput, BatchIngestInput } from '../dto/ingest-reading.dto';
+import { Sensor, SensorStatus } from '../../database/entities/sensor.entity';
 import {
   AggregationInterval,
   AggregatedReadingsResponse,
 } from '../dto/aggregated-reading.dto';
+import { CreateSensorInput, UpdateSensorInput } from '../dto/create-sensor.dto';
+import { IngestReadingInput, BatchIngestInput } from '../dto/ingest-reading.dto';
+import { SensorIngestionService } from '../services/sensor-ingestion.service';
+import { SensorQueryService } from '../services/sensor-query.service';
 
 /**
  * User context interface

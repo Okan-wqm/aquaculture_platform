@@ -1,19 +1,27 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-floating-promises */
+import { ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Role } from '@platform/backend-common';
 import { Repository } from 'typeorm';
-import { NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 
-import { AnnouncementService } from '../services/announcement.service';
+import { User } from '../../authentication/entities/user.entity';
+import { Tenant } from '../../tenant/entities/tenant.entity';
+import { AnnouncementAcknowledgment } from '../entities/announcement-acknowledgment.entity';
 import {
   Announcement,
   AnnouncementType,
   AnnouncementStatus,
   AnnouncementScope,
 } from '../entities/announcement.entity';
-import { AnnouncementAcknowledgment } from '../entities/announcement-acknowledgment.entity';
-import { User } from '../../authentication/entities/user.entity';
-import { Tenant } from '../../tenant/entities/tenant.entity';
-import { Role } from '@platform/backend-common';
+import { AnnouncementService } from '../services/announcement.service';
+
 
 // ============================================================================
 // Mock Helpers
@@ -390,7 +398,7 @@ describe('AnnouncementService', () => {
       announcementRepository.findOne.mockResolvedValue(announcement);
       announcementRepository.save.mockImplementation((a) => Promise.resolve(a as Announcement));
 
-      const result = await service.publishAnnouncement(superAdmin.id, announcement.id);
+      await service.publishAnnouncement(superAdmin.id, announcement.id);
 
       expect(announcementRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({

@@ -1,7 +1,14 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
+
 import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
+import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
+
+interface EthercatConfig {
+  sensorId?: string;
+  tenantId?: string;
+  networkInterface?: string;
+  slavePosition?: number;
+}
 
 @Injectable()
 export class EthercatAdapter extends BaseProtocolAdapter {
@@ -12,17 +19,20 @@ export class EthercatAdapter extends BaseProtocolAdapter {
   readonly displayName = 'EtherCAT';
   readonly description = 'EtherCAT real-time industrial Ethernet protocol';
 
-  constructor(configService: ConfigService) { super(configService); }
-
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    return this.createConnectionHandle(config.sensorId as string || 'unknown', config.tenantId as string || 'unknown', config);
+    const cfg = config as EthercatConfig;
+    return this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
   }
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> { this.removeConnectionHandle(handle.id); }
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> { return { success: true, latencyMs: 0 }; }
-  async readData(handle: ConnectionHandle): Promise<SensorReadingData> { return { timestamp: new Date(), values: {}, quality: 100, source: 'ethercat' }; }
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> { return { success: true, latencyMs: 0 }; }
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async readData(_handle: ConnectionHandle): Promise<SensorReadingData> { return { timestamp: new Date(), values: {}, quality: 100, source: 'ethercat' }; }
 
   validateConfiguration(config: unknown): ValidationResult {
-    const cfg = config as any;
+    const cfg = config as EthercatConfig;
     const errors = [];
     if (!cfg.networkInterface) errors.push(this.validationError('networkInterface', 'Network interface is required'));
     if (cfg.slavePosition === undefined || cfg.slavePosition < 0) errors.push(this.validationError('slavePosition', 'Slave position must be >= 0'));

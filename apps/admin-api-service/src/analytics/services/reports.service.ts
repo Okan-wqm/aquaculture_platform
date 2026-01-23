@@ -17,6 +17,11 @@ import {
   ReportFormat,
   ReportRequest,
   ReportResult,
+  ReportDefinition,
+  ReportExecution,
+  ReportDefinitionStatus,
+  ReportSchedule,
+  ReportExecutionStatus,
 } from '../entities/analytics-snapshot.entity';
 import { TenantReadOnly, TenantStatus, TenantPlan } from '../entities/external/tenant.entity';
 import { UserReadOnly } from '../entities/external/user.entity';
@@ -114,6 +119,10 @@ export class ReportsService {
     private readonly tenantRepository: Repository<TenantReadOnly>,
     @InjectRepository(UserReadOnly)
     private readonly userRepository: Repository<UserReadOnly>,
+    @InjectRepository(ReportDefinition)
+    private readonly definitionRepository: Repository<ReportDefinition>,
+    @InjectRepository(ReportExecution)
+    private readonly executionRepository: Repository<ReportExecution>,
     private readonly analyticsService: AnalyticsService,
     private readonly auditLogService: AuditLogService,
     @Optional()
@@ -803,5 +812,367 @@ export class ReportsService {
       { type: 'usage_features', name: 'Feature Adoption', description: 'Feature adoption rates and usage patterns', category: 'Usage' },
       { type: 'system_performance', name: 'System Performance', description: 'API performance, uptime, and error rates', category: 'System' },
     ];
+  }
+
+  // ============================================================================
+  // Report Definitions CRUD
+  // ============================================================================
+
+  /**
+   * Get all report definitions
+   */
+  async getDefinitions(params?: {
+    status?: ReportDefinitionStatus;
+    type?: ReportType;
+    page?: number;
+    limit?: number;
+  }): Promise<{ data: ReportDefinition[]; total: number; page: number; limit: number }> {
+    const page = params?.page || 1;
+    const limit = params?.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const queryBuilder = this.definitionRepository.createQueryBuilder('def');
+
+    if (params?.status) {
+      queryBuilder.andWhere('def.status = :status', { status: params.status });
+    }
+
+    if (params?.type) {
+      queryBuilder.andWhere('def.type = :type', { type: params.type });
+    }
+
+    queryBuilder.orderBy('def.createdAt', 'DESC');
+    queryBuilder.skip(skip).take(limit);
+
+    const [data, total] = await queryBuilder.getManyAndCount();
+
+    return { data, total, page, limit };
+  }
+
+  /**
+   * Get report definition by ID
+   */
+  async getDefinition(id: string): Promise<ReportDefinition> {
+    const definition = await this.definitionRepository.findOne({ where: { id } });
+    if (!definition) {
+      throw new BadRequestException(`Report definition not found: ${id}`);
+    }
+    return definition;
+  }
+
+  /**
+   * Create report definition
+   */
+  async createDefinition(data: {
+    name: string;
+    description?: string;
+    type: ReportType;
+    defaultFormat?: ReportFormat;
+    schedule?: ReportSchedule;
+    defaultFilters?: Record<string, unknown>;
+    recipients?: string[];
+    includeCharts?: boolean;
+    createdBy?: string;
+    createdByEmail?: string;
+  }): Promise<ReportDefinition> {
+    const definition = this.definitionRepository.create({
+      name: data.name,
+      description: data.description,
+      type: data.type,
+      defaultFormat: data.defaultFormat || 'json',
+      status: 'active',
+      schedule: data.schedule || 'manual',
+      defaultFilters: data.defaultFilters,
+      recipients: data.recipients,
+      includeCharts: data.includeCharts || false,
+      createdBy: data.createdBy,
+      createdByEmail: data.createdByEmail,
+      runCount: 0,
+    });
+
+    return this.definitionRepository.save(definition);
+  }
+
+  /**
+   * Update report definition
+   */
+  async updateDefinition(id: string, data: Partial<{
+    name: string;
+    description: string;
+    defaultFormat: ReportFormat;
+    status: ReportDefinitionStatus;
+    schedule: ReportSchedule;
+    defaultFilters: Record<string, unknown>;
+    recipients: string[];
+    includeCharts: boolean;
+  }>): Promise<ReportDefinition> {
+    const definition = await this.getDefinition(id);
+
+    Object.assign(definition, data, { updatedAt: new Date() });
+
+    return this.definitionRepository.save(definition);
+  }
+
+  /**
+   * Delete report definition
+   */
+  async deleteDefinition(id: string): Promise<void> {
+    const definition = await this.getDefinition(id);
+    await this.definitionRepository.remove(definition);
+  }
+
+  // ============================================================================
+  // Report Executions
+  // ============================================================================
+
+  /**
+   * Get execution history
+   */
+  async getExecutions(params?: {
+    definitionId?: string;
+    status?: ReportExecutionStatus;
+    reportType?: ReportType;
+    page?: number;
+    limit?: number;
+  }): Promise<{ data: ReportExecution[]; total: number; page: number; limit: number }> {
+    const page = params?.page || 1;
+    const limit = params?.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const queryBuilder = this.executionRepository.createQueryBuilder('exec');
+
+    if (params?.definitionId) {
+      queryBuilder.andWhere('exec.definitionId = :definitionId', { definitionId: params.definitionId });
+    }
+
+    if (params?.status) {
+      queryBuilder.andWhere('exec.status = :status', { status: params.status });
+    }
+
+    if (params?.reportType) {
+      queryBuilder.andWhere('exec.reportType = :reportType', { reportType: params.reportType });
+    }
+
+    queryBuilder.orderBy('exec.createdAt', 'DESC');
+    queryBuilder.skip(skip).take(limit);
+
+    const [data, total] = await queryBuilder.getManyAndCount();
+
+    return { data, total, page, limit };
+  }
+
+  /**
+   * Get execution by ID
+   */
+  async getExecution(id: string): Promise<ReportExecution> {
+    const execution = await this.executionRepository.findOne({ where: { id } });
+    if (!execution) {
+      throw new BadRequestException(`Report execution not found: ${id}`);
+    }
+    return execution;
+  }
+
+  /**
+   * Execute a report (from definition or ad-hoc)
+   */
+  async executeReport(params: {
+    definitionId?: string;
+    reportType?: ReportType;
+    reportName?: string;
+    format: ReportFormat;
+    filters?: Record<string, unknown>;
+    startDate?: Date;
+    endDate?: Date;
+    executedBy?: string;
+    executedByEmail?: string;
+  }): Promise<ReportExecution> {
+    const startTime = Date.now();
+
+    // Get definition if provided
+    let definition: ReportDefinition | null = null;
+    if (params.definitionId) {
+      definition = await this.getDefinition(params.definitionId);
+    }
+
+    const reportType = definition?.type || params.reportType;
+    const reportName = definition?.name || params.reportName || `${reportType} Report`;
+
+    if (!reportType) {
+      throw new BadRequestException('Report type is required');
+    }
+
+    // Create execution record
+    const execution = this.executionRepository.create({
+      definitionId: params.definitionId,
+      reportName,
+      reportType,
+      format: params.format,
+      status: 'running' as ReportExecutionStatus,
+      startDate: params.startDate,
+      endDate: params.endDate,
+      filters: params.filters || definition?.defaultFilters,
+      executedBy: params.executedBy,
+      executedByEmail: params.executedByEmail,
+    });
+
+    await this.executionRepository.save(execution);
+
+    try {
+      // Generate the actual report
+      const startDateObj = params.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const endDateObj = params.endDate || new Date();
+
+      const reportResult = await this.generateReport({
+        type: reportType,
+        format: params.format,
+        startDate: startDateObj,
+        endDate: endDateObj,
+        filters: params.filters || definition?.defaultFilters,
+        includeCharts: definition?.includeCharts,
+      });
+
+      // Update execution with results
+      execution.status = 'completed';
+      execution.summary = reportResult.summary;
+      execution.rowCount = Array.isArray(reportResult.data) ? reportResult.data.length : 1;
+      execution.downloadUrl = `/api/reports/executions/${execution.id}/download`;
+      execution.downloadExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+      execution.durationMs = Date.now() - startTime;
+      execution.completedAt = new Date();
+
+      await this.executionRepository.save(execution);
+
+      // Update definition run count if applicable
+      if (definition) {
+        definition.lastRunAt = new Date();
+        definition.runCount += 1;
+        await this.definitionRepository.save(definition);
+      }
+
+      return execution;
+    } catch (error) {
+      // Mark execution as failed
+      execution.status = 'failed';
+      execution.errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      execution.durationMs = Date.now() - startTime;
+      execution.completedAt = new Date();
+
+      await this.executionRepository.save(execution);
+
+      throw error;
+    }
+  }
+
+  /**
+   * Get execution download data
+   */
+  async getExecutionDownload(id: string): Promise<{
+    execution: ReportExecution;
+    data: unknown;
+    contentType: string;
+    filename: string;
+  }> {
+    const execution = await this.getExecution(id);
+
+    if (execution.status !== 'completed') {
+      throw new BadRequestException('Report execution is not completed');
+    }
+
+    if (execution.downloadExpiresAt && new Date() > execution.downloadExpiresAt) {
+      throw new BadRequestException('Download link has expired');
+    }
+
+    // Re-generate the report data
+    const startDate = execution.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const endDate = execution.endDate || new Date();
+
+    const reportResult = await this.generateReport({
+      type: execution.reportType,
+      format: execution.format,
+      startDate,
+      endDate,
+      filters: execution.filters,
+    });
+
+    const contentTypes: Record<ReportFormat, string> = {
+      json: 'application/json',
+      csv: 'text/csv',
+      excel: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      pdf: 'application/pdf',
+    };
+
+    const extensions: Record<ReportFormat, string> = {
+      json: 'json',
+      csv: 'csv',
+      excel: 'xlsx',
+      pdf: 'pdf',
+    };
+
+    return {
+      execution,
+      data: reportResult.data,
+      contentType: contentTypes[execution.format],
+      filename: `${execution.reportName.replace(/\s+/g, '_')}_${execution.id}.${extensions[execution.format]}`,
+    };
+  }
+
+  // ============================================================================
+  // Quick Reports (for frontend compatibility)
+  // ============================================================================
+
+  /**
+   * Generate quick tenant report
+   */
+  async generateQuickTenantsReport(format: ReportFormat, filters?: Record<string, unknown>): Promise<ReportExecution> {
+    return this.executeReport({
+      reportType: 'tenant_overview',
+      reportName: 'Quick Tenants Report',
+      format,
+      filters,
+      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      endDate: new Date(),
+    });
+  }
+
+  /**
+   * Generate quick users report
+   */
+  async generateQuickUsersReport(format: ReportFormat, filters?: Record<string, unknown>): Promise<ReportExecution> {
+    return this.executeReport({
+      reportType: 'usage_modules',
+      reportName: 'Quick Users Report',
+      format,
+      filters,
+      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      endDate: new Date(),
+    });
+  }
+
+  /**
+   * Generate quick revenue report
+   */
+  async generateQuickRevenueReport(format: ReportFormat, filters?: Record<string, unknown>): Promise<ReportExecution> {
+    return this.executeReport({
+      reportType: 'financial_revenue',
+      reportName: 'Quick Revenue Report',
+      format,
+      filters,
+      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      endDate: new Date(),
+    });
+  }
+
+  /**
+   * Generate quick audit report
+   */
+  async generateQuickAuditReport(format: ReportFormat, filters?: Record<string, unknown>): Promise<ReportExecution> {
+    return this.executeReport({
+      reportType: 'system_performance',
+      reportName: 'Quick Audit Report',
+      format,
+      filters,
+      startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      endDate: new Date(),
+    });
   }
 }

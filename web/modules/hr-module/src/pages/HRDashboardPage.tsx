@@ -33,9 +33,9 @@ import {
   useWorkAreas,
   useDepartments,
 } from '../hooks';
-import { useAuth } from '@shared-ui/hooks';
+import { useAuth } from '@aquaculture/shared-ui';
 import { CertificationExpiryAlert, SeaLandSplitView } from '../components';
-import { cn } from '@shared-ui/utils';
+import { cn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -136,7 +136,7 @@ const LoadingSkeleton: React.FC<{ className?: string }> = ({ className }) => (
 
 export function HRDashboardPage() {
   const { user } = useAuth();
-  const employeeId = user?.sub || '';
+  const employeeId = user?.id || '';
 
   // Data fetching with hooks
   const { data: employees, isLoading: loadingEmployees } = useEmployees({}, { limit: 1000 });
@@ -247,10 +247,9 @@ export function HRDashboardPage() {
 
           {expiringCertsCount > 0 && (
             <CertificationExpiryAlert
-              certifications={expiringCerts || []}
-              onRenewClick={(cert) => {
+              onRenew={(certificationId) => {
                 // Navigate to certification renewal
-                window.location.href = `/hr/training/certifications?renew=${cert.id}`;
+                window.location.href = `/hr/training/certifications?renew=${certificationId}`;
               }}
             />
           )}
@@ -273,11 +272,7 @@ export function HRDashboardPage() {
             Manage Crew
           </Link>
         </div>
-        <SeaLandSplitView
-          offshoreEmployees={offshoreList.slice(0, 6)}
-          onshoreEmployees={onshoreList.slice(0, 6)}
-          isLoading={loadingEmployees}
-        />
+        <SeaLandSplitView variant="compact" />
       </div>
 
       {/* Quick Actions Grid */}
@@ -372,12 +367,10 @@ export function HRDashboardPage() {
         />
         <StatCard
           title="Active Certifications"
-          value={
-            employees?.items?.reduce((acc, e) => acc + (e.certifications?.length || 0), 0) || 0
-          }
+          value={expiringCerts?.length || 0}
           icon={<Award className="h-6 w-6 text-purple-600" />}
           color="bg-purple-50 dark:bg-purple-900/30"
-          isLoading={loadingEmployees}
+          isLoading={loadingCerts}
         />
         <StatCard
           title="Work Areas"
@@ -460,7 +453,7 @@ export function HRDashboardPage() {
                       submitted a leave request
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {new Date(pendingLeaves[0].requestedAt).toLocaleDateString()}
+                      {new Date(pendingLeaves[0].createdAt).toLocaleDateString()}
                     </p>
                   </div>
                 </div>
@@ -476,7 +469,7 @@ export function HRDashboardPage() {
                       {expiringCerts[0].employee?.firstName}'s {expiringCerts[0].certificationType?.name} expires soon
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Expires {new Date(expiringCerts[0].expiryDate).toLocaleDateString()}
+                      Expires {expiringCerts[0].expiryDate ? new Date(expiringCerts[0].expiryDate).toLocaleDateString() : 'N/A'}
                     </p>
                   </div>
                 </div>

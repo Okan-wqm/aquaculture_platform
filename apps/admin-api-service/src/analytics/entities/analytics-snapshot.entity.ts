@@ -194,3 +194,135 @@ export interface ReportResult {
   summary?: Record<string, unknown>;
   downloadUrl?: string;
 }
+
+// ============================================================================
+// Report Definition Entity (Saved Reports)
+// ============================================================================
+
+export type ReportDefinitionStatus = 'active' | 'inactive' | 'draft';
+export type ReportSchedule = 'manual' | 'daily' | 'weekly' | 'monthly';
+
+@Entity('report_definitions', { schema: 'public', synchronize: false })
+@Index(['createdBy'])
+@Index(['status'])
+export class ReportDefinition {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'varchar', length: 200 })
+  name: string;
+
+  @Column({ type: 'text', nullable: true })
+  description?: string;
+
+  @Column({ type: 'varchar', length: 50 })
+  type: ReportType;
+
+  @Column({ type: 'varchar', length: 20, default: 'json' })
+  defaultFormat: ReportFormat;
+
+  @Column({ type: 'varchar', length: 20, default: 'active' })
+  status: ReportDefinitionStatus;
+
+  @Column({ type: 'varchar', length: 20, default: 'manual' })
+  schedule: ReportSchedule;
+
+  @Column({ type: 'jsonb', nullable: true })
+  defaultFilters?: Record<string, unknown>;
+
+  @Column({ type: 'jsonb', nullable: true })
+  recipients?: string[];
+
+  @Column({ type: 'boolean', default: false })
+  includeCharts: boolean;
+
+  @Column({ type: 'uuid', nullable: true })
+  createdBy?: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  createdByEmail?: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  lastRunAt?: Date;
+
+  @Column({ type: 'int', default: 0 })
+  runCount: number;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  updatedAt: Date;
+}
+
+// ============================================================================
+// Report Execution Entity (Execution History)
+// ============================================================================
+
+export type ReportExecutionStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+@Entity('report_executions', { schema: 'public', synchronize: false })
+@Index(['definitionId'])
+@Index(['status'])
+@Index(['createdAt'])
+export class ReportExecution {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  definitionId?: string;
+
+  @Column({ type: 'varchar', length: 200 })
+  reportName: string;
+
+  @Column({ type: 'varchar', length: 50 })
+  reportType: ReportType;
+
+  @Column({ type: 'varchar', length: 20 })
+  format: ReportFormat;
+
+  @Column({ type: 'varchar', length: 20, default: 'pending' })
+  status: ReportExecutionStatus;
+
+  @Column({ type: 'timestamp', nullable: true })
+  startDate?: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  endDate?: Date;
+
+  @Column({ type: 'jsonb', nullable: true })
+  filters?: Record<string, unknown>;
+
+  @Column({ type: 'jsonb', nullable: true })
+  summary?: Record<string, unknown>;
+
+  @Column({ type: 'int', nullable: true })
+  rowCount?: number;
+
+  @Column({ type: 'int', nullable: true })
+  fileSizeBytes?: number;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  downloadUrl?: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  downloadExpiresAt?: Date;
+
+  @Column({ type: 'text', nullable: true })
+  errorMessage?: string;
+
+  @Column({ type: 'int', nullable: true })
+  durationMs?: number;
+
+  @Column({ type: 'uuid', nullable: true })
+  executedBy?: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  executedByEmail?: string;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  completedAt?: Date;
+}

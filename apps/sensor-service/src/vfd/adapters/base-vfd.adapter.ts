@@ -1,7 +1,8 @@
 import { Logger } from '@nestjs/common';
-import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
-import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
+
 import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
+import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
+import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
 
 /**
  * Connection handle for VFD communication
@@ -218,8 +219,8 @@ export abstract class BaseVfdAdapter {
    */
   protected applyScaling(
     rawValue: number,
-    scalingFactor: number = 1,
-    offset: number = 0
+    scalingFactor = 1,
+    offset = 0
   ): number {
     return rawValue * scalingFactor + offset;
   }
@@ -229,8 +230,8 @@ export abstract class BaseVfdAdapter {
    */
   protected reverseScaling(
     engineeringValue: number,
-    scalingFactor: number = 1,
-    offset: number = 0
+    scalingFactor = 1,
+    offset = 0
   ): number {
     return Math.round((engineeringValue - offset) / scalingFactor);
   }
@@ -240,7 +241,7 @@ export abstract class BaseVfdAdapter {
    */
   protected parseStatusWord(
     value: number,
-    bitDefinitions?: { bit: number; name: string }[]
+    _bitDefinitions?: { bit: number; name: string }[]
   ): VfdStatusBits {
     const statusBits: VfdStatusBits = {};
 
@@ -251,7 +252,7 @@ export abstract class BaseVfdAdapter {
     statusBits.warning = Boolean(value & 0x0080);      // Bit 7
     statusBits.atSetpoint = Boolean(value & 0x0400);   // Bit 10
     statusBits.voltageEnabled = Boolean(value & 0x0010); // Bit 4
-    statusBits.quickStopActive = !Boolean(value & 0x0020); // Bit 5 (inverted)
+    statusBits.quickStopActive = !(value & 0x0020); // Bit 5 (inverted)
     statusBits.switchOnDisabled = Boolean(value & 0x0040); // Bit 6
     statusBits.remote = Boolean(value & 0x0200);       // Bit 9
     statusBits.targetReached = Boolean(value & 0x0400); // Bit 10
@@ -288,8 +289,8 @@ export abstract class BaseVfdAdapter {
    */
   protected groupRegistersForBatchRead(
     mappings: VfdRegisterMapping[],
-    maxGap: number = 10,
-    maxBatchSize: number = 125
+    maxGap = 10,
+    maxBatchSize = 125
   ): BatchReadRequest[] {
     if (mappings.length === 0) return [];
 
@@ -424,7 +425,7 @@ export abstract class BaseVfdAdapter {
     let crc = 0xffff;
 
     for (let i = 0; i < buffer.length; i++) {
-      crc ^= buffer[i]!;
+      crc ^= buffer[i] ?? 0;
       for (let j = 0; j < 8; j++) {
         if (crc & 0x0001) {
           crc = (crc >> 1) ^ 0xa001;

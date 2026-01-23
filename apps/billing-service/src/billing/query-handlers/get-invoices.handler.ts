@@ -37,11 +37,16 @@ export class GetInvoicesHandler implements IQueryHandler<GetInvoicesQuery, Invoi
       relations.push('payments');
     }
 
+    // Enforce max limit to prevent memory exhaustion attacks
+    const MAX_LIMIT = 100;
+    const requestedLimit = filter?.limit || 20;
+    const safeLimit = Math.min(Math.max(1, requestedLimit), MAX_LIMIT);
+
     return this.invoiceRepository.find({
       where,
       relations,
-      skip: filter?.offset || 0,
-      take: filter?.limit || 20,
+      skip: Math.max(0, filter?.offset || 0),
+      take: safeLimit,
       order: { issueDate: 'DESC' },
     });
   }

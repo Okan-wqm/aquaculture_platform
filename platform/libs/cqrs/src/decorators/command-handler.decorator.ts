@@ -7,13 +7,18 @@ import { ICommand } from '../command/command.interface';
 export const COMMAND_HANDLER_METADATA = 'COMMAND_HANDLER_METADATA';
 
 /**
+ * Constructor type for commands
+ */
+type CommandConstructor = new (...args: unknown[]) => ICommand;
+
+/**
  * Decorator options for command handler
  */
 export interface CommandHandlerOptions {
   /**
    * The command class this handler processes
    */
-  command: new (...args: any[]) => ICommand;
+  command: CommandConstructor;
 
   /**
    * Optional description for documentation
@@ -25,14 +30,12 @@ export interface CommandHandlerOptions {
  * Decorator to mark a class as a command handler
  * @param command The command class this handler processes
  */
-export function CommandHandler(
-  command: new (...args: any[]) => ICommand,
-): ClassDecorator {
+export function CommandHandler(command: CommandConstructor): ClassDecorator {
   return (target: object) => {
     SetMetadata(COMMAND_HANDLER_METADATA, {
       command,
       commandName: command.name,
-    })(target as any);
+    })(target as Function);
   };
 }
 
@@ -41,6 +44,6 @@ export function CommandHandler(
  */
 export function getCommandHandlerMetadata(
   target: object,
-): { command: new (...args: any[]) => ICommand; commandName: string } | undefined {
+): { command: CommandConstructor; commandName: string } | undefined {
   return Reflect.getMetadata(COMMAND_HANDLER_METADATA, target);
 }

@@ -30,41 +30,13 @@ import {
   RefreshCw,
   Loader2,
 } from 'lucide-react';
-import { supportApi } from '../services/adminApi';
-
-// ============================================================================
-// Types
-// ============================================================================
-
-type AnnouncementType = 'info' | 'warning' | 'critical' | 'maintenance';
-type AnnouncementStatus = 'draft' | 'scheduled' | 'published' | 'expired' | 'cancelled';
-
-interface Announcement {
-  id: string;
-  title: string;
-  content: string;
-  type: AnnouncementType;
-  status: AnnouncementStatus;
-  isGlobal: boolean;
-  targetCriteria?: AnnouncementTarget;
-  publishAt?: string;
-  expiresAt?: string;
-  requiresAcknowledgment: boolean;
-  viewCount: number;
-  acknowledgmentCount: number;
-  createdBy: string;
-  createdByName: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface AnnouncementTarget {
-  tenantIds?: string[];
-  excludeTenantIds?: string[];
-  plans?: string[];
-  modules?: string[];
-  regions?: string[];
-}
+import {
+  supportApi,
+  type Announcement,
+  type AnnouncementType,
+  type AnnouncementStatus,
+  type AnnouncementTarget,
+} from '../services/adminApi';
 
 interface AnnouncementStats {
   total: number;

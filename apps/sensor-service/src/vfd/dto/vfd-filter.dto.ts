@@ -1,3 +1,4 @@
+import { InputType, Field, Int, ObjectType, ID } from '@nestjs/graphql';
 import {
   IsOptional,
   IsString,
@@ -8,7 +9,7 @@ import {
   Max,
   MaxLength,
 } from 'class-validator';
-import { InputType, Field, Int, ObjectType, ID } from '@nestjs/graphql';
+
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../entities/vfd.enums';
 
 /**

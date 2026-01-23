@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { cn } from '@shared-ui/utils';
+import { cn } from '@aquaculture/shared-ui';
 import {
   ChevronUp,
   ChevronDown,

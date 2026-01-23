@@ -7,7 +7,7 @@
  */
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, Between, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
+import { Repository, Between, LessThanOrEqual, MoreThanOrEqual, FindOperator } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import {
   GetBatchHistoryQuery,
@@ -18,6 +18,26 @@ import { Batch } from '../entities/batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { TankAllocation } from '../entities/tank-allocation.entity';
 import { MortalityRecord } from '../entities/mortality-record.entity';
+
+/**
+ * Query filter interface for TankOperation
+ */
+interface TankOperationQueryFilter {
+  tenantId: string;
+  batchId: string;
+  isDeleted: boolean;
+  operationDate?: Date | FindOperator<Date>;
+}
+
+/**
+ * Query filter interface for TankAllocation
+ */
+interface TankAllocationQueryFilter {
+  tenantId: string;
+  batchId: string;
+  isDeleted: boolean;
+  allocationDate?: Date | FindOperator<Date>;
+}
 
 @Injectable()
 @QueryHandler(GetBatchHistoryQuery)
@@ -69,7 +89,7 @@ export class GetBatchHistoryHandler implements IQueryHandler<GetBatchHistoryQuer
     }
 
     // 2. Tank operations
-    const operationQuery: any = {
+    const operationQuery: TankOperationQueryFilter = {
       tenantId,
       batchId,
       isDeleted: false,
@@ -120,7 +140,7 @@ export class GetBatchHistoryHandler implements IQueryHandler<GetBatchHistoryQuer
 
     // 3. Allocations (non-operation related)
     if (!eventTypes || eventTypes.includes(BatchHistoryEventType.ALLOCATED)) {
-      const allocationQuery: any = {
+      const allocationQuery: TankAllocationQueryFilter = {
         tenantId,
         batchId,
         isDeleted: false,

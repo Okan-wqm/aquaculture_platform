@@ -6,9 +6,10 @@
  * Uses a combination of request characteristics for fingerprinting.
  */
 
+import { createHash } from 'crypto';
+
 import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
-import { createHash } from 'crypto';
 
 /**
  * Device fingerprint data

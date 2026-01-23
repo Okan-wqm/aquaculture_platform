@@ -14,8 +14,8 @@ import {
   Logger,
   HttpStatus,
 } from '@nestjs/common';
-import { Request, Response } from 'express';
 import { GqlArgumentsHost, GqlContextType } from '@nestjs/graphql';
+import { Request, Response } from 'express';
 
 /**
  * Validation error structure
@@ -49,6 +49,17 @@ export interface ValidationErrorResponse {
 }
 
 /**
+ * Helper to safely convert unknown value to string
+ */
+const argToString = (arg: unknown): string => {
+  if (arg === undefined || arg === null) return '';
+  if (typeof arg === 'string') return arg;
+  if (typeof arg === 'number' || typeof arg === 'boolean') return String(arg);
+  if (Array.isArray(arg)) return arg.map(argToString).join(', ');
+  return String(arg);
+};
+
+/**
  * Class-validator constraint names to user-friendly messages
  */
 const CONSTRAINT_MESSAGES: Record<string, (field: string, args?: unknown[]) => string> = {
@@ -59,13 +70,13 @@ const CONSTRAINT_MESSAGES: Record<string, (field: string, args?: unknown[]) => s
   isInt: (field) => `${field} must be an integer`,
   isPositive: (field) => `${field} must be a positive number`,
   isNegative: (field) => `${field} must be a negative number`,
-  min: (field, args) => `${field} must be at least ${args?.[0]}`,
-  max: (field, args) => `${field} must be at most ${args?.[0]}`,
-  minLength: (field, args) => `${field} must be at least ${args?.[0]} characters`,
-  maxLength: (field, args) => `${field} must be at most ${args?.[0]} characters`,
+  min: (field, args) => `${field} must be at least ${argToString(args?.[0])}`,
+  max: (field, args) => `${field} must be at most ${argToString(args?.[0])}`,
+  minLength: (field, args) => `${field} must be at least ${argToString(args?.[0])} characters`,
+  maxLength: (field, args) => `${field} must be at most ${argToString(args?.[0])} characters`,
   isArray: (field) => `${field} must be an array`,
-  arrayMinSize: (field, args) => `${field} must contain at least ${args?.[0]} items`,
-  arrayMaxSize: (field, args) => `${field} must contain at most ${args?.[0]} items`,
+  arrayMinSize: (field, args) => `${field} must contain at least ${argToString(args?.[0])} items`,
+  arrayMaxSize: (field, args) => `${field} must contain at most ${argToString(args?.[0])} items`,
   isDate: (field) => `${field} must be a valid date`,
   isDateString: (field) => `${field} must be a valid ISO 8601 date string`,
   isBoolean: (field) => `${field} must be a boolean`,
@@ -74,12 +85,12 @@ const CONSTRAINT_MESSAGES: Record<string, (field: string, args?: unknown[]) => s
   isUrl: (field) => `${field} must be a valid URL`,
   isPhoneNumber: (field) => `${field} must be a valid phone number`,
   matches: (field) => `${field} has an invalid format`,
-  isIn: (field, args) => `${field} must be one of: ${Array.isArray(args?.[0]) ? args[0].join(', ') : args?.[0]}`,
-  isNotIn: (field, args) => `${field} must not be one of: ${Array.isArray(args?.[0]) ? args[0].join(', ') : args?.[0]}`,
-  equals: (field, args) => `${field} must equal ${args?.[0]}`,
-  notEquals: (field, args) => `${field} must not equal ${args?.[0]}`,
-  contains: (field, args) => `${field} must contain "${args?.[0]}"`,
-  notContains: (field, args) => `${field} must not contain "${args?.[0]}"`,
+  isIn: (field, args) => `${field} must be one of: ${argToString(args?.[0])}`,
+  isNotIn: (field, args) => `${field} must not be one of: ${argToString(args?.[0])}`,
+  equals: (field, args) => `${field} must equal ${argToString(args?.[0])}`,
+  notEquals: (field, args) => `${field} must not equal ${argToString(args?.[0])}`,
+  contains: (field, args) => `${field} must contain "${argToString(args?.[0])}"`,
+  notContains: (field, args) => `${field} must not contain "${argToString(args?.[0])}"`,
   isAlpha: (field) => `${field} must contain only letters`,
   isAlphanumeric: (field) => `${field} must contain only letters and numbers`,
   isDefined: (field) => `${field} is required`,
@@ -87,6 +98,13 @@ const CONSTRAINT_MESSAGES: Record<string, (field: string, args?: unknown[]) => s
   isOptional: () => '', // No message needed
   validateNested: (field) => `${field} contains invalid nested data`,
 };
+
+/**
+ * GraphQL context interface
+ */
+interface GqlContext {
+  req?: Request;
+}
 
 /**
  * Validation Exception Filter
@@ -136,8 +154,8 @@ export class ValidationExceptionFilter implements ExceptionFilter {
    */
   private handleGraphQLException(exception: BadRequestException, host: ArgumentsHost): void {
     const gqlHost = GqlArgumentsHost.create(host);
-    const ctx = gqlHost.getContext();
-    const request = ctx.req as Request;
+    const ctx = gqlHost.getContext<GqlContext>();
+    const request = ctx.req;
 
     const exceptionResponse = exception.getResponse();
 
@@ -418,13 +436,13 @@ export class ValidationExceptionFilter implements ExceptionFilter {
   /**
    * Log validation error
    */
-  private logValidationError(errors: ValidationErrorItem[], request: Request): void {
+  private logValidationError(errors: ValidationErrorItem[], request?: Request): void {
     this.logger.warn('Validation error', {
-      path: request.path,
-      method: request.method,
+      path: request?.path ?? 'unknown',
+      method: request?.method ?? 'unknown',
       errorCount: this.countErrors(errors),
       fields: errors.map((e) => e.field),
-      ip: request.ip,
+      ip: request?.ip,
     });
   }
 }

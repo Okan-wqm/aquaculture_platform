@@ -1,5 +1,6 @@
 import { InputType, Field, ID, ObjectType, Float, Int } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
+
 import {
   ChannelDataType,
   DiscoverySource,

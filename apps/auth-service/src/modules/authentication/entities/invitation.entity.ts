@@ -1,3 +1,6 @@
+import { ObjectType, Field, ID, registerEnumType, Int } from '@nestjs/graphql';
+import { Role } from '@platform/backend-common';
+import * as crypto from 'crypto';
 import {
   Entity,
   Column,
@@ -6,8 +9,6 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { ObjectType, Field, ID, registerEnumType, Int } from '@nestjs/graphql';
-import { Role } from '@platform/backend-common';
 
 /**
  * Invitation status
@@ -168,13 +169,13 @@ export class Invitation {
     return Math.max(0, Math.floor(diff / (1000 * 60 * 60)));
   }
 
+  /**
+   * Generate cryptographically secure random token
+   * Uses crypto.randomBytes() instead of Math.random() for security
+   */
   static generateToken(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let token = '';
-    for (let i = 0; i < 64; i++) {
-      token += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return token;
+    // 32 bytes = 64 hex characters, cryptographically secure
+    return crypto.randomBytes(32).toString('hex');
   }
 
   static getDefaultExpiration(): Date {

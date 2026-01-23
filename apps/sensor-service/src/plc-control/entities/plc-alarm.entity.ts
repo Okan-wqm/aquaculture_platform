@@ -1,3 +1,4 @@
+import { ObjectType, Field, ID, Float, registerEnumType } from '@nestjs/graphql';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -5,7 +6,6 @@ import {
   CreateDateColumn,
   Index,
 } from 'typeorm';
-import { ObjectType, Field, ID, Float, registerEnumType } from '@nestjs/graphql';
 
 export enum AlarmSeverity {
   INFO = 'INFO',

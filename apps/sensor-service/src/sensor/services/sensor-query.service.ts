@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, Between, DataSource } from 'typeorm';
+
 import {
   SensorReading,
   SensorReadings,
@@ -21,6 +22,38 @@ export type AggregationInterval =
   | '4 hours'
   | '1 day'
   | '1 week';
+
+/**
+ * Query result row for aggregated readings
+ */
+interface AggregatedReadingRow {
+  bucket: Date;
+  count: string;
+  avg_temperature?: string;
+  avg_ph?: string;
+  avg_dissolved_oxygen?: string;
+  avg_salinity?: string;
+  avg_ammonia?: string;
+  avg_nitrite?: string;
+  avg_nitrate?: string;
+  min_temperature?: string;
+  max_temperature?: string;
+  min_ph?: string;
+  max_ph?: string;
+  min_dissolved_oxygen?: string;
+  max_dissolved_oxygen?: string;
+  min_salinity?: string;
+  max_salinity?: string;
+}
+
+/**
+ * Query result row for sensor stats
+ */
+interface SensorStatsRow {
+  total_readings: string;
+  average_quality: string | null;
+  last_reading: Date | null;
+}
 
 /**
  * Aggregated sensor data
@@ -86,7 +119,7 @@ export class SensorQueryService {
     tenantId: string,
     startTime: Date,
     endTime: Date,
-    limit: number = 1000,
+    limit = 1000,
   ): Promise<SensorReading[]> {
     // Order by DESC to get most recent readings first
     // Frontend will sort for charts if needed
@@ -133,7 +166,7 @@ export class SensorQueryService {
       ORDER BY bucket ASC
     `;
 
-    const results = await this.dataSource.query(query, [
+    const results = await this.dataSource.query<AggregatedReadingRow[]>(query, [
       interval,
       sensorId,
       tenantId,
@@ -142,19 +175,7 @@ export class SensorQueryService {
     ]);
 
     return results.map(
-      (row: {
-        bucket: Date;
-        count: string;
-        avg_temperature?: string;
-        avg_ph?: string;
-        avg_dissolved_oxygen?: string;
-        avg_salinity?: string;
-        avg_ammonia?: string;
-        avg_nitrite?: string;
-        avg_nitrate?: string;
-        min_temperature?: string;
-        max_temperature?: string;
-      }) => ({
+      (row: AggregatedReadingRow) => ({
         bucket: row.bucket,
         count: parseInt(row.count, 10),
         averages: {
@@ -247,7 +268,7 @@ export class SensorQueryService {
       ORDER BY bucket ASC
     `;
 
-    const results = await this.dataSource.query(query, [
+    const results: Array<Record<string, string | null>> = await this.dataSource.query(query, [
       effectiveInterval,
       sensorId,
       tenantId,
@@ -256,7 +277,7 @@ export class SensorQueryService {
     ]);
 
     const data: AggregatedReadingType[] = results.map(
-      (row: Record<string, string | null>) => ({
+      (row) => ({
         bucket: new Date(row.bucket as string),
         count: parseInt(row.count || '0', 10),
         avgTemperature: row.avg_temperature ? parseFloat(row.avg_temperature) : undefined,
@@ -284,7 +305,7 @@ export class SensorQueryService {
     // Get sensor name
     let sensorName: string | undefined;
     try {
-      const sensor = await this.dataSource.query(
+      const sensor: Array<{ name: string }> = await this.dataSource.query(
         `SELECT name FROM sensors WHERE id = $1 AND "tenantId" = $2`,
         [sensorId, tenantId],
       );
@@ -330,7 +351,7 @@ export class SensorQueryService {
   async getSensorStatistics(
     sensorId: string,
     tenantId: string,
-    days: number = 7,
+    days = 7,
   ): Promise<{
     totalReadings: number;
     averageQuality: number;
@@ -351,20 +372,21 @@ export class SensorQueryService {
         AND timestamp >= $3
     `;
 
-    const [result] = await this.dataSource.query(query, [
+    const results: SensorStatsRow[] = await this.dataSource.query(query, [
       sensorId,
       tenantId,
       startTime,
     ]);
 
-    const totalReadings = parseInt(result.total_readings || '0', 10);
+    const result = results[0];
+    const totalReadings = parseInt(result?.total_readings || '0', 10);
 
     return {
       totalReadings,
-      averageQuality: result.average_quality
+      averageQuality: result?.average_quality
         ? parseFloat(result.average_quality)
         : 0,
-      lastReading: result.last_reading || null,
+      lastReading: result?.last_reading || null,
       readingsPerDay: totalReadings / days,
     };
   }

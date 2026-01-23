@@ -1,9 +1,7 @@
-import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
-import { AuthenticationService } from '../services/authentication.service';
-import { RegisterInput } from '../dto/register.dto';
-import { LoginInput } from '../dto/login.dto';
-import { RefreshTokenInput } from '../dto/refresh-token.dto';
+import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
+import { CurrentUser, Public } from '@platform/backend-common';
+
 import {
   AuthPayload,
   LogoutResponse,
@@ -11,9 +9,14 @@ import {
   MePayload,
   InvitationValidationResponse,
 } from '../dto/auth-response.dto';
+import { AcceptInvitationInput } from '../dto/accept-invitation.dto';
+import { LoginInput } from '../dto/login.dto';
+import { RefreshTokenInput } from '../dto/refresh-token.dto';
+import { RegisterInput } from '../dto/register.dto';
 import { User } from '../entities/user.entity';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
-import { CurrentUser, Public } from '@platform/backend-common';
+import { AuthenticationService } from '../services/authentication.service';
+
 
 @Resolver(() => User)
 export class AuthResolver {
@@ -45,18 +48,22 @@ export class AuthResolver {
 
   /**
    * Accept invitation and set password
+   * Password validation: min 8 chars, uppercase, lowercase, number, special char
    */
   @Public()
   @Mutation(() => AuthPayload)
   async acceptInvitation(
-    @Args('token') token: string,
-    @Args('password') password: string,
-    @Args('firstName', { nullable: true }) firstName?: string,
-    @Args('lastName', { nullable: true }) lastName?: string,
+    @Args('input') input: AcceptInvitationInput,
     @Context() context?: { req: Request & { ip?: string; headers: Record<string, string> } },
   ): Promise<AuthPayload> {
     const ipAddress = context?.req?.ip || context?.req?.headers?.['x-forwarded-for'];
-    return this.authService.acceptInvitation(token, password, firstName, lastName, ipAddress);
+    return this.authService.acceptInvitation(
+      input.token,
+      input.password,
+      input.firstName,
+      input.lastName,
+      ipAddress,
+    );
   }
 
   /**

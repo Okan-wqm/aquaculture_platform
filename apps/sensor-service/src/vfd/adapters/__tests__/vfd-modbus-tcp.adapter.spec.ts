@@ -1,9 +1,14 @@
+/* eslint-disable @typescript-eslint/no-var-requires */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 /**
  * VFD Modbus TCP Adapter Unit Tests
  */
 
-import { VfdModbusTcpAdapter } from '../vfd-modbus-tcp.adapter';
 import { VfdProtocol } from '../../entities/vfd.enums';
+import { VfdModbusTcpAdapter } from '../vfd-modbus-tcp.adapter';
 
 // Mock the modbus-serial library
 jest.mock('modbus-serial', () => {

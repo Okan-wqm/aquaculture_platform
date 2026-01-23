@@ -1,15 +1,4 @@
 import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  CreateDateColumn,
-  UpdateDateColumn,
-  Index,
-  OneToMany,
-  ManyToOne,
-  JoinColumn,
-} from 'typeorm';
-import {
   ObjectType,
   Field,
   ID,
@@ -17,6 +6,14 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from 'typeorm';
 
 /**
  * Program execution mode
@@ -95,6 +92,15 @@ export interface SfcDefinition {
     ioConfigId?: string;
     ioDirection?: 'input' | 'output' | 'inout';
   }>;
+}
+
+/**
+ * Trigger configuration for scheduled/triggered programs
+ */
+export interface TriggerConfig {
+  schedule?: string;        // Cron expression
+  condition?: string;       // ST expression
+  eventType?: string;       // Event to listen for
 }
 
 /**
@@ -185,11 +191,7 @@ export class AutomationProgram {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ name: 'trigger_config', type: 'jsonb', nullable: true })
-  triggerConfig?: {
-    schedule?: string;        // Cron expression
-    condition?: string;       // ST expression
-    eventType?: string;       // Event to listen for
-  };
+  triggerConfig?: TriggerConfig;
 
   // Versioning
   @Field(() => Int)

@@ -1,5 +1,6 @@
 import { InputType, Field, ID, Int, Float, ObjectType } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
+
 import {
   ProgramType,
   ExecutionMode,
@@ -10,16 +11,16 @@ import {
   TimeoutBehavior,
 } from '../entities/program-step.entity';
 import {
-  ActionQualifier,
-  ActionType,
-} from '../entities/step-action.entity';
-import {
   ConditionType,
 } from '../entities/program-transition.entity';
 import {
   VariableDataType,
   VariableScope,
 } from '../entities/program-variable.entity';
+import {
+  ActionQualifier,
+  ActionType,
+} from '../entities/step-action.entity';
 
 // ============================================
 // Program Input Types

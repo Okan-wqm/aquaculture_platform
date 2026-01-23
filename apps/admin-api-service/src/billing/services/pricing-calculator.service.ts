@@ -258,7 +258,7 @@ export class PricingCalculatorService {
         metric.type === PricingMetricType.BASE_PRICE ? 1 : billableQuantity;
 
       const unitPrice = metric.price * tierMultiplier;
-      const total = effectiveQuantity * metric.price; // Before tier discount
+      const lineTotal = effectiveQuantity * unitPrice; // Tier discount applied to line item
 
       lineItems.push({
         metric: metric.type,
@@ -266,17 +266,22 @@ export class PricingCalculatorService {
         quantity,
         includedQuantity,
         billableQuantity: effectiveQuantity,
-        unitPrice: metric.price,
-        total,
+        unitPrice,
+        total: lineTotal,
         tierMultiplier,
       });
 
-      subtotal += total;
+      subtotal += lineTotal;
     }
 
-    // Calculate tier discount
-    const tierDiscount = subtotal * (1 - tierMultiplier);
-    const total = subtotal - tierDiscount;
+    // Tier discount is already applied in line items, so tierDiscount = 0 for display
+    // But we track the original discount amount for reporting
+    const originalSubtotal = lineItems.reduce(
+      (sum, item) => sum + (item.billableQuantity * (item.unitPrice / item.tierMultiplier)),
+      0,
+    );
+    const tierDiscount = originalSubtotal - subtotal;
+    const total = subtotal;
 
     return {
       moduleId: selection.moduleId,

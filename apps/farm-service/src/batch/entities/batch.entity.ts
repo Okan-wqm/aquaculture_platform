@@ -31,7 +31,9 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
-// Note: Species is referenced via string to avoid circular dependency
+// Type-only imports to avoid circular dependency at runtime
+import type { Species } from '../../species/entities/species.entity';
+import type { BatchDocument } from './batch-document.entity';
 
 // ============================================================================
 // ENUMS
@@ -247,7 +249,7 @@ export class Batch {
 
   @ManyToOne('Species', { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'speciesId' })
-  species: any;
+  species?: Species;
 
   @Field({ nullable: true })
   @Column({ length: 100, nullable: true })
@@ -479,7 +481,7 @@ export class Batch {
   // -------------------------------------------------------------------------
 
   @OneToMany('BatchDocument', 'batch')
-  documents?: any[];
+  documents?: BatchDocument[];
 
   // @OneToMany(() => BatchLocation, (bl) => bl.batch)
   // locations?: BatchLocation[];

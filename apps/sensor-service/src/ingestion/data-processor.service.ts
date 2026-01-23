@@ -1,16 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Sensor } from '../database/entities/sensor.entity';
+
 import { SensorReading } from '../database/entities/sensor-reading.entity';
+import { Sensor } from '../database/entities/sensor.entity';
 
 /**
  * Processing result
  */
 export interface ProcessingResult {
   success: boolean;
-  originalValue: any;
-  processedValue: any;
+  originalValue: number | string | Record<string, unknown>;
+  processedValue: number | string | Record<string, unknown>;
   quality: number;
   alerts?: AlertTrigger[];
   error?: string;
@@ -46,10 +47,11 @@ export class DataProcessorService {
   /**
    * Process a sensor reading
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async processReading(
     sensor: Sensor,
-    rawValue: number | string | Record<string, any>,
-    timestamp: Date = new Date(),
+    rawValue: number | string | Record<string, unknown>,
+    _timestamp: Date = new Date(),
   ): Promise<ProcessingResult> {
     try {
       let processedValue = rawValue;
@@ -176,7 +178,7 @@ export class DataProcessorService {
    */
   async processBulkReadings(
     sensorId: string,
-    readings: { value: any; timestamp: Date }[],
+    readings: { value: number | string | Record<string, unknown>; timestamp: Date }[],
   ): Promise<ProcessingResult[]> {
     const sensor = await this.sensorRepository.findOne({
       where: { id: sensorId },
@@ -312,7 +314,7 @@ export class DataProcessorService {
           break;
 
         case 'linear':
-        default:
+        default: {
           // Find previous and next non-null values
           let prevIndex = -1;
           let nextIndex = -1;
@@ -359,6 +361,7 @@ export class DataProcessorService {
             }
           }
           break;
+        }
       }
 
       if (interpolatedValue !== null) {
@@ -376,7 +379,7 @@ export class DataProcessorService {
   /**
    * Apply moving average smoothing
    */
-  applyMovingAverage(values: number[], windowSize: number = 5): number[] {
+  applyMovingAverage(values: number[], windowSize = 5): number[] {
     if (values.length < windowSize) {
       return values;
     }

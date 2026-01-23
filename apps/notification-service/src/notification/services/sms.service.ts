@@ -2,6 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /**
+ * Mask phone number for logging (shows last 4 digits only)
+ */
+function maskPhoneNumber(phoneNumber: string): string {
+  if (phoneNumber.length <= 4) {
+    return '***';
+  }
+  return '***' + phoneNumber.slice(-4);
+}
+
+/**
  * SMS Service
  * Handles SMS notifications
  * Currently implements a mock provider - can be extended for Twilio, AWS SNS, etc.
@@ -28,18 +38,23 @@ export class SmsService {
    */
   async sendSms(phoneNumber: string, message: string): Promise<string> {
     if (!this.isEnabled) {
-      this.logger.warn(`SMS not sent (disabled): to ${phoneNumber}`);
+      this.logger.warn(`SMS not sent (disabled): to ${maskPhoneNumber(phoneNumber)}`);
       return `mock-sms-${Date.now()}`;
     }
 
     // Validate phone number format
     const cleanedNumber = this.cleanPhoneNumber(phoneNumber);
     if (!this.isValidPhoneNumber(cleanedNumber)) {
-      throw new Error(`Invalid phone number: ${phoneNumber}`);
+      // Don't log the full invalid phone number
+      throw new Error('Invalid phone number format');
     }
 
     // Truncate message if too long (SMS limit is typically 160 chars)
     const truncatedMessage = this.truncateMessage(message, 160);
+    const wasTruncated = message.length > 160;
+    if (wasTruncated) {
+      this.logger.warn(`SMS message truncated from ${message.length} to 160 characters`);
+    }
 
     try {
       let messageId: string;
@@ -57,11 +72,12 @@ export class SmsService {
           break;
       }
 
-      this.logger.log(`SMS sent to ${cleanedNumber}: ${messageId}`);
+      // Log with masked phone number for privacy
+      this.logger.log(`SMS sent to ${maskPhoneNumber(cleanedNumber)}: ${messageId}`);
       return messageId;
     } catch (error) {
       this.logger.error(
-        `Failed to send SMS to ${cleanedNumber}: ${(error as Error).message}`,
+        `Failed to send SMS to ${maskPhoneNumber(cleanedNumber)}: ${(error as Error).message}`,
       );
       throw error;
     }
@@ -89,7 +105,8 @@ export class SmsService {
     phoneNumber: string,
     message: string,
   ): Promise<string> {
-    this.logger.debug(`[MOCK SMS] To: ${phoneNumber}, Message: ${message}`);
+    // Don't log full phone number or message content for privacy
+    this.logger.debug(`[MOCK SMS] To: ${maskPhoneNumber(phoneNumber)}, Length: ${message.length} chars`);
     return `mock-sms-${Date.now()}`;
   }
 

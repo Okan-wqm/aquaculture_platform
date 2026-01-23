@@ -1,3 +1,4 @@
+import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
 import {
   Entity,
   Column,
@@ -6,7 +7,6 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
 
 /**
  * Tenant subscription/plan types

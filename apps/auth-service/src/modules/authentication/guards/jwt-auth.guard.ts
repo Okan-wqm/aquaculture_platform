@@ -7,6 +7,21 @@ import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { JwtService } from '@nestjs/jwt';
 import { IS_PUBLIC_KEY } from '@platform/backend-common';
+import { Request } from 'express';
+
+/**
+ * Extended request with user payload
+ */
+interface AuthenticatedRequest extends Request {
+  user?: Record<string, unknown>;
+}
+
+/**
+ * GraphQL context with request
+ */
+interface GqlContext {
+  req: AuthenticatedRequest;
+}
 
 @Injectable()
 export class JwtAuthGuard {
@@ -34,26 +49,27 @@ export class JwtAuthGuard {
     }
 
     try {
-      const payload = await this.jwtService.verifyAsync(token);
+      const payload = await this.jwtService.verifyAsync<Record<string, unknown>>(token);
       request.user = payload;
       return true;
-    } catch (error) {
+    } catch {
       throw new UnauthorizedException('Invalid or expired token');
     }
   }
 
-  private getRequest(context: ExecutionContext): any {
+  private getRequest(context: ExecutionContext): AuthenticatedRequest {
     const contextType = context.getType<string>();
 
     if (contextType === 'graphql') {
       const gqlCtx = GqlExecutionContext.create(context);
-      return gqlCtx.getContext().req;
+      const ctx = gqlCtx.getContext<GqlContext>();
+      return ctx.req;
     }
 
-    return context.switchToHttp().getRequest();
+    return context.switchToHttp().getRequest<AuthenticatedRequest>();
   }
 
-  private extractToken(request: any): string | null {
+  private extractToken(request: AuthenticatedRequest): string | null {
     const authHeader = request.headers?.authorization;
     if (!authHeader) return null;
 

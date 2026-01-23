@@ -1,3 +1,5 @@
+import { InputType, Field, ObjectType, Float, Int, ID } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import {
   IsOptional,
   IsUUID,
@@ -7,8 +9,6 @@ import {
   Max,
   IsEnum,
 } from 'class-validator';
-import { Type } from 'class-transformer';
-import { InputType, Field, ObjectType, Float, Int, ID } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
 
 /**

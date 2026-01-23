@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
+
 import { AuditLog, AuditLogSeverity } from './audit-log.entity';
 
 export interface CreateAuditLogDto {
@@ -10,9 +11,9 @@ export interface CreateAuditLogDto {
   action: string;
   entityType: string;
   entityId?: string;
-  details?: Record<string, any>;
-  previousValue?: Record<string, any>;
-  newValue?: Record<string, any>;
+  details?: Record<string, unknown>;
+  previousValue?: Record<string, unknown>;
+  newValue?: Record<string, unknown>;
   severity?: AuditLogSeverity;
   requestId?: string;
   sessionId?: string;
@@ -85,7 +86,7 @@ export class AuditLogService {
   async findByPerformer(
     performedBy: string,
     tenantId: string,
-    limit: number = 100,
+    limit = 100,
   ): Promise<AuditLog[]> {
     return this.auditLogRepository.find({
       where: { performedBy, tenantId },
@@ -105,7 +106,7 @@ export class AuditLogService {
     });
   }
 
-  async deleteOldLogs(retentionDays: number = 90): Promise<number> {
+  async deleteOldLogs(retentionDays = 90): Promise<number> {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 

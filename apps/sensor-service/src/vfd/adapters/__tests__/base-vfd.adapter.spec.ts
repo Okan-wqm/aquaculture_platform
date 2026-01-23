@@ -2,6 +2,8 @@
  * Base VFD Adapter Unit Tests
  */
 
+import { VfdRegisterMapping } from '../../entities/vfd-register-mapping.entity';
+import { VfdProtocol, VfdDataType, ByteOrder } from '../../entities/vfd.enums';
 import {
   BaseVfdAdapter,
   VfdConnectionHandle,
@@ -10,8 +12,6 @@ import {
   ConnectionTestResult,
   ValidationResult,
 } from '../base-vfd.adapter';
-import { VfdProtocol, VfdDataType, ByteOrder } from '../../entities/vfd.enums';
-import { VfdRegisterMapping } from '../../entities/vfd-register-mapping.entity';
 
 // Create a concrete implementation for testing
 class TestVfdAdapter extends BaseVfdAdapter {
@@ -22,6 +22,7 @@ class TestVfdAdapter extends BaseVfdAdapter {
     super('TestVfdAdapter');
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(): Promise<VfdConnectionHandle> {
     return {
       id: this.generateConnectionId(),
@@ -31,14 +32,17 @@ class TestVfdAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(): Promise<void> {
     // No-op for tests
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async testConnection(): Promise<ConnectionTestResult> {
     return { success: true, latencyMs: 10 };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readParameters(): Promise<VfdReadResult> {
     return {
       parameters: { outputFrequency: 50 },
@@ -49,18 +53,22 @@ class TestVfdAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readRegister(): Promise<Buffer> {
     return Buffer.from([0x01, 0xf4]); // 500 in uint16
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async writeControlWord(): Promise<VfdCommandResult> {
     return { success: true };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async writeSpeedReference(): Promise<VfdCommandResult> {
     return { success: true };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async writeRegister(): Promise<VfdCommandResult> {
     return { success: true };
   }

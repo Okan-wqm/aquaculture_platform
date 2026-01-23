@@ -1,4 +1,10 @@
 import {
+  ObjectType,
+  Field,
+  ID,
+} from '@nestjs/graphql';
+import { GraphQLJSON } from 'graphql-scalars';
+import {
   Entity,
   Column,
   PrimaryGeneratedColumn,
@@ -6,12 +12,6 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import {
-  ObjectType,
-  Field,
-  ID,
-} from '@nestjs/graphql';
-import { GraphQLJSON } from 'graphql-scalars';
 
 /**
  * Widget position in GridStack grid

@@ -1,7 +1,7 @@
 import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import { SkipTenantGuard } from '@platform/backend-common';
+import { DataSource } from 'typeorm';
 
 @Controller('health')
 @SkipTenantGuard()
@@ -19,7 +19,7 @@ export class HealthController {
 
   @Get('ready')
   @HttpCode(HttpStatus.OK)
-  async readiness(): Promise<{ status: 'ok' | 'not_ready'; database: boolean }> {
+  readiness(): { status: 'ok' | 'not_ready'; database: boolean } {
     return {
       status: this.dataSource.isInitialized ? 'ok' : 'not_ready',
       database: this.dataSource.isInitialized,
@@ -28,12 +28,12 @@ export class HealthController {
 
   @Get()
   @HttpCode(HttpStatus.OK)
-  async health(): Promise<{
+  health(): {
     status: 'ok';
     timestamp: string;
     uptime: number;
     database: boolean;
-  }> {
+  } {
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),

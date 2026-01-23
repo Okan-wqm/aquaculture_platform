@@ -1,23 +1,24 @@
-import { Resolver, Query, Mutation, Args } from '@nestjs/graphql';
-import { UseGuards } from '@nestjs/common';
-import { IsString, IsOptional, IsBoolean, IsNumber, IsObject } from 'class-validator';
-import { ProtocolRegistryService, ProtocolInfo, ProtocolSummary } from '../services/protocol-registry.service';
-import { ProtocolValidatorService } from '../services/protocol-validator.service';
-import { ConnectionTesterService, ExtendedTestResult } from '../services/connection-tester.service';
-import { SensorProtocol, ProtocolCategory } from '../../database/entities/sensor-protocol.entity';
-import { ValidationResult } from '../adapters/base-protocol.adapter';
-
-// GraphQL Object Types
 import {
+  Resolver,
+  Query,
+  Mutation,
+  Args,
   ObjectType,
   Field,
   ID,
   InputType,
   registerEnumType,
   Int,
-  Float,
 } from '@nestjs/graphql';
+import { IsString, IsOptional, IsBoolean, IsNumber, IsObject } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
+
+import { ProtocolCategory } from '../../database/entities/sensor-protocol.entity';
+import { ConnectionTesterService } from '../services/connection-tester.service';
+import { ProtocolRegistryService, ProtocolInfo, ProtocolSummary } from '../services/protocol-registry.service';
+import { ProtocolValidatorService } from '../services/protocol-validator.service';
+
+// GraphQL Object Types
 
 // Register enums
 registerEnumType(ProtocolCategory, {

@@ -2,14 +2,19 @@
  * VFD Device Resolver Unit Tests
  */
 
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+
 import { Test, TestingModule } from '@nestjs/testing';
-import { VfdDeviceResolver } from '../vfd-device.resolver';
-import { VfdDeviceService, PaginatedVfdDevices } from '../../services/vfd-device.service';
-import { VfdConnectionTesterService } from '../../services/vfd-connection-tester.service';
-import { VfdDataReaderService } from '../../services/vfd-data-reader.service';
+
 import { VfdDevice } from '../../entities/vfd-device.entity';
 import { VfdReading } from '../../entities/vfd-reading.entity';
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../../entities/vfd.enums';
+import { VfdConnectionTesterService } from '../../services/vfd-connection-tester.service';
+import { VfdDataReaderService } from '../../services/vfd-data-reader.service';
+import { VfdDeviceService } from '../../services/vfd-device.service';
+import { VfdDeviceResolver } from '../vfd-device.resolver';
 
 describe('VfdDeviceResolver', () => {
   let resolver: VfdDeviceResolver;

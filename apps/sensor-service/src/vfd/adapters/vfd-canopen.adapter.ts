@@ -1,4 +1,9 @@
 import { Injectable } from '@nestjs/common';
+
+import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
+import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
+import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
+
 import {
   BaseVfdAdapter,
   VfdConnectionHandle,
@@ -7,9 +12,6 @@ import {
   ConnectionTestResult,
   ValidationResult,
 } from './base-vfd.adapter';
-import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
-import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
-import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
 
 /**
  * CANopen Configuration
@@ -51,6 +53,7 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
     super('VfdCanopenAdapter');
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     const validatedConfig = this.validateAndCastConfig(config);
     const connectionId = this.generateConnectionId();
@@ -88,6 +91,7 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: VfdConnectionHandle): Promise<void> {
     const connection = this.connections.get(handle.id);
     if (!connection) {
@@ -113,7 +117,7 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
       handle = await this.connect(config);
 
       // Read device type (Object 0x1000)
-      const testBuffer = await this.readRegister(handle, 0x1000, 1, 0);
+      await this.readRegister(handle, 0x1000, 1, 0);
       const latencyMs = Date.now() - startTime;
 
       await this.disconnect(handle);
@@ -219,8 +223,8 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
-    count: number,
-    functionCode: number
+    _count: number,
+    _functionCode: number
   ): Promise<Buffer> {
     const connection = this.connections.get(handle.id) as CanopenConnectionHandle;
 
@@ -235,7 +239,7 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
   async writeControlWord(
     handle: VfdConnectionHandle,
     controlWord: number,
-    registerAddress: number
+    _registerAddress: number
   ): Promise<VfdCommandResult> {
     // CiA 402 controlword is at object 0x6040
     return this.writeRegister(handle, 0x6040, controlWord);
@@ -383,8 +387,9 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async sdoRead(
-    connection: CanopenConnectionHandle,
+    _connection: CanopenConnectionHandle,
     index: number,
     subIndex: number
   ): Promise<Buffer> {
@@ -397,8 +402,9 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
     return data;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async sdoWrite(
-    connection: CanopenConnectionHandle,
+    _connection: CanopenConnectionHandle,
     index: number,
     subIndex: number,
     value: number
@@ -421,12 +427,12 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
       running: Boolean(value & 0x0004),         // Bit 2: Operation enabled
       fault: Boolean(value & 0x0008),           // Bit 3: Fault
       voltageEnabled: Boolean(value & 0x0010),  // Bit 4: Voltage enabled
-      quickStopActive: !Boolean(value & 0x0020), // Bit 5: Quick stop (inverted)
+      quickStopActive: !(value & 0x0020), // Bit 5: Quick stop (inverted)
       switchOnDisabled: Boolean(value & 0x0040), // Bit 6: Switch on disabled
       warning: Boolean(value & 0x0080),         // Bit 7: Warning
       atSetpoint: Boolean(value & 0x0400),      // Bit 10: Target reached
       internalLimit: Boolean(value & 0x0800),   // Bit 11: Internal limit active
-      direction: Boolean(value & 0x4000) ? 'reverse' : 'forward', // Bit 14
+      direction: value & 0x4000 ? 'reverse' : 'forward', // Bit 14
     };
   }
 }

@@ -5,8 +5,21 @@ import {
   CallHandler,
   Logger,
 } from '@nestjs/common';
-import { Observable, tap, catchError, throwError } from 'rxjs';
 import { GqlExecutionContext, GqlContextType } from '@nestjs/graphql';
+import { Observable, tap, catchError, throwError } from 'rxjs';
+
+/**
+ * Extended request with optional properties
+ */
+interface LoggingRequest {
+  method: string;
+  url: string;
+  ip?: string;
+  headers?: Record<string, string | undefined>;
+  tenantId?: string;
+  user?: { sub?: string };
+  connection?: { remoteAddress?: string };
+}
 
 /**
  * Request metrics
@@ -55,7 +68,7 @@ export class RequestLoggingInterceptor implements NestInterceptor {
       tap((response) => {
         this.logSuccess(metrics, response);
       }),
-      catchError((error) => {
+      catchError((error: Error) => {
         this.logError(metrics, error);
         return throwError(() => error);
       }),
@@ -79,7 +92,7 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     context: ExecutionContext,
     startTime: number,
   ): RequestMetrics {
-    const request = context.switchToHttp().getRequest();
+    const request = context.switchToHttp().getRequest<LoggingRequest>();
 
     return {
       method: request.method,
@@ -102,14 +115,19 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     startTime: number,
   ): RequestMetrics {
     const gqlContext = GqlExecutionContext.create(context);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const info = gqlContext.getInfo();
-    const request = gqlContext.getContext()?.req;
+    const gqlCtx = gqlContext.getContext<{ req?: LoggingRequest }>();
+    const request = gqlCtx?.req;
+
+    // Type the GraphQL info object
+    const gqlInfo = info as { operation?: { name?: { value?: string }; operation?: string } } | undefined;
 
     return {
       method: 'POST',
       path: '/graphql',
-      operationName: info?.operation?.name?.value || 'anonymous',
-      operationType: info?.operation?.operation || 'unknown',
+      operationName: gqlInfo?.operation?.name?.value || 'anonymous',
+      operationType: gqlInfo?.operation?.operation || 'unknown',
       correlationId: request?.headers?.['x-correlation-id'],
       tenantId: request?.tenantId || request?.headers?.['x-tenant-id'],
       userId: request?.user?.sub,
@@ -152,10 +170,10 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     metrics.errorMessage = error.message;
 
     // Try to extract status code from error
-    if ('status' in error) {
-      metrics.statusCode = (error as any).status;
-    } else if ('statusCode' in error) {
-      metrics.statusCode = (error as any).statusCode;
+    if ('status' in error && typeof (error as { status?: unknown }).status === 'number') {
+      metrics.statusCode = (error as { status: number }).status;
+    } else if ('statusCode' in error && typeof (error as { statusCode?: unknown }).statusCode === 'number') {
+      metrics.statusCode = (error as { statusCode: number }).statusCode;
     } else {
       metrics.statusCode = 500;
     }

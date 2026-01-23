@@ -1,8 +1,10 @@
 import { InputType, Field, ID, ObjectType, registerEnumType, Float, Int } from '@nestjs/graphql';
-import { GraphQLJSON } from 'graphql-scalars';
-import { IsOptional, IsInt, IsString, IsEnum, IsUUID, IsBoolean, IsNumber, IsNotEmpty, IsObject, IsArray, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { SensorType, SensorRegistrationStatus, SensorConnectionStatus, SensorRole } from '../../database/entities/sensor.entity';
+import { IsOptional, IsInt, IsString, IsEnum, IsUUID, IsBoolean, IsNumber, IsNotEmpty, IsObject, IsArray, ValidateNested } from 'class-validator';
+import { GraphQLJSON } from 'graphql-scalars';
+
+import { SensorType, SensorRegistrationStatus, SensorRole } from '../../database/entities/sensor.entity';
+
 import { CreateDataChannelInput, DataChannelType } from './data-channel.dto';
 
 // Register enums

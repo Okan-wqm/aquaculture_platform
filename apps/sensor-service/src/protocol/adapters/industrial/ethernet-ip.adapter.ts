@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
+
 import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
+import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
 
 export interface EthernetIpConfiguration {
+  sensorId?: string;
+  tenantId?: string;
   host: string;
   port: number;
   slot: number;
@@ -21,24 +23,27 @@ export class EthernetIpAdapter extends BaseProtocolAdapter {
   readonly displayName = 'EtherNet/IP';
   readonly description = 'EtherNet/IP (CIP) protocol for Allen-Bradley and other PLCs';
 
-  constructor(configService: ConfigService) { super(configService); }
-
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const handle = this.createConnectionHandle(config.sensorId as string || 'unknown', config.tenantId as string || 'unknown', config);
+    const cfg = config as Partial<EthernetIpConfiguration>;
+    const handle = this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
     this.logConnectionEvent('connect', handle);
     return handle;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     this.removeConnectionHandle(handle.id);
     this.logConnectionEvent('disconnect', handle);
   }
 
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> {
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> {
     const startTime = Date.now();
     return { success: true, latencyMs: Date.now() - startTime };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readData(handle: ConnectionHandle): Promise<SensorReadingData> {
     this.updateLastActivity(handle);
     return { timestamp: new Date(), values: {}, quality: 100, source: 'ethernet_ip' };

@@ -1,5 +1,4 @@
 import { ObjectType, Field, Float, Int, registerEnumType } from '@nestjs/graphql';
-import { IsString, IsOptional } from 'class-validator';
 
 /**
  * Aggregation interval for time-series queries

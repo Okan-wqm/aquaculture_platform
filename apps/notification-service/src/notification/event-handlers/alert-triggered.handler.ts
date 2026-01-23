@@ -2,6 +2,14 @@ import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
 
+// UUID v4 regex for tenant ID validation
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Maximum string lengths for validation
+const MAX_RULE_NAME_LENGTH = 255;
+const MAX_MESSAGE_LENGTH = 5000;
+const MAX_RECIPIENTS = 50;
+
 /**
  * Alert Triggered Event interface
  */
@@ -56,8 +64,25 @@ export class AlertTriggeredEventHandler
   async handle(event: AlertTriggeredEvent): Promise<void> {
     const { payload } = event;
 
+    // SECURITY: Validate tenantId format to ensure data isolation
+    if (!payload.tenantId || !UUID_REGEX.test(payload.tenantId)) {
+      this.logger.error(
+        `Alert ${payload.alertId} has invalid or missing tenantId. ` +
+        'Skipping to prevent cross-tenant notification leakage.',
+      );
+      return;
+    }
+
+    // Validate required fields
+    if (!payload.alertId || !payload.ruleId) {
+      this.logger.error(
+        `Alert event missing required alertId or ruleId. Skipping.`,
+      );
+      return;
+    }
+
     this.logger.log(
-      `Processing alert ${payload.alertId} for tenant ${payload.tenantId}`,
+      `Processing alert ${payload.alertId} for tenant ${payload.tenantId.substring(0, 8)}...`,
     );
 
     // Skip if no channels or recipients
@@ -68,6 +93,19 @@ export class AlertTriggeredEventHandler
       return;
     }
 
+    // Validate recipients count to prevent abuse
+    if (payload.recipients.length > MAX_RECIPIENTS) {
+      this.logger.warn(
+        `Alert ${payload.alertId} has too many recipients (${payload.recipients.length}). ` +
+        `Limiting to first ${MAX_RECIPIENTS}.`,
+      );
+      payload.recipients = payload.recipients.slice(0, MAX_RECIPIENTS);
+    }
+
+    // Truncate potentially long strings
+    const sanitizedRuleName = (payload.ruleName || 'Unknown Rule').substring(0, MAX_RULE_NAME_LENGTH);
+    const sanitizedMessage = (payload.message || '').substring(0, MAX_MESSAGE_LENGTH);
+
     try {
       await this.dispatcher.dispatchAlertNotification(
         payload.tenantId,
@@ -76,9 +114,9 @@ export class AlertTriggeredEventHandler
         {
           alertId: payload.alertId,
           ruleId: payload.ruleId,
-          ruleName: payload.ruleName,
-          severity: payload.severity,
-          message: payload.message,
+          ruleName: sanitizedRuleName,
+          severity: payload.severity || 'info',
+          message: sanitizedMessage,
           sensorId: payload.triggeringData?.sensorId,
           timestamp: event.timestamp,
         },

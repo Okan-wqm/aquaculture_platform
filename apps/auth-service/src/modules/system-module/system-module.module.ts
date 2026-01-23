@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Module as SystemModuleEntity } from './entities/module.entity';
+
 import { SeedService } from '../../database/seed.service';
 import { User } from '../authentication/entities/user.entity';
+
+import { Module as SystemModuleEntity } from './entities/module.entity';
 
 /**
  * System Module
@@ -16,4 +18,5 @@ import { User } from '../authentication/entities/user.entity';
   providers: [SeedService],
   exports: [TypeOrmModule, SeedService],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class SystemModule {}

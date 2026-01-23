@@ -14,9 +14,10 @@ import {
   Logger,
   SetMetadata,
 } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
+import { Request } from 'express';
 
 /**
  * Metadata key for bypassing IP whitelist
@@ -26,7 +27,7 @@ export const BYPASS_IP_WHITELIST = 'bypassIpWhitelist';
 /**
  * Decorator to bypass IP whitelist for specific endpoints
  */
-export const BypassIpWhitelist = () => SetMetadata(BYPASS_IP_WHITELIST, true);
+export const BypassIpWhitelist = (): ReturnType<typeof SetMetadata> => SetMetadata(BYPASS_IP_WHITELIST, true);
 
 /**
  * IP Range interface
@@ -34,6 +35,34 @@ export const BypassIpWhitelist = () => SetMetadata(BYPASS_IP_WHITELIST, true);
 interface IpRange {
   start: number;
   end: number;
+}
+
+/**
+ * User payload interface
+ */
+interface UserPayload {
+  tenantId?: string;
+}
+
+/**
+ * Extended request interface for IP whitelist
+ */
+interface IpWhitelistRequest extends Request {
+  tenantId?: string;
+  user?: UserPayload;
+  connection?: {
+    remoteAddress?: string;
+  };
+  socket?: {
+    remoteAddress?: string;
+  };
+}
+
+/**
+ * GraphQL context interface
+ */
+interface GqlContext {
+  req?: IpWhitelistRequest;
 }
 
 /**
@@ -71,7 +100,7 @@ export class IpWhitelistGuard implements CanActivate {
     );
   }
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  canActivate(context: ExecutionContext): boolean {
     // Check if guard is disabled
     if (!this.enabled) {
       return true;
@@ -121,31 +150,32 @@ export class IpWhitelistGuard implements CanActivate {
   /**
    * Get request from execution context (supports HTTP and GraphQL)
    */
-  private getRequest(context: ExecutionContext): any {
+  private getRequest(context: ExecutionContext): IpWhitelistRequest {
     const gqlContext = GqlExecutionContext.create(context);
-    const gqlRequest = gqlContext.getContext()?.req;
+    const ctx = gqlContext.getContext<GqlContext>();
+    const gqlRequest = ctx?.req;
 
     if (gqlRequest) {
       return gqlRequest;
     }
 
-    return context.switchToHttp().getRequest();
+    return context.switchToHttp().getRequest<IpWhitelistRequest>();
   }
 
   /**
    * Extract client IP from request
    */
-  private extractClientIp(request: any): string | null {
+  private extractClientIp(request: IpWhitelistRequest): string | null {
     // Check X-Forwarded-For header (for proxied requests)
     const forwardedFor = request.headers?.['x-forwarded-for'];
-    if (forwardedFor) {
+    if (typeof forwardedFor === 'string') {
       const ips = forwardedFor.split(',').map((ip: string) => ip.trim());
       return ips[0] || null;
     }
 
     // Check X-Real-IP header
     const realIp = request.headers?.['x-real-ip'];
-    if (realIp) {
+    if (typeof realIp === 'string') {
       return realIp;
     }
 
@@ -161,10 +191,11 @@ export class IpWhitelistGuard implements CanActivate {
   /**
    * Extract tenant ID from request
    */
-  private extractTenantId(request: any): string | null {
+  private extractTenantId(request: IpWhitelistRequest): string | null {
+    const tenantIdHeader = request.headers?.['x-tenant-id'];
     return (
       request.tenantId ||
-      request.headers?.['x-tenant-id'] ||
+      (typeof tenantIdHeader === 'string' ? tenantIdHeader : null) ||
       request.user?.tenantId ||
       null
     );

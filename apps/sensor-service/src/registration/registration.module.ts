@@ -1,13 +1,15 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { Sensor } from '../database/entities/sensor.entity';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
-import { SensorRegistrationService } from './services/sensor-registration.service';
+import { Sensor } from '../database/entities/sensor.entity';
+
+import { ChannelResolver } from './resolvers/channel.resolver';
+import { RegistrationResolver } from './resolvers/registration.resolver';
 import { ChannelDiscoveryService } from './services/channel-discovery.service';
 import { ChannelManagementService } from './services/channel-management.service';
-import { RegistrationResolver } from './resolvers/registration.resolver';
-import { ChannelResolver } from './resolvers/channel.resolver';
+import { SensorRegistrationService } from './services/sensor-registration.service';
 
 @Module({
   imports: [
@@ -23,4 +25,5 @@ import { ChannelResolver } from './resolvers/channel.resolver';
   ],
   exports: [SensorRegistrationService, ChannelDiscoveryService, ChannelManagementService],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class RegistrationModule {}

@@ -104,7 +104,7 @@ export class Invoice {
   tenantId!: string;
 
   @Field()
-  @Column({ unique: true })
+  @Column() // Note: Unique per tenant via composite index on line 92
   invoiceNumber!: string;
 
   @Field({ nullable: true })

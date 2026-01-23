@@ -1,16 +1,15 @@
+import { InputType, Field, Int } from '@nestjs/graphql';
 import {
   IsString,
   IsOptional,
   IsInt,
   IsEnum,
   IsBoolean,
-  IsIP,
   Min,
   Max,
   Matches,
-  ValidateIf,
 } from 'class-validator';
-import { InputType, Field, Int } from '@nestjs/graphql';
+
 import { VfdProtocol } from '../entities/vfd.enums';
 
 /**

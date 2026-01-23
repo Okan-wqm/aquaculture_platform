@@ -1,10 +1,11 @@
-import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
+
 import { AppModule } from './app.module';
 
-async function bootstrap() {
+async function bootstrap(): Promise<void> {
   const logger = new Logger('GatewayAPI');
   const app = await NestFactory.create(AppModule);
 
@@ -51,4 +52,4 @@ async function bootstrap() {
   logger.log(`GraphQL Playground: http://localhost:${port}/graphql`);
 }
 
-bootstrap();
+void bootstrap();

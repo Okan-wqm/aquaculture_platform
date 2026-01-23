@@ -14,11 +14,10 @@ import {
   Logger,
   SetMetadata,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { Request, Response } from 'express';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { Request, Response } from 'express';
-import { GqlExecutionContext } from '@nestjs/graphql';
-import { Reflector } from '@nestjs/core';
 
 /**
  * Standard API response wrapper
@@ -134,7 +133,7 @@ export class ResponseTransformInterceptor<T> implements NestInterceptor<T, ApiRe
     );
 
     return next.handle().pipe(
-      map((data) => {
+      map((data: T) => {
         // Apply custom wrapper if defined
         if (customWrapper) {
           return customWrapper(data) as ApiResponse<T>;
@@ -203,7 +202,7 @@ export class ResponseTransformInterceptor<T> implements NestInterceptor<T, ApiRe
     // Add deprecation warning if applicable
     const deprecation = response.getHeader('Deprecation');
     if (deprecation) {
-      meta.deprecationWarning = `This endpoint is deprecated. ${deprecation}`;
+      meta.deprecationWarning = `This endpoint is deprecated. ${String(deprecation)}`;
     }
 
     return {
@@ -283,8 +282,10 @@ export class ResponseTransformInterceptor<T> implements NestInterceptor<T, ApiRe
    * Get base URL from request
    */
   private getBaseUrl(request: Request): string {
-    const protocol = request.headers['x-forwarded-proto'] || request.protocol || 'http';
-    const host = request.headers['x-forwarded-host'] || request.headers['host'] || 'localhost';
+    const protoHeader = request.headers['x-forwarded-proto'];
+    const protocol = (Array.isArray(protoHeader) ? protoHeader[0] : protoHeader) || request.protocol || 'http';
+    const hostHeader = request.headers['x-forwarded-host'] || request.headers['host'];
+    const host = (Array.isArray(hostHeader) ? hostHeader[0] : hostHeader) || 'localhost';
     return `${protocol}://${host}`;
   }
 

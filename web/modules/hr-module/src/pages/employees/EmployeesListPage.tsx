@@ -17,7 +17,7 @@ import {
   Ship,
   Building2,
 } from 'lucide-react';
-import { cn } from '@shared-ui/utils';
+import { cn } from '@aquaculture/shared-ui';
 import { useEmployees, useDepartments, usePositions } from '../../hooks';
 import { DataTable, StatusBadge, EmployeeAvatar, DepartmentBadge } from '../../components/common';
 import type { Column } from '../../components/common';

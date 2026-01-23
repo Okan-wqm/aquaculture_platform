@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { connect, NatsConnection, Subscription, StringCodec } from 'nats';
+
 import { SensorReadingsGateway } from './sensor-readings.gateway';
 
 interface NatsEvent {
@@ -36,8 +37,8 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     private readonly sensorGateway: SensorReadingsGateway,
   ) {}
 
-  async onModuleInit() {
-    const natsEnabled = this.configService.get('NATS_ENABLED', 'true') === 'true';
+  async onModuleInit(): Promise<void> {
+    const natsEnabled = this.configService.get<string>('NATS_ENABLED', 'true') === 'true';
 
     if (!natsEnabled) {
       this.logger.log('NATS Bridge is disabled');
@@ -47,12 +48,12 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     await this.connect();
   }
 
-  async onModuleDestroy() {
+  async onModuleDestroy(): Promise<void> {
     await this.disconnect();
   }
 
   private async connect(): Promise<void> {
-    const natsUrl = this.configService.get('NATS_URL', 'nats://localhost:4222');
+    const natsUrl = this.configService.get<string>('NATS_URL', 'nats://localhost:4222');
 
     try {
       this.connection = await connect({
@@ -66,7 +67,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`Connected to NATS at ${natsUrl}`);
 
       // Subscribe to sensor reading events
-      await this.subscribeToSensorEvents();
+      this.subscribeToSensorEvents();
 
       // Handle connection events
       this.handleConnectionEvents();
@@ -75,7 +76,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async subscribeToSensorEvents(): Promise<void> {
+  private subscribeToSensorEvents(): void {
     if (!this.connection) return;
 
     // Subscribe to all sensor reading events
@@ -88,11 +89,11 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     const subscription = this.subscription;
     if (!subscription) return;
 
-    (async () => {
+    void (async () => {
       for await (const msg of subscription) {
         try {
           const data = this.sc.decode(msg.data);
-          const event: NatsEvent = JSON.parse(data);
+          const event = JSON.parse(data) as NatsEvent;
 
           this.handleSensorReadingEvent(event);
         } catch (error) {
@@ -120,9 +121,11 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private handleConnectionEvents(): void {
     if (!this.connection) return;
 
-    (async () => {
-      for await (const status of this.connection!.status()) {
-        switch (status.type) {
+    const connection = this.connection;
+    void (async () => {
+      for await (const status of connection.status()) {
+        const statusType = status.type as string;
+        switch (statusType) {
           case 'disconnect':
             this.logger.warn('NATS disconnected');
             break;
@@ -130,7 +133,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
             this.logger.log('NATS reconnected');
             break;
           case 'error':
-            this.logger.error(`NATS error: ${status.data}`);
+            this.logger.error(`NATS error: ${String(status.data)}`);
             break;
         }
       }

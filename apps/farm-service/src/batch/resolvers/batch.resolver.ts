@@ -23,7 +23,18 @@ import {
 import { UseGuards, Logger } from '@nestjs/common';
 import { IsUUID, IsNotEmpty, IsInt, Min, IsOptional, IsNumber, IsString, IsDate, IsEnum } from 'class-validator';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
+import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
 import { Batch, BatchStatus, BatchInputType } from '../entities/batch.entity';
+
+/**
+ * User context interface for CurrentUser decorator
+ */
+interface UserContext {
+  sub: string;
+  email: string;
+  tenantId: string;
+  roles: string[];
+}
 
 // Commands
 import { CreateBatchCommand, CreateBatchPayload } from '../commands/create-batch.command';
@@ -641,7 +652,7 @@ export class BatchResolver {
   @Query(() => Batch, { name: 'batch' })
   async getBatch(
     @Args('id', { type: () => ID }) id: string,
-    @Args('tenantId') tenantId: string,
+    @Tenant() tenantId: string,
   ): Promise<Batch> {
     this.logger.debug(`Getting batch: ${id}`);
     return this.queryBus.execute(new GetBatchQuery(tenantId, id));
@@ -649,7 +660,7 @@ export class BatchResolver {
 
   @Query(() => BatchListResponse, { name: 'batches' })
   async listBatches(
-    @Args('tenantId') tenantId: string,
+    @Tenant() tenantId: string,
     @Args('filter', { type: () => BatchFilterInput, nullable: true }) filter?: BatchFilterInput,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
@@ -676,7 +687,7 @@ export class BatchResolver {
   @Query(() => BatchPerformanceResponse, { name: 'batchPerformance' })
   async getBatchPerformance(
     @Args('id', { type: () => ID }) id: string,
-    @Args('tenantId') tenantId: string,
+    @Tenant() tenantId: string,
   ): Promise<BatchPerformanceResponse> {
     this.logger.debug(`Getting batch performance: ${id}`);
     return this.queryBus.execute(new GetBatchPerformanceQuery(tenantId, id));
@@ -685,7 +696,7 @@ export class BatchResolver {
   @Query(() => [BatchHistoryEntryResponse], { name: 'batchHistory' })
   async getBatchHistory(
     @Args('id', { type: () => ID }) id: string,
-    @Args('tenantId') tenantId: string,
+    @Tenant() tenantId: string,
     @Args('eventTypes', { type: () => [BatchHistoryEventType], nullable: true }) eventTypes?: BatchHistoryEventType[],
     @Args('fromDate', { nullable: true }) fromDate?: Date,
     @Args('toDate', { nullable: true }) toDate?: Date,
@@ -699,7 +710,7 @@ export class BatchResolver {
 
   @Query(() => [AvailableTankResponse], { name: 'availableTanks' })
   async listAvailableTanks(
-    @Args('tenantId') tenantId: string,
+    @Tenant() tenantId: string,
     @Args('siteId', { type: () => ID, nullable: true }) siteId?: string,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
     @Args('excludeFullTanks', { nullable: true, defaultValue: false }) excludeFullTanks?: boolean,
@@ -712,7 +723,7 @@ export class BatchResolver {
 
   @Query(() => String, { name: 'generateBatchNumber' })
   async generateBatchNumber(
-    @Args('tenantId') tenantId: string,
+    @Tenant() tenantId: string,
   ): Promise<string> {
     this.logger.debug(`Generating batch number for tenant: ${tenantId}`);
     return this.queryBus.execute(new GenerateBatchNumberQuery(tenantId));
@@ -725,8 +736,8 @@ export class BatchResolver {
   @Mutation(() => Batch)
   async createBatch(
     @Args('input') input: CreateBatchInput,
-    @Args('tenantId') tenantId: string,
-    @Args('userId') userId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Creating batch for species: ${input.speciesId}`);
 
@@ -769,19 +780,19 @@ export class BatchResolver {
     };
 
     return this.commandBus.execute(
-      new CreateBatchCommand(tenantId, payload, userId),
+      new CreateBatchCommand(tenantId, payload, user.sub),
     );
   }
 
   @Mutation(() => Batch)
   async updateBatch(
     @Args('input') input: UpdateBatchInput,
-    @Args('tenantId') tenantId: string,
-    @Args('userId') userId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Updating batch: ${input.id}`);
     return this.commandBus.execute(
-      new UpdateBatchCommand(tenantId, input.id, input, userId),
+      new UpdateBatchCommand(tenantId, input.id, input, user.sub),
     );
   }
 
@@ -789,67 +800,67 @@ export class BatchResolver {
   async updateBatchStatus(
     @Args('id', { type: () => ID }) id: string,
     @Args('status', { type: () => BatchStatus }) status: BatchStatus,
-    @Args('tenantId') tenantId: string,
-    @Args('userId') userId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
     @Args('reason', { type: () => String, nullable: true }) reason?: string,
   ): Promise<Batch> {
     this.logger.log(`Updating batch status: ${id} to ${status}`);
     return this.commandBus.execute(
-      new UpdateBatchStatusCommand(tenantId, id, status, userId, reason),
+      new UpdateBatchStatusCommand(tenantId, id, status, user.sub, reason),
     );
   }
 
   @Mutation(() => Batch)
   async recordMortality(
     @Args('input') input: RecordMortalityInput,
-    @Args('tenantId') tenantId: string,
-    @Args('userId') userId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Recording mortality for batch: ${input.batchId}`);
     const { batchId, ...payload } = input;
     return this.commandBus.execute(
-      new RecordMortalityCommand(tenantId, batchId, payload, userId),
+      new RecordMortalityCommand(tenantId, batchId, payload, user.sub),
     );
   }
 
   @Mutation(() => Batch)
   async recordCull(
     @Args('input') input: RecordCullInput,
-    @Args('tenantId') tenantId: string,
-    @Args('userId') userId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Recording cull for batch: ${input.batchId}`);
     const { batchId, ...payload } = input;
     return this.commandBus.execute(
-      new RecordCullCommand(tenantId, batchId, payload, userId),
+      new RecordCullCommand(tenantId, batchId, payload, user.sub),
     );
   }
 
   @Mutation(() => Batch)
   async allocateBatchToTank(
     @Args('input') input: AllocateToTankInput,
-    @Args('tenantId') tenantId: string,
-    @Args('userId') userId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Allocating batch ${input.batchId} to tank ${input.tankId}`);
     const { batchId, ...rest } = input;
     const payload = { ...rest, allocatedAt: rest.allocatedAt || new Date() };
     return this.commandBus.execute(
-      new AllocateToTankCommand(tenantId, batchId, payload, userId),
+      new AllocateToTankCommand(tenantId, batchId, payload, user.sub),
     );
   }
 
   @Mutation(() => Batch)
   async transferBatch(
     @Args('input') input: TransferBatchInput,
-    @Args('tenantId') tenantId: string,
-    @Args('userId') userId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Transferring batch ${input.batchId} from ${input.sourceTankId} to ${input.destinationTankId}`);
     const { batchId, ...rest } = input;
     const payload = { ...rest, transferredAt: rest.transferredAt || new Date() };
     return this.commandBus.execute(
-      new TransferBatchCommand(tenantId, batchId, payload, userId),
+      new TransferBatchCommand(tenantId, batchId, payload, user.sub),
     );
   }
 
@@ -857,13 +868,13 @@ export class BatchResolver {
   async closeBatch(
     @Args('id', { type: () => ID }) id: string,
     @Args('reason', { type: () => BatchCloseReason }) reason: BatchCloseReason,
-    @Args('tenantId') tenantId: string,
-    @Args('userId') userId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
     @Args('notes', { nullable: true }) notes?: string,
   ): Promise<Batch> {
     this.logger.log(`Closing batch: ${id} with reason: ${reason}`);
     return this.commandBus.execute(
-      new CloseBatchCommand(tenantId, id, reason, userId, notes),
+      new CloseBatchCommand(tenantId, id, reason, user.sub, notes),
     );
   }
 

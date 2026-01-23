@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+
 import {
   Injectable,
   Logger,
@@ -10,14 +12,16 @@ import {
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
-import { randomUUID } from 'crypto';
+
+import { MqttListenerService } from '../ingestion/mqtt-listener.service';
+
+import { DeviceIoConfig, IoType, IoDataType } from './entities/device-io-config.entity';
 import {
   EdgeDevice,
   DeviceLifecycleState,
   DeviceModel,
 } from './entities/edge-device.entity';
-import { DeviceIoConfig, IoType, IoDataType } from './entities/device-io-config.entity';
-import { MqttListenerService } from '../ingestion/mqtt-listener.service';
+
 
 /**
  * Input type for registering a new edge device
@@ -388,7 +392,7 @@ export class EdgeDeviceService {
   /**
    * Mark devices as offline if no heartbeat received
    */
-  async markStaleDevicesOffline(timeoutMinutes: number = 5): Promise<number> {
+  async markStaleDevicesOffline(timeoutMinutes = 5): Promise<number> {
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
 
     const result = await this.deviceRepository
@@ -416,6 +420,15 @@ export class EdgeDeviceService {
    * Get device statistics for dashboard
    */
   async getStats(tenantId: string): Promise<EdgeDeviceStats> {
+    interface DeviceStatsRow {
+      total: string;
+      online: string;
+      offline: string;
+      lifecycle_state: DeviceLifecycleState;
+      device_model: DeviceModel;
+      count: string;
+    }
+
     const query = `
       SELECT
         COUNT(*) AS total,
@@ -429,7 +442,7 @@ export class EdgeDeviceService {
       GROUP BY lifecycle_state, device_model
     `;
 
-    const results = await this.dataSource.query(query, [tenantId]);
+    const results: DeviceStatsRow[] = await this.dataSource.query(query, [tenantId]);
 
     // Process results
     const byState: Map<DeviceLifecycleState, number> = new Map();
@@ -567,14 +580,16 @@ export class EdgeDeviceService {
 
   /**
    * Check if MQTT is available for commands
+   * Returns the MQTT listener if available, throws otherwise
    */
-  private ensureMqttAvailable(): void {
+  private ensureMqttAvailable(): MqttListenerService {
     if (!this.mqttListener) {
       throw new BadRequestException('MQTT service not available');
     }
     if (!this.mqttListener.isConnectedToBroker()) {
       throw new BadRequestException('Not connected to MQTT broker');
     }
+    return this.mqttListener;
   }
 
   /**
@@ -583,7 +598,7 @@ export class EdgeDeviceService {
    */
   async pingDevice(id: string, tenantId: string): Promise<PingResult> {
     const device = await this.findByIdOrFail(id, tenantId);
-    this.ensureMqttAvailable();
+    const mqtt = this.ensureMqttAvailable();
 
     const commandId = randomUUID();
     const startTime = Date.now();
@@ -612,7 +627,7 @@ export class EdgeDeviceService {
 
     // Publish ping command
     try {
-      await this.mqttListener!.publish(`edge/${device.deviceCode}/cmd/ping`, {
+      await mqtt.publish(`edge/${device.deviceCode}/cmd/ping`, {
         commandId,
         command: 'ping',
         timestamp: new Date().toISOString(),
@@ -668,7 +683,7 @@ export class EdgeDeviceService {
    */
   async rebootDevice(id: string, tenantId: string, reason?: string): Promise<boolean> {
     const device = await this.findByIdOrFail(id, tenantId);
-    this.ensureMqttAvailable();
+    const mqtt = this.ensureMqttAvailable();
 
     // Only allow reboot for active/maintenance devices
     if (device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
@@ -676,7 +691,7 @@ export class EdgeDeviceService {
     }
 
     try {
-      await this.mqttListener!.publish(`edge/${device.deviceCode}/cmd/reboot`, {
+      await mqtt.publish(`edge/${device.deviceCode}/cmd/reboot`, {
         commandId: randomUUID(),
         command: 'reboot',
         reason: reason || 'User requested reboot',
@@ -700,10 +715,10 @@ export class EdgeDeviceService {
     config: Record<string, unknown>,
   ): Promise<boolean> {
     const device = await this.findByIdOrFail(id, tenantId);
-    this.ensureMqttAvailable();
+    const mqtt = this.ensureMqttAvailable();
 
     try {
-      await this.mqttListener!.publish(`edge/${device.deviceCode}/cmd/config`, {
+      await mqtt.publish(`edge/${device.deviceCode}/cmd/config`, {
         commandId: randomUUID(),
         command: 'config',
         config,

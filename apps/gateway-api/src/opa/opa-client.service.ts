@@ -6,9 +6,10 @@
  * Implements connection pooling, retry logic, and circuit breaker patterns.
  */
 
+import { EventEmitter } from 'events';
+
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EventEmitter } from 'events';
 
 /**
  * OPA evaluation input
@@ -140,8 +141,8 @@ export class OpaClientService extends EventEmitter implements OnModuleInit, OnMo
 
     // Start periodic health checks
     this.healthCheckInterval = setInterval(() => {
-      this.checkHealth().catch((err) => {
-        this.logger.warn('Health check failed', { error: err.message });
+      this.checkHealth().catch((err: unknown) => {
+        this.logger.warn('Health check failed', { error: err instanceof Error ? err.message : String(err) });
       });
     }, 30000);
 

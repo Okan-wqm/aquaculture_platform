@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+
+import {
+  ProtocolCategory,
+  ProtocolSubcategory,
+  ConnectionType,
+  ProtocolConfigurationSchema,
+} from '../../../database/entities/sensor-protocol.entity';
 import {
   BaseProtocolAdapter,
   ConnectionHandle,
@@ -8,14 +14,10 @@ import {
   ValidationResult,
   ProtocolCapabilities,
 } from '../base-protocol.adapter';
-import {
-  ProtocolCategory,
-  ProtocolSubcategory,
-  ConnectionType,
-  ProtocolConfigurationSchema,
-} from '../../../database/entities/sensor-protocol.entity';
 
 export interface SiemensS7Configuration {
+  sensorId?: string;
+  tenantId?: string;
   host: string;
   port: number;
   rack: number;
@@ -34,6 +36,19 @@ export interface SiemensS7Configuration {
   pollingInterval: number;
 }
 
+interface S7ClientData {
+  client: S7Client;
+  config: SiemensS7Configuration;
+}
+
+interface S7Client {
+  initiateConnection: (params: Record<string, unknown>, callback: (err?: Error) => void) => void;
+  dropConnection: () => void;
+  setTranslationCB: (cb: (tag: string) => string) => void;
+  addItems: (items: string[]) => void;
+  readAllItems: (callback: (err: Error | null, data: Record<string, unknown>) => void) => void;
+}
+
 @Injectable()
 export class SiemensS7Adapter extends BaseProtocolAdapter {
   readonly protocolCode = 'SIEMENS_S7';
@@ -43,18 +58,14 @@ export class SiemensS7Adapter extends BaseProtocolAdapter {
   readonly displayName = 'Siemens S7';
   readonly description = 'Siemens S7 Communication Protocol for S7-300/400/1200/1500 PLCs';
 
-  private clients = new Map<string, any>();
-
-  constructor(configService: ConfigService) {
-    super(configService);
-  }
+  private clients = new Map<string, S7ClientData>();
 
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
     const s7Config = config as unknown as SiemensS7Configuration;
 
     // Dynamic import nodes7 library
     const nodes7 = await import('nodes7');
-    const client = new nodes7.default();
+    const client = new nodes7.default() as S7Client;
 
     await new Promise<void>((resolve, reject) => {
       client.initiateConnection(
@@ -73,8 +84,8 @@ export class SiemensS7Adapter extends BaseProtocolAdapter {
     });
 
     const handle = this.createConnectionHandle(
-      config.sensorId as string || 'unknown',
-      config.tenantId as string || 'unknown',
+      s7Config.sensorId ?? 'unknown',
+      s7Config.tenantId ?? 'unknown',
       { host: s7Config.host, rack: s7Config.rack, slot: s7Config.slot }
     );
 
@@ -83,6 +94,7 @@ export class SiemensS7Adapter extends BaseProtocolAdapter {
     return handle;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     const clientData = this.clients.get(handle.id);
     if (clientData) {
@@ -104,7 +116,9 @@ export class SiemensS7Adapter extends BaseProtocolAdapter {
       let sampleData: SensorReadingData | undefined;
       try {
         sampleData = await this.readData(handle);
-      } catch {}
+      } catch {
+        // Ignore read errors during connection test
+      }
 
       return { success: true, latencyMs, sampleData };
     } catch (error) {
@@ -136,7 +150,7 @@ export class SiemensS7Adapter extends BaseProtocolAdapter {
     client.addItems(Object.keys(items));
 
     await new Promise<void>((resolve, reject) => {
-      client.readAllItems((err: Error, data: Record<string, any>) => {
+      client.readAllItems((err: Error | null, data: Record<string, unknown>) => {
         if (err) reject(err);
         else {
           Object.assign(values, data);

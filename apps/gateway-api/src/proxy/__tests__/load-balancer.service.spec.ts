@@ -1,11 +1,24 @@
+/* eslint-disable @typescript-eslint/no-dynamic-delete */
+/* eslint-disable @typescript-eslint/no-empty-function */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/unbound-method */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
 /**
  * Load Balancer Service Tests
  *
  * Comprehensive test suite for load balancing functionality
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import {
   LoadBalancerService,
   LoadBalancingAlgorithm,
@@ -60,7 +73,7 @@ describe('LoadBalancerService', () => {
     }).compile();
 
     service = module.get<LoadBalancerService>(LoadBalancerService);
-    await service.onModuleInit();
+    service.onModuleInit();
   });
 
   afterEach(() => {

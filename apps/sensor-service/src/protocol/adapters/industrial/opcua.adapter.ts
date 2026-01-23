@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+
+import {
+  ProtocolCategory,
+  ProtocolSubcategory,
+  ConnectionType,
+  ProtocolConfigurationSchema,
+} from '../../../database/entities/sensor-protocol.entity';
 import {
   BaseProtocolAdapter,
   ConnectionHandle,
@@ -11,14 +17,10 @@ import {
   DataCallback,
   ErrorCallback,
 } from '../base-protocol.adapter';
-import {
-  ProtocolCategory,
-  ProtocolSubcategory,
-  ConnectionType,
-  ProtocolConfigurationSchema,
-} from '../../../database/entities/sensor-protocol.entity';
 
 export interface OpcUaConfiguration {
+  sensorId?: string;
+  tenantId?: string;
   endpointUrl: string;
   securityMode: 'None' | 'Sign' | 'SignAndEncrypt';
   securityPolicy: 'None' | 'Basic256Sha256' | 'Aes128_Sha256_RsaOaep';
@@ -37,6 +39,46 @@ export interface OpcUaConfiguration {
   secureChannelLifetime: number;
 }
 
+interface OpcUaSessionData {
+  client: OpcUaClient;
+  session: OpcUaSession;
+  config: OpcUaConfiguration;
+}
+
+interface OpcUaClient {
+  connect: (url: string) => Promise<void>;
+  disconnect: () => Promise<void>;
+  createSession: (userIdentity: OpcUaUserIdentity) => Promise<OpcUaSession>;
+}
+
+interface OpcUaSession {
+  close: () => Promise<void>;
+  read: (params: { nodeId: string }) => Promise<OpcUaDataValue>;
+}
+
+interface OpcUaDataValue {
+  value?: { value?: unknown };
+}
+
+interface OpcUaUserIdentity {
+  type: number;
+  userName?: string;
+  password?: string;
+}
+
+interface OpcUaMonitoredItem {
+  on: (event: string, callback: (dataValue: OpcUaDataValue) => void) => void;
+}
+
+interface OpcUaSubscription {
+  monitor: (
+    params: { nodeId: string; attributeId: number },
+    options: { samplingInterval: number; discardOldest: boolean; queueSize: number },
+    timestampsToReturn: number
+  ) => Promise<OpcUaMonitoredItem>;
+  terminate: () => Promise<void>;
+}
+
 @Injectable()
 export class OpcUaAdapter extends BaseProtocolAdapter {
   readonly protocolCode = 'OPC_UA';
@@ -46,11 +88,7 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
   readonly displayName = 'OPC UA';
   readonly description = 'OPC Unified Architecture - Industrial interoperability standard';
 
-  private sessions = new Map<string, any>();
-
-  constructor(configService: ConfigService) {
-    super(configService);
-  }
+  private sessions = new Map<string, OpcUaSessionData>();
 
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
     const opcConfig = config as unknown as OpcUaConfiguration;
@@ -63,13 +101,13 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
       UserTokenType,
     } = await import('node-opcua');
 
-    const securityModeMap: Record<string, any> = {
+    const securityModeMap: Record<string, unknown> = {
       'None': MessageSecurityMode.None,
       'Sign': MessageSecurityMode.Sign,
       'SignAndEncrypt': MessageSecurityMode.SignAndEncrypt,
     };
 
-    const securityPolicyMap: Record<string, any> = {
+    const securityPolicyMap: Record<string, unknown> = {
       'None': SecurityPolicy.None,
       'Basic256Sha256': SecurityPolicy.Basic256Sha256,
       'Aes128_Sha256_RsaOaep': SecurityPolicy.Aes128_Sha256_RsaOaep,
@@ -80,14 +118,14 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
       securityMode: securityModeMap[opcConfig.securityMode] || MessageSecurityMode.None,
       securityPolicy: securityPolicyMap[opcConfig.securityPolicy] || SecurityPolicy.None,
       requestedSessionTimeout: opcConfig.requestedSessionTimeout || 60000,
-    });
+    }) as unknown as OpcUaClient;
 
     await client.connect(opcConfig.endpointUrl);
 
-    let userIdentity: any = { type: UserTokenType.Anonymous };
+    let userIdentity: OpcUaUserIdentity = { type: UserTokenType.Anonymous as number };
     if (opcConfig.authMode === 'Username' && opcConfig.username) {
       userIdentity = {
-        type: UserTokenType.UserName,
+        type: UserTokenType.UserName as number,
         userName: opcConfig.username,
         password: opcConfig.password,
       };
@@ -96,8 +134,8 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
     const session = await client.createSession(userIdentity);
 
     const handle = this.createConnectionHandle(
-      config.sensorId as string || 'unknown',
-      config.tenantId as string || 'unknown',
+      opcConfig.sensorId ?? 'unknown',
+      opcConfig.tenantId ?? 'unknown',
       { endpointUrl: opcConfig.endpointUrl }
     );
 
@@ -132,7 +170,9 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
       let sampleData: SensorReadingData | undefined;
       try {
         sampleData = await this.readData(handle);
-      } catch {}
+      } catch {
+        // Ignore read errors during connection test
+      }
 
       return {
         success: true,
@@ -183,7 +223,7 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
     if (!sessionData) throw new Error('Session not found');
 
     const { session, config } = sessionData;
-    const { ClientSubscription, ClientMonitoredItem, AttributeIds } = await import('node-opcua');
+    const { ClientSubscription, AttributeIds } = await import('node-opcua');
 
     const subscription = ClientSubscription.create(session, {
       requestedPublishingInterval: config.publishingInterval || 1000,
@@ -192,19 +232,19 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
       maxNotificationsPerPublish: 100,
       publishingEnabled: true,
       priority: 10,
-    });
+    }) as unknown as OpcUaSubscription;
 
     let isActive = true;
-    const monitoredItems: any[] = [];
+    const monitoredItems: OpcUaMonitoredItem[] = [];
 
     for (const nodeId of config.nodeIds) {
       const item = await subscription.monitor(
-        { nodeId, attributeId: AttributeIds.Value },
+        { nodeId, attributeId: AttributeIds.Value as number },
         { samplingInterval: config.samplingInterval || 500, discardOldest: true, queueSize: 10 },
         2 // TimestampsToReturn.Both
       );
 
-      item.on('changed', (dataValue: any) => {
+      item.on('changed', (dataValue: OpcUaDataValue) => {
         try {
           const nodeName = nodeId.split(';').pop() || nodeId;
           const data: SensorReadingData = {

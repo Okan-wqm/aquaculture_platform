@@ -1,4 +1,12 @@
 import {
+  ObjectType,
+  Field,
+  ID,
+  Int,
+  Float,
+  registerEnumType,
+} from '@nestjs/graphql';
+import {
   Entity,
   Column,
   PrimaryGeneratedColumn,
@@ -8,14 +16,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Int,
-  Float,
-  registerEnumType,
-} from '@nestjs/graphql';
+
 import { EdgeDevice } from './edge-device.entity';
 
 /**

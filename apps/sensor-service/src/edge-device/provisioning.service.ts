@@ -1,3 +1,5 @@
+import { randomBytes } from 'crypto';
+
 import {
   Injectable,
   Logger,
@@ -6,15 +8,10 @@ import {
   UnauthorizedException,
   BadRequestException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
-import { randomBytes } from 'crypto';
-import {
-  EdgeDevice,
-  DeviceLifecycleState,
-  DeviceModel,
-} from './entities/edge-device.entity';
+
 import {
   CreateProvisionedDeviceInput,
   ProvisionedDeviceResponse,
@@ -24,6 +21,11 @@ import {
   ActivationErrorCode,
   InstallerScriptVariables,
 } from './dto/provisioning.dto';
+import {
+  EdgeDevice,
+  DeviceLifecycleState,
+  DeviceModel,
+} from './entities/edge-device.entity';
 import { MqttAuthService } from './mqtt-auth.service';
 
 /**
@@ -299,7 +301,8 @@ export class ProvisioningService {
     await this.deviceRepository.save(device);
 
     // Add MQTT credentials to password file (for Mosquitto auth)
-    await this.mqttAuthService.addDeviceCredentials(device.mqttClientId!, mqttPasswordHash);
+    const mqttClientId = device.mqttClientId ?? '';
+    await this.mqttAuthService.addDeviceCredentials(mqttClientId, mqttPasswordHash);
 
     this.logger.log(`Device ${device.deviceCode} activated successfully`);
 
@@ -308,7 +311,7 @@ export class ProvisioningService {
       success: true,
       mqtt_broker: this.MQTT_BROKER,
       mqtt_port: this.MQTT_PORT,
-      mqtt_username: device.mqttClientId!,
+      mqtt_username: mqttClientId,
       mqtt_password: mqttPassword,
       tenant_id: device.tenantId,
       device_code: device.deviceCode,
@@ -343,14 +346,14 @@ export class ProvisioningService {
    */
   private buildProvisioningResponse(
     device: EdgeDevice,
-    token: string,
+    _token: string,
   ): ProvisionedDeviceResponse {
     return {
       deviceId: device.id,
       deviceCode: device.deviceCode,
       installerUrl: this.buildInstallerUrl(device.deviceCode),
       installerCommand: this.buildInstallerCommand(device.deviceCode),
-      tokenExpiresAt: device.tokenExpiresAt!,
+      tokenExpiresAt: device.tokenExpiresAt ?? new Date(),
       status: device.lifecycleState,
     };
   }

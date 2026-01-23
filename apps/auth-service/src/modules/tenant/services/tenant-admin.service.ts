@@ -6,13 +6,12 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
-import { Tenant, TenantStatus } from '../entities/tenant.entity';
-import { TenantModule } from '../entities/tenant-module.entity';
-import { User } from '../../authentication/entities/user.entity';
-import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
-import { Module } from '../../system-module/entities/module.entity';
 import { Role } from '@platform/backend-common';
+import { Repository, DataSource } from 'typeorm';
+
+import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
+import { User } from '../../authentication/entities/user.entity';
+import { Module } from '../../system-module/entities/module.entity';
 import {
   AssignUserToModuleInput,
   AssignmentResult,
@@ -22,6 +21,24 @@ import {
   TableDataResult,
   GetTableDataInput,
 } from '../dto/tenant-admin.dto';
+import { TenantModule } from '../entities/tenant-module.entity';
+import { Tenant, TenantStatus } from '../entities/tenant.entity';
+
+/**
+ * Database query result interfaces
+ */
+interface TableInfoRow {
+  tableName: string;
+  rowCount: string | null;
+}
+
+interface CountRow {
+  count: string;
+}
+
+interface DataRow {
+  [key: string]: unknown;
+}
 
 /**
  * TenantAdminService
@@ -448,7 +465,7 @@ export class TenantAdminService {
 
     try {
       // Query PostgreSQL information_schema
-      const tables = await this.dataSource.query(
+      const tables: TableInfoRow[] = await this.dataSource.query(
         `
         SELECT
           table_name as "tableName",
@@ -464,16 +481,14 @@ export class TenantAdminService {
       );
 
       // Map tables to modules (based on naming convention)
-      return tables.map(
-        (t: { tableName: string; rowCount: number | null }) => ({
-          tableName: t.tableName,
-          rowCount: Number(t.rowCount) || 0,
-          module: this.inferModuleFromTableName(t.tableName),
-        }),
-      );
+      return tables.map((t) => ({
+        tableName: t.tableName,
+        rowCount: Number(t.rowCount) || 0,
+        module: this.inferModuleFromTableName(t.tableName),
+      }));
     } catch (error) {
       this.logger.warn(
-        `Could not query tenant schema ${schemaName}: ${error}`,
+        `Could not query tenant schema ${schemaName}: ${error instanceof Error ? error.message : String(error)}`,
       );
 
       // Return main schema tables for the tenant (filtered by tenant_id)
@@ -535,7 +550,7 @@ export class TenantAdminService {
 
     try {
       // Get columns
-      const columnsResult = await this.dataSource.query(
+      const columnsResult: Array<{ column_name: string }> = await this.dataSource.query(
         `
         SELECT column_name
         FROM information_schema.columns
@@ -549,9 +564,7 @@ export class TenantAdminService {
         throw new NotFoundException(`Table not found: ${input.schemaName}.${input.tableName}`);
       }
 
-      const columns = columnsResult.map(
-        (c: { column_name: string }) => c.column_name,
-      );
+      const columns = columnsResult.map((c) => c.column_name);
 
       // Check if table has tenantId column
       const hasTenantId = columns.includes('tenantId');
@@ -559,20 +572,20 @@ export class TenantAdminService {
       // Get total count (with tenant filter if applicable)
       let totalRows = 0;
       if (hasTenantId) {
-        const countResult = await this.dataSource.query(
+        const countResult: CountRow[] = await this.dataSource.query(
           `SELECT COUNT(*) as count FROM ${fullTableName} WHERE "tenantId" = $1`,
           [tenantId],
         );
         totalRows = Number(countResult[0]?.count) || 0;
       } else {
-        const countResult = await this.dataSource.query(
+        const countResult: CountRow[] = await this.dataSource.query(
           `SELECT COUNT(*) as count FROM ${fullTableName}`,
         );
         totalRows = Number(countResult[0]?.count) || 0;
       }
 
       // Get data (with tenant filter if applicable)
-      let rows;
+      let rows: DataRow[];
       if (hasTenantId) {
         rows = await this.dataSource.query(
           `SELECT * FROM ${fullTableName} WHERE "tenantId" = $1 ORDER BY 1 LIMIT $2 OFFSET $3`,
@@ -597,7 +610,7 @@ export class TenantAdminService {
       if (error instanceof ForbiddenException || error instanceof NotFoundException) {
         throw error;
       }
-      this.logger.error(`Failed to get table data: ${error}`);
+      this.logger.error(`Failed to get table data: ${error instanceof Error ? error.message : String(error)}`);
       throw new BadRequestException(
         `Could not read table: ${input.schemaName}.${input.tableName}`,
       );
@@ -669,7 +682,7 @@ export class TenantAdminService {
 
     for (const tableName of tenantTables) {
       try {
-        const countResult = await this.dataSource.query(
+        const countResult: CountRow[] = await this.dataSource.query(
           `SELECT COUNT(*) as count FROM "${tableName}" WHERE "tenantId" = $1`,
           [tenantId],
         );
@@ -701,7 +714,7 @@ export class TenantAdminService {
       const tableName = input.tableName;
 
       // Get columns
-      const columnsResult = await this.dataSource.query(
+      const columnsResult: Array<{ column_name: string }> = await this.dataSource.query(
         `
         SELECT column_name
         FROM information_schema.columns
@@ -711,19 +724,17 @@ export class TenantAdminService {
         [tableName],
       );
 
-      const columns = columnsResult.map(
-        (c: { column_name: string }) => c.column_name,
-      );
+      const columns = columnsResult.map((c) => c.column_name);
 
       // Get total count (filtered by tenant)
-      const countResult = await this.dataSource.query(
+      const countResult: CountRow[] = await this.dataSource.query(
         `SELECT COUNT(*) as count FROM "${tableName}" WHERE "tenantId" = $1`,
         [tenantId],
       );
       const totalRows = Number(countResult[0]?.count) || 0;
 
       // Get data (filtered by tenant)
-      const rows = await this.dataSource.query(
+      const rows: DataRow[] = await this.dataSource.query(
         `SELECT * FROM "${tableName}" WHERE "tenantId" = $1 ORDER BY 1 LIMIT $2 OFFSET $3`,
         [tenantId, limit, offset],
       );
@@ -736,7 +747,7 @@ export class TenantAdminService {
         offset,
         limit,
       };
-    } catch (error) {
+    } catch {
       throw new BadRequestException(
         `Could not read table: ${input.tableName}`,
       );

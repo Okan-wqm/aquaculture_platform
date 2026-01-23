@@ -8,7 +8,8 @@
 
 import { Injectable, Logger, ForbiddenException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { OpaClientService, OpaResult } from './opa-client.service';
+
+import { OpaClientService, OpaResult, OpaHealthStatus } from './opa-client.service';
 
 /**
  * Authorization context for policy evaluation
@@ -141,7 +142,7 @@ export class PolicyEnforcerService implements OnModuleInit {
     this.isOpaAvailable = health.status === 'healthy';
 
     // Subscribe to health changes
-    this.opaClient.on('healthChange', (status) => {
+    this.opaClient.on('healthChange', (status: OpaHealthStatus) => {
       this.isOpaAvailable = status.status === 'healthy';
       this.logger.log('OPA availability changed', { available: this.isOpaAvailable });
     });
@@ -208,7 +209,7 @@ export class PolicyEnforcerService implements OnModuleInit {
 
     // Execute obligations
     if (decision.obligations && decision.obligations.length > 0) {
-      await this.executeObligations(decision.obligations, context);
+      this.executeObligations(decision.obligations, context);
     }
   }
 
@@ -532,10 +533,10 @@ export class PolicyEnforcerService implements OnModuleInit {
   /**
    * Execute policy obligations
    */
-  private async executeObligations(
+  private executeObligations(
     obligations: PolicyObligation[],
     context: AuthorizationContext,
-  ): Promise<void> {
+  ): void {
     for (const obligation of obligations) {
       try {
         switch (obligation.type) {

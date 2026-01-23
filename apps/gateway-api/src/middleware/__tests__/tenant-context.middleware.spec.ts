@@ -1,13 +1,27 @@
+/* eslint-disable @typescript-eslint/unbound-method */
+/* eslint-disable @typescript-eslint/no-dynamic-delete */
+/* eslint-disable @typescript-eslint/no-empty-function */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/await-thenable */
+
 /**
  * TenantContextMiddleware Tests
  *
  * Comprehensive test suite for tenant context middleware
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
 import { Request, Response } from 'express';
+
 import {
   TenantContextMiddleware,
   TenantStatus,
@@ -361,7 +375,13 @@ describe('TenantContextMiddleware', () => {
 
       await middleware.use(req, res, next);
 
-      expect(res.setHeader).toHaveBeenCalledWith('X-Tenant-ID', 'test-tenant');
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      const setHeaderMock = res.setHeader as jest.Mock;
+      expect(setHeaderMock.mock.calls).toEqual(
+        expect.arrayContaining([
+          expect.arrayContaining(['X-Tenant-ID', 'test-tenant']),
+        ]),
+      );
     });
 
     it('should set X-Tenant-Name header in response', async () => {

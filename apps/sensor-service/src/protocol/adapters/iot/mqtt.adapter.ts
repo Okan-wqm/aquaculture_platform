@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+
+import {
+  ProtocolCategory,
+  ProtocolSubcategory,
+  ConnectionType,
+  ProtocolConfigurationSchema,
+} from '../../../database/entities/sensor-protocol.entity';
 import {
   BaseProtocolAdapter,
   ConnectionHandle,
@@ -11,17 +17,13 @@ import {
   DataCallback,
   ErrorCallback,
 } from '../base-protocol.adapter';
-import {
-  ProtocolCategory,
-  ProtocolSubcategory,
-  ConnectionType,
-  ProtocolConfigurationSchema,
-} from '../../../database/entities/sensor-protocol.entity';
 
 /**
  * MQTT Protocol Configuration
  */
 export interface MqttConfiguration {
+  sensorId?: string;
+  tenantId?: string;
   brokerUrl: string;
   port: number;
   topic: string;
@@ -49,6 +51,41 @@ export interface MqttConfiguration {
   dataMapping?: Record<string, string>;
 }
 
+interface MqttClientInstance {
+  connected: boolean;
+  end: (force: boolean, options: Record<string, unknown>, callback: () => void) => void;
+  subscribe: (topic: string, options: { qos: number }, callback: (err: Error | null) => void) => void;
+  unsubscribe: (topic: string) => void;
+  once: (event: string, handler: (topic: string, message: Buffer) => void) => void;
+  on: (event: string, handler: (topic: string, message: Buffer) => void) => void;
+  removeListener: (event: string, handler: (topic: string, message: Buffer) => void) => void;
+}
+
+interface MqttClientData {
+  client: MqttClientInstance;
+  config: MqttConfiguration;
+}
+
+interface MqttConnectOptions {
+  clientId: string;
+  clean: boolean;
+  keepalive: number;
+  reconnectPeriod: number;
+  connectTimeout: number;
+  username?: string;
+  password?: string;
+  rejectUnauthorized?: boolean;
+  ca?: string;
+  cert?: string;
+  key?: string;
+  will?: {
+    topic: string;
+    payload: string;
+    qos: 0 | 1 | 2;
+    retain: boolean;
+  };
+}
+
 @Injectable()
 export class MqttAdapter extends BaseProtocolAdapter {
   readonly protocolCode = 'MQTT';
@@ -58,11 +95,7 @@ export class MqttAdapter extends BaseProtocolAdapter {
   readonly displayName = 'MQTT';
   readonly description = 'Message Queuing Telemetry Transport - Lightweight publish/subscribe messaging protocol';
 
-  private clients = new Map<string, any>();
-
-  constructor(configService: ConfigService) {
-    super(configService);
-  }
+  private clients = new Map<string, MqttClientData>();
 
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
     const mqttConfig = config as unknown as MqttConfiguration;
@@ -74,8 +107,8 @@ export class MqttAdapter extends BaseProtocolAdapter {
       ? `mqtts://${mqttConfig.brokerUrl}:${mqttConfig.port}`
       : `mqtt://${mqttConfig.brokerUrl}:${mqttConfig.port}`;
 
-    const options: any = {
-      clientId: mqttConfig.clientId || `aqua_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    const options: MqttConnectOptions = {
+      clientId: mqttConfig.clientId || `aqua_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       clean: mqttConfig.cleanSession,
       keepalive: mqttConfig.keepAlive,
       reconnectPeriod: mqttConfig.reconnectPeriod,
@@ -104,18 +137,20 @@ export class MqttAdapter extends BaseProtocolAdapter {
     }
 
     return new Promise((resolve, reject) => {
-      const client = mqtt.connect(brokerUrl, options);
+      const client = mqtt.connect(brokerUrl, options) as unknown as MqttClientInstance;
 
       const timeout = setTimeout(() => {
-        client.end(true);
+        client.end(true, {}, () => {
+          // Connection ended
+        });
         reject(new Error('Connection timeout'));
       }, mqttConfig.connectTimeout);
 
       client.on('connect', () => {
         clearTimeout(timeout);
         const handle = this.createConnectionHandle(
-          config.sensorId as string || 'unknown',
-          config.tenantId as string || 'unknown',
+          mqttConfig.sensorId ?? 'unknown',
+          mqttConfig.tenantId ?? 'unknown',
           { brokerUrl, topic: mqttConfig.topic }
         );
         this.clients.set(handle.id, { client, config: mqttConfig });
@@ -236,6 +271,7 @@ export class MqttAdapter extends BaseProtocolAdapter {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async subscribeToData(
     handle: ConnectionHandle,
     onData: DataCallback,
@@ -249,7 +285,7 @@ export class MqttAdapter extends BaseProtocolAdapter {
     const { client, config } = clientData;
     let isActive = true;
 
-    const messageHandler = (topic: string, message: Buffer) => {
+    const messageHandler = (topic: string, message: Buffer): void => {
       if (topic === config.topic || this.topicMatches(config.topic, topic)) {
         try {
           const data = this.parsePayload(message, config);
@@ -266,6 +302,7 @@ export class MqttAdapter extends BaseProtocolAdapter {
 
     return {
       id: `sub_${handle.id}_${Date.now()}`,
+      // eslint-disable-next-line @typescript-eslint/require-await
       unsubscribe: async () => {
         isActive = false;
         client.unsubscribe(config.topic);
@@ -553,7 +590,7 @@ export class MqttAdapter extends BaseProtocolAdapter {
     switch (config.payloadFormat) {
       case 'json':
         try {
-          const parsed = JSON.parse(message.toString());
+          const parsed = JSON.parse(message.toString()) as Record<string, unknown>;
           if (config.dataMapping) {
             for (const [key, path] of Object.entries(config.dataMapping)) {
               values[key] = this.getNestedValue(parsed, path);
@@ -566,13 +603,14 @@ export class MqttAdapter extends BaseProtocolAdapter {
         }
         break;
 
-      case 'csv':
+      case 'csv': {
         const parts = message.toString().split(',');
         parts.forEach((part, index) => {
           const num = parseFloat(part.trim());
           values[`value_${index}`] = isNaN(num) ? part.trim() : num;
         });
         break;
+      }
 
       case 'text':
         values = { value: message.toString() };
@@ -591,16 +629,16 @@ export class MqttAdapter extends BaseProtocolAdapter {
     };
   }
 
-  private getNestedValue(obj: any, path: string): any {
-    return path.split('.').reduce((o, k) => o?.[k], obj);
+  private getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+    return path.split('.').reduce((o: unknown, k: string) => (o as Record<string, unknown>)?.[k], obj);
   }
 
-  private flattenObject(obj: any, prefix = ''): Record<string, any> {
-    const result: Record<string, any> = {};
+  private flattenObject(obj: Record<string, unknown>, prefix = ''): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj)) {
       const newKey = prefix ? `${prefix}.${key}` : key;
       if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-        Object.assign(result, this.flattenObject(value, newKey));
+        Object.assign(result, this.flattenObject(value as Record<string, unknown>, newKey));
       } else {
         result[newKey] = value;
       }

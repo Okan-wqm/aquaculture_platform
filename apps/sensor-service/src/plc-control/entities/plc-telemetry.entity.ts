@@ -1,3 +1,5 @@
+import { ObjectType, Field, ID, Float, Int } from '@nestjs/graphql';
+import { GraphQLJSON } from 'graphql-scalars';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -5,8 +7,6 @@ import {
   CreateDateColumn,
   Index,
 } from 'typeorm';
-import { ObjectType, Field, ID, Float, Int } from '@nestjs/graphql';
-import { GraphQLJSON } from 'graphql-scalars';
 
 /**
  * Sensor readings from PLC

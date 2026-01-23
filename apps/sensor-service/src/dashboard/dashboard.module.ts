@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { DashboardLayout } from './entities/dashboard-layout.entity';
-import { DashboardService } from './dashboard.service';
+
 import { DashboardResolver } from './dashboard.resolver';
+import { DashboardService } from './dashboard.service';
+import { DashboardLayout } from './entities/dashboard-layout.entity';
 
 @Module({
   imports: [TypeOrmModule.forFeature([DashboardLayout])],
   providers: [DashboardService, DashboardResolver],
   exports: [DashboardService],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class DashboardModule {}

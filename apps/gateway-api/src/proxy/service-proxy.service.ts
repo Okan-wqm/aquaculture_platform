@@ -9,7 +9,7 @@
 import { Injectable, Logger, BadGatewayException, GatewayTimeoutException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
-import { IncomingMessage } from 'http';
+
 import { CircuitBreakerService } from './circuit-breaker.service';
 import { LoadBalancerService, ServiceInstanceStats, LoadBalancerContext } from './load-balancer.service';
 
@@ -127,7 +127,7 @@ export class ServiceProxyService {
         return this.executeProxyRequest(config, serviceConfig, instance);
       },
       {
-        fallback: async (error) => {
+        fallback: (error) => {
           this.logger.error(`Proxy failed for ${config.serviceName}`, {
             error: error.message,
             path: config.path,
@@ -190,12 +190,12 @@ export class ServiceProxyService {
   /**
    * Proxy WebSocket connection
    */
-  async proxyWebSocket(
+  proxyWebSocket(
     req: Request,
-    socket: unknown,
-    head: Buffer,
+    _socket: unknown,
+    _head: Buffer,
     serviceName: string,
-  ): Promise<void> {
+  ): void {
     const instance = this.loadBalancer.getNextInstance(serviceName);
 
     if (!instance) {
@@ -231,6 +231,7 @@ export class ServiceProxyService {
     try {
       const controller = new AbortController();
       const timeout = this.getServiceConfig(serviceName).timeout;
+      const sseIdleTimeout = timeout * 2; // SSE idle timeout is 2x the regular timeout
 
       // Set SSE headers
       res.setHeader('Content-Type', 'text/event-stream');
@@ -258,14 +259,36 @@ export class ServiceProxyService {
         throw new BadGatewayException('No response body for SSE');
       }
 
-      // Stream the response
+      // Stream the response with idle timeout handling
       const decoder = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      let done = false;
+      let lastActivityTime = Date.now();
 
-        const chunk = decoder.decode(value, { stream: true });
-        res.write(chunk);
+      // SSE idle timeout checker - terminates connection if no data received
+      const idleTimeoutChecker = setInterval(() => {
+        const idleTime = Date.now() - lastActivityTime;
+        if (idleTime > sseIdleTimeout) {
+          this.logger.warn(`SSE connection idle for ${idleTime}ms, terminating`, {
+            service: serviceName,
+            timeout: sseIdleTimeout,
+          });
+          clearInterval(idleTimeoutChecker);
+          controller.abort();
+        }
+      }, Math.min(sseIdleTimeout / 2, 30000)); // Check at half the timeout interval, max 30s
+
+      try {
+        while (!done) {
+          const result = await reader.read();
+          done = result.done;
+          if (!done && result.value) {
+            lastActivityTime = Date.now(); // Reset idle timer on data received
+            const chunk = decoder.decode(result.value, { stream: true });
+            res.write(chunk);
+          }
+        }
+      } finally {
+        clearInterval(idleTimeoutChecker);
       }
 
       res.end();
@@ -374,24 +397,20 @@ export class ServiceProxyService {
     const targetUrl = this.buildTargetUrl(instance, path, config.query);
 
     // Build headers
-    const headers: Record<string, string> = {
+    const rawHeaders: Record<string, string> = {
       ...serviceConfig.headers,
       ...config.headers,
     };
 
     // Preserve or override host header
-    if (serviceConfig.preserveHost) {
-      // Keep original host
-    } else {
-      headers['host'] = `${instance.host}:${instance.port}`;
+    if (!serviceConfig.preserveHost) {
+      rawHeaders['host'] = `${instance.host}:${instance.port}`;
     }
 
-    // Remove hop-by-hop headers
-    for (const header of Object.keys(headers)) {
-      if (this.isHopByHopHeader(header)) {
-        delete headers[header];
-      }
-    }
+    // Remove hop-by-hop headers by filtering
+    const headers = Object.fromEntries(
+      Object.entries(rawHeaders).filter(([key]) => !this.isHopByHopHeader(key)),
+    );
 
     // Build request object
     let proxyRequest: ProxyRequest = {

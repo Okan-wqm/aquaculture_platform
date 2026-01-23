@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import {
   Resolver,
   Query,
@@ -8,12 +9,8 @@ import {
   ResolveField,
   Parent,
 } from '@nestjs/graphql';
-import { Logger } from '@nestjs/common';
 import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
-import { EdgeDevice, DeviceLifecycleState } from './entities/edge-device.entity';
-import { DeviceIoConfig } from './entities/device-io-config.entity';
-import { EdgeDeviceService } from './edge-device.service';
-import { ProvisioningService } from './provisioning.service';
+
 import {
   RegisterEdgeDeviceInput,
   UpdateEdgeDeviceInput,
@@ -28,6 +25,10 @@ import {
   ProvisionedDeviceResponse,
   RegenerateTokenResponse,
 } from './dto/provisioning.dto';
+import { EdgeDeviceService } from './edge-device.service';
+import { DeviceIoConfig } from './entities/device-io-config.entity';
+import { EdgeDevice, DeviceLifecycleState } from './entities/edge-device.entity';
+import { ProvisioningService } from './provisioning.service';
 
 /**
  * User context interface
@@ -199,8 +200,11 @@ export class EdgeDeviceResolver {
     @Args('reason', { type: () => String, nullable: true }) reason?: string,
     @Tenant() tenantId?: string,
   ): Promise<boolean> {
+    if (!tenantId) {
+      throw new Error('Tenant context is required');
+    }
     this.logger.log(`Rebooting edge device: ${id}, reason: ${reason || 'User requested'}`);
-    return await this.edgeDeviceService.rebootDevice(id, tenantId!, reason);
+    return await this.edgeDeviceService.rebootDevice(id, tenantId, reason);
   }
 
   // ==================== Provisioning Mutations ====================
@@ -298,9 +302,9 @@ export class EdgeDeviceResolver {
    * TODO: Implement when sensor-edgeDevice relation is added
    */
   @ResolveField(() => Int, { name: 'sensorCount', nullable: true })
-  async resolveSensorCount(
-    @Parent() device: EdgeDevice,
-  ): Promise<number> {
+  resolveSensorCount(
+    @Parent() _device: EdgeDevice,
+  ): number {
     // Placeholder - will be implemented when sensor relation is added
     return 0;
   }
@@ -310,9 +314,9 @@ export class EdgeDeviceResolver {
    * TODO: Implement when automation module is added
    */
   @ResolveField(() => Int, { name: 'programCount', nullable: true })
-  async resolveProgramCount(
-    @Parent() device: EdgeDevice,
-  ): Promise<number> {
+  resolveProgramCount(
+    @Parent() _device: EdgeDevice,
+  ): number {
     // Placeholder - will be implemented in Sprint 3
     return 0;
   }
@@ -322,9 +326,9 @@ export class EdgeDeviceResolver {
    * TODO: Implement when alarm module is added
    */
   @ResolveField(() => Int, { name: 'activeAlarmCount', nullable: true })
-  async resolveActiveAlarmCount(
-    @Parent() device: EdgeDevice,
-  ): Promise<number> {
+  resolveActiveAlarmCount(
+    @Parent() _device: EdgeDevice,
+  ): number {
     // Placeholder - will be implemented in Sprint 2
     return 0;
   }

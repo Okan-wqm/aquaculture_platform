@@ -1,9 +1,17 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-floating-promises */
 /**
  * Auth Service Health Controller Unit Tests
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
+
 import { HealthController } from '../health.controller';
 
 describe('HealthController (Auth Service)', () => {
@@ -46,23 +54,23 @@ describe('HealthController (Auth Service)', () => {
   });
 
   describe('readiness', () => {
-    it('should return ok when database is connected', async () => {
+    it('should return ok when database is connected', () => {
       isInitialized = true;
-      const result = await controller.readiness();
+      const result = controller.readiness();
       expect(result).toEqual({ status: 'ok', database: true });
     });
 
-    it('should return not_ready when database is not connected', async () => {
+    it('should return not_ready when database is not connected', () => {
       isInitialized = false;
-      const result = await controller.readiness();
+      const result = controller.readiness();
       expect(result).toEqual({ status: 'not_ready', database: false });
     });
   });
 
   describe('health', () => {
-    it('should return comprehensive health status', async () => {
+    it('should return comprehensive health status', () => {
       isInitialized = true;
-      const result = await controller.health();
+      const result = controller.health();
 
       expect(result.status).toBe('ok');
       expect(result.timestamp).toBeDefined();
@@ -71,8 +79,8 @@ describe('HealthController (Auth Service)', () => {
       expect(result.database).toBe(true);
     });
 
-    it('should include valid ISO timestamp', async () => {
-      const result = await controller.health();
+    it('should include valid ISO timestamp', () => {
+      const result = controller.health();
       const timestamp = new Date(result.timestamp);
       expect(timestamp.toISOString()).toBe(result.timestamp);
     });

@@ -1,3 +1,5 @@
+import * as crypto from 'crypto';
+
 import {
   Injectable,
   UnauthorizedException,
@@ -6,20 +8,21 @@ import {
   Inject,
   Logger,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { User } from '../entities/user.entity';
-import { RefreshToken } from '../entities/refresh-token.entity';
-import { Invitation, InvitationStatus } from '../entities/invitation.entity';
-import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
-import { RegisterInput } from '../dto/register.dto';
-import { LoginInput } from '../dto/login.dto';
-import { AuthPayload, MePayload } from '../dto/auth-response.dto';
-import { IEventBus } from '@platform/event-bus';
+import { JwtService } from '@nestjs/jwt';
+import { InjectRepository } from '@nestjs/typeorm';
 import { Role } from '@platform/backend-common';
-import * as crypto from 'crypto';
+import { IEventBus } from '@platform/event-bus';
+import { Repository } from 'typeorm';
+
+import { AuthPayload, MePayload } from '../dto/auth-response.dto';
+import { LoginInput } from '../dto/login.dto';
+import { RegisterInput } from '../dto/register.dto';
+import { Invitation, InvitationStatus } from '../entities/invitation.entity';
+import { RefreshToken } from '../entities/refresh-token.entity';
+import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
+import { User } from '../entities/user.entity';
+
 
 /**
  * JWT Payload structure
@@ -30,6 +33,15 @@ export interface JwtPayload {
   role: Role;
   tenantId: string | null;
   modules?: string[];
+}
+
+/**
+ * Tenant module query result row
+ */
+interface TenantModuleRow {
+  code: string;
+  name: string;
+  defaultRoute: string;
 }
 
 @Injectable()
@@ -112,7 +124,7 @@ export class AuthenticationService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    this.logger.debug(`User found: ${user.email}, role: ${user.role}, hasPassword: ${!!user.password}, passwordLength: ${user.password?.length}`);
+    this.logger.debug(`User found: ${user.email}, role: ${user.role}`);
 
     // Check if user is pending invitation (no password set)
     if (user.isPendingInvitation()) {
@@ -135,9 +147,7 @@ export class AuthenticationService {
     }
 
     // Validate password
-    this.logger.debug(`Validating password for: ${user.email}`);
     const isPasswordValid = await user.validatePassword(input.password);
-    this.logger.debug(`Password validation result for ${user.email}: ${isPasswordValid}`);
 
     if (!isPasswordValid) {
       await this.handleFailedLogin(user);
@@ -374,16 +384,16 @@ export class AuthenticationService {
     // TENANT_ADMIN has access to all tenant modules
     if (user.role === Role.TENANT_ADMIN && user.tenantId) {
       // Query tenant_modules join with modules to get all modules for this tenant
-      const tenantModules = await this.userRepository.manager.query(
+      const tenantModules = await this.userRepository.manager.query<TenantModuleRow>(
         `SELECT m.code, m.name, m."defaultRoute"
          FROM tenant_modules tm
          JOIN modules m ON tm."moduleId" = m.id
          WHERE tm."tenantId" = $1 AND tm."isEnabled" = true
          ORDER BY m.name`,
         [user.tenantId],
-      );
+      ) as TenantModuleRow[];
 
-      return tenantModules.map((tm: { code: string; name: string; defaultRoute: string }) => ({
+      return tenantModules.map((tm) => ({
         code: tm.code,
         name: tm.name,
         defaultRoute: tm.defaultRoute,

@@ -1,19 +1,18 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, FindOptionsWhere, DataSource } from 'typeorm';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Sensor, SensorType, SensorRegistrationStatus, SensorConnectionStatus, SensorRole } from '../../database/entities/sensor.entity';
+
+import { Sensor, SensorType, SensorRegistrationStatus, SensorRole } from '../../database/entities/sensor.entity';
+import { ConnectionTesterService, ExtendedTestResult } from '../../protocol/services/connection-tester.service';
 import { ProtocolRegistryService } from '../../protocol/services/protocol-registry.service';
 import { ProtocolValidatorService } from '../../protocol/services/protocol-validator.service';
-import { ConnectionTesterService, ExtendedTestResult } from '../../protocol/services/connection-tester.service';
 import {
   RegisterSensorInput,
   UpdateSensorProtocolInput,
   UpdateSensorInfoInput,
   SensorFilterInput,
   PaginationInput,
-  RegisterParentDeviceInput,
-  RegisterChildSensorInput,
   RegisterParentWithChildrenInput,
 } from '../dto/register-sensor.dto';
 
@@ -655,7 +654,8 @@ export class SensorRegistrationService {
       // Create child sensors
       const savedChildren: Sensor[] = [];
       for (let i = 0; i < children.length; i++) {
-        const childInput = children[i]!;
+        const childInput = children[i];
+        if (!childInput) continue;
         const childSerialNumber = `${parentSerialNumber}-CH${i + 1}`;
 
         const childSensor = queryRunner.manager.create(Sensor, {

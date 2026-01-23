@@ -1,6 +1,7 @@
 import { ObjectType, Field, Int } from '@nestjs/graphql';
-import { User } from '../entities/user.entity';
 import { Role } from '@platform/backend-common';
+
+import { User } from '../entities/user.entity';
 
 @ObjectType()
 export class AuthPayload {

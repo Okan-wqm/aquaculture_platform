@@ -25,6 +25,27 @@ import { BatchStatus } from '../entities/batch.entity';
 import { AllocationType } from '../entities/tank-allocation.entity';
 import { OperationType } from '../entities/tank-operation.entity';
 
+/**
+ * Interface for batch list filters
+ */
+interface BatchListFilters {
+  status?: BatchStatus[];
+  speciesId?: string;
+  isActive?: boolean;
+}
+
+/**
+ * Interface for batch update payload
+ */
+interface BatchUpdatePayload {
+  name?: string;
+  description?: string;
+  status?: BatchStatus;
+  expectedHarvestDate?: Date;
+  notes?: string;
+  updatedBy: string;
+}
+
 // ============================================================================
 // DTOs
 // ============================================================================
@@ -170,7 +191,7 @@ export class BatchController {
       throw new BadRequestException('x-tenant-id header is required');
     }
 
-    const filters: any = {};
+    const filters: BatchListFilters = {};
 
     if (query.status) {
       filters.status = query.status.split(',') as BatchStatus[];
@@ -227,8 +248,11 @@ export class BatchController {
       throw new BadRequestException('x-tenant-id header is required');
     }
 
-    const updates: any = {
-      ...dto,
+    const updates: BatchUpdatePayload = {
+      name: dto.name,
+      description: dto.description,
+      status: dto.status,
+      notes: dto.notes,
       updatedBy: userId || 'system',
     };
 

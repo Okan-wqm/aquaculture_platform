@@ -1,5 +1,6 @@
 import { Module, Global } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
 import { AuditLog } from './audit-log.entity';
 import { AuditLogService } from './audit-log.service';
 
@@ -9,4 +10,5 @@ import { AuditLogService } from './audit-log.service';
   providers: [AuditLogService],
   exports: [AuditLogService],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class AuditModule {}

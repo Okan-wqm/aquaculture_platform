@@ -296,6 +296,44 @@ export class TicketController {
   }
 
   // ============================================================================
+  // Replies (Alias for Comments - Frontend Compatibility)
+  // ============================================================================
+
+  @Get(':id/replies')
+  @AllowTenantAdmin()
+  async getReplies(
+    @Param('id') id: string,
+    @Query('includeInternal') includeInternal?: string,
+  ) {
+    // Replies are the same as comments, just with different naming
+    return this.ticketService.getComments(id, {
+      includeInternal: includeInternal !== 'false',
+    });
+  }
+
+  @Post(':id/replies')
+  @AllowTenantAdmin()
+  @HttpCode(HttpStatus.CREATED)
+  async addReply(
+    @Param('id') id: string,
+    @Body() dto: AddCommentDto,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    if (!dto.content) {
+      throw new BadRequestException('content is required');
+    }
+
+    return this.ticketService.addComment(id, {
+      authorId: user.id,
+      authorType: 'admin',
+      authorName: dto.authorName || user.email,
+      content: dto.content,
+      isInternal: dto.isInternal,
+      attachments: dto.attachments,
+    });
+  }
+
+  // ============================================================================
   // Satisfaction
   // ============================================================================
 

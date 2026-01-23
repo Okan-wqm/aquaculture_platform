@@ -3,11 +3,12 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { VfdCommandResolver } from '../vfd-command.resolver';
+
+import { VfdBrand, VfdProtocol, VfdParameterCategory, VfdCommandType } from '../../entities/vfd.enums';
 import { VfdCommandService } from '../../services/vfd-command.service';
 import { VfdConnectionTesterService } from '../../services/vfd-connection-tester.service';
 import { VfdRegisterMappingService } from '../../services/vfd-register-mapping.service';
-import { VfdBrand, VfdProtocol, VfdParameterCategory, VfdCommandType } from '../../entities/vfd.enums';
+import { VfdCommandResolver } from '../vfd-command.resolver';
 
 describe('VfdCommandResolver', () => {
   let resolver: VfdCommandResolver;

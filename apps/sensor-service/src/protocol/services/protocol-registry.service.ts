@@ -1,6 +1,7 @@
 import { Injectable, Inject, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DeepPartial } from 'typeorm';
+
 import { SensorProtocol, ProtocolCategory } from '../../database/entities/sensor-protocol.entity';
 import { BaseProtocolAdapter, ProtocolCapabilities } from '../adapters/base-protocol.adapter';
 
@@ -72,9 +73,9 @@ export class ProtocolRegistryService implements OnModuleInit {
       };
 
       if (existing) {
-        await this.protocolRepository.update(existing.id, protocolData as any);
+        await this.protocolRepository.update(existing.id, protocolData as DeepPartial<SensorProtocol>);
       } else {
-        await this.protocolRepository.save(this.protocolRepository.create(protocolData as any));
+        await this.protocolRepository.save(this.protocolRepository.create(protocolData as DeepPartial<SensorProtocol>));
       }
     }
   }

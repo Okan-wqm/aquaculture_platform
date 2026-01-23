@@ -1,4 +1,9 @@
 import { Injectable } from '@nestjs/common';
+
+import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
+import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
+import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
+
 import {
   BaseVfdAdapter,
   VfdConnectionHandle,
@@ -7,9 +12,6 @@ import {
   ConnectionTestResult,
   ValidationResult,
 } from './base-vfd.adapter';
-import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
-import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
-import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
 
 /**
  * PROFINET Configuration
@@ -51,6 +53,7 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
     super('VfdProfinetAdapter');
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     const validatedConfig = this.validateAndCastConfig(config);
     const connectionId = this.generateConnectionId();
@@ -86,6 +89,7 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: VfdConnectionHandle): Promise<void> {
     const connection = this.connections.get(handle.id);
     if (!connection) {
@@ -221,11 +225,12 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
     count: number,
-    functionCode: number
+    _functionCode: number
   ): Promise<Buffer> {
     const connection = this.connections.get(handle.id) as ProfinetConnectionHandle;
 
@@ -263,6 +268,7 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
     return this.writeRegister(handle, registerAddress, rawValue);
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async writeRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -314,7 +320,7 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
       errors.push('ipAddress is required and must be a string');
     } else {
       const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-      if (!ipRegex.test(cfg.ipAddress as string)) {
+      if (!ipRegex.test(cfg.ipAddress)) {
         errors.push('ipAddress must be a valid IPv4 address');
       }
     }
@@ -444,7 +450,8 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
     };
   }
 
-  private async readCyclicData(connection: ProfinetConnectionHandle): Promise<Buffer> {
+  // eslint-disable-next-line @typescript-eslint/require-await
+  private async readCyclicData(_connection: ProfinetConnectionHandle): Promise<Buffer> {
     // Read cyclic IO data from PROFINET
     // In production, this would use RT Ethernet frames
     const data = Buffer.alloc(32); // Typical telegram size

@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { RevokeCertificationCommand } from '../commands/revoke-certification.command';
 import { EmployeeCertification, CertificationStatus } from '../entities/employee-certification.entity';
+import { CertificationRevokedEvent } from '../events/training.events';
 
 @CommandHandler(RevokeCertificationCommand)
 export class RevokeCertificationHandler
@@ -38,8 +39,8 @@ export class RevokeCertificationHandler
 
     const savedCertification = await this.certificationRepository.save(certification);
 
-    // TODO: Publish CertificationRevokedEvent
-    // this.eventBus.publish(new CertificationRevokedEvent(savedCertification));
+    // Publish event for notification/audit purposes
+    this.eventBus.publish(new CertificationRevokedEvent(savedCertification));
 
     return savedCertification;
   }

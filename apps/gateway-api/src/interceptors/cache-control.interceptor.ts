@@ -6,6 +6,8 @@
  * Configurable per-route caching policies.
  */
 
+import { createHash } from 'crypto';
+
 import {
   Injectable,
   NestInterceptor,
@@ -14,12 +16,11 @@ import {
   Logger,
   SetMetadata,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { GqlExecutionContext } from '@nestjs/graphql';
+import { Request, Response } from 'express';
 import { Observable } from 'rxjs';
 import { tap, map } from 'rxjs/operators';
-import { Request, Response } from 'express';
-import { GqlExecutionContext } from '@nestjs/graphql';
-import { Reflector } from '@nestjs/core';
-import { createHash } from 'crypto';
 
 /**
  * Cache policy options
@@ -99,7 +100,7 @@ export class CacheControlInterceptor implements NestInterceptor {
 
     if (isGraphQL) {
       const gqlContext = GqlExecutionContext.create(context);
-      const ctx = gqlContext.getContext();
+      const ctx = gqlContext.getContext<{ req: Request; res: Response }>();
       request = ctx.req;
       response = ctx.res;
     } else {
@@ -135,7 +136,7 @@ export class CacheControlInterceptor implements NestInterceptor {
           response.setHeader('Last-Modified', lastModified.toUTCString());
         }
       }),
-      map((data) => {
+      map((data: unknown) => {
         // Set cache control headers
         this.setCacheHeaders(response, policy);
 
@@ -188,7 +189,7 @@ export class CacheControlInterceptor implements NestInterceptor {
    */
   private handleConditionalRequest(
     request: Request,
-    response: Response,
+    _response: Response,
   ): { notModified: boolean } {
     const ifNoneMatch = request.headers['if-none-match'];
     const ifModifiedSince = request.headers['if-modified-since'];
@@ -196,12 +197,12 @@ export class CacheControlInterceptor implements NestInterceptor {
     // These will be validated after response is generated
     // For now, store them for later comparison
     if (ifNoneMatch) {
-      (request as Request & { conditionalETag?: string }).conditionalETag = ifNoneMatch as string;
+      (request as Request & { conditionalETag?: string }).conditionalETag = ifNoneMatch;
     }
 
     if (ifModifiedSince) {
       (request as Request & { conditionalModifiedSince?: string }).conditionalModifiedSince =
-        ifModifiedSince as string;
+        ifModifiedSince;
     }
 
     return { notModified: false };

@@ -1,13 +1,26 @@
+/* eslint-disable @typescript-eslint/unbound-method */
+/* eslint-disable @typescript-eslint/no-dynamic-delete */
+/* eslint-disable @typescript-eslint/no-empty-function */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
 /**
  * TimeoutMiddleware Tests
  *
  * Comprehensive test suite for request timeout middleware
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { GatewayTimeoutException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
 import { Request, Response } from 'express';
+
 import {
   TimeoutMiddleware,
   hasTimedOut,
@@ -114,15 +127,17 @@ describe('TimeoutMiddleware', () => {
       // Fast-forward past timeout
       jest.advanceTimersByTime(35000);
 
-      expect(res.status).toHaveBeenCalledWith(504);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          success: false,
-          error: expect.objectContaining({
-            code: 'GATEWAY_TIMEOUT',
-          }),
+      /* eslint-disable @typescript-eslint/unbound-method */
+      const statusMock = res.status as jest.Mock;
+      const jsonMock = res.json as jest.Mock;
+      /* eslint-enable @typescript-eslint/unbound-method */
+      expect(statusMock.mock.calls).toEqual([[504]]);
+      expect(jsonMock.mock.calls[0][0]).toMatchObject({
+        success: false,
+        error: expect.objectContaining({
+          code: 'GATEWAY_TIMEOUT',
         }),
-      );
+      });
     });
 
     it('should not timeout if response completes in time', () => {

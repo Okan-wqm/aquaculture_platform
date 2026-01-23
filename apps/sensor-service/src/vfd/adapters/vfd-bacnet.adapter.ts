@@ -1,4 +1,9 @@
 import { Injectable } from '@nestjs/common';
+
+import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
+import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
+import { VfdProtocol, VfdDataType } from '../entities/vfd.enums';
+
 import {
   BaseVfdAdapter,
   VfdConnectionHandle,
@@ -7,9 +12,6 @@ import {
   ConnectionTestResult,
   ValidationResult,
 } from './base-vfd.adapter';
-import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
-import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
-import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
 
 /**
  * BACnet Configuration
@@ -68,6 +70,7 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
     super('VfdBacnetAdapter');
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     const validatedConfig = this.validateAndCastConfig(config);
     const connectionId = this.generateConnectionId();
@@ -107,6 +110,7 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: VfdConnectionHandle): Promise<void> {
     const connection = this.connections.get(handle.id);
     if (!connection) {
@@ -131,7 +135,7 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
       handle = await this.connect(config);
 
       // Read device object, object-name property
-      const testBuffer = await this.readRegister(handle, 0, 1, 0);
+      await this.readRegister(handle, 0, 1, 0);
       const latencyMs = Date.now() - startTime;
 
       await this.disconnect(handle);
@@ -231,8 +235,8 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
-    count: number,
-    functionCode: number
+    _count: number,
+    _functionCode: number
   ): Promise<Buffer> {
     const connection = this.connections.get(handle.id) as BacnetConnectionHandle;
 
@@ -461,6 +465,7 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async readProperty(
     connection: BacnetConnectionHandle,
     objectType: number,
@@ -475,6 +480,7 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
     return Math.random() * 100;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async writeProperty(
     connection: BacnetConnectionHandle,
     objectType: number,

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ChannelDataType, DiscoverySource } from '../../database/entities/sensor-data-channel.entity';
+
+import { ChannelDataType } from '../../database/entities/sensor-data-channel.entity';
 
 /**
  * Discovered channel information from test reading
@@ -129,6 +130,7 @@ export class ChannelDiscoveryService {
   /**
    * Discover channels from sample data
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async discoverChannels(
     sampleData: unknown,
     payloadFormat: 'json' | 'csv' | 'text' | 'binary' = 'json',
@@ -233,14 +235,17 @@ export class ChannelDiscoveryService {
     }
 
     const lines = payload.trim().split('\n');
+    if (lines.length === 0 || !lines[0]) {
+      return channels;
+    }
 
     // Check if first line is headers
-    const firstLine = lines[0]!.split(',').map(s => s.trim());
+    const firstLine = lines[0].split(',').map(s => s.trim());
     const hasHeaders = firstLine.some(v => isNaN(parseFloat(v)));
 
-    if (hasHeaders && lines.length > 1) {
+    if (hasHeaders && lines.length > 1 && lines[1]) {
       // Use headers as channel keys
-      const values = lines[1]!.split(',').map(s => s.trim());
+      const values = lines[1].split(',').map(s => s.trim());
       firstLine.forEach((header, index) => {
         if (values[index] !== undefined) {
           const normalizedKey = this.normalizeKey(header);

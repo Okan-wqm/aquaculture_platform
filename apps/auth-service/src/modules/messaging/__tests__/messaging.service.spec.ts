@@ -1,14 +1,22 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-floating-promises */
+import { NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Role } from '@platform/backend-common';
 import { Repository } from 'typeorm';
-import { NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 
-import { MessagingService } from '../services/messaging.service';
-import { MessageThread, ThreadStatus } from '../entities/message-thread.entity';
-import { Message, SenderType, MessageStatus } from '../entities/message.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { Tenant } from '../../tenant/entities/tenant.entity';
-import { Role } from '@platform/backend-common';
+import { MessageThread, ThreadStatus } from '../entities/message-thread.entity';
+import { Message, SenderType, MessageStatus } from '../entities/message.entity';
+import { MessagingService } from '../services/messaging.service';
+
 
 // ============================================================================
 // Mock Helpers
@@ -272,7 +280,7 @@ describe('MessagingService', () => {
       threadRepository.save.mockResolvedValue(createMockThread({ tenantId: 'target-tenant' }));
       messageRepository.save.mockResolvedValue(createMockMessage());
 
-      const result = await service.createThread(superAdmin.id, input);
+      await service.createThread(superAdmin.id, input);
 
       expect(threadRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -307,7 +315,7 @@ describe('MessagingService', () => {
       threadRepository.save.mockResolvedValue({ ...thread, messageCount: 2 });
       messageRepository.save.mockResolvedValue(createMockMessage({ content: 'My message' }));
 
-      const result = await service.sendMessage(tenantAdmin.id, input);
+      await service.sendMessage(tenantAdmin.id, input);
 
       expect(messageRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -415,7 +423,7 @@ describe('MessagingService', () => {
       (messageRepository.createQueryBuilder().getMany as jest.Mock).mockResolvedValue(messages);
       threadRepository.update.mockResolvedValue({ affected: 1 } as any);
 
-      const result = await service.getMessages(tenantAdmin.id, thread.id);
+      await service.getMessages(tenantAdmin.id, thread.id);
 
       // Verify internal filter was applied
       expect(messageRepository.createQueryBuilder().andWhere).toHaveBeenCalledWith(
@@ -436,7 +444,7 @@ describe('MessagingService', () => {
       (messageRepository.createQueryBuilder().getMany as jest.Mock).mockResolvedValue(messages);
       threadRepository.update.mockResolvedValue({ affected: 1 } as any);
 
-      const result = await service.getMessages(superAdmin.id, thread.id);
+      await service.getMessages(superAdmin.id, thread.id);
 
       // Internal filter should NOT be applied for SuperAdmin
       // The andWhere for isInternal should not be called
@@ -452,7 +460,7 @@ describe('MessagingService', () => {
       threadRepository.findOne.mockResolvedValue(thread);
       threadRepository.save.mockResolvedValue({ ...thread, status: ThreadStatus.CLOSED });
 
-      const result = await service.closeThread(user.id, thread.id);
+      await service.closeThread(user.id, thread.id);
 
       expect(threadRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ status: ThreadStatus.CLOSED }),
@@ -469,7 +477,7 @@ describe('MessagingService', () => {
       threadRepository.findOne.mockResolvedValue(thread);
       threadRepository.save.mockResolvedValue({ ...thread, status: ThreadStatus.OPEN });
 
-      const result = await service.reopenThread(user.id, thread.id);
+      await service.reopenThread(user.id, thread.id);
 
       expect(threadRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ status: ThreadStatus.OPEN }),
@@ -486,7 +494,7 @@ describe('MessagingService', () => {
       threadRepository.findOne.mockResolvedValue(thread);
       threadRepository.save.mockResolvedValue({ ...thread, status: ThreadStatus.ARCHIVED });
 
-      const result = await service.archiveThread(superAdmin.id, thread.id);
+      await service.archiveThread(superAdmin.id, thread.id);
 
       expect(threadRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ status: ThreadStatus.ARCHIVED }),

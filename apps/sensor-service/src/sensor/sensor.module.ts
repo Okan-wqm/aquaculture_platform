@@ -1,14 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-// Entities
-import { Sensor } from '../database/entities/sensor.entity';
 import { SensorReading } from '../database/entities/sensor-reading.entity';
+import { Sensor } from '../database/entities/sensor.entity';
 
-// Resolvers
 import { SensorResolver } from './resolvers/sensor.resolver';
-
-// Services
 import { SensorIngestionService } from './services/sensor-ingestion.service';
 import { SensorQueryService } from './services/sensor-query.service';
 
@@ -31,4 +27,5 @@ import { SensorQueryService } from './services/sensor-query.service';
   ],
   exports: [SensorIngestionService, SensorQueryService],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class SensorModule {}

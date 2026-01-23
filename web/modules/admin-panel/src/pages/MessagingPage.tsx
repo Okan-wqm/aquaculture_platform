@@ -23,44 +23,23 @@ import {
   Loader2,
   Inbox,
 } from 'lucide-react';
-import { supportApi } from '../services/adminApi';
+import {
+  supportApi,
+  type MessageThread,
+  type Message,
+  type MessageAttachment,
+} from '../services/adminApi';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-interface ThreadSummary {
-  id: string;
-  tenantId: string;
-  tenantName: string;
-  subject: string;
+// Adapting MessageThread to have computed properties used in UI
+interface ThreadSummary extends Omit<MessageThread, 'lastMessage' | 'lastMessageAt'> {
   lastMessage: string;
   lastMessageAt: string;
   unreadCount: number;
-  messageCount: number;
   isClosed: boolean;
-}
-
-interface Message {
-  id: string;
-  threadId: string;
-  senderId: string;
-  senderType: 'admin' | 'tenant_admin' | 'system';
-  senderName: string;
-  content: string;
-  status: 'sent' | 'delivered' | 'read' | 'failed';
-  isInternal: boolean;
-  attachments: MessageAttachment[];
-  readAt?: string;
-  createdAt: string;
-}
-
-interface MessageAttachment {
-  id: string;
-  fileName: string;
-  fileSize: number;
-  mimeType: string;
-  url: string;
 }
 
 interface MessagingStats {
@@ -104,7 +83,15 @@ export const MessagingPage: React.FC = () => {
       if (showUnreadOnly) params.hasUnread = 'true';
 
       const result = await supportApi.getMessageThreads(params);
-      setThreads(result.data || []);
+      // Map MessageThread to ThreadSummary
+      const mappedThreads: ThreadSummary[] = (result.data || []).map((thread: MessageThread) => ({
+        ...thread,
+        lastMessage: thread.lastMessage || '',
+        lastMessageAt: thread.lastMessageAt || '',
+        unreadCount: thread.unreadCountAdmin || 0,
+        isClosed: thread.status === 'closed',
+      }));
+      setThreads(mappedThreads);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setThreads([]);
@@ -117,7 +104,7 @@ export const MessagingPage: React.FC = () => {
   const fetchStats = useCallback(async () => {
     try {
       const data = await supportApi.getMessagingStats();
-      setStats(data as MessagingStats);
+      setStats(data as unknown as MessagingStats);
     } catch (err) {
       console.error('Failed to fetch stats:', err);
     }
@@ -162,7 +149,7 @@ export const MessagingPage: React.FC = () => {
       const query = searchQuery.toLowerCase();
       return (
         thread.subject.toLowerCase().includes(query) ||
-        thread.tenantName.toLowerCase().includes(query) ||
+        (thread.tenantName || '').toLowerCase().includes(query) ||
         thread.lastMessage.toLowerCase().includes(query)
       );
     }
@@ -505,13 +492,13 @@ export const MessagingPage: React.FC = () => {
                   messages.map((message) => (
                     <div
                       key={message.id}
-                      className={`flex ${message.senderType === 'admin' ? 'justify-end' : 'justify-start'}`}
+                      className={`flex ${message.senderType === 'super_admin' ? 'justify-end' : 'justify-start'}`}
                     >
                       <div
                         className={`max-w-2xl rounded-lg p-4 ${
                           message.isInternal
                             ? 'bg-yellow-50 border border-yellow-200'
-                            : message.senderType === 'admin'
+                            : message.senderType === 'super_admin'
                             ? 'bg-blue-600 text-white'
                             : 'bg-white border border-gray-200'
                         }`}
@@ -524,12 +511,12 @@ export const MessagingPage: React.FC = () => {
                         )}
                         <div className="flex items-center gap-2 mb-1">
                           <span className={`text-sm font-medium ${
-                            message.senderType === 'admin' && !message.isInternal ? 'text-blue-100' : 'text-gray-700'
+                            message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-100' : 'text-gray-700'
                           }`}>
                             {message.senderName}
                           </span>
                           <span className={`text-xs ${
-                            message.senderType === 'admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-400'
+                            message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-400'
                           }`}>
                             {formatTime(message.createdAt)}
                           </span>
@@ -548,17 +535,17 @@ export const MessagingPage: React.FC = () => {
                                 key={att.id}
                                 href={att.url}
                                 className={`flex items-center gap-2 p-2 rounded border ${
-                                  message.senderType === 'admin' && !message.isInternal
+                                  message.senderType === 'super_admin' && !message.isInternal
                                     ? 'border-blue-400 bg-blue-500 hover:bg-blue-400'
                                     : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
                                 }`}
                               >
                                 <Paperclip size={14} />
-                                <span className="text-sm truncate">{att.fileName}</span>
+                                <span className="text-sm truncate">{att.filename}</span>
                                 <span className={`text-xs ${
-                                  message.senderType === 'admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-400'
+                                  message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-400'
                                 }`}>
-                                  {formatFileSize(att.fileSize)}
+                                  {formatFileSize(att.size)}
                                 </span>
                               </a>
                             ))}
@@ -566,7 +553,7 @@ export const MessagingPage: React.FC = () => {
                         )}
 
                         {/* Read Status */}
-                        {message.senderType === 'admin' && !message.isInternal && (
+                        {message.senderType === 'super_admin' && !message.isInternal && (
                           <div className="flex justify-end mt-2">
                             {message.status === 'read' ? (
                               <CheckCheck size={14} className="text-blue-200" />

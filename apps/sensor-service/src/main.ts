@@ -1,10 +1,11 @@
-import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
+
 import { AppModule } from './app.module';
 
-async function bootstrap() {
+async function bootstrap(): Promise<void> {
   const logger = new Logger('SensorService');
 
   const app = await NestFactory.create(AppModule, {
@@ -23,7 +24,7 @@ async function bootstrap() {
 
   // CORS configuration
   app.enableCors({
-    origin: configService.get('CORS_ORIGINS', '*').split(','),
+    origin: (configService.get<string>('CORS_ORIGINS') ?? '*').split(','),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',
@@ -54,7 +55,8 @@ async function bootstrap() {
   logger.log(`GraphQL playground: http://localhost:${port}/graphql`);
 }
 
+const bootstrapLogger = new Logger('SensorServiceBootstrap');
 bootstrap().catch((error) => {
-  console.error('Sensor Service failed to start:', error);
+  bootstrapLogger.error('Sensor Service failed to start:', error);
   process.exit(1);
 });

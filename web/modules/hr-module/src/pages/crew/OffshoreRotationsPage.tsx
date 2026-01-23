@@ -21,7 +21,7 @@ import {
   Clock,
   AlertTriangle,
 } from 'lucide-react';
-import { cn } from '@shared-ui/utils';
+import { cn } from '@aquaculture/shared-ui';
 import {
   useWorkRotations,
   useEmployees,

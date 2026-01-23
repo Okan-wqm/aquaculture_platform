@@ -18,7 +18,7 @@ const API_BASE_URL = import.meta.env.VITE_ADMIN_API_URL || '/api';
 
 // Simple fetch wrapper
 const apiFetch = async <T,>(endpoint: string, options?: RequestInit): Promise<T> => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('access_token');
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     headers: {
@@ -81,6 +81,24 @@ interface ReportApiResponse {
     format: string;
   };
 }
+
+// Helper function to convert report type to CSV export type
+const getReportTypeForExport = (reportType: ReportType): string => {
+  switch (reportType) {
+    case 'tenant_overview':
+    case 'tenant_churn':
+      return 'tenants';
+    case 'financial_revenue':
+      return 'revenue';
+    case 'financial_payments':
+      return 'payments';
+    case 'usage_modules':
+    case 'usage_features':
+      return 'users';
+    default:
+      return 'tenants';
+  }
+};
 
 // ============================================================================
 // Report Definitions
@@ -390,14 +408,23 @@ const ReportsPage: React.FC = () => {
         extension = 'json';
         break;
       case 'excel':
-      case 'pdf':
-        // For excel and pdf, try to get from backend
+        // Excel format - use CSV export as fallback (backend doesn't support excel natively)
         try {
-          const exportUrl = `${API_BASE_URL}/reports/export/${format}?type=${report.type}`;
-          window.open(exportUrl, '_blank');
+          const csvExportUrl = `${API_BASE_URL}/reports/export/csv?type=${getReportTypeForExport(report.type)}`;
+          window.open(csvExportUrl, '_blank');
           return;
         } catch {
-          alert(`${format.toUpperCase()} formati icin sunucu tarafli islem gereklidir.`);
+          alert('Excel formatı için CSV indirme kullanılıyor.');
+          return;
+        }
+      case 'pdf':
+        // For PDF, use the correct backend endpoint with reportType as path param
+        try {
+          const pdfExportUrl = `${API_BASE_URL}/reports/export/pdf/${report.type}`;
+          window.open(pdfExportUrl, '_blank');
+          return;
+        } catch {
+          alert('PDF formatı için sunucu tarafli islem gereklidir.');
           return;
         }
       default:

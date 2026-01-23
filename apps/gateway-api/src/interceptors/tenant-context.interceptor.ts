@@ -6,6 +6,8 @@
  * Integrates with AsyncLocalStorage for context propagation.
  */
 
+import { AsyncLocalStorage } from 'async_hooks';
+
 import {
   Injectable,
   NestInterceptor,
@@ -14,11 +16,10 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
+import { GqlExecutionContext } from '@nestjs/graphql';
+import { Request, Response } from 'express';
 import { Observable } from 'rxjs';
 import { tap, finalize } from 'rxjs/operators';
-import { Request, Response } from 'express';
-import { GqlExecutionContext } from '@nestjs/graphql';
-import { AsyncLocalStorage } from 'async_hooks';
 
 /**
  * Tenant context data
@@ -104,7 +105,7 @@ export class TenantContextInterceptor implements NestInterceptor {
 
     if (isGraphQL) {
       const gqlContext = GqlExecutionContext.create(context);
-      const ctx = gqlContext.getContext();
+      const ctx = gqlContext.getContext<{ req: TenantAwareRequest; res?: Response }>();
       request = ctx.req;
       response = ctx.res;
     } else {
@@ -200,7 +201,7 @@ export class TenantContextInterceptor implements NestInterceptor {
     // Priority 5: Subdomain extraction
     const host = request.headers['host'];
     if (host) {
-      const subdomain = this.extractSubdomain(host as string);
+      const subdomain = this.extractSubdomain(host);
       if (subdomain && subdomain !== 'www' && subdomain !== 'api') {
         return subdomain;
       }

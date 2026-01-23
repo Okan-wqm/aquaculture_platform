@@ -116,6 +116,23 @@ export class DebugToolsController {
   // Debug Sessions
   // ============================================================================
 
+  @Get('sessions')
+  async getSessions(
+    @Query('tenantId') tenantId?: string,
+    @Query('sessionType') sessionType?: DebugSessionType,
+    @Query('isActive') isActive?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.debugToolsService.querySessions({
+      tenantId,
+      sessionType,
+      isActive: isActive !== undefined ? isActive === 'true' : undefined,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
   @Post('sessions')
   async startDebugSession(
     @Body() dto: StartDebugSessionDto,
@@ -195,6 +212,17 @@ export class DebugToolsController {
     return this.debugToolsService.getQueryExplainPlan(queryId);
   }
 
+  @Get('queries/slow-analysis')
+  async getSlowQueryAnalysis(
+    @Query('tenantId') tenantId: string,
+    @Query('threshold') threshold?: number,
+  ) {
+    return this.debugToolsService.getSlowQueryAnalysis(
+      tenantId,
+      threshold ? Number(threshold) : undefined,
+    );
+  }
+
   // ============================================================================
   // API Log Viewer
   // ============================================================================
@@ -234,6 +262,19 @@ export class DebugToolsController {
     });
   }
 
+  @Get('api-calls/summary')
+  async getApiUsageSummary(
+    @Query('tenantId') tenantId: string,
+    @Query('period') period?: string,
+  ) {
+    return this.debugToolsService.getApiUsageSummary(tenantId, period);
+  }
+
+  @Get('api-calls/:id')
+  async getApiCallDetails(@Param('id') id: string) {
+    return this.debugToolsService.getApiCallDetails(id);
+  }
+
   // ============================================================================
   // Cache Inspector
   // ============================================================================
@@ -261,6 +302,28 @@ export class DebugToolsController {
     });
   }
 
+  @Get('cache/:key')
+  async getCacheEntry(@Param('key') key: string) {
+    return this.debugToolsService.getCacheEntry(decodeURIComponent(key));
+  }
+
+  @Delete('cache/:key')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async invalidateCacheByKey(@Param('key') key: string) {
+    await this.debugToolsService.invalidateCacheByKey(decodeURIComponent(key));
+  }
+
+  @Post('cache/invalidate')
+  async invalidateCacheByPattern(
+    @Body() dto: { pattern: string; tenantId?: string },
+  ) {
+    const count = await this.debugToolsService.invalidateCachePattern(
+      dto.tenantId || '',
+      dto.pattern,
+    );
+    return { invalidated: count };
+  }
+
   @Delete('cache/:tenantId/:key')
   @HttpCode(HttpStatus.NO_CONTENT)
   async invalidateCacheKey(
@@ -270,8 +333,8 @@ export class DebugToolsController {
     await this.debugToolsService.invalidateCacheKey(tenantId, key);
   }
 
-  @Delete('cache/:tenantId')
-  async invalidateCachePattern(
+  @Delete('cache/tenant/:tenantId')
+  async invalidateCachePatternForTenant(
     @Param('tenantId') tenantId: string,
     @Query('pattern') pattern: string,
   ) {
@@ -304,8 +367,18 @@ export class DebugToolsController {
   }
 
   @Get('feature-overrides/tenant/:tenantId')
+  async getOverridesForTenant(@Param('tenantId') tenantId: string) {
+    return this.debugToolsService.getActiveOverridesForTenant(tenantId);
+  }
+
+  @Get('feature-overrides/tenant/:tenantId/active')
   async getActiveOverridesForTenant(@Param('tenantId') tenantId: string) {
     return this.debugToolsService.getActiveOverridesForTenant(tenantId);
+  }
+
+  @Get('feature-overrides/:id')
+  async getFeatureOverride(@Param('id') id: string) {
+    return this.debugToolsService.getFeatureOverride(id);
   }
 
   @Get('feature-overrides/value')

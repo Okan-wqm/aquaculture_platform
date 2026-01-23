@@ -107,7 +107,31 @@ async function fetchActivities(params: {
   if (params.startDate) apiParams.startDate = params.startDate;
   if (params.endDate) apiParams.endDate = params.endDate;
 
-  return securityApi.getActivityLogs(apiParams);
+  const result = await securityApi.getActivityLogs(apiParams);
+  // Map API response to local ActivityLog type
+  return {
+    data: result.data.map((log) => ({
+      id: log.id,
+      category: (log as unknown as { category?: ActivityCategory }).category || 'user_action',
+      action: log.action,
+      severity: (log as unknown as { severity?: ActivitySeverity }).severity || 'info',
+      tenantId: log.tenantId,
+      userId: log.userId,
+      userName: (log as unknown as { userName?: string }).userName,
+      userEmail: log.userEmail,
+      ipAddress: log.ipAddress,
+      userAgent: log.userAgent,
+      geoLocation: log.location,
+      entityType: log.entityType,
+      entityId: log.entityId,
+      metadata: log.metadata,
+      success: (log as unknown as { success?: boolean }).success ?? true,
+      createdAt: log.timestamp || (log as unknown as { createdAt?: string }).createdAt || '',
+    })),
+    total: result.total,
+    page: result.page,
+    limit: result.limit,
+  };
 }
 
 async function fetchActivityStats(): Promise<ActivityStats> {

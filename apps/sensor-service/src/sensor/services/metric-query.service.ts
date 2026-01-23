@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+
 import { AggregatedMetric } from '../../database/entities/sensor-metric.entity';
 
 /**
@@ -125,7 +126,7 @@ export class MetricQueryService {
         AND time <= $3
     `;
 
-    const params: any[] = [tenantId, startTime, endTime];
+    const params: (string | Date | number)[] = [tenantId, startTime, endTime];
     let paramIndex = 4;
 
     if (sensorId) {
@@ -148,7 +149,7 @@ export class MetricQueryService {
 
     query += ` ORDER BY time DESC LIMIT ${limit}`;
 
-    const results = await this.dataSource.query(query, params);
+    const results: AggregatedMetric[] = await this.dataSource.query(query, params);
     return results;
   }
 
@@ -181,7 +182,7 @@ export class MetricQueryService {
         AND bucket <= $3
     `;
 
-    const params: any[] = [tenantId, startTime, endTime];
+    const params: (string | Date | number)[] = [tenantId, startTime, endTime];
     let paramIndex = 4;
 
     if (sensorId) {
@@ -204,7 +205,7 @@ export class MetricQueryService {
 
     query += ` ORDER BY bucket DESC LIMIT ${limit}`;
 
-    const results = await this.dataSource.query(query, params);
+    const results: AggregatedMetric[] = await this.dataSource.query(query, params);
     return results;
   }
 
@@ -239,7 +240,7 @@ export class MetricQueryService {
       ORDER BY m.channel_id, m.time DESC
     `;
 
-    const results = await this.dataSource.query(query, [sensorId, tenantId]);
+    const results: CurrentReading[] = await this.dataSource.query(query, [sensorId, tenantId]);
     return results;
   }
 
@@ -274,7 +275,7 @@ export class MetricQueryService {
       ORDER BY m.sensor_id, m.channel_id, m.time DESC
     `;
 
-    const results = await this.dataSource.query(query, [tankId, tenantId]);
+    const results: CurrentReading[] = await this.dataSource.query(query, [tankId, tenantId]);
     return results;
   }
 
@@ -284,7 +285,7 @@ export class MetricQueryService {
   async getLastReadings(
     channelId: string,
     tenantId: string,
-    count: number = 100,
+    count = 100,
   ): Promise<{ time: Date; value: number; qualityCode: number }[]> {
     const query = `
       SELECT
@@ -298,7 +299,7 @@ export class MetricQueryService {
       LIMIT $3
     `;
 
-    const results = await this.dataSource.query(query, [channelId, tenantId, count]);
+    const results: { time: Date; value: number; qualityCode: number }[] = await this.dataSource.query(query, [channelId, tenantId, count]);
     return results;
   }
 
@@ -354,7 +355,15 @@ export class MetricQueryService {
       `;
     }
 
-    const results = await this.dataSource.query(query, [channelId, tenantId, startTime, endTime]);
+    interface ChannelStats {
+      avg: number;
+      min: number;
+      max: number;
+      stddev: number;
+      count: number;
+      qualityPct: number;
+    }
+    const results: ChannelStats[] = await this.dataSource.query(query, [channelId, tenantId, startTime, endTime]);
     return results[0] || { avg: 0, min: 0, max: 0, stddev: 0, count: 0, qualityPct: 0 };
   }
 
@@ -367,7 +376,7 @@ export class MetricQueryService {
     tenantId: string,
     startTime: Date,
     endTime: Date,
-    maxPoints: number = 500,
+    maxPoints = 500,
   ): Promise<AggregatedMetric[]> {
     const totalSeconds = (endTime.getTime() - startTime.getTime()) / 1000;
     const bucketSeconds = Math.ceil(totalSeconds / maxPoints);
@@ -412,7 +421,7 @@ export class MetricQueryService {
       LIMIT $5
     `;
 
-    const results = await this.dataSource.query(query, [
+    const results: AggregatedMetric[] = await this.dataSource.query(query, [
       channelId,
       tenantId,
       startTime,

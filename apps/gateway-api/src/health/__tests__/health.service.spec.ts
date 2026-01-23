@@ -1,16 +1,28 @@
+/* eslint-disable @typescript-eslint/no-dynamic-delete */
+/* eslint-disable @typescript-eslint/no-empty-function */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/unbound-method */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
 /**
  * Health Service Tests
  *
  * Comprehensive test suite for health monitoring service
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import { HealthService, ServiceHealth, HealthStatus } from '../health.service';
 
 describe('HealthService', () => {
   let service: HealthService;
-  let configService: ConfigService;
   let originalFetch: typeof global.fetch;
 
   const mockConfigService = {
@@ -34,7 +46,7 @@ describe('HealthService', () => {
    */
   const createMockFetchResponse = (
     ok: boolean,
-    status: number = 200,
+    status = 200,
     data: unknown = {},
   ): Response => {
     return {
@@ -68,17 +80,17 @@ describe('HealthService', () => {
   });
 
   describe('getLiveness', () => {
-    it('should return ok status', async () => {
-      const result = await service.getLiveness();
+    it('should return ok status', () => {
+      const result = service.getLiveness();
 
       expect(result).toEqual({ status: 'ok' });
     });
 
-    it('should always return ok regardless of service health', async () => {
+    it('should always return ok regardless of service health', () => {
       // Mock all services as unhealthy
       (global.fetch as jest.Mock).mockRejectedValue(new Error('Connection refused'));
 
-      const result = await service.getLiveness();
+      const result = service.getLiveness();
 
       expect(result).toEqual({ status: 'ok' });
     });
@@ -186,14 +198,14 @@ describe('HealthService', () => {
     it('should return degraded when some services have slow responses', async () => {
       // Simulate slow response (>2000ms)
       let callCount = 0;
-      (global.fetch as jest.Mock).mockImplementation(async () => {
+      (global.fetch as jest.Mock).mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
           // First service is slow - we can't actually delay here easily,
           // so we'll test the degraded path differently
-          return createMockFetchResponse(true, 200);
+          return Promise.resolve(createMockFetchResponse(true, 200));
         }
-        return createMockFetchResponse(true, 200);
+        return Promise.resolve(createMockFetchResponse(true, 200));
       });
 
       const result = await service.getHealth();
@@ -355,7 +367,8 @@ describe('HealthService', () => {
       await service.getHealth();
 
       // Verify AbortController signal is passed
-      const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
+      const mockFetch = global.fetch as jest.Mock;
+      const fetchCall = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(fetchCall[1].signal).toBeDefined();
     });
 

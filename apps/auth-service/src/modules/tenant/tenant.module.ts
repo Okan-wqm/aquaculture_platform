@@ -1,16 +1,21 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Tenant } from './entities/tenant.entity';
-import { TenantModule as TenantModuleEntity } from './entities/tenant-module.entity';
-import { TenantService } from './services/tenant.service';
-import { TenantAdminService } from './services/tenant-admin.service';
-import { TenantResolver } from './resolvers/tenant.resolver';
-import { TenantAdminResolver } from './resolvers/tenant-admin.resolver';
-import { EventBusModule } from '@platform/event-bus';
-import { User } from '../authentication/entities/user.entity';
-import { UserModuleAssignment } from '../authentication/entities/user-module-assignment.entity';
-import { Module as SystemModule } from '../system-module/entities/module.entity';
 import { SchemaManagerService } from '@platform/backend-common';
+import { EventBusModule } from '@platform/event-bus';
+
+import { UserModuleAssignment } from '../authentication/entities/user-module-assignment.entity';
+import { User } from '../authentication/entities/user.entity';
+import { Module as SystemModule } from '../system-module/entities/module.entity';
+
+import { TenantModule as TenantModuleEntity } from './entities/tenant-module.entity';
+import { Tenant } from './entities/tenant.entity';
+import { TenantAdminResolver } from './resolvers/tenant-admin.resolver';
+import { TenantResolver } from './resolvers/tenant.resolver';
+import { TenantAdminService } from './services/tenant-admin.service';
+import { TenantService } from './services/tenant.service';
+
+
+
 
 @Module({
   imports: [
@@ -32,4 +37,5 @@ import { SchemaManagerService } from '@platform/backend-common';
   ],
   exports: [TenantService, TenantAdminService, TypeOrmModule],
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class TenantModule {}

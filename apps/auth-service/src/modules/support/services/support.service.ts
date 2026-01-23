@@ -6,16 +6,11 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Role } from '@platform/backend-common';
 import { Repository } from 'typeorm';
-import {
-  SupportTicket,
-  TicketPriority,
-  TicketStatus,
-} from '../entities/support-ticket.entity';
-import { TicketComment, CommentAuthorType } from '../entities/ticket-comment.entity';
+
 import { User } from '../../authentication/entities/user.entity';
 import { Tenant } from '../../tenant/entities/tenant.entity';
-import { Role } from '@platform/backend-common';
 import {
   CreateTicketInput,
   AddTicketCommentInput,
@@ -26,6 +21,12 @@ import {
   CommentItem,
   SupportStats,
 } from '../dto/support.dto';
+import {
+  SupportTicket,
+  TicketPriority,
+  TicketStatus,
+} from '../entities/support-ticket.entity';
+import { TicketComment, CommentAuthorType } from '../entities/ticket-comment.entity';
 
 /**
  * SLA configuration (in minutes)
@@ -429,23 +430,27 @@ export class SupportService {
     ).length;
 
     // Calculate averages
-    const ticketsWithResponse = tickets.filter((t) => t.firstResponseAt);
+    const ticketsWithResponse = tickets.filter(
+      (t): t is typeof t & { firstResponseAt: Date } => t.firstResponseAt !== null,
+    );
     const avgResponseMinutes =
       ticketsWithResponse.length > 0
         ? ticketsWithResponse.reduce((sum, t) => {
             const diff =
-              new Date(t.firstResponseAt!).getTime() -
+              new Date(t.firstResponseAt).getTime() -
               new Date(t.createdAt).getTime();
             return sum + diff / 60000;
           }, 0) / ticketsWithResponse.length
         : 0;
 
-    const ticketsResolved = tickets.filter((t) => t.resolvedAt);
+    const ticketsResolved = tickets.filter(
+      (t): t is typeof t & { resolvedAt: Date } => t.resolvedAt !== null,
+    );
     const avgResolutionMinutes =
       ticketsResolved.length > 0
         ? ticketsResolved.reduce((sum, t) => {
             const diff =
-              new Date(t.resolvedAt!).getTime() -
+              new Date(t.resolvedAt).getTime() -
               new Date(t.createdAt).getTime();
             return sum + diff / 60000;
           }, 0) / ticketsResolved.length

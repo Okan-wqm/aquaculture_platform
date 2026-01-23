@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
+
 import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
+import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
 
 export interface BacnetIpConfiguration {
+  sensorId?: string;
+  tenantId?: string;
   deviceInstance: number;
   host: string;
   port: number;
@@ -25,22 +27,25 @@ export class BacnetIpAdapter extends BaseProtocolAdapter {
   readonly displayName = 'BACnet/IP';
   readonly description = 'BACnet/IP protocol for building automation systems';
 
-  constructor(configService: ConfigService) { super(configService); }
-
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const handle = this.createConnectionHandle(config.sensorId as string || 'unknown', config.tenantId as string || 'unknown', config);
+    const cfg = config as Partial<BacnetIpConfiguration>;
+    const handle = this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
     return handle;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     this.removeConnectionHandle(handle.id);
   }
 
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> {
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> {
     return { success: true, latencyMs: 0 };
   }
 
-  async readData(handle: ConnectionHandle): Promise<SensorReadingData> {
+  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
+  async readData(_handle: ConnectionHandle): Promise<SensorReadingData> {
     return { timestamp: new Date(), values: {}, quality: 100, source: 'bacnet_ip' };
   }
 

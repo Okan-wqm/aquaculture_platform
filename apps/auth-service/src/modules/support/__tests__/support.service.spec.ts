@@ -1,9 +1,18 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-floating-promises */
+import { ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Role } from '@platform/backend-common';
 import { Repository } from 'typeorm';
-import { NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 
-import { SupportService } from '../services/support.service';
+import { User } from '../../authentication/entities/user.entity';
+import { Tenant } from '../../tenant/entities/tenant.entity';
 import {
   SupportTicket,
   TicketPriority,
@@ -11,9 +20,8 @@ import {
   TicketCategory,
 } from '../entities/support-ticket.entity';
 import { TicketComment, CommentAuthorType } from '../entities/ticket-comment.entity';
-import { User } from '../../authentication/entities/user.entity';
-import { Tenant } from '../../tenant/entities/tenant.entity';
-import { Role } from '@platform/backend-common';
+import { SupportService } from '../services/support.service';
+
 
 // ============================================================================
 // Mock Helpers

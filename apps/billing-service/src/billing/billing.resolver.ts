@@ -28,15 +28,30 @@ interface GraphQLContext {
   };
 }
 
+// UUID v4 regex for tenant ID validation
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 // Helper functions outside of class to avoid GraphQL resolver detection
 function extractTenantId(context: GraphQLContext): string {
   const tenantId =
     context.req.user?.tenantId ||
     context.req.headers['x-tenant-id'];
-  if (!tenantId) {
+
+  if (!tenantId || typeof tenantId !== 'string') {
     throw new UnauthorizedException('Tenant ID is required');
   }
-  return tenantId;
+
+  const trimmedTenantId = tenantId.trim();
+  if (trimmedTenantId.length === 0) {
+    throw new UnauthorizedException('Tenant ID cannot be empty');
+  }
+
+  // Validate UUID format to prevent SQL injection and ensure proper tenant isolation
+  if (!UUID_REGEX.test(trimmedTenantId)) {
+    throw new UnauthorizedException('Invalid tenant ID format');
+  }
+
+  return trimmedTenantId;
 }
 
 function extractUserId(context: GraphQLContext): string {

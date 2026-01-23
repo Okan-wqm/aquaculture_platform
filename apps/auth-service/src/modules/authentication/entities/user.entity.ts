@@ -1,3 +1,6 @@
+import { ObjectType, Field, ID, HideField, registerEnumType } from '@nestjs/graphql';
+import { Role } from '@platform/backend-common';
+import * as bcrypt from 'bcryptjs';
 import {
   Entity,
   Column,
@@ -7,12 +10,7 @@ import {
   Index,
   BeforeInsert,
   BeforeUpdate,
-  ManyToOne,
-  JoinColumn,
 } from 'typeorm';
-import { ObjectType, Field, ID, HideField, registerEnumType } from '@nestjs/graphql';
-import * as bcrypt from 'bcryptjs';
-import { Role } from '@platform/backend-common';
 
 // Register Role enum for GraphQL
 registerEnumType(Role, {

@@ -7,17 +7,88 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, In, DataSource } from 'typeorm';
-import * as bcrypt from 'bcryptjs';
-import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
-import { TenantModule } from '../entities/tenant-module.entity';
-import { CreateTenantInput, UpdateTenantInput, AssignModulesToTenantInput } from '../dto/create-tenant.dto';
-import { TenantStats, TenantDatabaseInfo, TableInfo, TableSchemaInfo, ColumnInfo, IndexInfo } from '../dto/tenant-stats.dto';
+import { Role, SchemaManagerService } from '@platform/backend-common';
 import { IEventBus } from '@platform/event-bus';
 import { TenantCreatedEvent, TenantUpdatedEvent } from '@platform/event-contracts';
-import { Module } from '../../system-module/entities/module.entity';
+import * as bcrypt from 'bcryptjs';
+import { Repository, DataSource } from 'typeorm';
+
 import { User } from '../../authentication/entities/user.entity';
-import { Role, SchemaManagerService } from '@platform/backend-common';
+import { Module } from '../../system-module/entities/module.entity';
+import { CreateTenantInput, UpdateTenantInput, AssignModulesToTenantInput } from '../dto/create-tenant.dto';
+import { TenantStats, TenantDatabaseInfo, TableInfo, TableSchemaInfo, ColumnInfo, IndexInfo } from '../dto/tenant-stats.dto';
+import { TenantModule } from '../entities/tenant-module.entity';
+import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
+
+/**
+ * Raw database row for column information query
+ */
+interface ColumnQueryRow {
+  column_name: string;
+  data_type: string;
+  is_nullable: boolean;
+  column_default: string | null;
+  is_primary_key: boolean;
+  is_foreign_key: boolean;
+  foreign_table_name: string | null;
+  foreign_column_name: string | null;
+}
+
+/**
+ * Raw database row for index information query
+ */
+interface IndexQueryRow {
+  index_name: string;
+  column_name: string;
+  is_unique: boolean;
+  is_primary: boolean;
+}
+
+/**
+ * Raw database row for table information query
+ */
+interface TableQueryRow {
+  name: string;
+  row_count: string;
+  size: string;
+  index_count: string;
+  last_modified: Date;
+}
+
+/**
+ * Raw database row for size query
+ */
+interface SizeQueryRow {
+  total_size: string;
+}
+
+/**
+ * Raw database row for connection count query
+ */
+interface ConnectionQueryRow {
+  active: string;
+}
+
+/**
+ * Raw database row for version query
+ */
+interface VersionQueryRow {
+  version: string;
+}
+
+/**
+ * Raw database row for count query
+ */
+interface CountQueryRow {
+  cnt: string;
+}
+
+/**
+ * Raw database row for hypertable size query
+ */
+interface HypertableSizeRow {
+  size: string;
+}
 
 @Injectable()
 export class TenantService {
@@ -337,7 +408,8 @@ export class TenantService {
    * Get tenant statistics
    */
   async getTenantStats(tenantId: string): Promise<TenantStats> {
-    const tenant = await this.findById(tenantId);
+    // Validate tenant exists (throws NotFoundException if not found)
+    await this.findById(tenantId);
 
     // Count users by status
     const [users, activeModules] = await Promise.all([
@@ -451,12 +523,16 @@ export class TenantService {
     const versionQuery = `SELECT version()`;
 
     try {
-      const [tableResults, sizeResult, connResult, versionResult] = await Promise.all([
+      const results = await Promise.all([
         this.dataSource.query(tablesQuery, [tenantSchemaName]),
         this.dataSource.query(schemaSizeQuery, [tenantSchemaName]),
         this.dataSource.query(connectionQuery),
         this.dataSource.query(versionQuery),
       ]);
+      const tableResults = results[0] as TableQueryRow[];
+      const sizeResult = results[1] as SizeQueryRow[];
+      const connResult = results[2] as ConnectionQueryRow[];
+      const versionResult = results[3] as VersionQueryRow[];
 
       // Get actual row counts for important tables (pg_stat may be stale)
       const tables: TableInfo[] = [];
@@ -467,7 +543,7 @@ export class TenantService {
         // For time-series tables, get exact count
         if (['sensor_readings', 'sensor_metrics', 'sensors'].includes(row.name)) {
           try {
-            const countResult = await this.dataSource.query(
+            const countResult: CountQueryRow[] = await this.dataSource.query(
               `SELECT COUNT(*) as cnt FROM "${tenantSchemaName}"."${row.name}"`
             );
             rowCount = parseInt(countResult[0]?.cnt) || 0;
@@ -479,13 +555,13 @@ export class TenantService {
         // For TimescaleDB hypertables, get proper size including chunks
         if (['sensor_readings', 'sensor_metrics'].includes(row.name)) {
           try {
-            const sizeResult = await this.dataSource.query(
+            const hypertableSizeResult: HypertableSizeRow[] = await this.dataSource.query(
               `SELECT pg_size_pretty(total_bytes) as size
                FROM hypertable_detailed_size($1)`,
               [`${tenantSchemaName}.${row.name}`]
             );
-            if (sizeResult[0]?.size) {
-              size = sizeResult[0].size;
+            if (hypertableSizeResult[0]?.size) {
+              size = hypertableSizeResult[0].size;
             }
           } catch (err) {
             // Not a hypertable or TimescaleDB not available - use original size
@@ -588,7 +664,7 @@ export class TenantService {
       SELECT 1 FROM pg_tables
       WHERE schemaname = $1 AND tablename = $2
     `;
-    const tableExists = await this.dataSource.query(tableExistsQuery, [schemaName, tableName]);
+    const tableExists: unknown[] = await this.dataSource.query(tableExistsQuery, [schemaName, tableName]);
 
     if (tableExists.length === 0) {
       throw new NotFoundException(`Table '${schemaName}.${tableName}' not found`);
@@ -646,23 +722,25 @@ export class TenantService {
     `;
 
     try {
-      const [columnsResult, indexesResult] = await Promise.all([
+      const queryResults = await Promise.all([
         this.dataSource.query(columnsQuery, [schemaName, tableName]),
         this.dataSource.query(indexesQuery, [schemaName, tableName]),
       ]);
+      const columnsResult = queryResults[0] as ColumnQueryRow[];
+      const indexesResult = queryResults[1] as IndexQueryRow[];
 
-      const columns: ColumnInfo[] = columnsResult.map((row: any) => ({
+      const columns: ColumnInfo[] = columnsResult.map((row) => ({
         columnName: row.column_name,
         dataType: row.data_type,
         isNullable: row.is_nullable,
-        columnDefault: row.column_default,
+        columnDefault: row.column_default ?? undefined,
         isPrimaryKey: row.is_primary_key,
         isForeignKey: row.is_foreign_key,
-        foreignKeyTable: row.foreign_table_name,
-        foreignKeyColumn: row.foreign_column_name,
+        foreignKeyTable: row.foreign_table_name ?? undefined,
+        foreignKeyColumn: row.foreign_column_name ?? undefined,
       }));
 
-      const indexes: IndexInfo[] = indexesResult.map((row: any) => ({
+      const indexes: IndexInfo[] = indexesResult.map((row) => ({
         indexName: row.index_name,
         columnName: row.column_name,
         isUnique: row.is_unique,

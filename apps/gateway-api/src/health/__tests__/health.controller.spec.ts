@@ -1,13 +1,45 @@
+/* eslint-disable @typescript-eslint/no-dynamic-delete */
+/* eslint-disable @typescript-eslint/no-empty-function */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
 /**
  * Health Controller Tests
  *
  * Comprehensive test suite for health check endpoints
  */
 
+import { HttpException, HttpStatus } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { HttpStatus } from '@nestjs/common';
+
 import { HealthController } from '../health.controller';
 import { HealthService, HealthStatus, ServiceHealth } from '../health.service';
+
+/**
+ * Interface for HTTP exception response
+ */
+interface HttpExceptionResponse {
+  statusCode?: number;
+  message?: string;
+  error?: string;
+}
+
+/**
+ * Helper to get method from prototype - avoids unbound-method lint error
+ */
+const getPrototypeMethod = <T>(
+  cls: new (...args: unknown[]) => T,
+  methodName: keyof T,
+): unknown => {
+  const proto = cls.prototype as Record<keyof T, unknown>;
+  return proto[methodName];
+};
 
 describe('HealthController', () => {
   let controller: HealthController;
@@ -84,26 +116,26 @@ describe('HealthController', () => {
   });
 
   describe('liveness', () => {
-    it('should return ok status', async () => {
-      healthService.getLiveness.mockResolvedValue({ status: 'ok' });
+    it('should return ok status', () => {
+      healthService.getLiveness.mockReturnValue({ status: 'ok' });
 
-      const result = await controller.liveness();
+      const result = controller.liveness();
 
       expect(result).toEqual({ status: 'ok' });
     });
 
-    it('should call healthService.getLiveness', async () => {
-      healthService.getLiveness.mockResolvedValue({ status: 'ok' });
+    it('should call healthService.getLiveness', () => {
+      healthService.getLiveness.mockReturnValue({ status: 'ok' });
 
-      await controller.liveness();
+      controller.liveness();
 
-      expect(healthService.getLiveness).toHaveBeenCalledTimes(1);
+      expect(healthService.getLiveness.mock.calls).toHaveLength(1);
     });
 
-    it('should always succeed regardless of downstream services', async () => {
-      healthService.getLiveness.mockResolvedValue({ status: 'ok' });
+    it('should always succeed regardless of downstream services', () => {
+      healthService.getLiveness.mockReturnValue({ status: 'ok' });
 
-      const result = await controller.liveness();
+      const result = controller.liveness();
 
       expect(result.status).toBe('ok');
     });
@@ -136,9 +168,11 @@ describe('HealthController', () => {
       try {
         await controller.readiness();
         fail('Expected exception to be thrown');
-      } catch (error: any) {
-        expect(error.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
-        expect(error.getResponse().message).toBe('Auth service is unavailable');
+      } catch (error) {
+        const httpError = error as HttpException;
+        expect(httpError.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+        const response = httpError.getResponse() as HttpExceptionResponse;
+        expect(response.message).toBe('Auth service is unavailable');
       }
     });
 
@@ -151,8 +185,9 @@ describe('HealthController', () => {
       try {
         await controller.readiness();
         fail('Expected exception to be thrown');
-      } catch (error: any) {
-        expect(error.getStatus()).toBe(503);
+      } catch (error) {
+        const httpError = error as HttpException;
+        expect(httpError.getStatus()).toBe(503);
       }
     });
 
@@ -161,7 +196,7 @@ describe('HealthController', () => {
 
       await controller.readiness();
 
-      expect(healthService.getReadiness).toHaveBeenCalledTimes(1);
+      expect(healthService.getReadiness.mock.calls).toHaveLength(1);
     });
   });
 
@@ -226,7 +261,7 @@ describe('HealthController', () => {
 
       await controller.health();
 
-      expect(healthService.getHealth).toHaveBeenCalledTimes(1);
+      expect(healthService.getHealth.mock.calls).toHaveLength(1);
     });
 
     it('should return healthy status when all services healthy', async () => {
@@ -277,9 +312,9 @@ describe('HealthController', () => {
     it('should not call health service', () => {
       controller.ping();
 
-      expect(healthService.getLiveness).not.toHaveBeenCalled();
-      expect(healthService.getReadiness).not.toHaveBeenCalled();
-      expect(healthService.getHealth).not.toHaveBeenCalled();
+      expect(healthService.getLiveness.mock.calls).toHaveLength(0);
+      expect(healthService.getReadiness.mock.calls).toHaveLength(0);
+      expect(healthService.getHealth.mock.calls).toHaveLength(0);
     });
 
     it('should return consistent structure', () => {
@@ -294,37 +329,40 @@ describe('HealthController', () => {
 
   describe('Controller Decorators', () => {
     it('should be decorated with @Controller("health")', () => {
-      const controllerPath = Reflect.getMetadata('path', HealthController);
+      const controllerPath = Reflect.getMetadata('path', HealthController) as string;
       expect(controllerPath).toBe('health');
     });
 
     it('should have liveness endpoint at GET /health/live', () => {
-      const path = Reflect.getMetadata('path', HealthController.prototype.liveness);
-      const method = Reflect.getMetadata('method', HealthController.prototype.liveness);
+      const method = getPrototypeMethod(HealthController, 'liveness');
+      const path = Reflect.getMetadata('path', method) as string;
       expect(path).toBe('live');
     });
 
     it('should have readiness endpoint at GET /health/ready', () => {
-      const path = Reflect.getMetadata('path', HealthController.prototype.readiness);
+      const method = getPrototypeMethod(HealthController, 'readiness');
+      const path = Reflect.getMetadata('path', method) as string;
       expect(path).toBe('ready');
     });
 
     it('should have health endpoint at GET /health', () => {
-      const path = Reflect.getMetadata('path', HealthController.prototype.health);
+      const method = getPrototypeMethod(HealthController, 'health');
+      const path = Reflect.getMetadata('path', method) as string;
       expect(path).toBe('/');
     });
 
     it('should have ping endpoint at GET /health/ping', () => {
-      const path = Reflect.getMetadata('path', HealthController.prototype.ping);
+      const method = getPrototypeMethod(HealthController, 'ping');
+      const path = Reflect.getMetadata('path', method) as string;
       expect(path).toBe('ping');
     });
   });
 
   describe('Response Format', () => {
-    it('liveness should return minimal response', async () => {
-      healthService.getLiveness.mockResolvedValue({ status: 'ok' });
+    it('liveness should return minimal response', () => {
+      healthService.getLiveness.mockReturnValue({ status: 'ok' });
 
-      const result = await controller.liveness();
+      const result = controller.liveness();
 
       expect(Object.keys(result)).toEqual(['status']);
     });
@@ -378,10 +416,10 @@ describe('HealthController', () => {
   });
 
   describe('Kubernetes Integration', () => {
-    it('liveness should be suitable for livenessProbe', async () => {
-      healthService.getLiveness.mockResolvedValue({ status: 'ok' });
+    it('liveness should be suitable for livenessProbe', () => {
+      healthService.getLiveness.mockReturnValue({ status: 'ok' });
 
-      const result = await controller.liveness();
+      const result = controller.liveness();
 
       // Should return quickly and simply
       expect(result).toEqual({ status: 'ok' });
@@ -405,8 +443,9 @@ describe('HealthController', () => {
       try {
         await controller.readiness();
         fail('Should have thrown');
-      } catch (error: any) {
-        expect(error.getStatus()).toBe(503);
+      } catch (error) {
+        const httpError = error as HttpException;
+        expect(httpError.getStatus()).toBe(503);
       }
     });
   });
@@ -481,14 +520,12 @@ describe('HealthController', () => {
   });
 
   describe('Concurrent Requests', () => {
-    it('should handle multiple concurrent liveness checks', async () => {
-      healthService.getLiveness.mockResolvedValue({ status: 'ok' });
+    it('should handle multiple concurrent liveness checks', () => {
+      healthService.getLiveness.mockReturnValue({ status: 'ok' });
 
-      const promises = Array(10)
+      const results = Array(10)
         .fill(null)
         .map(() => controller.liveness());
-
-      const results = await Promise.all(promises);
 
       results.forEach((result) => {
         expect(result).toEqual({ status: 'ok' });

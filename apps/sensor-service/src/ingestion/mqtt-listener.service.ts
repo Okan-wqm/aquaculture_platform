@@ -1,16 +1,19 @@
+import { randomUUID } from 'crypto';
+
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { IEventBus } from '@platform/event-bus';
 import * as mqtt from 'mqtt';
 import { MqttClient } from 'mqtt';
-import { Sensor, SensorStatus } from '../database/entities/sensor.entity';
-import { SensorReading } from '../database/entities/sensor-reading.entity';
-import { SensorMetric, QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
+import { Repository, DataSource } from 'typeorm';
+
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
+import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
+import { SensorReading } from '../database/entities/sensor-reading.entity';
+import { Sensor, SensorStatus } from '../database/entities/sensor.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
-import { IEventBus } from '@platform/event-bus';
-import { randomUUID } from 'crypto';
+
 
 /**
  * MQTT Topic Pattern for tenant-aware sensor data
@@ -21,6 +24,64 @@ interface ParsedTopic {
   tenantId: string;
   sensorId?: string;
   location?: string;
+}
+
+/**
+ * Edge device payload types
+ */
+interface EdgeHeartbeatPayload {
+  isOnline?: boolean;
+  cpuUsage?: number;
+  memoryUsage?: number;
+  storageUsage?: number;
+  temperatureCelsius?: number;
+  uptimeSeconds?: number;
+  firmwareVersion?: string;
+  ipAddress?: string;
+}
+
+interface EdgeBirthPayload {
+  firmwareVersion?: string;
+  ipAddress?: string;
+  properties?: {
+    firmwareVersion?: string;
+    ipAddress?: string;
+  };
+}
+
+interface EdgeResponsePayload {
+  command?: string;
+  commandId?: string;
+  success?: boolean;
+  data?: unknown;
+  error?: string;
+}
+
+/**
+ * Tenant edge telemetry payload (Edge Agent TelemetryMetrics format)
+ */
+interface TenantEdgeTelemetryPayload {
+  cpu_usage_percent?: number;
+  cpuUsage?: number;
+  memory_usage_percent?: number;
+  memoryUsage?: number;
+  disk_usage_percent?: number;
+  storageUsage?: number;
+  temperature_celsius?: number;
+  temperatureCelsius?: number;
+  uptime_secs?: number;
+  uptimeSeconds?: number;
+  agent_version?: string;
+  firmwareVersion?: string;
+}
+
+/**
+ * Tenant edge status payload
+ */
+interface TenantEdgeStatusPayload {
+  online?: boolean;
+  isOnline?: boolean;
+  timestamp?: string;
 }
 
 /**
@@ -54,7 +115,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     private readonly edgeDeviceService: EdgeDeviceService | null,
   ) {}
 
-  async onModuleInit() {
+  async onModuleInit(): Promise<void> {
     const mqttEnabled = this.configService.get('MQTT_ENABLED', 'true') === 'true';
 
     if (!mqttEnabled) {
@@ -65,7 +126,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     await this.connect();
   }
 
-  async onModuleDestroy() {
+  async onModuleDestroy(): Promise<void> {
     await this.disconnect();
   }
 
@@ -73,9 +134,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Connect to MQTT broker
    */
   async connect(): Promise<void> {
-    const brokerUrl = this.configService.get('MQTT_BROKER_URL', 'mqtt://localhost:1883');
-    const username = this.configService.get('MQTT_USERNAME');
-    const password = this.configService.get('MQTT_PASSWORD');
+    const brokerUrl = this.configService.get<string>('MQTT_BROKER_URL', 'mqtt://localhost:1883');
+    const username = this.configService.get<string>('MQTT_USERNAME');
+    const password = this.configService.get<string>('MQTT_PASSWORD');
     const clientId = `aqua-sensor-service-${process.pid}-${Date.now()}`;
 
     this.logger.log(`Connecting to MQTT broker: ${brokerUrl}`);
@@ -129,7 +190,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       });
 
       this.client.on('message', (topic, message) => {
-        this.handleMessage(topic, message);
+        this.handleMessage(topic, message).catch((error: Error) => {
+          this.logger.error(`Unhandled error in message handler for topic ${topic}: ${error.message}`, error.stack);
+        });
       });
     });
   }
@@ -139,8 +202,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    */
   async disconnect(): Promise<void> {
     if (this.client) {
+      const client = this.client;
       return new Promise((resolve) => {
-        this.client!.end(false, {}, () => {
+        client.end(false, {}, () => {
           this.logger.log('Disconnected from MQTT broker');
           resolve();
         });
@@ -271,20 +335,20 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     const messageType = parts[2] as string;
 
     try {
-      const payload = JSON.parse(message.toString());
+      const payload = JSON.parse(message.toString()) as Record<string, unknown>;
 
       switch (messageType) {
         case 'heartbeat':
-          await this.handleEdgeHeartbeat(deviceCode, payload);
+          await this.handleEdgeHeartbeat(deviceCode, payload as EdgeHeartbeatPayload);
           break;
         case 'birth':
-          await this.handleEdgeBirth(deviceCode, payload);
+          await this.handleEdgeBirth(deviceCode, payload as EdgeBirthPayload);
           break;
         case 'death':
-          await this.handleEdgeDeath(deviceCode, payload);
+          await this.handleEdgeDeath(deviceCode);
           break;
         case 'response':
-          await this.handleEdgeResponse(deviceCode, payload);
+          await this.handleEdgeResponse(deviceCode, payload as EdgeResponsePayload);
           break;
         default:
           this.logger.debug(`Unknown edge device message type: ${messageType}`);
@@ -298,7 +362,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Handle edge device heartbeat message
    * Updates device health metrics in database
    */
-  private async handleEdgeHeartbeat(deviceCode: string, payload: Record<string, any>): Promise<void> {
+  private async handleEdgeHeartbeat(deviceCode: string, payload: EdgeHeartbeatPayload): Promise<void> {
     this.logger.debug(`Edge heartbeat from ${deviceCode}: CPU=${payload.cpuUsage}%, Mem=${payload.memoryUsage}%`);
 
     const heartbeat: DeviceHeartbeat = {
@@ -313,7 +377,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       ipAddress: payload.ipAddress,
     };
 
-    const device = await this.edgeDeviceService!.updateHeartbeat(heartbeat);
+    if (!this.edgeDeviceService) return;
+    const device = await this.edgeDeviceService.updateHeartbeat(heartbeat);
 
     if (device) {
       this.logger.debug(`Updated heartbeat for device ${deviceCode} (${device.id})`);
@@ -346,24 +411,25 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Handle edge device birth message (device came online)
    */
-  private async handleEdgeBirth(deviceCode: string, payload: Record<string, any>): Promise<void> {
+  private async handleEdgeBirth(deviceCode: string, payload: EdgeBirthPayload): Promise<void> {
     this.logger.log(`Edge device birth: ${deviceCode}`);
 
     // Update device as online with birth certificate data
     const heartbeat: DeviceHeartbeat = {
       deviceCode,
       isOnline: true,
-      firmwareVersion: payload.firmwareVersion || payload.properties?.firmwareVersion,
-      ipAddress: payload.ipAddress || payload.properties?.ipAddress,
+      firmwareVersion: payload.firmwareVersion ?? payload.properties?.firmwareVersion,
+      ipAddress: payload.ipAddress ?? payload.properties?.ipAddress,
     };
 
-    await this.edgeDeviceService!.updateHeartbeat(heartbeat);
+    if (!this.edgeDeviceService) return;
+    await this.edgeDeviceService.updateHeartbeat(heartbeat);
   }
 
   /**
    * Handle edge device death message (device went offline - LWT)
    */
-  private async handleEdgeDeath(deviceCode: string, payload: Record<string, any>): Promise<void> {
+  private async handleEdgeDeath(deviceCode: string): Promise<void> {
     this.logger.warn(`Edge device death: ${deviceCode}`);
 
     // Mark device as offline
@@ -372,18 +438,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       isOnline: false,
     };
 
-    await this.edgeDeviceService!.updateHeartbeat(heartbeat);
+    if (!this.edgeDeviceService) return;
+    await this.edgeDeviceService.updateHeartbeat(heartbeat);
   }
 
   /**
    * Handle edge device command response
    */
-  private async handleEdgeResponse(deviceCode: string, payload: Record<string, any>): Promise<void> {
+  private async handleEdgeResponse(deviceCode: string, payload: EdgeResponsePayload): Promise<void> {
     this.logger.debug(`Edge response from ${deviceCode}: ${JSON.stringify(payload)}`);
 
     // Route ping responses to EdgeDeviceService for promise resolution
     if (payload.command === 'ping' && this.edgeDeviceService) {
-      this.edgeDeviceService.handlePingResponse(deviceCode, payload);
+      this.edgeDeviceService.handlePingResponse(deviceCode, payload as Record<string, unknown>);
     }
 
     // Publish response event for command tracking
@@ -452,19 +519,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      const payload = JSON.parse(message.toString());
+      const payload = JSON.parse(message.toString()) as Record<string, unknown>;
 
       switch (messageType) {
         case 'telemetry':
-          await this.handleTenantEdgeTelemetry(tenantId, deviceCode, payload);
+          await this.handleTenantEdgeTelemetry(tenantId, deviceCode, payload as TenantEdgeTelemetryPayload);
           break;
 
         case 'status':
-          await this.handleTenantEdgeStatus(tenantId, deviceCode, payload);
+          await this.handleTenantEdgeStatus(tenantId, deviceCode, payload as TenantEdgeStatusPayload);
           break;
 
         case 'response':
-          await this.handleEdgeResponse(deviceCode, payload);
+          await this.handleEdgeResponse(deviceCode, payload as EdgeResponsePayload);
           break;
 
         default:
@@ -482,7 +549,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private async handleTenantEdgeTelemetry(
     tenantId: string,
     deviceCode: string,
-    payload: Record<string, any>,
+    payload: TenantEdgeTelemetryPayload,
   ): Promise<void> {
     // Edge Agent TelemetryMetrics uses snake_case field names
     const heartbeat: DeviceHeartbeat = {
@@ -497,7 +564,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       firmwareVersion: payload.agent_version ?? payload.firmwareVersion,
     };
 
-    const device = await this.edgeDeviceService!.updateHeartbeat(heartbeat);
+    if (!this.edgeDeviceService) return;
+    const device = await this.edgeDeviceService.updateHeartbeat(heartbeat);
 
     if (device) {
       this.logger.debug(
@@ -543,26 +611,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private async handleTenantEdgeStatus(
     tenantId: string,
     deviceCode: string,
-    payload: Record<string, any>,
+    payload: TenantEdgeStatusPayload,
   ): Promise<void> {
-    const status = (payload.status || '').toLowerCase();
+    const isOnline = payload.online ?? payload.isOnline ?? false;
 
-    if (status === 'online') {
+    if (isOnline) {
       this.logger.log(`Tenant ${tenantId} edge device online: ${deviceCode}`);
-      await this.handleEdgeBirth(deviceCode, payload);
-    } else if (status === 'offline') {
-      this.logger.warn(`Tenant ${tenantId} edge device offline: ${deviceCode}`);
-      await this.handleEdgeDeath(deviceCode, payload);
-    } else if (status === 'error') {
-      this.logger.error(`Tenant ${tenantId} edge device error: ${deviceCode} - ${payload.message || 'Unknown error'}`);
-      // Mark as offline with error
-      const heartbeat: DeviceHeartbeat = {
-        deviceCode,
-        isOnline: false,
-      };
-      await this.edgeDeviceService!.updateHeartbeat(heartbeat);
+      await this.handleEdgeBirth(deviceCode, { firmwareVersion: undefined, ipAddress: undefined });
     } else {
-      this.logger.debug(`Unknown edge status: ${status} for device ${deviceCode}`);
+      this.logger.warn(`Tenant ${tenantId} edge device offline: ${deviceCode}`);
+      await this.handleEdgeDeath(deviceCode);
     }
   }
 
@@ -573,7 +631,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    */
   private async publishSensorReadingEvent(
     sensor: Sensor,
-    data: Record<string, any>,
+    data: Record<string, unknown>,
     timestamp: Date,
   ): Promise<void> {
     if (!this.eventBus) {
@@ -645,7 +703,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private async findSensorByTopic(topic: string, parsed: ParsedTopic | null): Promise<Sensor | null> {
     try {
       // Get all tenant schemas
-      const tenantSchemas = await this.dataSource.query(`
+      const tenantSchemas: Array<{ schema_name: string }> = await this.dataSource.query(`
         SELECT schema_name FROM information_schema.schemata
         WHERE schema_name LIKE 'tenant_%'
         ORDER BY schema_name
@@ -660,7 +718,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           await this.dataSource.query(`SET search_path TO "${safeSchemaName}", public`);
 
           // Check if sensors table exists in this schema
-          const tableCheck = await this.dataSource.query(`
+          const tableCheck: Array<{ '1': number }> = await this.dataSource.query(`
             SELECT 1 FROM information_schema.tables
             WHERE table_schema = $1 AND table_name = 'sensors'
           `, [schema_name]);
@@ -753,19 +811,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Parse message payload
    */
-  private parsePayload(payload: string, sensor: Sensor): Record<string, any> | null {
+  private parsePayload(payload: string, sensor: Sensor): Record<string, unknown> | null {
     const format = sensor.protocolConfiguration?.payloadFormat || 'json';
 
     switch (format) {
       case 'json':
         try {
-          return JSON.parse(payload);
+          return JSON.parse(payload) as Record<string, unknown>;
         } catch {
           this.logger.warn(`Failed to parse JSON payload: ${payload.substring(0, 50)}`);
           return null;
         }
 
-      case 'csv':
+      case 'csv': {
         const parts = payload.split(',');
         const result: Record<string, number> = {};
         parts.forEach((part, index) => {
@@ -775,17 +833,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           }
         });
         return result;
+      }
 
-      case 'text':
+      case 'text': {
         const num = parseFloat(payload.trim());
         if (!isNaN(num)) {
           return { value: num };
         }
         return { raw: payload };
+      }
 
       default:
         try {
-          return JSON.parse(payload);
+          return JSON.parse(payload) as Record<string, unknown>;
         } catch {
           return { raw: payload };
         }
@@ -796,7 +856,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Save sensor reading to database using narrow table format
    * Each channel value becomes a separate row in sensor_metrics
    */
-  private async saveReading(sensor: Sensor, data: Record<string, any>): Promise<void> {
+  private async saveReading(sensor: Sensor, data: Record<string, unknown>): Promise<void> {
     const now = new Date();
 
     // Get all channels for this sensor
@@ -866,8 +926,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       await this.batchInsertMetrics(metrics);
     }
 
-    // Also write to legacy table for backward compatibility
-    await this.writeLegacyReading(sensor, data);
+    // Write to legacy table for backward compatibility (deprecated, will be removed)
+    // Set LEGACY_SENSOR_READINGS_ENABLED=false when migration to sensor_metrics is complete
+    const legacyEnabled = this.configService.get('LEGACY_SENSOR_READINGS_ENABLED', 'true') === 'true';
+    if (legacyEnabled) {
+      await this.writeLegacyReading(sensor, data);
+    }
 
     this.logger.debug(`Saved ${metrics.length} metrics for sensor ${sensor.id}`);
   }
@@ -949,9 +1013,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Write to legacy sensor_readings table for backward compatibility
-   * TODO: Remove after migration is complete
+   * @deprecated Use sensor_metrics table instead. Controlled by LEGACY_SENSOR_READINGS_ENABLED env var.
+   * This method will be removed once all consumers migrate to sensor_metrics.
    */
-  private async writeLegacyReading(sensor: Sensor, data: Record<string, any>): Promise<void> {
+  private async writeLegacyReading(sensor: Sensor, data: Record<string, unknown>): Promise<void> {
     const reading = this.readingRepository.create({
       id: randomUUID(),
       sensorId: sensor.id,
@@ -970,20 +1035,29 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Extract value from object by path
    */
-  private extractValue(obj: Record<string, any>, path: string): any {
+  private extractValue(obj: Record<string, unknown>, path: string): unknown {
     const parts = path.split('.');
-    let current: any = obj;
+    let current: unknown = obj;
 
     for (const part of parts) {
+      if (current === null || typeof current !== 'object') {
+        return undefined;
+      }
       const arrayMatch = part.match(/^(\w+)\[(\d+)\]$/);
       if (arrayMatch) {
         const key = arrayMatch[1];
         const indexStr = arrayMatch[2];
         if (key && indexStr) {
-          current = current?.[key]?.[parseInt(indexStr, 10)];
+          const objCurrent = current as Record<string, unknown>;
+          const arr = objCurrent[key];
+          if (Array.isArray(arr)) {
+            current = arr[parseInt(indexStr, 10)];
+          } else {
+            return undefined;
+          }
         }
       } else {
-        current = current?.[part];
+        current = (current as Record<string, unknown>)[part];
       }
 
       if (current === undefined) {
@@ -1021,7 +1095,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       this.logger.debug(`Schema set to: ${schemaName}`);
     } catch (error) {
       // If tenant schema doesn't exist, fallback to sensor schema
-      this.logger.warn(`Failed to set schema ${schemaName}, falling back to sensor: ${error}`);
+      this.logger.warn(`Failed to set schema ${schemaName}, falling back to sensor: ${String(error)}`);
       await this.dataSource.query(`SET search_path TO "sensor", public`);
     }
   }
@@ -1044,7 +1118,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     const payload = typeof message === 'string' ? message : JSON.stringify(message);
 
     return new Promise((resolve, reject) => {
-      this.client!.publish(topic, payload, { qos: 1 }, (err) => {
+      if (!this.client) {
+        reject(new Error('MQTT client not available'));
+        return;
+      }
+      this.client.publish(topic, payload, { qos: 1 }, (err) => {
         if (err) {
           reject(err);
         } else {

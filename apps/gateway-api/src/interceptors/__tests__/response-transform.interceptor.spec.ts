@@ -1,22 +1,35 @@
+/* eslint-disable @typescript-eslint/no-dynamic-delete */
+/* eslint-disable @typescript-eslint/no-empty-function */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/unbound-method */
 /**
  * ResponseTransformInterceptor Tests
  *
  * Comprehensive test suite for response transformation interceptor
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
 import { CallHandler, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { Test, TestingModule } from '@nestjs/testing';
 import { of } from 'rxjs';
+
 import {
   ResponseTransformInterceptor,
-  SKIP_TRANSFORM_KEY,
   StandardApiResponse,
 } from '../response-transform.interceptor';
 
 describe('ResponseTransformInterceptor', () => {
-  let interceptor: ResponseTransformInterceptor;
-  let reflector: Reflector;
+  // Using definite assignment assertion - assigned in beforeEach
+  let interceptor!: ResponseTransformInterceptor;
+  let reflector!: Reflector;
 
   /**
    * Create mock execution context
@@ -181,7 +194,7 @@ describe('ResponseTransformInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         next: (result) => {
           expect(result).toEqual(rawData);
-          expect((result as any).success).toBeUndefined();
+          expect((result).success).toBeUndefined();
           done();
         },
       });
@@ -195,7 +208,7 @@ describe('ResponseTransformInterceptor', () => {
 
       interceptor.intercept(context, handler).subscribe({
         next: (result) => {
-          expect((result as any).success).toBe(true);
+          expect((result).success).toBe(true);
           done();
         },
       });
@@ -357,7 +370,7 @@ describe('ResponseTransformInterceptor', () => {
           next: (result) => {
             const response = result as StandardApiResponse<unknown>;
             expect(response.meta.method).toBe(method);
-            (done as jest.DoneCallback)();
+            (done)();
           },
         });
       },
@@ -375,7 +388,7 @@ describe('ResponseTransformInterceptor', () => {
           next: (result) => {
             const response = result as StandardApiResponse<unknown>;
             expect(response.meta.statusCode).toBe(statusCode);
-            (done as jest.DoneCallback)();
+            (done)();
           },
         });
       },

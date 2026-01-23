@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Mail, Phone, MapPin, Briefcase, Building2 } from 'lucide-react';
-import { cn } from '@shared-ui/utils';
+import { cn } from '@aquaculture/shared-ui';
 import { EmployeeAvatar } from '../common/EmployeeAvatar';
 import { StatusBadge } from '../common/StatusBadge';
 import { DepartmentBadge } from '../common/DepartmentBadge';

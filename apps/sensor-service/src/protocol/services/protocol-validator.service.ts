@@ -1,8 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import Ajv, { ValidateFunction, ErrorObject } from 'ajv';
 import addFormats from 'ajv-formats';
-import { ProtocolRegistryService } from './protocol-registry.service';
+
 import { ValidationResult, ValidationError } from '../adapters/base-protocol.adapter';
+
+import { ProtocolRegistryService } from './protocol-registry.service';
 
 export interface SchemaValidationResult {
   isValid: boolean;
@@ -18,6 +20,7 @@ export interface SchemaValidationError {
 
 @Injectable()
 export class ProtocolValidatorService {
+  private readonly logger = new Logger(ProtocolValidatorService.name);
   private ajv: Ajv;
   private validatorCache: Map<string, ValidateFunction> = new Map();
 
@@ -114,7 +117,8 @@ export class ProtocolValidatorService {
       };
     }
 
-    const required = (schema as any).required || [];
+    const schemaTyped = schema as { required?: string[] };
+    const required = schemaTyped.required || [];
     const errors: ValidationError[] = [];
 
     for (const field of required) {
@@ -137,7 +141,7 @@ export class ProtocolValidatorService {
    */
   private getOrCreateValidator(protocolCode: string): ValidateFunction | null {
     if (this.validatorCache.has(protocolCode)) {
-      return this.validatorCache.get(protocolCode)!;
+      return this.validatorCache.get(protocolCode) ?? null;
     }
 
     const schema = this.protocolRegistry.getConfigurationSchema(protocolCode);
@@ -150,7 +154,7 @@ export class ProtocolValidatorService {
       this.validatorCache.set(protocolCode, validator);
       return validator;
     } catch (error) {
-      console.error(`Failed to compile schema for ${protocolCode}:`, error);
+      this.logger.error(`Failed to compile schema for ${protocolCode}:`, error);
       return null;
     }
   }
@@ -221,7 +225,7 @@ export class ProtocolValidatorService {
    * Sanitize configuration by removing unknown fields
    */
   sanitize(protocolCode: string, config: Record<string, unknown>): Record<string, unknown> {
-    const schema = this.protocolRegistry.getConfigurationSchema(protocolCode) as any;
+    const schema = this.protocolRegistry.getConfigurationSchema(protocolCode) as { properties?: Record<string, unknown> } | undefined;
     if (!schema?.properties) {
       return config;
     }

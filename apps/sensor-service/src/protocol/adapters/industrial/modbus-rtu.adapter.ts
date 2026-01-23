@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+
+import {
+  ProtocolCategory,
+  ProtocolSubcategory,
+  ConnectionType,
+  ProtocolConfigurationSchema,
+} from '../../../database/entities/sensor-protocol.entity';
 import {
   BaseProtocolAdapter,
   ConnectionHandle,
@@ -8,14 +14,12 @@ import {
   ValidationResult,
   ProtocolCapabilities,
 } from '../base-protocol.adapter';
-import {
-  ProtocolCategory,
-  ProtocolSubcategory,
-  ConnectionType,
-  ProtocolConfigurationSchema,
-} from '../../../database/entities/sensor-protocol.entity';
+
+import { createModbusClient, ModbusRTUClient } from './types';
 
 export interface ModbusRtuConfiguration {
+  sensorId?: string;
+  tenantId?: string;
   comPort: string;
   baudRate: number;
   dataBits: 7 | 8;
@@ -35,6 +39,11 @@ export interface ModbusRtuConfiguration {
   pollingInterval: number;
 }
 
+interface ModbusRtuClientData {
+  client: ModbusRTUClient;
+  config: ModbusRtuConfiguration;
+}
+
 @Injectable()
 export class ModbusRtuAdapter extends BaseProtocolAdapter {
   readonly protocolCode = 'MODBUS_RTU';
@@ -44,44 +53,40 @@ export class ModbusRtuAdapter extends BaseProtocolAdapter {
   readonly displayName = 'Modbus RTU';
   readonly description = 'Modbus RTU over serial RS-232/RS-485';
 
-  private clients = new Map<string, any>();
-
-  constructor(configService: ConfigService) {
-    super(configService);
-  }
+  private clients = new Map<string, ModbusRtuClientData>();
 
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const rtuConfig = config as unknown as ModbusRtuConfiguration;
+    const rtuConfig = config as Partial<ModbusRtuConfiguration>;
 
-    const ModbusRTU = (await import('modbus-serial')).default;
-    const client = new ModbusRTU();
+    const client = await createModbusClient();
 
-    await client.connectRTUBuffered(rtuConfig.comPort, {
-      baudRate: rtuConfig.baudRate,
-      dataBits: rtuConfig.dataBits,
-      parity: rtuConfig.parity,
-      stopBits: rtuConfig.stopBits,
+    await client.connectRTUBuffered(rtuConfig.comPort ?? '', {
+      baudRate: rtuConfig.baudRate ?? 9600,
+      dataBits: rtuConfig.dataBits ?? 8,
+      parity: rtuConfig.parity ?? 'none',
+      stopBits: rtuConfig.stopBits ?? 1,
     });
 
-    client.setID(rtuConfig.slaveId);
-    client.setTimeout(rtuConfig.timeout);
+    client.setID(rtuConfig.slaveId ?? 1);
+    client.setTimeout(rtuConfig.timeout ?? 1000);
 
     const handle = this.createConnectionHandle(
-      config.sensorId as string || 'unknown',
-      config.tenantId as string || 'unknown',
+      rtuConfig.sensorId ?? 'unknown',
+      rtuConfig.tenantId ?? 'unknown',
       { comPort: rtuConfig.comPort, slaveId: rtuConfig.slaveId }
     );
 
-    this.clients.set(handle.id, { client, config: rtuConfig });
+    this.clients.set(handle.id, { client, config: rtuConfig as ModbusRtuConfiguration });
     this.logConnectionEvent('connect', handle);
     return handle;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     const clientData = this.clients.get(handle.id);
     if (clientData) {
       try {
-        clientData.client.close(() => {});
+        clientData.client.close();
       } catch (e) {
         this.logger.warn('Error closing connection', e);
       }
@@ -102,7 +107,9 @@ export class ModbusRtuAdapter extends BaseProtocolAdapter {
       let sampleData: SensorReadingData | undefined;
       try {
         sampleData = await this.readData(handle);
-      } catch {}
+      } catch {
+        // Ignore read errors during test
+      }
 
       return { success: true, latencyMs, sampleData };
     } catch (error) {
@@ -137,7 +144,7 @@ export class ModbusRtuAdapter extends BaseProtocolAdapter {
         data = (await client.readInputRegisters(config.registerAddress, config.registerCount)).data;
         break;
       default:
-        throw new Error(`Unsupported function code: ${config.functionCode}`);
+        throw new Error(`Unsupported function code: ${String(config.functionCode)}`);
     }
 
     const value = this.parseData(data, config);
@@ -170,7 +177,7 @@ export class ModbusRtuAdapter extends BaseProtocolAdapter {
       case 'uint32': return buffer.readUInt32BE(0);
       case 'float32': return buffer.readFloatBE(0);
       case 'boolean': return data[0] ? 1 : 0;
-      default: return data[0]!;
+      default: return data[0] ?? 0;
     }
   }
 

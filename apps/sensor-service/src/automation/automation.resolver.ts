@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import {
   Resolver,
   Query,
@@ -8,13 +9,10 @@ import {
   ResolveField,
   Parent,
 } from '@nestjs/graphql';
-import { Logger } from '@nestjs/common';
 import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
-import { AutomationProgram } from './entities/automation-program.entity';
-import { ProgramStep } from './entities/program-step.entity';
-import { StepAction } from './entities/step-action.entity';
-import { ProgramTransition } from './entities/program-transition.entity';
-import { ProgramVariable } from './entities/program-variable.entity';
+
+import { EdgeDeviceService } from '../edge-device/edge-device.service';
+
 import { AutomationService } from './automation.service';
 import {
   CreateProgramInput,
@@ -33,7 +31,12 @@ import {
   DeployProgramInput,
   DeploymentResult,
 } from './dto/automation.dto';
-import { EdgeDeviceService } from '../edge-device/edge-device.service';
+import { AutomationProgram } from './entities/automation-program.entity';
+import { ProgramStep } from './entities/program-step.entity';
+import { ProgramTransition } from './entities/program-transition.entity';
+import { ProgramVariable } from './entities/program-variable.entity';
+import { StepAction } from './entities/step-action.entity';
+
 
 /**
  * User context from JWT

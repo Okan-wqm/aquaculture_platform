@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+
+import {
+  ProtocolCategory,
+  ProtocolSubcategory,
+  ConnectionType,
+  ProtocolConfigurationSchema,
+} from '../../../database/entities/sensor-protocol.entity';
 import {
   BaseProtocolAdapter,
   ConnectionHandle,
@@ -8,17 +14,13 @@ import {
   ValidationResult,
   ProtocolCapabilities,
 } from '../base-protocol.adapter';
-import {
-  ProtocolCategory,
-  ProtocolSubcategory,
-  ConnectionType,
-  ProtocolConfigurationSchema,
-} from '../../../database/entities/sensor-protocol.entity';
 
 /**
  * HTTP REST Configuration
  */
 export interface HttpRestConfiguration {
+  sensorId?: string;
+  tenantId?: string;
   baseUrl: string;
   endpoint: string;
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -52,6 +54,11 @@ export interface HttpRestConfiguration {
   dataMapping?: Record<string, string>;
 }
 
+interface OAuth2TokenResponse {
+  access_token: string;
+  expires_in?: number;
+}
+
 @Injectable()
 export class HttpRestAdapter extends BaseProtocolAdapter {
   readonly protocolCode = 'HTTP_REST';
@@ -64,10 +71,6 @@ export class HttpRestAdapter extends BaseProtocolAdapter {
   private pollingIntervals = new Map<string, NodeJS.Timeout>();
   private oauth2Tokens = new Map<string, { token: string; expiresAt: Date }>();
 
-  constructor(configService: ConfigService) {
-    super(configService);
-  }
-
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
     const httpConfig = config as unknown as HttpRestConfiguration;
 
@@ -78,8 +81,8 @@ export class HttpRestAdapter extends BaseProtocolAdapter {
     }
 
     const handle = this.createConnectionHandle(
-      config.sensorId as string || 'unknown',
-      config.tenantId as string || 'unknown',
+      httpConfig.sensorId ?? 'unknown',
+      httpConfig.tenantId ?? 'unknown',
       { baseUrl: httpConfig.baseUrl, endpoint: httpConfig.endpoint }
     );
 
@@ -87,6 +90,7 @@ export class HttpRestAdapter extends BaseProtocolAdapter {
     return handle;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     // Stop polling if active
     const pollingInterval = this.pollingIntervals.get(handle.id);
@@ -220,12 +224,13 @@ export class HttpRestAdapter extends BaseProtocolAdapter {
         }
         break;
 
-      case 'oauth2':
+      case 'oauth2': {
         const token = await this.getOAuth2Token(config);
         if (token) {
           headers['Authorization'] = `Bearer ${token}`;
         }
         break;
+      }
     }
   }
 
@@ -259,8 +264,8 @@ export class HttpRestAdapter extends BaseProtocolAdapter {
         throw new Error('Failed to obtain OAuth2 token');
       }
 
-      const data = await response.json();
-      const expiresAt = new Date(Date.now() + (data.expires_in || 3600) * 1000 - 60000);
+      const data = await response.json() as OAuth2TokenResponse;
+      const expiresAt = new Date(Date.now() + (data.expires_in ?? 3600) * 1000 - 60000);
 
       this.oauth2Tokens.set(cacheKey, {
         token: data.access_token,
@@ -274,9 +279,10 @@ export class HttpRestAdapter extends BaseProtocolAdapter {
     }
   }
 
-  private parseResponse(response: Response, config: HttpRestConfiguration): SensorReadingData {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private parseResponse(_response: Response, _config: HttpRestConfiguration): SensorReadingData {
     const timestamp = new Date();
-    let values: Record<string, number | string | boolean | null> = {};
+    const values: Record<string, number | string | boolean | null> = {};
 
     // Note: In a real implementation, we'd read the response body here
     // For now, we return a placeholder

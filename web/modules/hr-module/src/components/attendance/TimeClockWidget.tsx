@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Clock, LogIn, LogOut, MapPin, AlertCircle } from 'lucide-react';
-import { cn } from '@shared-ui/utils';
+import { cn } from '@aquaculture/shared-ui';
 import { useClockIn, useClockOut, useTodaysAttendance } from '../../hooks';
 import { ClockMethod, AttendanceStatus, ATTENDANCE_STATUS_CONFIG } from '../../types';
 import { StatusBadge } from '../common/StatusBadge';

@@ -8,7 +8,8 @@ dist
 build
 tmp
 out-tsc
-.nx/cache
+static
+.nx/
 
 # Testing
 coverage
@@ -98,7 +99,8 @@ secrets/
 .dockerignore
 
 # Nx
-.nx/cache
-.nx/workspace-datanul
+.nx/
 sens-repo-temp/
 sens-repo/
+
+vite.config.*.timestamp*

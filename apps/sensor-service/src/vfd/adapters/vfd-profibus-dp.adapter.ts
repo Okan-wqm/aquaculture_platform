@@ -1,4 +1,9 @@
 import { Injectable } from '@nestjs/common';
+
+import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
+import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
+import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
+
 import {
   BaseVfdAdapter,
   VfdConnectionHandle,
@@ -7,9 +12,6 @@ import {
   ConnectionTestResult,
   ValidationResult,
 } from './base-vfd.adapter';
-import { VfdProtocol, VfdDataType, ByteOrder } from '../entities/vfd.enums';
-import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
-import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
 
 /**
  * PROFIBUS DP Configuration
@@ -49,6 +51,7 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
     super('VfdProfibusAdapter');
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     const validatedConfig = this.validateAndCastConfig(config);
     const connectionId = this.generateConnectionId();
@@ -84,6 +87,7 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: VfdConnectionHandle): Promise<void> {
     const connection = this.connections.get(handle.id);
     if (!connection) {
@@ -223,11 +227,12 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
     count: number,
-    functionCode: number
+    _functionCode: number
   ): Promise<Buffer> {
     const connection = this.connections.get(handle.id) as ProfibusConnectionHandle;
 
@@ -266,6 +271,7 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
     return this.writeRegister(handle, registerAddress, rawValue);
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async writeRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -430,6 +436,7 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async readCyclicData(connection: ProfibusConnectionHandle): Promise<Buffer> {
     // Read cyclic process data from PROFIBUS
     // This would interact with PROFIBUS master hardware

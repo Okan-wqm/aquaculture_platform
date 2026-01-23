@@ -1,8 +1,23 @@
+import { Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
-import { UseGuards, Logger } from '@nestjs/common';
-import { DashboardLayout } from './entities/dashboard-layout.entity';
+
 import { DashboardService } from './dashboard.service';
 import { SaveDashboardLayoutInput, CreateSystemDefaultLayoutInput } from './dto/dashboard-layout.dto';
+import { DashboardLayout } from './entities/dashboard-layout.entity';
+
+/**
+ * GraphQL context type for dashboard resolver
+ */
+interface GraphQLContext {
+  req: {
+    tenantId?: string;
+    headers?: Record<string, string | undefined>;
+    user?: {
+      sub?: string;
+      id?: string;
+    };
+  };
+}
 
 /**
  * GraphQL Resolver for Dashboard Layout operations
@@ -17,7 +32,7 @@ export class DashboardResolver {
    * Get all layouts for the current user
    */
   @Query(() => [DashboardLayout], { name: 'dashboardLayouts' })
-  async getDashboardLayouts(@Context() ctx: any): Promise<DashboardLayout[]> {
+  async getDashboardLayouts(@Context() ctx: GraphQLContext): Promise<DashboardLayout[]> {
     const { tenantId, userId } = this.extractContext(ctx);
     this.logger.debug(`Getting layouts for user ${userId} in tenant ${tenantId}`);
     return this.dashboardService.getUserLayouts(tenantId, userId);
@@ -29,7 +44,7 @@ export class DashboardResolver {
   @Query(() => DashboardLayout, { name: 'dashboardLayout', nullable: true })
   async getDashboardLayout(
     @Args('id', { type: () => ID }) id: string,
-    @Context() ctx: any,
+    @Context() ctx: GraphQLContext,
   ): Promise<DashboardLayout> {
     const { tenantId, userId } = this.extractContext(ctx);
     return this.dashboardService.getLayoutById(id, tenantId, userId);
@@ -39,7 +54,7 @@ export class DashboardResolver {
    * Get user's default layout (or system default if none)
    */
   @Query(() => DashboardLayout, { name: 'myDefaultLayout', nullable: true })
-  async getMyDefaultLayout(@Context() ctx: any): Promise<DashboardLayout | null> {
+  async getMyDefaultLayout(@Context() ctx: GraphQLContext): Promise<DashboardLayout | null> {
     const { tenantId, userId } = this.extractContext(ctx);
     this.logger.debug(`Getting default layout for user ${userId}`);
     return this.dashboardService.getMyDefaultLayout(tenantId, userId);
@@ -49,7 +64,7 @@ export class DashboardResolver {
    * Get system default layout for tenant
    */
   @Query(() => DashboardLayout, { name: 'systemDefaultLayout', nullable: true })
-  async getSystemDefaultLayout(@Context() ctx: any): Promise<DashboardLayout | null> {
+  async getSystemDefaultLayout(@Context() ctx: GraphQLContext): Promise<DashboardLayout | null> {
     const { tenantId } = this.extractContext(ctx);
     return this.dashboardService.getSystemDefaultLayout(tenantId);
   }
@@ -60,7 +75,7 @@ export class DashboardResolver {
   @Mutation(() => DashboardLayout, { name: 'saveDashboardLayout' })
   async saveDashboardLayout(
     @Args('input') input: SaveDashboardLayoutInput,
-    @Context() ctx: any,
+    @Context() ctx: GraphQLContext,
   ): Promise<DashboardLayout> {
     const { tenantId, userId } = this.extractContext(ctx);
     this.logger.log(`Saving layout "${input.name}" for user ${userId}`);
@@ -73,7 +88,7 @@ export class DashboardResolver {
   @Mutation(() => DashboardLayout, { name: 'saveSystemDefaultLayout' })
   async saveSystemDefaultLayout(
     @Args('input') input: CreateSystemDefaultLayoutInput,
-    @Context() ctx: any,
+    @Context() ctx: GraphQLContext,
   ): Promise<DashboardLayout> {
     const { tenantId, userId } = this.extractContext(ctx);
     // TODO: Add role check for TENANT_ADMIN
@@ -87,7 +102,7 @@ export class DashboardResolver {
   @Mutation(() => DashboardLayout, { name: 'setLayoutAsDefault' })
   async setLayoutAsDefault(
     @Args('id', { type: () => ID }) id: string,
-    @Context() ctx: any,
+    @Context() ctx: GraphQLContext,
   ): Promise<DashboardLayout> {
     const { tenantId, userId } = this.extractContext(ctx);
     this.logger.log(`Setting layout ${id} as default for user ${userId}`);
@@ -100,7 +115,7 @@ export class DashboardResolver {
   @Mutation(() => Boolean, { name: 'deleteDashboardLayout' })
   async deleteDashboardLayout(
     @Args('id', { type: () => ID }) id: string,
-    @Context() ctx: any,
+    @Context() ctx: GraphQLContext,
   ): Promise<boolean> {
     const { tenantId, userId } = this.extractContext(ctx);
     this.logger.log(`Deleting layout ${id}`);
@@ -110,7 +125,7 @@ export class DashboardResolver {
   /**
    * Extract tenant and user context from request
    */
-  private extractContext(ctx: any): { tenantId: string; userId: string } {
+  private extractContext(ctx: GraphQLContext): { tenantId: string; userId: string } {
     const req = ctx.req;
     const tenantId = req?.tenantId || req?.headers?.['x-tenant-id'];
     const userId = req?.user?.sub || req?.user?.id;

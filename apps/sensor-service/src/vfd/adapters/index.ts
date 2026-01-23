@@ -24,14 +24,15 @@ export { VfdCanopenAdapter, CanopenConfig } from './vfd-canopen.adapter';
 export { VfdBacnetAdapter, BacnetConfig } from './vfd-bacnet.adapter';
 
 import { VfdProtocol } from '../entities/vfd.enums';
+
 import { BaseVfdAdapter } from './base-vfd.adapter';
+import { VfdBacnetAdapter } from './vfd-bacnet.adapter';
+import { VfdCanopenAdapter } from './vfd-canopen.adapter';
+import { VfdEthernetIpAdapter } from './vfd-ethernet-ip.adapter';
 import { VfdModbusRtuAdapter } from './vfd-modbus-rtu.adapter';
 import { VfdModbusTcpAdapter } from './vfd-modbus-tcp.adapter';
 import { VfdProfibusAdapter } from './vfd-profibus-dp.adapter';
 import { VfdProfinetAdapter } from './vfd-profinet.adapter';
-import { VfdEthernetIpAdapter } from './vfd-ethernet-ip.adapter';
-import { VfdCanopenAdapter } from './vfd-canopen.adapter';
-import { VfdBacnetAdapter } from './vfd-bacnet.adapter';
 
 /**
  * Map of protocol codes to adapter classes

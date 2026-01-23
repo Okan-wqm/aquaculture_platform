@@ -1,10 +1,10 @@
+import { Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
-import { UseGuards } from '@nestjs/common';
-import { ChannelDiscoveryService } from '../services/channel-discovery.service';
-import { ChannelManagementService, CreateChannelInput } from '../services/channel-management.service';
+import { Request } from 'express';
+
+import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
 import {
   DataChannelType,
-  DiscoveredChannelType,
   DiscoveryResultType,
   CreateDataChannelInput,
   UpdateDataChannelInput,
@@ -12,13 +12,23 @@ import {
   SaveDiscoveredChannelsInput,
   ReorderChannelsInput,
 } from '../dto/data-channel.dto';
-import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
+import { ChannelDiscoveryService } from '../services/channel-discovery.service';
+import { ChannelManagementService, CreateChannelInput } from '../services/channel-management.service';
+
+interface GqlContext {
+  req?: Request & {
+    user?: { tenantId?: string };
+    headers?: Record<string, string | undefined>;
+  };
+}
 
 /**
  * GraphQL resolver for data channel operations
  */
 @Resolver(() => DataChannelType)
 export class ChannelResolver {
+  private readonly logger = new Logger(ChannelResolver.name);
+
   constructor(
     private readonly discoveryService: ChannelDiscoveryService,
     private readonly managementService: ChannelManagementService,
@@ -28,7 +38,7 @@ export class ChannelResolver {
 
   @Query(() => [DataChannelType], { name: 'allDataChannels' })
   async getAllDataChannels(
-    @Context() context: any,
+    @Context() context: GqlContext,
   ): Promise<SensorDataChannel[]> {
     // Try multiple sources for tenantId:
     // 1. User context (set by middleware)
@@ -42,15 +52,15 @@ export class ChannelResolver {
 
     if (!tenantId && context.req?.headers?.['x-user-payload']) {
       try {
-        const payload = JSON.parse(context.req.headers['x-user-payload']);
+        const payload = JSON.parse(context.req.headers['x-user-payload']) as { tenantId?: string };
         tenantId = payload.tenantId;
-      } catch (e) {
+      } catch {
         // Ignore parse errors
       }
     }
 
     if (!tenantId) {
-      console.warn('[ChannelResolver] No tenantId found in request context');
+      this.logger.warn('No tenantId found in request context');
       return [];
     }
 
@@ -111,7 +121,7 @@ export class ChannelResolver {
   async createChannel(
     @Args('sensorId', { type: () => ID }) sensorId: string,
     @Args('input') input: CreateDataChannelInput,
-    @Context() context: any,
+    @Context() context: GqlContext,
   ): Promise<SensorDataChannel> {
     const tenantId = context.req?.user?.tenantId || 'default';
 
@@ -128,7 +138,7 @@ export class ChannelResolver {
       calibrationMultiplier: input.calibrationMultiplier,
       calibrationOffset: input.calibrationOffset,
       alertThresholds: input.alertThresholds,
-      displaySettings: input.displaySettings as any,
+      displaySettings: input.displaySettings as Record<string, unknown> | undefined,
       isEnabled: input.isEnabled,
       displayOrder: input.displayOrder,
       sampleValue: input.sampleValue,
@@ -152,7 +162,7 @@ export class ChannelResolver {
       calibrationMultiplier: input.calibrationMultiplier,
       calibrationOffset: input.calibrationOffset,
       alertThresholds: input.alertThresholds,
-      displaySettings: input.displaySettings as any,
+      displaySettings: input.displaySettings as Record<string, unknown> | undefined,
       isEnabled: input.isEnabled,
       displayOrder: input.displayOrder,
     });
@@ -169,7 +179,7 @@ export class ChannelResolver {
   @Mutation(() => [DataChannelType], { name: 'saveDiscoveredChannels' })
   async saveDiscoveredChannels(
     @Args('input') input: SaveDiscoveredChannelsInput,
-    @Context() context: any,
+    @Context() context: GqlContext,
   ): Promise<SensorDataChannel[]> {
     const tenantId = context.req?.user?.tenantId || 'default';
 
@@ -177,7 +187,7 @@ export class ChannelResolver {
     const discoveredChannels = input.channels.map(ch => ({
       channelKey: ch.channelKey,
       suggestedLabel: ch.displayLabel,
-      inferredDataType: ch.dataType!,
+      inferredDataType: ch.dataType ?? 'float',
       inferredUnit: ch.unit,
       sampleValue: ch.sampleValue,
       dataPath: ch.dataPath,

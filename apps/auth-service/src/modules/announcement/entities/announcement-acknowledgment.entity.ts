@@ -1,3 +1,4 @@
+import { ObjectType, Field, ID } from '@nestjs/graphql';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -8,7 +9,7 @@ import {
   Index,
   Unique,
 } from 'typeorm';
-import { ObjectType, Field, ID } from '@nestjs/graphql';
+
 import { Announcement } from './announcement.entity';
 
 /**

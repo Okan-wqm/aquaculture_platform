@@ -1,21 +1,18 @@
 import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  CreateDateColumn,
-  UpdateDateColumn,
-  Index,
-  ManyToOne,
-  OneToMany,
-  JoinColumn,
-} from 'typeorm';
-import {
   ObjectType,
   Field,
   ID,
   Int,
   registerEnumType,
 } from '@nestjs/graphql';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from 'typeorm';
 
 /**
  * Step type in SFC

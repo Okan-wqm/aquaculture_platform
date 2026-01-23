@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { AlertTriangle, AlertCircle, Clock, RefreshCw, ChevronRight } from 'lucide-react';
-import { cn } from '@shared-ui/utils';
+import { cn } from '@aquaculture/shared-ui';
 import { useExpiringCertifications, useExpiredCertifications } from '../../hooks';
 import { getCertificationUrgency, CERTIFICATION_CATEGORY_CONFIG } from '../../types';
 import { EmployeeAvatar } from '../common/EmployeeAvatar';

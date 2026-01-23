@@ -1,10 +1,10 @@
-import { InputType, Field, ObjectType, ID, Int } from '@nestjs/graphql';
+import { InputType, Field, ObjectType, ID } from '@nestjs/graphql';
 import { IsNotEmpty, IsString, IsOptional, IsEnum, IsBoolean, IsDateString } from 'class-validator';
+
 import {
   AnnouncementType,
   AnnouncementStatus,
   AnnouncementScope,
-  AnnouncementTarget,
 } from '../entities/announcement.entity';
 
 /**

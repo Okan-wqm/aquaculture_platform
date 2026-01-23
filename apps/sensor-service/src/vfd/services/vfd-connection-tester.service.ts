@@ -1,13 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { VfdProtocol, VfdBrand, VfdDeviceStatus } from '../entities/vfd.enums';
-import { VfdDeviceService } from './vfd-device.service';
-import { VfdRegisterMappingService } from './vfd-register-mapping.service';
+
 import {
   createVfdAdapter,
   ConnectionTestResult,
   ValidationResult,
   getProtocolInfoList,
 } from '../adapters';
+import { VfdProtocol, VfdBrand, VfdDeviceStatus } from '../entities/vfd.enums';
+
+import { VfdDeviceService } from './vfd-device.service';
+import { VfdRegisterMappingService } from './vfd-register-mapping.service';
 
 /**
  * Test connection input
@@ -168,9 +170,10 @@ export class VfdConnectionTesterService {
   /**
    * Discover devices on a network (for protocols that support discovery)
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async discoverDevices(
     protocol: VfdProtocol,
-    discoveryParams: Record<string, unknown>
+    _discoveryParams: Record<string, unknown>
   ): Promise<Array<{
     address: string;
     deviceInfo?: Record<string, unknown>;

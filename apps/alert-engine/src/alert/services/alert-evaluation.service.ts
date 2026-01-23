@@ -131,7 +131,9 @@ export class AlertEvaluationService {
     for (const condition of conditions) {
       const value = readings[condition.parameter];
 
-      if (value === undefined) {
+      // Skip if value is null, undefined, or not a valid number
+      // This prevents false negatives from null comparisons (null > threshold = false)
+      if (value === undefined || value === null || typeof value !== 'number' || isNaN(value)) {
         continue;
       }
 

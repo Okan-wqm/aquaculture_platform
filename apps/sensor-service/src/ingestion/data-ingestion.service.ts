@@ -1,15 +1,16 @@
+import { randomUUID } from 'crypto';
+
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
-import { Sensor, SensorStatus, SensorRegistrationStatus } from '../database/entities/sensor.entity';
-import { SensorReading } from '../database/entities/sensor-reading.entity';
-import { SensorMetric, QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
+
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
-import { SensorProtocol } from '../database/entities/sensor-protocol.entity';
-import { MqttAdapter } from '../protocol/adapters/iot/mqtt.adapter';
+import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
+import { SensorReading } from '../database/entities/sensor-reading.entity';
+import { Sensor, SensorStatus, SensorRegistrationStatus } from '../database/entities/sensor.entity';
 import { ConnectionHandle, DataSubscription, SensorReadingData } from '../protocol/adapters/base-protocol.adapter';
-import { randomUUID } from 'crypto';
+import { MqttAdapter } from '../protocol/adapters/iot/mqtt.adapter';
 
 /**
  * Active sensor connection info
@@ -48,7 +49,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     this.mqttAdapter = new MqttAdapter(configService);
   }
 
-  async onModuleInit() {
+  async onModuleInit(): Promise<void> {
     this.logger.log('Initializing Data Ingestion Service...');
 
     // Start connecting to active sensors
@@ -56,13 +57,15 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
 
     // Start health check interval
     this.healthCheckInterval = setInterval(() => {
-      this.performHealthCheck();
+      this.performHealthCheck().catch((error: Error) => {
+        this.logger.error(`Health check failed: ${error.message}`, error.stack);
+      });
     }, 30000); // Every 30 seconds
 
     this.logger.log(`Data Ingestion Service initialized with ${this.activeConnections.size} active connections`);
   }
 
-  async onModuleDestroy() {
+  async onModuleDestroy(): Promise<void> {
     this.logger.log('Shutting down Data Ingestion Service...');
     this.isShuttingDown = true;
 
@@ -136,8 +139,8 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       // Subscribe to data
       const subscription = await this.mqttAdapter.subscribeToData(
         handle,
-        (data) => this.handleSensorData(sensor, data),
-        (error) => this.handleSensorError(sensor, error),
+        (data) => { void this.handleSensorData(sensor, data); },
+        (error) => { void this.handleSensorError(sensor, error); },
       );
 
       // Store active connection
@@ -291,8 +294,12 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
         await this.batchInsertMetrics(metrics);
       }
 
-      // Also write to legacy table for backward compatibility (can be removed later)
-      await this.writeLegacyReading(sensor, data);
+      // Write to legacy table for backward compatibility (deprecated, will be removed)
+      // Set LEGACY_SENSOR_READINGS_ENABLED=false when migration to sensor_metrics is complete
+      const legacyEnabled = this.configService.get('LEGACY_SENSOR_READINGS_ENABLED', 'true') === 'true';
+      if (legacyEnabled) {
+        await this.writeLegacyReading(sensor, data);
+      }
 
       // Update last seen timestamp
       await this.sensorRepository.update(sensor.id, {
@@ -396,7 +403,8 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Write to legacy sensor_readings table for backward compatibility
-   * TODO: Remove after migration is complete
+   * @deprecated Use sensor_metrics table instead. Controlled by LEGACY_SENSOR_READINGS_ENABLED env var.
+   * This method will be removed once all consumers migrate to sensor_metrics.
    */
   private async writeLegacyReading(sensor: Sensor, data: SensorReadingData): Promise<void> {
     const reading = this.readingRepository.create({
@@ -404,7 +412,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       sensorId: sensor.id,
       tenantId: sensor.tenantId,
       timestamp: data.timestamp,
-      readings: data.values as any,
+      readings: data.values,
       pondId: sensor.pondId,
       farmId: sensor.farmId,
       quality: data.quality,
@@ -436,22 +444,24 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
         await this.stopSensorDataCollection(sensor.id);
 
         // Wait a bit before reconnecting
-        setTimeout(async () => {
-          if (!this.isShuttingDown) {
-            try {
-              const freshSensor = await this.sensorRepository.findOne({
-                where: { id: sensor.id },
-                relations: ['protocol'],
-              });
-              if (freshSensor) {
-                await this.startSensorDataCollection(freshSensor);
+        setTimeout(() => {
+          void (async () => {
+            if (!this.isShuttingDown) {
+              try {
+                const freshSensor = await this.sensorRepository.findOne({
+                  where: { id: sensor.id },
+                  relations: ['protocol'],
+                });
+                if (freshSensor) {
+                  await this.startSensorDataCollection(freshSensor);
+                }
+              } catch (reconnectError) {
+                this.logger.error(
+                  `Failed to reconnect sensor ${sensor.id}: ${(reconnectError as Error).message}`,
+                );
               }
-            } catch (reconnectError) {
-              this.logger.error(
-                `Failed to reconnect sensor ${sensor.id}: ${(reconnectError as Error).message}`,
-              );
             }
-          }
+          })();
         }, 5000);
       }
     }
@@ -461,9 +471,9 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
    * Extract value from nested object by path
    * e.g., "data.temperature" or "sensors[0].value"
    */
-  private extractValueByPath(obj: Record<string, any>, path: string): any {
+  private extractValueByPath(obj: Record<string, unknown>, path: string): unknown {
     const parts = path.split('.');
-    let current: any = obj;
+    let current: unknown = obj;
 
     for (const part of parts) {
       // Handle array notation like "sensors[0]"
@@ -472,10 +482,12 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
         const key = arrayMatch[1];
         const indexStr = arrayMatch[2];
         if (key && indexStr) {
-          current = current?.[key]?.[parseInt(indexStr, 10)];
+          const obj = current as Record<string, unknown> | undefined;
+          const arr = obj?.[key] as unknown[] | undefined;
+          current = arr?.[parseInt(indexStr, 10)];
         }
       } else {
-        current = current?.[part];
+        current = (current as Record<string, unknown> | undefined)?.[part];
       }
 
       if (current === undefined) {
@@ -495,7 +507,10 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     const now = Date.now();
     const staleThreshold = 30 * 1000; // 30 seconds - faster detection for sensor issues
 
-    for (const [sensorId, connection] of this.activeConnections) {
+    // Create a snapshot of entries to avoid concurrent modification during iteration
+    const connectionEntries = Array.from(this.activeConnections.entries());
+
+    for (const [sensorId, connection] of connectionEntries) {
       // Check if subscription is still active
       if (!connection.subscription.isActive()) {
         this.logger.warn(`Sensor ${sensorId} subscription is inactive, reconnecting...`);

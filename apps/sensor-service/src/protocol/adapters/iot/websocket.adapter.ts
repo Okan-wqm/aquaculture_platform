@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+
+import {
+  ProtocolCategory,
+  ProtocolSubcategory,
+  ConnectionType,
+  ProtocolConfigurationSchema,
+} from '../../../database/entities/sensor-protocol.entity';
 import {
   BaseProtocolAdapter,
   ConnectionHandle,
@@ -11,14 +17,10 @@ import {
   DataCallback,
   ErrorCallback,
 } from '../base-protocol.adapter';
-import {
-  ProtocolCategory,
-  ProtocolSubcategory,
-  ConnectionType,
-  ProtocolConfigurationSchema,
-} from '../../../database/entities/sensor-protocol.entity';
 
 export interface WebSocketConfiguration {
+  sensorId?: string;
+  tenantId?: string;
   url: string;
   subprotocol?: string;
   headers?: Record<string, string>;
@@ -39,6 +41,27 @@ export interface WebSocketConfiguration {
   subscribeMessage?: string;
 }
 
+interface WsInstance {
+  readyState: number;
+  close: () => void;
+  send: (message: string) => void;
+  ping: () => void;
+  on: (event: string, handler: (...args: unknown[]) => void) => void;
+  once: (event: string, handler: (data: Buffer) => void) => void;
+  removeListener: (event: string, handler: (data: Buffer) => void) => void;
+}
+
+interface WsSocketData {
+  ws: WsInstance;
+  config: WebSocketConfiguration;
+  pingInterval: NodeJS.Timeout | null;
+}
+
+interface WsConnectOptions {
+  headers?: Record<string, string>;
+  protocol?: string;
+}
+
 @Injectable()
 export class WebSocketAdapter extends BaseProtocolAdapter {
   readonly protocolCode = 'WEBSOCKET';
@@ -48,11 +71,7 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
   readonly displayName = 'WebSocket';
   readonly description = 'WebSocket protocol for real-time bidirectional communication';
 
-  private sockets = new Map<string, any>();
-
-  constructor(configService: ConfigService) {
-    super(configService);
-  }
+  private sockets = new Map<string, WsSocketData>();
 
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
     const wsConfig = config as unknown as WebSocketConfiguration;
@@ -65,7 +84,7 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
       url = urlObj.toString();
     }
 
-    const options: any = {};
+    const options: WsConnectOptions = {};
     if (wsConfig.headers) {
       options.headers = { ...wsConfig.headers };
     }
@@ -78,7 +97,7 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
     }
 
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(url, options);
+      const ws = new WebSocket(url, options) as unknown as WsInstance;
       let pingInterval: NodeJS.Timeout | null = null;
 
       const timeout = setTimeout(() => {
@@ -90,15 +109,15 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
         clearTimeout(timeout);
 
         const handle = this.createConnectionHandle(
-          config.sensorId as string || 'unknown',
-          config.tenantId as string || 'unknown',
+          wsConfig.sensorId ?? 'unknown',
+          wsConfig.tenantId ?? 'unknown',
           { url: wsConfig.url }
         );
 
         // Setup ping/pong
         if (wsConfig.pingInterval > 0) {
           pingInterval = setInterval(() => {
-            if (ws.readyState === WebSocket.OPEN) {
+            if (ws.readyState === 1) { // WebSocket.OPEN = 1
               ws.ping();
             }
           }, wsConfig.pingInterval);
@@ -115,13 +134,14 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
         resolve(handle);
       });
 
-      ws.on('error', (error: Error) => {
+      ws.on('error', (error: unknown) => {
         clearTimeout(timeout);
-        reject(error);
+        reject(error instanceof Error ? error : new Error(String(error)));
       });
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     const socketData = this.sockets.get(handle.id);
     if (socketData) {
@@ -137,8 +157,7 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
 
   isConnected(handle: ConnectionHandle): boolean {
     const socketData = this.sockets.get(handle.id);
-    const WebSocket = require('ws');
-    return socketData?.ws?.readyState === WebSocket.OPEN;
+    return socketData?.ws?.readyState === 1; // WebSocket.OPEN = 1
   }
 
   async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> {
@@ -193,6 +212,7 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async subscribeToData(
     handle: ConnectionHandle,
     onData: DataCallback,
@@ -216,6 +236,7 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
 
     return {
       id: `sub_${handle.id}_${Date.now()}`,
+      // eslint-disable-next-line @typescript-eslint/require-await
       unsubscribe: async () => {
         isActive = false;
         socketData.ws.removeListener('message', messageHandler);
@@ -231,12 +252,12 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
     switch (config.messageFormat) {
       case 'json':
         try {
-          const parsed = JSON.parse(data.toString());
+          const parsed = JSON.parse(data.toString()) as Record<string, unknown>;
           if (config.dataPath) {
-            const value = config.dataPath.split('.').reduce((o, k) => o?.[k], parsed);
-            values = typeof value === 'object' ? value : { value };
+            const value = config.dataPath.split('.').reduce((o: unknown, k: string) => (o as Record<string, unknown>)?.[k], parsed);
+            values = typeof value === 'object' && value !== null ? value as Record<string, number | string | boolean | null> : { value: value as number | string | boolean | null };
           } else {
-            values = parsed;
+            values = parsed as Record<string, number | string | boolean | null>;
           }
         } catch {
           values = { raw: data.toString() };

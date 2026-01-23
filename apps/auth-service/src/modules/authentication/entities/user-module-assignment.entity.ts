@@ -1,3 +1,4 @@
+import { ObjectType, Field, ID } from '@nestjs/graphql';
 import {
   Entity,
   Column,
@@ -9,9 +10,11 @@ import {
   JoinColumn,
   Unique,
 } from 'typeorm';
-import { ObjectType, Field, ID } from '@nestjs/graphql';
-import { User } from './user.entity';
+
 import { Module } from '../../system-module/entities/module.entity';
+
+import { User } from './user.entity';
+
 
 /**
  * UserModuleAssignment Entity

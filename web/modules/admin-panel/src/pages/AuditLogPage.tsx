@@ -75,109 +75,6 @@ const SEVERITY_LEVELS = [
 ];
 
 // ============================================================================
-// Mock Data (API Fallback)
-// ============================================================================
-
-const MOCK_LOGS: AuditLog[] = [
-  {
-    id: 'log-1',
-    action: 'LOGIN',
-    entityType: 'User',
-    entityId: 'user-1',
-    performedBy: 'user-1',
-    performedByEmail: 'admin@oceanfarms.com',
-    tenantId: 'tenant-1',
-    ipAddress: '192.168.1.100',
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    severity: 'low',
-    metadata: { browser: 'Chrome', os: 'Windows' },
-    createdAt: new Date(Date.now() - 5 * 60000).toISOString(),
-  },
-  {
-    id: 'log-2',
-    action: 'CREATE',
-    entityType: 'User',
-    entityId: 'user-5',
-    performedBy: 'user-1',
-    performedByEmail: 'admin@oceanfarms.com',
-    tenantId: 'tenant-1',
-    ipAddress: '192.168.1.100',
-    userAgent: 'Mozilla/5.0',
-    severity: 'medium',
-    metadata: { newUserEmail: 'newuser@oceanfarms.com', role: 'MODULE_USER' },
-    createdAt: new Date(Date.now() - 30 * 60000).toISOString(),
-  },
-  {
-    id: 'log-3',
-    action: 'UPDATE',
-    entityType: 'Role',
-    entityId: 'role-2',
-    performedBy: 'user-1',
-    performedByEmail: 'admin@oceanfarms.com',
-    tenantId: 'tenant-1',
-    ipAddress: '192.168.1.100',
-    userAgent: 'Mozilla/5.0',
-    severity: 'high',
-    metadata: { added: ['farm:delete'], removed: [] },
-    createdAt: new Date(Date.now() - 2 * 3600000).toISOString(),
-  },
-  {
-    id: 'log-4',
-    action: 'LOGIN',
-    entityType: 'User',
-    entityId: 'unknown',
-    performedBy: 'unknown',
-    performedByEmail: 'attacker@example.com',
-    tenantId: null,
-    ipAddress: '10.0.0.55',
-    userAgent: 'curl/7.68.0',
-    severity: 'critical',
-    metadata: { reason: 'Invalid credentials', attempts: 3, blocked: true },
-    createdAt: new Date(Date.now() - 5 * 3600000).toISOString(),
-  },
-  {
-    id: 'log-5',
-    action: 'SUSPEND',
-    entityType: 'Tenant',
-    entityId: 'tenant-4',
-    performedBy: 'admin-1',
-    performedByEmail: 'superadmin@aquaculture.com',
-    tenantId: null,
-    ipAddress: '172.16.0.1',
-    userAgent: 'Mozilla/5.0',
-    severity: 'high',
-    metadata: { reason: 'Payment overdue', dueAmount: 5000 },
-    createdAt: new Date(Date.now() - 24 * 3600000).toISOString(),
-  },
-];
-
-const MOCK_STATS: AuditLogStats = {
-  totalLogs: 1250,
-  last24Hours: 85,
-  byAction: [
-    { action: 'CREATE', count: 120 },
-    { action: 'UPDATE', count: 200 },
-    { action: 'DELETE', count: 50 },
-    { action: 'LOGIN', count: 450 },
-  ],
-  bySeverity: [
-    { severity: 'low', count: 600 },
-    { severity: 'medium', count: 400 },
-    { severity: 'high', count: 150 },
-    { severity: 'critical', count: 100 },
-  ],
-  topUsers: [
-    { userId: 'user-1', email: 'admin@oceanfarms.com', count: 250 },
-    { userId: 'user-2', email: 'manager@bluewaters.com', count: 180 },
-  ],
-};
-
-const MOCK_TENANTS: Tenant[] = [
-  { id: '11111111-1111-1111-1111-111111111111', name: 'Ocean Farms Ltd', slug: 'oceanfarms', tier: TenantTier.ENTERPRISE, status: TenantStatus.ACTIVE, userCount: 100, farmCount: 10, sensorCount: 150, createdAt: '2024-01-15', updatedAt: '2024-11-26' },
-  { id: '22222222-2222-2222-2222-222222222222', name: 'Blue Waters', slug: 'bluewaters', tier: TenantTier.PROFESSIONAL, status: TenantStatus.ACTIVE, userCount: 50, farmCount: 5, sensorCount: 48, createdAt: '2024-03-20', updatedAt: '2024-11-25' },
-];
-
-// ============================================================================
 // Utilities
 // ============================================================================
 
@@ -366,7 +263,6 @@ const AuditLogPage: React.FC = () => {
   }, []);
 
   const { data: tenants } = useAsyncData<Tenant[]>(fetchTenants, {
-    mockData: MOCK_TENANTS,
     cacheKey: 'audit-tenants',
     cacheTTL: 300000, // 5 minutes
   });
@@ -391,41 +287,12 @@ const AuditLogPage: React.FC = () => {
     return result.data;
   }, [pagination.page, pagination.limit, debouncedFilters]);
 
-  // Filter mock logs for fallback
-  const filterMockLogs = useCallback((logs: AuditLog[]): AuditLog[] => {
-    let filtered = [...logs];
-
-    if (debouncedFilters.action) {
-      filtered = filtered.filter(log => log.action === debouncedFilters.action);
-    }
-    if (debouncedFilters.severity) {
-      filtered = filtered.filter(log => log.severity === debouncedFilters.severity);
-    }
-    if (debouncedFilters.entityType) {
-      filtered = filtered.filter(log => log.entityType === debouncedFilters.entityType);
-    }
-    if (debouncedFilters.tenantId) {
-      filtered = filtered.filter(log => log.tenantId === debouncedFilters.tenantId);
-    }
-    if (debouncedFilters.search) {
-      const term = debouncedFilters.search.toLowerCase();
-      filtered = filtered.filter(log =>
-        log.performedByEmail?.toLowerCase().includes(term) ||
-        log.action.toLowerCase().includes(term) ||
-        log.entityType.toLowerCase().includes(term)
-      );
-    }
-
-    return filtered;
-  }, [debouncedFilters]);
-
   const {
     data: logs,
     loading,
     error,
     refresh,
   } = useAsyncData<AuditLog[]>(fetchLogs, {
-    mockData: filterMockLogs(MOCK_LOGS),
     cacheKey: `audit-logs-${JSON.stringify(debouncedFilters)}-${pagination.page}`,
     cacheTTL: 30000,
   });
@@ -440,7 +307,6 @@ const AuditLogPage: React.FC = () => {
   }, [debouncedFilters.tenantId, debouncedFilters.startDate, debouncedFilters.endDate]);
 
   const { data: stats } = useAsyncData<AuditLogStats>(fetchStats, {
-    mockData: MOCK_STATS,
     cacheKey: `audit-stats-${debouncedFilters.tenantId}`,
     cacheTTL: 60000,
   });

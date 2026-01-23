@@ -6,10 +6,13 @@
  * Provides tenant-aware configuration and settings.
  */
 
-import { Injectable, NestMiddleware, Logger, BadRequestException } from '@nestjs/common';
-import { Request, Response, NextFunction } from 'express';
-import { ConfigService } from '@nestjs/config';
 import { AsyncLocalStorage } from 'async_hooks';
+
+import { Injectable, NestMiddleware, Logger, BadRequestException, Inject, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Request, Response, NextFunction } from 'express';
+
+import { TenantLookupService } from '../services/tenant-lookup.service';
 
 /**
  * Tenant status
@@ -221,7 +224,10 @@ export class TenantContextMiddleware implements NestMiddleware {
   private readonly cacheTtl: number;
   private readonly publicPaths: string[];
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() @Inject(TenantLookupService) private readonly tenantLookupService?: TenantLookupService,
+  ) {
     this.cacheTtl = this.configService.get<number>('TENANT_CACHE_TTL', 300000); // 5 minutes
     this.publicPaths = this.configService
       .get<string>('TENANT_PUBLIC_PATHS', '/health,/api/v1/auth/login,/api/v1/auth/register')
@@ -248,7 +254,7 @@ export class TenantContextMiddleware implements NestMiddleware {
         });
       }
 
-      // Load tenant metadata
+      // Load tenant metadata (async for production database lookup)
       const tenant = await this.loadTenant(tenantId);
 
       if (!tenant) {
@@ -312,19 +318,17 @@ export class TenantContextMiddleware implements NestMiddleware {
       return headerTenantId;
     }
 
-    // Priority 2: JWT claim (if authenticated)
+    // Priority 2: JWT claim (if authenticated) - TRUSTED source
     const user = (req as TenantContextRequest & { user?: { tenantId?: string } }).user;
     if (user?.tenantId) {
       return user.tenantId;
     }
 
-    // Priority 3: Query parameter
-    const queryTenantId = req.query['tenantId'] as string;
-    if (queryTenantId) {
-      return queryTenantId;
-    }
+    // SECURITY: Query parameter tenant extraction removed
+    // Allowing tenant ID from query params enables tenant spoofing attacks
+    // Tenant ID should only come from trusted sources: header (set by gateway) or JWT claim
 
-    // Priority 4: Subdomain
+    // Priority 3: Subdomain
     const host = req.headers['host'] || '';
     const subdomain = this.extractSubdomain(host);
     if (subdomain && !['www', 'api', 'app'].includes(subdomain)) {
@@ -361,8 +365,29 @@ export class TenantContextMiddleware implements NestMiddleware {
       return cached.tenant;
     }
 
-    // In production, this would fetch from database
-    // For now, create mock tenant based on ID
+    const isProduction = process.env['NODE_ENV'] === 'production';
+
+    // Production: Use TenantLookupService to fetch from auth-service
+    if (isProduction) {
+      if (!this.tenantLookupService) {
+        this.logger.error(
+          'TenantLookupService not available in production. ' +
+          'Ensure TenantLookupService is properly injected.',
+        );
+        return null;
+      }
+
+      const tenant = await this.tenantLookupService.lookupTenant(tenantId);
+      if (tenant) {
+        this.tenantCache.set(tenantId, {
+          tenant,
+          expiry: Date.now() + this.cacheTtl,
+        });
+      }
+      return tenant;
+    }
+
+    // Development only: create mock tenant based on ID
     const tenant = this.createMockTenant(tenantId);
 
     if (tenant) {
@@ -376,7 +401,8 @@ export class TenantContextMiddleware implements NestMiddleware {
   }
 
   /**
-   * Create mock tenant for development
+   * Create mock tenant for development only
+   * SECURITY: Must never be called in production
    */
   private createMockTenant(tenantId: string): TenantMetadata {
     const plan = 'professional'; // Default plan

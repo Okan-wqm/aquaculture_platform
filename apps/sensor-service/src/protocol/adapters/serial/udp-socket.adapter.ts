@@ -1,8 +1,17 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
-import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
 import * as dgram from 'dgram';
+
+import { Injectable } from '@nestjs/common';
+
+import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
+import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
+
+interface UdpSocketConfig {
+  sensorId?: string;
+  tenantId?: string;
+  remoteHost?: string;
+  remotePort?: number;
+  localPort?: number;
+}
 
 @Injectable()
 export class UdpSocketAdapter extends BaseProtocolAdapter {
@@ -15,14 +24,13 @@ export class UdpSocketAdapter extends BaseProtocolAdapter {
 
   private sockets: Map<string, dgram.Socket> = new Map();
 
-  constructor(configService: ConfigService) { super(configService); }
-
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const handle = this.createConnectionHandle(config.sensorId as string || 'unknown', config.tenantId as string || 'unknown', config);
+    const cfg = config as UdpSocketConfig;
+    const handle = this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
 
     return new Promise((resolve, reject) => {
       const socket = dgram.createSocket('udp4');
-      const localPort = config.localPort as number;
+      const localPort = cfg.localPort;
 
       if (localPort) {
         socket.bind(localPort, () => {
@@ -40,6 +48,7 @@ export class UdpSocketAdapter extends BaseProtocolAdapter {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     const socket = this.sockets.get(handle.id);
     if (socket) {
@@ -75,7 +84,7 @@ export class UdpSocketAdapter extends BaseProtocolAdapter {
   }
 
   validateConfiguration(config: unknown): ValidationResult {
-    const cfg = config as any;
+    const cfg = config as UdpSocketConfig;
     const errors = [];
     if (!cfg.remoteHost) errors.push(this.validationError('remoteHost', 'Remote host is required'));
     if (!cfg.remotePort || cfg.remotePort < 1 || cfg.remotePort > 65535) errors.push(this.validationError('remotePort', 'Remote port must be 1-65535'));

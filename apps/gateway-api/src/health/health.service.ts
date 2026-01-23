@@ -94,7 +94,7 @@ export class HealthService {
   /**
    * Get liveness status (is the gateway running)
    */
-  async getLiveness(): Promise<{ status: 'ok' }> {
+  getLiveness(): { status: 'ok' } {
     return { status: 'ok' };
   }
 

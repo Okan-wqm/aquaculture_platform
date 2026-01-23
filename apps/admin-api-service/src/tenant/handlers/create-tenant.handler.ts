@@ -1,7 +1,7 @@
 import { Injectable, ConflictException, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, QueryRunner } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 import { CreateTenantCommand } from '../commands/tenant.commands';
 import { Tenant, TenantStatus, TenantTier } from '../entities/tenant.entity';
 import { AuditLogService } from '../../audit/audit.service';
@@ -17,8 +17,6 @@ export class CreateTenantHandler
   private readonly logger = new Logger(CreateTenantHandler.name);
 
   constructor(
-    @InjectRepository(Tenant)
-    _tenantRepository: Repository<Tenant>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly eventBus: EventBus,
@@ -162,8 +160,8 @@ export class CreateTenantHandler
             await this.assignModulesWithPricing(savedTenant, data, createdBy);
           }
 
-          // Step 3: Create subscription for billing
-          await this.createTenantSubscription(savedTenant, data, createdBy);
+          // Step 3: Create subscription for billing (sync event publish)
+          this.createTenantSubscription(savedTenant, data, createdBy);
 
         } else {
           // Provisioning failed - tenant remains PENDING
@@ -286,11 +284,11 @@ export class CreateTenantHandler
   /**
    * Create subscription event for billing service
    */
-  private async createTenantSubscription(
+  private createTenantSubscription(
     tenant: Tenant,
     data: CreateTenantCommand['data'],
     createdBy: string,
-  ): Promise<void> {
+  ): void {
     try {
       // Map tenant tier to plan tier
       const tierMap: Record<string, PlanTier> = {

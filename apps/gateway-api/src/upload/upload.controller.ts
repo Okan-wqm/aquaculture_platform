@@ -3,6 +3,8 @@
  * Handles file upload operations for the platform
  * @module Upload
  */
+import { randomUUID } from 'crypto';
+
 import {
   Controller,
   Post,
@@ -21,18 +23,19 @@ import {
   Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Request } from 'express';
 import { MinioClientService, UploadResult } from '@platform/storage';
+import { Request } from 'express';
+
 import { AuthGuard, AuthenticatedRequest } from '../guards/auth.guard';
-import {
-  UploadChemicalDocumentDto,
-  ChemicalDocumentType,
-} from './dto/upload-chemical-document.dto';
+
 import {
   UploadBatchDocumentDto,
   BatchDocumentCategory,
 } from './dto/upload-batch-document.dto';
-import { randomUUID } from 'crypto';
+import {
+  UploadChemicalDocumentDto,
+  ChemicalDocumentType,
+} from './dto/upload-chemical-document.dto';
 
 /**
  * Multer file interface
@@ -157,7 +160,7 @@ export class UploadController {
       };
     } catch (error) {
       this.logger.error(
-        `Failed to upload document for chemical ${body.chemicalId}: ${error}`,
+        `Failed to upload document for chemical ${body.chemicalId}: ${error instanceof Error ? error.message : String(error)}`,
       );
       throw new BadRequestException('Failed to upload document');
     }
@@ -223,7 +226,7 @@ export class UploadController {
       }
 
       this.logger.error(
-        `Failed to delete document ${documentId} from chemical ${chemicalId}: ${error}`,
+        `Failed to delete document ${documentId} from chemical ${chemicalId}: ${error instanceof Error ? error.message : String(error)}`,
       );
       throw new BadRequestException('Failed to delete document');
     }
@@ -315,7 +318,7 @@ export class UploadController {
       };
     } catch (error) {
       this.logger.error(
-        `Failed to upload batch document: ${error}`,
+        `Failed to upload batch document: ${error instanceof Error ? error.message : String(error)}`,
       );
       throw new BadRequestException('Failed to upload document');
     }
@@ -381,7 +384,7 @@ export class UploadController {
       }
 
       this.logger.error(
-        `Failed to delete batch document ${documentId}: ${error}`,
+        `Failed to delete batch document ${documentId}: ${error instanceof Error ? error.message : String(error)}`,
       );
       throw new BadRequestException('Failed to delete document');
     }
@@ -421,7 +424,7 @@ export class UploadController {
 
       return { url, expiresAt };
     } catch (error) {
-      this.logger.error(`Failed to generate presigned URL: ${error}`);
+      this.logger.error(`Failed to generate presigned URL: ${error instanceof Error ? error.message : String(error)}`);
       throw new BadRequestException('Failed to generate download URL');
     }
   }

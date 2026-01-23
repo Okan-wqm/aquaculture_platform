@@ -7,12 +7,23 @@ import {
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { Request } from 'express';
 import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
   TenantGuard,
   UserContextMiddleware,
 } from '@platform/backend-common';
+
+/**
+ * Extended request interface for GraphQL context
+ */
+interface GraphQLContextRequest extends Request {
+  user?: {
+    sub: string;
+    roles: string[];
+  };
+}
 import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
 import { CqrsModule } from '@platform/cqrs';
 import { EventBusModule } from '@platform/event-bus';
@@ -95,28 +106,32 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
         playground: configService.get('NODE_ENV') !== 'production',
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',
-        context: ({ req }: { req: any }) => {
+        context: ({ req }: { req: GraphQLContextRequest }) => {
           // Reconstruct user from gateway headers for @CurrentUser() decorator
-          if (req.headers?.['x-user-payload']) {
+          const userPayloadHeader = req.headers['x-user-payload'];
+          const userIdHeader = req.headers['x-user-id'];
+          const userRolesHeader = req.headers['x-user-roles'];
+
+          if (typeof userPayloadHeader === 'string') {
             try {
-              req.user = JSON.parse(req.headers['x-user-payload']);
+              req.user = JSON.parse(userPayloadHeader);
             } catch {
               // Fallback: create minimal user from individual headers
-              if (req.headers['x-user-id']) {
+              if (typeof userIdHeader === 'string') {
                 req.user = {
-                  sub: req.headers['x-user-id'],
-                  roles: req.headers['x-user-roles']
-                    ? JSON.parse(req.headers['x-user-roles'])
+                  sub: userIdHeader,
+                  roles: typeof userRolesHeader === 'string'
+                    ? JSON.parse(userRolesHeader)
                     : [],
                 };
               }
             }
-          } else if (req.headers?.['x-user-id']) {
+          } else if (typeof userIdHeader === 'string') {
             // Fallback if x-user-payload not present
             req.user = {
-              sub: req.headers['x-user-id'],
-              roles: req.headers['x-user-roles']
-                ? JSON.parse(req.headers['x-user-roles'])
+              sub: userIdHeader,
+              roles: typeof userRolesHeader === 'string'
+                ? JSON.parse(userRolesHeader)
                 : [],
             };
           }

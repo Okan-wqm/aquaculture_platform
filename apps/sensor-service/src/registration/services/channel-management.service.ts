@@ -1,6 +1,11 @@
 import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, FindOptionsWhere } from 'typeorm';
+
+interface MaxOrderResult {
+  max: number | null;
+}
+
 import {
   SensorDataChannel,
   ChannelDataType,
@@ -8,6 +13,7 @@ import {
   AlertThresholdConfig,
   ChannelDisplaySettings,
 } from '../../database/entities/sensor-data-channel.entity';
+
 import { DiscoveredChannel } from './channel-discovery.service';
 
 /**
@@ -87,7 +93,7 @@ export class ChannelManagementService {
       .createQueryBuilder('channel')
       .where('channel.sensorId = :sensorId', { sensorId })
       .select('MAX(channel.displayOrder)', 'max')
-      .getRawOne();
+      .getRawOne<MaxOrderResult>();
 
     const channel = this.channelRepository.create({
       sensorId,
@@ -215,7 +221,8 @@ export class ChannelManagementService {
     const savedChannels: SensorDataChannel[] = [];
 
     for (let i = 0; i < discoveredChannels.length; i++) {
-      const discovered = discoveredChannels[i]!;
+      const discovered = discoveredChannels[i];
+      if (!discovered) continue;
 
       // Check if channel already exists
       const existing = await this.channelRepository.findOne({
@@ -306,7 +313,8 @@ export class ChannelManagementService {
     const savedChannels: SensorDataChannel[] = [];
 
     for (let i = 0; i < channels.length; i++) {
-      const input = channels[i]!;
+      const input = channels[i];
+      if (!input) continue;
 
       const channel = this.channelRepository.create({
         sensorId,
@@ -354,7 +362,7 @@ export class ChannelManagementService {
     tenantId: string,
     channelKey?: string,
   ): Promise<SensorDataChannel[]> {
-    const where: any = { tenantId, isEnabled: true };
+    const where: FindOptionsWhere<SensorDataChannel> = { tenantId, isEnabled: true };
     if (channelKey) {
       where.channelKey = channelKey;
     }

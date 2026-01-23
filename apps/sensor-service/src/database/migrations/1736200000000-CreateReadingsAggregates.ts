@@ -21,7 +21,8 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
   name = 'CreateReadingsAggregates1736200000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    const schemaResult = await queryRunner.query(`SELECT current_schema()`);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const schemaResult: Array<{ current_schema: string }> = await queryRunner.query(`SELECT current_schema()`);
     const schema = schemaResult[0]?.current_schema || 'public';
     console.log('Running CreateReadingsAggregates migration in schema:', schema);
 
@@ -320,7 +321,8 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
 
   private async checkTimescaleDB(queryRunner: QueryRunner): Promise<boolean> {
     try {
-      const result = await queryRunner.query(`
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const result: Array<{ exists: boolean }> = await queryRunner.query(`
         SELECT EXISTS (
           SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'
         )
@@ -337,7 +339,8 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
     table: string,
   ): Promise<boolean> {
     try {
-      const result = await queryRunner.query(`
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const result: Array<{ exists: boolean }> = await queryRunner.query(`
         SELECT EXISTS (
           SELECT 1 FROM timescaledb_information.hypertables
           WHERE hypertable_schema = $1 AND hypertable_name = $2

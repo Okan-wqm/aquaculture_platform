@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+
 import {
   Injectable,
   Logger,
@@ -9,18 +11,11 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, FindOptionsWhere, ILike, In } from 'typeorm';
-import { randomUUID } from 'crypto';
-import {
-  AutomationProgram,
-  ProgramStatus,
-  ProgramType,
-  ExecutionMode,
-} from './entities/automation-program.entity';
-import { ProgramStep, StepType } from './entities/program-step.entity';
-import { StepAction } from './entities/step-action.entity';
-import { ProgramTransition } from './entities/program-transition.entity';
-import { ProgramVariable } from './entities/program-variable.entity';
+import { Repository, DataSource, FindOptionsWhere, In } from 'typeorm';
+
+import { EdgeDeviceService } from '../edge-device/edge-device.service';
+import { MqttListenerService } from '../ingestion/mqtt-listener.service';
+
 import {
   CreateProgramInput,
   UpdateProgramInput,
@@ -36,8 +31,19 @@ import {
   ProgramStats,
   DeploymentResult,
 } from './dto/automation.dto';
-import { EdgeDeviceService } from '../edge-device/edge-device.service';
-import { MqttListenerService } from '../ingestion/mqtt-listener.service';
+import {
+  AutomationProgram,
+  ProgramStatus,
+  ProgramType,
+  ExecutionMode,
+  SfcDefinition,
+  TriggerConfig,
+} from './entities/automation-program.entity';
+import { ProgramStep, StepType } from './entities/program-step.entity';
+import { ProgramTransition } from './entities/program-transition.entity';
+import { ProgramVariable } from './entities/program-variable.entity';
+import { StepAction } from './entities/step-action.entity';
+
 
 /**
  * Automation Service
@@ -97,12 +103,12 @@ export class AutomationService {
       executionMode: input.executionMode,
       deviceId: input.deviceId,
       processTemplateId: input.processTemplateId,
-      sfcDefinition: input.sfcDefinition as any,
+      sfcDefinition: input.sfcDefinition as SfcDefinition,
       structuredTextCode: input.structuredTextCode,
       scanCycleMs: input.scanCycleMs || 100,
       priority: input.priority || 5,
       category: input.category,
-      triggerConfig: input.triggerConfig as any,
+      triggerConfig: input.triggerConfig as TriggerConfig,
       tags: input.tags,
       status: ProgramStatus.DRAFT,
       version: 1,
@@ -136,12 +142,12 @@ export class AutomationService {
     if (input.programName !== undefined) program.programName = input.programName;
     if (input.description !== undefined) program.description = input.description;
     if (input.executionMode !== undefined) program.executionMode = input.executionMode;
-    if (input.sfcDefinition !== undefined) program.sfcDefinition = input.sfcDefinition as any;
+    if (input.sfcDefinition !== undefined) program.sfcDefinition = input.sfcDefinition as SfcDefinition;
     if (input.structuredTextCode !== undefined) program.structuredTextCode = input.structuredTextCode;
     if (input.scanCycleMs !== undefined) program.scanCycleMs = input.scanCycleMs;
     if (input.priority !== undefined) program.priority = input.priority;
     if (input.category !== undefined) program.category = input.category;
-    if (input.triggerConfig !== undefined) program.triggerConfig = input.triggerConfig as any;
+    if (input.triggerConfig !== undefined) program.triggerConfig = input.triggerConfig as TriggerConfig;
     if (input.tags !== undefined) program.tags = input.tags;
     if (input.metadata !== undefined) program.metadata = input.metadata;
 
@@ -192,8 +198,8 @@ export class AutomationService {
   async findAll(
     tenantId: string,
     filter?: ProgramFilterInput,
-    page: number = 1,
-    limit: number = 20,
+    page = 1,
+    limit = 20,
   ): Promise<{ items: AutomationProgram[]; total: number }> {
     const where: FindOptionsWhere<AutomationProgram> = { tenantId };
 
@@ -1111,7 +1117,7 @@ export class AutomationService {
    */
   private extractFunctionBlocks(
     program: AutomationProgram,
-    variables: ProgramVariable[],
+    _variables: ProgramVariable[],
   ): Array<Record<string, unknown>> {
     const functionBlocks: Array<Record<string, unknown>> = [];
 
@@ -1223,7 +1229,7 @@ export class AutomationService {
     const total = await this.programRepo.count({ where: { tenantId } });
 
     // By status
-    const statusResult = await this.programRepo
+    const statusResult: Array<{ status: ProgramStatus; count: string }> = await this.programRepo
       .createQueryBuilder('p')
       .select('p.status', 'status')
       .addSelect('COUNT(*)', 'count')
@@ -1237,7 +1243,7 @@ export class AutomationService {
     }));
 
     // By type
-    const typeResult = await this.programRepo
+    const typeResult: Array<{ type: ProgramType; count: string }> = await this.programRepo
       .createQueryBuilder('p')
       .select('p.program_type', 'type')
       .addSelect('COUNT(*)', 'count')

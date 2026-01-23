@@ -94,7 +94,7 @@ export class Payment {
   tenantId!: string;
 
   @Field()
-  @Column({ unique: true })
+  @Column() // Note: Unique per tenant via composite index on line 82
   transactionId!: string;
 
   @Field()

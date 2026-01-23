@@ -140,9 +140,12 @@ interface Site {
 }
 
 // Helper to get auth token
-const getAuthHeaders = () => {
+const getAuthHeaders = (): Record<string, string> => {
   const token = localStorage.getItem('access_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  if (token) {
+    return { Authorization: `Bearer ${token}` };
+  }
+  return {};
 };
 
 export const CompanyRegulatoryTab: React.FC = () => {

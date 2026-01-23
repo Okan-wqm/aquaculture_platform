@@ -46,13 +46,13 @@ export class AuditLog {
   tenantId: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  details: Record<string, any> | null;
+  details: Record<string, unknown> | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  previousValue: Record<string, any> | null;
+  previousValue: Record<string, unknown> | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  newValue: Record<string, any> | null;
+  newValue: Record<string, unknown> | null;
 
   @Column({
     type: 'enum',

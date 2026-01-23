@@ -2,12 +2,18 @@
  * VFD Connection Tester Service Unit Tests
  */
 
+/* eslint-disable @typescript-eslint/no-var-requires */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+
 import { Test, TestingModule } from '@nestjs/testing';
+
+import { VfdDevice } from '../../entities/vfd-device.entity';
+import { VfdProtocol, VfdBrand, VfdDeviceStatus } from '../../entities/vfd.enums';
 import { VfdConnectionTesterService, TestConnectionInput } from '../vfd-connection-tester.service';
 import { VfdDeviceService } from '../vfd-device.service';
 import { VfdRegisterMappingService } from '../vfd-register-mapping.service';
-import { VfdProtocol, VfdBrand, VfdDeviceStatus } from '../../entities/vfd.enums';
-import { VfdDevice } from '../../entities/vfd-device.entity';
 
 // Mock the adapters module
 jest.mock('../../adapters', () => ({

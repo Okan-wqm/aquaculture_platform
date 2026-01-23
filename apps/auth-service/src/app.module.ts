@@ -1,19 +1,20 @@
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
-import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { JwtModule } from '@nestjs/jwt';
-import { EventBusModule } from '@platform/event-bus';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware } from '@platform/backend-common';
-import { AuthenticationModule } from './modules/authentication/authentication.module';
-import { TenantModule } from './modules/tenant/tenant.module';
-import { SystemModule } from './modules/system-module/system-module.module';
-import { MessagingModule } from './modules/messaging/messaging.module';
-import { SupportModule } from './modules/support/support.module';
-import { AnnouncementModule } from './modules/announcement/announcement.module';
+import { EventBusModule } from '@platform/event-bus';
+
 import { AuditModule } from './audit/audit.module';
 import { HealthModule } from './health/health.module';
+import { AnnouncementModule } from './modules/announcement/announcement.module';
+import { AuthenticationModule } from './modules/authentication/authentication.module';
+import { MessagingModule } from './modules/messaging/messaging.module';
+import { SupportModule } from './modules/support/support.module';
+import { SystemModule } from './modules/system-module/system-module.module';
+import { TenantModule } from './modules/tenant/tenant.module';
 
 @Module({
   imports: [

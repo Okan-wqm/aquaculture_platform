@@ -266,7 +266,7 @@ export const ImpersonationPage: React.FC = () => {
       setSessionActions(actions);
     } catch (error) {
       console.error('Failed to fetch session actions:', error);
-      setSessionActions(mockSessionActions);
+      setSessionActions([]);
     } finally {
       setLoadingActions(false);
     }

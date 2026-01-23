@@ -1,8 +1,17 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
-import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
 import * as net from 'net';
+
+import { Injectable } from '@nestjs/common';
+
+import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
+import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
+
+interface TcpSocketConfig {
+  sensorId?: string;
+  tenantId?: string;
+  host?: string;
+  port?: number;
+  timeout?: number;
+}
 
 @Injectable()
 export class TcpSocketAdapter extends BaseProtocolAdapter {
@@ -15,10 +24,9 @@ export class TcpSocketAdapter extends BaseProtocolAdapter {
 
   private sockets: Map<string, net.Socket> = new Map();
 
-  constructor(configService: ConfigService) { super(configService); }
-
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const handle = this.createConnectionHandle(config.sensorId as string || 'unknown', config.tenantId as string || 'unknown', config);
+    const cfg = config as TcpSocketConfig;
+    const handle = this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
 
     return new Promise((resolve, reject) => {
       const socket = new net.Socket();
@@ -38,6 +46,7 @@ export class TcpSocketAdapter extends BaseProtocolAdapter {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: ConnectionHandle): Promise<void> {
     const socket = this.sockets.get(handle.id);
     if (socket) {
@@ -64,16 +73,32 @@ export class TcpSocketAdapter extends BaseProtocolAdapter {
     if (!socket) throw new Error('Not connected');
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Read timeout')), 5000);
-      socket.once('data', (data) => {
+      const timeout = setTimeout(() => {
+        socket.removeAllListeners('data');
+        socket.removeAllListeners('error');
+        reject(new Error('Read timeout'));
+      }, 5000);
+
+      const cleanup = (): void => {
         clearTimeout(timeout);
+        socket.removeAllListeners('data');
+        socket.removeAllListeners('error');
+      };
+
+      socket.once('data', (data) => {
+        cleanup();
         resolve({ timestamp: new Date(), values: { raw: data.toString() }, quality: 100, source: 'tcp_socket' });
+      });
+
+      socket.once('error', (error) => {
+        cleanup();
+        reject(new Error(`Socket error: ${error.message}`));
       });
     });
   }
 
   validateConfiguration(config: unknown): ValidationResult {
-    const cfg = config as any;
+    const cfg = config as TcpSocketConfig;
     const errors = [];
     if (!cfg.host) errors.push(this.validationError('host', 'Host is required'));
     if (!cfg.port || cfg.port < 1 || cfg.port > 65535) errors.push(this.validationError('port', 'Port must be 1-65535'));

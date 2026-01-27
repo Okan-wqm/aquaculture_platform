@@ -1,0 +1,54 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: aquaculture-platform-staging
+
+namespace: aquaculture-staging
+
+resources:
+  - ../base
+
+nameSuffix: ""
+
+commonLabels:
+  environment: staging
+
+patches:
+  # Reduce replicas for staging
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend
+      spec:
+        replicas: 1
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: frontend
+      spec:
+        replicas: 1
+  # Update namespace in ingress
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: aquaculture-ingress
+      spec:
+        tls:
+          - hosts:
+              - staging.aquaculture-platform.example.com
+            secretName: aquaculture-staging-tls
+        rules:
+          - host: staging.aquaculture-platform.example.com
+
+configMapGenerator:
+  - name: aquaculture-config
+    behavior: merge
+    literals:
+      - NODE_ENV=staging
+      - LOG_LEVEL=debug
+      - GRAPHQL_PLAYGROUND=true
+      - GRAPHQL_INTROSPECTION=true

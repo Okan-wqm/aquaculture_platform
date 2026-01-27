@@ -35,8 +35,9 @@ export class GetExpiringCertificationsHandler
       .andWhere('ec.isDeleted = false')
       .orderBy('ec.expiryDate', 'ASC');
 
+    // FIX: Use departmentHrId - Employee entity has departmentHrId, not departmentId
     if (departmentId) {
-      queryBuilder.andWhere('employee.departmentId = :departmentId', { departmentId });
+      queryBuilder.andWhere('employee.departmentHrId = :departmentId', { departmentId });
     }
 
     return queryBuilder.getMany();

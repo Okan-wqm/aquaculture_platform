@@ -18,6 +18,15 @@ BEGIN
     RAISE NOTICE 'Starting Tank to Equipment Migration...';
 
     -- =========================================================================
+    -- PRE-CHECK: Tablolar henuz olusturulmamissa migration'i atla
+    -- TypeORM tablolari servisler basladiginda olusturacak
+    -- =========================================================================
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'equipment_types') THEN
+        RAISE NOTICE 'equipment_types table does not exist yet. Skipping migration - TypeORM will create tables when services start.';
+        RETURN;
+    END IF;
+
+    -- =========================================================================
     -- STEP 1: equipment_types tablosuna 'Tank' tipini ekle (yoksa)
     -- =========================================================================
     SELECT id INTO tank_equipment_type_id FROM equipment_types WHERE code = 'TANK';
@@ -476,18 +485,35 @@ EXCEPTION WHEN OTHERS THEN
     RAISE;
 END $$;
 
--- Index'leri olustur (hata vermezse)
-CREATE INDEX IF NOT EXISTS idx_equipment_tenant_is_tank ON equipment("tenantId", "isTank");
-CREATE INDEX IF NOT EXISTS idx_equipment_sub_system ON equipment("subSystemId");
-CREATE INDEX IF NOT EXISTS idx_tank_batches_equipment ON tank_batches("equipmentId");
-CREATE INDEX IF NOT EXISTS idx_tank_allocations_equipment ON tank_allocations("equipmentId");
-CREATE INDEX IF NOT EXISTS idx_tank_operations_equipment ON tank_operations("equipmentId");
-
--- Log completion
+-- Index'leri olustur (tablolar varsa)
 DO $$
 BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'equipment') THEN
+        CREATE INDEX IF NOT EXISTS idx_equipment_tenant_is_tank ON equipment("tenantId", "isTank");
+        CREATE INDEX IF NOT EXISTS idx_equipment_sub_system ON equipment("subSystemId");
+        RAISE NOTICE 'Created equipment indexes';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tank_batches')
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'tank_batches' AND column_name = 'equipmentId') THEN
+        CREATE INDEX IF NOT EXISTS idx_tank_batches_equipment ON tank_batches("equipmentId");
+        RAISE NOTICE 'Created tank_batches index';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tank_allocations')
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'tank_allocations' AND column_name = 'equipmentId') THEN
+        CREATE INDEX IF NOT EXISTS idx_tank_allocations_equipment ON tank_allocations("equipmentId");
+        RAISE NOTICE 'Created tank_allocations index';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tank_operations')
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'tank_operations' AND column_name = 'equipmentId') THEN
+        CREATE INDEX IF NOT EXISTS idx_tank_operations_equipment ON tank_operations("equipmentId");
+        RAISE NOTICE 'Created tank_operations index';
+    END IF;
+
     RAISE NOTICE '========================================';
     RAISE NOTICE 'Migration script completed.';
-    RAISE NOTICE 'You can now delete this script file.';
+    RAISE NOTICE 'Tables will be created by TypeORM when services start.';
     RAISE NOTICE '========================================';
 END $$;

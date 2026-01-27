@@ -32,46 +32,46 @@ export type RestoreStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 @Index(['status'])
 export class TenantSchema {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'varchar', length: 100 })
-  schemaName: string;
+  schemaName!: string;
 
   @Column({ type: 'varchar', length: 50, default: 'active' })
-  status: SchemaStatus;
+  status!: SchemaStatus;
 
   @Column({ type: 'varchar', length: 20, default: '1.0.0' })
-  currentVersion: string;
+  currentVersion!: string;
 
   @Column({ type: 'bigint', default: 0 })
-  sizeBytes: number;
+  sizeBytes!: number;
 
   @Column({ type: 'int', default: 0 })
-  tableCount: number;
+  tableCount!: number;
 
   @Column({ type: 'int', default: 0 })
-  connectionCount: number;
+  connectionCount!: number;
 
   @Column({ type: 'int', default: 10 })
-  maxConnections: number;
+  maxConnections!: number;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata!: Record<string, unknown>;
 
   @Column({ type: 'timestamp', nullable: true })
-  lastMigrationAt: Date;
+  lastMigrationAt!: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  lastBackupAt: Date;
+  lastBackupAt!: Date;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 // ============================================================================
@@ -84,52 +84,52 @@ export class TenantSchema {
 @Index(['version'])
 export class SchemaMigration {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', nullable: true })
-  tenantId: string | null; // null = global migration
+  tenantId!: string | null; // null = global migration
 
   @Column({ type: 'varchar', length: 100 })
-  schemaName: string;
+  schemaName!: string;
 
   @Column({ type: 'varchar', length: 200 })
-  migrationName: string;
+  migrationName!: string;
 
   @Column({ type: 'varchar', length: 20 })
-  version: string;
+  version!: string;
 
   @Column({ type: 'varchar', length: 50, default: 'pending' })
-  status: MigrationStatus;
+  status!: MigrationStatus;
 
   @Column({ type: 'text', nullable: true })
-  upScript: string;
+  upScript!: string;
 
   @Column({ type: 'text', nullable: true })
-  downScript: string;
+  downScript!: string;
 
   @Column({ type: 'text', nullable: true })
-  errorMessage: string;
+  errorMessage!: string;
 
   @Column({ type: 'int', default: 0 })
-  executionTimeMs: number;
+  executionTimeMs!: number;
 
   @Column({ type: 'boolean', default: false })
-  isDryRun: boolean;
+  isDryRun!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
-  affectedTables: string[];
+  affectedTables!: string[];
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  executedBy: string;
+  executedBy!: string;
 
   @Column({ type: 'timestamp', nullable: true })
-  startedAt: Date;
+  startedAt!: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  completedAt: Date;
+  completedAt!: Date;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 // ============================================================================
@@ -142,46 +142,46 @@ export class SchemaMigration {
 @Index(['backupType'])
 export class SchemaBackup {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', nullable: true })
-  tenantId: string | null;
+  tenantId!: string | null;
 
   @Column({ type: 'varchar', length: 100 })
-  schemaName: string;
+  schemaName!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  backupType: BackupType;
+  backupType!: BackupType;
 
   @Column({ type: 'varchar', length: 50, default: 'pending' })
-  status: BackupStatus;
+  status!: BackupStatus;
 
   @Column({ type: 'varchar', length: 500, nullable: true })
-  filePath: string;
+  filePath!: string;
 
   @Column({ type: 'varchar', length: 200, nullable: true })
-  fileName: string;
+  fileName!: string;
 
   @Column({ type: 'bigint', default: 0 })
-  sizeBytes: number;
+  sizeBytes!: number;
 
   @Column({ type: 'varchar', length: 64, nullable: true })
-  checksum: string;
+  checksum!: string;
 
   @Column({ type: 'boolean', default: false })
-  isEncrypted: boolean;
+  isEncrypted!: boolean;
 
   @Column({ type: 'boolean', default: false })
-  isCompressed: boolean;
+  isCompressed!: boolean;
 
   @Column({ type: 'int', default: 0 })
-  retentionDays: number;
+  retentionDays!: number;
 
   @Column({ type: 'text', nullable: true })
-  errorMessage: string;
+  errorMessage!: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: {
+  metadata!: {
     tableCount?: number;
     rowCount?: number;
     version?: string;
@@ -189,16 +189,16 @@ export class SchemaBackup {
   };
 
   @Column({ type: 'timestamp', nullable: true })
-  startedAt: Date;
+  startedAt!: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  completedAt: Date;
+  completedAt!: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  expiresAt: Date;
+  expiresAt!: Date;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 // ============================================================================
@@ -211,46 +211,46 @@ export class SchemaBackup {
 @Index(['status'])
 export class SchemaRestore {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  backupId: string;
+  backupId!: string;
 
   @Column({ type: 'uuid', nullable: true })
-  tenantId: string | null;
+  tenantId!: string | null;
 
   @Column({ type: 'varchar', length: 100 })
-  targetSchemaName: string;
+  targetSchemaName!: string;
 
   @Column({ type: 'varchar', length: 50, default: 'pending' })
-  status: RestoreStatus;
+  status!: RestoreStatus;
 
   @Column({ type: 'boolean', default: false })
-  isPointInTime: boolean;
+  isPointInTime!: boolean;
 
   @Column({ type: 'timestamp', nullable: true })
-  pointInTimeTarget: Date;
+  pointInTimeTarget!: Date;
 
   @Column({ type: 'text', nullable: true })
-  errorMessage: string;
+  errorMessage!: string;
 
   @Column({ type: 'int', default: 0 })
-  executionTimeMs: number;
+  executionTimeMs!: number;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  executedBy: string;
+  executedBy!: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  restoredTables: string[];
+  restoredTables!: string[];
 
   @Column({ type: 'timestamp', nullable: true })
-  startedAt: Date;
+  startedAt!: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  completedAt: Date;
+  completedAt!: Date;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 // ============================================================================
@@ -263,25 +263,25 @@ export class SchemaRestore {
 @Index(['metricType'])
 export class DatabaseMetric {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', nullable: true })
-  tenantId: string | null;
+  tenantId!: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  schemaName: string;
+  schemaName!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  metricType: string;
+  metricType!: string;
 
   @Column({ type: 'jsonb' })
-  metrics: DatabaseMetricData;
+  metrics!: DatabaseMetricData;
 
   @Column({ type: 'timestamp' })
-  recordedAt: Date;
+  recordedAt!: Date;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 // ============================================================================
@@ -294,46 +294,46 @@ export class DatabaseMetric {
 @Index(['recordedAt'])
 export class SlowQueryLog {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', nullable: true })
-  tenantId: string | null;
+  tenantId!: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  schemaName: string;
+  schemaName!: string;
 
   @Column({ type: 'text' })
-  query: string;
+  query!: string;
 
   @Column({ type: 'text', nullable: true })
-  normalizedQuery: string;
+  normalizedQuery!: string;
 
   @Column({ type: 'int' })
-  executionTimeMs: number;
+  executionTimeMs!: number;
 
   @Column({ type: 'int', default: 0 })
-  rowsAffected: number;
+  rowsAffected!: number;
 
   @Column({ type: 'int', default: 0 })
-  rowsExamined: number;
+  rowsExamined!: number;
 
   @Column({ type: 'boolean', default: false })
-  usedIndex: boolean;
+  usedIndex!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
-  explainPlan: Record<string, unknown>;
+  explainPlan!: Record<string, unknown>;
 
   @Column({ type: 'varchar', length: 200, nullable: true })
-  sourceTable: string;
+  sourceTable!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  userId: string;
+  userId!: string;
 
   @Column({ type: 'timestamp' })
-  recordedAt: Date;
+  recordedAt!: Date;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 // ============================================================================

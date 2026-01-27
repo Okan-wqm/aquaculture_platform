@@ -145,15 +145,15 @@ export interface ProtocolConfigurationSchema {
 export class SensorProtocol {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column({ unique: true, length: 50 })
-  code: string;
+  code!: string;
 
   @Field()
   @Column({ length: 100 })
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @Column({ length: 255, nullable: true })
@@ -161,7 +161,7 @@ export class SensorProtocol {
 
   @Field(() => ProtocolCategory)
   @Column({ type: 'enum', enum: ProtocolCategory })
-  category: ProtocolCategory;
+  category!: ProtocolCategory;
 
   @Field(() => ProtocolSubcategory, { nullable: true })
   @Column({ type: 'enum', enum: ProtocolSubcategory, nullable: true })
@@ -169,11 +169,11 @@ export class SensorProtocol {
 
   @Field(() => ConnectionType)
   @Column({ type: 'enum', enum: ConnectionType })
-  connectionType: ConnectionType;
+  connectionType!: ConnectionType;
 
   @Field(() => GraphQLJSON)
   @Column('jsonb')
-  configurationSchema: ProtocolConfigurationSchema;
+  configurationSchema!: ProtocolConfigurationSchema;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column('jsonb', { nullable: true })
@@ -189,11 +189,11 @@ export class SensorProtocol {
 
   @Field()
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field()
   @Column({ default: false })
-  requiresGateway: boolean;
+  requiresGateway!: boolean;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -201,19 +201,19 @@ export class SensorProtocol {
 
   @Field()
   @Column({ default: false })
-  supportsDiscovery: boolean;
+  supportsDiscovery!: boolean;
 
   @Field()
   @Column({ default: false })
-  supportsBidirectional: boolean;
+  supportsBidirectional!: boolean;
 
   @Field()
   @Column({ default: true })
-  supportsPolling: boolean;
+  supportsPolling!: boolean;
 
   @Field()
   @Column({ default: false })
-  supportsSubscription: boolean;
+  supportsSubscription!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'int', nullable: true })
@@ -245,9 +245,9 @@ export class SensorProtocol {
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

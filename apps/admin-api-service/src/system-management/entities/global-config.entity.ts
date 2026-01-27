@@ -58,74 +58,74 @@ export interface ConfigHistory {
 @Index(['isSecret'])
 export class GlobalConfig {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ length: 200 })
-  key: string;
+  key!: string;
 
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Column({ type: 'text', nullable: true })
-  description: string;
+  description?: string;
 
   @Column({ type: 'varchar', length: 50, default: ConfigCategory.SYSTEM })
-  category: ConfigCategory;
+  category!: ConfigCategory;
 
   @Column({ type: 'varchar', length: 50, default: ConfigValueType.STRING })
-  valueType: ConfigValueType;
+  valueType!: ConfigValueType;
 
   @Column({ type: 'jsonb' })
-  value: unknown;
+  value!: unknown;
 
   @Column({ type: 'jsonb', nullable: true })
-  defaultValue: unknown;
+  defaultValue?: unknown;
 
   @Column({ type: 'jsonb', nullable: true })
-  validation: ConfigValidation;
+  validation?: ConfigValidation;
 
   @Column({ default: false })
-  isSecret: boolean;
+  isSecret!: boolean;
 
   @Column({ default: false })
-  isReadOnly: boolean;
+  isReadOnly!: boolean;
 
   @Column({ default: false })
-  requiresRestart: boolean;
+  requiresRestart!: boolean;
 
   @Column({ default: false })
-  isEnvironmentSpecific: boolean;
+  isEnvironmentSpecific!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
-  environmentOverrides: Record<string, unknown>;
+  environmentOverrides?: Record<string, unknown>;
 
   @Column({ type: 'jsonb', nullable: true })
-  history: ConfigHistory[];
+  history?: ConfigHistory[];
 
   @Column({ type: 'int', default: 10 })
-  maxHistoryEntries: number;
+  maxHistoryEntries!: number;
 
   @Column({ type: 'jsonb', nullable: true })
-  dependsOn: string[];
+  dependsOn?: string[];
 
   @Column({ type: 'jsonb', nullable: true })
-  affectedServices: string[];
+  affectedServices?: string[];
 
   @Column({ type: 'text', nullable: true })
-  helpText: string;
+  helpText?: string;
 
   @Column({ type: 'text', nullable: true })
-  warningMessage: string;
+  warningMessage?: string;
 
   @Column({ type: 'int', default: 0 })
-  sortOrder: number;
+  sortOrder!: number;
 
   @Column({ nullable: true })
-  lastModifiedBy: string;
+  lastModifiedBy?: string;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

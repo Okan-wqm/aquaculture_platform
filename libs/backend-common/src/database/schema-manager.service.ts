@@ -229,13 +229,28 @@ class SchemaLRUCache {
 }
 
 /**
+ * SECURITY: Validate SQL identifier (schema/table name) to prevent injection
+ * Only allows alphanumeric characters and underscores
+ * @throws BadRequestException if identifier contains invalid characters
+ */
+function validateSqlIdentifier(identifier: string, type: 'schema' | 'table'): string {
+  const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+  if (!identifierRegex.test(identifier) || identifier.length > 63) {
+    throw new BadRequestException(
+      `SECURITY: Invalid ${type} identifier: ${identifier}. Only alphanumeric and underscore allowed.`
+    );
+  }
+  return identifier;
+}
+
+/**
  * Schema Manager Service
  * Manages tenant-specific PostgreSQL schemas for complete data isolation
  *
  * Features:
  * - Advisory locks for race condition prevention
  * - LRU caching for schema existence checks
- * - SQL injection prevention via UUID validation
+ * - SQL injection prevention via UUID validation AND identifier validation
  * - Reference data copying for lookup tables
  * - Atomic schema creation with cleanup on failure
  */
@@ -348,9 +363,10 @@ export class SchemaManagerService {
 
       this.logger.log(`Creating tenant schema: ${schemaName} for tenant ${tenantId}`);
 
-      // 1. Create the schema
-      await this.dataSource.query(`CREATE SCHEMA "${schemaName}"`);
-      this.logger.debug(`Schema ${schemaName} created`);
+      // 1. Create the schema (with SQL injection protection)
+      const safeSchemaName = validateSqlIdentifier(schemaName, 'schema');
+      await this.dataSource.query(`CREATE SCHEMA "${safeSchemaName}"`);
+      this.logger.debug(`Schema ${safeSchemaName} created`);
 
       // 2. Create tables for each requested module
       for (const moduleName of modules) {
@@ -370,11 +386,16 @@ export class SchemaManagerService {
 
             if (sourceTableExists) {
               // Create table structure from source (including indexes and constraints)
+              // SECURITY: Validate all identifiers before using in SQL
+              const safeTargetSchema = validateSqlIdentifier(schemaName, 'schema');
+              const safeTableName = validateSqlIdentifier(tableName, 'table');
+              const safeSourceSchema = validateSqlIdentifier(moduleSchema.sourceSchema, 'schema');
+
               await this.dataSource.query(`
-                CREATE TABLE "${schemaName}"."${tableName}"
-                (LIKE "${moduleSchema.sourceSchema}"."${tableName}" INCLUDING ALL)
+                CREATE TABLE "${safeTargetSchema}"."${safeTableName}"
+                (LIKE "${safeSourceSchema}"."${safeTableName}" INCLUDING ALL)
               `);
-              tablesCreated.push(`${schemaName}.${tableName}`);
+              tablesCreated.push(`${safeTargetSchema}.${safeTableName}`);
               this.logger.debug(`Table ${schemaName}.${tableName} created`);
 
               // Convert time-series tables to TimescaleDB hypertable

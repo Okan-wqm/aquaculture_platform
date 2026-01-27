@@ -11,8 +11,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
-import { Subscription } from './subscription.entity';
-import { Payment } from './payment.entity';
+import { forwardRef } from '@nestjs/common';
 
 export enum InvoiceStatus {
   DRAFT = 'draft',
@@ -111,10 +110,13 @@ export class Invoice {
   @Column({ nullable: true })
   subscriptionId?: string;
 
-  @Field(() => Subscription, { nullable: true })
-  @ManyToOne(() => Subscription, (subscription) => subscription.invoices)
+  @Field(() => require('./subscription.entity').Subscription, { nullable: true })
+  @ManyToOne(
+    () => require('./subscription.entity').Subscription,
+    (subscription: { invoices: unknown }) => subscription.invoices,
+  )
   @JoinColumn({ name: 'subscriptionId' })
-  subscription?: Subscription;
+  subscription?: import('./subscription.entity').Subscription;
 
   @Field(() => InvoiceStatus)
   @Column({ type: 'enum', enum: InvoiceStatus, default: InvoiceStatus.DRAFT })
@@ -192,9 +194,12 @@ export class Invoice {
   @Column({ nullable: true })
   pdfUrl?: string;
 
-  @Field(() => [Payment], { nullable: true })
-  @OneToMany(() => Payment, (payment) => payment.invoice)
-  payments?: Payment[];
+  @Field(() => [require('./payment.entity').Payment], { nullable: true })
+  @OneToMany(
+    () => require('./payment.entity').Payment,
+    (payment: { invoice: unknown }) => payment.invoice,
+  )
+  payments?: Array<import('./payment.entity').Payment>;
 
   @Field()
   @CreateDateColumn()

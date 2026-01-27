@@ -9,28 +9,28 @@ export class AssignUserToModuleInput {
   @Field()
   @IsNotEmpty()
   @IsString()
-  firstName: string;
+  firstName!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  lastName: string;
+  lastName!: string;
 
   @Field()
   @IsEmail()
-  email: string;
+  email!: string;
 
   @Field()
   @MinLength(8)
-  password: string;
+  password!: string;
 
   @Field()
   @IsUUID()
-  moduleId: string;
+  moduleId!: string;
 
   @Field({ defaultValue: 'manager' })
   @IsString()
-  role: string;
+  role!: string;
 }
 
 /**
@@ -39,28 +39,28 @@ export class AssignUserToModuleInput {
 @ObjectType()
 export class UserModuleInfo {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  moduleId: string;
+  moduleId!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field(() => String, { nullable: true })
-  description: string | null;
+  description!: string | null;
 
   @Field(() => String, { nullable: true })
-  icon: string | null;
+  icon!: string | null;
 
   @Field(() => String, { nullable: true })
-  color: string | null;
+  color!: string | null;
 
   @Field()
-  isEnabled: boolean;
+  isEnabled!: boolean;
 
   @Field(() => String, { nullable: true })
-  defaultRoute: string | null;
+  defaultRoute!: string | null;
 }
 
 /**
@@ -69,31 +69,31 @@ export class UserModuleInfo {
 @ObjectType()
 export class MyTenantInfo {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  slug: string;
+  slug!: string;
 
   @Field(() => String, { nullable: true })
-  description: string | null;
+  description!: string | null;
 
   @Field(() => String, { nullable: true })
-  logoUrl: string | null;
+  logoUrl!: string | null;
 
   @Field()
-  status: string;
+  status!: string;
 
   @Field()
-  plan: string;
+  plan!: string;
 
   @Field()
-  maxUsers: number;
+  maxUsers!: number;
 
   @Field()
-  currentUserCount: number;
+  currentUserCount!: number;
 }
 
 /**
@@ -102,16 +102,16 @@ export class MyTenantInfo {
 @ObjectType()
 export class AssignmentResult {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field()
-  message: string;
+  message!: string;
 
   @Field(() => String, { nullable: true })
-  userId: string | null;
+  userId!: string | null;
 
   @Field()
-  isNewUser: boolean;
+  isNewUser!: boolean;
 }
 
 /**
@@ -120,13 +120,13 @@ export class AssignmentResult {
 @ObjectType()
 export class TenantTableInfo {
   @Field()
-  tableName: string;
+  tableName!: string;
 
   @Field()
-  rowCount: number;
+  rowCount!: number;
 
   @Field(() => String, { nullable: true })
-  module: string | null;
+  module!: string | null;
 }
 
 /**
@@ -135,22 +135,22 @@ export class TenantTableInfo {
 @ObjectType()
 export class TableDataResult {
   @Field()
-  tableName: string;
+  tableName!: string;
 
   @Field()
-  totalRows: number;
+  totalRows!: number;
 
   @Field(() => [String])
-  columns: string[];
+  columns!: string[];
 
   @Field(() => String)
-  rows: string; // JSON string of row data
+  rows!: string; // JSON string of row data
 
   @Field()
-  offset: number;
+  offset!: number;
 
   @Field()
-  limit: number;
+  limit!: number;
 }
 
 /**
@@ -160,20 +160,20 @@ export class TableDataResult {
 export class GetTableDataInput {
   @Field()
   @IsString()
-  schemaName: string;
+  schemaName!: string;
 
   @Field()
   @IsString()
-  tableName: string;
+  tableName!: string;
 
   @Field({ defaultValue: 100 })
   @IsInt()
   @Min(1)
   @Max(1000)
-  limit: number;
+  limit!: number;
 
   @Field({ defaultValue: 0 })
   @IsInt()
   @Min(0)
-  offset: number;
+  offset!: number;
 }

@@ -35,7 +35,42 @@ export class PlatformAdminGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly configService: ConfigService,
   ) {
-    this.jwtSecret = this.configService.get<string>('JWT_SECRET', 'default-secret-change-in-production');
+    // SECURITY: JWT_SECRET MUST be provided via environment variable
+    const secret = this.configService.get<string>('JWT_SECRET');
+    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+    const isProduction = nodeEnv === 'production';
+
+    // CRITICAL: Always require JWT_SECRET in production
+    if (!secret && isProduction) {
+      throw new Error(
+        'CRITICAL SECURITY ERROR: JWT_SECRET environment variable MUST be set in production. ' +
+        'Application startup aborted to prevent security vulnerability.',
+      );
+    }
+
+    // In non-production, require explicit acknowledgment of dev mode
+    if (!secret) {
+      const allowDevSecret = this.configService.get<string>('ALLOW_DEV_JWT_SECRET', 'false');
+      if (allowDevSecret !== 'true') {
+        throw new Error(
+          'JWT_SECRET is not configured. For development, set ALLOW_DEV_JWT_SECRET=true ' +
+          'to use auto-generated development secret. NEVER use this in production!',
+        );
+      }
+      // Generate unique per-instance dev secret (not predictable)
+      this.jwtSecret = `dev-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${process.pid}`;
+      this.logger.warn(
+        'Using auto-generated development JWT secret. This is NOT secure for production use.',
+      );
+    } else {
+      // Validate JWT_SECRET minimum length
+      if (secret.length < 32) {
+        throw new Error(
+          'JWT_SECRET must be at least 32 characters long for adequate security.',
+        );
+      }
+      this.jwtSecret = secret;
+    }
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

@@ -1,9 +1,11 @@
-import { Injectable, Inject, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, Inject, OnModuleInit, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DeepPartial } from 'typeorm';
+import { ModuleRef } from '@nestjs/core';
+import { Repository, DeepPartial, QueryDeepPartialEntity } from 'typeorm';
 
 import { SensorProtocol, ProtocolCategory } from '../../database/entities/sensor-protocol.entity';
 import { BaseProtocolAdapter, ProtocolCapabilities } from '../adapters/base-protocol.adapter';
+import { PROTOCOL_ADAPTERS } from '../adapters/protocol-adapters.registry';
 
 export interface ProtocolInfo {
   code: string;
@@ -26,19 +28,28 @@ export interface ProtocolSummary {
 export class ProtocolRegistryService implements OnModuleInit {
   private readonly logger = new Logger(ProtocolRegistryService.name);
   private adapterMap: Map<string, BaseProtocolAdapter> = new Map();
+  private adapters: BaseProtocolAdapter[] = [];
 
   constructor(
     @InjectRepository(SensorProtocol)
     private protocolRepository: Repository<SensorProtocol>,
-    @Inject('PROTOCOL_ADAPTERS')
-    private adapters: BaseProtocolAdapter[],
+    private moduleRef: ModuleRef,
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // Register all adapters
-    for (const adapter of this.adapters) {
-      this.adapterMap.set(adapter.protocolCode, adapter);
+    // Get all adapter instances from ModuleRef
+    for (const AdapterClass of PROTOCOL_ADAPTERS) {
+      try {
+        const adapter = this.moduleRef.get(AdapterClass, { strict: false });
+        if (adapter) {
+          this.adapters.push(adapter);
+          this.adapterMap.set(adapter.protocolCode, adapter);
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to get adapter ${AdapterClass.name}: ${error}`);
+      }
     }
+
     this.logger.log(`Registered ${this.adapterMap.size} protocol adapters`);
 
     // Sync with database (non-fatal - protocols work from in-memory adapters)
@@ -73,7 +84,7 @@ export class ProtocolRegistryService implements OnModuleInit {
       };
 
       if (existing) {
-        await this.protocolRepository.update(existing.id, protocolData as DeepPartial<SensorProtocol>);
+        await this.protocolRepository.update(existing.id, protocolData as QueryDeepPartialEntity<SensorProtocol>);
       } else {
         await this.protocolRepository.save(this.protocolRepository.create(protocolData as DeepPartial<SensorProtocol>));
       }

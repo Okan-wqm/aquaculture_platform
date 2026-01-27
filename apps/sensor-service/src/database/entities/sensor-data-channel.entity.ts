@@ -177,32 +177,32 @@ export class DisplaySettings {
 export class SensorDataChannel {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column()
   @Index()
-  sensorId: string;
+  sensorId!: string;
 
   @Field(() => Sensor)
   @ManyToOne(() => Sensor, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'sensorId' })
-  sensor: Sensor;
+  sensor!: Sensor;
 
   @Field()
   @Column()
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // === Core Identification ===
 
   @Field()
   @Column({ length: 100 })
-  channelKey: string;
+  channelKey!: string;
 
   @Field()
   @Column({ length: 200 })
-  displayLabel: string;
+  displayLabel!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -210,7 +210,7 @@ export class SensorDataChannel {
 
   @Field(() => ChannelDataType)
   @Column({ type: 'enum', enum: ChannelDataType, default: ChannelDataType.NUMBER })
-  dataType: ChannelDataType;
+  dataType!: ChannelDataType;
 
   @Field({ nullable: true })
   @Column({ length: 50, nullable: true })
@@ -258,15 +258,15 @@ export class SensorDataChannel {
 
   @Field()
   @Column({ default: false })
-  calibrationEnabled: boolean;
+  calibrationEnabled!: boolean;
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 15, scale: 6, default: 1.0 })
-  calibrationMultiplier: number;
+  calibrationMultiplier!: number;
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 15, scale: 6, default: 0.0 })
-  calibrationOffset: number;
+  calibrationOffset!: number;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
@@ -316,21 +316,21 @@ export class SensorDataChannel {
 
   @Field()
   @Column({ default: true })
-  isEnabled: boolean;
+  isEnabled!: boolean;
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  displayOrder: number;
+  displayOrder!: number;
 
   // === Timestamps ===
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // === Helper Methods ===
 

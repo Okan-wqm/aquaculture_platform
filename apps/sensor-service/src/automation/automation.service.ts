@@ -103,7 +103,7 @@ export class AutomationService {
       executionMode: input.executionMode,
       deviceId: input.deviceId,
       processTemplateId: input.processTemplateId,
-      sfcDefinition: input.sfcDefinition as SfcDefinition,
+      sfcDefinition: input.sfcDefinition as unknown as SfcDefinition,
       structuredTextCode: input.structuredTextCode,
       scanCycleMs: input.scanCycleMs || 100,
       priority: input.priority || 5,
@@ -142,7 +142,7 @@ export class AutomationService {
     if (input.programName !== undefined) program.programName = input.programName;
     if (input.description !== undefined) program.description = input.description;
     if (input.executionMode !== undefined) program.executionMode = input.executionMode;
-    if (input.sfcDefinition !== undefined) program.sfcDefinition = input.sfcDefinition as SfcDefinition;
+    if (input.sfcDefinition !== undefined) program.sfcDefinition = input.sfcDefinition as unknown as SfcDefinition;
     if (input.structuredTextCode !== undefined) program.structuredTextCode = input.structuredTextCode;
     if (input.scanCycleMs !== undefined) program.scanCycleMs = input.scanCycleMs;
     if (input.priority !== undefined) program.priority = input.priority;
@@ -870,39 +870,56 @@ export class AutomationService {
 
       const savedProgram = await manager.save(newProgram);
 
-      // Clone steps
-      const steps = await this.stepRepo.find({ where: { programId: id } });
-      const stepIdMap = new Map<string, string>();
+      // Fetch all related data in parallel (reduces sequential queries)
+      const [steps, transitions, variables] = await Promise.all([
+        this.stepRepo.find({ where: { programId: id } }),
+        this.transitionRepo.find({ where: { programId: id } }),
+        this.variableRepo.find({ where: { programId: id } }),
+      ]);
 
-      for (const step of steps) {
-        const newStep = manager.create(ProgramStep, {
+      // Clone steps in batch
+      const stepIdMap = new Map<string, string>();
+      if (steps.length > 0) {
+        const newSteps = steps.map(step => manager.create(ProgramStep, {
           ...step,
           id: undefined,
           programId: savedProgram.id,
           createdAt: undefined,
           updatedAt: undefined,
-        });
-        const savedStep = await manager.save(newStep);
-        stepIdMap.set(step.id, savedStep.id);
+        }));
+        const savedSteps = await manager.save(newSteps);
 
-        // Clone actions for this step
-        const actions = await this.actionRepo.find({ where: { stepId: step.id } });
-        for (const action of actions) {
-          const newAction = manager.create(StepAction, {
+        // Build step ID mapping
+        steps.forEach((originalStep, index) => {
+          const savedStep = savedSteps[index];
+          if (savedStep) {
+            stepIdMap.set(originalStep.id, savedStep.id);
+          }
+        });
+
+        // Fetch all actions for all steps in one query
+        const allActions = await this.actionRepo.find({
+          where: steps.map(s => ({ stepId: s.id })),
+        });
+
+        // Clone all actions in batch with mapped step IDs
+        if (allActions.length > 0) {
+          const newActions = allActions.map(action => manager.create(StepAction, {
             ...action,
             id: undefined,
-            stepId: savedStep.id,
+            stepId: stepIdMap.get(action.stepId) || action.stepId,
             createdAt: undefined,
             updatedAt: undefined,
-          });
-          await manager.save(newAction);
+          }));
+          await manager.save(newActions);
         }
       }
 
-      // Clone transitions with updated step IDs
-      const transitions = await this.transitionRepo.find({ where: { programId: id } });
-      for (const transition of transitions) {
-        const newTransition = manager.create(ProgramTransition, {
+      // Clone transitions and variables in parallel batches
+      const savePromises: Promise<unknown>[] = [];
+
+      if (transitions.length > 0) {
+        const newTransitions = transitions.map(transition => manager.create(ProgramTransition, {
           ...transition,
           id: undefined,
           programId: savedProgram.id,
@@ -910,22 +927,23 @@ export class AutomationService {
           toStepId: stepIdMap.get(transition.toStepId) || transition.toStepId,
           createdAt: undefined,
           updatedAt: undefined,
-        });
-        await manager.save(newTransition);
+        }));
+        savePromises.push(manager.save(newTransitions));
       }
 
-      // Clone variables
-      const variables = await this.variableRepo.find({ where: { programId: id } });
-      for (const variable of variables) {
-        const newVariable = manager.create(ProgramVariable, {
+      if (variables.length > 0) {
+        const newVariables = variables.map(variable => manager.create(ProgramVariable, {
           ...variable,
           id: undefined,
           programId: savedProgram.id,
           createdAt: undefined,
           updatedAt: undefined,
-        });
-        await manager.save(newVariable);
+        }));
+        savePromises.push(manager.save(newVariables));
       }
+
+      // Execute remaining saves in parallel
+      await Promise.all(savePromises);
 
       this.logger.log(`Cloned program ${source.programCode} to ${newCode}`);
       return savedProgram;

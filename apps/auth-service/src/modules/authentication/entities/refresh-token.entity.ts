@@ -17,44 +17,44 @@ import { User } from './user.entity';
 @Index('IDX_refresh_tokens_tenant', ['tenantId'])
 export class RefreshToken {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 255 })
-  token: string;
+  token!: string;
 
   @Column({ type: 'uuid' })
-  userId: string;
+  userId!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
-  user: User;
+  user!: User;
 
   @Column({ type: 'uuid', nullable: true })
-  tenantId: string | null;
+  tenantId?: string | null;
 
   @Column({ type: 'timestamp' })
-  expiresAt: Date;
+  expiresAt!: Date;
 
   @Column({ type: 'boolean', default: false })
-  isRevoked: boolean;
+  isRevoked!: boolean;
 
   @Column({ type: 'timestamp', nullable: true })
-  revokedAt: Date | null;
+  revokedAt?: Date | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  revokedReason: string | null;
+  revokedReason?: string | null;
 
   @Column({ type: 'varchar', length: 500, nullable: true })
-  userAgent: string | null;
+  userAgent?: string | null;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
-  ipAddress: string | null;
+  ipAddress?: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  deviceId: string | null;
+  deviceId?: string | null;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   isExpired(): boolean {
     return this.expiresAt < new Date();

@@ -35,92 +35,92 @@ registerEnumType(ModuleCode, {
 export class Module {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   /**
    * Unique module code (farm, hr, seapod, etc.)
    */
   @Field()
   @Column({ type: 'varchar', unique: true, length: 50 })
-  code: string;
+  code!: string;
 
   /**
    * Display name
    */
   @Field()
   @Column({ type: 'varchar', length: 100 })
-  name: string;
+  name!: string;
 
   /**
    * Module description
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
-  description: string | null;
+  description?: string | null;
 
   /**
    * Icon name for UI (e.g., 'fish', 'users', 'microscope')
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 50, nullable: true })
-  icon: string | null;
+  icon?: string | null;
 
   /**
    * Display color for UI (hex code)
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 20, nullable: true })
-  color: string | null;
+  color?: string | null;
 
   /**
    * Module is active and can be assigned to tenants
    */
   @Field()
   @Column({ type: 'boolean', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   /**
    * Display order in lists
    */
   @Field()
   @Column({ type: 'int', default: 0 })
-  sortOrder: number;
+  sortOrder!: number;
 
   /**
    * Default route path (e.g., '/farm/dashboard')
    */
   @Field()
   @Column({ type: 'varchar', length: 100 })
-  defaultRoute: string;
+  defaultRoute!: string;
 
   /**
    * Module features/capabilities (JSON array)
    */
   @Field(() => [String], { nullable: true })
   @Column('simple-array', { nullable: true })
-  features: string[];
+  features!: string[];
 
   /**
    * Base price for this module (pricing details in module_pricing table)
    */
   @Field(() => Number, { nullable: true })
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, nullable: true })
-  price: number | null;
+  price?: number | null;
 
   /**
    * Whether this is a core module included in all plans
    */
   @Field(() => Boolean, { nullable: true })
   @Column({ type: 'boolean', default: false, name: 'is_core', nullable: true })
-  isCore: boolean | null;
+  isCore?: boolean | null;
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // ============================================
   // Static Factory Methods

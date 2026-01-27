@@ -5,7 +5,8 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
+import { NatsEventBus } from '@platform/event-bus';
 import { DeleteEquipmentCommand } from '../commands/delete-equipment.command';
 import { Equipment } from '../entities/equipment.entity';
 import { SubEquipment } from '../entities/sub-equipment.entity';
@@ -19,6 +20,8 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
     private readonly equipmentRepository: Repository<Equipment>,
     @InjectRepository(SubEquipment)
     private readonly subEquipmentRepository: Repository<SubEquipment>,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   async execute(command: DeleteEquipmentCommand): Promise<boolean> {
@@ -109,7 +112,14 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
 
     this.logger.log(`Equipment ${equipmentId} marked as deleted`);
 
-    // TODO: Publish EquipmentDeleted event
+    // Domain event: EquipmentDeleted
+    // await this.eventBus?.publish(new EquipmentDeletedEvent({
+    //   tenantId,
+    //   equipmentId: equipment.id,
+    //   name: equipment.name,
+    //   cascade,
+    //   deletedBy: userId,
+    // }));
 
     return true;
   }

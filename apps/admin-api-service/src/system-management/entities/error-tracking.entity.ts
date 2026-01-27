@@ -69,61 +69,61 @@ export interface ErrorContext {
 @Index(['service', 'timestamp'])
 export class ErrorOccurrence {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  groupId: string;
+  groupId!: string;
 
   @Column({ length: 64 })
-  fingerprint: string;
+  fingerprint!: string;
 
   @Column({ type: 'varchar', length: 50, default: ErrorSeverity.ERROR })
-  severity: ErrorSeverity;
+  severity!: ErrorSeverity;
 
   @Column({ length: 500 })
-  message: string;
+  message!: string;
 
   @Column({ length: 255, nullable: true })
-  errorType: string;
+  errorType?: string;
 
   @Column({ type: 'text', nullable: true })
-  stackTrace: string;
+  stackTrace?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  stackFrames: StackFrame[];
+  stackFrames?: StackFrame[];
 
   @Column({ type: 'jsonb', nullable: true })
-  context: ErrorContext;
+  context?: ErrorContext;
 
   @Column({ length: 100, nullable: true })
-  service: string;
+  service?: string;
 
   @Column({ length: 100, nullable: true })
-  environment: string;
+  environment?: string;
 
   @Column({ length: 50, nullable: true })
-  release: string;
+  release?: string;
 
   @Column({ type: 'uuid', nullable: true })
-  tenantId: string;
+  tenantId?: string;
 
   @Column({ type: 'uuid', nullable: true })
-  userId: string;
+  userId?: string;
 
   @Column({ type: 'inet', nullable: true })
-  ipAddress: string;
+  ipAddress?: string;
 
   @Column({ type: 'text', nullable: true })
-  userAgent: string;
+  userAgent?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @Column()
-  timestamp: Date;
+  timestamp!: Date;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 @Entity('error_groups')
@@ -133,98 +133,98 @@ export class ErrorOccurrence {
 @Index(['service'])
 export class ErrorGroup {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ length: 64 })
-  fingerprint: string;
+  fingerprint!: string;
 
   @Column({ type: 'varchar', length: 50, default: ErrorSeverity.ERROR })
-  severity: ErrorSeverity;
+  severity!: ErrorSeverity;
 
   @Column({ type: 'varchar', length: 50, default: ErrorStatus.NEW })
-  status: ErrorStatus;
+  status!: ErrorStatus;
 
   @Column({ length: 500 })
-  message: string;
+  message!: string;
 
   @Column({ length: 255, nullable: true })
-  errorType: string;
+  errorType?: string;
 
   @Column({ length: 100, nullable: true })
-  service: string;
+  service?: string;
 
   @Column({ type: 'text', nullable: true })
-  culprit: string;
+  culprit?: string;
 
   @Column({ type: 'int', default: 1 })
-  occurrenceCount: number;
+  occurrenceCount!: number;
 
   @Column({ type: 'int', default: 0 })
-  userCount: number;
+  userCount!: number;
 
   @Column()
-  firstSeenAt: Date;
+  firstSeenAt!: Date;
 
   @Column()
-  lastSeenAt: Date;
+  lastSeenAt!: Date;
 
   @Column({ type: 'jsonb', nullable: true })
-  affectedTenants: string[];
+  affectedTenants?: string[];
 
   @Column({ type: 'jsonb', nullable: true })
-  affectedReleases: string[];
+  affectedReleases?: string[];
 
   @Column({ type: 'jsonb', nullable: true })
-  tags: Record<string, string[]>;
+  tags?: Record<string, string[]>;
 
   @Column({ type: 'uuid', nullable: true })
-  assignedTo: string;
+  assignedTo?: string;
 
   @Column({ type: 'text', nullable: true })
-  notes: string;
+  notes?: string;
 
   @Column({ nullable: true })
-  resolvedAt: Date;
+  resolvedAt?: Date;
 
   @Column({ type: 'uuid', nullable: true })
-  resolvedBy: string;
+  resolvedBy?: string;
 
   @Column({ type: 'text', nullable: true })
-  resolutionNotes: string;
+  resolutionNotes?: string;
 
   @Column({ type: 'text', nullable: true })
-  linkedTicketUrl: string;
+  linkedTicketUrl?: string;
 
   @Column({ default: false })
-  isRegression: boolean;
+  isRegression!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 @Entity('error_alert_rules')
 @Index(['isActive'])
 export class ErrorAlertRule {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Column({ type: 'text', nullable: true })
-  description: string;
+  description?: string;
 
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Column({ type: 'jsonb' })
-  conditions: {
+  conditions!: {
     severity?: ErrorSeverity[];
     service?: string[];
     errorType?: string[];
@@ -235,26 +235,26 @@ export class ErrorAlertRule {
   };
 
   @Column({ type: 'jsonb' })
-  actions: Array<{
+  actions!: Array<{
     type: 'email' | 'slack' | 'pagerduty' | 'webhook' | 'sms';
     config: Record<string, unknown>;
   }>;
 
   @Column({ type: 'int', default: 15 })
-  cooldownMinutes: number;
+  cooldownMinutes!: number;
 
   @Column({ nullable: true })
-  lastTriggeredAt: Date;
+  lastTriggeredAt?: Date;
 
   @Column({ type: 'int', default: 0 })
-  triggerCount: number;
+  triggerCount!: number;
 
   @Column({ nullable: true })
-  createdBy: string;
+  createdBy?: string;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

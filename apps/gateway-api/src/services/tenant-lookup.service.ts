@@ -232,13 +232,22 @@ export class TenantLookupService {
    */
   private mapToTenantMetadata(data: TenantApiResponse): TenantMetadata {
     const plan = data.plan.toLowerCase();
-    const planFeatures = PLAN_FEATURES[plan] ?? PLAN_FEATURES['starter'];
-    const planLimits = PLAN_LIMITS[plan] ?? PLAN_LIMITS['starter'];
+    // Use non-null assertion since 'starter' is always defined in our const objects
+    const defaultFeatures = PLAN_FEATURES['starter'] as TenantFeatures;
+    const defaultLimits = PLAN_LIMITS['starter'] as TenantLimits;
+    const planFeatures: TenantFeatures = { ...(PLAN_FEATURES[plan] ?? defaultFeatures) };
+    const planLimits: TenantLimits = { ...(PLAN_LIMITS[plan] ?? defaultLimits) };
 
     // Override maxUsers from tenant settings if available
     if (data.maxUsers && data.maxUsers > 0) {
       planLimits.maxUsers = data.maxUsers;
     }
+
+    // Build complete settings with all required fields
+    const settings: TenantSettings = {
+      ...DEFAULT_SETTINGS,
+      ...(data.settings || {}),
+    };
 
     return {
       id: data.id,
@@ -246,12 +255,9 @@ export class TenantLookupService {
       slug: data.slug,
       status: this.mapStatus(data.status),
       plan,
-      settings: {
-        ...DEFAULT_SETTINGS,
-        ...(data.settings || {}),
-      },
-      features: { ...planFeatures },
-      limits: { ...planLimits },
+      settings,
+      features: planFeatures,
+      limits: planLimits,
       createdAt: new Date(data.createdAt),
       updatedAt: new Date(data.updatedAt),
     };

@@ -9,7 +9,9 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
+import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 import {
   PlanDefinitionService,
   CreatePlanDto,
@@ -55,6 +57,7 @@ import { CustomPlanStatus } from './entities/custom-plan.entity';
  * REST API for subscription and billing management
  */
 @Controller('billing')
+@UseGuards(PlatformAdminGuard)
 export class BillingController {
   constructor(
     private readonly planService: PlanDefinitionService,

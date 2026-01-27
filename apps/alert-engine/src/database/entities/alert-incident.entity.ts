@@ -56,13 +56,13 @@ registerEnumType(TimelineEventType, {
 @ObjectType('IncidentTimelineEvent')
 export class IncidentTimelineEvent {
   @Field()
-  id: string;
+  id!: string;
 
   @Field(() => TimelineEventType)
-  type: TimelineEventType;
+  type!: TimelineEventType;
 
   @Field()
-  timestamp: Date;
+  timestamp!: Date;
 
   @Field({ nullable: true })
   userId?: string;
@@ -91,21 +91,21 @@ export class IncidentTimelineEvent {
 export class AlertIncident {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column()
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column()
   @Index()
-  ruleId: string;
+  ruleId!: string;
 
   @Field()
   @Column()
-  title: string;
+  title!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -113,19 +113,19 @@ export class AlertIncident {
 
   @Field(() => AlertSeverity)
   @Column({ type: 'enum', enum: AlertSeverity, default: AlertSeverity.WARNING })
-  severity: AlertSeverity;
+  severity!: AlertSeverity;
 
   @Field(() => IncidentStatus)
   @Column({ type: 'enum', enum: IncidentStatus, default: IncidentStatus.NEW })
-  status: IncidentStatus;
+  status!: IncidentStatus;
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  riskScore: number;
+  riskScore!: number;
 
   @Field(() => GraphQLJSON)
   @Column('jsonb')
-  triggerData: Record<string, unknown>;
+  triggerData!: Record<string, unknown>;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -166,7 +166,7 @@ export class AlertIncident {
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  escalationLevel: number;
+  escalationLevel!: number;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -174,11 +174,11 @@ export class AlertIncident {
 
   @Field(() => [IncidentTimelineEvent])
   @Column('jsonb', { default: [] })
-  timeline: IncidentTimelineEvent[];
+  timeline!: IncidentTimelineEvent[];
 
   @Field(() => [String])
   @Column('simple-array', { default: '' })
-  relatedIncidentIds: string[];
+  relatedIncidentIds!: string[];
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -186,7 +186,7 @@ export class AlertIncident {
 
   @Field(() => Int)
   @Column({ type: 'int', default: 1 })
-  occurrenceCount: number;
+  occurrenceCount!: number;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -198,11 +198,11 @@ export class AlertIncident {
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // ============================================
   // Relations

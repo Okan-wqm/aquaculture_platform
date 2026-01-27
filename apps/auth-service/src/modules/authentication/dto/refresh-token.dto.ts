@@ -6,5 +6,5 @@ export class RefreshTokenInput {
   @Field()
   @IsString()
   @IsNotEmpty()
-  refreshToken: string;
+  refreshToken!: string;
 }

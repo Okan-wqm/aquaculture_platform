@@ -38,20 +38,20 @@ export class CreatePlatformAnnouncementInput {
   @Field()
   @IsNotEmpty()
   @IsString()
-  title: string;
+  title!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  content: string;
+  content!: string;
 
   @Field(() => AnnouncementType, { defaultValue: AnnouncementType.INFO })
   @IsEnum(AnnouncementType)
-  type: AnnouncementType;
+  type!: AnnouncementType;
 
   @Field({ defaultValue: true })
   @IsBoolean()
-  isGlobal: boolean;
+  isGlobal!: boolean;
 
   @Field(() => AnnouncementTargetInput, { nullable: true })
   @IsOptional()
@@ -69,7 +69,7 @@ export class CreatePlatformAnnouncementInput {
 
   @Field({ defaultValue: false })
   @IsBoolean()
-  requiresAcknowledgment: boolean;
+  requiresAcknowledgment!: boolean;
 }
 
 /**
@@ -80,16 +80,16 @@ export class CreateTenantAnnouncementInput {
   @Field()
   @IsNotEmpty()
   @IsString()
-  title: string;
+  title!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  content: string;
+  content!: string;
 
   @Field(() => AnnouncementType, { defaultValue: AnnouncementType.INFO })
   @IsEnum(AnnouncementType)
-  type: AnnouncementType;
+  type!: AnnouncementType;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -103,7 +103,7 @@ export class CreateTenantAnnouncementInput {
 
   @Field({ defaultValue: false })
   @IsBoolean()
-  requiresAcknowledgment: boolean;
+  requiresAcknowledgment!: boolean;
 }
 
 /**
@@ -112,49 +112,49 @@ export class CreateTenantAnnouncementInput {
 @ObjectType()
 export class AnnouncementListItem {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  title: string;
+  title!: string;
 
   @Field()
-  content: string;
+  content!: string;
 
   @Field(() => AnnouncementType)
-  type: AnnouncementType;
+  type!: AnnouncementType;
 
   @Field(() => AnnouncementStatus)
-  status: AnnouncementStatus;
+  status!: AnnouncementStatus;
 
   @Field(() => AnnouncementScope)
-  scope: AnnouncementScope;
+  scope!: AnnouncementScope;
 
   @Field()
-  isGlobal: boolean;
+  isGlobal!: boolean;
 
   @Field(() => Date, { nullable: true })
-  publishAt: Date | null;
+  publishAt!: Date | null;
 
   @Field(() => Date, { nullable: true })
-  expiresAt: Date | null;
+  expiresAt!: Date | null;
 
   @Field()
-  requiresAcknowledgment: boolean;
+  requiresAcknowledgment!: boolean;
 
   @Field()
-  viewCount: number;
+  viewCount!: number;
 
   @Field()
-  acknowledgmentCount: number;
+  acknowledgmentCount!: number;
 
   @Field()
-  createdByName: string;
+  createdByName!: string;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  isActive: boolean;
+  isActive!: boolean;
 
   // For tenant admin - acknowledgment status
   @Field({ nullable: true })
@@ -170,23 +170,23 @@ export class AnnouncementListItem {
 @ObjectType()
 export class AnnouncementStats {
   @Field()
-  total: number;
+  total!: number;
 
   @Field()
-  published: number;
+  published!: number;
 
   @Field()
-  scheduled: number;
+  scheduled!: number;
 
   @Field()
-  draft: number;
+  draft!: number;
 
   @Field()
-  expired: number;
+  expired!: number;
 
   @Field()
-  totalViews: number;
+  totalViews!: number;
 
   @Field()
-  totalAcknowledgments: number;
+  totalAcknowledgments!: number;
 }

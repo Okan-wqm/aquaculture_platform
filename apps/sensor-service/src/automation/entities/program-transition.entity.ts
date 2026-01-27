@@ -44,17 +44,17 @@ registerEnumType(ConditionType, {
 export class ProgramTransition {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column({ name: 'program_id' })
   @Index()
-  programId: string;
+  programId!: string;
 
   // Transition Identity
   @Field()
   @Column({ name: 'transition_code', length: 30 })
-  transitionCode: string;
+  transitionCode!: string;
 
   @Field({ nullable: true })
   @Column({ name: 'transition_name', length: 100, nullable: true })
@@ -67,11 +67,11 @@ export class ProgramTransition {
   // Step References
   @Field()
   @Column({ name: 'from_step_id' })
-  fromStepId: string;
+  fromStepId!: string;
 
   @Field()
   @Column({ name: 'to_step_id' })
-  toStepId: string;
+  toStepId!: string;
 
   // For convenience, also store step codes
   @Field({ nullable: true })
@@ -90,11 +90,11 @@ export class ProgramTransition {
     enum: ConditionType,
     default: ConditionType.EXPRESSION,
   })
-  conditionType: ConditionType;
+  conditionType!: ConditionType;
 
   @Field({ description: 'IEC 61131-3 Structured Text expression' })
   @Column({ name: 'condition_expression', type: 'text' })
-  conditionExpression: string;
+  conditionExpression!: string;
 
   // Transpiled condition (JavaScript for Node-RED)
   @Column({ name: 'transpiled_condition', type: 'text', nullable: true })
@@ -103,7 +103,7 @@ export class ProgramTransition {
   // Priority for divergence (multiple transitions from same step)
   @Field(() => Int, { description: 'Priority for parallel transitions (lower = higher priority)' })
   @Column({ type: 'int', default: 1 })
-  priority: number;
+  priority!: number;
 
   // Visual representation (control points for curved lines)
   @Field(() => GraphQLJSON, { nullable: true })
@@ -126,16 +126,16 @@ export class ProgramTransition {
   // Flags
   @Field()
   @Column({ name: 'is_active', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   // Timestamps
   @Field()
   @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // Computed fields
   @Field({ nullable: true })

@@ -47,42 +47,42 @@ registerEnumType(InvitationStatus, {
 export class Invitation {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field(() => String)
   @Column({ type: 'varchar', length: 128, unique: true })
-  token: string;
+  token!: string;
 
   @Field(() => String)
   @Column({ type: 'varchar', length: 255 })
-  email: string;
+  email!: string;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 100, nullable: true })
-  firstName: string | null;
+  firstName?: string | null;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 100, nullable: true })
-  lastName: string | null;
+  lastName?: string | null;
 
   @Field(() => Role)
   @Column({
     type: 'varchar',
     length: 50,
   })
-  role: Role;
+  role!: Role;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  tenantId: string | null;
+  tenantId?: string | null;
 
   @Field(() => [String], { nullable: true })
   @Column('simple-array', { nullable: true })
-  moduleIds: string[] | null;
+  moduleIds?: string[] | null;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  primaryModuleId: string | null;
+  primaryModuleId?: string | null;
 
   @Field(() => InvitationStatus)
   @Column({
@@ -90,47 +90,47 @@ export class Invitation {
     length: 20,
     default: InvitationStatus.PENDING,
   })
-  status: InvitationStatus;
+  status!: InvitationStatus;
 
   @Field(() => Date)
   @Column({ type: 'timestamp' })
-  expiresAt: Date;
+  expiresAt!: Date;
 
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamp', nullable: true })
-  acceptedAt: Date | null;
+  acceptedAt?: Date | null;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  userId: string | null;
+  userId?: string | null;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
-  message: string | null;
+  message?: string | null;
 
   @Field(() => String)
   @Column({ type: 'uuid' })
-  invitedBy: string;
+  invitedBy!: string;
 
   @Field(() => Int)
   @Column({ type: 'int', default: 1 })
-  sendCount: number;
+  sendCount!: number;
 
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamp', nullable: true })
-  lastSentAt: Date | null;
+  lastSentAt?: Date | null;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 50, nullable: true })
-  acceptedFromIp: string | null;
+  acceptedFromIp?: string | null;
 
   @Field(() => Date)
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field(() => Date)
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // Helper Methods
   isPending(): boolean {

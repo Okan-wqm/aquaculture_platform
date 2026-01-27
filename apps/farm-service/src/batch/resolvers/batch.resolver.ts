@@ -20,6 +20,7 @@ import {
   Parent,
   registerEnumType,
 } from '@nestjs/graphql';
+import { GraphQLJSON } from 'graphql-type-json';
 import { UseGuards, Logger } from '@nestjs/common';
 import { IsUUID, IsNotEmpty, IsInt, Min, IsOptional, IsNumber, IsString, IsDate, IsEnum } from 'class-validator';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
@@ -551,8 +552,8 @@ export class BatchHistoryEntryResponse implements BatchHistoryEntry {
   @Field()
   description: string;
 
-  @Field(() => String)
-  details: any;
+  @Field(() => GraphQLJSON)
+  details: Record<string, unknown>;
 
   @Field({ nullable: true })
   performedBy?: string;

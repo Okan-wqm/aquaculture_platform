@@ -267,7 +267,8 @@ export class RiskCalculatorService {
     }
 
     // Adjust based on threshold deviation
-    if (context.thresholdValue !== undefined && context.currentValue !== undefined) {
+    // SECURITY: Check for zero to prevent division by zero
+    if (context.thresholdValue !== undefined && context.thresholdValue !== 0 && context.currentValue !== undefined) {
       const deviation = Math.abs(context.currentValue - context.thresholdValue);
       const deviationPercent = (deviation / context.thresholdValue) * 100;
 

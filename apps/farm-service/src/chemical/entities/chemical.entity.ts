@@ -27,6 +27,8 @@ import {
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 // Note: Supplier is referenced via string to avoid circular dependency
+// Type-only import for TypeScript type checking
+import type { Supplier } from '../../supplier/entities/supplier.entity';
 
 // ============================================================================
 // ENUMS
@@ -185,7 +187,7 @@ export class Chemical {
 
   @ManyToOne('Supplier', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'supplierId' })
-  supplier?: any;
+  supplier?: Supplier;
 
   // -------------------------------------------------------------------------
   // STOK BİLGİLERİ

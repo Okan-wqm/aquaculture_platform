@@ -31,13 +31,13 @@ registerEnumType(ParameterStatus, { name: 'ParameterStatus' });
 @ObjectType()
 export class FeedingScheduleEntry {
   @Field()
-  time: string; // HH:mm format
+  time!: string; // HH:mm format
 
   @Field({ nullable: true })
   feedType?: string;
 
   @Field(() => Float)
-  amountKg: number;
+  amountKg!: number;
 
   @Field(() => Int, { nullable: true })
   durationSeconds?: number;
@@ -55,16 +55,16 @@ export class FeedingScheduleEntry {
 @ObjectType()
 export class ThresholdConfig {
   @Field(() => Float)
-  oxygenMin: number;
+  oxygenMin!: number;
 
   @Field(() => Float)
-  oxygenCritical: number;
+  oxygenCritical!: number;
 
   @Field(() => Float)
-  tempMax: number;
+  tempMax!: number;
 
   @Field(() => Float)
-  tempCritical: number;
+  tempCritical!: number;
 
   @Field(() => Float, { nullable: true })
   phMin?: number;
@@ -79,16 +79,16 @@ export class ThresholdConfig {
 @ObjectType()
 export class VfdSettings {
   @Field(() => Int)
-  blowerMinSpeed: number;
+  blowerMinSpeed!: number;
 
   @Field(() => Int)
-  blowerMaxSpeed: number;
+  blowerMaxSpeed!: number;
 
   @Field(() => Int)
-  doserMinSpeed: number;
+  doserMinSpeed!: number;
 
   @Field(() => Int)
-  doserMaxSpeed: number;
+  doserMaxSpeed!: number;
 }
 
 @ObjectType()
@@ -98,20 +98,20 @@ export class VfdSettings {
 export class FeedingParameter {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column()
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column()
-  plcConnectionId: string;
+  plcConnectionId!: string;
 
   @ManyToOne(() => PlcConnection)
   @JoinColumn({ name: 'plcConnectionId' })
-  plcConnection: PlcConnection;
+  plcConnection!: PlcConnection;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -119,7 +119,7 @@ export class FeedingParameter {
 
   @Field()
   @Column()
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -127,39 +127,39 @@ export class FeedingParameter {
 
   @Field()
   @Column({ default: '1.0' })
-  version: string;
+  version!: string;
 
   // Core feeding parameters
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 10, scale: 2 })
-  biomassKg: number;
+  biomassKg!: number;
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 5, scale: 3 })
-  fcr: number; // Feed Conversion Ratio
+  fcr!: number; // Feed Conversion Ratio
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 10, scale: 2 })
-  targetDailyFeedKg: number;
+  targetDailyFeedKg!: number;
 
   // Feeding schedule - stored as JSON
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  schedule: FeedingScheduleEntry[];
+  schedule!: FeedingScheduleEntry[];
 
   // Thresholds for safety - stored as JSON
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  thresholds: ThresholdConfig;
+  thresholds!: ThresholdConfig;
 
   // VFD settings - stored as JSON
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  vfdSettings: VfdSettings;
+  vfdSettings!: VfdSettings;
 
   @Field(() => ParameterStatus)
   @Column({ type: 'varchar', default: ParameterStatus.DRAFT })
-  status: ParameterStatus;
+  status!: ParameterStatus;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -184,11 +184,11 @@ export class FeedingParameter {
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column({ nullable: true })

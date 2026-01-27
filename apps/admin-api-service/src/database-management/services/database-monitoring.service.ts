@@ -284,17 +284,96 @@ export class DatabaseMonitoringService {
   }
 
   /**
+   * Validate schema name to prevent SQL injection
+   * Only allows alphanumeric characters, underscores, and hyphens
+   */
+  private validateSchemaName(schemaName: string): boolean {
+    const SCHEMA_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_-]{0,62}$/;
+    return SCHEMA_NAME_PATTERN.test(schemaName);
+  }
+
+  /**
+   * Validate query for EXPLAIN - only allow SELECT statements
+   * SECURITY: This prevents DDL/DML injection via EXPLAIN
+   */
+  private validateQueryForExplain(query: string): { valid: boolean; error?: string } {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    // CRITICAL: No semicolons allowed at all - prevents statement chaining
+    if (query.includes(';')) {
+      return { valid: false, error: 'Semicolons are not allowed in queries' };
+    }
+
+    // Forbidden patterns - DDL and DML operations
+    const forbiddenPatterns = [
+      /\b(insert|update|delete|drop|create|alter|truncate|grant|revoke|vacuum|analyze)\b/i,
+      /--/,  // SQL comments
+      /\/\*/,  // Block comments
+      /\binto\s+outfile\b/i,
+      /\bload_file\b/i,
+      /\bpg_read_file\b/i,
+      /\bpg_write_file\b/i,
+      /\bpg_sleep\b/i,  // Time-based attacks
+      /\bcopy\b/i,
+      /\bexec\b/i,
+      /\bexecute\b/i,
+      /\bdo\s*\$/i,  // PL/pgSQL blocks
+      /\$\$.*\$\$/i,  // Dollar-quoted strings (can contain code)
+      /\bset\s+session\b/i,  // Session manipulation
+      /\bset\s+local\b/i,
+      /\braise\b/i,  // Error raising
+      /\bnotify\b/i,  // LISTEN/NOTIFY
+      /\blisten\b/i,
+    ];
+
+    for (const pattern of forbiddenPatterns) {
+      if (pattern.test(query)) {
+        return { valid: false, error: 'Query contains forbidden SQL patterns' };
+      }
+    }
+
+    // Must start with SELECT, WITH, or VALUES
+    if (!/^(select|with|values)\b/i.test(normalizedQuery)) {
+      return { valid: false, error: 'Only SELECT, WITH, or VALUES queries can be analyzed' };
+    }
+
+    // Max query length to prevent DoS
+    if (query.length > 10000) {
+      return { valid: false, error: 'Query exceeds maximum allowed length (10000 chars)' };
+    }
+
+    return { valid: true };
+  }
+
+  /**
    * Analyze query with EXPLAIN
+   * SECURITY: Input validation prevents SQL injection
    */
   async analyzeQuery(query: string, schemaName?: string): Promise<Record<string, unknown>> {
+    // Validate schema name if provided
+    if (schemaName) {
+      if (!this.validateSchemaName(schemaName)) {
+        throw new Error('Invalid schema name format. Only alphanumeric characters, underscores, and hyphens are allowed.');
+      }
+    }
+
+    // Validate query for EXPLAIN
+    const queryValidation = this.validateQueryForExplain(query);
+    if (!queryValidation.valid) {
+      throw new Error(`Query validation failed: ${queryValidation.error}`);
+    }
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
 
     try {
       if (schemaName) {
-        await queryRunner.query(`SET search_path TO "${schemaName}"`);
+        // Use identifier quoting for schema name (already validated)
+        await queryRunner.query(`SET search_path TO ${queryRunner.connection.driver.escape(schemaName)}`);
       }
 
+      // EXPLAIN with ANALYZE false is read-only and safe
+      // The query itself is validated above to only allow SELECT/WITH/VALUES
       const result = await queryRunner.query(`EXPLAIN (FORMAT JSON, ANALYZE false) ${query}`);
       return result[0]?.['QUERY PLAN'] || {};
     } finally {

@@ -11,10 +11,47 @@ async function bootstrap() {
 
   const configService = app.get(ConfigService);
 
-  // Security middleware
-  app.use(helmet());
+  // Trust proxy configuration for deployments behind reverse proxy (nginx, cloudflare, etc)
+  const trustProxy = configService.get<string>('TRUST_PROXY', 'false');
+  if (trustProxy === 'true' || trustProxy === '1') {
+    app.getHttpAdapter().getInstance().set('trust proxy', 1);
+    logger.log('Trust proxy enabled (trusting first proxy)');
+  } else if (trustProxy && trustProxy !== 'false' && trustProxy !== '0') {
+    app.getHttpAdapter().getInstance().set('trust proxy', trustProxy);
+    logger.log(`Trust proxy configured: ${trustProxy}`);
+  }
 
-  // Global validation pipe
+  const isProduction = process.env['NODE_ENV'] === 'production';
+
+  // Security middleware with production-appropriate settings
+  app.use(
+    helmet({
+      contentSecurityPolicy: isProduction
+        ? {
+            directives: {
+              defaultSrc: ["'self'"],
+              scriptSrc: ["'self'"],
+              styleSrc: ["'self'", "'unsafe-inline'"],
+              imgSrc: ["'self'", 'data:', 'https:'],
+              fontSrc: ["'self'"],
+              connectSrc: ["'self'"],
+              objectSrc: ["'none'"],
+              frameSrc: ["'none'"],
+            },
+          }
+        : false,
+      strictTransportSecurity: isProduction
+        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+        : false,
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+      noSniff: true,
+      frameguard: { action: 'deny' },
+      hidePoweredBy: true,
+      xssFilter: true,
+    }),
+  );
+
+  // Global validation pipe with security settings
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -23,6 +60,12 @@ async function bootstrap() {
       transformOptions: {
         enableImplicitConversion: true,
       },
+      // SECURITY: Hide internal details from validation errors
+      validationError: {
+        target: false,
+        value: false,
+      },
+      disableErrorMessages: isProduction,
     }),
   );
 
@@ -33,9 +76,9 @@ async function bootstrap() {
   const isProduction = process.env['NODE_ENV'] === 'production';
 
   if (isProduction && corsOrigins === '*') {
-    logger.warn(
-      'SECURITY WARNING: CORS_ORIGINS is set to wildcard in production. ' +
-      'This is insecure. Set CORS_ORIGINS to explicit allowed origins.',
+    throw new Error(
+      'SECURITY ERROR: CORS_ORIGINS cannot be set to wildcard ("*") in production. ' +
+      'Set CORS_ORIGINS to explicit allowed origins.',
     );
   }
 
@@ -57,6 +100,9 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1', {
     exclude: ['health', 'health/live', 'health/ready'],
   });
+
+  // Enable graceful shutdown hooks
+  app.enableShutdownHooks();
 
   const port = configService.get<number>('PORT', 3001);
   await app.listen(port);

@@ -158,7 +158,7 @@ export class MqttAdapter extends BaseProtocolAdapter {
         resolve(handle);
       });
 
-      client.on('error', (error: Error) => {
+      (client as unknown as { on(event: 'error', handler: (error: Error) => void): void }).on('error', (error: Error) => {
         clearTimeout(timeout);
         reject(error);
       });
@@ -218,8 +218,8 @@ export class MqttAdapter extends BaseProtocolAdapter {
         diagnostics: {
           connectionTimeMs: latencyMs,
           deviceInfo: {
-            broker: clientData.config.brokerUrl,
-            topic: clientData.config.topic,
+            broker: clientData?.config.brokerUrl,
+            topic: clientData?.config.topic,
           },
         },
       };
@@ -249,7 +249,7 @@ export class MqttAdapter extends BaseProtocolAdapter {
         reject(new Error('Read timeout'));
       }, 30000);
 
-      client.subscribe(config.topic, { qos: config.qos }, (err: Error) => {
+      client.subscribe(config.topic, { qos: config.qos }, (err: Error | null) => {
         if (err) {
           clearTimeout(timeout);
           reject(err);
@@ -297,7 +297,9 @@ export class MqttAdapter extends BaseProtocolAdapter {
       }
     };
 
-    client.subscribe(config.topic, { qos: config.qos });
+    client.subscribe(config.topic, { qos: config.qos }, () => {
+      // Subscription acknowledged
+    });
     client.on('message', messageHandler);
 
     return {
@@ -593,10 +595,10 @@ export class MqttAdapter extends BaseProtocolAdapter {
           const parsed = JSON.parse(message.toString()) as Record<string, unknown>;
           if (config.dataMapping) {
             for (const [key, path] of Object.entries(config.dataMapping)) {
-              values[key] = this.getNestedValue(parsed, path);
+              values[key] = this.getNestedValue(parsed, path) as string | number | boolean | null;
             }
           } else {
-            values = this.flattenObject(parsed);
+            values = this.flattenObject(parsed) as Record<string, string | number | boolean | null>;
           }
         } catch {
           values = { raw: message.toString() };

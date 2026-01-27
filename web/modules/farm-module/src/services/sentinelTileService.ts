@@ -831,7 +831,6 @@ async function fetchTileInternal(
 
       // Handle 401 - token expired
       if (response.status === 401) {
-        console.warn(`[TileService] 401 Unauthorized - token expired (attempt ${attempt + 1})`);
         invalidateToken();
         if (attempt < maxRetries) {
           continue; // Retry with new token

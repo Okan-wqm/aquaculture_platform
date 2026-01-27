@@ -8,8 +8,10 @@ export const QUERY_HANDLER_METADATA = 'QUERY_HANDLER_METADATA';
 
 /**
  * Constructor type for queries
+ * Using 'any[]' to allow queries with typed constructor parameters
  */
-type QueryConstructor = new (...args: unknown[]) => IQuery;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type QueryConstructor = new (...args: any[]) => IQuery;
 
 /**
  * Decorator to mark a class as a query handler

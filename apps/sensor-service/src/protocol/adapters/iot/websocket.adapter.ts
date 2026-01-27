@@ -232,7 +232,7 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
       }
     };
 
-    socketData.ws.on('message', messageHandler);
+    socketData.ws.on('message', messageHandler as (...args: unknown[]) => void);
 
     return {
       id: `sub_${handle.id}_${Date.now()}`,

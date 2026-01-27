@@ -79,44 +79,44 @@ export interface VfdStatusBits {
 @Index(['timestamp'])
 export class VfdReading {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
   @Index()
-  vfdDeviceId: string;
+  vfdDeviceId!: string;
 
   @ManyToOne(() => VfdDevice, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'vfdDeviceId' })
-  vfdDevice: VfdDevice;
+  vfdDevice!: VfdDevice;
 
   @Column({ type: 'uuid' })
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'jsonb' })
-  parameters: VfdParameters;
+  parameters!: VfdParameters;
 
   @Column({ type: 'jsonb', nullable: true })
-  statusBits: VfdStatusBits;
+  statusBits?: VfdStatusBits;
 
   @Column({ type: 'jsonb', nullable: true })
-  rawValues: Record<string, number>;
+  rawValues?: Record<string, number>;
 
   @Column({ type: 'int', nullable: true })
-  latencyMs: number;
+  latencyMs?: number;
 
   @Column({ type: 'boolean', default: true })
-  isValid: boolean;
+  isValid!: boolean;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  errorMessage: string;
+  errorMessage?: string;
 
   @Column({ type: 'timestamp with time zone' })
   @Index()
-  timestamp: Date;
+  timestamp!: Date;
 
   @CreateDateColumn({ type: 'timestamp with time zone' })
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 /**

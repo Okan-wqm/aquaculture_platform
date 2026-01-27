@@ -56,106 +56,106 @@ export interface JobRetryPolicy {
 @Index(['tenantId', 'status'])
 export class BackgroundJob {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Column({ length: 100 })
-  queueName: string;
+  queueName!: string;
 
   @Column({ type: 'varchar', length: 50, default: JobType.IMMEDIATE })
-  jobType: JobType;
+  jobType!: JobType;
 
   @Column({ type: 'varchar', length: 50, default: JobStatus.PENDING })
-  status: JobStatus;
+  status!: JobStatus;
 
   @Column({ type: 'int', default: JobPriority.NORMAL })
-  priority: number;
+  priority!: number;
 
   @Column({ type: 'jsonb', nullable: true })
-  payload: Record<string, unknown>;
+  payload?: Record<string, unknown>;
 
   @Column({ type: 'jsonb', nullable: true })
-  result: Record<string, unknown>;
+  result?: Record<string, unknown>;
 
   @Column({ type: 'text', nullable: true })
-  errorMessage: string;
+  errorMessage?: string;
 
   @Column({ type: 'text', nullable: true })
-  stackTrace: string;
+  stackTrace?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  progress: JobProgress;
+  progress?: JobProgress;
 
   @Column({ type: 'uuid', nullable: true })
-  tenantId: string;
+  tenantId?: string;
 
   @Column({ type: 'uuid', nullable: true })
-  userId: string;
+  userId?: string;
 
   @Column({ nullable: true })
-  scheduledAt: Date;
+  scheduledAt?: Date;
 
   @Column({ nullable: true })
-  startedAt: Date;
+  startedAt?: Date;
 
   @Column({ nullable: true })
-  completedAt: Date;
+  completedAt?: Date;
 
   @Column({ type: 'int', nullable: true })
-  durationMs: number;
+  durationMs?: number;
 
   @Column({ type: 'int', default: 0 })
-  attempts: number;
+  attempts!: number;
 
   @Column({ type: 'int', default: 3 })
-  maxAttempts: number;
+  maxAttempts!: number;
 
   @Column({ type: 'jsonb', nullable: true })
-  retryPolicy: JobRetryPolicy;
+  retryPolicy?: JobRetryPolicy;
 
   @Column({ nullable: true })
-  nextRetryAt: Date;
+  nextRetryAt?: Date;
 
   @Column({ type: 'text', nullable: true })
-  cronExpression: string;
+  cronExpression?: string;
 
   @Column({ nullable: true })
-  lastRunAt: Date;
+  lastRunAt?: Date;
 
   @Column({ nullable: true })
-  nextRunAt: Date;
+  nextRunAt?: Date;
 
   @Column({ type: 'int', default: 3600000 })
-  timeoutMs: number;
+  timeoutMs!: number;
 
   @Column({ type: 'jsonb', nullable: true })
-  dependencies: string[];
+  dependencies?: string[];
 
   @Column({ type: 'uuid', nullable: true })
-  parentJobId: string;
+  parentJobId?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  tags: string[];
+  tags?: string[];
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @Column({ length: 100, nullable: true })
-  workerId: string;
+  workerId?: string;
 
   @Column({ default: false })
-  isRecurring: boolean;
+  isRecurring!: boolean;
 
   @Column({ default: false })
-  isPaused: boolean;
+  isPaused!: boolean;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 @Entity('job_execution_logs')
@@ -163,37 +163,37 @@ export class BackgroundJob {
 @Index(['timestamp'])
 export class JobExecutionLog {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  jobId: string;
+  jobId!: string;
 
   @Column({ type: 'int' })
-  attemptNumber: number;
+  attemptNumber!: number;
 
   @Column({ type: 'varchar', length: 50 })
-  status: JobStatus;
+  status!: JobStatus;
 
   @Column()
-  startedAt: Date;
+  startedAt!: Date;
 
   @Column({ nullable: true })
-  completedAt: Date;
+  completedAt?: Date;
 
   @Column({ type: 'int', nullable: true })
-  durationMs: number;
+  durationMs?: number;
 
   @Column({ type: 'text', nullable: true })
-  errorMessage: string;
+  errorMessage?: string;
 
   @Column({ type: 'text', nullable: true })
-  stackTrace: string;
+  stackTrace?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  result: Record<string, unknown>;
+  result?: Record<string, unknown>;
 
   @Column({ type: 'jsonb', nullable: true })
-  logs: Array<{
+  logs?: Array<{
     level: 'debug' | 'info' | 'warn' | 'error';
     message: string;
     timestamp: Date;
@@ -201,78 +201,78 @@ export class JobExecutionLog {
   }>;
 
   @Column({ length: 100, nullable: true })
-  workerId: string;
+  workerId?: string;
 
   @Column({ type: 'float', nullable: true })
-  cpuUsage: number;
+  cpuUsage?: number;
 
   @Column({ type: 'float', nullable: true })
-  memoryUsage: number;
+  memoryUsage?: number;
 
   @Column()
-  timestamp: Date;
+  timestamp!: Date;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 @Entity('job_queues')
 @Index(['name'], { unique: true })
 export class JobQueue {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ length: 100 })
-  name: string;
+  name!: string;
 
   @Column({ type: 'text', nullable: true })
-  description: string;
+  description?: string;
 
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Column({ default: false })
-  isPaused: boolean;
+  isPaused!: boolean;
 
   @Column({ type: 'int', default: 10 })
-  concurrency: number;
+  concurrency!: number;
 
   @Column({ type: 'int', default: 100 })
-  maxJobsPerSecond: number;
+  maxJobsPerSecond!: number;
 
   @Column({ type: 'int', default: 3 })
-  defaultMaxRetries: number;
+  defaultMaxRetries!: number;
 
   @Column({ type: 'int', default: 3600000 })
-  defaultTimeoutMs: number;
+  defaultTimeoutMs!: number;
 
   @Column({ type: 'jsonb', nullable: true })
-  retryPolicy: JobRetryPolicy;
+  retryPolicy?: JobRetryPolicy;
 
   @Column({ type: 'int', default: 0 })
-  pendingCount: number;
+  pendingCount!: number;
 
   @Column({ type: 'int', default: 0 })
-  runningCount: number;
+  runningCount!: number;
 
   @Column({ type: 'int', default: 0 })
-  completedCount: number;
+  completedCount!: number;
 
   @Column({ type: 'int', default: 0 })
-  failedCount: number;
+  failedCount!: number;
 
   @Column({ type: 'float', nullable: true })
-  avgProcessingTimeMs: number;
+  avgProcessingTimeMs?: number;
 
   @Column({ nullable: true })
-  lastJobAt: Date;
+  lastJobAt?: Date;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

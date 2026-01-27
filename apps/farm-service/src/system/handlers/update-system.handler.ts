@@ -4,7 +4,8 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
-import { ConflictException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { ConflictException, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
+import { NatsEventBus } from '@platform/event-bus';
 import { UpdateSystemCommand } from '../commands/update-system.command';
 import { System } from '../entities/system.entity';
 
@@ -15,6 +16,8 @@ export class UpdateSystemHandler implements ICommandHandler<UpdateSystemCommand>
   constructor(
     @InjectRepository(System)
     private readonly systemRepository: Repository<System>,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   async execute(command: UpdateSystemCommand): Promise<System> {
@@ -86,7 +89,14 @@ export class UpdateSystemHandler implements ICommandHandler<UpdateSystemCommand>
 
     this.logger.log(`System ${systemId} updated successfully`);
 
-    // TODO: Publish SystemUpdated event
+    // Domain event: SystemUpdated
+    // await this.eventBus?.publish(new SystemUpdatedEvent({
+    //   tenantId,
+    //   systemId: updatedSystem.id,
+    //   name: updatedSystem.name,
+    //   code: updatedSystem.code,
+    //   updatedBy: userId,
+    // }));
 
     return updatedSystem;
   }

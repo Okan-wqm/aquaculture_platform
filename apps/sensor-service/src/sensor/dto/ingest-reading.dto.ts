@@ -81,12 +81,12 @@ export class SensorReadingsInput {
 export class IngestReadingInput {
   @Field(() => ID)
   @IsUUID()
-  sensorId: string;
+  sensorId!: string;
 
   @Field(() => SensorReadingsInput)
   @ValidateNested()
   @Type(() => SensorReadingsInput)
-  readings: SensorReadingsInput;
+  readings!: SensorReadingsInput;
 
   @Field(() => ID, { nullable: true })
   @IsUUID()
@@ -113,5 +113,5 @@ export class BatchIngestInput {
   @Field(() => [IngestReadingInput])
   @ValidateNested({ each: true })
   @Type(() => IngestReadingInput)
-  readings: IngestReadingInput[];
+  readings!: IngestReadingInput[];
 }

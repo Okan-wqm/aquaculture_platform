@@ -235,7 +235,7 @@ export function Timeout(ms: number) {
   ) {
     const originalMethod = descriptor.value as (...args: unknown[]) => unknown;
 
-    const wrappedMethod = function (...args: unknown[]) {
+    const wrappedMethod = function (this: unknown, ...args: unknown[]) {
       // The timeout will be handled by the middleware
       // This decorator is for documentation/metadata purposes
       return originalMethod.apply(this, args);

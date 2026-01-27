@@ -17,6 +17,9 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 // Note: Farm and Batch are referenced via string to avoid circular dependency
+// Type-only imports for TypeScript type checking
+import type { Farm } from './farm.entity';
+import type { Batch } from '../../batch/entities/batch.entity';
 
 /**
  * Water type enum
@@ -90,12 +93,12 @@ export class Pond {
 
   @ManyToOne('Farm', 'ponds', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'farmId' })
-  farm: any;
+  farm?: Farm;
 
   // Note: batches relation available via TypeORM but not exposed in GraphQL
   // Use pond.batches query in resolver instead to avoid circular type issues
   @OneToMany('Batch', 'pond')
-  batches?: any[];
+  batches?: Batch[];
 
   @Field()
   @Column()

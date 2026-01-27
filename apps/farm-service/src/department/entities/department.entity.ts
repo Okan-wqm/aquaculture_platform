@@ -26,7 +26,9 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
-// Note: Site is referenced via string to avoid circular dependency
+// Note: Site is referenced via string in decorator to avoid circular dependency
+// Type-only import for TypeScript type checking
+import type { Site } from '../../site/entities/site.entity';
 
 // ============================================================================
 // ENUMS
@@ -99,7 +101,7 @@ export class Department {
 
   @ManyToOne('Site', { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'siteId' })
-  site?: any;
+  site?: Site;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER

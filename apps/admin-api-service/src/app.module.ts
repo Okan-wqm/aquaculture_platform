@@ -32,27 +32,48 @@ import { PlatformAdminGuard } from './guards/platform-admin.guard';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
+      useFactory: (configService: ConfigService) => {
+        // SECURITY: Fail fast in production if database password is not configured
+        const dbPassword = configService.get<string>('DATABASE_PASSWORD');
+        if (!dbPassword && process.env['NODE_ENV'] === 'production') {
+          throw new Error('SECURITY: DATABASE_PASSWORD must be set in production');
+        }
+        return {
         type: 'postgres',
         host: configService.get<string>('DATABASE_HOST', 'localhost'),
         port: configService.get<number>('DATABASE_PORT', 5432),
         username: configService.get<string>('DATABASE_USER', 'postgres'),
-        password: configService.get<string>('DATABASE_PASSWORD', 'postgres'),
+        password: dbPassword || 'postgres',
         database: configService.get<string>('DATABASE_NAME', 'aquaculture'),
         schema: configService.get<string>('DATABASE_SCHEMA', 'admin'),
         autoLoadEntities: true,
         synchronize: configService.get<string>('NODE_ENV') === 'development',
         logging: configService.get<string>('NODE_ENV') === 'development',
-        ssl:
-          configService.get<string>('DB_SSL') === 'true'
-            ? { rejectUnauthorized: false }
-            : false,
+        // SECURITY: SSL configuration with proper certificate validation
+        ssl: (() => {
+          const sslEnabled = configService.get<string>('DB_SSL') === 'true';
+          if (!sslEnabled) return false;
+
+          const isProduction = configService.get('NODE_ENV') === 'production';
+          const caPath = configService.get<string>('DATABASE_SSL_CA');
+          const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
+
+          if (isProduction && !rejectUnauthorized && !caPath) {
+            console.warn('⚠️  WARNING: SSL certificate verification disabled in production!');
+          }
+
+          return {
+            rejectUnauthorized,
+            ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
+          };
+        })(),
         extra: {
           max: configService.get<number>('DB_POOL_SIZE', 20),
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 10000,
         },
-      }),
+      };
+      },
     }),
     CqrsModule,
     TenantManagementModule,

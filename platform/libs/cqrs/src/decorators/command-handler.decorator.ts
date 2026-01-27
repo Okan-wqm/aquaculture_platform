@@ -8,8 +8,10 @@ export const COMMAND_HANDLER_METADATA = 'COMMAND_HANDLER_METADATA';
 
 /**
  * Constructor type for commands
+ * Using 'any[]' to allow commands with typed constructor parameters
  */
-type CommandConstructor = new (...args: unknown[]) => ICommand;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type CommandConstructor = new (...args: any[]) => ICommand;
 
 /**
  * Decorator options for command handler

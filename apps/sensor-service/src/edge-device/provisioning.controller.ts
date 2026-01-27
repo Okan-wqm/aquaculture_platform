@@ -8,7 +8,7 @@ import {
   HttpStatus,
   Logger,
   HttpException,
-  BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
 import { Response } from 'express';
 
@@ -19,16 +19,22 @@ import {
   ActivationErrorCode,
 } from './dto/provisioning.dto';
 import { ProvisioningService } from './provisioning.service';
+import { SimpleRateLimitGuard, RateLimit } from '../guards/rate-limit.guard';
 
 /**
  * Provisioning Controller
  * Public REST endpoints for device provisioning (no auth required)
+ *
+ * SECURITY: Rate limiting is applied to prevent brute-force attacks
+ * - Install script: 5 requests per minute per IP
+ * - Device activation: 3 requests per minute per IP
  *
  * These endpoints are called by:
  * 1. The installer script (GET /install/:deviceCode)
  * 2. The edge agent (POST /api/devices/activate)
  */
 @Controller()
+@UseGuards(SimpleRateLimitGuard)
 export class ProvisioningController {
   private readonly logger = new Logger(ProvisioningController.name);
 
@@ -41,8 +47,11 @@ export class ProvisioningController {
    * This is called by: curl -sSL http://localhost:3000/install/{deviceCode} | sudo sh
    *
    * Returns: Shell script (text/x-shellscript)
+   *
+   * SECURITY: Limited to 5 requests per minute per IP to prevent enumeration
    */
   @Get('install/:deviceCode')
+  @RateLimit({ limit: 5, windowMs: 60000 })
   async getInstallerScript(
     @Param('deviceCode') deviceCode: string,
     @Res() res: Response,
@@ -105,29 +114,18 @@ export class ProvisioningController {
    *
    * Request: DeviceActivationRequest
    * Response: DeviceActivationResponse | ActivationErrorResponse
+   *
+   * SECURITY: Limited to 3 requests per minute per IP to prevent brute-force
    */
   @Post('api/devices/activate')
+  @RateLimit({ limit: 3, windowMs: 60000 })
   async activateDevice(
     @Body() request: DeviceActivationRequest,
   ): Promise<DeviceActivationResponse | ActivationErrorResponse> {
     this.logger.log(`Activation request received for device: ${request.deviceId}`);
 
-    // Validate request
-    if (!request.deviceId || !request.token) {
-      throw new BadRequestException({
-        success: false,
-        error: 'Missing required fields: deviceId and token',
-        errorCode: ActivationErrorCode.INVALID_TOKEN,
-      } as ActivationErrorResponse);
-    }
-
-    if (!request.fingerprint) {
-      throw new BadRequestException({
-        success: false,
-        error: 'Missing required field: fingerprint',
-        errorCode: ActivationErrorCode.INVALID_TOKEN,
-      } as ActivationErrorResponse);
-    }
+    // SECURITY NOTE: Input validation is now handled by class-validator decorators
+    // in DeviceActivationRequest DTO. ValidationPipe must be enabled globally.
 
     try {
       const response = await this.provisioningService.activateDevice(request);

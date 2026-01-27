@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
 import { Request } from 'express';
 
-import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
+import { SensorDataChannel, ChannelDataType } from '../../database/entities/sensor-data-channel.entity';
 import {
   DataChannelType,
   DiscoveryResultType,
@@ -187,7 +187,7 @@ export class ChannelResolver {
     const discoveredChannels = input.channels.map(ch => ({
       channelKey: ch.channelKey,
       suggestedLabel: ch.displayLabel,
-      inferredDataType: ch.dataType ?? 'float',
+      inferredDataType: ch.dataType ?? ChannelDataType.NUMBER,
       inferredUnit: ch.unit,
       sampleValue: ch.sampleValue,
       dataPath: ch.dataPath,

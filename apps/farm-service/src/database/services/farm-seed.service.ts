@@ -15,9 +15,16 @@
  */
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { EQUIPMENT_TYPES_SEED } from '../../equipment/seeds/equipment-types.seed';
+
+/**
+ * Interface for raw query row with id field
+ */
+interface IdRow {
+  id: string;
+}
 
 @Injectable()
 export class FarmSeedService implements OnModuleInit {
@@ -135,7 +142,7 @@ export class FarmSeedService implements OnModuleInit {
   /**
    * Test tenant olusturur veya mevcut olani doner
    */
-  private async ensureTestTenant(queryRunner: any): Promise<string> {
+  private async ensureTestTenant(queryRunner: QueryRunner): Promise<string> {
     const testTenantCode = 'FARM_TEST';
 
     // Mevcut tenant'i kontrol et
@@ -189,7 +196,7 @@ export class FarmSeedService implements OnModuleInit {
    * Equipment Types seed - EQUIPMENT_TYPES_SEED'den kapsamlı veriler kullanır
    * UPSERT mantığı: Mevcut kayıtları günceller, yeni kayıtları ekler
    */
-  private async seedEquipmentTypes(queryRunner: any) {
+  private async seedEquipmentTypes(queryRunner: QueryRunner) {
     this.logger.log('  Seeding equipment types with comprehensive specification schemas...');
 
     for (const et of EQUIPMENT_TYPES_SEED) {
@@ -244,7 +251,7 @@ export class FarmSeedService implements OnModuleInit {
     this.logger.log(`  Seeded ${EQUIPMENT_TYPES_SEED.length} equipment types`);
   }
 
-  private async ensureSite(queryRunner: any, tenantId: string): Promise<string> {
+  private async ensureSite(queryRunner: QueryRunner, tenantId: string): Promise<string> {
     const existing = await queryRunner.query(
       `SELECT id FROM sites WHERE "tenantId" = $1 LIMIT 1`,
       [tenantId]
@@ -265,7 +272,7 @@ export class FarmSeedService implements OnModuleInit {
     return siteId;
   }
 
-  private async ensureDepartment(queryRunner: any, tenantId: string, siteId: string): Promise<string> {
+  private async ensureDepartment(queryRunner: QueryRunner, tenantId: string, siteId: string): Promise<string> {
     const existing = await queryRunner.query(
       `SELECT id FROM departments WHERE "tenantId" = $1 AND "siteId" = $2 LIMIT 1`,
       [tenantId, siteId]
@@ -286,7 +293,7 @@ export class FarmSeedService implements OnModuleInit {
     return departmentId;
   }
 
-  private async ensureSystem(queryRunner: any, tenantId: string, siteId: string): Promise<string> {
+  private async ensureSystem(queryRunner: QueryRunner, tenantId: string, siteId: string): Promise<string> {
     const existing = await queryRunner.query(
       `SELECT id FROM systems WHERE "tenantId" = $1 AND "siteId" = $2 LIMIT 1`,
       [tenantId, siteId]
@@ -307,7 +314,7 @@ export class FarmSeedService implements OnModuleInit {
     return systemId;
   }
 
-  private async ensureSubSystem(queryRunner: any, tenantId: string, systemId: string): Promise<string> {
+  private async ensureSubSystem(queryRunner: QueryRunner, tenantId: string, systemId: string): Promise<string> {
     const existing = await queryRunner.query(
       `SELECT id FROM sub_systems WHERE "tenantId" = $1 AND "systemId" = $2 LIMIT 1`,
       [tenantId, systemId]
@@ -331,7 +338,7 @@ export class FarmSeedService implements OnModuleInit {
   /**
    * Species (tur) verilerini olusturur
    */
-  private async seedSpecies(queryRunner: any, tenantId: string): Promise<Record<string, string>> {
+  private async seedSpecies(queryRunner: QueryRunner, tenantId: string): Promise<Record<string, string>> {
     const speciesIds: Record<string, string> = {};
 
     const speciesList = [
@@ -499,7 +506,7 @@ export class FarmSeedService implements OnModuleInit {
   /**
    * Tank verilerini olusturur (bagimsiz tanks tablosu)
    */
-  private async seedTanks(queryRunner: any, tenantId: string, departmentId: string): Promise<string[]> {
+  private async seedTanks(queryRunner: QueryRunner, tenantId: string, departmentId: string): Promise<string[]> {
     const tankIds: string[] = [];
 
     const existing = await queryRunner.query(
@@ -512,7 +519,7 @@ export class FarmSeedService implements OnModuleInit {
         `SELECT id FROM tanks WHERE "tenantId" = $1`,
         [tenantId]
       );
-      return allTanks.map((t: any) => t.id);
+      return allTanks.map((t: IdRow) => t.id);
     }
 
     const tanks = [
@@ -573,7 +580,7 @@ export class FarmSeedService implements OnModuleInit {
   /**
    * Feed (yem) verilerini olusturur
    */
-  private async seedFeeds(queryRunner: any, tenantId: string): Promise<string[]> {
+  private async seedFeeds(queryRunner: QueryRunner, tenantId: string): Promise<string[]> {
     const feedIds: string[] = [];
 
     const existing = await queryRunner.query(
@@ -586,7 +593,7 @@ export class FarmSeedService implements OnModuleInit {
         `SELECT id FROM feeds WHERE "tenantId" = $1`,
         [tenantId]
       );
-      return allFeeds.map((f: any) => f.id);
+      return allFeeds.map((f: IdRow) => f.id);
     }
 
     const feeds = [
@@ -700,7 +707,7 @@ export class FarmSeedService implements OnModuleInit {
    * Feed inventory (yem stoku) olusturur
    */
   private async seedFeedInventory(
-    queryRunner: any,
+    queryRunner: QueryRunner,
     tenantId: string,
     siteId: string,
     departmentId: string,
@@ -756,7 +763,7 @@ export class FarmSeedService implements OnModuleInit {
    * Sample batch olusturur
    */
   private async seedSampleBatch(
-    queryRunner: any,
+    queryRunner: QueryRunner,
     tenantId: string,
     speciesId: string,
     tankIds: string[]

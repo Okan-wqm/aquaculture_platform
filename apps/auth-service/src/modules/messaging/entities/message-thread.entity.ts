@@ -39,64 +39,64 @@ registerEnumType(ThreadStatus, {
 export class MessageThread {
   @PrimaryGeneratedColumn('uuid')
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
   @Field()
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @ManyToOne(() => Tenant, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'tenantId' })
-  tenant: Tenant;
+  tenant!: Tenant;
 
   @Column()
   @Field()
-  subject: string;
+  subject!: string;
 
   @Column({ type: 'text', nullable: true })
   @Field(() => String, { nullable: true })
-  lastMessage: string | null;
+  lastMessage?: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
   @Field(() => Date, { nullable: true })
-  lastMessageAt: Date | null;
+  lastMessageAt?: Date | null;
 
   @Column({ type: 'uuid', nullable: true })
   @Field(() => String, { nullable: true })
-  lastMessageBy: string | null;
+  lastMessageBy?: string | null;
 
   @Column({ type: 'enum', enum: ThreadStatus, default: ThreadStatus.OPEN })
   @Field(() => ThreadStatus)
-  status: ThreadStatus;
+  status!: ThreadStatus;
 
   @Column({ default: 0 })
   @Field()
-  messageCount: number;
+  messageCount!: number;
 
   @Column({ default: 0 })
   @Field()
-  unreadCountAdmin: number; // Unread by SuperAdmin
+  unreadCountAdmin!: number; // Unread by SuperAdmin
 
   @Column({ default: 0 })
   @Field()
-  unreadCountTenant: number; // Unread by TenantAdmin
+  unreadCountTenant!: number; // Unread by TenantAdmin
 
   @Column({ type: 'uuid' })
   @Field()
-  createdBy: string; // User ID who started the thread
+  createdBy!: string; // User ID who started the thread
 
   @Column({ default: false })
   @Field()
-  createdByAdmin: boolean; // true if SuperAdmin started
+  createdByAdmin!: boolean; // true if SuperAdmin started
 
   @CreateDateColumn()
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // Virtual field - tenant name (populated via relation)
   @Field(() => String, { nullable: true })

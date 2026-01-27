@@ -30,25 +30,25 @@ export enum QueryLogType {
 @Index(['isActive'])
 export class DebugSession {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  adminId: string;
+  adminId!: string;
 
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  sessionType: DebugSessionType;
+  sessionType!: DebugSessionType;
 
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
-  configuration: Record<string, unknown>;
+  configuration?: Record<string, unknown>;
 
   @Column({ type: 'jsonb', nullable: true })
-  filters: {
+  filters?: {
     startTime?: Date;
     endTime?: Date;
     queryTypes?: QueryLogType[];
@@ -60,16 +60,16 @@ export class DebugSession {
   };
 
   @Column({ type: 'int', default: 1000 })
-  maxResults: number;
+  maxResults!: number;
 
   @Column({ nullable: true })
-  expiresAt: Date;
+  expiresAt?: Date;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 @Entity('captured_queries')
@@ -78,64 +78,64 @@ export class DebugSession {
 @Index(['queryType', 'durationMs'])
 export class CapturedQuery {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', nullable: true })
-  debugSessionId: string;
+  debugSessionId?: string;
 
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'uuid', nullable: true })
-  userId: string;
+  userId?: string;
 
   @Column({ type: 'varchar', length: 50 })
-  queryType: QueryLogType;
+  queryType!: QueryLogType;
 
   @Column({ type: 'text' })
-  query: string;
+  query!: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  parameters: unknown[];
+  parameters?: unknown[];
 
   @Column({ type: 'text', nullable: true })
-  normalizedQuery: string;
+  normalizedQuery?: string;
 
   @Column({ type: 'float' })
-  durationMs: number;
+  durationMs!: number;
 
   @Column({ type: 'int', nullable: true })
-  rowsAffected: number;
+  rowsAffected?: number;
 
   @Column({ type: 'int', nullable: true })
-  rowsReturned: number;
+  rowsReturned?: number;
 
   @Column({ type: 'text', nullable: true })
-  tableName: string;
+  tableName?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  explainPlan: Record<string, unknown>;
+  explainPlan?: Record<string, unknown>;
 
   @Column({ default: false })
-  isSlowQuery: boolean;
+  isSlowQuery!: boolean;
 
   @Column({ default: false })
-  hasError: boolean;
+  hasError!: boolean;
 
   @Column({ type: 'text', nullable: true })
-  errorMessage: string;
+  errorMessage?: string;
 
   @Column({ type: 'text', nullable: true })
-  stackTrace: string;
+  stackTrace?: string;
 
   @Column({ type: 'inet', nullable: true })
-  connectionSource: string;
+  connectionSource?: string;
 
   @Column()
-  timestamp: Date;
+  timestamp!: Date;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 @Entity('captured_api_calls')
@@ -144,67 +144,67 @@ export class CapturedQuery {
 @Index(['endpoint', 'method'])
 export class CapturedApiCall {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', nullable: true })
-  debugSessionId: string;
+  debugSessionId?: string;
 
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'uuid', nullable: true })
-  userId: string;
+  userId?: string;
 
   @Column({ length: 10 })
-  method: string;
+  method!: string;
 
   @Column({ length: 500 })
-  endpoint: string;
+  endpoint!: string;
 
   @Column({ type: 'text', nullable: true })
-  fullUrl: string;
+  fullUrl?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  requestHeaders: Record<string, string>;
+  requestHeaders?: Record<string, string>;
 
   @Column({ type: 'jsonb', nullable: true })
-  requestBody: unknown;
+  requestBody?: unknown;
 
   @Column({ type: 'jsonb', nullable: true })
-  queryParams: Record<string, string>;
+  queryParams?: Record<string, string>;
 
   @Column({ type: 'int' })
-  responseStatus: number;
+  responseStatus!: number;
 
   @Column({ type: 'jsonb', nullable: true })
-  responseHeaders: Record<string, string>;
+  responseHeaders?: Record<string, string>;
 
   @Column({ type: 'jsonb', nullable: true })
-  responseBody: unknown;
+  responseBody?: unknown;
 
   @Column({ type: 'float' })
-  durationMs: number;
+  durationMs!: number;
 
   @Column({ type: 'inet', nullable: true })
-  clientIp: string;
+  clientIp?: string;
 
   @Column({ type: 'text', nullable: true })
-  userAgent: string;
+  userAgent?: string;
 
   @Column({ type: 'text', nullable: true })
-  correlationId: string;
+  correlationId?: string;
 
   @Column({ default: false })
-  hasError: boolean;
+  hasError!: boolean;
 
   @Column({ type: 'text', nullable: true })
-  errorMessage: string;
+  errorMessage?: string;
 
   @Column()
-  timestamp: Date;
+  timestamp!: Date;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 @Entity('cache_entries_snapshot')
@@ -212,46 +212,46 @@ export class CapturedApiCall {
 @Index(['tenantId', 'key'])
 export class CacheEntrySnapshot {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', nullable: true })
-  debugSessionId: string;
+  debugSessionId?: string;
 
   @Column({ type: 'uuid', nullable: true })
-  tenantId: string;
+  tenantId?: string;
 
   @Column({ length: 500 })
-  key: string;
+  key!: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  value: unknown;
+  value?: unknown;
 
   @Column({ type: 'int', nullable: true })
-  sizeBytes: number;
+  sizeBytes?: number;
 
   @Column({ type: 'int', nullable: true })
-  ttlSeconds: number;
+  ttlSeconds?: number;
 
   @Column({ nullable: true })
-  expiresAt: Date;
+  expiresAt?: Date;
 
   @Column({ type: 'int', default: 0 })
-  hitCount: number;
+  hitCount!: number;
 
   @Column({ nullable: true })
-  lastAccessedAt: Date;
+  lastAccessedAt?: Date;
 
   @Column({ length: 100, nullable: true })
-  cacheStore: string;
+  cacheStore?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  tags: string[];
+  tags?: string[];
 
   @Column()
-  capturedAt: Date;
+  capturedAt!: Date;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 @Entity('feature_flag_overrides')
@@ -259,44 +259,44 @@ export class CacheEntrySnapshot {
 @Index(['adminId', 'isActive'])
 export class FeatureFlagOverride {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ length: 100 })
-  featureKey: string;
+  featureKey!: string;
 
   @Column({ type: 'jsonb' })
-  originalValue: unknown;
+  originalValue!: unknown;
 
   @Column({ type: 'jsonb' })
-  overrideValue: unknown;
+  overrideValue!: unknown;
 
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Column({ type: 'uuid' })
-  adminId: string;
+  adminId!: string;
 
   @Column({ type: 'text', nullable: true })
-  reason: string;
+  reason?: string;
 
   @Column({ nullable: true })
-  expiresAt: Date;
+  expiresAt?: Date;
 
   @Column({ nullable: true })
-  appliedAt: Date;
+  appliedAt?: Date;
 
   @Column({ nullable: true })
-  revertedAt: Date;
+  revertedAt?: Date;
 
   @Column({ type: 'uuid', nullable: true })
-  revertedBy: string;
+  revertedBy?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }

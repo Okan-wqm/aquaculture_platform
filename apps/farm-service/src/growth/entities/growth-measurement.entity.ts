@@ -35,6 +35,8 @@ import {
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 // Note: Batch is referenced via string to avoid circular dependency
+// Type-only import for TypeScript type checking
+import type { Batch } from '../../batch/entities/batch.entity';
 
 // ============================================================================
 // ENUMS
@@ -233,7 +235,7 @@ export class GrowthMeasurement {
 
   @ManyToOne('Batch', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
-  batch: any;
+  batch?: Batch;
 
   // -------------------------------------------------------------------------
   // LOKASYON (opsiyonel - hangi tank/havuzda ölçüldü)

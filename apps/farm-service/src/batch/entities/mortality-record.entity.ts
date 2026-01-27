@@ -30,6 +30,8 @@ import {
 import GraphQLJSON from 'graphql-type-json';
 import { Batch } from './batch.entity';
 // Note: Tank is referenced via string to avoid circular dependency
+// Type-only import for TypeScript type checking
+import type { Equipment } from '../../equipment/entities/equipment.entity';
 
 // ============================================================================
 // ENUMS
@@ -147,7 +149,7 @@ export class MortalityRecord {
 
   @ManyToOne('Tank', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'tankId' })
-  tank?: any;
+  tank?: Equipment;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })

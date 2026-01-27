@@ -3,10 +3,10 @@
  */
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DeepPartial } from 'typeorm';
 import { ConflictException, Logger } from '@nestjs/common';
 import { CreateSupplierCommand } from '../commands/create-supplier.command';
-import { Supplier, SupplierStatus } from '../entities/supplier.entity';
+import { Supplier, SupplierStatus, SupplierAddress } from '../entities/supplier.entity';
 
 @CommandHandler(CreateSupplierCommand)
 export class CreateSupplierHandler implements ICommandHandler<CreateSupplierCommand> {
@@ -38,29 +38,47 @@ export class CreateSupplierHandler implements ICommandHandler<CreateSupplierComm
       throw new ConflictException(`Supplier with name "${input.name}" already exists`);
     }
 
-    // Create supplier entity - aligned with Supplier entity
-    const supplier = this.supplierRepository.create({
+    // Transform address input to entity format
+    const address: SupplierAddress | undefined = input.address ? {
+      street: input.address.street,
+      city: input.address.city,
+      state: input.address.state,
+      postalCode: input.address.postalCode,
+      country: input.address.country,
+    } : undefined;
+
+    // Transform payment terms to string format
+    const paymentTermsStr = input.paymentTerms
+      ? `${input.paymentTerms.paymentDays} days${input.paymentTerms.notes ? ` - ${input.paymentTerms.notes}` : ''}`
+      : undefined;
+
+    // Extract contact person name from contact object
+    const contactPersonName = input.primaryContact?.name || input.contactPerson;
+
+    // Create supplier entity with proper types
+    const supplierData: DeepPartial<Supplier> = {
       tenantId,
       name: input.name,
       code: input.code?.toUpperCase(),
       type: input.type,
       supplyTypes: input.categories,
       status: SupplierStatus.ACTIVE,
-      contactPerson: input.primaryContact as any,
+      contactPerson: contactPersonName,
       email: input.email,
       phone: input.phone,
       website: input.website,
-      address: input.address as any,
+      address,
       country: input.country,
       taxId: input.taxNumber,
-      paymentTerms: input.paymentTerms as any,
+      paymentTerms: paymentTermsStr,
       rating: input.rating,
       isActive: true,
       createdBy: userId,
       updatedBy: userId,
-    } as any);
+    };
 
-    const savedSupplier = await this.supplierRepository.save(supplier) as unknown as Supplier;
+    const supplier = this.supplierRepository.create(supplierData);
+    const savedSupplier = await this.supplierRepository.save(supplier);
 
     this.logger.log(`Supplier "${savedSupplier.name}" created with ID ${savedSupplier.id}`);
 

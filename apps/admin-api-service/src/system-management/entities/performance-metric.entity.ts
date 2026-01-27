@@ -66,31 +66,31 @@ export interface MetricDimensions {
 @Index(['timestamp'])
 export class PerformanceMetric {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  metricType: MetricType;
+  metricType!: MetricType;
 
   @Column({ length: 200 })
-  name: string;
+  name!: string;
 
   @Column({ type: 'float' })
-  value: number;
+  value!: number;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
-  unit: string;
+  unit?: string;
 
   @Column({ type: 'varchar', length: 20, default: MetricAggregation.AVG })
-  aggregation: MetricAggregation;
+  aggregation!: MetricAggregation;
 
   @Column({ length: 100, nullable: true })
-  service: string;
+  service?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  dimensions: MetricDimensions;
+  dimensions?: MetricDimensions;
 
   @Column({ type: 'jsonb', nullable: true })
-  percentiles: {
+  percentiles?: {
     p50?: number;
     p90?: number;
     p95?: number;
@@ -98,31 +98,31 @@ export class PerformanceMetric {
   };
 
   @Column({ type: 'jsonb', nullable: true })
-  histogram: {
+  histogram?: {
     buckets: number[];
     counts: number[];
   };
 
   @Column({ type: 'int', nullable: true })
-  sampleCount: number;
+  sampleCount?: number;
 
   @Column({ type: 'float', nullable: true })
-  minValue: number;
+  minValue?: number;
 
   @Column({ type: 'float', nullable: true })
-  maxValue: number;
+  maxValue?: number;
 
   @Column()
-  timestamp: Date;
+  timestamp!: Date;
 
   @Column({ type: 'int', default: 60 })
-  intervalSeconds: number;
+  intervalSeconds!: number;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 @Entity('performance_snapshots')
@@ -130,16 +130,16 @@ export class PerformanceMetric {
 @Index(['service'])
 export class PerformanceSnapshot {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ length: 100, nullable: true })
-  service: string;
+  service?: string;
 
   @Column()
-  timestamp: Date;
+  timestamp!: Date;
 
   @Column({ type: 'jsonb' })
-  applicationMetrics: {
+  applicationMetrics!: {
     avgResponseTime: number;
     p95ResponseTime: number;
     p99ResponseTime: number;
@@ -151,7 +151,7 @@ export class PerformanceSnapshot {
   };
 
   @Column({ type: 'jsonb' })
-  databaseMetrics: {
+  databaseMetrics!: {
     activeConnections: number;
     poolSize: number;
     poolUtilization: number;
@@ -162,7 +162,7 @@ export class PerformanceSnapshot {
   };
 
   @Column({ type: 'jsonb' })
-  infrastructureMetrics: {
+  infrastructureMetrics!: {
     cpuUsage: number;
     memoryUsage: number;
     memoryTotal: number;
@@ -175,7 +175,7 @@ export class PerformanceSnapshot {
   };
 
   @Column({ type: 'jsonb', nullable: true })
-  alerts: Array<{
+  alerts?: Array<{
     metric: string;
     threshold: number;
     currentValue: number;
@@ -183,8 +183,8 @@ export class PerformanceSnapshot {
   }>;
 
   @Column({ type: 'float', nullable: true })
-  overallHealthScore: number;
+  overallHealthScore?: number;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }

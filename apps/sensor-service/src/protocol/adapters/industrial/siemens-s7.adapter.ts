@@ -65,7 +65,7 @@ export class SiemensS7Adapter extends BaseProtocolAdapter {
 
     // Dynamic import nodes7 library
     const nodes7 = await import('nodes7');
-    const client = new nodes7.default() as S7Client;
+    const client = new nodes7.default() as unknown as S7Client;
 
     await new Promise<void>((resolve, reject) => {
       client.initiateConnection(
@@ -146,7 +146,7 @@ export class SiemensS7Adapter extends BaseProtocolAdapter {
       items[db.name] = address;
     }
 
-    client.setTranslationCB((tag: string) => items[tag]);
+    client.setTranslationCB((tag: string) => items[tag] ?? tag);
     client.addItems(Object.keys(items));
 
     await new Promise<void>((resolve, reject) => {

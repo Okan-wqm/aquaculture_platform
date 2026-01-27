@@ -1,5 +1,7 @@
 import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
+import { trace, context } from '@opentelemetry/api';
 
 /**
  * User payload from JWT (forwarded by gateway)
@@ -92,8 +94,8 @@ export class TenantContextMiddleware implements NestMiddleware {
     }
 
     // 2. Try from JWT (if already decoded by auth middleware)
-    if ((req as any).user?.tenantId) {
-      return { tenantId: (req as any).user.tenantId, source: 'jwt' };
+    if (req.user?.tenantId) {
+      return { tenantId: req.user.tenantId, source: 'jwt' };
     }
 
     // 3. Try from query parameter
@@ -118,44 +120,137 @@ export class TenantContextMiddleware implements NestMiddleware {
 }
 
 /**
+ * Trace Context interface for distributed tracing
+ */
+export interface TraceContext {
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  correlationId: string;
+  sampled: boolean;
+}
+
+/**
+ * Extended Request with trace context
+ */
+export interface TracedRequest extends Request {
+  traceContext?: TraceContext;
+}
+
+/**
  * Correlation ID Middleware
- * Ensures every request has a correlation ID for distributed tracing
+ * Ensures every request has correlation ID and trace context for distributed tracing
+ * Supports W3C Trace Context standard (traceparent header)
  */
 @Injectable()
 export class CorrelationIdMiddleware implements NestMiddleware {
-  use(req: Request, res: Response, next: NextFunction): void {
-    let correlationId = req.headers['x-correlation-id'] as string;
+  private readonly logger = new Logger(CorrelationIdMiddleware.name);
 
+  use(req: TracedRequest, res: Response, next: NextFunction): void {
+    // Handle correlation ID
+    let correlationId = req.headers['x-correlation-id'] as string;
     if (!correlationId) {
       correlationId = crypto.randomUUID();
       req.headers['x-correlation-id'] = correlationId;
     }
 
-    // Add to response headers for client tracking
+    // Parse W3C Trace Context (traceparent header)
+    // Format: version-traceId-spanId-traceFlags (e.g., 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01)
+    const traceparent = req.headers['traceparent'] as string;
+    let traceId: string;
+    let spanId: string;
+    let parentSpanId: string | undefined;
+    let sampled = true;
+
+    if (traceparent) {
+      const parts = traceparent.split('-');
+      if (parts.length >= 4) {
+        traceId = parts[1] || this.generateTraceId();
+        parentSpanId = parts[2];
+        spanId = this.generateSpanId(); // Generate new span for this service
+        sampled = parts[3] ? (parseInt(parts[3], 16) & 0x01) === 1 : true;
+      } else {
+        traceId = this.generateTraceId();
+        spanId = this.generateSpanId();
+      }
+    } else {
+      // No trace context - generate new
+      traceId = this.generateTraceId();
+      spanId = this.generateSpanId();
+    }
+
+    // Set trace context on request
+    const traceContext: TraceContext = {
+      traceId,
+      spanId,
+      parentSpanId,
+      correlationId,
+      sampled,
+    };
+    req.traceContext = traceContext;
+
+    // Set headers for downstream propagation
+    req.headers['x-trace-id'] = traceId;
+    req.headers['x-span-id'] = spanId;
+    if (parentSpanId) {
+      req.headers['x-parent-span-id'] = parentSpanId;
+    }
+
+    // Generate traceparent for forwarding to other services
+    const newTraceparent = `00-${traceId}-${spanId}-${sampled ? '01' : '00'}`;
+    req.headers['traceparent'] = newTraceparent;
+
+    // Add to response headers for client tracking and debugging
     res.setHeader('x-correlation-id', correlationId);
+    res.setHeader('x-trace-id', traceId);
+    res.setHeader('x-span-id', spanId);
+    res.setHeader('traceparent', newTraceparent);
 
     next();
+  }
+
+  /**
+   * Generate a 32-character trace ID (128 bits in hex)
+   */
+  private generateTraceId(): string {
+    return crypto.randomUUID().replace(/-/g, '');
+  }
+
+  /**
+   * Generate a 16-character span ID (64 bits in hex)
+   */
+  private generateSpanId(): string {
+    return crypto.randomBytes(8).toString('hex');
   }
 }
 
 /**
  * Request Logging Middleware
- * Logs all incoming requests with relevant context
+ * Logs all incoming requests with relevant context including trace information
  */
 @Injectable()
 export class RequestLoggingMiddleware implements NestMiddleware {
   private readonly logger = new Logger('HTTP');
 
-  use(req: TenantRequest, res: Response, next: NextFunction): void {
+  use(req: TenantRequest & TracedRequest, res: Response, next: NextFunction): void {
     const startTime = Date.now();
     const { method, originalUrl, ip } = req;
     const correlationId = req.headers['x-correlation-id'];
     const tenantId = req.tenantId || req.headers['x-tenant-id'];
 
+    // Get trace context
+    const traceId = req.traceContext?.traceId || req.headers['x-trace-id'];
+    const spanId = req.traceContext?.spanId || req.headers['x-span-id'];
+
     // Log when response finishes
     res.on('finish', () => {
       const duration = Date.now() - startTime;
       const { statusCode } = res;
+
+      // Extract trace context
+      const span = trace.getSpan(context.active());
+      const traceId = span?.spanContext().traceId;
+      const spanId = span?.spanContext().spanId;
 
       const logMessage = `${method} ${originalUrl} ${statusCode} ${duration}ms`;
       const logContext = {
@@ -164,6 +259,8 @@ export class RequestLoggingMiddleware implements NestMiddleware {
         statusCode,
         duration,
         correlationId,
+        traceId,
+        spanId,
         tenantId,
         ip,
         userAgent: req.headers['user-agent'],

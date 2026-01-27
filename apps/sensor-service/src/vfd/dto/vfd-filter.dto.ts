@@ -93,13 +93,13 @@ export class VfdPaginationDto {
 @ObjectType('VfdDevice')
 export class VfdDeviceDto {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field(() => String)
-  brand: VfdBrand;
+  brand!: VfdBrand;
 
   @Field({ nullable: true })
   model?: string;
@@ -108,10 +108,10 @@ export class VfdDeviceDto {
   serialNumber?: string;
 
   @Field(() => String)
-  protocol: VfdProtocol;
+  protocol!: VfdProtocol;
 
   @Field(() => String)
-  status: VfdDeviceStatus;
+  status!: VfdDeviceStatus;
 
   @Field({ nullable: true })
   location?: string;
@@ -129,16 +129,16 @@ export class VfdDeviceDto {
   connectionStatus?: VfdConnectionStatusDto;
 
   @Field(() => Int)
-  pollIntervalMs: number;
+  pollIntervalMs!: number;
 
   @Field()
-  isPollingEnabled: boolean;
+  isPollingEnabled!: boolean;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 /**
@@ -147,7 +147,7 @@ export class VfdDeviceDto {
 @ObjectType('VfdConnectionStatus')
 export class VfdConnectionStatusDto {
   @Field()
-  isConnected: boolean;
+  isConnected!: boolean;
 
   @Field({ nullable: true })
   lastTestedAt?: Date;
@@ -171,19 +171,19 @@ export class VfdConnectionStatusDto {
 @ObjectType('PaginatedVfdDevices')
 export class PaginatedVfdDevicesDto {
   @Field(() => [VfdDeviceDto])
-  items: VfdDeviceDto[];
+  items!: VfdDeviceDto[];
 
   @Field(() => Int)
-  total: number;
+  total!: number;
 
   @Field(() => Int)
-  page: number;
+  page!: number;
 
   @Field(() => Int)
-  limit: number;
+  limit!: number;
 
   @Field(() => Int)
-  totalPages: number;
+  totalPages!: number;
 }
 
 /**
@@ -192,25 +192,25 @@ export class PaginatedVfdDevicesDto {
 @ObjectType('VfdDeviceCountByStatus')
 export class VfdDeviceCountByStatusDto {
   @Field(() => Int)
-  draft: number;
+  draft!: number;
 
   @Field(() => Int)
-  pendingTest: number;
+  pendingTest!: number;
 
   @Field(() => Int)
-  testing: number;
+  testing!: number;
 
   @Field(() => Int)
-  testFailed: number;
+  testFailed!: number;
 
   @Field(() => Int)
-  active: number;
+  active!: number;
 
   @Field(() => Int)
-  suspended: number;
+  suspended!: number;
 
   @Field(() => Int)
-  offline: number;
+  offline!: number;
 }
 
 /**
@@ -219,7 +219,7 @@ export class VfdDeviceCountByStatusDto {
 @ObjectType('ConnectionTestResult')
 export class ConnectionTestResultDto {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field(() => Int, { nullable: true })
   latencyMs?: number;
@@ -234,7 +234,7 @@ export class ConnectionTestResultDto {
   sampleData?: string;
 
   @Field()
-  testedAt: Date;
+  testedAt!: Date;
 }
 
 /**
@@ -243,19 +243,19 @@ export class ConnectionTestResultDto {
 @ObjectType('VfdBrandInfo')
 export class VfdBrandInfoDto {
   @Field(() => String)
-  code: VfdBrand;
+  code!: VfdBrand;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   logo?: string;
 
   @Field(() => [String])
-  supportedProtocols: VfdProtocol[];
+  supportedProtocols!: VfdProtocol[];
 
   @Field(() => [String])
-  modelSeries: string[];
+  modelSeries!: string[];
 }
 
 /**
@@ -264,19 +264,19 @@ export class VfdBrandInfoDto {
 @ObjectType('VfdProtocolSchema')
 export class VfdProtocolSchemaDto {
   @Field(() => String)
-  protocol: VfdProtocol;
+  protocol!: VfdProtocol;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  description: string;
+  description!: string;
 
   @Field(() => String)
-  connectionType: 'serial' | 'ethernet';
+  connectionType!: 'serial' | 'ethernet';
 
   @Field(() => [VfdProtocolFieldDto])
-  fields: VfdProtocolFieldDto[];
+  fields!: VfdProtocolFieldDto[];
 }
 
 /**
@@ -285,16 +285,16 @@ export class VfdProtocolSchemaDto {
 @ObjectType('VfdProtocolField')
 export class VfdProtocolFieldDto {
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  label: string;
+  label!: string;
 
   @Field()
-  type: string;
+  type!: string;
 
   @Field()
-  required: boolean;
+  required!: boolean;
 
   @Field({ nullable: true })
   defaultValue?: string;

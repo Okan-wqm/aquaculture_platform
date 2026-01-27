@@ -1,7 +1,9 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { TracingService, TraceSpan } from './tracing.service';
+import { InternalApiGuard } from '../guards/internal-api.guard';
 
 @Controller('traces')
+@UseGuards(InternalApiGuard)
 export class TracingController {
   constructor(private readonly tracingService: TracingService) {}
 

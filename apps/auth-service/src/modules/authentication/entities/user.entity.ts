@@ -36,23 +36,23 @@ registerEnumType(Role, {
 export class User {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column({ type: 'varchar', length: 255, unique: true })
-  email: string;
+  email!: string;
 
   @HideField()
   @Column({ type: 'varchar', length: 255, nullable: true })
-  password: string;
+  password?: string;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 100, nullable: true })
-  firstName: string | null;
+  firstName?: string | null;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 100, nullable: true })
-  lastName: string | null;
+  lastName?: string | null;
 
   @Field(() => Role)
   @Column({
@@ -60,22 +60,22 @@ export class User {
     length: 50,
     default: Role.MODULE_USER,
   })
-  role: Role;
+  role!: Role;
 
   /**
    * Tenant ID - NULL for SUPER_ADMIN (system-wide access)
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  tenantId: string | null;
+  tenantId?: string | null;
 
   @Field()
   @Column({ type: 'boolean', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field()
   @Column({ type: 'boolean', default: false })
-  isEmailVerified: boolean;
+  isEmailVerified!: boolean;
 
   // ============================================
   // Invitation Fields
@@ -87,18 +87,18 @@ export class User {
    */
   @HideField()
   @Column({ type: 'varchar', length: 128, nullable: true })
-  invitationToken: string | null;
+  invitationToken?: string | null;
 
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamp', nullable: true })
-  invitationExpiresAt: Date | null;
+  invitationExpiresAt?: Date | null;
 
   /**
    * User ID who invited this user
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  invitedBy: string | null;
+  invitedBy?: string | null;
 
   // ============================================
   // Login & Security Fields
@@ -106,25 +106,25 @@ export class User {
 
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamp', nullable: true })
-  lastLoginAt: Date | null;
+  lastLoginAt?: Date | null;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 50, nullable: true })
-  lastLoginIp: string | null;
+  lastLoginIp?: string | null;
 
   @HideField()
   @Column({ type: 'varchar', length: 128, nullable: true })
-  passwordResetToken: string | null;
+  passwordResetToken?: string | null;
 
   @HideField()
   @Column({ type: 'timestamp', nullable: true })
-  passwordResetExpires: Date | null;
+  passwordResetExpires?: Date | null;
 
   @Column({ type: 'int', default: 0 })
-  failedLoginAttempts: number;
+  failedLoginAttempts!: number;
 
   @Column({ type: 'timestamp', nullable: true })
-  lockedUntil: Date | null;
+  lockedUntil?: Date | null;
 
   // ============================================
   // Timestamps
@@ -132,11 +132,11 @@ export class User {
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // ============================================
   // Hooks

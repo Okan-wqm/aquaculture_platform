@@ -187,3 +187,175 @@ export interface BatchClosedEvent extends BaseEvent {
   daysInProduction: number;
   closedAt: Date;
 }
+
+// ==================== Site Events ====================
+
+/**
+ * Site Created Event
+ */
+export interface SiteCreatedEvent extends BaseEvent {
+  eventType: 'SiteCreated';
+  siteId: string;
+  name: string;
+  code: string;
+  country: string;
+  region?: string;
+  status: string;
+}
+
+/**
+ * Site Updated Event
+ */
+export interface SiteUpdatedEvent extends BaseEvent {
+  eventType: 'SiteUpdated';
+  siteId: string;
+  name?: string;
+  code?: string;
+  status?: string;
+  changes: Record<string, unknown>;
+}
+
+/**
+ * Site Deleted Event
+ */
+export interface SiteDeletedEvent extends BaseEvent {
+  eventType: 'SiteDeleted';
+  siteId: string;
+  name: string;
+  code: string;
+  deletedAt: Date;
+}
+
+// ==================== Department Events ====================
+
+/**
+ * Department Created Event
+ */
+export interface DepartmentCreatedEvent extends BaseEvent {
+  eventType: 'DepartmentCreated';
+  departmentId: string;
+  siteId: string;
+  name: string;
+  code: string;
+  type: string;
+}
+
+/**
+ * Department Updated Event
+ */
+export interface DepartmentUpdatedEvent extends BaseEvent {
+  eventType: 'DepartmentUpdated';
+  departmentId: string;
+  siteId: string;
+  name?: string;
+  changes: Record<string, unknown>;
+}
+
+/**
+ * Department Deleted Event
+ */
+export interface DepartmentDeletedEvent extends BaseEvent {
+  eventType: 'DepartmentDeleted';
+  departmentId: string;
+  siteId: string;
+  name: string;
+  code: string;
+  deletedAt: Date;
+}
+
+// ==================== System Events ====================
+
+/**
+ * System Created Event
+ */
+export interface SystemCreatedEvent extends BaseEvent {
+  eventType: 'SystemCreated';
+  systemId: string;
+  siteId: string;
+  departmentId?: string;
+  name: string;
+  code: string;
+  type: string;
+  status: string;
+}
+
+/**
+ * System Updated Event
+ */
+export interface SystemUpdatedEvent extends BaseEvent {
+  eventType: 'SystemUpdated';
+  systemId: string;
+  siteId: string;
+  name?: string;
+  status?: string;
+  changes: Record<string, unknown>;
+}
+
+/**
+ * System Deleted Event
+ */
+export interface SystemDeletedEvent extends BaseEvent {
+  eventType: 'SystemDeleted';
+  systemId: string;
+  siteId: string;
+  name: string;
+  code: string;
+  deletedAt: Date;
+}
+
+// ==================== Equipment Events ====================
+
+/**
+ * Equipment Created Event
+ */
+export interface EquipmentCreatedEvent extends BaseEvent {
+  eventType: 'EquipmentCreated';
+  equipmentId: string;
+  siteId: string;
+  systemId?: string;
+  departmentId?: string;
+  name: string;
+  code: string;
+  typeId: string;
+  category: string;
+  status: string;
+}
+
+/**
+ * Equipment Updated Event
+ */
+export interface EquipmentUpdatedEvent extends BaseEvent {
+  eventType: 'EquipmentUpdated';
+  equipmentId: string;
+  siteId: string;
+  name?: string;
+  status?: string;
+  changes: Record<string, unknown>;
+}
+
+/**
+ * Equipment Deleted Event
+ */
+export interface EquipmentDeletedEvent extends BaseEvent {
+  eventType: 'EquipmentDeleted';
+  equipmentId: string;
+  siteId: string;
+  name: string;
+  code: string;
+  deletedAt: Date;
+}
+
+// ==================== Feed Inventory Events ====================
+
+/**
+ * Feed Inventory Low Event
+ */
+export interface FeedInventoryLowEvent extends BaseEvent {
+  eventType: 'FeedInventoryLow';
+  inventoryId: string;
+  feedId: string;
+  siteId: string;
+  currentQuantityKg: number;
+  reorderPointKg: number;
+  status: 'low_stock' | 'critical';
+}

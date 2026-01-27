@@ -17,7 +17,7 @@ import { VfdCommandType } from '../entities/vfd.enums';
 export class VfdCommandDto {
   @Field(() => String)
   @IsEnum(VfdCommandType)
-  command: VfdCommandType;
+  command!: VfdCommandType;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -48,7 +48,7 @@ export class SetVfdFrequencyDto {
   @IsNumber()
   @Min(0)
   @Max(500)
-  frequencyHz: number;
+  frequencyHz!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -67,7 +67,7 @@ export class SetVfdSpeedDto {
   @IsNumber()
   @Min(0)
   @Max(110)
-  speedPercent: number;
+  speedPercent!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -83,7 +83,7 @@ export class SetVfdSpeedDto {
 @ObjectType('VfdCommandResult')
 export class VfdCommandResultDto {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field({ nullable: true })
   error?: string;
@@ -110,13 +110,13 @@ export class VfdCommandResultDto {
 @ObjectType('VfdCommandStatus')
 export class VfdCommandStatusDto {
   @Field()
-  deviceId: string;
+  deviceId!: string;
 
   @Field()
-  command: VfdCommandType;
+  command!: VfdCommandType;
 
   @Field()
-  status: 'pending' | 'sent' | 'acknowledged' | 'completed' | 'failed';
+  status!: 'pending' | 'sent' | 'acknowledged' | 'completed' | 'failed';
 
   @Field({ nullable: true })
   sentAt?: Date;
@@ -134,11 +134,11 @@ export class VfdCommandStatusDto {
 @InputType('BatchVfdCommandInput')
 export class BatchVfdCommandDto {
   @Field(() => [String])
-  deviceIds: string[];
+  deviceIds!: string[];
 
   @Field(() => String)
   @IsEnum(VfdCommandType)
-  command: VfdCommandType;
+  command!: VfdCommandType;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -157,16 +157,16 @@ export class BatchVfdCommandDto {
 @ObjectType('BatchVfdCommandResult')
 export class BatchVfdCommandResultDto {
   @Field()
-  totalDevices: number;
+  totalDevices!: number;
 
   @Field()
-  successCount: number;
+  successCount!: number;
 
   @Field()
-  failureCount: number;
+  failureCount!: number;
 
   @Field(() => [VfdCommandResultDto])
-  results: VfdCommandResultDto[];
+  results!: VfdCommandResultDto[];
 }
 
 /**
@@ -193,7 +193,7 @@ export class WriteControlWordDto {
   @IsNumber()
   @Min(0)
   @Max(65535)
-  controlWord: number;
+  controlWord!: number;
 
   @Field(() => Int, { nullable: true })
   @IsOptional()

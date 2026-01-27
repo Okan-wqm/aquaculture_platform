@@ -19,35 +19,35 @@ export enum UserRole {
 @Entity('users', { schema: 'public', synchronize: false })
 export class UserReadOnly {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 255, unique: true })
-  email: string;
+  email!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  firstName: string | null;
+  firstName!: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  lastName: string | null;
+  lastName!: string | null;
 
   @Column({ type: 'varchar', length: 50, default: UserRole.MODULE_USER })
-  role: UserRole;
+  role!: UserRole;
 
   @Column({ type: 'uuid', nullable: true })
-  tenantId: string | null;
+  tenantId!: string | null;
 
   @Column({ type: 'boolean', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Column({ type: 'boolean', default: false })
-  isEmailVerified: boolean;
+  isEmailVerified!: boolean;
 
   @Column({ type: 'timestamp', nullable: true })
-  lastLoginAt: Date | null;
+  lastLoginAt!: Date | null;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

@@ -11,8 +11,7 @@ import {
   BeforeUpdate,
 } from 'typeorm';
 import { ObjectType, Field, ID, registerEnumType, Float, Int } from '@nestjs/graphql';
-import { Invoice } from './invoice.entity';
-import { SubscriptionModuleItem } from './subscription-module-item.entity';
+import { forwardRef } from '@nestjs/common';
 
 export enum SubscriptionStatus {
   TRIAL = 'trial',
@@ -168,16 +167,22 @@ export class Subscription {
   @Column({ nullable: true })
   stripeCustomerId?: string;
 
-  @Field(() => [Invoice], { nullable: true })
-  @OneToMany(() => Invoice, (invoice) => invoice.subscription)
-  invoices?: Invoice[];
+  @Field(() => [require('./invoice.entity').Invoice], { nullable: true })
+  @OneToMany(
+    () => require('./invoice.entity').Invoice,
+    (invoice: { subscription: unknown }) => invoice.subscription,
+  )
+  invoices?: Array<import('./invoice.entity').Invoice>;
 
   /**
    * Module items included in this subscription
    */
-  @Field(() => [SubscriptionModuleItem], { nullable: true })
-  @OneToMany(() => SubscriptionModuleItem, (item) => item.subscription)
-  moduleItems?: SubscriptionModuleItem[];
+  @Field(() => [require('./subscription-module-item.entity').SubscriptionModuleItem], { nullable: true })
+  @OneToMany(
+    () => require('./subscription-module-item.entity').SubscriptionModuleItem,
+    (item: { subscription: unknown }) => item.subscription,
+  )
+  moduleItems?: Array<import('./subscription-module-item.entity').SubscriptionModuleItem>;
 
   @Field()
   @CreateDateColumn()

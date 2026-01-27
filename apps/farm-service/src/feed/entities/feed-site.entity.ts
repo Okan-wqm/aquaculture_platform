@@ -23,6 +23,8 @@ import {
 } from '@nestjs/graphql';
 import { Feed } from './feed.entity';
 // Note: Site is referenced via string to avoid circular dependency
+// Type-only import for TypeScript type checking
+import type { Site } from '../../site/entities/site.entity';
 
 @ObjectType()
 @Entity('feed_sites')
@@ -63,7 +65,7 @@ export class FeedSite {
 
   @ManyToOne('Site', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'siteId' })
-  site: any;
+  site?: Site;
 
   // -------------------------------------------------------------------------
   // ONAY DETAYLARI

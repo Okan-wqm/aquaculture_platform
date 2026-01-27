@@ -12,7 +12,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { BatchFeedAssignment } from '../../batch/entities/batch-feed-assignment.entity';
+import { BatchFeedAssignment, FeedAssignmentEntry } from '../../batch/entities/batch-feed-assignment.entity';
 import { Feed, FeedingCurvePoint, FeedingMatrix2D } from '../../feed/entities/feed.entity';
 import { BilinearInterpolationService } from './bilinear-interpolation.service';
 
@@ -88,7 +88,7 @@ export class FeedSelectorService {
       });
 
       const matchingEntry = sortedAssignments.find(
-        (entry: any) => avgWeightG >= entry.minWeightG && avgWeightG < entry.maxWeightG
+        (entry: FeedAssignmentEntry) => avgWeightG >= entry.minWeightG && avgWeightG < entry.maxWeightG
       );
 
       if (!matchingEntry) {

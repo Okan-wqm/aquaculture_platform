@@ -141,8 +141,14 @@ export class Configuration {
   @Field(() => Int)
   version!: number;
 
-  // Encryption key from environment
-  private static readonly ENCRYPTION_KEY = process.env['CONFIG_ENCRYPTION_KEY'] || 'default-32-char-encryption-key!';
+  // SECURITY: Encryption key must be provided via environment variable
+  private static readonly ENCRYPTION_KEY = (() => {
+    const key = process.env['CONFIG_ENCRYPTION_KEY'];
+    if (!key && process.env['NODE_ENV'] === 'production') {
+      throw new Error('SECURITY: CONFIG_ENCRYPTION_KEY environment variable must be set in production');
+    }
+    return key || 'DEV-ONLY-ENCRYPTION-KEY-32CHARS!';
+  })();
   private static readonly ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 
   /**
@@ -190,6 +196,7 @@ export class Configuration {
 
   /**
    * Decrypt a value
+   * SECURITY: Throws on decryption failure instead of returning encrypted blob
    */
   static decrypt(encryptedValue: string): string {
     try {
@@ -207,8 +214,13 @@ export class Configuration {
       decrypted += decipher.final('utf8');
 
       return decrypted;
-    } catch {
-      return encryptedValue; // Return as-is if decryption fails
+    } catch (error) {
+      // SECURITY FIX: Never return encrypted value on failure - this could expose secrets
+      // Throw an error instead so callers can handle appropriately
+      throw new Error(
+        `Configuration decryption failed: ${error instanceof Error ? error.message : 'Unknown error'}. ` +
+        `This may indicate a corrupted value or wrong encryption key.`
+      );
     }
   }
 

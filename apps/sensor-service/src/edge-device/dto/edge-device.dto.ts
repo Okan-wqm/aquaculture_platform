@@ -26,13 +26,13 @@ export class RegisterEdgeDeviceInput {
   siteId?: string;
 
   @Field()
-  deviceCode: string;
+  deviceCode!: string;
 
   @Field()
-  deviceName: string;
+  deviceName!: string;
 
   @Field(() => DeviceModel)
-  deviceModel: DeviceModel;
+  deviceModel!: DeviceModel;
 
   @Field({ nullable: true })
   serialNumber?: string;
@@ -80,22 +80,22 @@ export class UpdateEdgeDeviceInput {
 @InputType()
 export class AddIoConfigInput {
   @Field()
-  tagName: string;
+  tagName!: string;
 
   @Field({ nullable: true })
   description?: string;
 
   @Field(() => IoType)
-  ioType: IoType;
+  ioType!: IoType;
 
   @Field(() => IoDataType)
-  dataType: IoDataType;
+  dataType!: IoDataType;
 
   @Field(() => Int)
-  moduleAddress: number;
+  moduleAddress!: number;
 
   @Field(() => Int)
-  channel: number;
+  channel!: number;
 
   @Field(() => Float, { nullable: true })
   rawMin?: number;
@@ -197,16 +197,16 @@ export class UpdateIoConfigInput {
 @ObjectType()
 export class EdgeDeviceConnection {
   @Field(() => [EdgeDevice])
-  items: EdgeDevice[];
+  items!: EdgeDevice[];
 
   @Field(() => Int)
-  total: number;
+  total!: number;
 
   @Field(() => Int)
-  page: number;
+  page!: number;
 
   @Field(() => Int)
-  limit: number;
+  limit!: number;
 }
 
 /**
@@ -215,10 +215,10 @@ export class EdgeDeviceConnection {
 @ObjectType()
 export class StateCount {
   @Field(() => DeviceLifecycleState)
-  state: DeviceLifecycleState;
+  state!: DeviceLifecycleState;
 
   @Field(() => Int)
-  count: number;
+  count!: number;
 }
 
 /**
@@ -227,10 +227,10 @@ export class StateCount {
 @ObjectType()
 export class ModelCount {
   @Field(() => DeviceModel)
-  model: DeviceModel;
+  model!: DeviceModel;
 
   @Field(() => Int)
-  count: number;
+  count!: number;
 }
 
 /**
@@ -239,19 +239,19 @@ export class ModelCount {
 @ObjectType()
 export class EdgeDeviceStats {
   @Field(() => Int)
-  total: number;
+  total!: number;
 
   @Field(() => Int)
-  online: number;
+  online!: number;
 
   @Field(() => Int)
-  offline: number;
+  offline!: number;
 
   @Field(() => [StateCount])
-  byState: StateCount[];
+  byState!: StateCount[];
 
   @Field(() => [ModelCount])
-  byModel: ModelCount[];
+  byModel!: ModelCount[];
 }
 
 /**
@@ -260,16 +260,16 @@ export class EdgeDeviceStats {
 @ObjectType()
 export class PingResult {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field(() => Int, { nullable: true, description: 'Round-trip latency in milliseconds' })
   latencyMs?: number;
 
   @Field({ description: 'Device code that was pinged' })
-  deviceCode: string;
+  deviceCode!: string;
 
   @Field({ description: 'Timestamp of ping result' })
-  timestamp: Date;
+  timestamp!: Date;
 
   @Field({ nullable: true, description: 'Error message if ping failed' })
   error?: string;

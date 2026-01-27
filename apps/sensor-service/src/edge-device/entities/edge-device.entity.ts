@@ -95,13 +95,13 @@ export interface DeviceHealthMetrics {
 export class EdgeDevice {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   // Tenant & Site Relations
   @Field()
   @Column({ name: 'tenant_id' })
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field({ nullable: true })
   @Column({ name: 'site_id', nullable: true })
@@ -111,15 +111,15 @@ export class EdgeDevice {
   // Identity
   @Field()
   @Column({ name: 'device_code', length: 50 })
-  deviceCode: string;
+  deviceCode!: string;
 
   @Field()
   @Column({ name: 'device_name', length: 100 })
-  deviceName: string;
+  deviceName!: string;
 
   @Field(() => DeviceModel)
   @Column({ name: 'device_model', type: 'enum', enum: DeviceModel })
-  deviceModel: DeviceModel;
+  deviceModel!: DeviceModel;
 
   @Field({ nullable: true })
   @Column({ name: 'serial_number', length: 100, nullable: true })
@@ -137,7 +137,7 @@ export class EdgeDevice {
     enum: DeviceLifecycleState,
     default: DeviceLifecycleState.REGISTERED,
   })
-  lifecycleState: DeviceLifecycleState;
+  lifecycleState!: DeviceLifecycleState;
 
   @Field({ nullable: true })
   @Column({ name: 'commissioned_at', type: 'timestamptz', nullable: true })
@@ -201,7 +201,7 @@ export class EdgeDevice {
 
   @Field()
   @Column({ name: 'is_online', default: false })
-  isOnline: boolean;
+  isOnline!: boolean;
 
   @Field(() => Int, { nullable: true })
   @Column({ name: 'connection_quality', type: 'int', nullable: true })
@@ -276,11 +276,11 @@ export class EdgeDevice {
   // Timestamps
   @Field()
   @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column({ name: 'created_by', nullable: true })

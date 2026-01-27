@@ -14,7 +14,7 @@ export class SaveDashboardLayoutInput {
   @Field()
   @IsNotEmpty()
   @IsString()
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -23,7 +23,7 @@ export class SaveDashboardLayoutInput {
 
   @Field(() => GraphQLJSON)
   @IsArray()
-  widgets: WidgetConfig[];
+  widgets!: WidgetConfig[];
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
@@ -57,7 +57,7 @@ export class CreateSystemDefaultLayoutInput {
   @Field()
   @IsNotEmpty()
   @IsString()
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -66,5 +66,5 @@ export class CreateSystemDefaultLayoutInput {
 
   @Field(() => GraphQLJSON)
   @IsArray()
-  widgets: WidgetConfig[];
+  widgets!: WidgetConfig[];
 }

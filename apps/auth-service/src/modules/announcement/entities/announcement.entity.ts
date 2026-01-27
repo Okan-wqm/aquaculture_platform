@@ -91,87 +91,87 @@ export class AnnouncementTarget {
 export class Announcement {
   @PrimaryGeneratedColumn('uuid')
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Column()
   @Field()
-  title: string;
+  title!: string;
 
   @Column({ type: 'text' })
   @Field()
-  content: string;
+  content!: string;
 
   @Column({ type: 'enum', enum: AnnouncementType, default: AnnouncementType.INFO })
   @Field(() => AnnouncementType)
-  type: AnnouncementType;
+  type!: AnnouncementType;
 
   @Column({ type: 'enum', enum: AnnouncementStatus, default: AnnouncementStatus.DRAFT })
   @Field(() => AnnouncementStatus)
-  status: AnnouncementStatus;
+  status!: AnnouncementStatus;
 
   @Column({ type: 'enum', enum: AnnouncementScope })
   @Field(() => AnnouncementScope)
-  scope: AnnouncementScope;
+  scope!: AnnouncementScope;
 
   // For PLATFORM scope - null means global
   // For TENANT scope - creator's tenant
   @Column({ type: 'uuid', nullable: true })
   @Field(() => String, { nullable: true })
   @Index()
-  tenantId: string | null;
+  tenantId?: string | null;
 
   @ManyToOne(() => Tenant, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'tenantId' })
-  tenant: Tenant | null;
+  tenant?: Tenant | null;
 
   // For PLATFORM scope only - targeting
   @Column({ default: true })
   @Field()
-  isGlobal: boolean; // true = all tenants, false = use targetCriteria
+  isGlobal!: boolean; // true = all tenants, false = use targetCriteria
 
   @Column({ type: 'jsonb', nullable: true })
   @Field(() => AnnouncementTarget, { nullable: true })
-  targetCriteria: AnnouncementTarget | null;
+  targetCriteria?: AnnouncementTarget | null;
 
   // Scheduling
   @Column({ type: 'timestamp', nullable: true })
   @Field(() => Date, { nullable: true })
-  publishAt: Date | null;
+  publishAt?: Date | null;
 
   @Column({ type: 'timestamp', nullable: true })
   @Field(() => Date, { nullable: true })
-  expiresAt: Date | null;
+  expiresAt?: Date | null;
 
   // Acknowledgment
   @Column({ default: false })
   @Field()
-  requiresAcknowledgment: boolean;
+  requiresAcknowledgment!: boolean;
 
   // Stats
   @Column({ default: 0 })
   @Field()
-  viewCount: number;
+  viewCount!: number;
 
   @Column({ default: 0 })
   @Field()
-  acknowledgmentCount: number;
+  acknowledgmentCount!: number;
 
   // Creator
   @Column({ type: 'uuid' })
   @Field()
-  createdBy: string;
+  createdBy!: string;
 
   @Column()
   @Field()
-  createdByName: string;
+  createdByName!: string;
 
   @CreateDateColumn()
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   /**
    * Check if announcement is currently active

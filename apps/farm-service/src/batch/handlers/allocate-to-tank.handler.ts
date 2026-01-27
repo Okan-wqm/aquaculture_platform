@@ -92,7 +92,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
       tenantId,
       batchId,
       tankId: payload.tankId,
-      allocationType: payload.allocationType as any,
+      allocationType: payload.allocationType as AllocationType,
       allocationDate: payload.allocatedAt || new Date(),
       quantity: payload.quantity,
       avgWeightG: payload.avgWeightG,

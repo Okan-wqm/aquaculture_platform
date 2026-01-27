@@ -14,8 +14,10 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
 import { MigrationManagementService } from '../services/migration-management.service';
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { MigrationStatus } from '../entities/database-management.entity';
 
 // ============================================================================
@@ -23,19 +25,19 @@ import { MigrationStatus } from '../entities/database-management.entity';
 // ============================================================================
 
 class RunMigrationDto {
-  version: string;
+  version!: string;
   isDryRun?: boolean;
   executedBy?: string;
 }
 
 class BatchMigrationDto {
-  version: string;
+  version!: string;
   isDryRun?: boolean;
   executedBy?: string;
 }
 
 class RollbackMigrationDto {
-  version: string;
+  version!: string;
   executedBy?: string;
 }
 
@@ -44,6 +46,7 @@ class RollbackMigrationDto {
 // ============================================================================
 
 @Controller('database/migrations')
+@UseGuards(PlatformAdminGuard)
 export class MigrationController {
   constructor(private readonly migrationService: MigrationManagementService) {}
 

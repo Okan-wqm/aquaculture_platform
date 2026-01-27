@@ -263,9 +263,9 @@ export class TenantAwareRepository<T extends TenantEntity> {
   /**
    * Execute raw query with tenant filter
    */
-  async executeRaw<R = any>(
+  async executeRaw<R = unknown>(
     query: string,
-    parameters?: any[],
+    parameters?: unknown[],
   ): Promise<R> {
     this.requireTenantId();
 

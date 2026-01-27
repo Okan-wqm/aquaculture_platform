@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aquaculture-staging-config
+  namespace: aquaculture-staging
+  labels:
+    app.kubernetes.io/name: aquaculture-platform
+    environment: staging
+data:
+  NODE_ENV: "staging"
+  DATABASE_HOST: "postgres-staging.database.svc.cluster.local"
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: "aquaculture_staging"
+  REDIS_HOST: "redis-staging.cache.svc.cluster.local"
+  REDIS_PORT: "6379"
+  NATS_URL: "nats://nats-staging.messaging.svc.cluster.local:4222"
+  LOG_LEVEL: "debug"
+  GRAPHQL_PLAYGROUND: "true"
+  GRAPHQL_INTROSPECTION: "true"
+  CORS_ORIGINS: "https://staging.aquaculture-platform.example.com"

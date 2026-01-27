@@ -11,7 +11,7 @@ import { Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 // TODO: EventBus integration - import { EventBus } from '@platform/event-bus';
 import { RecordGrowthSampleCommand } from '../commands/record-growth-sample.command';
-import { GrowthMeasurement, MeasurementType, MeasurementMethod } from '../entities/growth-measurement.entity';
+import { GrowthMeasurement, MeasurementType, MeasurementMethod, StatisticalSummary } from '../entities/growth-measurement.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { FCRCalculationService } from '../services/fcr-calculation.service';
@@ -75,7 +75,7 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
       samplePercent: 0, // calculateDerivedFields'da hesaplanacak
 
       individualMeasurements: payload.individualMeasurements,
-      statistics: {} as any, // calculateStatistics'te doldurulacak
+      statistics: {} as StatisticalSummary, // calculateStatistics'te doldurulacak
 
       averageWeight: 0, // calculateStatistics'te hesaplanacak
       weightCV: 0, // calculateStatistics'te hesaplanacak

@@ -9,10 +9,10 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
-import { Batch, BatchStatus } from '../entities/batch.entity';
+import { Batch, BatchStatus, BatchInputType } from '../entities/batch.entity';
 import { TankAllocation, AllocationType } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
-import { TankOperation, OperationType } from '../entities/tank-operation.entity';
+import { TankOperation, OperationType, MortalityReason, CullReason } from '../entities/tank-operation.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 
 // ============================================================================
@@ -59,6 +59,18 @@ export interface RecordOperationInput {
   notes?: string;
 }
 
+/**
+ * Batch detail info for tank summary
+ */
+export interface TankBatchDetail {
+  batchId: string;
+  batchNumber: string;
+  quantity: number;
+  avgWeightG: number;
+  biomassKg: number;
+  percentageOfTank: number;
+}
+
 // ============================================================================
 // SERVICE
 // ============================================================================
@@ -92,7 +104,7 @@ export class BatchService {
       tenantId: input.tenantId,
       batchNumber: input.batchNumber,
       speciesId: input.speciesId,
-      inputType: input.inputType as any,
+      inputType: input.inputType as BatchInputType,
       initialQuantity: input.initialQuantity,
       currentQuantity: input.initialQuantity,
       totalMortality: 0,
@@ -314,7 +326,7 @@ export class BatchService {
     // Toplam değerleri hesapla
     let totalQuantity = 0;
     let totalBiomass = 0;
-    const batchDetails: any[] = [];
+    const batchDetails: TankBatchDetail[] = [];
 
     for (const alloc of allocations) {
       totalQuantity += alloc.quantity;
@@ -338,7 +350,7 @@ export class BatchService {
     }
 
     // TankBatch güncelle
-    tankBatch.primaryBatchId = primaryBatchId || (batchDetails[0]?.batchId ?? null);
+    tankBatch.primaryBatchId = primaryBatchId || batchDetails[0]?.batchId || undefined;
     tankBatch.totalQuantity = totalQuantity;
     tankBatch.totalBiomassKg = totalBiomass;
     tankBatch.avgWeightG = totalQuantity > 0 ? (totalBiomass * 1000) / totalQuantity : 0;
@@ -407,11 +419,11 @@ export class BatchService {
     // Operation tipine göre ek alanları doldur
     switch (input.operationType) {
       case OperationType.MORTALITY:
-        operation.mortalityReason = input.reason as any;
+        operation.mortalityReason = input.reason as MortalityReason | undefined;
         operation.mortalityDetail = input.detail;
         break;
       case OperationType.CULL:
-        operation.cullReason = input.reason as any;
+        operation.cullReason = input.reason as CullReason | undefined;
         operation.cullDetail = input.detail;
         break;
       case OperationType.TRANSFER_OUT:

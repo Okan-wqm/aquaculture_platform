@@ -15,8 +15,10 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
 import { SchemaManagementService } from '../services/schema-management.service';
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { SchemaStatus } from '../entities/database-management.entity';
 
 // ============================================================================
@@ -24,11 +26,11 @@ import { SchemaStatus } from '../entities/database-management.entity';
 // ============================================================================
 
 class CreateSchemaDto {
-  tenantId: string;
+  tenantId!: string;
 }
 
 class UpdateSchemaStatusDto {
-  status: SchemaStatus;
+  status!: SchemaStatus;
 }
 
 // ============================================================================
@@ -36,6 +38,7 @@ class UpdateSchemaStatusDto {
 // ============================================================================
 
 @Controller('database/schemas')
+@UseGuards(PlatformAdminGuard)
 export class SchemaController {
   constructor(private readonly schemaService: SchemaManagementService) {}
 

@@ -37,46 +37,46 @@ export type OnboardingStatus = 'not_started' | 'in_progress' | 'completed' | 'sk
 @Index(['lastMessageAt'])
 export class MessageThread {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'varchar', length: 200 })
-  subject: string;
+  subject!: string;
 
   @Column({ type: 'uuid', nullable: true })
-  lastMessageId: string;
+  lastMessageId?: string;
 
   @Column({ type: 'int', default: 0 })
-  messageCount: number;
+  messageCount!: number;
 
   @Column({ type: 'int', default: 0 })
-  unreadAdminCount: number;
+  unreadAdminCount!: number;
 
   @Column({ type: 'int', default: 0 })
-  unreadTenantCount: number;
+  unreadTenantCount!: number;
 
   @Column({ type: 'boolean', default: false })
-  isArchived: boolean;
+  isArchived!: boolean;
 
   @Column({ type: 'boolean', default: false })
-  isClosed: boolean;
+  isClosed!: boolean;
 
   @Column({ type: 'timestamp', nullable: true })
-  lastMessageAt: Date;
+  lastMessageAt?: Date;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @OneToMany(() => Message, message => message.thread)
-  messages: Message[];
+  messages!: Message[];
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 // ============================================================================
@@ -89,44 +89,44 @@ export class MessageThread {
 @Index(['createdAt'])
 export class Message {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  threadId: string;
+  threadId!: string;
 
   @Column({ type: 'uuid' })
-  senderId: string;
+  senderId!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  senderType: 'admin' | 'tenant_admin' | 'system';
+  senderType!: 'admin' | 'tenant_admin' | 'system';
 
   @Column({ type: 'varchar', length: 200, nullable: true })
-  senderName: string;
+  senderName?: string;
 
   @Column({ type: 'text' })
-  content: string;
+  content!: string;
 
   @Column({ type: 'varchar', length: 50, default: 'sent' })
-  status: MessageStatus;
+  status!: MessageStatus;
 
   @Column({ type: 'boolean', default: false })
-  isInternal: boolean;
+  isInternal!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
-  attachments: MessageAttachment[];
+  attachments?: MessageAttachment[];
 
   @Column({ type: 'timestamp', nullable: true })
-  readAt: Date;
+  readAt?: Date;
 
   @Column({ type: 'boolean', default: false })
-  emailSent: boolean;
+  emailSent!: boolean;
 
   @ManyToOne(() => MessageThread, thread => thread.messages)
   @JoinColumn({ name: 'threadId' })
-  thread: MessageThread;
+  thread!: MessageThread;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 // ============================================================================
@@ -140,58 +140,58 @@ export class Message {
 @Index(['expiresAt'])
 export class Announcement {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 200 })
-  title: string;
+  title!: string;
 
   @Column({ type: 'text' })
-  content: string;
+  content!: string;
 
   @Column({ type: 'varchar', length: 50, default: 'info' })
-  type: AnnouncementType;
+  type!: AnnouncementType;
 
   @Column({ type: 'varchar', length: 50, default: 'draft' })
-  status: AnnouncementStatus;
+  status!: AnnouncementStatus;
 
   @Column({ type: 'boolean', default: false })
-  isGlobal: boolean;
+  isGlobal!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
-  targetCriteria: AnnouncementTarget;
+  targetCriteria?: AnnouncementTarget;
 
   @Column({ type: 'uuid', nullable: true })
-  createdBy: string;
+  createdBy?: string;
 
   @Column({ type: 'varchar', length: 200, nullable: true })
-  createdByName: string;
+  createdByName?: string;
 
   @Column({ type: 'timestamp', nullable: true })
-  publishAt: Date;
+  publishAt?: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  expiresAt: Date;
+  expiresAt?: Date;
 
   @Column({ type: 'boolean', default: false })
-  requiresAcknowledgment: boolean;
+  requiresAcknowledgment!: boolean;
 
   @Column({ type: 'int', default: 0 })
-  viewCount: number;
+  viewCount!: number;
 
   @Column({ type: 'int', default: 0 })
-  acknowledgmentCount: number;
+  acknowledgmentCount!: number;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @OneToMany(() => AnnouncementAcknowledgment, ack => ack.announcement)
-  acknowledgments: AnnouncementAcknowledgment[];
+  acknowledgments!: AnnouncementAcknowledgment[];
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 // ============================================================================
@@ -204,32 +204,32 @@ export class Announcement {
 @Index(['userId'])
 export class AnnouncementAcknowledgment {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  announcementId: string;
+  announcementId!: string;
 
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'uuid' })
-  userId: string;
+  userId!: string;
 
   @Column({ type: 'varchar', length: 200, nullable: true })
-  userName: string;
+  userName?: string;
 
   @Column({ type: 'timestamp', nullable: true })
-  viewedAt: Date;
+  viewedAt?: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  acknowledgedAt: Date;
+  acknowledgedAt?: Date;
 
   @ManyToOne(() => Announcement, announcement => announcement.acknowledgments)
   @JoinColumn({ name: 'announcementId' })
-  announcement: Announcement;
+  announcement!: Announcement;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 // ============================================================================
@@ -245,88 +245,88 @@ export class AnnouncementAcknowledgment {
 @Index(['dueAt'])
 export class SupportTicket {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 20, unique: true })
-  ticketNumber: string;
+  ticketNumber!: string;
 
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'varchar', length: 200, nullable: true })
-  tenantName: string;
+  tenantName?: string;
 
   @Column({ type: 'uuid' })
-  createdBy: string;
+  createdBy!: string;
 
   @Column({ type: 'varchar', length: 200, nullable: true })
-  createdByName: string;
+  createdByName?: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  createdByEmail: string;
+  createdByEmail?: string;
 
   @Column({ type: 'varchar', length: 200 })
-  subject: string;
+  subject!: string;
 
   @Column({ type: 'text' })
-  description: string;
+  description!: string;
 
   @Column({ type: 'varchar', length: 50, default: 'general' })
-  category: TicketCategory;
+  category!: TicketCategory;
 
   @Column({ type: 'varchar', length: 50, default: 'medium' })
-  priority: TicketPriority;
+  priority!: TicketPriority;
 
   @Column({ type: 'varchar', length: 50, default: 'open' })
-  status: TicketStatus;
+  status!: TicketStatus;
 
   @Column({ type: 'uuid', nullable: true })
-  assignedTo: string;
+  assignedTo?: string;
 
   @Column({ type: 'varchar', length: 200, nullable: true })
-  assignedToName: string;
+  assignedToName?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  tags: string[];
+  tags?: string[];
 
   @Column({ type: 'timestamp', nullable: true })
-  firstResponseAt: Date;
+  firstResponseAt?: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  resolvedAt: Date;
+  resolvedAt?: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  closedAt: Date;
+  closedAt?: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  dueAt: Date;
+  dueAt?: Date;
 
   @Column({ type: 'int', nullable: true })
-  slaResponseMinutes: number;
+  slaResponseMinutes?: number;
 
   @Column({ type: 'int', nullable: true })
-  slaResolutionMinutes: number;
+  slaResolutionMinutes?: number;
 
   @Column({ type: 'boolean', default: false })
-  slaBreached: boolean;
+  slaBreached!: boolean;
 
   @Column({ type: 'int', default: 0 })
-  satisfactionRating: number;
+  satisfactionRating!: number;
 
   @Column({ type: 'text', nullable: true })
-  satisfactionFeedback: string | null;
+  satisfactionFeedback?: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @OneToMany(() => TicketComment, comment => comment.ticket)
-  comments: TicketComment[];
+  comments!: TicketComment[];
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 // ============================================================================
@@ -339,38 +339,38 @@ export class SupportTicket {
 @Index(['createdAt'])
 export class TicketComment {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  ticketId: string;
+  ticketId!: string;
 
   @Column({ type: 'uuid' })
-  authorId: string;
+  authorId!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  authorType: 'admin' | 'tenant_user' | 'system';
+  authorType!: 'admin' | 'tenant_user' | 'system';
 
   @Column({ type: 'varchar', length: 200, nullable: true })
-  authorName: string;
+  authorName?: string;
 
   @Column({ type: 'text' })
-  content: string;
+  content!: string;
 
   @Column({ type: 'boolean', default: false })
-  isInternal: boolean;
+  isInternal!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
-  attachments: TicketAttachment[];
+  attachments?: TicketAttachment[];
 
   @Column({ type: 'boolean', default: false })
-  emailSent: boolean;
+  emailSent!: boolean;
 
   @ManyToOne(() => SupportTicket, ticket => ticket.comments)
   @JoinColumn({ name: 'ticketId' })
-  ticket: SupportTicket;
+  ticket!: SupportTicket;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 // ============================================================================
@@ -382,61 +382,61 @@ export class TicketComment {
 @Index(['status'])
 export class OnboardingProgress {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', unique: true })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'varchar', length: 200, nullable: true })
-  tenantName: string;
+  tenantName?: string;
 
   @Column({ type: 'varchar', length: 50, default: 'not_started' })
-  status: OnboardingStatus;
+  status!: OnboardingStatus;
 
   @Column({ type: 'int', default: 0 })
-  completionPercent: number;
+  completionPercent!: number;
 
   @Column({ type: 'jsonb', default: [] })
-  completedSteps: string[];
+  completedSteps!: string[];
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  currentStep: string;
+  currentStep?: string;
 
   @Column({ type: 'boolean', default: false })
-  welcomeEmailSent: boolean;
+  welcomeEmailSent!: boolean;
 
   @Column({ type: 'timestamp', nullable: true })
-  welcomeEmailSentAt: Date;
+  welcomeEmailSentAt?: Date;
 
   @Column({ type: 'boolean', default: false })
-  gettingStartedViewed: boolean;
+  gettingStartedViewed!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
-  viewedTutorials: string[];
+  viewedTutorials?: string[];
 
   @Column({ type: 'jsonb', nullable: true })
-  scheduledTrainings: TrainingSession[];
+  scheduledTrainings?: TrainingSession[];
 
   @Column({ type: 'uuid', nullable: true })
-  assignedGuide: string;
+  assignedGuide?: string;
 
   @Column({ type: 'varchar', length: 200, nullable: true })
-  assignedGuideName: string;
+  assignedGuideName?: string;
 
   @Column({ type: 'timestamp', nullable: true })
-  startedAt: Date;
+  startedAt?: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  completedAt: Date;
+  completedAt?: Date;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 // ============================================================================

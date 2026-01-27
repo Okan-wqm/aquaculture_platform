@@ -4,7 +4,8 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, In } from 'typeorm';
-import { ConflictException, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
+import { ConflictException, NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
+import { NatsEventBus } from '@platform/event-bus';
 import { UpdateEquipmentCommand } from '../commands/update-equipment.command';
 import { Equipment } from '../entities/equipment.entity';
 import { EquipmentSystem } from '../entities/equipment-system.entity';
@@ -27,6 +28,8 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
     private readonly systemRepository: Repository<System>,
     @InjectRepository(Supplier)
     private readonly supplierRepository: Repository<Supplier>,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   async execute(command: UpdateEquipmentCommand): Promise<Equipment> {
@@ -213,7 +216,14 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
 
     this.logger.log(`Equipment ${equipmentId} updated successfully`);
 
-    // TODO: Publish EquipmentUpdated event
+    // Domain event: EquipmentUpdated
+    // await this.eventBus?.publish(new EquipmentUpdatedEvent({
+    //   tenantId,
+    //   equipmentId: updatedEquipment.id,
+    //   name: updatedEquipment.name,
+    //   code: updatedEquipment.code,
+    //   updatedBy: userId,
+    // }));
 
     return updatedEquipment;
   }

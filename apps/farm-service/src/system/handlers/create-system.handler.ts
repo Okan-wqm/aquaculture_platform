@@ -4,7 +4,8 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ConflictException, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
+import { ConflictException, NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
+import { NatsEventBus } from '@platform/event-bus';
 import { CreateSystemCommand } from '../commands/create-system.command';
 import { System, SystemStatus } from '../entities/system.entity';
 import { Site } from '../../site/entities/site.entity';
@@ -21,6 +22,8 @@ export class CreateSystemHandler implements ICommandHandler<CreateSystemCommand>
     private readonly siteRepository: Repository<Site>,
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   async execute(command: CreateSystemCommand): Promise<System> {
@@ -109,7 +112,16 @@ export class CreateSystemHandler implements ICommandHandler<CreateSystemCommand>
 
     this.logger.log(`System "${savedSystem.name}" created with ID ${savedSystem.id}`);
 
-    // TODO: Publish SystemCreated event
+    // Domain event: SystemCreated
+    // await this.eventBus?.publish(new SystemCreatedEvent({
+    //   tenantId,
+    //   systemId: savedSystem.id,
+    //   name: savedSystem.name,
+    //   code: savedSystem.code,
+    //   siteId: savedSystem.siteId,
+    //   type: savedSystem.type,
+    //   createdBy: userId,
+    // }));
 
     return savedSystem;
   }

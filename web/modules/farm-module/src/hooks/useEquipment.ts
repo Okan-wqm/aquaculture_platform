@@ -315,13 +315,9 @@ export function useEquipmentList(filter?: {
 }) {
   const { token, tenantId } = useAuth();
 
-  // DEBUG: useAuth değerlerini kontrol et
-  console.log('[useEquipmentList] DEBUG - useAuth token:', token ? 'EXISTS' : 'NULL', 'tenantId:', tenantId, 'enabled:', !!token && !!tenantId);
-
   return useQuery({
     queryKey: ['equipment', 'list', filter],
     queryFn: async () => {
-      console.log('[useEquipmentList] DEBUG - queryFn executing...');
       try {
         const data = await graphqlClient.request<{ equipmentList: PaginatedResponse }>(
           EQUIPMENT_LIST_QUERY,

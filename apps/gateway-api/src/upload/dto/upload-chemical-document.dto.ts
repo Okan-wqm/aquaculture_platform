@@ -15,23 +15,23 @@ export enum ChemicalDocumentType {
 export class UploadChemicalDocumentDto {
   @IsUUID()
   @IsNotEmpty()
-  chemicalId: string;
+  chemicalId!: string;
 
   @IsString()
   @IsNotEmpty()
   @MaxLength(255)
-  documentName: string;
+  documentName!: string;
 
   @IsEnum(ChemicalDocumentType)
-  documentType: ChemicalDocumentType;
+  documentType!: ChemicalDocumentType;
 }
 
 export class DeleteChemicalDocumentDto {
   @IsUUID()
   @IsNotEmpty()
-  chemicalId: string;
+  chemicalId!: string;
 
   @IsUUID()
   @IsNotEmpty()
-  documentId: string;
+  documentId!: string;
 }

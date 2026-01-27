@@ -33,6 +33,9 @@ import {
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 // Note: Batch and Feed are referenced via string to avoid circular dependency
+// Type-only imports for TypeScript type checking
+import type { Batch } from '../../batch/entities/batch.entity';
+import type { Feed } from '../../feed/entities/feed.entity';
 
 // ============================================================================
 // ENUMS
@@ -174,7 +177,7 @@ export class FeedingTable {
 
   @ManyToOne('Batch', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
-  batch: any;
+  batch?: Batch;
 
   // -------------------------------------------------------------------------
   // FEED İLİŞKİSİ
@@ -186,7 +189,7 @@ export class FeedingTable {
 
   @ManyToOne('Feed', { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'feedId' })
-  feed: any;
+  feed?: Feed;
 
   // -------------------------------------------------------------------------
   // VERSİYON KONTROLÜ

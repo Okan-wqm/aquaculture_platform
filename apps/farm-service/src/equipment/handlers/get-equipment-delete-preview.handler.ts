@@ -14,6 +14,7 @@ import {
   EquipmentChildSummary,
   SubEquipmentSummary,
 } from '../dto/equipment-delete-preview.response';
+import { EquipmentResponse } from '../dto/equipment.response';
 
 @QueryHandler(GetEquipmentDeletePreviewQuery)
 export class GetEquipmentDeletePreviewHandler
@@ -75,7 +76,7 @@ export class GetEquipmentDeletePreviewHandler
     const totalCount = childEquipment.length + subEquipment.length;
 
     return {
-      equipment: equipment as any,
+      equipment: equipment as unknown as EquipmentResponse,
       canDelete: blockers.length === 0,
       blockers,
       affectedItems: {

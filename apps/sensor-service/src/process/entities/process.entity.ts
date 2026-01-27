@@ -85,11 +85,11 @@ export interface SensorMapping {
 export class Process {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column()
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -97,20 +97,20 @@ export class Process {
 
   @Field(() => ProcessStatus)
   @Column({ type: 'enum', enum: ProcessStatus, default: ProcessStatus.DRAFT })
-  status: ProcessStatus;
+  status!: ProcessStatus;
 
   @Field(() => GraphQLJSON)
   @Column('jsonb', { default: '[]' })
-  nodes: ProcessNode[];
+  nodes!: ProcessNode[];
 
   @Field(() => GraphQLJSON)
   @Column('jsonb', { default: '[]' })
-  edges: ProcessEdge[];
+  edges!: ProcessEdge[];
 
   @Field()
   @Column({ name: 'tenant_id' })
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field({ nullable: true })
   @Column({ name: 'site_id', nullable: true })
@@ -127,7 +127,7 @@ export class Process {
 
   @Field()
   @Column({ name: 'is_template', default: false })
-  isTemplate: boolean;
+  isTemplate!: boolean;
 
   @Field({ nullable: true })
   @Column({ name: 'template_name', nullable: true })
@@ -135,11 +135,11 @@ export class Process {
 
   @Field()
   @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column({ name: 'created_by', nullable: true })

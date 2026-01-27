@@ -10,7 +10,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
-import { Invoice } from './invoice.entity';
+import { forwardRef } from '@nestjs/common';
 
 export enum PaymentStatus {
   PENDING = 'pending',
@@ -102,10 +102,13 @@ export class Payment {
   @Index()
   invoiceId!: string;
 
-  @Field(() => Invoice)
-  @ManyToOne(() => Invoice, (invoice) => invoice.payments)
+  @Field(() => require('./invoice.entity').Invoice)
+  @ManyToOne(
+    () => require('./invoice.entity').Invoice,
+    (invoice: { payments: unknown }) => invoice.payments,
+  )
   @JoinColumn({ name: 'invoiceId' })
-  invoice!: Invoice;
+  invoice!: import('./invoice.entity').Invoice;
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 12, scale: 2 })

@@ -16,9 +16,11 @@ import {
   Query,
   BadRequestException,
   Logger,
+  UseGuards,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { IsOptional, IsNumber, IsString, IsIn, IsObject } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
@@ -52,12 +54,25 @@ class TableQueryDto {
 
 class InsertRowDto {
   @IsObject()
-  data: Record<string, unknown>;
+  data!: Record<string, unknown>;
 }
 
 class UpdateRowDto {
   @IsObject()
-  data: Record<string, unknown>;
+  data!: Record<string, unknown>;
+}
+
+/**
+ * SECURITY: DTO for raw SQL query execution
+ * Only for SUPER_ADMIN in development/staging environments
+ */
+class ExecuteQueryDto {
+  @IsString()
+  @Transform(({ value }) => value?.trim())
+  sql!: string;
+
+  @IsOptional()
+  params?: unknown[];
 }
 
 // ============================================================================
@@ -98,6 +113,7 @@ interface TableData {
 // ============================================================================
 
 @Controller('database/explorer')
+@UseGuards(PlatformAdminGuard)
 export class DatabaseExplorerController {
   private readonly logger = new Logger(DatabaseExplorerController.name);
 
@@ -473,38 +489,84 @@ export class DatabaseExplorerController {
   }
 
   // ============================================================================
-  // Raw Query (Dikkatli kullan!)
+  // Raw Query (SECURITY CRITICAL - Use with extreme caution!)
   // ============================================================================
 
   /**
-   * Ham SQL sorgusu çalıştır (sadece SELECT)
+   * Execute raw SQL query (SELECT only)
+   * SECURITY: This endpoint is extremely sensitive and should be disabled in production
    */
   @Post('query')
-  async executeQuery(@Body() body: { sql: string; params?: unknown[] }) {
-    const { sql, params = [] } = body;
+  async executeQuery(@Body() dto: ExecuteQueryDto) {
+    const { sql, params = [] } = dto;
 
-    // Sadece SELECT sorgularına izin ver (güvenlik için)
-    const normalizedSql = sql.trim().toUpperCase();
+    // SECURITY: Block in production environment
+    if (process.env['NODE_ENV'] === 'production') {
+      throw new BadRequestException(
+        'Raw SQL queries are disabled in production for security reasons',
+      );
+    }
+
+    // SECURITY: Query length limit to prevent DoS
+    const MAX_QUERY_LENGTH = 10000;
+    if (sql.length > MAX_QUERY_LENGTH) {
+      throw new BadRequestException(
+        `Query exceeds maximum length of ${MAX_QUERY_LENGTH} characters`,
+      );
+    }
+
+    // Remove SQL comments to prevent bypass attempts
+    const sqlWithoutComments = sql
+      .replace(/\/\*[\s\S]*?\*\//g, '') // Remove /* ... */ comments
+      .replace(/--.*$/gm, '');          // Remove -- comments
+
+    // Only allow SELECT/WITH queries
+    const normalizedSql = sqlWithoutComments.trim().toUpperCase();
     if (!normalizedSql.startsWith('SELECT') && !normalizedSql.startsWith('WITH')) {
       throw new BadRequestException('Only SELECT queries are allowed');
     }
 
-    // Tehlikeli komutları engelle
-    const dangerousPatterns = [
-      /DROP\s+/i,
-      /DELETE\s+/i,
-      /TRUNCATE\s+/i,
-      /INSERT\s+/i,
-      /UPDATE\s+/i,
-      /ALTER\s+/i,
-      /CREATE\s+/i,
-      /GRANT\s+/i,
-      /REVOKE\s+/i,
+    // SECURITY: Block dangerous SQL statements
+    const dangerousStatements = [
+      /\bDROP\b/i,
+      /\bDELETE\b/i,
+      /\bTRUNCATE\b/i,
+      /\bINSERT\b/i,
+      /\bUPDATE\b/i,
+      /\bALTER\b/i,
+      /\bCREATE\b/i,
+      /\bGRANT\b/i,
+      /\bREVOKE\b/i,
+      /\bEXEC(UTE)?\b/i,
+      /\bCALL\b/i,
     ];
 
-    for (const pattern of dangerousPatterns) {
-      if (pattern.test(sql)) {
+    for (const pattern of dangerousStatements) {
+      if (pattern.test(sqlWithoutComments)) {
         throw new BadRequestException('Query contains disallowed statements');
+      }
+    }
+
+    // SECURITY: Block dangerous PostgreSQL functions
+    const dangerousFunctions = [
+      /\bpg_read_file\b/i,
+      /\bpg_read_binary_file\b/i,
+      /\bpg_write_file\b/i,
+      /\bpg_ls_dir\b/i,
+      /\bpg_stat_file\b/i,
+      /\bpg_terminate_backend\b/i,
+      /\bpg_cancel_backend\b/i,
+      /\bpg_reload_conf\b/i,
+      /\blo_import\b/i,
+      /\blo_export\b/i,
+      /\bcopy\s+to\b/i,
+      /\bcopy\s+from\b/i,
+      /\bdblink\b/i,
+    ];
+
+    for (const pattern of dangerousFunctions) {
+      if (pattern.test(sqlWithoutComments)) {
+        throw new BadRequestException('Query contains disallowed functions');
       }
     }
 
@@ -512,8 +574,13 @@ export class DatabaseExplorerController {
     await queryRunner.connect();
 
     try {
+      // SECURITY: Set statement timeout to prevent long-running queries
+      await queryRunner.query('SET statement_timeout = 30000'); // 30 seconds
+
       const result = await queryRunner.query(sql, params);
-      this.logger.log(`Executed query: ${sql.substring(0, 100)}...`);
+      this.logger.warn(
+        `SECURITY AUDIT: Raw SQL query executed by SUPER_ADMIN: ${sql.substring(0, 100)}...`,
+      );
       return {
         rows: result,
         rowCount: result.length,

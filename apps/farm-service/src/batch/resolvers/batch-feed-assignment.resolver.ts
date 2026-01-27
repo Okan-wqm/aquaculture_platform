@@ -9,11 +9,27 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TenantGuard, CurrentTenant, CurrentUser } from '@platform/backend-common';
-import { BatchFeedAssignment } from '../entities/batch-feed-assignment.entity';
+import { BatchFeedAssignment, FeedAssignmentEntry } from '../entities/batch-feed-assignment.entity';
 import { Batch } from '../entities/batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { BatchFeedAssignmentResponse } from '../dto/batch-feed-assignment.response';
 import { AssignFeedsToBatchInput, UpdateBatchFeedAssignmentInput } from '../dto/batch-feed-assignment.input';
+
+/**
+ * Raw database row type for batch_feed_assignments table
+ */
+interface BatchFeedAssignmentRow {
+  id: string;
+  tenantId: string;
+  batchId: string;
+  feedAssignments: FeedAssignmentEntry[] | string;
+  isActive: boolean;
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  createdBy?: string;
+  updatedBy?: string;
+}
 
 @Resolver(() => BatchFeedAssignmentResponse)
 @UseGuards(TenantGuard)
@@ -157,7 +173,7 @@ export class BatchFeedAssignmentResolver {
     }
 
     const updates: string[] = [];
-    const params: any[] = [];
+    const params: (string | boolean | null)[] = [];
     let paramIndex = 1;
 
     if (input.feedAssignments !== undefined) {
@@ -244,7 +260,7 @@ export class BatchFeedAssignmentResolver {
   /**
    * Map entity to GraphQL response
    */
-  private mapToResponse(assignment: any): BatchFeedAssignmentResponse {
+  private mapToResponse(assignment: BatchFeedAssignmentRow): BatchFeedAssignmentResponse {
     const feedAssignments = typeof assignment.feedAssignments === 'string'
       ? JSON.parse(assignment.feedAssignments)
       : assignment.feedAssignments;

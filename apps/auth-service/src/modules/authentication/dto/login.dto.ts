@@ -13,9 +13,9 @@ export class LoginInput {
   @Field()
   @IsEmail({}, { message: 'Invalid email format' })
   @MaxLength(255)
-  email: string;
+  email!: string;
 
   @Field()
   @IsString()
-  password: string;
+  password!: string;
 }

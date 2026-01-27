@@ -19,6 +19,7 @@ import {
   EquipmentSummary,
   TankSummary,
 } from '../dto/site-delete-preview.response';
+import { SiteResponse } from '../dto/site.response';
 
 @QueryHandler(GetSiteDeletePreviewQuery)
 export class GetSiteDeletePreviewHandler
@@ -162,7 +163,7 @@ export class GetSiteDeletePreviewHandler
       tanks.length;
 
     return {
-      site: site as any, // Cast to SiteResponse
+      site: site as unknown as SiteResponse,
       canDelete: blockers.length === 0,
       blockers,
       affectedItems: {

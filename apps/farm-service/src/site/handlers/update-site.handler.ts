@@ -4,7 +4,8 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
-import { ConflictException, NotFoundException, Logger } from '@nestjs/common';
+import { ConflictException, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
+import { NatsEventBus } from '@platform/event-bus';
 import { UpdateSiteCommand } from '../commands/update-site.command';
 import { Site } from '../entities/site.entity';
 
@@ -15,6 +16,8 @@ export class UpdateSiteHandler implements ICommandHandler<UpdateSiteCommand> {
   constructor(
     @InjectRepository(Site)
     private readonly siteRepository: Repository<Site>,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   async execute(command: UpdateSiteCommand): Promise<Site> {
@@ -62,7 +65,14 @@ export class UpdateSiteHandler implements ICommandHandler<UpdateSiteCommand> {
 
     this.logger.log(`Site ${siteId} updated successfully`);
 
-    // TODO: Publish SiteUpdated event
+    // Domain event: SiteUpdated
+    // await this.eventBus?.publish(new SiteUpdatedEvent({
+    //   tenantId,
+    //   siteId: updatedSite.id,
+    //   name: updatedSite.name,
+    //   code: updatedSite.code,
+    //   updatedBy: userId,
+    // }));
 
     return updatedSite;
   }

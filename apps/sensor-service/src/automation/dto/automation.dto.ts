@@ -29,10 +29,10 @@ import {
 @InputType()
 export class CreateProgramInput {
   @Field()
-  programCode: string;
+  programCode!: string;
 
   @Field()
-  programName: string;
+  programName!: string;
 
   @Field({ nullable: true })
   description?: string;
@@ -50,7 +50,7 @@ export class CreateProgramInput {
   processTemplateId?: string;
 
   @Field(() => GraphQLJSON)
-  sfcDefinition: Record<string, unknown>;
+  sfcDefinition!: Record<string, unknown>;
 
   @Field({ nullable: true })
   structuredTextCode?: string;
@@ -138,13 +138,13 @@ export class ProgramFilterInput {
 @InputType()
 export class CreateStepInput {
   @Field(() => ID)
-  programId: string;
+  programId!: string;
 
   @Field()
-  stepCode: string;
+  stepCode!: string;
 
   @Field()
-  stepName: string;
+  stepName!: string;
 
   @Field(() => StepType, { defaultValue: StepType.NORMAL })
   stepType?: StepType;
@@ -217,10 +217,10 @@ export class UpdateStepInput {
 @InputType()
 export class CreateActionInput {
   @Field(() => ID)
-  stepId: string;
+  stepId!: string;
 
   @Field()
-  actionName: string;
+  actionName!: string;
 
   @Field({ nullable: true })
   description?: string;
@@ -232,7 +232,7 @@ export class CreateActionInput {
   actionType?: ActionType;
 
   @Field({ description: 'IEC 61131-3 Structured Text code' })
-  actionCode: string;
+  actionCode!: string;
 
   @Field({ nullable: true })
   targetRef?: string;
@@ -296,10 +296,10 @@ export class UpdateActionInput {
 @InputType()
 export class CreateTransitionInput {
   @Field(() => ID)
-  programId: string;
+  programId!: string;
 
   @Field()
-  transitionCode: string;
+  transitionCode!: string;
 
   @Field({ nullable: true })
   transitionName?: string;
@@ -308,10 +308,10 @@ export class CreateTransitionInput {
   description?: string;
 
   @Field(() => ID)
-  fromStepId: string;
+  fromStepId!: string;
 
   @Field(() => ID)
-  toStepId: string;
+  toStepId!: string;
 
   @Field({ nullable: true })
   fromStepCode?: string;
@@ -323,7 +323,7 @@ export class CreateTransitionInput {
   conditionType?: ConditionType;
 
   @Field({ description: 'IEC 61131-3 ST expression' })
-  conditionExpression: string;
+  conditionExpression!: string;
 
   @Field(() => Int, { defaultValue: 1 })
   priority?: number;
@@ -378,10 +378,10 @@ export class UpdateTransitionInput {
 @InputType()
 export class CreateVariableInput {
   @Field(() => ID)
-  programId: string;
+  programId!: string;
 
   @Field()
-  varName: string;
+  varName!: string;
 
   @Field({ nullable: true })
   displayName?: string;
@@ -513,55 +513,55 @@ export class UpdateVariableInput {
 @ObjectType()
 export class StatusCount {
   @Field()
-  status: string;
+  status!: string;
 
   @Field(() => Int)
-  count: number;
+  count!: number;
 }
 
 @ObjectType()
 export class TypeCount {
   @Field()
-  type: string;
+  type!: string;
 
   @Field(() => Int)
-  count: number;
+  count!: number;
 }
 
 @ObjectType()
 export class ProgramStats {
   @Field(() => Int)
-  total: number;
+  total!: number;
 
   @Field(() => [StatusCount])
-  byStatus: StatusCount[];
+  byStatus!: StatusCount[];
 
   @Field(() => [TypeCount])
-  byType: TypeCount[];
+  byType!: TypeCount[];
 
   @Field(() => Int)
-  lockedCount: number;
+  lockedCount!: number;
 
   @Field(() => Int)
-  deployedCount: number;
+  deployedCount!: number;
 }
 
 @ObjectType()
 export class AutomationProgramConnection {
   @Field(() => [ID])
-  items: string[];
+  items!: string[];
 
   @Field(() => Int)
-  total: number;
+  total!: number;
 
   @Field(() => Int)
-  page: number;
+  page!: number;
 
   @Field(() => Int)
-  limit: number;
+  limit!: number;
 
   @Field()
-  hasMore: boolean;
+  hasMore!: boolean;
 }
 
 // ============================================
@@ -571,10 +571,10 @@ export class AutomationProgramConnection {
 @InputType()
 export class DeployProgramInput {
   @Field(() => ID, { description: 'Program ID to deploy' })
-  programId: string;
+  programId!: string;
 
   @Field(() => ID, { description: 'Target edge device ID' })
-  deviceId: string;
+  deviceId!: string;
 
   @Field({ nullable: true, description: 'Force deployment even if device is offline (will queue)' })
   forceQueue?: boolean;
@@ -583,16 +583,16 @@ export class DeployProgramInput {
 @ObjectType()
 export class DeploymentResult {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field({ nullable: true })
   message?: string;
 
   @Field(() => ID)
-  programId: string;
+  programId!: string;
 
   @Field(() => ID)
-  deviceId: string;
+  deviceId!: string;
 
   @Field({ nullable: true, description: 'Timestamp when deployment was sent' })
   deployedAt?: Date;
@@ -613,16 +613,16 @@ export class DeploymentResult {
 @ObjectType()
 export class DeploymentStatus {
   @Field(() => ID)
-  programId: string;
+  programId!: string;
 
   @Field(() => ID)
-  deviceId: string;
+  deviceId!: string;
 
   @Field()
-  deviceCode: string;
+  deviceCode!: string;
 
   @Field()
-  status: string; // 'pending' | 'deploying' | 'deployed' | 'failed'
+  status!: string; // 'pending' | 'deploying' | 'deployed' | 'failed'
 
   @Field({ nullable: true })
   deployedVersion?: number;

@@ -21,21 +21,21 @@ import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 export class AlertHistory {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column()
   @Index()
-  ruleId: string;
+  ruleId!: string;
 
   @Field()
   @Column()
-  ruleName: string;
+  ruleName!: string;
 
   @Field()
   @Column()
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -51,24 +51,24 @@ export class AlertHistory {
 
   @Field(() => AlertSeverity)
   @Column({ type: 'enum', enum: AlertSeverity })
-  severity: AlertSeverity;
+  severity!: AlertSeverity;
 
   @Field()
   @Column('text')
-  message: string;
+  message!: string;
 
   @Field(() => GraphQLJSON)
   @Column('jsonb')
-  triggeringData: Record<string, unknown>; // The sensor reading that triggered
+  triggeringData!: Record<string, unknown>; // The sensor reading that triggered
 
   @Field(() => GraphQLISODateTime)
   @Column({ type: 'timestamptz' })
   @Index()
-  triggeredAt: Date;
+  triggeredAt!: Date;
 
   @Field()
   @Column({ default: false })
-  acknowledged: boolean;
+  acknowledged!: boolean;
 
   @Field(() => GraphQLISODateTime, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
@@ -84,7 +84,7 @@ export class AlertHistory {
 
   @Field()
   @Column({ default: false })
-  resolved: boolean;
+  resolved!: boolean;
 
   @Field(() => GraphQLISODateTime, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
@@ -92,5 +92,5 @@ export class AlertHistory {
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }

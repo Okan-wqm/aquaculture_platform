@@ -38,6 +38,9 @@ async function bootstrap() {
   // API prefix
   app.setGlobalPrefix('api/v1');
 
+  // Enable graceful shutdown hooks
+  app.enableShutdownHooks();
+
   const port = process.env['PORT'] || 3010;
   await app.listen(port);
 

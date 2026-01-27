@@ -29,7 +29,7 @@ export class ProfinetAdapter extends BaseProtocolAdapter {
 
   // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const cfg = config as ProfinetConfiguration;
+    const cfg = config as unknown as ProfinetConfiguration;
     return this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
   }
 

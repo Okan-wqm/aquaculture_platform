@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aquaculture
+  labels:
+    app.kubernetes.io/name: aquaculture-platform
+    app.kubernetes.io/managed-by: kustomize

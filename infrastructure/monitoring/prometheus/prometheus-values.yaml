@@ -126,7 +126,14 @@ grafana:
 
   replicas: 2
 
-  adminPassword: "admin"  # Change in production!
+  # SECURITY: Admin password must be set via existingSecret or environment variable
+  # DO NOT use hardcoded passwords in production!
+  # Option 1: Use existing Kubernetes secret
+  admin:
+    existingSecret: "grafana-admin-credentials"
+    userKey: admin-user
+    passwordKey: admin-password
+  # Option 2: If not using existingSecret, set via --set grafana.adminPassword=xxx during helm install
 
   resources:
     requests:

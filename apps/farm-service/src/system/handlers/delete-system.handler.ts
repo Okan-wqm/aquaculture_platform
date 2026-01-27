@@ -5,7 +5,8 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
-import { NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
+import { NatsEventBus } from '@platform/event-bus';
 import { DeleteSystemCommand } from '../commands/delete-system.command';
 import { System } from '../entities/system.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
@@ -22,6 +23,8 @@ export class DeleteSystemHandler implements ICommandHandler<DeleteSystemCommand>
     private readonly equipmentRepository: Repository<Equipment>,
     @InjectRepository(EquipmentSystem)
     private readonly equipmentSystemRepository: Repository<EquipmentSystem>,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   async execute(command: DeleteSystemCommand): Promise<boolean> {
@@ -109,7 +112,14 @@ export class DeleteSystemHandler implements ICommandHandler<DeleteSystemCommand>
 
     this.logger.log(`System ${systemId} marked as deleted`);
 
-    // TODO: Publish SystemDeleted event
+    // Domain event: SystemDeleted
+    // await this.eventBus?.publish(new SystemDeletedEvent({
+    //   tenantId,
+    //   systemId: system.id,
+    //   name: system.name,
+    //   cascade,
+    //   deletedBy: userId,
+    // }));
 
     return true;
   }

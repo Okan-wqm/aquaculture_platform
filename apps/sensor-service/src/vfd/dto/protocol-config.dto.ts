@@ -22,13 +22,13 @@ export class ModbusRtuConfigDto {
   @Matches(/^(COM\d+|\/dev\/tty\w+)$/, {
     message: 'Serial port must be COM* (Windows) or /dev/tty* (Linux)',
   })
-  serialPort: string;
+  serialPort!: string;
 
   @Field(() => Int)
   @IsInt()
   @Min(1)
   @Max(247)
-  slaveId: number;
+  slaveId!: number;
 
   @Field(() => Int, { defaultValue: 9600 })
   @IsOptional()
@@ -75,7 +75,7 @@ export class ModbusRtuConfigDto {
 export class ModbusTcpConfigDto {
   @Field()
   @IsString()
-  host: string;
+  host!: string;
 
   @Field(() => Int, { defaultValue: 502 })
   @IsOptional()
@@ -118,11 +118,11 @@ export class ModbusTcpConfigDto {
 export class ProfinetConfigDto {
   @Field()
   @IsString()
-  deviceName: string;
+  deviceName!: string;
 
   @Field()
   @IsString()
-  ipAddress: string;
+  ipAddress!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -149,7 +149,7 @@ export class ProfinetConfigDto {
 export class EthernetIpConfigDto {
   @Field()
   @IsString()
-  ipAddress: string;
+  ipAddress!: string;
 
   @Field(() => Int, { defaultValue: 44818 })
   @IsOptional()
@@ -185,11 +185,11 @@ export class CanopenConfigDto {
   @IsInt()
   @Min(1)
   @Max(127)
-  nodeId: number;
+  nodeId!: number;
 
   @Field()
   @IsString()
-  interface: string;
+  interface!: string;
 
   @Field(() => Int, { defaultValue: 500000 })
   @IsOptional()
@@ -217,7 +217,7 @@ export class CanopenConfigDto {
 export class BacnetIpConfigDto {
   @Field()
   @IsString()
-  ipAddress: string;
+  ipAddress!: string;
 
   @Field(() => Int, { defaultValue: 47808 })
   @IsOptional()
@@ -230,7 +230,7 @@ export class BacnetIpConfigDto {
   @IsInt()
   @Min(0)
   @Max(4194302)
-  deviceInstance: number;
+  deviceInstance!: number;
 
   @Field(() => Int, { defaultValue: 1476 })
   @IsOptional()
@@ -247,19 +247,19 @@ export class BacnetIpConfigDto {
 export class BacnetMstpConfigDto {
   @Field()
   @IsString()
-  serialPort: string;
+  serialPort!: string;
 
   @Field(() => Int)
   @IsInt()
   @Min(0)
   @Max(127)
-  macAddress: number;
+  macAddress!: number;
 
   @Field(() => Int)
   @IsInt()
   @Min(0)
   @Max(4194302)
-  deviceInstance: number;
+  deviceInstance!: number;
 
   @Field(() => Int, { defaultValue: 76800 })
   @IsOptional()
@@ -276,7 +276,7 @@ export class ProfibusDpConfigDto {
   @IsInt()
   @Min(1)
   @Max(126)
-  stationAddress: number;
+  stationAddress!: number;
 
   @Field(() => Int, { defaultValue: 1 })
   @IsOptional()
@@ -479,10 +479,10 @@ export class ProtocolConfigurationDto {
 export class TestVfdConnectionConfigDto {
   @Field(() => String)
   @IsEnum(VfdProtocol)
-  protocol: VfdProtocol;
+  protocol!: VfdProtocol;
 
   @Field(() => ProtocolConfigurationDto)
-  configuration: ProtocolConfigurationDto;
+  configuration!: ProtocolConfigurationDto;
 
   @Field(() => String, { nullable: true })
   @IsOptional()

@@ -17,8 +17,8 @@ jobs:
         uses: docker/setup-buildx-action@v3
       - name: Build images (no push)
         run: |
-          docker build -f Dockerfile.backend -t backend:scan .
-          docker build -f Dockerfile.frontend -t frontend:scan .
+          docker build -f infrastructure/docker/Dockerfile.backend -t backend:scan .
+          docker build -f infrastructure/docker/Dockerfile.frontend -t frontend:scan .
       - name: Run Trivy on backend
         uses: aquasecurity/trivy-action@master
         with:

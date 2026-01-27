@@ -37,18 +37,18 @@ export class MqttAuthService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     if (this.enabled) {
       this.logger.log('MQTT Authentication Service initialized');
-      this.logger.log(`Password file: ${this.passwordFilePath}`);
+      // SECURITY: Only log file path at debug level to avoid info disclosure
+      this.logger.debug(`Password file configured`);
 
       // Verify password file exists
       try {
         await fs.access(this.passwordFilePath);
-        this.logger.log('Password file accessible');
+        this.logger.debug('Password file accessible');
       } catch {
-        this.logger.warn(`Password file not found: ${this.passwordFilePath}`);
-        this.logger.warn('Device credentials will not be persisted to file');
+        this.logger.warn('Password file not found, credentials will not be persisted');
       }
     } else {
-      this.logger.log('MQTT Authentication Service disabled (MQTT_AUTH_ENABLED=false)');
+      this.logger.log('MQTT Authentication Service disabled');
     }
   }
 

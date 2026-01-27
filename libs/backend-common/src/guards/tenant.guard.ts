@@ -7,7 +7,25 @@ import {
 } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { Reflector } from '@nestjs/core';
+import { Request } from 'express';
 import { SKIP_TENANT_GUARD_KEY } from '../decorators/roles.decorator';
+
+/**
+ * User payload structure from JWT
+ */
+interface JwtUser {
+  sub: string;
+  tenantId?: string;
+  roles?: string[];
+}
+
+/**
+ * Extended request with tenant and user context
+ */
+interface TenantRequest extends Request {
+  user?: JwtUser;
+  tenantId?: string;
+}
 
 /**
  * Tenant Guard
@@ -29,13 +47,13 @@ export class TenantGuard implements CanActivate {
     }
 
     const contextType = context.getType<string>();
-    let request: any;
+    let request: TenantRequest;
 
     if (contextType === 'graphql') {
       const gqlCtx = GqlExecutionContext.create(context);
-      request = gqlCtx.getContext().req;
+      request = gqlCtx.getContext().req as TenantRequest;
     } else {
-      request = context.switchToHttp().getRequest();
+      request = context.switchToHttp().getRequest<TenantRequest>();
     }
 
     const tenantId = this.extractTenantId(request);
@@ -59,12 +77,16 @@ export class TenantGuard implements CanActivate {
     return true;
   }
 
-  private extractTenantId(request: any): string | undefined {
+  private extractTenantId(request: TenantRequest): string | undefined {
+    const tenantHeader = request.headers['x-tenant-id'];
+    const queryTenantId = request.query?.['tenantId'];
+    const bodyTenantId = (request.body as Record<string, unknown>)?.['tenantId'];
+
     return (
       request.user?.tenantId ||
-      request.headers['x-tenant-id'] ||
-      request.query?.tenantId ||
-      request.body?.tenantId
+      (typeof tenantHeader === 'string' ? tenantHeader : undefined) ||
+      (typeof queryTenantId === 'string' ? queryTenantId : undefined) ||
+      (typeof bodyTenantId === 'string' ? bodyTenantId : undefined)
     );
   }
 }

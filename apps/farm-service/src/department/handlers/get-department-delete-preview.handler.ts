@@ -15,6 +15,7 @@ import {
   DepartmentEquipmentSummary,
   DepartmentTankSummary,
 } from '../dto/department-delete-preview.response';
+import { DepartmentResponse } from '../dto/department.response';
 
 @QueryHandler(GetDepartmentDeletePreviewQuery)
 export class GetDepartmentDeletePreviewHandler
@@ -94,7 +95,7 @@ export class GetDepartmentDeletePreviewHandler
     const totalCount = equipment.length + tanks.length;
 
     return {
-      department: department as any, // Cast to DepartmentResponse
+      department: department as unknown as DepartmentResponse,
       canDelete: blockers.length === 0,
       blockers,
       affectedItems: {

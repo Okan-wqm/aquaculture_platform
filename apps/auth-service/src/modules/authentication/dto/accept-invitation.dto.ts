@@ -11,7 +11,7 @@ import {
 export class AcceptInvitationInput {
   @Field()
   @IsString()
-  token: string;
+  token!: string;
 
   @Field()
   @IsString()
@@ -21,7 +21,7 @@ export class AcceptInvitationInput {
     message:
       'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character',
   })
-  password: string;
+  password!: string;
 
   @Field(() => String, { nullable: true })
   @IsOptional()

@@ -26,7 +26,7 @@ import { CommandBus, QueryBus } from '@platform/cqrs';
 import GraphQLJSON from 'graphql-type-json';
 
 // Entities
-import { FeedingRecord, FeedingMethod, FishAppetite } from '../entities/feeding-record.entity';
+import { FeedingRecord, FeedingMethod, FishAppetite, FeedingEnvironment, FishBehavior } from '../entities/feeding-record.entity';
 import { FeedInventory, InventoryStatus, InventoryMovementType } from '../entities/feed-inventory.entity';
 
 // Commands
@@ -1035,8 +1035,8 @@ export class FeedingResolver {
           plannedAmount: input.plannedAmount,
           actualAmount: input.actualAmount,
           wasteAmount: input.wasteAmount,
-          environment: input.environment as any,
-          fishBehavior: input.fishBehavior as any,
+          environment: input.environment as FeedingEnvironment | undefined,
+          fishBehavior: input.fishBehavior as FishBehavior | undefined,
           feedingMethod: input.feedingMethod,
           equipmentId: input.equipmentId,
           feedingDurationMinutes: input.feedingDurationMinutes,
@@ -1068,8 +1068,8 @@ export class FeedingResolver {
         {
           actualAmount: input.actualAmount,
           wasteAmount: input.wasteAmount,
-          environment: input.environment as any,
-          fishBehavior: input.fishBehavior as any,
+          environment: input.environment as FeedingEnvironment | undefined,
+          fishBehavior: input.fishBehavior as FishBehavior | undefined,
           notes: input.notes,
         },
         userId,

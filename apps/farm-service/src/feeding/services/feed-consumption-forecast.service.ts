@@ -98,24 +98,35 @@ export class FeedConsumptionForecastService {
     const activeTanks = await this.getActiveTanks(tenantId, schemaName, siteId);
     this.logger.log(`Found ${activeTanks.length} active tanks`);
 
-    // 2. Run growth simulation for each tank
+    // 2. Batch load SGR for all batches (fixes N+1 query)
+    const batchIds = [...new Set(
+      activeTanks
+        .map(tb => tb.primaryBatchId)
+        .filter((id): id is string => !!id)
+    )];
+
+    const batchSgrMap = new Map<string, number>();
+    if (batchIds.length > 0) {
+      const batches = await this.batchRepo.find({
+        where: batchIds.map(id => ({ id })),
+        select: ['id', 'sgr'],
+      });
+      for (const batch of batches) {
+        if (batch.sgr) {
+          batchSgrMap.set(batch.id, batch.sgr);
+        }
+      }
+    }
+
+    // 3. Run growth simulation for each tank
     const tankProjections = new Map<string, { tankBatch: TankBatch; projections: GrowthProjection[] }>();
     for (const tankBatch of activeTanks) {
       const currentCount = tankBatch.totalQuantity;
       const currentWeightG = Number(tankBatch.avgWeightG) || 0;
 
       if (currentCount > 0 && currentWeightG > 0) {
-        // Get SGR from batch if available
-        let sgr = 1.5;
-        if (tankBatch.primaryBatchId) {
-          const batch = await this.batchRepo.findOne({
-            where: { id: tankBatch.primaryBatchId },
-            select: ['id', 'sgr'],
-          });
-          if (batch?.sgr) {
-            sgr = batch.sgr;
-          }
-        }
+        // Get SGR from pre-loaded batch data (O(1) lookup)
+        const sgr = (tankBatch.primaryBatchId && batchSgrMap.get(tankBatch.primaryBatchId)) || 1.5;
 
         const result = await this.growthSimulator.simulateGrowth({
           tenantId,
@@ -130,7 +141,7 @@ export class FeedConsumptionForecastService {
       }
     }
 
-    // 3. Aggregate consumption by feed type
+    // 4. Aggregate consumption by feed type
     const consumptionByFeed = new Map<string, {
       feedId: string;
       feedCode: string;

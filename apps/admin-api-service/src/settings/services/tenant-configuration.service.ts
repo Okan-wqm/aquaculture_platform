@@ -684,8 +684,13 @@ export class TenantConfigurationService {
    */
   private encryptValue(value: string): string {
     const algorithm = 'aes-256-cbc';
+    // SECURITY: Encryption key must be provided in production
+    const envKey = process.env.ENCRYPTION_KEY;
+    if (!envKey && process.env['NODE_ENV'] === 'production') {
+      throw new Error('SECURITY: ENCRYPTION_KEY environment variable must be set in production');
+    }
     const key = crypto.scryptSync(
-      process.env.ENCRYPTION_KEY || 'default-key-change-in-production',
+      envKey || 'DEV-ONLY-ENCRYPTION-KEY-DO-NOT-USE',
       'salt',
       32
     );

@@ -62,22 +62,22 @@ registerEnumType(IoDataType, {
 export class DeviceIoConfig {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column({ name: 'device_id' })
   @Index()
-  deviceId: string;
+  deviceId!: string;
 
   @Field(() => EdgeDevice)
   @ManyToOne(() => EdgeDevice, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'device_id' })
-  device: EdgeDevice;
+  device!: EdgeDevice;
 
   // I/O Point Identity
   @Field()
   @Column({ name: 'tag_name', length: 50 })
-  tagName: string;
+  tagName!: string;
 
   @Field({ nullable: true })
   @Column({ length: 200, nullable: true })
@@ -86,20 +86,20 @@ export class DeviceIoConfig {
   // I/O Type
   @Field(() => IoType)
   @Column({ name: 'io_type', type: 'enum', enum: IoType })
-  ioType: IoType;
+  ioType!: IoType;
 
   @Field(() => IoDataType)
   @Column({ name: 'data_type', type: 'enum', enum: IoDataType })
-  dataType: IoDataType;
+  dataType!: IoDataType;
 
   // Hardware Mapping
   @Field(() => Int)
   @Column({ name: 'module_address', type: 'int' })
-  moduleAddress: number;
+  moduleAddress!: number;
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  channel: number;
+  channel!: number;
 
   // Scaling (for analog I/O)
   @Field(() => Float, { nullable: true })
@@ -147,7 +147,7 @@ export class DeviceIoConfig {
   // Value Inversion
   @Field()
   @Column({ name: 'invert_value', default: false })
-  invertValue: boolean;
+  invertValue!: boolean;
 
   // Alarm Thresholds (for analog)
   @Field(() => Float, { nullable: true })
@@ -173,14 +173,14 @@ export class DeviceIoConfig {
   // Status
   @Field()
   @Column({ name: 'is_active', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   // Timestamps
   @Field()
   @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

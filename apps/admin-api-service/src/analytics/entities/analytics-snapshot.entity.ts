@@ -101,25 +101,25 @@ export interface UsageMetrics {
 @Index(['category', 'snapshotDate'])
 export class AnalyticsSnapshot {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 20 })
-  snapshotType: SnapshotType;
+  snapshotType!: SnapshotType;
 
   @Column({ type: 'varchar', length: 20 })
-  category: MetricCategory;
+  category!: MetricCategory;
 
   @Column({ type: 'date' })
-  snapshotDate: Date;
+  snapshotDate!: Date;
 
   @Column({ type: 'jsonb' })
-  metrics: TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics;
+  metrics!: TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics;
 
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 // ============================================================================
@@ -207,25 +207,25 @@ export type ReportSchedule = 'manual' | 'daily' | 'weekly' | 'monthly';
 @Index(['status'])
 export class ReportDefinition {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 200 })
-  name: string;
+  name!: string;
 
   @Column({ type: 'text', nullable: true })
   description?: string;
 
   @Column({ type: 'varchar', length: 50 })
-  type: ReportType;
+  type!: ReportType;
 
   @Column({ type: 'varchar', length: 20, default: 'json' })
-  defaultFormat: ReportFormat;
+  defaultFormat!: ReportFormat;
 
   @Column({ type: 'varchar', length: 20, default: 'active' })
-  status: ReportDefinitionStatus;
+  status!: ReportDefinitionStatus;
 
   @Column({ type: 'varchar', length: 20, default: 'manual' })
-  schedule: ReportSchedule;
+  schedule!: ReportSchedule;
 
   @Column({ type: 'jsonb', nullable: true })
   defaultFilters?: Record<string, unknown>;
@@ -234,7 +234,7 @@ export class ReportDefinition {
   recipients?: string[];
 
   @Column({ type: 'boolean', default: false })
-  includeCharts: boolean;
+  includeCharts!: boolean;
 
   @Column({ type: 'uuid', nullable: true })
   createdBy?: string;
@@ -246,13 +246,13 @@ export class ReportDefinition {
   lastRunAt?: Date;
 
   @Column({ type: 'int', default: 0 })
-  runCount: number;
+  runCount!: number;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 // ============================================================================
@@ -267,22 +267,22 @@ export type ReportExecutionStatus = 'pending' | 'running' | 'completed' | 'faile
 @Index(['createdAt'])
 export class ReportExecution {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid', nullable: true })
   definitionId?: string;
 
   @Column({ type: 'varchar', length: 200 })
-  reportName: string;
+  reportName!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  reportType: ReportType;
+  reportType!: ReportType;
 
   @Column({ type: 'varchar', length: 20 })
-  format: ReportFormat;
+  format!: ReportFormat;
 
   @Column({ type: 'varchar', length: 20, default: 'pending' })
-  status: ReportExecutionStatus;
+  status!: ReportExecutionStatus;
 
   @Column({ type: 'timestamp', nullable: true })
   startDate?: Date;
@@ -321,7 +321,7 @@ export class ReportExecution {
   executedByEmail?: string;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Column({ type: 'timestamp', nullable: true })
   completedAt?: Date;

@@ -86,7 +86,6 @@ function initializeSocket(): Socket | null {
   const token = localStorage.getItem('access_token');
 
   if (!token) {
-    console.warn('[SensorSocket] No access token found, skipping connection');
     return null;
   }
 

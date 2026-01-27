@@ -26,32 +26,32 @@ export enum TenantStatus {
 @Entity('tenants', { schema: 'public', synchronize: false })
 export class TenantReadOnly {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 255 })
-  name: string;
+  name!: string;
 
   @Column({ type: 'varchar', unique: true, length: 100 })
-  slug: string;
+  slug!: string;
 
   @Column({ type: 'varchar', length: 20, default: TenantStatus.PENDING })
-  status: TenantStatus;
+  status!: TenantStatus;
 
   @Column({ type: 'varchar', length: 20, default: TenantPlan.TRIAL })
-  plan: TenantPlan;
+  plan!: TenantPlan;
 
   @Column({ type: 'int', default: 5 })
-  maxUsers: number;
+  maxUsers!: number;
 
   @Column({ type: 'timestamp', nullable: true })
-  trialEndsAt: Date | null;
+  trialEndsAt!: Date | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  subscriptionEndsAt: Date | null;
+  subscriptionEndsAt!: Date | null;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

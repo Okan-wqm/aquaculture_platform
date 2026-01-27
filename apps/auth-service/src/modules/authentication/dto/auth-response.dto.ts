@@ -6,19 +6,19 @@ import { User } from '../entities/user.entity';
 @ObjectType()
 export class AuthPayload {
   @Field()
-  accessToken: string;
+  accessToken!: string;
 
   @Field()
-  refreshToken: string;
+  refreshToken!: string;
 
   @Field(() => User)
-  user: User;
+  user!: User;
 
   @Field(() => Int)
-  expiresIn: number;
+  expiresIn!: number;
 
   @Field()
-  tokenType: string;
+  tokenType!: string;
 
   /**
    * Redirect URL based on user role after login
@@ -27,37 +27,37 @@ export class AuthPayload {
    * - MODULE_MANAGER/MODULE_USER: module's defaultRoute or /no-access
    */
   @Field()
-  redirectUrl: string;
+  redirectUrl!: string;
 }
 
 @ObjectType()
 export class UserModule {
   @Field()
-  code: string;
+  code!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  defaultRoute: string;
+  defaultRoute!: string;
 }
 
 @ObjectType()
 export class MePayload {
   @Field(() => User)
-  user: User;
+  user!: User;
 
   @Field(() => [UserModule])
-  modules: UserModule[];
+  modules!: UserModule[];
 
   @Field()
-  redirectPath: string;
+  redirectPath!: string;
 }
 
 @ObjectType()
 export class LogoutResponse {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field(() => String, { nullable: true })
   message?: string;
@@ -66,7 +66,7 @@ export class LogoutResponse {
 @ObjectType()
 export class TokenValidationResponse {
   @Field()
-  valid: boolean;
+  valid!: boolean;
 
   @Field(() => String, { nullable: true })
   userId?: string;
@@ -84,7 +84,7 @@ export class TokenValidationResponse {
 @ObjectType()
 export class InvitationValidationResponse {
   @Field()
-  valid: boolean;
+  valid!: boolean;
 
   @Field(() => String, { nullable: true })
   email?: string;

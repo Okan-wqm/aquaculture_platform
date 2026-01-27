@@ -117,19 +117,19 @@ export interface SensorConnectionStatus {
 export class Sensor {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column()
-  name: string;
+  name!: string;
 
   @Field()
   @Column({ name: 'serial_number', unique: true })
-  serialNumber: string;
+  serialNumber!: string;
 
   @Field(() => SensorType)
   @Column({ type: 'enum', enum: SensorType })
-  type: SensorType;
+  type!: SensorType;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -145,12 +145,12 @@ export class Sensor {
 
   @Field(() => SensorStatus)
   @Column({ type: 'enum', enum: SensorStatus, default: SensorStatus.ACTIVE })
-  status: SensorStatus;
+  status!: SensorStatus;
 
   @Field()
   @Column({ name: 'tenant_id' })
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field({ nullable: true })
   @Column({ name: 'pond_id', nullable: true })
@@ -233,7 +233,7 @@ export class Sensor {
     enum: SensorRegistrationStatus,
     default: SensorRegistrationStatus.DRAFT,
   })
-  registrationStatus: SensorRegistrationStatus;
+  registrationStatus!: SensorRegistrationStatus;
 
   @Field({ nullable: true })
   @Column({ name: 'last_seen_at', type: 'timestamptz', nullable: true })
@@ -245,15 +245,15 @@ export class Sensor {
 
   @Field()
   @Column({ name: 'is_active', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field()
   @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column({ name: 'created_by', nullable: true })
@@ -276,7 +276,7 @@ export class Sensor {
 
   @Field()
   @Column({ name: 'is_parent_device', default: false })
-  isParentDevice: boolean;
+  isParentDevice!: boolean;
 
   @Field({ nullable: true })
   @Column({ name: 'data_path', nullable: true, length: 255 })

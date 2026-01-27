@@ -99,7 +99,7 @@ interface OpaUserPayload {
 /**
  * OPA request interface
  */
-interface OpaRequest extends Request {
+interface OpaRequest extends Omit<Request, 'connection'> {
   user?: OpaUserPayload;
   tenantId?: string;
   connection?: {

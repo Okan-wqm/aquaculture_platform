@@ -64,13 +64,15 @@ export class FarmResolver {
   async resolveReference(reference: {
     __typename: string;
     id: string;
+    tenantId?: string;
   }): Promise<Farm | null> {
     try {
       // Federation reference lookups are cross-tenant by design
       // Security check: only return farm if it exists (no tenant filter)
       // The gateway ensures the requesting user has access to related data
+      // Use empty string as fallback when tenantId is not provided in federation reference
       return await this.queryBus.execute(
-        new GetFarmQuery(reference.id, undefined, true, false),
+        new GetFarmQuery(reference.id, reference.tenantId ?? '', true, false),
       );
     } catch {
       return null;

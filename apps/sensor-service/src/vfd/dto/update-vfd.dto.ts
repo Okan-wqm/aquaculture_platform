@@ -109,7 +109,7 @@ export class UpdateVfdDto {
 export class UpdateVfdConnectionStatusDto {
   @Field()
   @IsBoolean()
-  isConnected: boolean;
+  isConnected!: boolean;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -130,9 +130,9 @@ export class BulkUpdateVfdStatusDto {
   @Field(() => [ID])
   @IsArray()
   @IsUUID(undefined, { each: true })
-  deviceIds: string[];
+  deviceIds!: string[];
 
   @Field(() => String)
   @IsEnum(VfdDeviceStatus)
-  status: VfdDeviceStatus;
+  status!: VfdDeviceStatus;
 }

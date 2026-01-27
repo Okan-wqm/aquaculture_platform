@@ -1,5 +1,5 @@
 import { EmployeeCertification } from '../entities/employee-certification.entity';
-import { TrainingEnrollment } from '../entities/training-enrollment.entity';
+import { TrainingEnrollment, EnrollmentStatus } from '../entities/training-enrollment.entity';
 
 /**
  * Base class for certification events
@@ -60,7 +60,7 @@ export class TrainingCompletedEvent extends TrainingEvent {
   readonly eventType = 'training.completed';
 
   get passed(): boolean {
-    return this.enrollment.status === 'PASSED' || this.enrollment.status === 'COMPLETED';
+    return this.enrollment.status === EnrollmentStatus.PASSED || this.enrollment.status === EnrollmentStatus.COMPLETED;
   }
 
   get finalScore(): number | undefined {

@@ -340,8 +340,9 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
         action,
       });
 
-    } catch (error: any) {
-      errors.push(error.message);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      errors.push(errorMessage);
     }
 
     return {
@@ -372,6 +373,16 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     }
 
     const policy = await this.policyService.getPolicy(state.policyId, incident.tenantId);
+
+    // Safety check: if policy was deleted while escalation was in progress
+    if (!policy) {
+      this.logger.warn(
+        `Policy ${state.policyId} not found for incident ${incidentId}. Completing escalation gracefully.`,
+      );
+      await this.completeEscalation(incidentId, 'policy_not_found');
+      return null;
+    }
+
     const nextLevel = state.currentLevel + 1;
 
     if (!policy.hasNextLevel(state.currentLevel)) {

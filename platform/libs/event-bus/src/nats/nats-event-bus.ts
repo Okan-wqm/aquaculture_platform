@@ -18,7 +18,9 @@ import {
   StorageType,
   DiscardPolicy,
   Consumer,
+  ConnectionOptions,
 } from 'nats';
+import * as fs from 'fs';
 import {
   IEventBus,
   IEvent,
@@ -56,6 +58,14 @@ export class NatsEventBus
   private readonly clientId: string;
   private readonly maxReconnectAttempts: number;
   private readonly reconnectTimeWaitMs: number;
+  // Security configuration
+  private readonly tlsEnabled: boolean;
+  private readonly tlsCaPath?: string;
+  private readonly tlsCertPath?: string;
+  private readonly tlsKeyPath?: string;
+  private readonly authToken?: string;
+  private readonly authUser?: string;
+  private readonly authPass?: string;
 
   constructor(private readonly configService: ConfigService) {
     this.natsUrl = this.configService.get<string>(
@@ -78,6 +88,34 @@ export class NatsEventBus
       'NATS_RECONNECT_TIME_WAIT_MS',
       2000,
     );
+
+    // SECURITY: TLS configuration
+    this.tlsEnabled = this.configService.get<string>('NATS_TLS_ENABLED', 'false') === 'true';
+    this.tlsCaPath = this.configService.get<string>('NATS_TLS_CA');
+    this.tlsCertPath = this.configService.get<string>('NATS_TLS_CERT');
+    this.tlsKeyPath = this.configService.get<string>('NATS_TLS_KEY');
+
+    // SECURITY: Authentication configuration
+    this.authToken = this.configService.get<string>('NATS_AUTH_TOKEN');
+    this.authUser = this.configService.get<string>('NATS_AUTH_USER');
+    this.authPass = this.configService.get<string>('NATS_AUTH_PASS');
+
+    // SECURITY: Production security warnings
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    if (isProduction) {
+      if (!this.tlsEnabled) {
+        this.logger.warn(
+          '⚠️  SECURITY WARNING: NATS TLS is disabled in production! ' +
+          'Set NATS_TLS_ENABLED=true and provide certificates for secure communication.',
+        );
+      }
+      if (!this.authToken && !this.authUser) {
+        this.logger.warn(
+          '⚠️  SECURITY WARNING: NATS authentication is not configured in production! ' +
+          'Set NATS_AUTH_TOKEN or NATS_AUTH_USER/NATS_AUTH_PASS for secure access.',
+        );
+      }
+    }
   }
 
   async onModuleInit(): Promise<void> {
@@ -121,13 +159,38 @@ export class NatsEventBus
       this.connectionState = 'reconnecting';
       this.logger.log(`Connecting to NATS at ${this.natsUrl}...`);
 
-      this.connection = await connect({
+      // Build connection options with security
+      const connectionOptions: ConnectionOptions = {
         servers: this.natsUrl.split(','),
         name: this.clientId,
         maxReconnectAttempts: this.maxReconnectAttempts,
         reconnectTimeWait: this.reconnectTimeWaitMs,
         reconnect: true,
-      });
+      };
+
+      // SECURITY: Add TLS configuration if enabled
+      if (this.tlsEnabled) {
+        connectionOptions.tls = {
+          // CA certificate for server verification
+          ...(this.tlsCaPath ? { ca: fs.readFileSync(this.tlsCaPath, 'utf8') } : {}),
+          // Client certificate for mutual TLS
+          ...(this.tlsCertPath ? { cert: fs.readFileSync(this.tlsCertPath, 'utf8') } : {}),
+          ...(this.tlsKeyPath ? { key: fs.readFileSync(this.tlsKeyPath, 'utf8') } : {}),
+        };
+        this.logger.log('NATS TLS enabled');
+      }
+
+      // SECURITY: Add authentication if configured
+      if (this.authToken) {
+        connectionOptions.token = this.authToken;
+        this.logger.log('NATS token authentication enabled');
+      } else if (this.authUser && this.authPass) {
+        connectionOptions.user = this.authUser;
+        connectionOptions.pass = this.authPass;
+        this.logger.log('NATS user/password authentication enabled');
+      }
+
+      this.connection = await connect(connectionOptions);
 
       this.jetStream = this.connection.jetstream();
       this.jetStreamManager = await this.connection.jetstreamManager();

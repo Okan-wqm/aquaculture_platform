@@ -23,19 +23,19 @@ export class AlertConditionInput {
   @Field()
   @IsString()
   @IsNotEmpty()
-  parameter: string;
+  parameter!: string;
 
   @Field(() => AlertOperator)
   @IsEnum(AlertOperator)
-  operator: AlertOperator;
+  operator!: AlertOperator;
 
   @Field()
   @IsNumber()
-  threshold: number;
+  threshold!: number;
 
   @Field(() => AlertSeverity)
   @IsEnum(AlertSeverity)
-  severity: AlertSeverity;
+  severity!: AlertSeverity;
 }
 
 /**
@@ -48,7 +48,7 @@ export class CreateAlertRuleInput {
   @IsNotEmpty()
   @MinLength(2)
   @MaxLength(100)
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @IsString()
@@ -75,7 +75,7 @@ export class CreateAlertRuleInput {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => AlertConditionInput)
-  conditions: AlertConditionInput[];
+  conditions!: AlertConditionInput[];
 
   @Field(() => [String], { nullable: true })
   @IsArray()
@@ -101,7 +101,7 @@ export class CreateAlertRuleInput {
 export class UpdateAlertRuleInput {
   @Field(() => ID)
   @IsUUID()
-  ruleId: string;
+  ruleId!: string;
 
   @Field({ nullable: true })
   @IsString()
@@ -151,7 +151,7 @@ export class UpdateAlertRuleInput {
 export class AcknowledgeAlertInput {
   @Field(() => ID)
   @IsUUID()
-  alertId: string;
+  alertId!: string;
 
   @Field({ nullable: true })
   @IsString()

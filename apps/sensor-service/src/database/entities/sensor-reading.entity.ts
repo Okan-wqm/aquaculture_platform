@@ -53,26 +53,26 @@ export class SensorReadings {
 export class SensorReading {
   @Field(() => ID)
   @PrimaryColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column()
   @Index()
-  sensorId: string;
+  sensorId!: string;
 
   @Field()
   @Column()
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field(() => GraphQLISODateTime)
   @Column({ type: 'timestamptz' })
   @Index()
-  timestamp: Date;
+  timestamp!: Date;
 
   @Field(() => SensorReadings)
   @Column('jsonb')
-  readings: SensorReadings;
+  readings!: SensorReadings;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -91,5 +91,5 @@ export class SensorReading {
   source?: string; // mqtt, http, batch
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }

@@ -32,7 +32,11 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
-// Note: Batch, Feed, and Tank are referenced via string to avoid circular dependency
+// Note: Batch, Feed, and Tank are referenced via string in decorator to avoid circular dependency
+// Type-only imports for TypeScript type checking
+import type { Batch } from '../../batch/entities/batch.entity';
+import type { Feed } from '../../feed/entities/feed.entity';
+import type { Equipment } from '../../equipment/entities/equipment.entity';
 
 // ============================================================================
 // ENUMS
@@ -127,7 +131,7 @@ export class FeedingRecord {
 
   @ManyToOne('Batch', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
-  batch: any;
+  batch?: Batch;
 
   // -------------------------------------------------------------------------
   // LOKASYON
@@ -140,7 +144,7 @@ export class FeedingRecord {
 
   @ManyToOne('Tank', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'tankId' })
-  tank?: any;
+  tank?: Equipment;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -181,7 +185,7 @@ export class FeedingRecord {
 
   @ManyToOne('Feed', { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'feedId' })
-  feed: any;
+  feed?: Feed;
 
   @Field({ nullable: true })
   @Column({ length: 100, nullable: true })

@@ -3,6 +3,16 @@
  *
  * End-to-end tests for tenant management flows
  * These tests verify the complete user journeys from API request to database state
+ *
+ * TODO: These tests are currently skipped because they require:
+ * 1. A running PostgreSQL test database
+ * 2. Proper test fixtures and teardown
+ * 3. Authentication token generation
+ *
+ * To enable these tests:
+ * 1. Set up a test database with TEST_DB_* environment variables
+ * 2. Uncomment the beforeAll/afterAll setup code
+ * 3. Remove .skip from the describe block
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
@@ -28,7 +38,7 @@ import { ModulesModule } from '../../modules/modules.module';
  * 5. Authentication and authorization
  * 6. Data integrity and consistency
  */
-describe('Tenant Management E2E Tests', () => {
+describe.skip('Tenant Management E2E Tests', () => {
   let app: INestApplication;
   let authToken: string;
   let createdTenantId: string;

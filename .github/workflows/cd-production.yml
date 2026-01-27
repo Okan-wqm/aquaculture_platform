@@ -61,7 +61,7 @@ jobs:
         uses: ./.github/actions/docker-build-push
         with:
           context: .
-          file: Dockerfile.frontend
+          file: infrastructure/docker/Dockerfile.frontend
           tags: ${{ env.REGISTRY }}/${{ github.repository }}/frontend:${{ needs.validate.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -70,7 +70,7 @@ jobs:
         uses: ./.github/actions/docker-build-push
         with:
           context: .
-          file: Dockerfile.backend
+          file: infrastructure/docker/Dockerfile.backend
           tags: ${{ env.REGISTRY }}/${{ github.repository }}/backend:${{ needs.validate.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -79,7 +79,7 @@ jobs:
         uses: ./.github/actions/docker-build-push
         with:
           context: .
-          file: Dockerfile.frontend
+          file: infrastructure/docker/Dockerfile.frontend
           tags: ${{ env.REGISTRY }}/${{ github.repository }}/frontend:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -89,7 +89,7 @@ jobs:
         uses: ./.github/actions/docker-build-push
         with:
           context: .
-          file: Dockerfile.backend
+          file: infrastructure/docker/Dockerfile.backend
           tags: ${{ env.REGISTRY }}/${{ github.repository }}/backend:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -132,9 +132,10 @@ jobs:
       - name: Create backup before deployment
         run: |
           export KUBECONFIG=$PWD/kubeconfig
-          # Create database backup
+          # Create database backup using pg_dump
           kubectl exec -n aquaculture-prod deployment/backend -- \
-            python -m alembic backup "${{ needs.validate.outputs.tag }}"
+            sh -c 'pg_dump -Fc $DATABASE_URL > /tmp/backup-${{ needs.validate.outputs.tag }}.dump'
+          kubectl cp aquaculture-prod/$(kubectl get pod -n aquaculture-prod -l app=backend -o jsonpath='{.items[0].metadata.name}'):/tmp/backup-${{ needs.validate.outputs.tag }}.dump ./backup-${{ needs.validate.outputs.tag }}.dump
       
       - name: Deploy to production
         run: |
@@ -161,8 +162,9 @@ jobs:
       - name: Run database migrations
         run: |
           export KUBECONFIG=$PWD/kubeconfig
+          # Run TypeORM migrations for NestJS backend
           kubectl exec -n aquaculture-prod deployment/backend -- \
-            python -m alembic upgrade head
+            npx typeorm migration:run -d dist/data-source.js
   
   production-tests:
     needs: deploy-production

@@ -152,106 +152,106 @@ export interface RetentionPolicy {
 @Index(['entityId'])
 export class ActivityLog {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  tenantId: string | null;
+  tenantId?: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  tenantName: string | null;
+  tenantName?: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  userId: string | null;
+  userId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  userName: string | null;
+  userName?: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  userEmail: string | null;
+  userEmail?: string | null;
 
   @Column({ type: 'varchar', length: 50 })
-  category: ActivityCategory;
+  category!: ActivityCategory;
 
   @Column({ type: 'varchar', length: 20, default: 'info' })
-  severity: ActivitySeverity;
+  severity!: ActivitySeverity;
 
   @Column({ type: 'varchar', length: 100 })
-  action: string;
+  action!: string;
 
   @Column({ type: 'text' })
-  description: string;
+  description!: string;
 
   // Entity affected by this action
   @Column({ type: 'varchar', length: 100, nullable: true })
-  entityType: string | null;
+  entityType?: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  entityId: string | null;
+  entityId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  entityName: string | null;
+  entityName?: string | null;
 
   // Request details
   @Column({ type: 'varchar', length: 45 })
-  ipAddress: string;
+  ipAddress!: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  geoLocation: GeoLocation | null;
+  geoLocation?: GeoLocation | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  deviceInfo: DeviceInfo | null;
+  deviceInfo?: DeviceInfo | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  requestInfo: RequestInfo | null;
+  requestInfo?: RequestInfo | null;
 
   // Session info
   @Column({ type: 'varchar', length: 255, nullable: true })
-  sessionId: string | null;
+  sessionId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  correlationId: string | null;
+  correlationId?: string | null;
 
   // Change tracking
   @Column({ type: 'jsonb', nullable: true })
-  previousValue: Record<string, unknown> | null;
+  previousValue?: Record<string, unknown> | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  newValue: Record<string, unknown> | null;
+  newValue?: Record<string, unknown> | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  changedFields: string[] | null;
+  changedFields?: string[] | null;
 
   // Additional metadata
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
 
   // Tags for categorization
   @Column({ type: 'simple-array', nullable: true })
-  tags: string[] | null;
+  tags?: string[] | null;
 
   // Outcome
   @Column({ type: 'boolean', default: true })
-  success: boolean;
+  success!: boolean;
 
   @Column({ type: 'text', nullable: true })
-  errorMessage: string | null;
+  errorMessage?: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  errorCode: string | null;
+  errorCode?: string | null;
 
   // Duration in milliseconds
   @Column({ type: 'int', nullable: true })
-  duration: number | null;
+  duration?: number | null;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   // For archival tracking
   @Column({ type: 'boolean', default: false })
-  isArchived: boolean;
+  isArchived!: boolean;
 
   @Column({ type: 'timestamp', nullable: true })
-  archivedAt: Date | null;
+  archivedAt?: Date | null;
 }
 
 // ============================================================================
@@ -267,111 +267,111 @@ export class ActivityLog {
 @Index(['userId'])
 export class SecurityEvent {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  eventType: SecurityEventType;
+  eventType!: SecurityEventType;
 
   @Column({ type: 'varchar', length: 20 })
-  threatLevel: ThreatLevel;
+  threatLevel!: ThreatLevel;
 
   @Column({ type: 'varchar', length: 20, default: 'detected' })
-  status: SecurityEventStatus;
+  status!: SecurityEventStatus;
 
   @Column({ type: 'varchar', length: 255 })
-  title: string;
+  title!: string;
 
   @Column({ type: 'text' })
-  description: string;
+  description!: string;
 
   // Source info
   @Column({ type: 'varchar', length: 45 })
-  ipAddress: string;
+  ipAddress!: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  geoLocation: GeoLocation | null;
+  geoLocation?: GeoLocation | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  deviceInfo: DeviceInfo | null;
+  deviceInfo?: DeviceInfo | null;
 
   // Target info
   @Column({ type: 'varchar', length: 100, nullable: true })
-  tenantId: string | null;
+  tenantId?: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  userId: string | null;
+  userId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  userName: string | null;
+  userName?: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  targetResource: string | null;
+  targetResource?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  targetEndpoint: string | null;
+  targetEndpoint?: string | null;
 
   // Detection details
   @Column({ type: 'varchar', length: 100 })
-  detectionSource: string;
+  detectionSource!: string;
 
   @Column({ type: 'float', nullable: true })
-  confidenceScore: number | null;
+  confidenceScore?: number | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  anomalyDetails: AnomalyDetails | null;
+  anomalyDetails?: AnomalyDetails | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  indicators: ThreatIndicator[] | null;
+  indicators?: ThreatIndicator[] | null;
 
   // Evidence
   @Column({ type: 'jsonb', nullable: true })
-  rawData: Record<string, unknown> | null;
+  rawData?: Record<string, unknown> | null;
 
   @Column({ type: 'simple-array', nullable: true })
-  relatedActivityIds: string[] | null;
+  relatedActivityIds?: string[] | null;
 
   // Response
   @Column({ type: 'boolean', default: false })
-  autoMitigated: boolean;
+  autoMitigated!: boolean;
 
   @Column({ type: 'simple-array', nullable: true })
-  mitigationActions: string[] | null;
+  mitigationActions?: string[] | null;
 
   @Column({ type: 'text', nullable: true })
-  investigationNotes: string | null;
+  investigationNotes?: string | null;
 
   // Assignment
   @Column({ type: 'varchar', length: 100, nullable: true })
-  assignedTo: string | null;
+  assignedTo?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  assignedToName: string | null;
+  assignedToName?: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  assignedAt: Date | null;
+  assignedAt?: Date | null;
 
   // Resolution
   @Column({ type: 'text', nullable: true })
-  resolution: string | null;
+  resolution?: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  resolvedAt: Date | null;
+  resolvedAt?: Date | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  resolvedBy: string | null;
+  resolvedBy?: string | null;
 
   // Metadata
   @Column({ type: 'simple-array', nullable: true })
-  tags: string[] | null;
+  tags?: string[] | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 // ============================================================================
@@ -383,114 +383,114 @@ export class SecurityEvent {
 @Index(['severity', 'createdAt'])
 export class SecurityIncident {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  incidentNumber: string;
+  incidentNumber!: string;
 
   @Column({ type: 'varchar', length: 255 })
-  title: string;
+  title!: string;
 
   @Column({ type: 'text' })
-  description: string;
+  description!: string;
 
   @Column({ type: 'varchar', length: 20 })
-  severity: IncidentSeverity;
+  severity!: IncidentSeverity;
 
   @Column({ type: 'varchar', length: 20, default: 'open' })
-  status: IncidentStatus;
+  status!: IncidentStatus;
 
   // Classification
   @Column({ type: 'varchar', length: 100 })
-  category: string;
+  category!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  attackVector: string | null;
+  attackVector?: string | null;
 
   @Column({ type: 'simple-array', nullable: true })
-  affectedSystems: string[] | null;
+  affectedSystems?: string[] | null;
 
   @Column({ type: 'simple-array', nullable: true })
-  affectedTenants: string[] | null;
+  affectedTenants?: string[] | null;
 
   // Impact assessment
   @Column({ type: 'boolean', default: false })
-  dataBreached: boolean;
+  dataBreached!: boolean;
 
   @Column({ type: 'int', default: 0 })
-  affectedUsersCount: number;
+  affectedUsersCount!: number;
 
   @Column({ type: 'text', nullable: true })
-  impactDescription: string | null;
+  impactDescription?: string | null;
 
   @Column({ type: 'text', nullable: true })
-  businessImpact: string | null;
+  businessImpact?: string | null;
 
   // Timeline
   @Column({ type: 'timestamp', nullable: true })
-  detectedAt: Date | null;
+  detectedAt?: Date | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  containedAt: Date | null;
+  containedAt?: Date | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  eradicatedAt: Date | null;
+  eradicatedAt?: Date | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  recoveredAt: Date | null;
+  recoveredAt?: Date | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  closedAt: Date | null;
+  closedAt?: Date | null;
 
   // Response team
   @Column({ type: 'varchar', length: 100, nullable: true })
-  leadInvestigator: string | null;
+  leadInvestigator?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  leadInvestigatorName: string | null;
+  leadInvestigatorName?: string | null;
 
   @Column({ type: 'simple-array', nullable: true })
-  teamMembers: string[] | null;
+  teamMembers?: string[] | null;
 
   // Related events
   @Column({ type: 'simple-array', nullable: true })
-  relatedSecurityEvents: string[] | null;
+  relatedSecurityEvents?: string[] | null;
 
   // Documentation
   @Column({ type: 'text', nullable: true })
-  rootCauseAnalysis: string | null;
+  rootCauseAnalysis?: string | null;
 
   @Column({ type: 'text', nullable: true })
-  lessonsLearned: string | null;
+  lessonsLearned?: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  remediationSteps: { step: string; completed: boolean; completedAt?: Date }[] | null;
+  remediationSteps?: { step: string; completed: boolean; completedAt?: Date }[] | null;
 
   // External reporting
   @Column({ type: 'boolean', default: false })
-  reportedToAuthorities: boolean;
+  reportedToAuthorities!: boolean;
 
   @Column({ type: 'timestamp', nullable: true })
-  reportedAt: Date | null;
+  reportedAt?: Date | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  reportReference: string | null;
+  reportReference?: string | null;
 
   // Audit trail
   @Column({ type: 'jsonb', nullable: true })
-  timeline: { timestamp: Date; action: string; actor: string; details?: string }[] | null;
+  timeline?: { timestamp: Date; action: string; actor: string; details?: string }[] | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
 
   @Column({ type: 'varchar', length: 100 })
-  createdBy: string;
+  createdBy!: string;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 // ============================================================================
@@ -504,68 +504,68 @@ export class SecurityIncident {
 @Index(['isActive'])
 export class ThreatIntelligence {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  indicatorType: 'ip' | 'domain' | 'url' | 'hash' | 'email' | 'user_agent' | 'cidr';
+  indicatorType!: 'ip' | 'domain' | 'url' | 'hash' | 'email' | 'user_agent' | 'cidr';
 
   @Column({ type: 'varchar', length: 500 })
-  value: string;
+  value!: string;
 
   @Column({ type: 'varchar', length: 20 })
-  threatLevel: ThreatLevel;
+  threatLevel!: ThreatLevel;
 
   @Column({ type: 'varchar', length: 100 })
-  source: string;
+  source!: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  description: string | null;
+  description?: string | null;
 
   // Classification
   @Column({ type: 'simple-array', nullable: true })
-  threatTypes: string[] | null;
+  threatTypes?: string[] | null;
 
   @Column({ type: 'simple-array', nullable: true })
-  tags: string[] | null;
+  tags?: string[] | null;
 
   // Confidence & validity
   @Column({ type: 'float', default: 0.5 })
-  confidence: number;
+  confidence!: number;
 
   @Column({ type: 'boolean', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Column({ type: 'timestamp', nullable: true })
-  validFrom: Date | null;
+  validFrom?: Date | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  validUntil: Date | null;
+  validUntil?: Date | null;
 
   // Activity tracking
   @Column({ type: 'int', default: 0 })
-  hitCount: number;
+  hitCount!: number;
 
   @Column({ type: 'timestamp', nullable: true })
-  lastSeenAt: Date | null;
+  lastSeenAt?: Date | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  firstSeenAt: Date | null;
+  firstSeenAt?: Date | null;
 
   // Related data
   @Column({ type: 'simple-array', nullable: true })
-  relatedIndicators: string[] | null;
+  relatedIndicators?: string[] | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  geoData: GeoLocation | null;
+  geoData?: GeoLocation | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 // ============================================================================
@@ -578,111 +578,111 @@ export class ThreatIntelligence {
 @Index(['dueDate'])
 export class DataRequest {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  requestNumber: string;
+  requestNumber!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  requestType: DataRequestType;
+  requestType!: DataRequestType;
 
   @Column({ type: 'varchar', length: 20, default: 'pending' })
-  status: DataRequestStatus;
+  status!: DataRequestStatus;
 
   @Column({ type: 'varchar', length: 20 })
-  complianceFramework: ComplianceType;
+  complianceFramework!: ComplianceType;
 
   // Requester info
   @Column({ type: 'varchar', length: 100 })
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'varchar', length: 255 })
-  tenantName: string;
+  tenantName!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  requesterId: string | null;
+  requesterId?: string | null;
 
   @Column({ type: 'varchar', length: 255 })
-  requesterName: string;
+  requesterName!: string;
 
   @Column({ type: 'varchar', length: 255 })
-  requesterEmail: string;
+  requesterEmail!: string;
 
   // Request details
   @Column({ type: 'text' })
-  description: string;
+  description!: string;
 
   @Column({ type: 'simple-array', nullable: true })
-  dataCategories: string[] | null;
+  dataCategories?: string[] | null;
 
   @Column({ type: 'text', nullable: true })
-  specificData: string | null;
+  specificData?: string | null;
 
   // Identity verification
   @Column({ type: 'boolean', default: false })
-  identityVerified: boolean;
+  identityVerified!: boolean;
 
   @Column({ type: 'timestamp', nullable: true })
-  verifiedAt: Date | null;
+  verifiedAt?: Date | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  verifiedBy: string | null;
+  verifiedBy?: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  verificationMethod: string | null;
+  verificationMethod?: string | null;
 
   // Processing
   @Column({ type: 'timestamp' })
-  dueDate: Date;
+  dueDate!: Date;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  assignedTo: string | null;
+  assignedTo?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  assignedToName: string | null;
+  assignedToName?: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  processingStartedAt: Date | null;
+  processingStartedAt?: Date | null;
 
   // Completion
   @Column({ type: 'timestamp', nullable: true })
-  completedAt: Date | null;
+  completedAt?: Date | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  completedBy: string | null;
+  completedBy?: string | null;
 
   @Column({ type: 'text', nullable: true })
-  completionNotes: string | null;
+  completionNotes?: string | null;
 
   // Delivery (for access/portability requests)
   @Column({ type: 'varchar', length: 20, nullable: true })
-  deliveryFormat: 'json' | 'csv' | 'pdf' | 'xml' | null;
+  deliveryFormat?: 'json' | 'csv' | 'pdf' | 'xml' | null;
 
   @Column({ type: 'varchar', length: 500, nullable: true })
-  downloadUrl: string | null;
+  downloadUrl?: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  downloadExpiresAt: Date | null;
+  downloadExpiresAt?: Date | null;
 
   @Column({ type: 'int', default: 0 })
-  downloadCount: number;
+  downloadCount!: number;
 
   // Rejection (if applicable)
   @Column({ type: 'text', nullable: true })
-  rejectionReason: string | null;
+  rejectionReason?: string | null;
 
   // Audit trail
   @Column({ type: 'jsonb', nullable: true })
-  auditTrail: { timestamp: Date; action: string; actor: string; details?: string }[] | null;
+  auditTrail?: { timestamp: Date; action: string; actor: string; details?: string }[] | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 // ============================================================================
@@ -694,88 +694,88 @@ export class DataRequest {
 @Index(['reportPeriodStart', 'reportPeriodEnd'])
 export class ComplianceReport {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 255 })
-  title: string;
+  title!: string;
 
   @Column({ type: 'varchar', length: 20 })
-  complianceType: ComplianceType;
+  complianceType!: ComplianceType;
 
   @Column({ type: 'timestamp' })
-  reportPeriodStart: Date;
+  reportPeriodStart!: Date;
 
   @Column({ type: 'timestamp' })
-  reportPeriodEnd: Date;
+  reportPeriodEnd!: Date;
 
   // Scope
   @Column({ type: 'simple-array', nullable: true })
-  includedTenants: string[] | null;
+  includedTenants?: string[] | null;
 
   @Column({ type: 'boolean', default: true })
-  includesAllTenants: boolean;
+  includesAllTenants!: boolean;
 
   // Summary metrics
   @Column({ type: 'int', default: 0 })
-  totalDataRequests: number;
+  totalDataRequests!: number;
 
   @Column({ type: 'int', default: 0 })
-  completedDataRequests: number;
+  completedDataRequests!: number;
 
   @Column({ type: 'int', default: 0 })
-  pendingDataRequests: number;
+  pendingDataRequests!: number;
 
   @Column({ type: 'float', nullable: true })
-  avgResponseTimeDays: number | null;
+  avgResponseTimeDays?: number | null;
 
   @Column({ type: 'int', default: 0 })
-  securityIncidents: number;
+  securityIncidents!: number;
 
   @Column({ type: 'int', default: 0 })
-  dataBreaches: number;
+  dataBreaches!: number;
 
   // Compliance status
   @Column({ type: 'float', default: 100 })
-  complianceScore: number;
+  complianceScore!: number;
 
   @Column({ type: 'jsonb', nullable: true })
-  violations: ComplianceViolation[] | null;
+  violations?: ComplianceViolation[] | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  recommendations: string[] | null;
+  recommendations?: string[] | null;
 
   // Report content
   @Column({ type: 'text', nullable: true })
-  executiveSummary: string | null;
+  executiveSummary?: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  detailedFindings: Record<string, unknown> | null;
+  detailedFindings?: Record<string, unknown> | null;
 
   // Generated files
   @Column({ type: 'varchar', length: 500, nullable: true })
-  pdfUrl: string | null;
+  pdfUrl?: string | null;
 
   @Column({ type: 'varchar', length: 500, nullable: true })
-  csvUrl: string | null;
+  csvUrl?: string | null;
 
   // Generation info
   @Column({ type: 'varchar', length: 100 })
-  generatedBy: string;
+  generatedBy!: string;
 
   @Column({ type: 'varchar', length: 255 })
-  generatedByName: string;
+  generatedByName!: string;
 
   @Column({ type: 'boolean', default: false })
-  isAutoGenerated: boolean;
+  isAutoGenerated!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 // ============================================================================
@@ -786,53 +786,53 @@ export class ComplianceReport {
 @Index(['name'], { unique: true })
 export class RetentionPolicyEntity {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 100, unique: true })
-  name: string;
+  name!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  category: ActivityCategory;
+  category!: ActivityCategory;
 
   @Column({ type: 'text', nullable: true })
-  description: string | null;
+  description?: string | null;
 
   // Retention settings
   @Column({ type: 'int' })
-  retentionDays: number;
+  retentionDays!: number;
 
   @Column({ type: 'int', nullable: true })
-  archiveAfterDays: number | null;
+  archiveAfterDays?: number | null;
 
   @Column({ type: 'int', nullable: true })
-  deleteAfterArchiveDays: number | null;
+  deleteAfterArchiveDays?: number | null;
 
   // Scope
   @Column({ type: 'boolean', default: true })
-  isGlobal: boolean;
+  isGlobal!: boolean;
 
   @Column({ type: 'simple-array', nullable: true })
-  specificTenants: string[] | null;
+  specificTenants?: string[] | null;
 
   // Compliance requirements
   @Column({ type: 'simple-array', nullable: true })
-  complianceFrameworks: ComplianceType[] | null;
+  complianceFrameworks?: ComplianceType[] | null;
 
   @Column({ type: 'boolean', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   // Audit
   @Column({ type: 'varchar', length: 100 })
-  createdBy: string;
+  createdBy!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  updatedBy: string | null;
+  updatedBy?: string | null;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 // ============================================================================
@@ -845,37 +845,37 @@ export class RetentionPolicyEntity {
 @Index(['success', 'createdAt'])
 export class LoginAttempt {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 255 })
-  email: string;
+  email!: string;
 
   @Column({ type: 'varchar', length: 45 })
-  ipAddress: string;
+  ipAddress!: string;
 
   @Column({ type: 'boolean' })
-  success: boolean;
+  success!: boolean;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  failureReason: string | null;
+  failureReason?: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  geoLocation: GeoLocation | null;
+  geoLocation?: GeoLocation | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  deviceInfo: DeviceInfo | null;
+  deviceInfo?: DeviceInfo | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  tenantId: string | null;
+  tenantId?: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  userId: string | null;
+  userId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  sessionId: string | null;
+  sessionId?: string | null;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 // ============================================================================
@@ -890,75 +890,75 @@ export class LoginAttempt {
 @Index(['ipAddress'])
 export class ApiUsageLog {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  tenantId: string | null;
+  tenantId?: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  userId: string | null;
+  userId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  apiKeyId: string | null;
+  apiKeyId?: string | null;
 
   // Request details
   @Column({ type: 'varchar', length: 10 })
-  method: string;
+  method!: string;
 
   @Column({ type: 'varchar', length: 500 })
-  endpoint: string;
+  endpoint!: string;
 
   @Column({ type: 'varchar', length: 500 })
-  path: string;
+  path!: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  queryParams: Record<string, unknown> | null;
+  queryParams?: Record<string, unknown> | null;
 
   @Column({ type: 'int', nullable: true })
-  requestSize: number | null;
+  requestSize?: number | null;
 
   // Response details
   @Column({ type: 'int' })
-  statusCode: number;
+  statusCode!: number;
 
   @Column({ type: 'int', nullable: true })
-  responseSize: number | null;
+  responseSize?: number | null;
 
   @Column({ type: 'int' })
-  responseTimeMs: number;
+  responseTimeMs!: number;
 
   // Source
   @Column({ type: 'varchar', length: 45 })
-  ipAddress: string;
+  ipAddress!: string;
 
   @Column({ type: 'varchar', length: 500, nullable: true })
-  userAgent: string | null;
+  userAgent?: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  geoLocation: GeoLocation | null;
+  geoLocation?: GeoLocation | null;
 
   // Rate limiting
   @Column({ type: 'int', nullable: true })
-  rateLimitRemaining: number | null;
+  rateLimitRemaining?: number | null;
 
   @Column({ type: 'boolean', default: false })
-  rateLimitExceeded: boolean;
+  rateLimitExceeded!: boolean;
 
   // Error details
   @Column({ type: 'boolean', default: false })
-  isError: boolean;
+  isError!: boolean;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  errorCode: string | null;
+  errorCode?: string | null;
 
   @Column({ type: 'text', nullable: true })
-  errorMessage: string | null;
+  errorMessage?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  correlationId: string | null;
+  correlationId?: string | null;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 // ============================================================================
@@ -972,63 +972,63 @@ export class ApiUsageLog {
 @Index(['lastActivityAt'])
 export class UserSession {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 255, unique: true })
-  sessionToken: string;
+  sessionToken!: string;
 
   @Column({ type: 'varchar', length: 100 })
-  userId: string;
+  userId!: string;
 
   @Column({ type: 'varchar', length: 255 })
-  userName: string;
+  userName!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  tenantId: string | null;
+  tenantId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  tenantName: string | null;
+  tenantName?: string | null;
 
   // Session info
   @Column({ type: 'boolean', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Column({ type: 'timestamp' })
-  expiresAt: Date;
+  expiresAt!: Date;
 
   // Source info
   @Column({ type: 'varchar', length: 45 })
-  ipAddress: string;
+  ipAddress!: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  geoLocation: GeoLocation | null;
+  geoLocation?: GeoLocation | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  deviceInfo: DeviceInfo | null;
+  deviceInfo?: DeviceInfo | null;
 
   // Activity tracking
   @Column({ type: 'int', default: 0 })
-  requestCount: number;
+  requestCount!: number;
 
   @Column({ type: 'timestamp' })
-  lastActivityAt: Date;
+  lastActivityAt!: Date;
 
   @Column({ type: 'varchar', length: 500, nullable: true })
-  lastActivityPath: string | null;
+  lastActivityPath?: string | null;
 
   // Termination
   @Column({ type: 'timestamp', nullable: true })
-  terminatedAt: Date | null;
+  terminatedAt?: Date | null;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
-  terminationReason: 'logout' | 'expired' | 'forced' | 'security' | null;
+  terminationReason?: 'logout' | 'expired' | 'forced' | 'security' | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  terminatedBy: string | null;
+  terminatedBy?: string | null;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

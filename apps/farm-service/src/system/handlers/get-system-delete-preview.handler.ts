@@ -15,6 +15,7 @@ import {
   SystemChildSummary,
   SystemEquipmentSummary,
 } from '../dto/system-delete-preview.response';
+import { SystemResponse } from '../dto/system.response';
 
 @QueryHandler(GetSystemDeletePreviewQuery)
 export class GetSystemDeletePreviewHandler
@@ -97,7 +98,7 @@ export class GetSystemDeletePreviewHandler
     const totalCount = childSystems.length + equipment.length;
 
     return {
-      system: system as any,
+      system: system as unknown as SystemResponse,
       canDelete: blockers.length === 0,
       blockers,
       affectedItems: {

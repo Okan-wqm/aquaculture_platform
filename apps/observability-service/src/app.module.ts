@@ -25,10 +25,24 @@ import { TracingModule } from './tracing/tracing.module';
         autoLoadEntities: true,
         synchronize: configService.get<string>('NODE_ENV') === 'development',
         logging: configService.get<string>('NODE_ENV') === 'development',
-        ssl:
-          configService.get<string>('DB_SSL') === 'true'
-            ? { rejectUnauthorized: false }
-            : false,
+        // SECURITY: SSL configuration with proper certificate validation
+        ssl: (() => {
+          const sslEnabled = configService.get<string>('DB_SSL') === 'true';
+          if (!sslEnabled) return false;
+
+          const isProduction = configService.get('NODE_ENV') === 'production';
+          const caPath = configService.get<string>('DATABASE_SSL_CA');
+          const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
+
+          if (isProduction && !rejectUnauthorized && !caPath) {
+            console.warn('⚠️  WARNING: SSL certificate verification disabled in production!');
+          }
+
+          return {
+            rejectUnauthorized,
+            ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
+          };
+        })(),
         extra: {
           max: configService.get<number>('DB_POOL_SIZE', 10),
           idleTimeoutMillis: 30000,

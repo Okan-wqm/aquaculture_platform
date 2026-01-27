@@ -101,24 +101,24 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
       UserTokenType,
     } = await import('node-opcua');
 
-    const securityModeMap: Record<string, unknown> = {
+    const securityModeMap = {
       'None': MessageSecurityMode.None,
       'Sign': MessageSecurityMode.Sign,
       'SignAndEncrypt': MessageSecurityMode.SignAndEncrypt,
-    };
+    } as const;
 
-    const securityPolicyMap: Record<string, unknown> = {
+    const securityPolicyMap = {
       'None': SecurityPolicy.None,
       'Basic256Sha256': SecurityPolicy.Basic256Sha256,
       'Aes128_Sha256_RsaOaep': SecurityPolicy.Aes128_Sha256_RsaOaep,
-    };
+    } as const;
 
     const client = OPCUAClient.create({
       endpointMustExist: false,
-      securityMode: securityModeMap[opcConfig.securityMode] || MessageSecurityMode.None,
-      securityPolicy: securityPolicyMap[opcConfig.securityPolicy] || SecurityPolicy.None,
+      securityMode: securityModeMap[opcConfig.securityMode] ?? MessageSecurityMode.None,
+      securityPolicy: securityPolicyMap[opcConfig.securityPolicy] ?? SecurityPolicy.None,
       requestedSessionTimeout: opcConfig.requestedSessionTimeout || 60000,
-    }) as unknown as OpcUaClient;
+    } as Parameters<typeof OPCUAClient.create>[0]) as unknown as OpcUaClient;
 
     await client.connect(opcConfig.endpointUrl);
 
@@ -203,7 +203,7 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
       try {
         const dataValue = await session.read({ nodeId });
         const nodeName = nodeId.split(';').pop() || nodeId;
-        values[nodeName] = dataValue.value?.value ?? null;
+        values[nodeName] = (dataValue.value?.value ?? null) as number | string | boolean | null;
       } catch (error) {
         this.logger.warn(`Failed to read node ${nodeId}`, error);
         values[nodeId] = null;
@@ -225,7 +225,7 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
     const { session, config } = sessionData;
     const { ClientSubscription, AttributeIds } = await import('node-opcua');
 
-    const subscription = ClientSubscription.create(session, {
+    const subscription = ClientSubscription.create(session as unknown as Parameters<typeof ClientSubscription.create>[0], {
       requestedPublishingInterval: config.publishingInterval || 1000,
       requestedLifetimeCount: 100,
       requestedMaxKeepAliveCount: 10,
@@ -249,7 +249,7 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
           const nodeName = nodeId.split(';').pop() || nodeId;
           const data: SensorReadingData = {
             timestamp: new Date(),
-            values: { [nodeName]: dataValue.value?.value ?? null },
+            values: { [nodeName]: (dataValue.value?.value ?? null) as number | string | boolean | null },
             quality: 100,
             source: 'opc_ua',
           };

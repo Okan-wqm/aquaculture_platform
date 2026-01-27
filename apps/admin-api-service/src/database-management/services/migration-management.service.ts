@@ -30,6 +30,20 @@ interface MigrationDefinition {
   requiresDowntime: boolean;
 }
 
+/**
+ * SECURITY: Validate SQL identifier (schema name) to prevent injection
+ * Only allows alphanumeric characters and underscores
+ */
+function validateSchemaName(schemaName: string): string {
+  const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+  if (!identifierRegex.test(schemaName) || schemaName.length > 63) {
+    throw new BadRequestException(
+      `SECURITY: Invalid schema name: ${schemaName}. Only alphanumeric and underscore allowed.`
+    );
+  }
+  return schemaName;
+}
+
 // Available migrations registry
 const MIGRATION_REGISTRY: MigrationDefinition[] = [
   {
@@ -297,8 +311,9 @@ export class MigrationManagementService {
 
       await queryRunner.startTransaction();
 
-      // Set search path to tenant schema
-      await queryRunner.query(`SET search_path TO "${schema.schemaName}"`);
+      // Set search path to tenant schema (with SQL injection protection)
+      const safeSchemaName = validateSchemaName(schema.schemaName);
+      await queryRunner.query(`SET search_path TO "${safeSchemaName}"`);
 
       if (isDryRun) {
         // For dry run, just validate the SQL
@@ -524,7 +539,10 @@ export class MigrationManagementService {
       await this.schemaRepository.save(schema);
 
       await queryRunner.startTransaction();
-      await queryRunner.query(`SET search_path TO "${schema.schemaName}"`);
+
+      // Validate schema name before using in SQL (SQL injection protection)
+      const safeSchemaName = validateSchemaName(schema.schemaName);
+      await queryRunner.query(`SET search_path TO "${safeSchemaName}"`);
 
       // Execute rollback
       const statements = migration.downScript.split(';').filter(s => s.trim());

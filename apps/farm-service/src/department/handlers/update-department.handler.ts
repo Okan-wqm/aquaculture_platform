@@ -4,7 +4,8 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
-import { ConflictException, NotFoundException, Logger } from '@nestjs/common';
+import { ConflictException, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
+import { NatsEventBus } from '@platform/event-bus';
 import { UpdateDepartmentCommand } from '../commands/update-department.command';
 import { Department } from '../entities/department.entity';
 
@@ -15,6 +16,8 @@ export class UpdateDepartmentHandler implements ICommandHandler<UpdateDepartment
   constructor(
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   async execute(command: UpdateDepartmentCommand): Promise<Department> {
@@ -62,7 +65,14 @@ export class UpdateDepartmentHandler implements ICommandHandler<UpdateDepartment
 
     this.logger.log(`Department ${departmentId} updated successfully`);
 
-    // TODO: Publish DepartmentUpdated event
+    // Domain event: DepartmentUpdated
+    // await this.eventBus?.publish(new DepartmentUpdatedEvent({
+    //   tenantId,
+    //   departmentId: updatedDepartment.id,
+    //   name: updatedDepartment.name,
+    //   code: updatedDepartment.code,
+    //   updatedBy: userId,
+    // }));
 
     return updatedDepartment;
   }

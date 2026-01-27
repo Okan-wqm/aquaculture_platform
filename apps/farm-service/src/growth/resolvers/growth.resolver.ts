@@ -29,6 +29,8 @@ import {
   MeasurementType,
   MeasurementMethod,
   GrowthPerformance,
+  IndividualMeasurement,
+  MeasurementConditions,
 } from '../entities/growth-measurement.entity';
 
 // Commands
@@ -512,8 +514,8 @@ export class GrowthResolver {
           measurementType: input.measurementType,
           measurementMethod: input.measurementMethod,
           populationSize: input.populationSize,
-          individualMeasurements: input.individualMeasurements as any,
-          conditions: input.conditions as any,
+          individualMeasurements: input.individualMeasurements as IndividualMeasurement[],
+          conditions: input.conditions as MeasurementConditions | undefined,
           measuredBy: input.measuredBy,
           notes: input.notes,
           updateBatchWeight: input.updateBatchWeight,

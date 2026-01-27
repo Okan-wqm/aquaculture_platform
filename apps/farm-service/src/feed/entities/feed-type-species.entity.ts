@@ -33,6 +33,8 @@ import {
 import GraphQLJSON from 'graphql-type-json';
 import { Feed } from './feed.entity';
 // Note: Species is referenced via string to avoid circular dependency
+// Type-only import for TypeScript type checking
+import type { Species } from '../../species/entities/species.entity';
 
 // ============================================================================
 // ENUMS
@@ -145,7 +147,7 @@ export class FeedTypeSpecies {
 
   @ManyToOne('Species', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'speciesId' })
-  species: any;
+  species?: Species;
 
   // -------------------------------------------------------------------------
   // BÜYÜME AŞAMASI

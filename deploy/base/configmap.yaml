@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aquaculture-config
+  labels:
+    app.kubernetes.io/name: aquaculture-platform
+data:
+  NODE_ENV: "production"
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: "aquaculture"
+  REDIS_PORT: "6379"
+  NATS_PORT: "4222"
+  LOG_LEVEL: "info"
+  GRAPHQL_PLAYGROUND: "false"
+  GRAPHQL_INTROSPECTION: "false"

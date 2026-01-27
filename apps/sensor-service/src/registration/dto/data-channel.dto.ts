@@ -53,10 +53,10 @@ export class ChannelDisplaySettingsInput {
 @InputType()
 export class CreateDataChannelInput {
   @Field()
-  channelKey: string;
+  channelKey!: string;
 
   @Field()
-  displayLabel: string;
+  displayLabel!: string;
 
   @Field({ nullable: true })
   description?: string;
@@ -104,7 +104,7 @@ export class CreateDataChannelInput {
 @InputType()
 export class UpdateDataChannelInput {
   @Field(() => ID)
-  channelId: string;
+  channelId!: string;
 
   @Field({ nullable: true })
   displayLabel?: string;
@@ -149,10 +149,10 @@ export class UpdateDataChannelInput {
 @InputType()
 export class DiscoverChannelsInput {
   @Field()
-  protocolCode: string;
+  protocolCode!: string;
 
   @Field(() => GraphQLJSON)
-  protocolConfiguration: Record<string, unknown>;
+  protocolConfiguration!: Record<string, unknown>;
 
   @Field(() => GraphQLJSON, { nullable: true })
   sampleData?: unknown;
@@ -164,10 +164,10 @@ export class DiscoverChannelsInput {
 @InputType()
 export class SaveDiscoveredChannelsInput {
   @Field(() => ID)
-  sensorId: string;
+  sensorId!: string;
 
   @Field(() => [CreateDataChannelInput])
-  channels: CreateDataChannelInput[];
+  channels!: CreateDataChannelInput[];
 
   @Field({ nullable: true, defaultValue: false })
   replaceExisting?: boolean;
@@ -176,10 +176,10 @@ export class SaveDiscoveredChannelsInput {
 @InputType()
 export class ReorderChannelsInput {
   @Field(() => ID)
-  sensorId: string;
+  sensorId!: string;
 
   @Field(() => [ID])
-  channelIds: string[];
+  channelIds!: string[];
 }
 
 // === Output Types ===
@@ -187,10 +187,10 @@ export class ReorderChannelsInput {
 @ObjectType('ChannelSensorInfo')
 export class ChannelSensorInfoType {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   type?: string;
@@ -241,28 +241,28 @@ export class ChannelDisplaySettingsType {
 @ObjectType()
 export class DataChannelType {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field(() => ID)
-  sensorId: string;
+  sensorId!: string;
 
   @Field(() => ChannelSensorInfoType, { nullable: true })
   sensor?: ChannelSensorInfoType;
 
   @Field()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
-  channelKey: string;
+  channelKey!: string;
 
   @Field()
-  displayLabel: string;
+  displayLabel!: string;
 
   @Field({ nullable: true })
   description?: string;
 
   @Field(() => ChannelDataType)
-  dataType: ChannelDataType;
+  dataType!: ChannelDataType;
 
   @Field({ nullable: true })
   unit?: string;
@@ -277,13 +277,13 @@ export class DataChannelType {
   maxValue?: number;
 
   @Field()
-  calibrationEnabled: boolean;
+  calibrationEnabled!: boolean;
 
   @Field(() => Float)
-  calibrationMultiplier: number;
+  calibrationMultiplier!: number;
 
   @Field(() => Float)
-  calibrationOffset: number;
+  calibrationOffset!: number;
 
   @Field({ nullable: true })
   lastCalibratedAt?: Date;
@@ -304,28 +304,28 @@ export class DataChannelType {
   sampleValue?: unknown;
 
   @Field()
-  isEnabled: boolean;
+  isEnabled!: boolean;
 
   @Field(() => Int)
-  displayOrder: number;
+  displayOrder!: number;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 @ObjectType()
 export class DiscoveredChannelType {
   @Field()
-  channelKey: string;
+  channelKey!: string;
 
   @Field()
-  suggestedLabel: string;
+  suggestedLabel!: string;
 
   @Field(() => ChannelDataType)
-  inferredDataType: ChannelDataType;
+  inferredDataType!: ChannelDataType;
 
   @Field({ nullable: true })
   inferredUnit?: string;
@@ -346,10 +346,10 @@ export class DiscoveredChannelType {
 @ObjectType()
 export class DiscoveryResultType {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field(() => [DiscoveredChannelType])
-  channels: DiscoveredChannelType[];
+  channels!: DiscoveredChannelType[];
 
   @Field(() => GraphQLJSON, { nullable: true })
   sampleData?: Record<string, unknown>;

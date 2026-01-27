@@ -76,7 +76,15 @@ export class SystemSettingService {
     @InjectRepository(SystemSetting)
     private readonly settingRepository: Repository<SystemSetting>,
   ) {
-    this.encryptionKey = process.env.ENCRYPTION_KEY || 'default-key-change-in-production';
+    // SECURITY: Fail fast in production if encryption key is not configured
+    const key = process.env.ENCRYPTION_KEY;
+    if (!key && process.env['NODE_ENV'] === 'production') {
+      throw new Error('SECURITY: ENCRYPTION_KEY environment variable must be set in production');
+    }
+    this.encryptionKey = key || 'DEV-ONLY-ENCRYPTION-KEY-DO-NOT-USE-IN-PROD';
+    if (!key) {
+      this.logger.warn('ENCRYPTION_KEY not configured - using development key. DO NOT use in production!');
+    }
   }
 
   // ============================================================================

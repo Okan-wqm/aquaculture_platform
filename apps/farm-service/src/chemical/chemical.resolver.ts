@@ -12,8 +12,8 @@ import { CreateChemicalInput } from './dto/create-chemical.input';
 import { UpdateChemicalInput } from './dto/update-chemical.input';
 import { ChemicalFilterInput } from './dto/chemical-filter.input';
 import { PaginationInput } from '../site/dto/site-filter.input';
-import { CreateChemicalCommand } from './commands/create-chemical.command';
-import { UpdateChemicalCommand } from './commands/update-chemical.command';
+import { CreateChemicalCommand, CreateChemicalInput as CreateChemicalInputDto } from './commands/create-chemical.command';
+import { UpdateChemicalCommand, UpdateChemicalInput as UpdateChemicalInputDto } from './commands/update-chemical.command';
 import { DeleteChemicalCommand } from './commands/delete-chemical.command';
 import { AddDocumentCommand } from './commands/add-document.command';
 import { RemoveDocumentCommand } from './commands/remove-document.command';
@@ -45,7 +45,7 @@ export class ChemicalResolver {
     @CurrentUser() user: { sub: string },
   ): Promise<ChemicalResponse> {
     this.logger.log(`Creating chemical "${input.name}" for tenant ${tenantId}`);
-    const command = new CreateChemicalCommand(input as any, tenantId, user.sub);
+    const command = new CreateChemicalCommand(input as CreateChemicalInputDto, tenantId, user.sub);
     return this.commandBus.execute(command);
   }
 
@@ -60,7 +60,7 @@ export class ChemicalResolver {
   ): Promise<ChemicalResponse> {
     this.logger.log(`Updating chemical ${input.id} for tenant ${tenantId}`);
     const { id, ...updateData } = input;
-    const command = new UpdateChemicalCommand(id, updateData as any, tenantId, user.sub);
+    const command = new UpdateChemicalCommand(id, updateData as UpdateChemicalInputDto, tenantId, user.sub);
     return this.commandBus.execute(command);
   }
 

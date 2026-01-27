@@ -41,7 +41,7 @@ export interface ModbusTcpConfiguration {
     address: number;
     count: number;
     functionCode: number;
-    dataType: string;
+    dataType: ModbusTcpConfiguration['dataType'];
     scaling?: number;
   }>;
 }
@@ -83,7 +83,8 @@ export class ModbusTcpAdapter extends BaseProtocolAdapter {
     return handle;
   }
 
-  disconnect(handle: ConnectionHandle): void {
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async disconnect(handle: ConnectionHandle): Promise<void> {
     const clientData = this.clients.get(handle.id);
     if (clientData) {
       try {

@@ -30,6 +30,10 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 // Note: Feed, Site, and Department are referenced via string to avoid circular dependency
+// Type-only imports for TypeScript type checking
+import type { Feed } from '../../feed/entities/feed.entity';
+import type { Site } from '../../site/entities/site.entity';
+import type { Department } from '../../department/entities/department.entity';
 
 // ============================================================================
 // ENUMS
@@ -101,7 +105,7 @@ export class FeedInventory {
 
   @ManyToOne('Feed', { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'feedId' })
-  feed: any;
+  feed?: Feed;
 
   // -------------------------------------------------------------------------
   // LOKASYON
@@ -114,7 +118,7 @@ export class FeedInventory {
 
   @ManyToOne('Site', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'siteId' })
-  site: any;
+  site?: Site;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -122,7 +126,7 @@ export class FeedInventory {
 
   @ManyToOne('Department', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'departmentId' })
-  department?: any;
+  department?: Department;
 
   // -------------------------------------------------------------------------
   // STOK BİLGİLERİ

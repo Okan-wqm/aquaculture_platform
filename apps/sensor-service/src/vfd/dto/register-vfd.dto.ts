@@ -27,11 +27,11 @@ export class RegisterVfdDto {
   @IsNotEmpty()
   @MinLength(2)
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field(() => String)
   @IsEnum(VfdBrand)
-  brand: VfdBrand;
+  brand!: VfdBrand;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -47,13 +47,13 @@ export class RegisterVfdDto {
 
   @Field(() => String)
   @IsEnum(VfdProtocol)
-  protocol: VfdProtocol;
+  protocol!: VfdProtocol;
 
   @Field(() => ProtocolConfigurationDto)
   @IsObject()
   @ValidateNested()
   @Type(() => ProtocolConfigurationDto)
-  protocolConfiguration: ProtocolConfigurationDto;
+  protocolConfiguration!: ProtocolConfigurationDto;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -98,7 +98,7 @@ export class RegisterVfdDto {
  * Response for VFD registration
  */
 export class VfdRegistrationResponseDto {
-  device: {
+  device!: {
     id: string;
     name: string;
     brand: VfdBrand;

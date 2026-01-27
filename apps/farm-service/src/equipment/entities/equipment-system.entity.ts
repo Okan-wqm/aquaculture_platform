@@ -15,6 +15,9 @@ import {
   JoinColumn,
   Unique,
 } from 'typeorm';
+// Type-only imports for TypeScript type checking
+import type { Equipment } from './equipment.entity';
+import type { System } from '../../system/entities/system.entity';
 
 @Entity('equipment_systems')
 @Unique(['equipmentId', 'systemId'])
@@ -33,14 +36,14 @@ export class EquipmentSystem {
 
   @ManyToOne('Equipment', 'equipmentSystems', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'equipmentId' })
-  equipment: any;
+  equipment?: Equipment;
 
   @Column('uuid')
   systemId: string;
 
   @ManyToOne('System', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'systemId' })
-  system: any;
+  system?: System;
 
   /**
    * Is this the primary system for the equipment?

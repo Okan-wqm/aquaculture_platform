@@ -47,15 +47,15 @@ export class ModbusAsciiAdapter extends BaseProtocolAdapter {
     const ModbusRTU = (await import('modbus-serial')).default;
     const client = new ModbusRTU();
 
-    await client.connectAsciiSerial(asciiConfig.comPort, {
+    await client.connectAsciiSerial(asciiConfig.comPort ?? '', {
       baudRate: asciiConfig.baudRate,
       dataBits: asciiConfig.dataBits,
       parity: asciiConfig.parity,
       stopBits: asciiConfig.stopBits,
     });
 
-    client.setID(asciiConfig.slaveId);
-    client.setTimeout(asciiConfig.timeout);
+    client.setID(asciiConfig.slaveId ?? 1);
+    client.setTimeout(asciiConfig.timeout ?? 1000);
 
     const handle = this.createConnectionHandle(
       asciiConfig.sensorId ?? 'unknown',

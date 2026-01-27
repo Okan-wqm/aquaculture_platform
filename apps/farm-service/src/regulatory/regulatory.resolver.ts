@@ -11,7 +11,23 @@
  */
 import { Resolver, Mutation, Query, Args, Context } from '@nestjs/graphql';
 import { Logger, UnauthorizedException } from '@nestjs/common';
-import { MattilsynetApiService, SeaLicePayload, SmoltPayload, CleanerFishPayload, PlannedSlaughterPayload, ExecutedSlaughterPayload } from './mattilsynet-api.service';
+import {
+  MattilsynetApiService,
+  SeaLicePayload,
+  SmoltPayload,
+  CleanerFishPayload,
+  PlannedSlaughterPayload,
+  ExecutedSlaughterPayload,
+  IkkeMedikamentellTypePayload,
+  MedikamentellTypePayload,
+  VirkestoffTypePayload,
+  VirkestoffStyrkePayload,
+  VirkestoffMengdePayload,
+  ResistensTypePayload,
+  ResistensAarsakTypePayload,
+  TestresultatPayload,
+  RensefiskOpprinnelsePayload,
+} from './mattilsynet-api.service';
 import { MaskinportenService, MATTILSYNET_SCOPES } from './maskinporten.service';
 import { RegulatorySettingsService } from './regulatory-settings.service';
 import {
@@ -30,6 +46,19 @@ import {
   SiteLocalityMappingOutput,
 } from './dto/regulatory-settings.dto';
 import { ObjectType, Field } from '@nestjs/graphql';
+
+/**
+ * GraphQL context interface with request and user information
+ */
+interface GraphQLContext {
+  req?: {
+    user?: {
+      tenantId?: string;
+      sub?: string;
+    };
+    tenantId?: string;
+  };
+}
 
 // ============================================================================
 // Status Types
@@ -95,7 +124,7 @@ export class RegulatoryResolver {
   /**
    * Extract tenant ID from GraphQL context
    */
-  private getTenantId(ctx: any): string {
+  private getTenantId(ctx: GraphQLContext): string {
     const tenantId = ctx?.req?.user?.tenantId || ctx?.req?.tenantId;
     if (!tenantId) {
       throw new UnauthorizedException('Tenant context required');
@@ -157,7 +186,7 @@ export class RegulatoryResolver {
   @Query(() => RegulatorySettingsOutput, {
     description: 'Get regulatory settings for the current tenant',
   })
-  async regulatorySettings(@Context() ctx: any): Promise<RegulatorySettingsOutput> {
+  async regulatorySettings(@Context() ctx: GraphQLContext): Promise<RegulatorySettingsOutput> {
     const tenantId = this.getTenantId(ctx);
     this.logger.debug(`Getting regulatory settings for tenant: ${tenantId}`);
     return this.mapSettingsToOutput(tenantId);
@@ -169,7 +198,7 @@ export class RegulatoryResolver {
   @Query(() => RegulatoryConfigurationStatus, {
     description: 'Get regulatory configuration status for the current tenant',
   })
-  async regulatoryConfigurationStatus(@Context() ctx: any): Promise<RegulatoryConfigurationStatus> {
+  async regulatoryConfigurationStatus(@Context() ctx: GraphQLContext): Promise<RegulatoryConfigurationStatus> {
     const tenantId = this.getTenantId(ctx);
     const settings = await this.settingsService.getSettings(tenantId);
 
@@ -211,7 +240,7 @@ export class RegulatoryResolver {
   })
   async updateRegulatorySettings(
     @Args('input') input: UpdateRegulatorySettingsInput,
-    @Context() ctx: any,
+    @Context() ctx: GraphQLContext,
   ): Promise<RegulatorySettingsOutput> {
     const tenantId = this.getTenantId(ctx);
     this.logger.log(`Updating regulatory settings for tenant: ${tenantId}`);
@@ -253,7 +282,7 @@ export class RegulatoryResolver {
     description: 'Test Maskinporten connection using tenant credentials',
   })
   async testMaskinportenConnection(
-    @Context() ctx: any,
+    @Context() ctx: GraphQLContext,
   ): Promise<MaskinportenConnectionTestResult> {
     const tenantId = this.getTenantId(ctx);
     this.logger.log(`Testing Maskinporten connection for tenant: ${tenantId}`);
@@ -310,7 +339,7 @@ export class RegulatoryResolver {
    * Get Mattilsynet API configuration status
    */
   @Query(() => MattilsynetStatus, { description: 'Get Mattilsynet API configuration status' })
-  async mattilsynetStatus(@Context() ctx: any): Promise<MattilsynetStatus> {
+  async mattilsynetStatus(@Context() ctx: GraphQLContext): Promise<MattilsynetStatus> {
     const tenantId = this.getTenantId(ctx);
     return this.mattilsynetApi.getStatus(tenantId);
   }
@@ -319,7 +348,7 @@ export class RegulatoryResolver {
    * Check regulatory services health
    */
   @Query(() => RegulatoryHealthStatus, { description: 'Check regulatory services health' })
-  async regulatoryHealth(@Context() ctx: any): Promise<RegulatoryHealthStatus> {
+  async regulatoryHealth(@Context() ctx: GraphQLContext): Promise<RegulatoryHealthStatus> {
     const tenantId = this.getTenantId(ctx);
     const maskinportenHealthy = await this.maskinporten.isConfiguredForTenant(tenantId);
     const mattilsynetCheck = await this.mattilsynetApi.healthCheck(tenantId);
@@ -342,7 +371,7 @@ export class RegulatoryResolver {
   @Mutation(() => ReportSubmissionResult, { description: 'Submit Sea Lice report to Mattilsynet' })
   async submitSeaLiceReport(
     @Args('input') input: SubmitSeaLiceReportInput,
-    @Context() ctx: any,
+    @Context() ctx: GraphQLContext,
   ): Promise<ReportSubmissionResult> {
     const tenantId = this.getTenantId(ctx);
     this.logger.log(`Submitting Sea Lice report: ${input.klientReferanse}`);
@@ -367,26 +396,26 @@ export class RegulatoryResolver {
           fastsittendeLus: input.lusetelling.fastsittendeLus,
         },
         ikkeMedikamentelleBehandlinger: input.ikkeMedikamentelleBehandlinger?.map(b => ({
-          type: b.type as any,
+          type: b.type as IkkeMedikamentellTypePayload,
           gjennomførtFørTelling: b.gjennomfortForTelling,
           heleLokaliteten: b.heleLokaliteten,
           antallMerder: b.antallMerder,
           beskrivelse: b.beskrivelse,
         })),
         medikamentelleBehandlinger: input.medikamentelleBehandlinger?.map(b => ({
-          type: b.type as any,
+          type: b.type as MedikamentellTypePayload,
           gjennomførtFørTelling: b.gjennomfortForTelling,
           heleLokaliteten: b.heleLokaliteten,
           antallMerder: b.antallMerder,
           virkestoff: {
-            type: b.virkestoff.type as any,
+            type: b.virkestoff.type as VirkestoffTypePayload,
             styrke: b.virkestoff.styrke ? {
               verdi: b.virkestoff.styrke.verdi,
-              enhet: b.virkestoff.styrke.enhet as any,
+              enhet: b.virkestoff.styrke.enhet as VirkestoffStyrkePayload['enhet'],
             } : undefined,
             mengde: b.virkestoff.mengde ? {
               verdi: b.virkestoff.mengde.verdi,
-              enhet: b.virkestoff.mengde.enhet as any,
+              enhet: b.virkestoff.mengde.enhet as VirkestoffMengdePayload['enhet'],
             } : undefined,
             annetVirkestoff: b.virkestoff.annetVirkestoff,
           },
@@ -395,26 +424,26 @@ export class RegulatoryResolver {
         // Combination treatments - ALIGNED WITH OFFICIAL KombinasjonsbehandlingDto
         kombinasjonsbehandlinger: input.kombinasjonsbehandlinger?.map(k => ({
           ikkeMedikamentelleBehandlinger: k.ikkeMedikamentelleBehandlinger?.map(b => ({
-            type: b.type as any,
+            type: b.type as IkkeMedikamentellTypePayload,
             gjennomførtFørTelling: b.gjennomfortForTelling,
             heleLokaliteten: b.heleLokaliteten,
             antallMerder: b.antallMerder,
             beskrivelse: b.beskrivelse,
           })),
           medikamentelleBehandlinger: k.medikamentelleBehandlinger?.map(b => ({
-            type: b.type as any,
+            type: b.type as MedikamentellTypePayload,
             gjennomførtFørTelling: b.gjennomfortForTelling,
             heleLokaliteten: b.heleLokaliteten,
             antallMerder: b.antallMerder,
             virkestoff: {
-              type: b.virkestoff.type as any,
+              type: b.virkestoff.type as VirkestoffTypePayload,
               styrke: b.virkestoff.styrke ? {
                 verdi: b.virkestoff.styrke.verdi,
-                enhet: b.virkestoff.styrke.enhet as any,
+                enhet: b.virkestoff.styrke.enhet as VirkestoffStyrkePayload['enhet'],
               } : undefined,
               mengde: b.virkestoff.mengde ? {
                 verdi: b.virkestoff.mengde.verdi,
-                enhet: b.virkestoff.mengde.enhet as any,
+                enhet: b.virkestoff.mengde.enhet as VirkestoffMengdePayload['enhet'],
               } : undefined,
               annetVirkestoff: b.virkestoff.annetVirkestoff,
             },
@@ -423,16 +452,16 @@ export class RegulatoryResolver {
         })),
         // Resistance suspicions - ALIGNED WITH OFFICIAL MistankeOmResistensDto
         resistensMistanker: input.resistensMistanker?.map(r => ({
-          resistens: r.resistens as any,
-          årsak: r.aarsak as any,
+          resistens: r.resistens as ResistensTypePayload,
+          årsak: r.aarsak as ResistensAarsakTypePayload,
           annenResistens: r.annenResistens,
           annenÅrsak: r.annenAarsak,
         })),
         følsomhetsundersøkelser: input.folsomhetsundersokelser?.map(f => ({
           utførtDato: f.utfortDato,
           laboratorium: f.laboratorium,
-          resistens: f.resistens as any,
-          testresultat: f.testresultat as any,
+          resistens: f.resistens as ResistensTypePayload,
+          testresultat: f.testresultat as TestresultatPayload,
         })),
       };
 
@@ -455,7 +484,7 @@ export class RegulatoryResolver {
   @Mutation(() => ReportSubmissionResult, { description: 'Submit Cleaner Fish report to Mattilsynet' })
   async submitCleanerFishReport(
     @Args('input') input: SubmitCleanerFishReportInput,
-    @Context() ctx: any,
+    @Context() ctx: GraphQLContext,
   ): Promise<ReportSubmissionResult> {
     const tenantId = this.getTenantId(ctx);
     this.logger.log(`Submitting Cleaner Fish report: ${input.klientReferanse}`);
@@ -480,8 +509,8 @@ export class RegulatoryResolver {
         produksjonsenheter: input.produksjonsenheter.map(p => ({
           merdId: p.merdId,
           arter: p.arter.map(a => ({
-            artskode: a.artskode as any,
-            opprinnelse: a.opprinnelse as any,
+            artskode: a.artskode as 'USB' | 'BER' | 'GRO' | 'BNB',
+            opprinnelse: a.opprinnelse as RensefiskOpprinnelsePayload,
             beholdningVedForrigeMånedsslutt: a.beholdningVedForrigeMaanedsslutt,
             utsett: {
               antallFlyttetInn: a.utsett.antallFlyttetInn,
@@ -521,7 +550,7 @@ export class RegulatoryResolver {
   @Mutation(() => ReportSubmissionResult, { description: 'Submit Smolt report to Mattilsynet' })
   async submitSmoltReport(
     @Args('input') input: SubmitSmoltReportInput,
-    @Context() ctx: any,
+    @Context() ctx: GraphQLContext,
   ): Promise<ReportSubmissionResult> {
     const tenantId = this.getTenantId(ctx);
     this.logger.log(`Submitting Smolt report: ${input.klientReferanse}`);
@@ -569,7 +598,7 @@ export class RegulatoryResolver {
   @Mutation(() => ReportSubmissionResult, { description: 'Submit Planned Slaughter report to Mattilsynet' })
   async submitPlannedSlaughterReport(
     @Args('input') input: SubmitPlannedSlaughterInput,
-    @Context() ctx: any,
+    @Context() ctx: GraphQLContext,
   ): Promise<ReportSubmissionResult> {
     const tenantId = this.getTenantId(ctx);
     this.logger.log(`Submitting Planned Slaughter report: ${input.klientReferanse}`);
@@ -623,7 +652,7 @@ export class RegulatoryResolver {
   @Mutation(() => ReportSubmissionResult, { description: 'Submit Executed Slaughter report to Mattilsynet' })
   async submitExecutedSlaughterReport(
     @Args('input') input: SubmitExecutedSlaughterInput,
-    @Context() ctx: any,
+    @Context() ctx: GraphQLContext,
   ): Promise<ReportSubmissionResult> {
     const tenantId = this.getTenantId(ctx);
     this.logger.log(`Submitting Executed Slaughter report: ${input.klientReferanse}`);

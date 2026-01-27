@@ -25,41 +25,41 @@ import { Announcement } from './announcement.entity';
 export class AnnouncementAcknowledgment {
   @PrimaryGeneratedColumn('uuid')
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
   @Field()
   @Index()
-  announcementId: string;
+  announcementId!: string;
 
   @ManyToOne(() => Announcement, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'announcementId' })
-  announcement: Announcement;
+  announcement!: Announcement;
 
   @Column({ type: 'uuid' })
   @Field()
   @Index()
-  userId: string;
+  userId!: string;
 
   @Column()
   @Field()
-  userName: string;
+  userName!: string;
 
   @Column({ type: 'uuid', nullable: true })
   @Field(() => String, { nullable: true })
-  tenantId: string | null;
+  tenantId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   @Field(() => String, { nullable: true })
-  tenantName: string | null;
+  tenantName?: string | null;
 
   @CreateDateColumn()
   @Field()
-  viewedAt: Date;
+  viewedAt!: Date;
 
   @Column({ type: 'timestamp', nullable: true })
   @Field(() => Date, { nullable: true })
-  acknowledgedAt: Date | null;
+  acknowledgedAt?: Date | null;
 
   /**
    * Check if user has acknowledged

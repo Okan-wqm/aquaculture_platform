@@ -14,7 +14,7 @@ export class RegisterInput {
   @Field()
   @IsEmail({}, { message: 'Invalid email format' })
   @MaxLength(255)
-  email: string;
+  email!: string;
 
   @Field()
   @IsString()
@@ -24,7 +24,7 @@ export class RegisterInput {
     message:
       'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character',
   })
-  password: string;
+  password!: string;
 
   @Field(() => String, { nullable: true })
   @IsOptional()
@@ -40,5 +40,5 @@ export class RegisterInput {
 
   @Field()
   @IsUUID('4', { message: 'Invalid tenant ID format' })
-  tenantId: string;
+  tenantId!: string;
 }

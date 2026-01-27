@@ -1,5 +1,23 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
+import { Request } from 'express';
+
+/**
+ * User payload structure from JWT
+ */
+interface JwtUser {
+  sub: string;
+  tenantId?: string;
+  roles?: string[];
+}
+
+/**
+ * Extended request with tenant and user context
+ */
+interface TenantRequest extends Request {
+  user?: JwtUser;
+  tenantId?: string;
+}
 
 /**
  * Tenant Context Decorator
@@ -11,11 +29,11 @@ export const Tenant = createParamDecorator(
 
     if (contextType === 'graphql') {
       const gqlCtx = GqlExecutionContext.create(ctx);
-      const request = gqlCtx.getContext().req;
+      const request = gqlCtx.getContext().req as TenantRequest;
       return extractTenantId(request);
     }
 
-    const request = ctx.switchToHttp().getRequest();
+    const request = ctx.switchToHttp().getRequest<TenantRequest>();
     return extractTenantId(request);
   },
 );
@@ -23,7 +41,7 @@ export const Tenant = createParamDecorator(
 /**
  * Extract tenant ID from various sources
  */
-function extractTenantId(request: any): string {
+function extractTenantId(request: TenantRequest): string {
   // 1. Try from JWT payload (user object set by auth guard)
   if (request.user?.tenantId) {
     return request.user.tenantId;
@@ -31,18 +49,20 @@ function extractTenantId(request: any): string {
 
   // 2. Try from header
   const headerTenant = request.headers['x-tenant-id'];
-  if (headerTenant) {
+  if (typeof headerTenant === 'string') {
     return headerTenant;
   }
 
   // 3. Try from query parameter
-  if (request.query?.tenantId) {
-    return request.query.tenantId;
+  const queryTenantId = request.query?.['tenantId'];
+  if (typeof queryTenantId === 'string') {
+    return queryTenantId;
   }
 
   // 4. Try from body
-  if (request.body?.tenantId) {
-    return request.body.tenantId;
+  const bodyTenantId = (request.body as Record<string, unknown>)?.['tenantId'];
+  if (typeof bodyTenantId === 'string') {
+    return bodyTenantId;
   }
 
   throw new Error('Tenant ID not found in request context');
@@ -58,11 +78,11 @@ export const OptionalTenant = createParamDecorator(
 
       if (contextType === 'graphql') {
         const gqlCtx = GqlExecutionContext.create(ctx);
-        const request = gqlCtx.getContext().req;
+        const request = gqlCtx.getContext().req as TenantRequest;
         return extractTenantIdSafe(request);
       }
 
-      const request = ctx.switchToHttp().getRequest();
+      const request = ctx.switchToHttp().getRequest<TenantRequest>();
       return extractTenantIdSafe(request);
     } catch {
       return undefined;
@@ -70,12 +90,15 @@ export const OptionalTenant = createParamDecorator(
   },
 );
 
-function extractTenantIdSafe(request: any): string | undefined {
+function extractTenantIdSafe(request: TenantRequest): string | undefined {
+  const headerTenant = request.headers['x-tenant-id'];
+  const queryTenantId = request.query?.['tenantId'];
+  const bodyTenantId = (request.body as Record<string, unknown>)?.['tenantId'];
+
   return (
     request.user?.tenantId ||
-    request.headers['x-tenant-id'] ||
-    request.query?.tenantId ||
-    request.body?.tenantId ||
-    undefined
+    (typeof headerTenant === 'string' ? headerTenant : undefined) ||
+    (typeof queryTenantId === 'string' ? queryTenantId : undefined) ||
+    (typeof bodyTenantId === 'string' ? bodyTenantId : undefined)
   );
 }

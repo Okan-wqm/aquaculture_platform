@@ -131,16 +131,16 @@ export class VfdStatusBitsDto {
 @ObjectType('VfdReading')
 export class VfdReadingDto {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field(() => ID)
-  vfdDeviceId: string;
+  vfdDeviceId!: string;
 
   @Field(() => ID)
-  tenantId: string;
+  tenantId!: string;
 
   @Field(() => VfdParametersDto)
-  parameters: VfdParametersDto;
+  parameters!: VfdParametersDto;
 
   @Field(() => VfdStatusBitsDto, { nullable: true })
   statusBits?: VfdStatusBitsDto;
@@ -152,16 +152,16 @@ export class VfdReadingDto {
   latencyMs?: number;
 
   @Field()
-  isValid: boolean;
+  isValid!: boolean;
 
   @Field({ nullable: true })
   errorMessage?: string;
 
   @Field()
-  timestamp: Date;
+  timestamp!: Date;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 /**
@@ -171,7 +171,7 @@ export class VfdReadingDto {
 export class VfdReadingsQueryDto {
   @Field(() => ID)
   @IsUUID()
-  vfdDeviceId: string;
+  vfdDeviceId!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -205,13 +205,13 @@ export class VfdReadingsQueryDto {
 @ObjectType('VfdReadingStats')
 export class VfdReadingStatsDto {
   @Field(() => ID)
-  vfdDeviceId: string;
+  vfdDeviceId!: string;
 
   @Field()
-  period: string;
+  period!: string;
 
   @Field()
-  timestamp: Date;
+  timestamp!: Date;
 
   @Field(() => Float, { nullable: true })
   avgOutputFrequency?: number;
@@ -254,11 +254,11 @@ export class VfdReadingStatsDto {
 export class VfdReadingStatsQueryDto {
   @Field(() => ID)
   @IsUUID()
-  vfdDeviceId: string;
+  vfdDeviceId!: string;
 
   @Field()
   @IsEnum(['hour', 'day', 'week', 'month'])
-  period: 'hour' | 'day' | 'week' | 'month';
+  period!: 'hour' | 'day' | 'week' | 'month';
 
   @Field({ nullable: true })
   @IsOptional()
@@ -279,10 +279,10 @@ export class VfdReadingStatsQueryDto {
 @ObjectType('VfdLatestReadings')
 export class VfdLatestReadingsDto {
   @Field(() => [VfdReadingDto])
-  readings: VfdReadingDto[];
+  readings!: VfdReadingDto[];
 
   @Field()
-  fetchedAt: Date;
+  fetchedAt!: Date;
 }
 
 /**
@@ -291,17 +291,17 @@ export class VfdLatestReadingsDto {
 @ObjectType('PaginatedVfdReadings')
 export class PaginatedVfdReadingsDto {
   @Field(() => [VfdReadingDto])
-  items: VfdReadingDto[];
+  items!: VfdReadingDto[];
 
   @Field(() => Int)
-  total: number;
+  total!: number;
 
   @Field(() => Int)
-  page: number;
+  page!: number;
 
   @Field(() => Int)
-  limit: number;
+  limit!: number;
 
   @Field(() => Int)
-  totalPages: number;
+  totalPages!: number;
 }

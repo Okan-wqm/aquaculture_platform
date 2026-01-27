@@ -66,17 +66,17 @@ registerEnumType(ActionType, {
 export class StepAction {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column({ name: 'step_id' })
   @Index()
-  stepId: string;
+  stepId!: string;
 
   // Action Identity
   @Field()
   @Column({ name: 'action_name', length: 50 })
-  actionName: string;
+  actionName!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -89,7 +89,7 @@ export class StepAction {
     enum: ActionQualifier,
     default: ActionQualifier.N,
   })
-  qualifier: ActionQualifier;
+  qualifier!: ActionQualifier;
 
   @Field(() => ActionType)
   @Column({
@@ -98,12 +98,12 @@ export class StepAction {
     enum: ActionType,
     default: ActionType.CUSTOM_ST,
   })
-  actionType: ActionType;
+  actionType!: ActionType;
 
   // Action Content (Structured Text code)
   @Field()
   @Column({ name: 'action_code', type: 'text' })
-  actionCode: string;
+  actionCode!: string;
 
   // Target (for SET_OUTPUT, CALL_FB, ASSIGN)
   @Field({ nullable: true, description: 'Target variable/output/function block' })
@@ -127,19 +127,19 @@ export class StepAction {
   // Ordering
   @Field(() => Int)
   @Column({ name: 'action_order', type: 'int', default: 0 })
-  actionOrder: number;
+  actionOrder!: number;
 
   // Active flag
   @Field()
   @Column({ name: 'is_active', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   // Timestamps
   @Field()
   @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

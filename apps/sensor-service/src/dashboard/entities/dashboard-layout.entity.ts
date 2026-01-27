@@ -71,11 +71,11 @@ export interface WidgetConfig {
 export class DashboardLayout {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column({ name: 'tenant_id' })
-  tenantId: string;
+  tenantId!: string;
 
   @Field({ nullable: true })
   @Column({ name: 'user_id', nullable: true })
@@ -83,7 +83,7 @@ export class DashboardLayout {
 
   @Field()
   @Column()
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -91,11 +91,11 @@ export class DashboardLayout {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb', default: [] })
-  widgets: WidgetConfig[];
+  widgets!: WidgetConfig[];
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true, name: 'process_background' })
-  processBackground: {
+  processBackground?: {
     processId: string | null;
     position: { x: number; y: number };
     scale: number;
@@ -104,7 +104,7 @@ export class DashboardLayout {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true, name: 'grid_config' })
-  gridConfig: {
+  gridConfig?: {
     columns: number;
     cellHeight: number;
     margin: number;
@@ -112,23 +112,23 @@ export class DashboardLayout {
 
   @Field({ nullable: true })
   @Column({ type: 'int', default: 1, name: 'grid_version' })
-  gridVersion: number;
+  gridVersion!: number;
 
   @Field()
   @Column({ name: 'is_default', default: false })
-  isDefault: boolean;
+  isDefault!: boolean;
 
   @Field()
   @Column({ name: 'is_system_default', default: false })
-  isSystemDefault: boolean;
+  isSystemDefault!: boolean;
 
   @Field()
   @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column({ name: 'created_by', nullable: true })

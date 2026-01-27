@@ -342,7 +342,7 @@ export enum SecurityPolicy {
  */
 export async function createOPCUAClient(options?: OPCUAClientOptions): Promise<OPCUAClient> {
   const opcua = await import('node-opcua');
-  return opcua.OPCUAClient.create(options ?? {}) as OPCUAClient;
+  return opcua.OPCUAClient.create(options ?? {}) as unknown as OPCUAClient;
 }
 
 /**

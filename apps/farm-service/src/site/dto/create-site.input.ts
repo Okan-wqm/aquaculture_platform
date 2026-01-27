@@ -10,11 +10,11 @@ import { SiteStatus } from '../entities/site.entity';
 export class SiteLocationInput {
   @Field(() => Float)
   @IsNumber()
-  latitude: number;
+  latitude!: number;
 
   @Field(() => Float)
   @IsNumber()
-  longitude: number;
+  longitude!: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -62,14 +62,14 @@ export class CreateSiteInput {
   @IsString()
   @MinLength(2)
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MinLength(2)
   @MaxLength(50)
-  code: string;
+  code!: string;
 
   @Field({ nullable: true })
   @IsOptional()

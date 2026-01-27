@@ -27,7 +27,11 @@ import {
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
-// Note: Department and SubSystem are referenced via string to avoid circular dependency
+// Note: Department, SubSystem, EquipmentSystem are referenced via string in decorator to avoid circular dependency
+// Type-only imports for TypeScript type checking
+import type { Department } from '../../department/entities/department.entity';
+import type { SubSystem } from '../../system/entities/sub-system.entity';
+import type { EquipmentSystem } from './equipment-system.entity';
 import { EquipmentType } from './equipment-type.entity';
 
 export enum EquipmentStatus {
@@ -131,7 +135,7 @@ export class Equipment {
 
   @ManyToOne('Department', { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'departmentId' })
-  department?: any;
+  department?: Department;
 
   @Column('uuid', { nullable: true })
   @Index()
@@ -139,7 +143,7 @@ export class Equipment {
 
   @ManyToOne('SubSystem', { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'subSystemId' })
-  subSystem?: any;
+  subSystem?: SubSystem;
 
   // -------------------------------------------------------------------------
   // SYSTEM İLİŞKİSİ (Equipment -> Systems - Many-to-Many via junction table)
@@ -147,7 +151,7 @@ export class Equipment {
   // -------------------------------------------------------------------------
 
   @OneToMany('EquipmentSystem', 'equipment')
-  equipmentSystems?: any[];
+  equipmentSystems?: EquipmentSystem[];
 
   // -------------------------------------------------------------------------
   // PARENT EQUIPMENT İLİŞKİSİ (Self-referencing - Equipment hierarchy)

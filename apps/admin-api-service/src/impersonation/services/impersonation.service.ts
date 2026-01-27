@@ -249,10 +249,14 @@ export class ImpersonationService {
       return { allowed: false, reason: 'Tenant is restricted for impersonation' };
     }
 
-    if (permission.allowedTenants && permission.allowedTenants.length > 0) {
-      if (!permission.allowedTenants.includes(targetTenantId)) {
-        return { allowed: false, reason: 'Tenant not in allowed list' };
-      }
+    // Security: Fail-closed if allowedTenants is empty/undefined
+    // Impersonation must have explicit tenant whitelist
+    if (!permission.allowedTenants || permission.allowedTenants.length === 0) {
+      return { allowed: false, reason: 'No allowed tenants configured - impersonation denied' };
+    }
+
+    if (!permission.allowedTenants.includes(targetTenantId)) {
+      return { allowed: false, reason: 'Tenant not in allowed list' };
     }
 
     // Check concurrent session limit

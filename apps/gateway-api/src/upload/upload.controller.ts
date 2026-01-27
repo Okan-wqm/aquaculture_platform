@@ -407,16 +407,34 @@ export class UploadController {
     }
 
     const tenantId = user.tenantId;
+    const requestedPath = body.path;
+
+    // SECURITY: Path traversal prevention
+    // Block any path containing ".." to prevent directory traversal attacks
+    if (requestedPath.includes('..')) {
+      this.logger.warn(
+        `SECURITY: Path traversal attempt detected for tenant ${tenantId}: ${requestedPath}`,
+      );
+      throw new BadRequestException('Invalid path: path traversal not allowed');
+    }
+
+    // SECURITY: Block null bytes that could be used for path injection
+    if (requestedPath.includes('\0')) {
+      throw new BadRequestException('Invalid path: null bytes not allowed');
+    }
+
+    // SECURITY: Normalize and validate the path
+    const normalizedPath = requestedPath.replace(/\/+/g, '/').replace(/^\//, '');
 
     // Ensure the path belongs to the tenant (security check)
-    if (!body.path.startsWith(tenantId + '/')) {
+    if (!normalizedPath.startsWith(tenantId + '/')) {
       throw new BadRequestException('Access denied to this resource');
     }
 
-    const expirySeconds = body.expirySeconds || 3600; // 1 hour default
+    const expirySeconds = Math.min(body.expirySeconds || 3600, 86400); // Max 24 hours
 
     try {
-      const url = await this.minioClient.getPresignedUrl(body.path, {
+      const url = await this.minioClient.getPresignedUrl(normalizedPath, {
         expirySeconds,
       });
 

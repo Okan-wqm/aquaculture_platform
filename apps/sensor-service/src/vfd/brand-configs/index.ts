@@ -64,7 +64,7 @@ export {
 } from './rockwell.config';
 
 import { VfdRegisterMappingInput } from '../entities/vfd-register-mapping.entity';
-import { VfdBrand } from '../entities/vfd.enums';
+import { VfdBrand, VfdParameterCategory } from '../entities/vfd.enums';
 
 import { ABB_ACS_REGISTERS, ABB_CONTROL_COMMANDS, ABB_DEFAULT_CONFIG } from './abb.config';
 import { DANFOSS_FC_REGISTERS, DANFOSS_CONTROL_COMMANDS, DANFOSS_DEFAULT_CONFIG } from './danfoss.config';

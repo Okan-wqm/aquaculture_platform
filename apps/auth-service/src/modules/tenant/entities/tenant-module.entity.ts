@@ -32,28 +32,28 @@ import { Tenant } from './tenant.entity';
 export class TenantModule {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   /**
    * Tenant ID
    */
   @Field()
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   /**
    * Module ID
    */
   @Field()
   @Column({ type: 'uuid' })
-  moduleId: string;
+  moduleId!: string;
 
   /**
    * Module is enabled for this tenant
    */
   @Field()
   @Column({ type: 'boolean', default: true })
-  isEnabled: boolean;
+  isEnabled!: boolean;
 
   /**
    * Custom configuration for this tenant's module instance (JSON)
@@ -61,7 +61,7 @@ export class TenantModule {
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
-  configuration: Record<string, unknown> | null;
+  configuration?: Record<string, unknown> | null;
 
   /**
    * Maximum users allowed for this module (tenant-specific limit)
@@ -69,35 +69,35 @@ export class TenantModule {
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'int', nullable: true })
-  maxModuleUsers: number | null;
+  maxModuleUsers?: number | null;
 
   /**
    * Activation date (when module became available to tenant)
    */
   @Field()
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-  activatedAt: Date;
+  activatedAt!: Date;
 
   /**
    * Expiration date (for time-limited module access)
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'timestamp', nullable: true })
-  expiresAt: Date | null;
+  expiresAt?: Date | null;
 
   /**
    * Notes about this assignment (for admin reference)
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
-  notes: string | null;
+  notes?: string | null;
 
   /**
    * Assigned by (SUPER_ADMIN user ID)
    */
   @Field()
   @Column({ type: 'uuid' })
-  assignedBy: string;
+  assignedBy!: string;
 
   /**
    * Module Manager (TENANT_ADMIN can assign MODULE_MANAGER)
@@ -105,7 +105,7 @@ export class TenantModule {
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  managerId: string | null;
+  managerId?: string | null;
 
   // ============================================
   // Relations
@@ -113,11 +113,11 @@ export class TenantModule {
 
   @ManyToOne(() => Tenant, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'tenantId' })
-  tenant: Tenant;
+  tenant!: Tenant;
 
   @ManyToOne(() => Module, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'moduleId' })
-  module: Module;
+  module!: Module;
 
   // ============================================
   // Timestamps
@@ -125,11 +125,11 @@ export class TenantModule {
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // ============================================
   // Helper Methods

@@ -51,25 +51,25 @@ registerEnumType(NotificationChannel, {
 @ObjectType('EscalationLevel')
 export class EscalationLevel {
   @Field(() => Int)
-  level: number;
+  level!: number;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field(() => Int)
-  timeoutMinutes: number;
+  timeoutMinutes!: number;
 
   @Field(() => [String])
-  notifyUserIds: string[];
+  notifyUserIds!: string[];
 
   @Field(() => [String], { nullable: true })
   notifyTeamIds?: string[];
 
   @Field(() => [NotificationChannel])
-  channels: NotificationChannel[];
+  channels!: NotificationChannel[];
 
   @Field(() => EscalationActionType)
-  action: EscalationActionType;
+  action!: EscalationActionType;
 
   @Field({ nullable: true })
   actionConfig?: string; // JSON string for action-specific config
@@ -84,16 +84,16 @@ export class EscalationLevel {
 @ObjectType('OnCallSchedule')
 export class OnCallSchedule {
   @Field()
-  dayOfWeek: number; // 0 = Sunday, 6 = Saturday
+  dayOfWeek!: number; // 0 = Sunday, 6 = Saturday
 
   @Field()
-  startTime: string; // HH:mm format
+  startTime!: string; // HH:mm format
 
   @Field()
-  endTime: string; // HH:mm format
+  endTime!: string; // HH:mm format
 
   @Field()
-  userId: string;
+  userId!: string;
 
   @Field({ nullable: true })
   backupUserId?: string;
@@ -105,25 +105,25 @@ export class OnCallSchedule {
 @ObjectType('SuppressionWindow')
 export class SuppressionWindow {
   @Field()
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  startTime: Date;
+  startTime!: Date;
 
   @Field()
-  endTime: Date;
+  endTime!: Date;
 
   @Field({ nullable: true })
   reason?: string;
 
   @Field()
-  createdBy: string;
+  createdBy!: string;
 
   @Field()
-  isRecurring: boolean;
+  isRecurring!: boolean;
 
   @Field({ nullable: true })
   recurringPattern?: string; // cron expression
@@ -140,16 +140,16 @@ export class SuppressionWindow {
 export class EscalationPolicy {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column()
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column()
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -157,11 +157,11 @@ export class EscalationPolicy {
 
   @Field(() => [AlertSeverity])
   @Column('simple-array')
-  severity: AlertSeverity[];
+  severity!: AlertSeverity[];
 
   @Field(() => [EscalationLevel])
   @Column('jsonb')
-  levels: EscalationLevel[];
+  levels!: EscalationLevel[];
 
   @Field(() => [OnCallSchedule], { nullable: true })
   @Column('jsonb', { nullable: true })
@@ -173,23 +173,23 @@ export class EscalationPolicy {
 
   @Field(() => Int)
   @Column({ type: 'int', default: 5 })
-  repeatIntervalMinutes: number;
+  repeatIntervalMinutes!: number;
 
   @Field(() => Int)
   @Column({ type: 'int', default: 3 })
-  maxRepeats: number;
+  maxRepeats!: number;
 
   @Field()
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field()
   @Column({ default: false })
-  isDefault: boolean;
+  isDefault!: boolean;
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  priority: number;
+  priority!: number;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column('jsonb', { nullable: true })
@@ -209,11 +209,11 @@ export class EscalationPolicy {
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column({ nullable: true })

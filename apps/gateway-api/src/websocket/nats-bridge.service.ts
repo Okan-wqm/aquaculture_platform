@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { connect, NatsConnection, Subscription, StringCodec } from 'nats';
+import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
+import * as fs from 'fs';
 
 import { SensorReadingsGateway } from './sensor-readings.gateway';
 
@@ -55,14 +56,51 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private async connect(): Promise<void> {
     const natsUrl = this.configService.get<string>('NATS_URL', 'nats://localhost:4222');
 
+    // SECURITY: Build connection options with TLS and auth support
+    const connectionOptions: ConnectionOptions = {
+      servers: natsUrl,
+      name: 'gateway-api-websocket-bridge',
+      reconnect: true,
+      // SECURITY FIX: Limited reconnect attempts to prevent infinite loop
+      maxReconnectAttempts: this.configService.get<number>('NATS_MAX_RECONNECT_ATTEMPTS', 50),
+      reconnectTimeWait: 2000,
+    };
+
+    // SECURITY: Add TLS configuration if enabled
+    const tlsEnabled = this.configService.get<string>('NATS_TLS_ENABLED', 'false') === 'true';
+    if (tlsEnabled) {
+      const tlsCaPath = this.configService.get<string>('NATS_TLS_CA');
+      const tlsCertPath = this.configService.get<string>('NATS_TLS_CERT');
+      const tlsKeyPath = this.configService.get<string>('NATS_TLS_KEY');
+
+      connectionOptions.tls = {
+        ...(tlsCaPath ? { ca: fs.readFileSync(tlsCaPath, 'utf8') } : {}),
+        ...(tlsCertPath ? { cert: fs.readFileSync(tlsCertPath, 'utf8') } : {}),
+        ...(tlsKeyPath ? { key: fs.readFileSync(tlsKeyPath, 'utf8') } : {}),
+      };
+      this.logger.log('NATS TLS enabled for WebSocket bridge');
+    }
+
+    // SECURITY: Add authentication if configured
+    const authToken = this.configService.get<string>('NATS_AUTH_TOKEN');
+    const authUser = this.configService.get<string>('NATS_AUTH_USER');
+    const authPass = this.configService.get<string>('NATS_AUTH_PASS');
+
+    if (authToken) {
+      connectionOptions.token = authToken;
+    } else if (authUser && authPass) {
+      connectionOptions.user = authUser;
+      connectionOptions.pass = authPass;
+    }
+
+    // SECURITY: Production warnings
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    if (isProduction && !tlsEnabled) {
+      this.logger.warn('⚠️  NATS TLS is disabled in production!');
+    }
+
     try {
-      this.connection = await connect({
-        servers: natsUrl,
-        name: 'gateway-api-websocket-bridge',
-        reconnect: true,
-        maxReconnectAttempts: -1,
-        reconnectTimeWait: 2000,
-      });
+      this.connection = await connect(connectionOptions);
 
       this.logger.log(`Connected to NATS at ${natsUrl}`);
 

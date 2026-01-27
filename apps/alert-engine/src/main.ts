@@ -22,8 +22,16 @@ async function bootstrap() {
   );
 
   // CORS configuration
+  // SECURITY: credentials cannot be true when origin is '*' (wildcard)
+  const corsOrigins = configService.get<string>('CORS_ORIGINS', '*');
+  const isWildcard = corsOrigins === '*';
+
+  if (isWildcard && configService.get('NODE_ENV') === 'production') {
+    logger.warn('SECURITY WARNING: CORS_ORIGINS is set to "*" in production');
+  }
+
   app.enableCors({
-    origin: configService.get('CORS_ORIGINS', '*').split(','),
+    origin: isWildcard ? '*' : corsOrigins.split(',').map((o: string) => o.trim()),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',
@@ -31,7 +39,8 @@ async function bootstrap() {
       'x-tenant-id',
       'x-correlation-id',
     ],
-    credentials: true,
+    // SECURITY: credentials must be false when using wildcard origin
+    credentials: !isWildcard,
   });
 
   // Global validation pipe

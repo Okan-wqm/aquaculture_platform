@@ -114,13 +114,13 @@ export interface TriggerConfig {
 export class AutomationProgram {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   // Tenant & Device Relations
   @Field()
   @Column({ name: 'tenant_id' })
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field({ nullable: true })
   @Column({ name: 'device_id', nullable: true })
@@ -134,11 +134,11 @@ export class AutomationProgram {
   // Program Identity
   @Field()
   @Column({ name: 'program_code', length: 30 })
-  programCode: string;
+  programCode!: string;
 
   @Field()
   @Column({ name: 'program_name', length: 100 })
-  programName: string;
+  programName!: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -151,7 +151,7 @@ export class AutomationProgram {
     enum: ProgramType,
     default: ProgramType.SFC,
   })
-  programType: ProgramType;
+  programType!: ProgramType;
 
   @Field({ nullable: true })
   @Column({ length: 50, nullable: true })
@@ -160,7 +160,7 @@ export class AutomationProgram {
   // SFC Definition (JSONB)
   @Field(() => GraphQLJSON)
   @Column({ name: 'sfc_definition', type: 'jsonb' })
-  sfcDefinition: SfcDefinition;
+  sfcDefinition!: SfcDefinition;
 
   // IEC 61131-3 Structured Text Source
   @Field({ nullable: true })
@@ -179,15 +179,15 @@ export class AutomationProgram {
     enum: ExecutionMode,
     default: ExecutionMode.MANUAL,
   })
-  executionMode: ExecutionMode;
+  executionMode!: ExecutionMode;
 
   @Field(() => Int)
   @Column({ name: 'scan_cycle_ms', type: 'int', default: 100 })
-  scanCycleMs: number;
+  scanCycleMs!: number;
 
   @Field(() => Int)
   @Column({ type: 'int', default: 5 })
-  priority: number; // 1-10, lower = higher priority
+  priority!: number; // 1-10, lower = higher priority
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ name: 'trigger_config', type: 'jsonb', nullable: true })
@@ -196,7 +196,7 @@ export class AutomationProgram {
   // Versioning
   @Field(() => Int)
   @Column({ type: 'int', default: 1 })
-  version: number;
+  version!: number;
 
   @Field(() => ProgramStatus)
   @Column({
@@ -204,7 +204,7 @@ export class AutomationProgram {
     enum: ProgramStatus,
     default: ProgramStatus.DRAFT,
   })
-  status: ProgramStatus;
+  status!: ProgramStatus;
 
   // Deployment Tracking
   @Field(() => Int, { nullable: true })
@@ -231,7 +231,7 @@ export class AutomationProgram {
   // Lock for editing
   @Field()
   @Column({ name: 'is_locked', default: false })
-  isLocked: boolean;
+  isLocked!: boolean;
 
   @Field({ nullable: true })
   @Column({ name: 'locked_by', nullable: true })
@@ -253,11 +253,11 @@ export class AutomationProgram {
   // Timestamps
   @Field()
   @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column({ name: 'created_by', nullable: true })

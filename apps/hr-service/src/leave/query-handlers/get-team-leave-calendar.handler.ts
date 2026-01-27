@@ -64,8 +64,9 @@ export class GetTeamLeaveCalendarHandler implements IQueryHandler<GetTeamLeaveCa
       .andWhere('lr.startDate <= :endDate', { endDate })
       .orderBy('lr.startDate', 'ASC');
 
+    // FIX: Use departmentHrId - Employee entity has departmentHrId, not departmentId
     if (departmentId) {
-      queryBuilder.andWhere('employee.departmentId = :departmentId', { departmentId });
+      queryBuilder.andWhere('employee.departmentHrId = :departmentId', { departmentId });
     }
 
     const leaveRequests = await queryBuilder.getMany();
@@ -77,7 +78,7 @@ export class GetTeamLeaveCalendarHandler implements IQueryHandler<GetTeamLeaveCa
         ? `${lr.employee.firstName} ${lr.employee.lastName}`
         : 'Unknown',
       leaveTypeName: lr.leaveType?.name || 'Unknown',
-      leaveTypeColor: lr.leaveType?.colorCode || '#6B7280',
+      leaveTypeColor: lr.leaveType?.color || '#6B7280',
       startDate: lr.startDate,
       endDate: lr.endDate,
       totalDays: Number(lr.totalDays),

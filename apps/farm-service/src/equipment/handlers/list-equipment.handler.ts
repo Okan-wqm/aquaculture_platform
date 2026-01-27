@@ -26,11 +26,10 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     const { tenantId, filter, pagination } = query;
 
     const page = pagination?.page || 1;
-    // Support both 'limit' and 'pageSize' for compatibility with different schema versions
     // Default to 200 items when no pagination is provided (for tank list views)
-    const limit = (pagination as any)?.limit || (pagination as any)?.pageSize || 200;
-    const sortBy = (pagination as any)?.sortBy || 'createdAt';
-    const sortOrder = (pagination as any)?.sortOrder || 'DESC';
+    const limit = pagination?.limit || 200;
+    const sortBy = pagination?.sortBy || 'createdAt';
+    const sortOrder = pagination?.sortOrder || 'DESC';
 
     // Build query
     const queryBuilder = this.equipmentRepository.createQueryBuilder('equipment');

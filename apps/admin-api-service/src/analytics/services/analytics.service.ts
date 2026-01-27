@@ -73,6 +73,25 @@ export class AnalyticsService {
     private readonly auditLogService: AuditLogService,
   ) {}
 
+  /**
+   * Type-safe helper to extract numeric metric value from snapshot metrics
+   * Handles the union type (TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics)
+   */
+  private getMetricValue(
+    metrics: TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics,
+    key: string,
+  ): number {
+    // Since metrics is a JSONB object, we need to access it dynamically
+    // but we ensure type safety by checking if the key exists and is a number
+    const metricsObj = metrics as Record<string, unknown>;
+    const value = metricsObj[key];
+
+    if (typeof value === 'number' && !isNaN(value)) {
+      return value;
+    }
+    return 0;
+  }
+
   // ============================================================================
   // Dashboard Summary
   // ============================================================================
@@ -824,7 +843,7 @@ export class AnalyticsService {
 
     return snapshots.map(s => ({
       date: s.snapshotDate.toISOString().split('T')[0] || s.snapshotDate.toISOString(),
-      value: ((s.metrics as unknown as Record<string, unknown>)?.[metricKey] as number) || 0,
+      value: this.getMetricValue(s.metrics, metricKey),
     }));
   }
 
@@ -849,7 +868,7 @@ export class AnalyticsService {
 
     if (!previousSnapshot) return 0;
 
-    const previousValue = ((previousSnapshot.metrics as unknown as Record<string, unknown>)?.[metricKey] as number) || 0;
+    const previousValue = this.getMetricValue(previousSnapshot.metrics, metricKey);
     if (previousValue === 0) return 0;
 
     return Number((((currentValue - previousValue) / previousValue) * 100).toFixed(2));

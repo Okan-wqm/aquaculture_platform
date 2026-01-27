@@ -16,6 +16,8 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
+// Type-only import for TypeScript type checking
+import type { Batch } from './batch.entity';
 
 /**
  * Individual feed assignment entry with weight range
@@ -46,7 +48,7 @@ export class BatchFeedAssignment {
 
   @ManyToOne('Batch', { nullable: true })
   @JoinColumn({ name: 'batchId' })
-  batch?: any;
+  batch?: Batch;
 
   /**
    * Array of feed assignments with weight ranges

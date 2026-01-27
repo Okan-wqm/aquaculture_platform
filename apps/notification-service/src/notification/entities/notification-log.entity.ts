@@ -36,27 +36,27 @@ export enum NotificationChannel {
 @Index(['channel', 'status'])
 export class NotificationLog {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column()
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'enum', enum: NotificationChannel })
-  channel: NotificationChannel;
+  channel!: NotificationChannel;
 
   @Column()
-  recipient: string;
+  recipient!: string;
 
   @Column()
-  subject: string;
+  subject!: string;
 
   @Column('text')
-  content: string;
+  content!: string;
 
   @Column({ type: 'enum', enum: NotificationStatus, default: NotificationStatus.PENDING })
   @Index()
-  status: NotificationStatus;
+  status!: NotificationStatus;
 
   @Column({ nullable: true })
   externalId?: string; // ID from email/SMS provider
@@ -68,7 +68,7 @@ export class NotificationLog {
   errorMessage?: string;
 
   @Column({ type: 'int', default: 0 })
-  retryCount: number;
+  retryCount!: number;
 
   @Column({ type: 'timestamptz', nullable: true })
   sentAt?: Date;
@@ -77,5 +77,5 @@ export class NotificationLog {
   deliveredAt?: Date;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }

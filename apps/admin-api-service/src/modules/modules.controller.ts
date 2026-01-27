@@ -11,8 +11,10 @@ import {
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { ModulesService, PaginatedModules } from './modules.service';
+import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 
 export interface CreateModuleDto {
   code: string;
@@ -55,6 +57,7 @@ export interface AssignModuleDto {
 }
 
 @Controller('modules')
+@UseGuards(PlatformAdminGuard)
 export class ModulesController {
   constructor(private readonly modulesService: ModulesService) {}
 

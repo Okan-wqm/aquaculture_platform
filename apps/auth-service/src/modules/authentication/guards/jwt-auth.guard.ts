@@ -74,6 +74,6 @@ export class JwtAuthGuard {
     if (!authHeader) return null;
 
     const [type, token] = authHeader.split(' ');
-    return type === 'Bearer' ? token : null;
+    return type === 'Bearer' && token ? token : null;
   }
 }

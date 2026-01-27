@@ -373,7 +373,7 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
       FROM pg_enum
       WHERE enumtypid = (SELECT oid FROM pg_type WHERE typname = $1)
     `, [enumName]);
-    return result.map((r: any) => r.enumlabel);
+    return result.map((r: { enumlabel: string }) => r.enumlabel);
   }
 
   /**

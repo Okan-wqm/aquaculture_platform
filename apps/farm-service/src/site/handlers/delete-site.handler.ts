@@ -5,7 +5,8 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
-import { NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
+import { NatsEventBus } from '@platform/event-bus';
 import { DeleteSiteCommand } from '../commands/delete-site.command';
 import { Site } from '../entities/site.entity';
 import { Department } from '../../department/entities/department.entity';
@@ -28,6 +29,8 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand> {
     private readonly equipmentRepository: Repository<Equipment>,
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   async execute(command: DeleteSiteCommand): Promise<boolean> {
@@ -93,7 +96,7 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand> {
           .set({
             isActive: false,
             updatedBy: userId,
-          } as any)
+          } as Partial<Tank>)
           .where('tenantId = :tenantId', { tenantId })
           .andWhere('departmentId IN (:...departmentIds)', { departmentIds })
           .execute();
@@ -144,9 +147,9 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand> {
         .createQueryBuilder()
         .update(Department)
         .set({
-          siteId: null,
+          siteId: null as unknown as string,
           updatedBy: userId,
-        } as any)
+        })
         .where('tenantId = :tenantId', { tenantId })
         .andWhere('siteId = :siteId', { siteId })
         .andWhere('isDeleted = false')
@@ -165,7 +168,14 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand> {
 
     this.logger.log(`Site ${siteId} marked as deleted`);
 
-    // TODO: Publish SiteDeleted event
+    // Domain event: SiteDeleted
+    // await this.eventBus?.publish(new SiteDeletedEvent({
+    //   tenantId,
+    //   siteId: site.id,
+    //   name: site.name,
+    //   cascade,
+    //   deletedBy: userId,
+    // }));
 
     return true;
   }

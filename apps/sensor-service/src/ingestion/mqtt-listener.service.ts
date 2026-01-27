@@ -13,6 +13,7 @@ import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-met
 import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor, SensorStatus } from '../database/entities/sensor.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
+import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
 
 
 /**
@@ -113,6 +114,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(forwardRef(() => EdgeDeviceService))
     private readonly edgeDeviceService: EdgeDeviceService | null,
+    @Optional()
+    private readonly sensorTopicCache: SensorTopicCacheService | null,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -696,11 +699,66 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Find sensor by topic pattern - searches across ALL tenant schemas
-   * This is necessary because MQTT messages come in globally and we need
-   * to find which tenant's sensor matches the topic
+   * Find sensor by topic pattern - uses Redis cache for O(1) lookups
+   *
+   * PERFORMANCE OPTIMIZATION:
+   * Previously this method searched ALL tenant schemas for EVERY MQTT message,
+   * resulting in 150+ queries per message (1.5M queries/sec at 10K msg/sec).
+   *
+   * Now uses a multi-level cache:
+   * 1. Local in-memory cache (1 minute TTL)
+   * 2. Redis cache (1 hour TTL)
+   * 3. Database fallback with cache population
    */
   private async findSensorByTopic(topic: string, parsed: ParsedTopic | null): Promise<Sensor | null> {
+    try {
+      // Use cache service if available (preferred path)
+      if (this.sensorTopicCache) {
+        const cachedInfo = await this.sensorTopicCache.getSensorByTopic(topic);
+
+        if (cachedInfo) {
+          // Load full sensor entity from the correct schema
+          return await this.loadSensorFromCache(cachedInfo);
+        }
+
+        // Cache returned null - sensor not found
+        return null;
+      }
+
+      // Fallback: Legacy cross-schema search (only if cache service unavailable)
+      return await this.findSensorByTopicLegacy(topic, parsed);
+    } catch (error) {
+      this.logger.error(`Error in sensor lookup for topic ${topic}: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Load full sensor entity from cached info
+   */
+  private async loadSensorFromCache(cachedInfo: CachedSensorInfo): Promise<Sensor | null> {
+    try {
+      // Set search_path to the sensor's schema
+      const safeSchemaName = cachedInfo.schemaName.replace(/[^a-zA-Z0-9_]/g, '');
+      await this.dataSource.query(`SET search_path TO "${safeSchemaName}", public`);
+
+      // Load full sensor entity
+      const sensor = await this.sensorRepository.findOne({
+        where: { id: cachedInfo.id },
+      });
+
+      return sensor;
+    } catch (error) {
+      this.logger.error(`Error loading sensor ${cachedInfo.id} from cache: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Legacy cross-schema sensor lookup - used when cache service is unavailable
+   * This is the original slow implementation for backward compatibility
+   */
+  private async findSensorByTopicLegacy(topic: string, parsed: ParsedTopic | null): Promise<Sensor | null> {
     try {
       // Get all tenant schemas
       const tenantSchemas: Array<{ schema_name: string }> = await this.dataSource.query(`

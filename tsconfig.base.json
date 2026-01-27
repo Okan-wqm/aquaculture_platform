@@ -15,7 +15,7 @@
     "strictNullChecks": true,
     "strictFunctionTypes": true,
     "strictBindCallApply": true,
-    "strictPropertyInitialization": false,
+    "strictPropertyInitialization": true,
     "noImplicitThis": true,
     "alwaysStrict": true,
     "noUnusedLocals": false,
@@ -36,6 +36,7 @@
     "baseUrl": ".",
     "paths": {
       "@platform/backend-common": ["libs/backend-common/src/index.ts"],
+      "@aquaculture/backend-common": ["libs/backend-common/src/index.ts"],
       "@platform/event-contracts": ["libs/event-contracts/src/index.ts"],
       "@platform/storage": ["libs/storage/src/index.ts"],
       "@platform/sdk": ["libs/sdk/typescript/src/index.ts"],

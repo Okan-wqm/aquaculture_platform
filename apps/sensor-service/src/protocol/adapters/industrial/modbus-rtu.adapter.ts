@@ -128,7 +128,7 @@ export class ModbusRtuAdapter extends BaseProtocolAdapter {
     if (!clientData) throw new Error('Connection not found');
 
     const { client, config } = clientData;
-    let data: number[];
+    let data: number[] | boolean[];
 
     switch (config.functionCode) {
       case 1:
@@ -158,11 +158,18 @@ export class ModbusRtuAdapter extends BaseProtocolAdapter {
     };
   }
 
-  private parseData(data: number[], config: ModbusRtuConfiguration): number {
+  private parseData(data: number[] | boolean[], config: ModbusRtuConfiguration): number {
     if (!data || data.length === 0) return 0;
 
-    const buffer = Buffer.alloc(data.length * 2);
-    data.forEach((val, i) => {
+    // Handle boolean data from coils/discrete inputs
+    if (typeof data[0] === 'boolean') {
+      return data[0] ? 1 : 0;
+    }
+
+    // Handle number data from registers
+    const numData = data as number[];
+    const buffer = Buffer.alloc(numData.length * 2);
+    numData.forEach((val, i) => {
       if (config.byteOrder === 'BE') {
         buffer.writeUInt16BE(val, i * 2);
       } else {
@@ -176,8 +183,8 @@ export class ModbusRtuAdapter extends BaseProtocolAdapter {
       case 'int32': return buffer.readInt32BE(0);
       case 'uint32': return buffer.readUInt32BE(0);
       case 'float32': return buffer.readFloatBE(0);
-      case 'boolean': return data[0] ? 1 : 0;
-      default: return data[0] ?? 0;
+      case 'boolean': return numData[0] ? 1 : 0;
+      default: return numData[0] ?? 0;
     }
   }
 

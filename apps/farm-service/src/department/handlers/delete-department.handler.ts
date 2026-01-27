@@ -5,7 +5,8 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
+import { NatsEventBus } from '@platform/event-bus';
 import { DeleteDepartmentCommand } from '../commands/delete-department.command';
 import { Department } from '../entities/department.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
@@ -25,6 +26,8 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
     private readonly tankRepository: Repository<Tank>,
     @InjectRepository(System)
     private readonly systemRepository: Repository<System>,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   async execute(command: DeleteDepartmentCommand): Promise<boolean> {
@@ -86,7 +89,7 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
           .set({
             isActive: false,
             updatedBy: userId,
-          } as any)
+          } as Partial<Tank>)
           .where('tenantId = :tenantId', { tenantId })
           .andWhere('departmentId = :departmentId', { departmentId })
           .execute();
@@ -120,9 +123,9 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
         .createQueryBuilder()
         .update(System)
         .set({
-          departmentId: null,
+          departmentId: null as unknown as string,
           updatedBy: userId,
-        } as any)
+        })
         .where('tenantId = :tenantId', { tenantId })
         .andWhere('departmentId = :departmentId', { departmentId })
         .andWhere('isDeleted = false')
@@ -141,7 +144,14 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
 
     this.logger.log(`Department ${departmentId} marked as deleted`);
 
-    // TODO: Publish DepartmentDeleted event
+    // Domain event: DepartmentDeleted
+    // await this.eventBus?.publish(new DepartmentDeletedEvent({
+    //   tenantId,
+    //   departmentId: department.id,
+    //   name: department.name,
+    //   cascade,
+    //   deletedBy: userId,
+    // }));
 
     return true;
   }

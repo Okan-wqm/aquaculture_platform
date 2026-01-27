@@ -294,8 +294,9 @@ export class NotificationDispatcherService {
         // Attempt retry
         return this.handleFailure(requestId, userId, channel, context, severity, result.error, metadata);
       }
-    } catch (error: any) {
-      return this.handleFailure(requestId, userId, channel, context, severity, error.message, metadata);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return this.handleFailure(requestId, userId, channel, context, severity, errorMessage, metadata);
     }
   }
 
@@ -405,14 +406,15 @@ export class NotificationDispatcherService {
           retryCount,
         );
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return this.handleFailure(
         requestId,
         userId,
         channel,
         context,
         severity,
-        error.message,
+        errorMessage,
         metadata,
         retryCount,
       );

@@ -17,6 +17,8 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 // Note: Pond is referenced via string to avoid circular dependency
+// Type-only import for TypeScript type checking
+import type { Pond } from './pond.entity';
 
 /**
  * Batch status enum for pond batches
@@ -102,7 +104,7 @@ export class PondBatch {
   // Note: Using string reference to avoid circular dependency
   @ManyToOne('Pond', 'batches', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'pondId' })
-  pond: any;
+  pond?: Pond;
 
   @Field(() => BatchStatus)
   @Column({ type: 'enum', enum: BatchStatus, default: BatchStatus.ACTIVE })

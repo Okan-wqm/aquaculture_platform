@@ -4,11 +4,14 @@ import {
   Query,
   Param,
   ParseUUIDPipe,
+  UseGuards,
 } from '@nestjs/common';
 import { AuditLogService, AuditLogFilter } from './audit.service';
+import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 import { AuditLog, AuditSeverity } from './audit.entity';
 
 @Controller('audit-logs')
+@UseGuards(PlatformAdminGuard)
 export class AuditLogController {
   constructor(private readonly auditLogService: AuditLogService) {}
 

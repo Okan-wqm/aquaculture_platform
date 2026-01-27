@@ -102,57 +102,57 @@ export type VfdProtocolConfiguration =
 @Index(['tenantId', 'protocol'])
 export class VfdDevice {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  brand: VfdBrand;
+  brand!: VfdBrand;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  model: string;
+  model?: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  serialNumber: string;
+  serialNumber?: string;
 
   @Column({ type: 'varchar', length: 50 })
-  protocol: VfdProtocol;
+  protocol!: VfdProtocol;
 
   @Column({ type: 'jsonb' })
-  protocolConfiguration: VfdProtocolConfiguration;
+  protocolConfiguration!: VfdProtocolConfiguration;
 
   @Column({ type: 'jsonb', nullable: true })
-  connectionStatus: VfdConnectionStatus;
+  connectionStatus?: VfdConnectionStatus;
 
   @Column({
     type: 'varchar',
     length: 50,
     default: VfdDeviceStatus.DRAFT,
   })
-  status: VfdDeviceStatus;
+  status!: VfdDeviceStatus;
 
   @Column({ type: 'uuid' })
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'uuid', nullable: true })
-  farmId: string;
+  farmId?: string;
 
   @Column({ type: 'uuid', nullable: true })
-  tankId: string;
+  tankId?: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  location: string;
+  location?: string;
 
   @Column({ type: 'text', nullable: true })
-  description: string;
+  description?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @Column({ type: 'jsonb', nullable: true })
-  customRegisterMappings: Array<{
+  customRegisterMappings?: Array<{
     parameterName: string;
     registerAddress: number;
     registerCount: number;
@@ -166,20 +166,20 @@ export class VfdDevice {
   }>;
 
   @Column({ type: 'int', default: 1000 })
-  pollIntervalMs: number;
+  pollIntervalMs!: number;
 
   @Column({ type: 'boolean', default: true })
-  isPollingEnabled: boolean;
+  isPollingEnabled!: boolean;
 
   @CreateDateColumn({ type: 'timestamp with time zone' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamp with time zone' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Column({ type: 'uuid', nullable: true })
-  createdBy: string;
+  createdBy?: string;
 
   @Column({ type: 'uuid', nullable: true })
-  updatedBy: string;
+  updatedBy?: string;
 }

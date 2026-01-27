@@ -18,7 +18,7 @@ import { SystemType, SystemStatus } from '../entities/system.entity';
 export class CreateSystemInput {
   @Field(() => ID)
   @IsUUID()
-  siteId: string;
+  siteId!: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -35,18 +35,18 @@ export class CreateSystemInput {
   @IsString()
   @MinLength(2)
   @MaxLength(100)
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MinLength(2)
   @MaxLength(20)
-  code: string;
+  code!: string;
 
   @Field(() => SystemType)
   @IsEnum(SystemType)
-  type: SystemType;
+  type!: SystemType;
 
   @Field(() => SystemStatus, { nullable: true, defaultValue: SystemStatus.OPERATIONAL })
   @IsOptional()

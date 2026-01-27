@@ -7,6 +7,26 @@ import { AttendanceRecord, AttendanceStatus, ApprovalStatus, ClockMethod } from 
 import { Employee } from '../../hr/entities/employee.entity';
 import { Shift } from '../entities/shift.entity';
 
+/**
+ * Safely parse time string in HH:mm format with validation
+ * Returns [hours, minutes] or [0, 0] for invalid format
+ */
+function safeParseTime(time: string | undefined): [number, number] {
+  if (!time || typeof time !== 'string') {
+    return [0, 0];
+  }
+  const parts = time.split(':');
+  if (parts.length !== 2) {
+    return [0, 0];
+  }
+  const hours = parseInt(parts[0], 10);
+  const minutes = parseInt(parts[1], 10);
+  if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return [0, 0];
+  }
+  return [hours, minutes];
+}
+
 @CommandHandler(CreateManualAttendanceCommand)
 export class CreateManualAttendanceHandler implements ICommandHandler<CreateManualAttendanceCommand> {
   constructor(
@@ -72,8 +92,8 @@ export class CreateManualAttendanceHandler implements ICommandHandler<CreateManu
       workedMinutes = Math.floor((clockOutTime.getTime() - clockInTime.getTime()) / 60000);
 
       if (shift) {
-        // Calculate late arrival
-        const [shiftStartHours, shiftStartMins] = shift.startTime.split(':').map(Number);
+        // Calculate late arrival with safe time parsing
+        const [shiftStartHours, shiftStartMins] = safeParseTime(shift.startTime);
         const shiftStart = new Date(recordDate);
         shiftStart.setHours(shiftStartHours, shiftStartMins, 0, 0);
 
@@ -84,8 +104,8 @@ export class CreateManualAttendanceHandler implements ICommandHandler<CreateManu
           }
         }
 
-        // Calculate early leave
-        const [shiftEndHours, shiftEndMins] = shift.endTime.split(':').map(Number);
+        // Calculate early leave with safe time parsing
+        const [shiftEndHours, shiftEndMins] = safeParseTime(shift.endTime);
         const shiftEnd = new Date(recordDate);
         shiftEnd.setHours(shiftEndHours, shiftEndMins, 0, 0);
 
@@ -108,7 +128,7 @@ export class CreateManualAttendanceHandler implements ICommandHandler<CreateManu
     const attendanceRecord = this.attendanceRepository.create({
       tenantId,
       employeeId,
-      departmentId: employee.departmentId,
+      departmentId: employee.departmentHrId,
       shiftId: shift?.id,
       date: recordDate,
       clockIn: clockInTime,

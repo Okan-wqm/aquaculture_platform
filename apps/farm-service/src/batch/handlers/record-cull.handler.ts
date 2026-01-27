@@ -11,7 +11,7 @@ import { Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { RecordCullCommand } from '../commands/record-cull.command';
 import { Batch } from '../entities/batch.entity';
-import { TankOperation, OperationType } from '../entities/tank-operation.entity';
+import { TankOperation, OperationType, CullReason } from '../entities/tank-operation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 
@@ -82,7 +82,7 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
       quantity: payload.quantity,
       avgWeightG,
       biomassKg,
-      cullReason: payload.reason as any,
+      cullReason: payload.reason as CullReason,
       cullDetail: payload.detail,
       preOperationState,
       performedBy: recordedBy,

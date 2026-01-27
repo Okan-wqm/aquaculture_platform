@@ -41,49 +41,49 @@ export interface RolloutSchedule {
 @Index(['category'])
 export class FeatureToggle {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ length: 100 })
-  key: string;
+  key!: string;
 
   @Column({ length: 255 })
-  name: string;
+  name!: string;
 
   @Column({ type: 'text', nullable: true })
-  description: string;
+  description?: string;
 
   @Column({ type: 'varchar', length: 50, default: FeatureToggleScope.GLOBAL })
-  scope: FeatureToggleScope;
+  scope!: FeatureToggleScope;
 
   @Column({ type: 'varchar', length: 50, default: FeatureToggleStatus.DISABLED })
-  status: FeatureToggleStatus;
+  status!: FeatureToggleStatus;
 
   @Column({ length: 100, nullable: true })
-  category: string;
+  category?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  conditions: FeatureCondition[];
+  conditions?: FeatureCondition[];
 
   @Column({ type: 'int', default: 0 })
-  rolloutPercentage: number;
+  rolloutPercentage!: number;
 
   @Column({ type: 'jsonb', nullable: true })
-  rolloutSchedule: RolloutSchedule;
+  rolloutSchedule?: RolloutSchedule;
 
   @Column({ type: 'jsonb', nullable: true })
-  enabledTenants: string[];
+  enabledTenants?: string[];
 
   @Column({ type: 'jsonb', nullable: true })
-  disabledTenants: string[];
+  disabledTenants?: string[];
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @Column({ type: 'jsonb', nullable: true })
-  defaultValue: unknown;
+  defaultValue?: unknown;
 
   @Column({ type: 'jsonb', nullable: true })
-  variants: Array<{
+  variants?: Array<{
     key: string;
     value: unknown;
     weight: number;
@@ -91,26 +91,26 @@ export class FeatureToggle {
   }>;
 
   @Column({ default: false })
-  requiresRestart: boolean;
+  requiresRestart!: boolean;
 
   @Column({ default: false })
-  isExperimental: boolean;
+  isExperimental!: boolean;
 
   @Column({ nullable: true })
-  deprecatedAt: Date;
+  deprecatedAt?: Date;
 
   @Column({ type: 'text', nullable: true })
-  deprecationMessage: string;
+  deprecationMessage?: string;
 
   @Column({ nullable: true })
-  createdBy: string;
+  createdBy?: string;
 
   @Column({ nullable: true })
-  updatedBy: string;
+  updatedBy?: string;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

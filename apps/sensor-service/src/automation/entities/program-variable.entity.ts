@@ -66,17 +66,17 @@ registerEnumType(VariableScope, {
 export class ProgramVariable {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column({ name: 'program_id' })
   @Index()
-  programId: string;
+  programId!: string;
 
   // Variable Identity
   @Field()
   @Column({ name: 'var_name', length: 50 })
-  varName: string;
+  varName!: string;
 
   @Field({ nullable: true })
   @Column({ name: 'display_name', length: 100, nullable: true })
@@ -94,7 +94,7 @@ export class ProgramVariable {
     enum: VariableDataType,
     default: VariableDataType.REAL,
   })
-  dataType: VariableDataType;
+  dataType!: VariableDataType;
 
   @Field(() => VariableScope)
   @Column({
@@ -102,7 +102,7 @@ export class ProgramVariable {
     enum: VariableScope,
     default: VariableScope.LOCAL,
   })
-  scope: VariableScope;
+  scope!: VariableScope;
 
   // Initial/Default Value
   @Field({ nullable: true })
@@ -170,16 +170,16 @@ export class ProgramVariable {
   // Ordering
   @Field()
   @Column({ name: 'var_order', type: 'int', default: 0 })
-  varOrder: number;
+  varOrder!: number;
 
   // Timestamps
   @Field()
   @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // Computed fields
   @Field({ nullable: true })

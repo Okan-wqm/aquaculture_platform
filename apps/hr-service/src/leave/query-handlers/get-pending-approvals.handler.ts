@@ -34,12 +34,13 @@ export class GetPendingApprovalsHandler implements IQueryHandler<GetPendingAppro
       .orderBy('lr.createdAt', 'ASC');
 
     // If departmentId is provided, filter by department
+    // FIX: Use departmentHrId - Employee entity has departmentHrId, not departmentId
     if (departmentId) {
-      queryBuilder.andWhere('employee.departmentId = :departmentId', { departmentId });
-    } else if (approver?.departmentId) {
+      queryBuilder.andWhere('employee.departmentHrId = :departmentId', { departmentId });
+    } else if (approver?.departmentHrId) {
       // If approver has a department, show pending requests from their department
-      queryBuilder.andWhere('employee.departmentId = :departmentId', {
-        departmentId: approver.departmentId,
+      queryBuilder.andWhere('employee.departmentHrId = :departmentId', {
+        departmentId: approver.departmentHrId,
       });
     }
 

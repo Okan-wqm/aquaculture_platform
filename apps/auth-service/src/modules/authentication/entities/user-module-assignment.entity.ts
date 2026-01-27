@@ -36,28 +36,28 @@ import { User } from './user.entity';
 export class UserModuleAssignment {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   /**
    * User ID
    */
   @Field()
   @Column({ type: 'uuid' })
-  userId: string;
+  userId!: string;
 
   /**
    * Module ID
    */
   @Field()
   @Column({ type: 'uuid' })
-  moduleId: string;
+  moduleId!: string;
 
   /**
    * Tenant ID (denormalized for faster queries)
    */
   @Field()
   @Column({ type: 'uuid' })
-  tenantId: string;
+  tenantId!: string;
 
   /**
    * User is the primary manager for this module
@@ -65,14 +65,14 @@ export class UserModuleAssignment {
    */
   @Field()
   @Column({ type: 'boolean', default: false })
-  isPrimaryManager: boolean;
+  isPrimaryManager!: boolean;
 
   /**
    * Assignment is active
    */
   @Field()
   @Column({ type: 'boolean', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   /**
    * Custom permissions within the module (JSON)
@@ -80,28 +80,28 @@ export class UserModuleAssignment {
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
-  permissions: Record<string, boolean> | null;
+  permissions?: Record<string, boolean> | null;
 
   /**
    * Assigned by (TENANT_ADMIN or SUPER_ADMIN user ID)
    */
   @Field()
   @Column({ type: 'uuid' })
-  assignedBy: string;
+  assignedBy!: string;
 
   /**
    * Assignment expiration date (for temporary assignments)
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'timestamp', nullable: true })
-  expiresAt: Date | null;
+  expiresAt?: Date | null;
 
   /**
    * Notes about this assignment
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
-  notes: string | null;
+  notes?: string | null;
 
   // ============================================
   // Relations
@@ -109,11 +109,11 @@ export class UserModuleAssignment {
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
-  user: User;
+  user!: User;
 
   @ManyToOne(() => Module, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'moduleId' })
-  module: Module;
+  module!: Module;
 
   // ============================================
   // Timestamps
@@ -121,11 +121,11 @@ export class UserModuleAssignment {
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // ============================================
   // Helper Methods

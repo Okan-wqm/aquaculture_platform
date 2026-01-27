@@ -10,7 +10,8 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, registerEnumType } from '@nestjs/graphql';
-import { Employee } from '../../hr/entities/employee.entity';
+import { forwardRef, Type } from '@nestjs/common';
+import type { Employee } from '../../hr/entities/employee.entity';
 import { WorkArea } from './work-area.entity';
 
 export enum RotationType {
@@ -65,6 +66,27 @@ export class TransportInfo {
 }
 
 @ObjectType()
+export class CheckInLocation {
+  @Field()
+  lat!: number;
+
+  @Field()
+  lng!: number;
+}
+
+@ObjectType()
+export class CheckInHistoryEntry {
+  @Field()
+  time!: Date;
+
+  @Field(() => CheckInLocation, { nullable: true })
+  location?: CheckInLocation;
+
+  @Field()
+  method!: string;
+}
+
+@ObjectType()
 @Entity('work_rotations', { schema: 'hr' })
 @Index(['tenantId', 'employeeId', 'startDate'])
 @Index(['tenantId', 'status', 'startDate'])
@@ -85,7 +107,7 @@ export class WorkRotation {
   @Index()
   employeeId!: string;
 
-  @ManyToOne(() => Employee, { onDelete: 'CASCADE' })
+  @ManyToOne('Employee', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'employeeId' })
   employee?: Employee;
 
@@ -171,13 +193,9 @@ export class WorkRotation {
   @Column({ type: 'timestamptz', nullable: true })
   lastCheckInTime?: Date;
 
-  @Field({ nullable: true })
-  @Column('jsonb', { nullable: true })
-  checkInHistory?: {
-    time: Date;
-    location?: { lat: number; lng: number };
-    method: string;
-  }[];
+  @Field(() => [CheckInHistoryEntry], { nullable: 'itemsAndList' })
+  @Column('jsonb', { nullable: true, default: [] })
+  checkInHistory?: CheckInHistoryEntry[];
 
   @Field()
   @CreateDateColumn()

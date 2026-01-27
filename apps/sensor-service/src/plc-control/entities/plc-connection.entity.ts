@@ -37,16 +37,16 @@ registerEnumType(PlcAuthMode, { name: 'PlcAuthMode' });
 export class PlcConnection {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column()
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column()
-  siteId: string;
+  siteId!: string;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -54,7 +54,7 @@ export class PlcConnection {
 
   @Field()
   @Column()
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -62,11 +62,11 @@ export class PlcConnection {
 
   @Field()
   @Column()
-  endpointUrl: string;
+  endpointUrl!: string;
 
   @Field(() => PlcSecurityMode)
   @Column({ type: 'varchar', default: PlcSecurityMode.NONE })
-  securityMode: PlcSecurityMode;
+  securityMode!: PlcSecurityMode;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -74,7 +74,7 @@ export class PlcConnection {
 
   @Field(() => PlcAuthMode)
   @Column({ type: 'varchar', default: PlcAuthMode.ANONYMOUS })
-  authMode: PlcAuthMode;
+  authMode!: PlcAuthMode;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -85,7 +85,7 @@ export class PlcConnection {
 
   @Field(() => PlcConnectionStatus)
   @Column({ type: 'varchar', default: PlcConnectionStatus.OFFLINE })
-  status: PlcConnectionStatus;
+  status!: PlcConnectionStatus;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -97,15 +97,15 @@ export class PlcConnection {
 
   @Field()
   @Column({ default: 1000 })
-  publishingIntervalMs: number;
+  publishingIntervalMs!: number;
 
   @Field()
   @Column({ default: 500 })
-  samplingIntervalMs: number;
+  samplingIntervalMs!: number;
 
   @Field()
   @Column({ default: 60000 })
-  sessionTimeoutMs: number;
+  sessionTimeoutMs!: number;
 
   // OPC UA Node IDs for different data types
   @Field(() => String, { nullable: true })
@@ -126,13 +126,13 @@ export class PlcConnection {
 
   @Field()
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

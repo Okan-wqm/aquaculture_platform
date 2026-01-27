@@ -5,11 +5,14 @@
  *
  * @module Batch/Handlers
  */
+import { randomUUID } from 'crypto';
+
 import { Injectable, BadRequestException, Inject, Optional, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
+import { BatchCreatedEvent } from '@platform/event-contracts';
 import { CreateBatchCommand } from '../commands/create-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { BatchDocument, BatchDocumentType } from '../entities/batch-document.entity';
@@ -321,15 +324,29 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
       }
     }
 
-    // Domain event yayınla
-    // await this.eventBus.publish(new BatchCreatedEvent({
-    //   tenantId,
-    //   batchId: savedBatch.id,
-    //   batchNumber: savedBatch.batchNumber,
-    //   speciesId: savedBatch.speciesId,
-    //   initialQuantity: savedBatch.initialQuantity,
-    //   createdBy,
-    // }));
+    // Publish domain event: BatchCreated
+    if (this.eventBus) {
+      try {
+        const event: BatchCreatedEvent = {
+          eventId: randomUUID(),
+          eventType: 'BatchCreated',
+          tenantId,
+          timestamp: new Date(),
+          batchId: savedBatch.id,
+          farmId: '', // Not applicable in current schema
+          pondId: '', // Not applicable - using tankId instead
+          name: savedBatch.batchNumber,
+          species: species.commonName,
+          quantity: savedBatch.initialQuantity,
+          stockedAt: savedBatch.stockedAt,
+        };
+        await this.eventBus.publish(event);
+        this.logger.debug(`Published BatchCreatedEvent for batch ${savedBatch.id}`);
+      } catch (eventError) {
+        // Log but don't fail the transaction for event publishing errors
+        this.logger.warn(`Failed to publish BatchCreatedEvent: ${(eventError as Error).message}`);
+      }
+    }
 
     return savedBatch;
   }

@@ -1,4 +1,14 @@
 import { InputType, Field, ObjectType, ID } from '@nestjs/graphql';
+import {
+  IsString,
+  IsOptional,
+  IsUUID,
+  MaxLength,
+  IsArray,
+  ValidateNested,
+  IsNotEmpty,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
 import { DeviceModel } from '../entities/edge-device.entity';
 
@@ -37,22 +47,22 @@ export class CreateProvisionedDeviceInput {
 @ObjectType()
 export class ProvisionedDeviceResponse {
   @Field(() => ID)
-  deviceId: string;
+  deviceId!: string;
 
   @Field()
-  deviceCode: string;
+  deviceCode!: string;
 
   @Field()
-  installerUrl: string;
+  installerUrl!: string;
 
   @Field()
-  installerCommand: string;
+  installerCommand!: string;
 
   @Field()
-  tokenExpiresAt: Date;
+  tokenExpiresAt!: Date;
 
   @Field()
-  status: string;
+  status!: string;
 }
 
 /**
@@ -61,19 +71,19 @@ export class ProvisionedDeviceResponse {
 @ObjectType()
 export class RegenerateTokenResponse {
   @Field(() => ID)
-  deviceId: string;
+  deviceId!: string;
 
   @Field()
-  deviceCode: string;
+  deviceCode!: string;
 
   @Field()
-  installerUrl: string;
+  installerUrl!: string;
 
   @Field()
-  installerCommand: string;
+  installerCommand!: string;
 
   @Field()
-  tokenExpiresAt: Date;
+  tokenExpiresAt!: Date;
 }
 
 // ============================================
@@ -82,22 +92,50 @@ export class RegenerateTokenResponse {
 
 /**
  * Device fingerprint collected by agent
+ * Validated class for security
  */
-export interface DeviceFingerprint {
+export class DeviceFingerprint {
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   cpuSerial?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   macAddresses?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   machineId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
   hostname?: string;
 }
 
 /**
  * Activation request from agent (REST API)
+ * SECURITY: All fields validated to prevent injection attacks
  */
-export interface DeviceActivationRequest {
-  deviceId: string;
-  token: string;
-  fingerprint: DeviceFingerprint;
-  agentVersion: string;
+export class DeviceActivationRequest {
+  @IsUUID('4', { message: 'Invalid device ID format' })
+  deviceId!: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Token is required' })
+  @MaxLength(500, { message: 'Token too long' })
+  token!: string;
+
+  @ValidateNested()
+  @Type(() => DeviceFingerprint)
+  fingerprint!: DeviceFingerprint;
+
+  @IsString()
+  @MaxLength(50)
+  agentVersion!: string;
 }
 
 /**

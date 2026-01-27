@@ -13,8 +13,8 @@ export interface ModbusRTUClient {
   /** Connect via RTU (serial) */
   connectRTU(path: string, options?: ModbusSerialOptions): Promise<void>;
 
-  /** Connect via RTU over TCP (buffered) */
-  connectRTUBuffered(ip: string, options?: ModbusTcpOptions): Promise<void>;
+  /** Connect via RTU over TCP (buffered) - accepts serial options when using serial port path */
+  connectRTUBuffered(path: string, options?: ModbusSerialOptions): Promise<void>;
 
   /** Connect via ASCII */
   connectAsciiSerial(path: string, options?: ModbusSerialOptions): Promise<void>;
@@ -93,7 +93,7 @@ export type ModbusRTUClientFactory = new () => ModbusRTUClient;
  * Helper to create a typed Modbus client from dynamic import
  */
 export async function createModbusClient(): Promise<ModbusRTUClient> {
-  const ModbusRTU = (await import('modbus-serial')).default as ModbusRTUClientFactory;
+  const ModbusRTU = (await import('modbus-serial')).default as unknown as ModbusRTUClientFactory;
   return new ModbusRTU();
 }
 

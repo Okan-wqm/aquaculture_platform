@@ -31,76 +31,76 @@ export interface BitDefinition {
 @Unique(['brand', 'modelSeries', 'parameterName'])
 export class VfdRegisterMapping {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  brand: VfdBrand;
+  brand!: VfdBrand;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   modelSeries?: string | null;
 
   @Column({ type: 'varchar', length: 100 })
-  parameterName: string;
+  parameterName!: string;
 
   @Column({ type: 'varchar', length: 255 })
-  displayName: string;
+  displayName!: string;
 
   @Column({ type: 'text', nullable: true })
   description?: string | null;
 
   @Column({ type: 'varchar', length: 50 })
-  category: VfdParameterCategory;
+  category!: VfdParameterCategory;
 
   @Column({ type: 'int' })
-  registerAddress: number;
+  registerAddress!: number;
 
   @Column({ type: 'int', default: 1 })
-  registerCount: number;
+  registerCount!: number;
 
   @Column({ type: 'int', default: 3 })
-  functionCode: number;
+  functionCode!: number;
 
   @Column({ type: 'varchar', length: 50, default: VfdDataType.UINT16 })
-  dataType: VfdDataType;
+  dataType!: VfdDataType;
 
   @Column({ type: 'float', default: 1 })
-  scalingFactor: number;
+  scalingFactor!: number;
 
   @Column({ type: 'float', default: 0 })
-  offset: number;
+  offset!: number;
 
   @Column({ type: 'varchar', length: 20, nullable: true })
   unit?: string | null;
 
   @Column({ type: 'varchar', length: 10, default: ByteOrder.BIG })
-  byteOrder: ByteOrder;
+  byteOrder!: ByteOrder;
 
   @Column({ type: 'varchar', length: 10, default: ByteOrder.BIG })
-  wordOrder: ByteOrder;
+  wordOrder!: ByteOrder;
 
   @Column({ type: 'boolean', default: false })
-  isBitField: boolean;
+  isBitField!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
   bitDefinitions?: BitDefinition[] | null;
 
   @Column({ type: 'boolean', default: true })
-  isReadable: boolean;
+  isReadable!: boolean;
 
   @Column({ type: 'boolean', default: false })
-  isWritable: boolean;
+  isWritable!: boolean;
 
   @Column({ type: 'int', default: 500 })
-  recommendedPollIntervalMs: number;
+  recommendedPollIntervalMs!: number;
 
   @Column({ type: 'int', default: 0 })
-  displayOrder: number;
+  displayOrder!: number;
 
   @Column({ type: 'boolean', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Column({ type: 'boolean', default: false })
-  isCritical: boolean;
+  isCritical!: boolean;
 
   @Column({ type: 'float', nullable: true })
   minValue?: number | null;
@@ -109,13 +109,13 @@ export class VfdRegisterMapping {
   maxValue?: number | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @CreateDateColumn({ type: 'timestamp with time zone' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamp with time zone' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 /**

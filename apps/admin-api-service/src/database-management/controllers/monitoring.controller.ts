@@ -13,15 +13,17 @@ import {
   Query,
   HttpStatus,
   HttpCode,
+  UseGuards,
 } from '@nestjs/common';
 import { DatabaseMonitoringService } from '../services/database-monitoring.service';
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 // ============================================================================
 // DTOs
 // ============================================================================
 
 class AnalyzeQueryDto {
-  query: string;
+  query!: string;
   schemaName?: string;
 }
 
@@ -30,6 +32,7 @@ class AnalyzeQueryDto {
 // ============================================================================
 
 @Controller('database/monitoring')
+@UseGuards(PlatformAdminGuard)
 export class MonitoringController {
   constructor(private readonly monitoringService: DatabaseMonitoringService) {}
 

@@ -7,6 +7,26 @@ import { AttendanceRecord, AttendanceStatus, ApprovalStatus } from '../entities/
 import { Shift } from '../entities/shift.entity';
 import { EmployeeClockedOutEvent } from '../events/attendance.events';
 
+/**
+ * Safely parse time string in HH:mm format with validation
+ * Returns [hours, minutes] or [0, 0] for invalid format
+ */
+function safeParseTime(time: string | undefined): [number, number] {
+  if (!time || typeof time !== 'string') {
+    return [0, 0];
+  }
+  const parts = time.split(':');
+  if (parts.length !== 2) {
+    return [0, 0];
+  }
+  const hours = parseInt(parts[0], 10);
+  const minutes = parseInt(parts[1], 10);
+  if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return [0, 0];
+  }
+  return [hours, minutes];
+}
+
 @CommandHandler(ClockOutCommand)
 export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
   constructor(
@@ -64,7 +84,8 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
     }
 
     if (shift) {
-      const [shiftEndHours, shiftEndMinutes] = shift.endTime.split(':').map(Number);
+      // Safely parse shift end time with validation
+      const [shiftEndHours, shiftEndMinutes] = safeParseTime(shift.endTime);
       const shiftEnd = new Date(today);
       shiftEnd.setHours(shiftEndHours, shiftEndMinutes, 0, 0);
 

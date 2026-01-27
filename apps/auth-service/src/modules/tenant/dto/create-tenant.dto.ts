@@ -18,7 +18,7 @@ export class CreateTenantInput {
   @Field()
   @IsString()
   @MaxLength(200)
-  name: string;
+  name!: string;
 
   @Field(() => String, { nullable: true })
   @IsOptional()
@@ -31,7 +31,7 @@ export class CreateTenantInput {
 
   @Field()
   @IsEmail()
-  contactEmail: string;
+  contactEmail!: string;
 
   @Field(() => String, { nullable: true })
   @IsOptional()
@@ -140,11 +140,11 @@ export class UpdateTenantInput {
 export class AssignModulesToTenantInput {
   @Field()
   @IsString()
-  tenantId: string;
+  tenantId!: string;
 
   @Field(() => [String])
   @IsString({ each: true })
-  moduleCodes: string[];
+  moduleCodes!: string[];
 }
 
 /**
@@ -154,9 +154,9 @@ export class AssignModulesToTenantInput {
 export class AssignModuleManagerInput {
   @Field()
   @IsString()
-  moduleId: string;
+  moduleId!: string;
 
   @Field()
   @IsString()
-  userId: string;
+  userId!: string;
 }

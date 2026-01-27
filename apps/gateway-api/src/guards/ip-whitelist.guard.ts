@@ -47,7 +47,7 @@ interface UserPayload {
 /**
  * Extended request interface for IP whitelist
  */
-interface IpWhitelistRequest extends Request {
+interface IpWhitelistRequest extends Omit<Request, 'connection' | 'socket'> {
   tenantId?: string;
   user?: UserPayload;
   connection?: {
@@ -76,6 +76,8 @@ export class IpWhitelistGuard implements CanActivate {
   private readonly cidrRanges: IpRange[];
   private readonly tenantWhitelists: Map<string, Set<string>>;
   private readonly enabled: boolean;
+  // SECURITY: Trusted proxies that are allowed to set X-Forwarded-For
+  private readonly trustedProxies: Set<string>;
 
   constructor(
     private readonly reflector: Reflector,
@@ -90,13 +92,18 @@ export class IpWhitelistGuard implements CanActivate {
     );
     this.tenantWhitelists = new Map();
 
+    // SECURITY: Only trust X-Forwarded-For from these proxy IPs
+    // Set TRUSTED_PROXIES env var (comma-separated) for production
+    const trustedProxiesStr = this.configService.get<string>('TRUSTED_PROXIES', '127.0.0.1,::1');
+    this.trustedProxies = new Set(trustedProxiesStr.split(',').map(ip => ip.trim()).filter(Boolean));
+
     // Always allow localhost and private networks by default
     this.globalWhitelist.add('127.0.0.1');
     this.globalWhitelist.add('::1');
     this.globalWhitelist.add('localhost');
 
     this.logger.log(
-      `IpWhitelistGuard initialized with ${this.globalWhitelist.size} whitelisted IPs and ${this.cidrRanges.length} CIDR ranges`,
+      `IpWhitelistGuard initialized with ${this.globalWhitelist.size} whitelisted IPs, ${this.cidrRanges.length} CIDR ranges, and ${this.trustedProxies.size} trusted proxies`,
     );
   }
 
@@ -164,28 +171,37 @@ export class IpWhitelistGuard implements CanActivate {
 
   /**
    * Extract client IP from request
+   * SECURITY: Only trusts X-Forwarded-For from configured trusted proxies
    */
   private extractClientIp(request: IpWhitelistRequest): string | null {
-    // Check X-Forwarded-For header (for proxied requests)
-    const forwardedFor = request.headers?.['x-forwarded-for'];
-    if (typeof forwardedFor === 'string') {
-      const ips = forwardedFor.split(',').map((ip: string) => ip.trim());
-      return ips[0] || null;
-    }
-
-    // Check X-Real-IP header
-    const realIp = request.headers?.['x-real-ip'];
-    if (typeof realIp === 'string') {
-      return realIp;
-    }
-
-    // Fall back to direct connection IP
-    return (
+    // Get the direct connection IP first
+    const directIp = this.normalizeIp(
       request.ip ||
       request.connection?.remoteAddress ||
       request.socket?.remoteAddress ||
-      null
+      ''
     );
+
+    // SECURITY: Only trust X-Forwarded-For if request comes from a trusted proxy
+    if (directIp && this.trustedProxies.has(directIp)) {
+      // Check X-Forwarded-For header (for proxied requests from trusted proxy)
+      const forwardedFor = request.headers?.['x-forwarded-for'];
+      if (typeof forwardedFor === 'string') {
+        const ips = forwardedFor.split(',').map((ip: string) => ip.trim());
+        if (ips[0]) {
+          return ips[0];
+        }
+      }
+
+      // Check X-Real-IP header (for proxied requests from trusted proxy)
+      const realIp = request.headers?.['x-real-ip'];
+      if (typeof realIp === 'string') {
+        return realIp;
+      }
+    }
+
+    // Fall back to direct connection IP (or if not from trusted proxy, ignore forwarded headers)
+    return directIp || null;
   }
 
   /**

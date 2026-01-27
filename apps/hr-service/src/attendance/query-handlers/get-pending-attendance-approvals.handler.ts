@@ -39,9 +39,9 @@ export class GetPendingAttendanceApprovalsHandler
 
     if (departmentId) {
       queryBuilder.andWhere('ar.departmentId = :departmentId', { departmentId });
-    } else if (approver?.departmentId) {
+    } else if (approver?.departmentHrId) {
       queryBuilder.andWhere('ar.departmentId = :departmentId', {
-        departmentId: approver.departmentId,
+        departmentId: approver.departmentHrId,
       });
     }
 

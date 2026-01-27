@@ -86,6 +86,8 @@ terraform.rc
 
 # Kubernetes
 *.kubeconfig
+deploy/*/secret.yaml
+deploy/**/secret.yaml
 
 # Secrets and certificates
 *.pem

@@ -136,12 +136,12 @@ export interface SiteSettings {
 export class Site {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column('uuid')
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER
@@ -149,11 +149,11 @@ export class Site {
 
   @Field()
   @Column({ length: 150 })
-  name: string;
+  name!: string;
 
   @Field()
   @Column({ length: 20 })
-  code: string;                        // Kısa kod: "BOD-01"
+  code!: string;                        // Kısa kod: "BOD-01"
 
   @Field(() => SiteType)
   @Column({
@@ -161,7 +161,7 @@ export class Site {
     enum: SiteType,
     default: SiteType.LAND_BASED,
   })
-  type: SiteType;
+  type!: SiteType;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -189,7 +189,7 @@ export class Site {
 
   @Field({ nullable: true })
   @Column({ length: 50, default: 'UTC' })
-  timezone: string;
+  timezone!: string;
 
   // -------------------------------------------------------------------------
   // KAPASİTE
@@ -253,12 +253,12 @@ export class Site {
     enum: SiteStatus,
     default: SiteStatus.ACTIVE,
   })
-  status: SiteStatus;
+  status!: SiteStatus;
 
   @Field()
   @Column({ default: true })
   @Index()
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -274,11 +274,11 @@ export class Site {
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -289,7 +289,7 @@ export class Site {
   updatedBy?: string;
 
   @VersionColumn()
-  version: number;
+  version!: number;
 
   // -------------------------------------------------------------------------
   // SOFT DELETE
@@ -298,7 +298,7 @@ export class Site {
   @Field()
   @Column({ default: false })
   @Index()
-  isDeleted: boolean;
+  isDeleted!: boolean;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })

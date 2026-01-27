@@ -104,16 +104,16 @@ export class PlcStatus {
 export class PlcTelemetry {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column()
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column()
-  plcConnectionId: string;
+  plcConnectionId!: string;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -122,27 +122,27 @@ export class PlcTelemetry {
   @Field()
   @Column()
   @Index()
-  timestamp: Date;
+  timestamp!: Date;
 
   // Sensor readings - stored as JSON
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  sensors: SensorReadings;
+  sensors!: SensorReadings;
 
   // Actuator status - stored as JSON
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  actuators: ActuatorStatus;
+  actuators!: ActuatorStatus;
 
   // Feeding status - stored as JSON
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  feeding: FeedingStatus;
+  feeding!: FeedingStatus;
 
   // PLC status - stored as JSON
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  plcStatus: PlcStatus;
+  plcStatus!: PlcStatus;
 
   // Reference to the active parameter set
   @Field({ nullable: true })
@@ -151,5 +151,5 @@ export class PlcTelemetry {
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }

@@ -24,20 +24,20 @@ export class CreateTicketInput {
   @Field()
   @IsNotEmpty()
   @IsString()
-  subject: string;
+  subject!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  description: string;
+  description!: string;
 
   @Field(() => TicketCategory)
   @IsEnum(TicketCategory)
-  category: TicketCategory;
+  category!: TicketCategory;
 
   @Field(() => TicketPriority, { defaultValue: TicketPriority.MEDIUM })
   @IsEnum(TicketPriority)
-  priority: TicketPriority;
+  priority!: TicketPriority;
 
   @Field(() => [String], { nullable: true })
   tags?: string[];
@@ -50,15 +50,15 @@ export class CreateTicketInput {
 export class AddTicketCommentInput {
   @Field()
   @IsUUID()
-  ticketId: string;
+  ticketId!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  content: string;
+  content!: string;
 
   @Field({ defaultValue: false })
-  isInternal: boolean; // Only for admins
+  isInternal!: boolean; // Only for admins
 }
 
 /**
@@ -68,11 +68,11 @@ export class AddTicketCommentInput {
 export class UpdateTicketStatusInput {
   @Field()
   @IsUUID()
-  ticketId: string;
+  ticketId!: string;
 
   @Field(() => TicketStatus)
   @IsEnum(TicketStatus)
-  status: TicketStatus;
+  status!: TicketStatus;
 }
 
 /**
@@ -82,11 +82,11 @@ export class UpdateTicketStatusInput {
 export class AssignTicketInput {
   @Field()
   @IsUUID()
-  ticketId: string;
+  ticketId!: string;
 
   @Field()
   @IsUUID()
-  assigneeId: string;
+  assigneeId!: string;
 }
 
 /**
@@ -96,12 +96,12 @@ export class AssignTicketInput {
 export class RateTicketInput {
   @Field()
   @IsUUID()
-  ticketId: string;
+  ticketId!: string;
 
   @Field(() => Int)
   @Min(1)
   @Max(5)
-  rating: number;
+  rating!: number;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -115,49 +115,49 @@ export class RateTicketInput {
 @ObjectType()
 export class TicketListItem {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  ticketNumber: string;
+  ticketNumber!: string;
 
   @Field()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
-  tenantName: string;
+  tenantName!: string;
 
   @Field()
-  subject: string;
+  subject!: string;
 
   @Field(() => TicketCategory)
-  category: TicketCategory;
+  category!: TicketCategory;
 
   @Field(() => TicketPriority)
-  priority: TicketPriority;
+  priority!: TicketPriority;
 
   @Field(() => TicketStatus)
-  status: TicketStatus;
+  status!: TicketStatus;
 
   @Field(() => String, { nullable: true })
-  assignedToName: string | null;
+  assignedToName!: string | null;
 
   @Field()
-  reportedByName: string;
+  reportedByName!: string;
 
   @Field()
-  commentCount: number;
+  commentCount!: number;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field()
-  isResponseSLABreached: boolean;
+  isResponseSLABreached!: boolean;
 
   @Field()
-  isResolutionSLABreached: boolean;
+  isResolutionSLABreached!: boolean;
 }
 
 /**
@@ -166,31 +166,31 @@ export class TicketListItem {
 @ObjectType()
 export class CommentItem {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  ticketId: string;
+  ticketId!: string;
 
   @Field()
-  authorId: string;
+  authorId!: string;
 
   @Field()
-  authorName: string;
+  authorName!: string;
 
   @Field(() => CommentAuthorType)
-  authorType: CommentAuthorType;
+  authorType!: CommentAuthorType;
 
   @Field()
-  content: string;
+  content!: string;
 
   @Field()
-  isInternal: boolean;
+  isInternal!: boolean;
 
   @Field(() => [TicketAttachment], { nullable: true })
-  attachments: TicketAttachment[] | null;
+  attachments!: TicketAttachment[] | null;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 /**
@@ -199,29 +199,29 @@ export class CommentItem {
 @ObjectType()
 export class SupportStats {
   @Field()
-  total: number;
+  total!: number;
 
   @Field()
-  open: number;
+  open!: number;
 
   @Field()
-  inProgress: number;
+  inProgress!: number;
 
   @Field()
-  waitingCustomer: number;
+  waitingCustomer!: number;
 
   @Field()
-  resolved: number;
+  resolved!: number;
 
   @Field()
-  avgResponseMinutes: number;
+  avgResponseMinutes!: number;
 
   @Field()
-  avgResolutionMinutes: number;
+  avgResolutionMinutes!: number;
 
   @Field()
-  slaComplianceRate: number;
+  slaComplianceRate!: number;
 
   @Field()
-  satisfactionAvg: number;
+  satisfactionAvg!: number;
 }

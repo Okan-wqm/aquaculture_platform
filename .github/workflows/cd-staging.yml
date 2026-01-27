@@ -44,16 +44,16 @@ jobs:
         uses: ./.github/actions/docker-build-push
         with:
           context: .
-          file: Dockerfile.frontend
+          file: infrastructure/docker/Dockerfile.frontend
           tags: ${{ env.REGISTRY }}/${{ github.repository }}/frontend:${{ env.IMAGE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      
+
       - name: Build and push backend image
         uses: ./.github/actions/docker-build-push
         with:
           context: .
-          file: Dockerfile.backend
+          file: infrastructure/docker/Dockerfile.backend
           tags: ${{ env.REGISTRY }}/${{ github.repository }}/backend:${{ env.IMAGE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

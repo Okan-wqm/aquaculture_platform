@@ -56,21 +56,21 @@ registerEnumType(TimeoutBehavior, {
 export class ProgramStep {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column({ name: 'program_id' })
   @Index()
-  programId: string;
+  programId!: string;
 
   // Step Identity
   @Field()
   @Column({ name: 'step_code', length: 30 })
-  stepCode: string;
+  stepCode!: string;
 
   @Field()
   @Column({ name: 'step_name', length: 100 })
-  stepName: string;
+  stepName!: string;
 
   @Field(() => StepType)
   @Column({
@@ -79,7 +79,7 @@ export class ProgramStep {
     enum: StepType,
     default: StepType.NORMAL,
   })
-  stepType: StepType;
+  stepType!: StepType;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -88,11 +88,11 @@ export class ProgramStep {
   // Visual Position (for editor)
   @Field(() => Int)
   @Column({ name: 'position_x', type: 'int', default: 0 })
-  positionX: number;
+  positionX!: number;
 
   @Field(() => Int)
   @Column({ name: 'position_y', type: 'int', default: 0 })
-  positionY: number;
+  positionY!: number;
 
   // IEC 61131-3 Actions (Structured Text code)
   @Field({ nullable: true, description: 'N qualifier - executed while step is active' })
@@ -124,16 +124,16 @@ export class ProgramStep {
   // Ordering
   @Field(() => Int)
   @Column({ name: 'step_order', type: 'int', default: 0 })
-  stepOrder: number;
+  stepOrder!: number;
 
   // Timestamps
   @Field()
   @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // Relations (will be resolved in GraphQL)
   @Field(() => Int, { nullable: true })

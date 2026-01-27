@@ -36,16 +36,16 @@ registerEnumType(AlarmSource, { name: 'AlarmSource' });
 export class PlcAlarm {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column()
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
   @Column()
-  plcConnectionId: string;
+  plcConnectionId!: string;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -53,19 +53,19 @@ export class PlcAlarm {
 
   @Field()
   @Column()
-  alarmCode: string; // e.g., "ALM-2026-001"
+  alarmCode!: string; // e.g., "ALM-2026-001"
 
   @Field(() => AlarmSeverity)
   @Column({ type: 'varchar' })
-  severity: AlarmSeverity;
+  severity!: AlarmSeverity;
 
   @Field(() => AlarmSource)
   @Column({ type: 'varchar' })
-  source: AlarmSource;
+  source!: AlarmSource;
 
   @Field()
   @Column()
-  message: string;
+  message!: string;
 
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 10, scale: 4, nullable: true })
@@ -82,11 +82,11 @@ export class PlcAlarm {
   @Field()
   @Column()
   @Index()
-  timestamp: Date;
+  timestamp!: Date;
 
   @Field()
   @Column({ default: false })
-  acknowledged: boolean;
+  acknowledged!: boolean;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -106,5 +106,5 @@ export class PlcAlarm {
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }

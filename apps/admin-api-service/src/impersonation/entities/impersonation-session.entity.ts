@@ -50,70 +50,70 @@ export interface ImpersonationAction {
 @Index(['createdAt'])
 export class ImpersonationSession {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  superAdminId: string;
+  superAdminId!: string;
 
   @Column({ length: 255, nullable: true })
-  superAdminEmail: string;
+  superAdminEmail?: string;
 
   @Column({ type: 'uuid' })
-  targetTenantId: string;
+  targetTenantId!: string;
 
   @Column({ length: 255, nullable: true })
-  targetTenantName: string;
+  targetTenantName?: string;
 
   @Column({ type: 'uuid', nullable: true })
-  targetUserId: string;
+  targetUserId?: string;
 
   @Column({ length: 255, nullable: true })
-  targetUserEmail: string;
+  targetUserEmail?: string;
 
   @Column({ type: 'varchar', length: 50, default: ImpersonationStatus.ACTIVE })
-  status: ImpersonationStatus;
+  status!: ImpersonationStatus;
 
   @Column({ type: 'varchar', length: 50 })
-  reason: ImpersonationReason;
+  reason!: ImpersonationReason;
 
   @Column({ type: 'text', nullable: true })
-  reasonDetails: string;
+  reasonDetails?: string;
 
   @Column({ type: 'text', nullable: true })
-  ticketReference: string;
+  ticketReference?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  permissions: ImpersonationPermissions;
+  permissions?: ImpersonationPermissions;
 
   @Column({ type: 'inet', nullable: true })
-  ipAddress: string;
+  ipAddress?: string;
 
   @Column({ type: 'text', nullable: true })
-  userAgent: string;
+  userAgent?: string;
 
   @Column({ type: 'text', nullable: true })
-  originalSessionToken: string;
+  originalSessionToken?: string;
 
   @Column({ type: 'text', nullable: true })
-  impersonationToken: string;
+  impersonationToken?: string;
 
   @Column()
-  expiresAt: Date;
+  expiresAt!: Date;
 
   @Column({ nullable: true })
-  endedAt: Date;
+  endedAt?: Date;
 
   @Column({ type: 'text', nullable: true })
-  endReason: string;
+  endReason?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  actionsPerformed: ImpersonationAction[];
+  actionsPerformed?: ImpersonationAction[];
 
   @Column({ type: 'int', default: 0 })
-  actionCount: number;
+  actionCount!: number;
 
   @Column({ type: 'jsonb', nullable: true })
-  accessedResources: Array<{
+  accessedResources?: Array<{
     type: string;
     id: string;
     action: string;
@@ -121,72 +121,72 @@ export class ImpersonationSession {
   }>;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 @Entity('impersonation_permissions')
 @Index(['superAdminId', 'isActive'])
 export class ImpersonationPermission {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  superAdminId: string;
+  superAdminId!: string;
 
   @Column({ length: 255, nullable: true })
-  superAdminEmail: string;
+  superAdminEmail?: string;
 
   @Column({ default: true })
-  canImpersonate: boolean;
+  canImpersonate!: boolean;
 
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
-  allowedTenants: string[];
+  allowedTenants?: string[];
 
   @Column({ type: 'jsonb', nullable: true })
-  restrictedTenants: string[];
+  restrictedTenants?: string[];
 
   @Column({ type: 'jsonb', nullable: true })
-  defaultPermissions: ImpersonationPermissions;
+  defaultPermissions?: ImpersonationPermissions;
 
   @Column({ type: 'int', default: 60 })
-  maxSessionDurationMinutes: number;
+  maxSessionDurationMinutes!: number;
 
   @Column({ type: 'int', default: 3 })
-  maxConcurrentSessions: number;
+  maxConcurrentSessions!: number;
 
   @Column({ default: true })
-  requireReason: boolean;
+  requireReason!: boolean;
 
   @Column({ default: false })
-  requireTicketReference: boolean;
+  requireTicketReference!: boolean;
 
   @Column({ default: true })
-  notifyTenantAdmin: boolean;
+  notifyTenantAdmin!: boolean;
 
   @Column({ type: 'uuid', nullable: true })
-  grantedBy: string;
+  grantedBy?: string;
 
   @Column({ nullable: true })
-  grantedAt: Date;
+  grantedAt?: Date;
 
   @Column({ nullable: true })
-  expiresAt: Date;
+  expiresAt?: Date;
 
   @Column({ type: 'text', nullable: true })
-  notes: string;
+  notes?: string;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

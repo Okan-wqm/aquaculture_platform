@@ -384,14 +384,14 @@ export class AuthenticationService {
     // TENANT_ADMIN has access to all tenant modules
     if (user.role === Role.TENANT_ADMIN && user.tenantId) {
       // Query tenant_modules join with modules to get all modules for this tenant
-      const tenantModules = await this.userRepository.manager.query<TenantModuleRow>(
+      const tenantModules = await this.userRepository.manager.query<TenantModuleRow[]>(
         `SELECT m.code, m.name, m."defaultRoute"
          FROM tenant_modules tm
          JOIN modules m ON tm."moduleId" = m.id
          WHERE tm."tenantId" = $1 AND tm."isEnabled" = true
          ORDER BY m.name`,
         [user.tenantId],
-      ) as TenantModuleRow[];
+      );
 
       return tenantModules.map((tm) => ({
         code: tm.code,

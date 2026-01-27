@@ -29,6 +29,8 @@ import {
 } from '@nestjs/graphql';
 import { Batch } from './batch.entity';
 // Note: Tank is referenced via string to avoid circular dependency
+// Type-only import for TypeScript type checking
+import type { Equipment } from '../../equipment/entities/equipment.entity';
 
 // ============================================================================
 // ENUMS
@@ -99,7 +101,7 @@ export class TankAllocation {
 
   @ManyToOne('Tank', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'tankId' })
-  tank: any;
+  tank?: Equipment;
 
   // Denormalized tank name for quick access
   @Field({ nullable: true })
@@ -148,7 +150,7 @@ export class TankAllocation {
 
   @ManyToOne('Tank', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'sourceTankId' })
-  sourceTank?: any;
+  sourceTank?: Equipment;
 
   // Denormalized source tank name
   @Field({ nullable: true })

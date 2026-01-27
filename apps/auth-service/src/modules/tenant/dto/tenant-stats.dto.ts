@@ -6,31 +6,31 @@ import { ObjectType, Field, Int, Float, InputType } from '@nestjs/graphql';
 @ObjectType()
 export class TenantStats {
   @Field(() => Int)
-  totalUsers: number;
+  totalUsers!: number;
 
   @Field(() => Int)
-  activeUsers: number;
+  activeUsers!: number;
 
   @Field(() => Int)
-  pendingUsers: number;
+  pendingUsers!: number;
 
   @Field(() => Int)
-  inactiveUsers: number;
+  inactiveUsers!: number;
 
   @Field(() => Int)
-  totalModules: number;
+  totalModules!: number;
 
   @Field(() => Int)
-  activeModules: number;
+  activeModules!: number;
 
   @Field(() => Int)
-  activeSessions: number;
+  activeSessions!: number;
 
   @Field(() => Float, { nullable: true })
   monthlyGrowthPercent?: number;
 
   @Field()
-  lastActivityAt: Date;
+  lastActivityAt!: Date;
 }
 
 /**
@@ -39,19 +39,19 @@ export class TenantStats {
 @ObjectType()
 export class TableInfo {
   @Field()
-  name: string;
+  name!: string;
 
   @Field(() => Int)
-  rowCount: number;
+  rowCount!: number;
 
   @Field()
-  size: string;
+  size!: string;
 
   @Field(() => Int)
-  indexCount: number;
+  indexCount!: number;
 
   @Field()
-  lastModified: Date;
+  lastModified!: Date;
 }
 
 /**
@@ -60,43 +60,43 @@ export class TableInfo {
 @ObjectType()
 export class TenantDatabaseInfo {
   @Field()
-  databaseName: string;
+  databaseName!: string;
 
   @Field()
-  schemaName: string;
+  schemaName!: string;
 
   @Field()
-  totalSize: string;
+  totalSize!: string;
 
   @Field(() => Int)
-  tableCount: number;
+  tableCount!: number;
 
   @Field()
-  status: string;
+  status!: string;
 
   @Field(() => Date, { nullable: true })
   lastBackup?: Date | null;
 
   @Field(() => Int)
-  activeConnections: number;
+  activeConnections!: number;
 
   @Field(() => Int)
-  maxConnections: number;
+  maxConnections!: number;
 
   @Field()
-  databaseType: string;
+  databaseType!: string;
 
   @Field()
-  region: string;
+  region!: string;
 
   @Field()
-  isolationLevel: string;
+  isolationLevel!: string;
 
   @Field()
-  encryption: string;
+  encryption!: string;
 
   @Field(() => [TableInfo])
-  tables: TableInfo[];
+  tables!: TableInfo[];
 }
 
 /**
@@ -105,22 +105,22 @@ export class TenantDatabaseInfo {
 @ObjectType()
 export class ColumnInfo {
   @Field()
-  columnName: string;
+  columnName!: string;
 
   @Field()
-  dataType: string;
+  dataType!: string;
 
   @Field()
-  isNullable: boolean;
+  isNullable!: boolean;
 
   @Field({ nullable: true })
   columnDefault?: string;
 
   @Field()
-  isPrimaryKey: boolean;
+  isPrimaryKey!: boolean;
 
   @Field()
-  isForeignKey: boolean;
+  isForeignKey!: boolean;
 
   @Field({ nullable: true })
   foreignKeyTable?: string;
@@ -135,16 +135,16 @@ export class ColumnInfo {
 @ObjectType()
 export class IndexInfo {
   @Field()
-  indexName: string;
+  indexName!: string;
 
   @Field()
-  columnName: string;
+  columnName!: string;
 
   @Field()
-  isUnique: boolean;
+  isUnique!: boolean;
 
   @Field()
-  isPrimary: boolean;
+  isPrimary!: boolean;
 }
 
 /**
@@ -153,16 +153,16 @@ export class IndexInfo {
 @ObjectType()
 export class TableSchemaInfo {
   @Field()
-  tableName: string;
+  tableName!: string;
 
   @Field()
-  schemaName: string;
+  schemaName!: string;
 
   @Field(() => [ColumnInfo])
-  columns: ColumnInfo[];
+  columns!: ColumnInfo[];
 
   @Field(() => [IndexInfo])
-  indexes: IndexInfo[];
+  indexes!: IndexInfo[];
 }
 
 /**
@@ -171,8 +171,8 @@ export class TableSchemaInfo {
 @InputType()
 export class TableSchemaInput {
   @Field()
-  schemaName: string;
+  schemaName!: string;
 
   @Field()
-  tableName: string;
+  tableName!: string;
 }

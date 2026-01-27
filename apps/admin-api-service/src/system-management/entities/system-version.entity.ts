@@ -48,83 +48,83 @@ export interface MigrationInfo {
 @Index(['deployedAt'])
 export class SystemVersion {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ length: 50 })
-  version: string;
+  version!: string;
 
   @Column({ type: 'int' })
-  majorVersion: number;
+  majorVersion!: number;
 
   @Column({ type: 'int' })
-  minorVersion: number;
+  minorVersion!: number;
 
   @Column({ type: 'int' })
-  patchVersion: number;
+  patchVersion!: number;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
-  preReleaseTag: string;
+  preReleaseTag?: string;
 
   @Column({ type: 'varchar', length: 50, default: ReleaseType.PATCH })
-  releaseType: ReleaseType;
+  releaseType!: ReleaseType;
 
   @Column({ type: 'varchar', length: 50, default: ReleaseStatus.DRAFT })
-  status: ReleaseStatus;
+  status!: ReleaseStatus;
 
   @Column({ length: 255 })
-  title: string;
+  title!: string;
 
   @Column({ type: 'text', nullable: true })
-  summary: string;
+  summary?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  changelog: ChangelogEntry[];
+  changelog?: ChangelogEntry[];
 
   @Column({ type: 'jsonb', nullable: true })
-  migrations: MigrationInfo[];
+  migrations?: MigrationInfo[];
 
   @Column({ type: 'jsonb', nullable: true })
-  breakingChanges: string[];
+  breakingChanges?: string[];
 
   @Column({ type: 'jsonb', nullable: true })
-  deprecations: string[];
+  deprecations?: string[];
 
   @Column({ type: 'jsonb', nullable: true })
-  newFeatures: string[];
+  newFeatures?: string[];
 
   @Column({ type: 'jsonb', nullable: true })
-  dependencies: Record<string, string>;
+  dependencies?: Record<string, string>;
 
   @Column({ type: 'text', nullable: true })
-  releaseNotes: string;
+  releaseNotes?: string;
 
   @Column({ type: 'text', nullable: true })
-  upgradeGuide: string;
+  upgradeGuide?: string;
 
   @Column({ nullable: true })
-  deployedAt: Date;
+  deployedAt?: Date;
 
   @Column({ nullable: true })
-  deployedBy: string;
+  deployedBy?: string;
 
   @Column({ type: 'int', nullable: true })
-  deploymentDurationSeconds: number;
+  deploymentDurationSeconds?: number;
 
   @Column({ type: 'jsonb', nullable: true })
-  deploymentEnvironments: Array<{
+  deploymentEnvironments?: Array<{
     name: string;
     deployedAt: Date;
     status: string;
   }>;
 
   @Column({ default: false })
-  isCurrentVersion: boolean;
+  isCurrentVersion!: boolean;
 
   @Column({ type: 'text', nullable: true })
-  previousVersion: string;
+  previousVersion?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  rollbackInfo: {
+  rollbackInfo?: {
     rolledBackAt?: Date;
     rolledBackBy?: string;
     reason?: string;
@@ -132,11 +132,11 @@ export class SystemVersion {
   };
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @Column({ nullable: true })
-  createdBy: string;
+  createdBy?: string;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }

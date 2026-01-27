@@ -11,15 +11,15 @@ import { DepartmentType } from '../entities/department.entity';
 export class OperatingTemperatureInput {
   @Field(() => Float)
   @IsNumber()
-  min: number;
+  min!: number;
 
   @Field(() => Float)
   @IsNumber()
-  max: number;
+  max!: number;
 
   @Field()
   @IsString()
-  unit: 'celsius' | 'fahrenheit';
+  unit!: 'celsius' | 'fahrenheit';
 }
 
 @InputType()
@@ -58,25 +58,25 @@ export class DepartmentSettingsInput {
 export class CreateDepartmentInput {
   @Field(() => ID)
   @IsUUID()
-  siteId: string;
+  siteId!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MinLength(2)
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
   @MinLength(2)
   @MaxLength(50)
-  code: string;
+  code!: string;
 
   @Field(() => DepartmentType)
   @IsEnum(DepartmentType)
-  type: DepartmentType;
+  type!: DepartmentType;
 
   @Field({ nullable: true })
   @IsOptional()

@@ -50,6 +50,7 @@ interface GraphQLErrorExtensions {
   tenantId?: string;
   path?: string;
   details?: unknown;
+  [key: string]: unknown;
 }
 
 /**

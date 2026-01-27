@@ -33,6 +33,9 @@ import {
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 // Note: Batch and Tank are referenced via string to avoid circular dependency
+// Type-only imports for TypeScript type checking
+import type { Batch } from '../../batch/entities/batch.entity';
+import type { Equipment } from '../../equipment/entities/equipment.entity';
 import { HarvestPlan, HarvestMethod, ProductForm } from './harvest-plan.entity';
 
 // ============================================================================
@@ -269,7 +272,7 @@ export class HarvestRecord {
 
   @ManyToOne('Batch', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'batchId' })
-  batch: any;
+  batch?: Batch;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
@@ -289,7 +292,7 @@ export class HarvestRecord {
 
   @ManyToOne('Tank', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'tankId' })
-  tank?: any;
+  tank?: Equipment;
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })

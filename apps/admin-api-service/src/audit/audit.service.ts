@@ -74,11 +74,16 @@ export class AuditLogService {
       return savedLog;
     } catch (error) {
       // Don't throw - audit logging should not break main operations
+      // Return a partial log object to indicate failure but allow main operation to continue
       this.logger.error(
         `Failed to create audit log: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      throw error;
+      // Return the unsaved log object instead of throwing
+      return this.auditLogRepository.create({
+        ...input,
+        severity: input.severity || this.determineSeverity(input.action),
+      });
     }
   }
 

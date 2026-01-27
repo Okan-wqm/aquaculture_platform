@@ -420,7 +420,6 @@ services:
     environment:
       DASHBOARD_URL: http://dashboard:80
       FARM_MODULE_URL: http://farm-module:80
-      PROCESS_EDITOR_URL: http://process-editor:80
       HR_MODULE_URL: http://hr-module:80
       SENSOR_MODULE_URL: http://sensor-module:80
       ADMIN_PANEL_URL: http://admin-panel:80
@@ -430,7 +429,6 @@ services:
     depends_on:
       - dashboard
       - farm-module
-      - process-editor
       - hr-module
       - sensor-module
       - admin-panel
@@ -457,17 +455,6 @@ services:
       args:
         MODULE_PATH: web/modules/farm-module
     container_name: aqua-farm-module
-    networks:
-      - aqua-network
-    restart: unless-stopped
-
-  process-editor:
-    build:
-      context: .
-      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
-      args:
-        MODULE_PATH: web/modules/process-editor
-    container_name: aqua-process-editor
     networks:
       - aqua-network
     restart: unless-stopped

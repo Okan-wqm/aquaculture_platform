@@ -14,7 +14,7 @@ export class CreateProcessInput {
   @Field()
   @IsString()
   @MaxLength(255)
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -64,7 +64,7 @@ export class CreateProcessInput {
 export class UpdateProcessInput {
   @Field(() => ID)
   @IsUUID()
-  processId: string;
+  processId!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -163,25 +163,25 @@ export class ProcessPaginationInput {
 @ObjectType()
 export class ProcessType {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   description?: string;
 
   @Field(() => ProcessStatus)
-  status: ProcessStatus;
+  status!: ProcessStatus;
 
   @Field(() => GraphQLJSON)
-  nodes: ProcessNode[];
+  nodes!: ProcessNode[];
 
   @Field(() => GraphQLJSON)
-  edges: ProcessEdge[];
+  edges!: ProcessEdge[];
 
   @Field()
-  tenantId: string;
+  tenantId!: string;
 
   @Field({ nullable: true })
   siteId?: string;
@@ -193,16 +193,16 @@ export class ProcessType {
   metadata?: Record<string, unknown>;
 
   @Field()
-  isTemplate: boolean;
+  isTemplate!: boolean;
 
   @Field({ nullable: true })
   templateName?: string;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   createdBy?: string;
@@ -214,7 +214,7 @@ export class ProcessType {
 @ObjectType()
 export class ProcessResultType {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field({ nullable: true })
   message?: string;
@@ -226,25 +226,25 @@ export class ProcessResultType {
 @ObjectType()
 export class ProcessListType {
   @Field(() => [ProcessType])
-  items: ProcessType[];
+  items!: ProcessType[];
 
   @Field(() => Int)
-  total: number;
+  total!: number;
 
   @Field(() => Int)
-  offset: number;
+  offset!: number;
 
   @Field(() => Int)
-  limit: number;
+  limit!: number;
 
   @Field()
-  hasMore: boolean;
+  hasMore!: boolean;
 }
 
 @ObjectType()
 export class DeleteProcessResultType {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field({ nullable: true })
   message?: string;

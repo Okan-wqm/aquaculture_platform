@@ -8,14 +8,17 @@ import {
   Controller,
   Get,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { AnalyticsService } from '../services/analytics.service';
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 // ============================================================================
 // Controller
 // ============================================================================
 
 @Controller('analytics')
+@UseGuards(PlatformAdminGuard)
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 

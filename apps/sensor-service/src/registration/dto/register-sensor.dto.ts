@@ -29,20 +29,20 @@ export class RegisterSensorInput {
   @Field()
   @IsNotEmpty()
   @IsString()
-  name: string;
+  name!: string;
 
   @Field(() => SensorType)
   @IsEnum(SensorType)
-  type: SensorType;
+  type!: SensorType;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  protocolCode: string;
+  protocolCode!: string;
 
   @Field(() => GraphQLJSON)
   @IsObject()
-  protocolConfiguration: object;
+  protocolConfiguration!: object;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -126,19 +126,19 @@ export class RegisterSensorInput {
 @InputType()
 export class UpdateSensorProtocolInput {
   @Field(() => ID)
-  sensorId: string;
+  sensorId!: string;
 
   @Field({ nullable: true })
   protocolCode?: string;
 
   @Field(() => GraphQLJSON)
-  protocolConfiguration: object;
+  protocolConfiguration!: object;
 }
 
 @InputType()
 export class UpdateSensorInfoInput {
   @Field(() => ID)
-  sensorId: string;
+  sensorId!: string;
 
   @Field({ nullable: true })
   name?: string;
@@ -191,7 +191,7 @@ export class UpdateSensorInfoInput {
 @ObjectType()
 export class SensorConnectionStatusType {
   @Field()
-  isConnected: boolean;
+  isConnected!: boolean;
 
   @Field({ nullable: true })
   lastTestedAt?: Date;
@@ -206,25 +206,25 @@ export class SensorConnectionStatusType {
 @ObjectType()
 export class RegisteredSensorType {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field(() => SensorType)
-  type: SensorType;
+  type!: SensorType;
 
   @Field()
-  protocolCode: string;
+  protocolCode!: string;
 
   @Field(() => GraphQLJSON)
-  protocolConfiguration: object;
+  protocolConfiguration!: object;
 
   @Field(() => SensorConnectionStatusType, { nullable: true })
   connectionStatus?: SensorConnectionStatusType;
 
   @Field(() => SensorRegistrationStatus)
-  registrationStatus: SensorRegistrationStatus;
+  registrationStatus!: SensorRegistrationStatus;
 
   @Field({ nullable: true })
   manufacturer?: string;
@@ -267,7 +267,7 @@ export class RegisteredSensorType {
   metadata?: object;
 
   @Field()
-  tenantId: string;
+  tenantId!: string;
 
   // Parent-child relationship fields
   @Field(() => ID, { nullable: true })
@@ -286,16 +286,16 @@ export class RegisteredSensorType {
   dataChannels?: DataChannelType[];
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 @ObjectType()
 export class SensorRegistrationResultType {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field(() => RegisteredSensorType, { nullable: true })
   sensor?: RegisteredSensorType;
@@ -313,7 +313,7 @@ export class SensorRegistrationResultType {
 @ObjectType()
 export class ConnectionTestResultType {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field({ nullable: true })
   latencyMs?: number;
@@ -325,25 +325,25 @@ export class ConnectionTestResultType {
   sampleData?: object;
 
   @Field()
-  testedAt: Date;
+  testedAt!: Date;
 }
 
 @ObjectType()
 export class SensorListType {
   @Field(() => [RegisteredSensorType])
-  items: RegisteredSensorType[];
+  items!: RegisteredSensorType[];
 
   @Field()
-  total: number;
+  total!: number;
 
   @Field()
-  page: number;
+  page!: number;
 
   @Field()
-  pageSize: number;
+  pageSize!: number;
 
   @Field()
-  totalPages: number;
+  totalPages!: number;
 }
 
 // Filter and pagination inputs
@@ -462,16 +462,16 @@ export class RegisterParentDeviceInput {
   @Field()
   @IsNotEmpty()
   @IsString()
-  name: string;
+  name!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  protocolCode: string;
+  protocolCode!: string;
 
   @Field(() => GraphQLJSON)
   @IsObject()
-  protocolConfiguration: object;
+  protocolConfiguration!: object;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -545,16 +545,16 @@ export class RegisterChildSensorInput {
   @Field()
   @IsNotEmpty()
   @IsString()
-  name: string;
+  name!: string;
 
   @Field(() => SensorType)
   @IsEnum(SensorType)
-  type: SensorType;
+  type!: SensorType;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  dataPath: string;
+  dataPath!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -604,13 +604,13 @@ export class RegisterParentWithChildrenInput {
   @Field(() => RegisterParentDeviceInput)
   @ValidateNested()
   @Type(() => RegisterParentDeviceInput)
-  parent: RegisterParentDeviceInput;
+  parent!: RegisterParentDeviceInput;
 
   @Field(() => [RegisterChildSensorInput])
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => RegisterChildSensorInput)
-  children: RegisterChildSensorInput[];
+  children!: RegisterChildSensorInput[];
 
   @Field({ nullable: true, defaultValue: false })
   @IsOptional()
@@ -659,16 +659,16 @@ export class DisplaySettingsType {
 @ObjectType()
 export class ChildSensorType {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field(() => SensorType)
-  type: SensorType;
+  type!: SensorType;
 
   @Field()
-  dataPath: string;
+  dataPath!: string;
 
   @Field({ nullable: true })
   unit?: string;
@@ -695,34 +695,34 @@ export class ChildSensorType {
   displaySettings?: DisplaySettingsType;
 
   @Field(() => SensorRegistrationStatus)
-  registrationStatus: SensorRegistrationStatus;
+  registrationStatus!: SensorRegistrationStatus;
 
   @Field()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 @ObjectType()
 export class ParentDeviceType {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  protocolCode: string;
+  protocolCode!: string;
 
   @Field(() => GraphQLJSON)
-  protocolConfiguration: object;
+  protocolConfiguration!: object;
 
   @Field(() => SensorConnectionStatusType, { nullable: true })
   connectionStatus?: SensorConnectionStatusType;
 
   @Field(() => SensorRegistrationStatus)
-  registrationStatus: SensorRegistrationStatus;
+  registrationStatus!: SensorRegistrationStatus;
 
   @Field({ nullable: true })
   manufacturer?: string;
@@ -765,19 +765,19 @@ export class ParentDeviceType {
   childSensors?: ChildSensorType[];
 
   @Field()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 @ObjectType()
 export class ParentWithChildrenResultType {
   @Field()
-  success: boolean;
+  success!: boolean;
 
   @Field(() => ParentDeviceType, { nullable: true })
   parent?: ParentDeviceType;

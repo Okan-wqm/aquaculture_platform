@@ -23,53 +23,53 @@ export enum InvoiceStatus {
 @Entity('invoices', { schema: 'public', synchronize: false })
 export class InvoiceReadOnly {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column()
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ unique: true })
-  invoiceNumber: string;
+  invoiceNumber!: string;
 
   @Column({ type: 'uuid', nullable: true })
-  subscriptionId: string | null;
+  subscriptionId!: string | null;
 
   @Column({ type: 'enum', enum: InvoiceStatus, default: InvoiceStatus.DRAFT })
-  status: InvoiceStatus;
+  status!: InvoiceStatus;
 
   @Column({ type: 'decimal', precision: 12, scale: 2 })
-  subtotal: number;
+  subtotal!: number;
 
   @Column({ type: 'decimal', precision: 12, scale: 2 })
-  total: number;
+  total!: number;
 
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
-  amountPaid: number;
+  amountPaid!: number;
 
   @Column({ type: 'decimal', precision: 12, scale: 2 })
-  amountDue: number;
+  amountDue!: number;
 
   @Column({ default: 'USD' })
-  currency: string;
+  currency!: string;
 
   @Column({ type: 'timestamptz' })
-  issueDate: Date;
+  issueDate!: Date;
 
   @Column({ type: 'timestamptz' })
-  dueDate: Date;
+  dueDate!: Date;
 
   @Column({ type: 'timestamptz', nullable: true })
-  paidAt: Date | null;
+  paidAt!: Date | null;
 
   @Column({ type: 'date' })
-  periodStart: Date;
+  periodStart!: Date;
 
   @Column({ type: 'date' })
-  periodEnd: Date;
+  periodEnd!: Date;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

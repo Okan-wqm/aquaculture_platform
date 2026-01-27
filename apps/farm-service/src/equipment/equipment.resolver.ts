@@ -24,6 +24,8 @@ import { GetEquipmentTypesQuery } from './queries/get-equipment-types.query';
 import { GetEquipmentDeletePreviewQuery } from './queries/get-equipment-delete-preview.query';
 import { DepartmentResponse } from '../department/dto/department.response';
 import { GetDepartmentQuery } from '../department/queries/get-department.query';
+import { Equipment } from './entities/equipment.entity';
+import { EquipmentSystem } from './entities/equipment-system.entity';
 
 @Resolver(() => EquipmentResponse)
 @UseGuards(TenantGuard)
@@ -169,11 +171,12 @@ export class EquipmentResolver {
    * This resolver only makes a separate query if department is not already loaded.
    */
   @ResolveField(() => DepartmentResponse, { nullable: true })
-  async department(@Parent() equipment: any): Promise<DepartmentResponse | null> {
+  async department(@Parent() equipment: Equipment): Promise<DepartmentResponse | null> {
     // If department is already loaded (e.g., from JOIN in list query), return it directly
     // This avoids a separate query that could fail due to search_path race conditions
     if (equipment.department) {
-      return equipment.department;
+      // Type assertion: Department entity is compatible with DepartmentResponse for GraphQL serialization
+      return equipment.department as unknown as DepartmentResponse;
     }
 
     // Only make a separate query if department wasn't loaded
@@ -191,10 +194,10 @@ export class EquipmentResolver {
    * Resolve systems field - maps equipmentSystems to EquipmentSystemResponse[]
    */
   @ResolveField(() => [EquipmentSystemResponse], { nullable: true })
-  systems(@Parent() equipment: any): EquipmentSystemResponse[] | null {
+  systems(@Parent() equipment: Equipment): EquipmentSystemResponse[] | null {
     if (!equipment.equipmentSystems) return null;
 
-    return equipment.equipmentSystems.map((es: any) => ({
+    return equipment.equipmentSystems.map((es: EquipmentSystem) => ({
       id: es.id,
       systemId: es.systemId,
       systemName: es.system?.name,
@@ -210,9 +213,9 @@ export class EquipmentResolver {
    * Resolve systemIds field - convenience field for form binding
    */
   @ResolveField(() => [String], { nullable: true })
-  systemIds(@Parent() equipment: any): string[] | null {
+  systemIds(@Parent() equipment: Equipment): string[] | null {
     if (!equipment.equipmentSystems) return null;
-    return equipment.equipmentSystems.map((es: any) => es.systemId);
+    return equipment.equipmentSystems.map((es: EquipmentSystem) => es.systemId);
   }
 
   /**
@@ -220,7 +223,7 @@ export class EquipmentResolver {
    * Works for equipment that can hold fish (tanks, ponds, cages)
    */
   @ResolveField(() => EquipmentBatchMetrics, { nullable: true })
-  async batchMetrics(@Parent() equipment: any): Promise<EquipmentBatchMetrics | null> {
+  async batchMetrics(@Parent() equipment: Equipment): Promise<EquipmentBatchMetrics | null> {
     // Only load for equipment that can hold fish
     if (!equipment.isTank && !equipment.canHoldFish?.()) {
       // Also check equipmentType category (handle both uppercase and lowercase)

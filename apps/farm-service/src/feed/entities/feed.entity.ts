@@ -14,6 +14,8 @@ import {
   VersionColumn,
 } from 'typeorm';
 // Note: Supplier is referenced via string to avoid circular dependency
+// Type-only import for TypeScript type checking
+import type { Supplier } from '../../supplier/entities/supplier.entity';
 
 export enum FeedType {
   STARTER = 'starter',       // Başlangıç yemi
@@ -179,7 +181,7 @@ export class Feed {
 
   @ManyToOne('Supplier', { nullable: true })
   @JoinColumn({ name: 'supplierId' })
-  supplier?: any;
+  supplier?: Supplier;
 
   @Column({
     type: 'enum',

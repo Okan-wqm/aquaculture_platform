@@ -28,66 +28,66 @@ registerEnumType(ProtocolCategory, {
 
 @ObjectType()
 class ProtocolCapabilitiesType {
-  @Field() supportsDiscovery: boolean;
-  @Field() supportsBidirectional: boolean;
-  @Field() supportsPolling: boolean;
-  @Field() supportsSubscription: boolean;
-  @Field() supportsAuthentication: boolean;
-  @Field() supportsEncryption: boolean;
-  @Field(() => [String]) supportedDataTypes: string[];
+  @Field() supportsDiscovery!: boolean;
+  @Field() supportsBidirectional!: boolean;
+  @Field() supportsPolling!: boolean;
+  @Field() supportsSubscription!: boolean;
+  @Field() supportsAuthentication!: boolean;
+  @Field() supportsEncryption!: boolean;
+  @Field(() => [String]) supportedDataTypes!: string[];
 }
 
 @ObjectType()
 class ProtocolInfoType {
-  @Field() code: string;
-  @Field() displayName: string;
-  @Field() description: string;
-  @Field(() => ProtocolCategory) category: ProtocolCategory;
-  @Field() subcategory: string;
-  @Field() connectionType: string;
-  @Field(() => ProtocolCapabilitiesType) capabilities: ProtocolCapabilitiesType;
+  @Field() code!: string;
+  @Field() displayName!: string;
+  @Field() description!: string;
+  @Field(() => ProtocolCategory) category!: ProtocolCategory;
+  @Field() subcategory!: string;
+  @Field() connectionType!: string;
+  @Field(() => ProtocolCapabilitiesType) capabilities!: ProtocolCapabilitiesType;
 }
 
 @ObjectType()
 class ProtocolSummaryType {
-  @Field() code: string;
-  @Field() name: string;
-  @Field(() => ProtocolCategory) category: ProtocolCategory;
-  @Field() subcategory: string;
+  @Field() code!: string;
+  @Field() name!: string;
+  @Field(() => ProtocolCategory) category!: ProtocolCategory;
+  @Field() subcategory!: string;
 }
 
 @ObjectType()
 class ProtocolDetailsType {
-  @Field(() => ID) id: string;
-  @Field() code: string;
-  @Field() name: string;
-  @Field(() => ProtocolCategory) category: ProtocolCategory;
-  @Field() subcategory: string;
-  @Field() connectionType: string;
-  @Field() description: string;
-  @Field(() => GraphQLJSON) configurationSchema: object;
-  @Field(() => GraphQLJSON) defaultConfiguration: object;
-  @Field() isActive: boolean;
+  @Field(() => ID) id!: string;
+  @Field() code!: string;
+  @Field() name!: string;
+  @Field(() => ProtocolCategory) category!: ProtocolCategory;
+  @Field() subcategory!: string;
+  @Field() connectionType!: string;
+  @Field() description!: string;
+  @Field(() => GraphQLJSON) configurationSchema!: object;
+  @Field(() => GraphQLJSON) defaultConfiguration!: object;
+  @Field() isActive!: boolean;
 }
 
 @ObjectType()
 class ValidationErrorType {
-  @Field() field: string;
-  @Field() message: string;
+  @Field() field!: string;
+  @Field() message!: string;
 }
 
 @ObjectType()
 class ValidationResultType {
-  @Field() isValid: boolean;
-  @Field(() => [ValidationErrorType]) errors: ValidationErrorType[];
+  @Field() isValid!: boolean;
+  @Field(() => [ValidationErrorType]) errors!: ValidationErrorType[];
 }
 
 @ObjectType()
 class SensorReadingDataType {
-  @Field() timestamp: Date;
-  @Field(() => GraphQLJSON) values: object;
-  @Field(() => Int) quality: number;
-  @Field() source: string;
+  @Field() timestamp!: Date;
+  @Field(() => GraphQLJSON) values!: object;
+  @Field(() => Int) quality!: number;
+  @Field() source!: string;
 }
 
 @ObjectType()
@@ -97,15 +97,15 @@ class ConnectionDiagnosticsType {
   @Field(() => Int, { nullable: true }) sslHandshakeMs?: number;
   @Field(() => Int, { nullable: true }) authenticationMs?: number;
   @Field(() => Int, { nullable: true }) firstByteMs?: number;
-  @Field(() => Int) totalMs: number;
+  @Field(() => Int) totalMs!: number;
 }
 
 @ObjectType()
 class ProtocolConnectionTestResultType {
-  @Field() success: boolean;
-  @Field() protocolCode: string;
-  @Field() testedAt: Date;
-  @Field(() => GraphQLJSON) configUsed: object;
+  @Field() success!: boolean;
+  @Field() protocolCode!: string;
+  @Field() testedAt!: Date;
+  @Field(() => GraphQLJSON) configUsed!: object;
   @Field(() => Int, { nullable: true }) latencyMs?: number;
   @Field({ nullable: true }) error?: string;
   @Field(() => SensorReadingDataType, { nullable: true }) sampleData?: SensorReadingDataType;
@@ -114,18 +114,18 @@ class ProtocolConnectionTestResultType {
 
 @ObjectType()
 class PingTestResultType {
-  @Field(() => Int) avgLatencyMs: number;
-  @Field(() => Int) minLatencyMs: number;
-  @Field(() => Int) maxLatencyMs: number;
-  @Field(() => Int) loss: number;
+  @Field(() => Int) avgLatencyMs!: number;
+  @Field(() => Int) minLatencyMs!: number;
+  @Field(() => Int) maxLatencyMs!: number;
+  @Field(() => Int) loss!: number;
 }
 
 @ObjectType()
 class CategoryStatsType {
-  @Field(() => Int) industrial: number;
-  @Field(() => Int) iot: number;
-  @Field(() => Int) serial: number;
-  @Field(() => Int) wireless: number;
+  @Field(() => Int) industrial!: number;
+  @Field(() => Int) iot!: number;
+  @Field(() => Int) serial!: number;
+  @Field(() => Int) wireless!: number;
 }
 
 // Input Types
@@ -133,11 +133,11 @@ class CategoryStatsType {
 class TestConnectionInput {
   @Field()
   @IsString()
-  protocolCode: string;
+  protocolCode!: string;
 
   @Field(() => GraphQLJSON)
   @IsObject()
-  config: object;
+  config!: object;
 
   @Field(() => Int, { nullable: true })
   @IsOptional()
@@ -154,11 +154,11 @@ class TestConnectionInput {
 class ValidateConfigInput {
   @Field()
   @IsString()
-  protocolCode: string;
+  protocolCode!: string;
 
   @Field(() => GraphQLJSON)
   @IsObject()
-  config: object;
+  config!: object;
 }
 
 @Resolver()

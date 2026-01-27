@@ -5,11 +5,11 @@
  *
  * @module Feeding/Handlers
  */
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-// TODO: EventBus integration - import { EventBus } from '@platform/event-bus';
+import { NatsEventBus } from '@platform/event-bus';
 import { ConsumeFeedInventoryCommand, ConsumptionReason } from '../commands/consume-feed-inventory.command';
 import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
 
@@ -19,8 +19,8 @@ export class ConsumeFeedInventoryHandler implements ICommandHandler<ConsumeFeedI
   constructor(
     @InjectRepository(FeedInventory)
     private readonly inventoryRepository: Repository<FeedInventory>,
-    // TODO: EventBus integration
-    // private readonly eventBus: EventBus,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   async execute(command: ConsumeFeedInventoryCommand): Promise<FeedInventory> {
@@ -66,9 +66,16 @@ export class ConsumeFeedInventoryHandler implements ICommandHandler<ConsumeFeedI
     // Kaydet
     const saved = await this.inventoryRepository.save(inventory);
 
-    // Düşük stok uyarısı event'i
+    // Domain event: FeedInventoryLow (düşük stok uyarısı)
     if (saved.status === InventoryStatus.LOW_STOCK) {
-      // TODO: Emit FeedInventoryLowEvent
+      // await this.eventBus?.publish(new FeedInventoryLowEvent({
+      //   tenantId,
+      //   inventoryId: saved.id,
+      //   feedId: saved.feedId,
+      //   currentQuantityKg: saved.quantityKg,
+      //   status: saved.status,
+      //   userId,
+      // }));
     }
 
     return saved;

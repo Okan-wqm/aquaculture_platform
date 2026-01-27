@@ -31,16 +31,16 @@ registerEnumType(CommentAuthorType, {
 @ObjectType()
 export class TicketAttachment {
   @Field()
-  id: string;
+  id!: string;
 
   @Field()
-  filename: string;
+  filename!: string;
 
   @Field()
-  url: string;
+  url!: string;
 
   @Field()
-  size: number;
+  size!: number;
 }
 
 /**
@@ -55,42 +55,42 @@ export class TicketAttachment {
 export class TicketComment {
   @PrimaryGeneratedColumn('uuid')
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
   @Field()
   @Index()
-  ticketId: string;
+  ticketId!: string;
 
   @ManyToOne(() => SupportTicket, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'ticketId' })
-  ticket: SupportTicket;
+  ticket!: SupportTicket;
 
   @Column({ type: 'uuid' })
   @Field()
-  authorId: string;
+  authorId!: string;
 
   @Column()
   @Field()
-  authorName: string;
+  authorName!: string;
 
   @Column({ type: 'enum', enum: CommentAuthorType })
   @Field(() => CommentAuthorType)
-  authorType: CommentAuthorType;
+  authorType!: CommentAuthorType;
 
   @Column({ type: 'text' })
   @Field()
-  content: string;
+  content!: string;
 
   @Column({ default: false })
   @Field()
-  isInternal: boolean; // Internal note - visible only to admins
+  isInternal!: boolean; // Internal note - visible only to admins
 
   @Column({ type: 'jsonb', nullable: true })
   @Field(() => [TicketAttachment], { nullable: true })
-  attachments: TicketAttachment[] | null;
+  attachments?: TicketAttachment[] | null;
 
   @CreateDateColumn()
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 }

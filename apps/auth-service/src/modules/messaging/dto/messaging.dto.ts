@@ -12,12 +12,12 @@ export class CreateThreadInput {
   @Field()
   @IsNotEmpty()
   @IsString()
-  subject: string;
+  subject!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  initialMessage: string;
+  initialMessage!: string;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -32,16 +32,16 @@ export class CreateThreadInput {
 export class SendMessageInput {
   @Field()
   @IsUUID()
-  threadId: string;
+  threadId!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  content: string;
+  content!: string;
 
   @Field({ defaultValue: false })
   @IsBoolean()
-  isInternal: boolean; // Internal note (only for admins)
+  isInternal!: boolean; // Internal note (only for admins)
 }
 
 /**
@@ -52,21 +52,21 @@ export class BulkMessageInput {
   @Field()
   @IsNotEmpty()
   @IsString()
-  subject: string;
+  subject!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
-  content: string;
+  content!: string;
 
   @Field(() => String)
-  targetType: 'all' | 'plan' | 'module' | 'region' | 'custom';
+  targetType!: 'all' | 'plan' | 'module' | 'region' | 'custom';
 
   @Field(() => [String], { nullable: true })
   targetValues?: string[]; // Plan names, module IDs, etc.
 
   @Field({ defaultValue: true })
-  sendEmailNotification: boolean;
+  sendEmailNotification!: boolean;
 }
 
 /**
@@ -75,37 +75,37 @@ export class BulkMessageInput {
 @ObjectType()
 export class ThreadListItem {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  tenantId: string;
+  tenantId!: string;
 
   @Field()
-  tenantName: string;
+  tenantName!: string;
 
   @Field()
-  subject: string;
+  subject!: string;
 
   @Field(() => String, { nullable: true })
-  lastMessage: string | null;
+  lastMessage!: string | null;
 
   @Field(() => Date, { nullable: true })
-  lastMessageAt: Date | null;
+  lastMessageAt!: Date | null;
 
   @Field()
-  unreadCount: number;
+  unreadCount!: number;
 
   @Field()
-  messageCount: number;
+  messageCount!: number;
 
   @Field(() => ThreadStatus)
-  status: ThreadStatus;
+  status!: ThreadStatus;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 /**
@@ -114,37 +114,37 @@ export class ThreadListItem {
 @ObjectType()
 export class MessageItem {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field()
-  threadId: string;
+  threadId!: string;
 
   @Field()
-  senderId: string;
+  senderId!: string;
 
   @Field(() => SenderType)
-  senderType: SenderType;
+  senderType!: SenderType;
 
   @Field()
-  senderName: string;
+  senderName!: string;
 
   @Field()
-  content: string;
+  content!: string;
 
   @Field(() => MessageStatus)
-  status: MessageStatus;
+  status!: MessageStatus;
 
   @Field()
-  isInternal: boolean;
+  isInternal!: boolean;
 
   @Field(() => [MessageAttachment], { nullable: true })
-  attachments: MessageAttachment[] | null;
+  attachments!: MessageAttachment[] | null;
 
   @Field(() => Date, { nullable: true })
-  readAt: Date | null;
+  readAt!: Date | null;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 /**
@@ -153,20 +153,20 @@ export class MessageItem {
 @ObjectType()
 export class MessagingStats {
   @Field()
-  totalThreads: number;
+  totalThreads!: number;
 
   @Field()
-  activeThreads: number;
+  activeThreads!: number;
 
   @Field()
-  closedThreads: number;
+  closedThreads!: number;
 
   @Field()
-  totalMessages: number;
+  totalMessages!: number;
 
   @Field()
-  unreadMessages: number;
+  unreadMessages!: number;
 
   @Field()
-  avgResponseTimeMinutes: number;
+  avgResponseTimeMinutes!: number;
 }

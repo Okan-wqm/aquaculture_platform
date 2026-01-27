@@ -10,7 +10,25 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  UseGuards,
+  ParseUUIDPipe,
 } from '@nestjs/common';
+import {
+  IsString,
+  IsOptional,
+  IsUUID,
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsArray,
+  IsObject,
+  Min,
+  Max,
+  MaxLength,
+  IsDateString,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { Request } from 'express';
 
 import {
@@ -22,43 +40,190 @@ import {
   ImpersonationReason,
   ImpersonationPermissions,
 } from '../entities/impersonation-session.entity';
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 // ============================================================================
-// DTOs
+// DTOs with Validation
 // ============================================================================
 
 class GrantPermissionDto {
+  @IsUUID('4', { message: 'Invalid super admin ID format' })
   superAdminId: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
   superAdminEmail?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
   allowedTenants?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
   restrictedTenants?: string[];
+
+  @IsOptional()
+  @IsObject()
   defaultPermissions?: ImpersonationPermissions;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1440) // Max 24 hours
   maxSessionDurationMinutes?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
   maxConcurrentSessions?: number;
+
+  @IsOptional()
+  @IsBoolean()
   requireReason?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   requireTicketReference?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   notifyTenantAdmin?: boolean;
+
+  @IsOptional()
+  @IsDateString()
   expiresAt?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
   notes?: string;
 }
 
 class StartImpersonationDto {
+  @IsUUID('4', { message: 'Invalid target tenant ID format' })
   targetTenantId: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
   targetTenantName?: string;
+
+  @IsOptional()
+  @IsUUID('4')
   targetUserId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
   targetUserEmail?: string;
+
+  @IsEnum(ImpersonationReason, { message: 'Invalid impersonation reason' })
   reason: ImpersonationReason;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
   reasonDetails?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   ticketReference?: string;
+
+  @IsOptional()
+  @IsObject()
   permissions?: Partial<ImpersonationPermissions>;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(480) // Max 8 hours
   durationMinutes?: number;
 }
 
 class LogActionDto {
+  @IsString()
+  @MaxLength(100)
   action: string;
+
+  @IsString()
+  @MaxLength(100)
   resource: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   resourceId?: string;
+
+  @IsOptional()
+  @IsObject()
   details?: Record<string, unknown>;
+}
+
+class QueryPermissionsDto {
+  @IsOptional()
+  @IsUUID('4')
+  tenantId?: string;
+
+  @IsOptional()
+  @IsString()
+  isActive?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+}
+
+class QuerySessionsDto {
+  @IsOptional()
+  @IsUUID('4')
+  superAdminId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  targetTenantId?: string;
+
+  @IsOptional()
+  @IsEnum(ImpersonationStatus)
+  status?: ImpersonationStatus;
+
+  @IsOptional()
+  @IsEnum(ImpersonationReason)
+  reason?: ImpersonationReason;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
 }
 
 // ============================================================================
@@ -66,6 +231,7 @@ class LogActionDto {
 // ============================================================================
 
 @Controller('impersonation')
+@UseGuards(PlatformAdminGuard)
 export class ImpersonationController {
   constructor(private readonly impersonationService: ImpersonationService) {}
 
@@ -74,17 +240,12 @@ export class ImpersonationController {
   // ============================================================================
 
   @Get('permissions')
-  async queryPermissions(
-    @Query('tenantId') tenantId?: string,
-    @Query('isActive') isActive?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
-  ) {
+  async queryPermissions(@Query() query: QueryPermissionsDto) {
     return this.impersonationService.queryPermissions({
-      tenantId,
-      isActive: isActive !== undefined ? isActive === 'true' : undefined,
-      page: page ? Number(page) : undefined,
-      limit: limit ? Number(limit) : undefined,
+      tenantId: query.tenantId,
+      isActive: query.isActive !== undefined ? query.isActive === 'true' : undefined,
+      page: query.page,
+      limit: query.limit,
     });
   }
 
@@ -96,12 +257,17 @@ export class ImpersonationController {
   @Post('permissions')
   async grantPermission(
     @Body() dto: GrantPermissionDto,
-    @Headers('x-admin-id') grantedBy: string,
+    @Req() req: Request,
   ) {
+    // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
+    const user = (req as any).user;
+    if (!user?.id) {
+      throw new Error('User not authenticated');
+    }
     return this.impersonationService.grantImpersonationPermission({
       ...dto,
       expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
-      grantedBy,
+      grantedBy: user.id,
     });
   }
 
@@ -131,13 +297,16 @@ export class ImpersonationController {
   @Post('sessions/start')
   async startImpersonation(
     @Body() dto: StartImpersonationDto,
-    @Headers('x-admin-id') superAdminId: string,
-    @Headers('x-admin-email') superAdminEmail: string,
     @Req() req: Request,
   ) {
+    // SECURITY FIX: Get admin identity from verified JWT token, not client-supplied headers
+    const user = (req as any).user;
+    if (!user?.id || !user?.email) {
+      throw new Error('User not authenticated');
+    }
     const request: StartImpersonationRequest = {
-      superAdminId,
-      superAdminEmail,
+      superAdminId: user.id,
+      superAdminEmail: user.email,
       ...dto,
       ipAddress: (req.ip || req.socket.remoteAddress) ?? undefined,
       userAgent: req.headers['user-agent'],
@@ -150,18 +319,28 @@ export class ImpersonationController {
   async endImpersonation(
     @Param('id') sessionId: string,
     @Body() dto: { reason?: string },
-    @Headers('x-admin-id') adminId: string,
+    @Req() req: Request,
   ) {
-    return this.impersonationService.endImpersonation(sessionId, dto.reason, adminId);
+    // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
+    const user = (req as any).user;
+    if (!user?.id) {
+      throw new Error('User not authenticated');
+    }
+    return this.impersonationService.endImpersonation(sessionId, dto.reason, user.id);
   }
 
   @Post('sessions/:id/terminate')
   async terminateSession(
     @Param('id') sessionId: string,
     @Body() dto: { reason: string },
-    @Headers('x-admin-id') terminatedBy: string,
+    @Req() req: Request,
   ) {
-    return this.impersonationService.terminateSession(sessionId, terminatedBy, dto.reason);
+    // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
+    const user = (req as any).user;
+    if (!user?.id) {
+      throw new Error('User not authenticated');
+    }
+    return this.impersonationService.terminateSession(sessionId, user.id, dto.reason);
   }
 
   @Get('sessions/validate')
@@ -186,25 +365,16 @@ export class ImpersonationController {
   }
 
   @Get('sessions')
-  async querySessions(
-    @Query('superAdminId') superAdminId?: string,
-    @Query('targetTenantId') targetTenantId?: string,
-    @Query('status') status?: ImpersonationStatus,
-    @Query('reason') reason?: ImpersonationReason,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
-  ) {
+  async querySessions(@Query() query: QuerySessionsDto) {
     return this.impersonationService.querySessions({
-      superAdminId,
-      targetTenantId,
-      status,
-      reason,
-      startDate: startDate ? new Date(startDate) : undefined,
-      endDate: endDate ? new Date(endDate) : undefined,
-      page: page ? Number(page) : undefined,
-      limit: limit ? Number(limit) : undefined,
+      superAdminId: query.superAdminId,
+      targetTenantId: query.targetTenantId,
+      status: query.status,
+      reason: query.reason,
+      startDate: query.startDate ? new Date(query.startDate) : undefined,
+      endDate: query.endDate ? new Date(query.endDate) : undefined,
+      page: query.page,
+      limit: query.limit,
     });
   }
 

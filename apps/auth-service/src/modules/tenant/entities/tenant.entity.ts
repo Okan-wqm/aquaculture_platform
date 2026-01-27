@@ -54,14 +54,14 @@ registerEnumType(TenantStatus, {
 export class Tenant {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   /**
    * Company/Organization name
    */
   @Field()
   @Column({ type: 'varchar', length: 255 })
-  name: string;
+  name!: string;
 
   /**
    * URL-friendly unique identifier (e.g., 'acme-corp')
@@ -69,49 +69,49 @@ export class Tenant {
    */
   @Field()
   @Column({ type: 'varchar', unique: true, length: 100 })
-  slug: string;
+  slug!: string;
 
   /**
    * Company description
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
-  description: string | null;
+  description?: string | null;
 
   /**
    * Company logo URL
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 500, nullable: true })
-  logoUrl: string | null;
+  logoUrl?: string | null;
 
   /**
    * Primary contact email
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 255, nullable: true })
-  contactEmail: string | null;
+  contactEmail?: string | null;
 
   /**
    * Primary contact phone
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 50, nullable: true })
-  contactPhone: string | null;
+  contactPhone?: string | null;
 
   /**
    * Company address
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
-  address: string | null;
+  address?: string | null;
 
   /**
    * Tax ID / Company registration number
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 100, nullable: true })
-  taxId: string | null;
+  taxId?: string | null;
 
   /**
    * Tenant status
@@ -122,7 +122,7 @@ export class Tenant {
     length: 20,
     default: TenantStatus.PENDING,
   })
-  status: TenantStatus;
+  status!: TenantStatus;
 
   /**
    * Subscription plan
@@ -133,49 +133,49 @@ export class Tenant {
     length: 20,
     default: TenantPlan.STARTER,
   })
-  plan: TenantPlan;
+  plan!: TenantPlan;
 
   /**
    * Maximum number of users allowed
    */
   @Field()
   @Column({ type: 'int', default: 5 })
-  maxUsers: number;
+  maxUsers!: number;
 
   /**
    * Trial end date (if on trial)
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'timestamp', nullable: true })
-  trialEndsAt: Date | null;
+  trialEndsAt?: Date | null;
 
   /**
    * Subscription end date
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'timestamp', nullable: true })
-  subscriptionEndsAt: Date | null;
+  subscriptionEndsAt?: Date | null;
 
   /**
    * Custom domain (if enterprise)
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 255, nullable: true })
-  customDomain: string | null;
+  customDomain?: string | null;
 
   /**
    * Tenant settings (JSON)
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
-  settings: Record<string, unknown> | null;
+  settings?: Record<string, unknown> | null;
 
   /**
    * Created by (SUPER_ADMIN user ID)
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
-  createdBy: string | null;
+  createdBy?: string | null;
 
   // ============================================
   // Timestamps
@@ -183,11 +183,11 @@ export class Tenant {
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   // ============================================
   // Helper Methods

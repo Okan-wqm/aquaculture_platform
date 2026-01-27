@@ -546,7 +546,7 @@ export class TenantService {
             const countResult: CountQueryRow[] = await this.dataSource.query(
               `SELECT COUNT(*) as cnt FROM "${tenantSchemaName}"."${row.name}"`
             );
-            rowCount = parseInt(countResult[0]?.cnt) || 0;
+            rowCount = parseInt(countResult[0]?.cnt ?? '0') || 0;
           } catch (err) {
             this.logger.debug(`Could not count ${row.name}: ${(err as Error).message}`);
           }
@@ -592,7 +592,7 @@ export class TenantService {
         tableCount: tables.length,
         status: this.dataSource.isInitialized ? 'healthy' : 'unhealthy',
         lastBackup: null,
-        activeConnections: parseInt(connResult[0]?.active) || 0,
+        activeConnections: parseInt(connResult[0]?.active ?? '0') || 0,
         maxConnections: 100,
         databaseType: dbVersion,
         region: process.env.AWS_REGION || 'Local',

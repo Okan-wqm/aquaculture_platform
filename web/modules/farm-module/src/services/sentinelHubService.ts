@@ -260,11 +260,9 @@ class TokenManager {
         // Sentinel Hub JS library için de ayarla
         setAuthToken(token);
 
-        console.log(`[TokenManager] Token yenilendi, ${Math.floor((this.expiry - Date.now()) / 60000)} dakika geçerli`);
         return token;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        console.warn(`[TokenManager] Token alma başarısız (deneme ${attempt + 1}/${maxRetries + 1}):`, lastError.message);
 
         if (attempt < maxRetries) {
           // Exponential backoff
@@ -282,7 +280,6 @@ class TokenManager {
   invalidate(): void {
     this.token = null;
     this.expiry = 0;
-    console.log('[TokenManager] Token geçersiz kılındı');
   }
 
   /**
@@ -328,9 +325,7 @@ export function getTokenStatus(): { hasToken: boolean; expiresIn: number | null 
 export async function initSentinelHub(_config?: SentinelConfig): Promise<void> {
   try {
     await tokenManager.getValidToken();
-    console.log('Sentinel Hub initialized successfully with CDSE token via backend proxy');
   } catch (error) {
-    console.error('Sentinel Hub auth failed:', error);
     throw new Error(error instanceof Error ? error.message : 'Sentinel Hub kimlik doğrulama başarısız');
   }
 }

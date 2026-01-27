@@ -12,7 +12,24 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
+import {
+  IsString,
+  IsEmail,
+  IsOptional,
+  IsUUID,
+  IsBoolean,
+  IsEnum,
+  MinLength,
+  MaxLength,
+  IsArray,
+  IsInt,
+  Min,
+  Max,
+  Matches,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { UsersService, UserFilter, PaginatedUsers } from './users.service';
 import {
   UserProvisioningService,
@@ -24,37 +41,165 @@ import {
   Permission,
   RoleTemplate,
 } from './services/role-template.service';
+import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 
-export interface CreateUserDto {
-  email: string;
-  firstName: string;
-  lastName: string;
-  password: string;
-  role: string;
+// Allowed sort fields whitelist for security
+const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'email', 'firstName', 'lastName', 'role'] as const;
+type SortField = typeof ALLOWED_SORT_FIELDS[number];
+
+export class CreateUserDto {
+  @IsEmail({}, { message: 'Invalid email format' })
+  @MaxLength(255)
+  email!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  firstName!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  lastName!: string;
+
+  @IsString()
+  @MinLength(8, { message: 'Password must be at least 8 characters' })
+  @MaxLength(128)
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, {
+    message: 'Password must contain uppercase, lowercase, number and special character',
+  })
+  password!: string;
+
+  @IsString()
+  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
+    message: 'Invalid role',
+  })
+  role!: string;
+
+  @IsOptional()
+  @IsUUID('4', { message: 'Invalid tenant ID format' })
   tenantId?: string;
 }
 
-export interface UpdateUserDto {
+export class UpdateUserDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
   firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
   lastName?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
+    message: 'Invalid role',
+  })
   role?: string;
+
+  @IsOptional()
+  @IsUUID('4', { message: 'Invalid tenant ID format' })
   tenantId?: string;
+
+  @IsOptional()
+  @IsBoolean()
   isActive?: boolean;
 }
 
-export interface InviteUserRequestDto {
-  tenantId: string;
-  email: string;
+export class InviteUserRequestDto {
+  @IsUUID('4', { message: 'Invalid tenant ID format' })
+  tenantId!: string;
+
+  @IsEmail({}, { message: 'Invalid email format' })
+  @MaxLength(255)
+  email!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   lastName?: string;
-  role: string;
+
+  @IsString()
+  @IsEnum(['TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
+    message: 'Invalid role for invitation',
+  })
+  role!: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
   moduleIds?: string[];
+
+  @IsOptional()
+  @IsUUID('4')
   primaryModuleId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
   message?: string;
-  invitedBy: string;
+
+  @IsString()
+  @MinLength(1)
+  invitedBy!: string;
+}
+
+// Query DTO for list users with validation
+export class ListUsersQueryDto {
+  @IsOptional()
+  @IsUUID('4')
+  tenantId?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'])
+  role?: string;
+
+  @IsOptional()
+  @IsEnum(['active', 'inactive', 'all'])
+  status?: 'active' | 'inactive' | 'all';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  @Matches(/^[a-zA-Z0-9@._\-\s]*$/, { message: 'Invalid search characters' })
+  search?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsEnum(ALLOWED_SORT_FIELDS, { message: 'Invalid sort field' })
+  sortBy?: SortField;
+
+  @IsOptional()
+  @IsEnum(['ASC', 'DESC'])
+  sortOrder?: 'ASC' | 'DESC';
 }
 
 @Controller('users')
+@UseGuards(PlatformAdminGuard)
 export class UsersController {
   constructor(
     private readonly usersService: UsersService,
@@ -66,29 +211,20 @@ export class UsersController {
    * Get all users across all tenants (SUPER_ADMIN only)
    */
   @Get()
-  async listUsers(
-    @Query('tenantId') tenantId?: string,
-    @Query('role') role?: string,
-    @Query('status') status?: 'active' | 'inactive' | 'all',
-    @Query('search') search?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('sortBy') sortBy?: string,
-    @Query('sortOrder') sortOrder?: 'ASC' | 'DESC',
-  ): Promise<PaginatedUsers> {
+  async listUsers(@Query() query: ListUsersQueryDto): Promise<PaginatedUsers> {
     const filter: UserFilter = {
-      tenantId,
-      role,
-      status: status || 'all',
-      search,
+      tenantId: query.tenantId,
+      role: query.role,
+      status: query.status || 'all',
+      search: query.search,
     };
 
     return this.usersService.listUsers(
       filter,
-      page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 20,
-      sortBy || 'createdAt',
-      sortOrder || 'DESC',
+      query.page || 1,
+      query.limit || 20,
+      query.sortBy || 'createdAt',
+      query.sortOrder || 'DESC',
     );
   }
 
@@ -236,22 +372,11 @@ export class UsersController {
 
   /**
    * Invite a new user to a tenant
+   * Validation is handled by class-validator decorators on InviteUserRequestDto
    */
   @Post('invite')
   @HttpCode(HttpStatus.CREATED)
   async inviteUser(@Body() dto: InviteUserRequestDto) {
-    if (!dto.tenantId) {
-      throw new BadRequestException('Tenant ID is required');
-    }
-
-    if (!dto.email) {
-      throw new BadRequestException('Email is required');
-    }
-
-    if (!dto.role) {
-      throw new BadRequestException('Role is required');
-    }
-
     const result = await this.userProvisioningService.inviteUser({
       tenantId: dto.tenantId,
       email: dto.email,

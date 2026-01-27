@@ -34,13 +34,13 @@ interface UserContext {
 // Stats type
 @ObjectType()
 class SensorStatsType {
-  @Field(() => Int) total: number;
-  @Field(() => Int) active: number;
-  @Field(() => Int) inactive: number;
-  @Field(() => Int) testing: number;
-  @Field(() => Int) failed: number;
-  @Field(() => GraphQLJSON) byType: object;
-  @Field(() => GraphQLJSON) byProtocol: object;
+  @Field(() => Int) total!: number;
+  @Field(() => Int) active!: number;
+  @Field(() => Int) inactive!: number;
+  @Field(() => Int) testing!: number;
+  @Field(() => Int) failed!: number;
+  @Field(() => GraphQLJSON) byType!: object;
+  @Field(() => GraphQLJSON) byProtocol!: object;
 }
 
 @Resolver()
@@ -341,7 +341,7 @@ export class RegistrationResolver {
       id: sensor.id,
       name: sensor.name,
       type: sensor.type,
-      dataPath: sensor.dataPath,
+      dataPath: sensor.dataPath ?? '',
       unit: sensor.unit,
       minValue: sensor.minValue,
       maxValue: sensor.maxValue,

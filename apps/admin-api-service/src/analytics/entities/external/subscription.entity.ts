@@ -43,50 +43,50 @@ export interface PlanPricing {
 @Entity('subscriptions', { schema: 'public', synchronize: false })
 export class SubscriptionReadOnly {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column()
-  tenantId: string;
+  tenantId!: string;
 
   @Column({ type: 'enum', enum: PlanTier })
-  planTier: PlanTier;
+  planTier!: PlanTier;
 
   @Column()
-  planName: string;
+  planName!: string;
 
   @Column({ type: 'enum', enum: SubscriptionStatus, default: SubscriptionStatus.TRIAL })
-  status: SubscriptionStatus;
+  status!: SubscriptionStatus;
 
   @Column({ type: 'enum', enum: BillingCycle })
-  billingCycle: BillingCycle;
+  billingCycle!: BillingCycle;
 
   @Column('jsonb')
-  pricing: PlanPricing;
+  pricing!: PlanPricing;
 
   @Column({ type: 'timestamptz' })
-  startDate: Date;
+  startDate!: Date;
 
   @Column({ type: 'timestamptz', nullable: true })
-  endDate: Date | null;
+  endDate!: Date | null;
 
   @Column({ type: 'timestamptz' })
-  currentPeriodStart: Date;
+  currentPeriodStart!: Date;
 
   @Column({ type: 'timestamptz' })
-  currentPeriodEnd: Date;
+  currentPeriodEnd!: Date;
 
   @Column({ type: 'timestamptz', nullable: true })
-  trialEndDate: Date | null;
+  trialEndDate!: Date | null;
 
   @Column({ type: 'timestamptz', nullable: true })
-  cancelledAt: Date | null;
+  cancelledAt!: Date | null;
 
   @Column({ default: true })
-  autoRenew: boolean;
+  autoRenew!: boolean;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

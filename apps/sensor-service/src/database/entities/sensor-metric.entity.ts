@@ -83,21 +83,21 @@ export class SensorMetric {
    */
   @Field()
   @PrimaryColumn({ type: 'timestamptz', name: 'time' })
-  time: Date;
+  time!: Date;
 
   @Field(() => ID)
   @PrimaryColumn('uuid', { name: 'sensor_id' })
-  sensorId: string;
+  sensorId!: string;
 
   @Field(() => ID)
   @PrimaryColumn('uuid', { name: 'channel_id' })
-  channelId: string;
+  channelId!: string;
 
   // === Tenant Identification ===
 
   @Field(() => ID)
   @Column('uuid', { name: 'tenant_id' })
-  tenantId: string;
+  tenantId!: string;
 
   // === Location Context (Denormalized for Query Performance) ===
 
@@ -136,7 +136,7 @@ export class SensorMetric {
    */
   @Field(() => Float)
   @Column('double precision', { name: 'raw_value' })
-  rawValue: number;
+  rawValue!: number;
 
   /**
    * Calibrated/processed value
@@ -144,7 +144,7 @@ export class SensorMetric {
    */
   @Field(() => Float)
   @Column('double precision', { name: 'value' })
-  value: number;
+  value!: number;
 
   // === Data Quality (OPC-UA Aligned) ===
 
@@ -156,7 +156,7 @@ export class SensorMetric {
    */
   @Field(() => Int)
   @Column('smallint', { name: 'quality_code', default: 192 })
-  qualityCode: number;
+  qualityCode!: number;
 
   /**
    * Quality bits for detailed status (bitmask):
@@ -169,7 +169,7 @@ export class SensorMetric {
    */
   @Field(() => Int)
   @Column('smallint', { name: 'quality_bits', default: 0 })
-  qualityBits: number;
+  qualityBits!: number;
 
   // === Protocol Metadata ===
 
@@ -283,22 +283,22 @@ export interface SensorMetricInput {
 @ObjectType()
 export class AggregatedMetric {
   @Field()
-  bucket: Date;
+  bucket!: Date;
 
   @Field(() => ID)
-  sensorId: string;
+  sensorId!: string;
 
   @Field(() => ID)
-  channelId: string;
+  channelId!: string;
 
   @Field(() => Float)
-  avgValue: number;
+  avgValue!: number;
 
   @Field(() => Float)
-  minValue: number;
+  minValue!: number;
 
   @Field(() => Float)
-  maxValue: number;
+  maxValue!: number;
 
   @Field(() => Float, { nullable: true })
   stddevValue?: number;
@@ -310,7 +310,7 @@ export class AggregatedMetric {
   lastValue?: number;
 
   @Field(() => Int)
-  sampleCount: number;
+  sampleCount!: number;
 
   @Field(() => Int, { nullable: true })
   goodCount?: number;

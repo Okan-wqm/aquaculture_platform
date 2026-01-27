@@ -20,31 +20,31 @@ registerEnumType(DepartmentStatus, {
 @ObjectType()
 export class DepartmentResponse {
   @Field(() => ID)
-  id: string;
+  id!: string;
 
   @Field(() => ID)
-  tenantId: string;
+  tenantId!: string;
 
-  @Field(() => ID)
-  siteId: string;
+  @Field(() => ID, { nullable: true })
+  siteId?: string;
 
   @Field(() => SiteResponse, { nullable: true })
   site?: SiteResponse;
 
   @Field()
-  name: string;
+  name!: string;
 
   @Field()
-  code: string;
+  code!: string;
 
   @Field(() => DepartmentType)
-  type: DepartmentType;
+  type!: DepartmentType;
 
   @Field({ nullable: true })
   description?: string;
 
   @Field(() => DepartmentStatus)
-  status: DepartmentStatus;
+  status!: DepartmentStatus;
 
   @Field(() => Float, { nullable: true })
   capacity?: number;
@@ -65,7 +65,7 @@ export class DepartmentResponse {
   contactPhone?: string;
 
   @Field()
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field(() => ID, { nullable: true })
   createdBy?: string;
@@ -74,26 +74,26 @@ export class DepartmentResponse {
   updatedBy?: string;
 
   @Field()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 @ObjectType()
 export class PaginatedDepartmentsResponse {
   @Field(() => [DepartmentResponse])
-  items: DepartmentResponse[];
+  items!: DepartmentResponse[];
 
   @Field(() => Int)
-  total: number;
+  total!: number;
 
   @Field(() => Int)
-  page: number;
+  page!: number;
 
   @Field(() => Int)
-  limit: number;
+  limit!: number;
 
   @Field(() => Int)
-  totalPages: number;
+  totalPages!: number;
 }

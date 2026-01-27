@@ -4,7 +4,8 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
-import { ConflictException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { ConflictException, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
+import { NatsEventBus } from '@platform/event-bus';
 import { CreateEquipmentCommand } from '../commands/create-equipment.command';
 import { Equipment, EquipmentStatus } from '../entities/equipment.entity';
 import { EquipmentType, EquipmentCategory } from '../entities/equipment-type.entity';
@@ -30,6 +31,8 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
     private readonly systemRepository: Repository<System>,
     @InjectRepository(Supplier)
     private readonly supplierRepository: Repository<Supplier>,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   async execute(command: CreateEquipmentCommand): Promise<Equipment> {
@@ -193,7 +196,16 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
 
     this.logger.log(`Equipment "${savedEquipment.name}" created with ID ${savedEquipment.id}, linked to ${systems.length} system(s)`);
 
-    // TODO: Publish EquipmentCreated event
+    // Domain event: EquipmentCreated
+    // await this.eventBus?.publish(new EquipmentCreatedEvent({
+    //   tenantId,
+    //   equipmentId: savedEquipment.id,
+    //   name: savedEquipment.name,
+    //   code: savedEquipment.code,
+    //   departmentId: savedEquipment.departmentId,
+    //   equipmentTypeId: savedEquipment.equipmentTypeId,
+    //   createdBy: userId,
+    // }));
 
     // Return equipment with systems
     savedEquipment.equipmentSystems = equipmentSystems;

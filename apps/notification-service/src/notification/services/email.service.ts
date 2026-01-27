@@ -615,7 +615,7 @@ export class EmailService {
    * Format date for display
    */
   private formatDate(date: Date): string {
-    return date.toISOString().split('T')[0];
+    return date.toISOString().split('T')[0] ?? '';
   }
 
   /**

@@ -21,17 +21,17 @@ export class CreateSensorInput {
   @IsNotEmpty()
   @MinLength(2)
   @MaxLength(100)
-  name: string;
+  name!: string;
 
   @Field()
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
-  serialNumber: string;
+  serialNumber!: string;
 
   @Field(() => SensorType)
   @IsEnum(SensorType)
-  type: SensorType;
+  type!: SensorType;
 
   @Field({ nullable: true })
   @IsString()
@@ -69,7 +69,7 @@ export class CreateSensorInput {
 export class UpdateSensorInput {
   @Field(() => ID)
   @IsUUID()
-  sensorId: string;
+  sensorId!: string;
 
   @Field({ nullable: true })
   @IsString()

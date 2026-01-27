@@ -10,6 +10,8 @@ import {
 } from 'typeorm';
 import { ObjectType, Field, ID, Float } from '@nestjs/graphql';
 // Note: Pond is referenced via string to avoid circular dependency
+// Type-only import for TypeScript type checking
+import type { Pond } from './pond.entity';
 
 /**
  * Geographic location value object
@@ -76,7 +78,7 @@ export class Farm {
   // Note: ponds relation available via TypeORM but not exposed in GraphQL
   // Use farm.ponds query in resolver instead to avoid circular type issues
   @OneToMany('Pond', 'farm', { cascade: true })
-  ponds?: any[];
+  ponds?: Pond[];
 
   @Field()
   @Column({ default: true })

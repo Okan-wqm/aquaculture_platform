@@ -54,16 +54,16 @@ registerEnumType(AlertSeverity, {
 @ObjectType('AlertCondition')
 export class AlertCondition {
   @Field()
-  parameter: string; // 'temperature', 'ph', 'dissolvedOxygen', etc.
+  parameter!: string; // 'temperature', 'ph', 'dissolvedOxygen', etc.
 
   @Field(() => AlertOperator)
-  operator: AlertOperator;
+  operator!: AlertOperator;
 
   @Field()
-  threshold: number;
+  threshold!: number;
 
   @Field(() => AlertSeverity)
-  severity: AlertSeverity;
+  severity!: AlertSeverity;
 }
 
 /**
@@ -78,11 +78,11 @@ export class AlertCondition {
 export class AlertRule {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field()
   @Column()
-  name: string;
+  name!: string;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -91,7 +91,7 @@ export class AlertRule {
   @Field()
   @Column()
   @Index()
-  tenantId: string;
+  tenantId!: string;
 
   @Field({ nullable: true })
   @Column({ nullable: true })
@@ -109,7 +109,7 @@ export class AlertRule {
 
   @Field(() => GraphQLJSON)
   @Column('jsonb')
-  conditions: AlertCondition[];
+  conditions!: AlertCondition[];
 
   @Field(() => AlertSeverity, { nullable: true })
   @Column({
@@ -122,7 +122,7 @@ export class AlertRule {
 
   @Field()
   @Column({ default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @Field(() => [String], { nullable: true })
   @Column('simple-array', { nullable: true })
@@ -134,15 +134,15 @@ export class AlertRule {
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
-  cooldownMinutes: number; // Prevent alert spam
+  cooldownMinutes!: number; // Prevent alert spam
 
   @Field()
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field()
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 
   @Field({ nullable: true })
   @Column({ nullable: true })

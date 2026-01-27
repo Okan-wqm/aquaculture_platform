@@ -21,11 +21,11 @@ export enum BatchDocumentCategory {
 export class UploadBatchDocumentDto {
   @IsNotEmpty()
   @IsString()
-  documentName: string;
+  documentName!: string;
 
   @IsNotEmpty()
   @IsEnum(BatchDocumentCategory)
-  documentCategory: BatchDocumentCategory;
+  documentCategory!: BatchDocumentCategory;
 
   @IsOptional()
   @IsString()

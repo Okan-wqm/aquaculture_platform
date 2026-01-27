@@ -35,22 +35,43 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
+      useFactory: (configService: ConfigService) => {
+        // SECURITY: Fail fast in production if database password is not configured
+        const dbPassword = configService.get<string>('DATABASE_PASSWORD');
+        if (!dbPassword && process.env['NODE_ENV'] === 'production') {
+          throw new Error('SECURITY: DATABASE_PASSWORD must be set in production');
+        }
+        return {
         type: 'postgres',
         host: configService.get('DATABASE_HOST', 'localhost'),
         port: configService.get<number>('DATABASE_PORT', 5432),
         username: configService.get('DATABASE_USER', 'postgres'),
-        password: configService.get('DATABASE_PASSWORD', 'postgres'),
+        password: dbPassword || 'postgres',
         database: configService.get('DATABASE_NAME', 'aquaculture'),
         // NOTE: Do NOT set 'schema' here! Schema is managed dynamically by TenantSchemaMiddleware
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
         synchronize: configService.get('NODE_ENV') !== 'production',
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
-        ssl:
-          configService.get('DATABASE_SSL') === 'true'
-            ? { rejectUnauthorized: false }
-            : false,
-      }),
+        // SECURITY: SSL configuration with proper certificate validation
+        ssl: (() => {
+          const sslEnabled = configService.get('DATABASE_SSL') === 'true';
+          if (!sslEnabled) return false;
+
+          const isProduction = configService.get('NODE_ENV') === 'production';
+          const caPath = configService.get<string>('DATABASE_SSL_CA');
+          const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
+
+          if (isProduction && !rejectUnauthorized && !caPath) {
+            console.warn('⚠️  WARNING: SSL certificate verification disabled in production!');
+          }
+
+          return {
+            rejectUnauthorized,
+            ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
+          };
+        })(),
+      };
+      },
     }),
 
     // GraphQL Federation
@@ -83,10 +104,13 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        url: configService.get('REDIS_URL', 'redis://localhost:6379'),
-        keyPrefix: 'alert:',
-      }),
+      useFactory: (configService: ConfigService) => {
+        const url = configService.get<string>('REDIS_URL') || 'redis://localhost:6379';
+        return {
+          url,
+          keyPrefix: 'alert:',
+        };
+      },
     }),
 
     // Feature modules

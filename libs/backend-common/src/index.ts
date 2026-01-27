@@ -20,3 +20,6 @@ export * from './database';
 
 // Redis
 export * from './redis';
+
+// Telemetry
+export * from './telemetry';

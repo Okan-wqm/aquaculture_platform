@@ -15,8 +15,10 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
 import { BackupRestoreService } from '../services/backup-restore.service';
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { BackupType, BackupStatus } from '../entities/database-management.entity';
 
 // ============================================================================
@@ -25,7 +27,7 @@ import { BackupType, BackupStatus } from '../entities/database-management.entity
 
 class CreateBackupDto {
   tenantId?: string;
-  backupType: BackupType;
+  backupType!: BackupType;
   compress?: boolean;
   encrypt?: boolean;
   retentionDays?: number;
@@ -33,15 +35,15 @@ class CreateBackupDto {
 }
 
 class RestoreBackupDto {
-  backupId: string;
+  backupId!: string;
   targetSchemaName?: string;
   tablesToRestore?: string[];
   skipValidation?: boolean;
 }
 
 class PointInTimeRecoveryDto {
-  tenantId: string;
-  targetTime: string;
+  tenantId!: string;
+  targetTime!: string;
 }
 
 // ============================================================================
@@ -49,6 +51,7 @@ class PointInTimeRecoveryDto {
 // ============================================================================
 
 @Controller('database/backups')
+@UseGuards(PlatformAdminGuard)
 export class BackupController {
   constructor(private readonly backupService: BackupRestoreService) {}
 

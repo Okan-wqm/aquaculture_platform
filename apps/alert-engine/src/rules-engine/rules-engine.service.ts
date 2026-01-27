@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, FindOptionsWhere } from 'typeorm';
 import { AlertRule, AlertCondition, AlertOperator, AlertSeverity } from '../database/entities/alert-rule.entity';
 import { RuleEvaluatorService, EvaluationContext, EvaluationResult } from './rule-evaluator.service';
 
@@ -228,7 +228,7 @@ export class RulesEngineService {
    * Get rules by tenant
    */
   async getRulesByTenant(tenantId: string, includeInactive = false): Promise<AlertRule[]> {
-    const where: any = { tenantId };
+    const where: FindOptionsWhere<AlertRule> = { tenantId };
     if (!includeInactive) {
       where.isActive = true;
     }

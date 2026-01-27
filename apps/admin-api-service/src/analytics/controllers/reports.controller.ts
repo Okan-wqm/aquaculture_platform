@@ -17,9 +17,11 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ReportsService } from '../services/reports.service';
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import {
   ReportType,
   ReportFormat,
@@ -36,18 +38,18 @@ import {
 // ============================================================================
 
 class GenerateReportDto {
-  type: ReportType;
-  format: ReportFormat;
-  startDate: string;
-  endDate: string;
+  type!: ReportType;
+  format!: ReportFormat;
+  startDate!: string;
+  endDate!: string;
   filters?: Record<string, unknown>;
   includeCharts?: boolean;
 }
 
 class CreateDefinitionDto {
-  name: string;
+  name!: string;
   description?: string;
-  type: ReportType;
+  type!: ReportType;
   defaultFormat?: ReportFormat;
   schedule?: ReportSchedule;
   defaultFilters?: Record<string, unknown>;
@@ -68,14 +70,14 @@ class UpdateDefinitionDto {
 
 class ExecuteReportDto {
   reportId?: string;
-  format: ReportFormat;
+  format!: ReportFormat;
   filters?: Record<string, unknown>;
   startDate?: string;
   endDate?: string;
 }
 
 class QuickReportDto {
-  format: ReportFormat;
+  format!: ReportFormat;
   filters?: Record<string, unknown>;
 }
 
@@ -84,6 +86,7 @@ class QuickReportDto {
 // ============================================================================
 
 @Controller('reports')
+@UseGuards(PlatformAdminGuard)
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 

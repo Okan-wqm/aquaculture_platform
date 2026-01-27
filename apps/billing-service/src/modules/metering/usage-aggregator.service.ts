@@ -294,13 +294,19 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
     try {
       // Batch upsert aggregations
       if (aggregationsToPersist.length > 0) {
-        await this.aggregationRepository.upsert(aggregationsToPersist, ['id']);
+        await this.aggregationRepository.upsert(
+          aggregationsToPersist as unknown as Parameters<typeof this.aggregationRepository.upsert>[0],
+          ['id'],
+        );
         this.dirtyAggregations.clear();
       }
 
       // Batch upsert hourly data
       if (hourlyToPersist.length > 0) {
-        await this.hourlyDataRepository.upsert(hourlyToPersist, ['id']);
+        await this.hourlyDataRepository.upsert(
+          hourlyToPersist as unknown as Parameters<typeof this.hourlyDataRepository.upsert>[0],
+          ['id'],
+        );
         this.dirtyHourlyData.clear();
       }
 

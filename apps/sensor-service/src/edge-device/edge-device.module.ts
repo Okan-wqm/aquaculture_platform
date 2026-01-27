@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { SimpleRateLimitGuard } from '../guards/rate-limit.guard';
 import { IngestionModule } from '../ingestion/ingestion.module';
 
 import { EdgeDeviceResolver } from './edge-device.resolver';
@@ -23,6 +24,7 @@ import { ProvisioningService } from './provisioning.service';
     EdgeDeviceResolver,
     ProvisioningService,
     MqttAuthService,
+    SimpleRateLimitGuard, // Rate limiting for provisioning endpoints
   ],
   exports: [EdgeDeviceService, ProvisioningService, MqttAuthService],
 })

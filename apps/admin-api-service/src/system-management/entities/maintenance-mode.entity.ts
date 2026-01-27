@@ -49,89 +49,89 @@ export interface AffectedService {
 @Index(['tenantId'])
 export class MaintenanceMode {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ length: 255 })
-  title: string;
+  title!: string;
 
   @Column({ type: 'text' })
-  description: string;
+  description!: string;
 
   @Column({ type: 'varchar', length: 50, default: MaintenanceScope.GLOBAL })
-  scope: MaintenanceScope;
+  scope!: MaintenanceScope;
 
   @Column({ type: 'varchar', length: 50, default: MaintenanceType.SCHEDULED })
-  type: MaintenanceType;
+  type!: MaintenanceType;
 
   @Column({ type: 'varchar', length: 50, default: MaintenanceStatus.SCHEDULED })
-  status: MaintenanceStatus;
+  status!: MaintenanceStatus;
 
   @Column({ type: 'uuid', nullable: true })
-  tenantId: string;
+  tenantId?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  affectedTenants: string[];
+  affectedTenants?: string[];
 
   @Column({ type: 'jsonb', nullable: true })
-  affectedServices: AffectedService[];
+  affectedServices?: AffectedService[];
 
   @Column({ type: 'jsonb', nullable: true })
-  affectedRegions: string[];
+  affectedRegions?: string[];
 
   @Column()
-  scheduledStart: Date;
+  scheduledStart!: Date;
 
   @Column({ nullable: true })
-  scheduledEnd: Date;
+  scheduledEnd?: Date;
 
   @Column({ nullable: true })
-  actualStart: Date;
+  actualStart?: Date;
 
   @Column({ nullable: true })
-  actualEnd: Date;
+  actualEnd?: Date;
 
   @Column({ type: 'int', default: 60 })
-  estimatedDurationMinutes: number;
+  estimatedDurationMinutes!: number;
 
   @Column({ type: 'text', nullable: true })
-  userMessage: string;
+  userMessage?: string;
 
   @Column({ type: 'text', nullable: true })
-  internalNotes: string;
+  internalNotes?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  notifications: MaintenanceNotification[];
+  notifications?: MaintenanceNotification[];
 
   @Column({ default: false })
-  allowReadOnlyAccess: boolean;
+  allowReadOnlyAccess!: boolean;
 
   @Column({ default: false })
-  bypassForSuperAdmins: boolean;
+  bypassForSuperAdmins!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
-  whitelistedIPs: string[];
+  whitelistedIPs?: string[];
 
   @Column({ type: 'jsonb', nullable: true })
-  whitelistedUsers: string[];
+  whitelistedUsers?: string[];
 
   @Column({ type: 'text', nullable: true })
-  bannerColor: string;
+  bannerColor?: string;
 
   @Column({ type: 'text', nullable: true })
-  bannerIcon: string;
+  bannerIcon?: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 
   @Column({ nullable: true })
-  createdBy: string;
+  createdBy?: string;
 
   @Column({ nullable: true })
-  updatedBy: string;
+  updatedBy?: string;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

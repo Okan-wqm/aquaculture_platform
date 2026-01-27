@@ -168,6 +168,7 @@ export function parseS7Address(address: string): S7Address | null {
   const dbMatch = address.match(/^DB(\d+),(\w+)(\d+)(?:\.(\d))?$/i);
   if (dbMatch) {
     const [, dbNum, dataType, offset, bit] = dbMatch;
+    if (!dbNum || !dataType || !offset) return null;
     return {
       area: S7Area.DB,
       dbNumber: parseInt(dbNum, 10),
@@ -181,6 +182,7 @@ export function parseS7Address(address: string): S7Address | null {
   const memMatch = address.match(/^([IQMC])(\w*)(\d+)(?:\.(\d))?$/i);
   if (memMatch) {
     const [, area, dataType, offset, bit] = memMatch;
+    if (!area || !offset) return null;
     return {
       area: mapArea(area),
       dataType: dataType ? mapDataType(dataType) : S7DataType.BOOL,
@@ -236,7 +238,7 @@ export function buildS7Address(addr: S7Address): string {
  */
 export async function createS7Client(): Promise<S7Client> {
   const nodes7 = await import('nodes7');
-  const client = new nodes7.default() as S7Client;
+  const client = new nodes7.default() as unknown as S7Client;
 
   // Add promise wrappers
   client.connectAsync = (options: S7ConnectionOptions): Promise<void> => {

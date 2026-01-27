@@ -7,6 +7,7 @@
  */
 
 import * as crypto from 'crypto';
+import * as bcrypt from 'bcryptjs';
 
 import {
   Injectable,
@@ -98,7 +99,20 @@ export class AuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly configService: ConfigService,
   ) {
-    this.jwtSecret = this.configService.get<string>('JWT_SECRET', 'your-secret-key');
+    // SECURITY: Fail fast in production if JWT_SECRET is not configured
+    const secret = this.configService.get<string>('JWT_SECRET');
+    const isProduction = process.env['NODE_ENV'] === 'production';
+
+    if (!secret && isProduction) {
+      throw new Error('SECURITY: JWT_SECRET environment variable must be set in production');
+    }
+
+    // In development, use a clearly marked dev secret that cannot be confused with production
+    this.jwtSecret = secret || 'DEV-ONLY-' + Date.now().toString(36) + '-NOT-FOR-PRODUCTION';
+    if (!secret) {
+      this.logger.warn('JWT_SECRET not configured - using development secret. DO NOT use in production!');
+    }
+
     this.jwtIssuer = this.configService.get<string>('JWT_ISSUER', 'aquaculture-platform');
     this.jwtAudience = this.configService
       .get<string>('JWT_AUDIENCE', 'aquaculture-api')
@@ -276,16 +290,18 @@ export class AuthGuard implements CanActivate {
 
   /**
    * Validate API key
+   * SECURITY: API keys must only be accepted from headers, never from query parameters
+   * Query parameters are logged, cached, and visible in browser history
    */
   private validateApiKey(request: AuthenticatedRequest): boolean {
-    const apiKey =
-      (request.headers['x-api-key'] as string) ||
-      (request.query['api_key'] as string);
+    // SECURITY: Only accept API key from x-api-key header
+    // Never from query parameters (would be exposed in logs, URLs, referrer headers)
+    const apiKey = request.headers['x-api-key'] as string;
 
     if (!apiKey) {
       throw new UnauthorizedException({
         code: 'MISSING_API_KEY',
-        message: 'API key is required',
+        message: 'API key is required. Use x-api-key header.',
       });
     }
 
@@ -359,8 +375,8 @@ export class AuthGuard implements CanActivate {
       });
     }
 
-    const storedPassword = this.basicAuthCredentials.get(username);
-    if (!storedPassword || storedPassword !== password) {
+    const storedPasswordHash = this.basicAuthCredentials.get(username);
+    if (!storedPasswordHash || !bcrypt.compareSync(password, storedPasswordHash)) {
       throw new UnauthorizedException({
         code: 'INVALID_CREDENTIALS',
         message: 'Invalid username or password',
@@ -446,6 +462,7 @@ export class AuthGuard implements CanActivate {
 
   /**
    * Load basic auth credentials from config
+   * Passwords are hashed before storing in memory for security
    */
   private loadBasicAuthCredentials(): void {
     const credentialsConfig = this.configService.get<string>('BASIC_AUTH_CREDENTIALS', '');
@@ -454,7 +471,9 @@ export class AuthGuard implements CanActivate {
     try {
       const credentials = JSON.parse(credentialsConfig) as Record<string, string>;
       for (const [username, password] of Object.entries(credentials)) {
-        this.basicAuthCredentials.set(username, password);
+        // Hash password before storing to avoid plaintext in memory
+        const hashedPassword = bcrypt.hashSync(password, 10);
+        this.basicAuthCredentials.set(username, hashedPassword);
       }
     } catch {
       this.logger.warn('Failed to parse basic auth credentials');

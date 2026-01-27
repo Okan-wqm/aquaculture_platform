@@ -6,11 +6,14 @@ import {
   Body,
   Param,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { SystemSettingService, UpdateSystemSettingDto } from './services/system-setting.service';
+import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 import { SettingCategory } from './entities/system-setting.entity';
 
 @Controller('settings')
+@UseGuards(PlatformAdminGuard)
 export class SettingsController {
   constructor(private readonly settingsService: SystemSettingService) {}
 

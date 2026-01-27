@@ -14,6 +14,9 @@ import {
   VersionColumn,
 } from 'typeorm';
 // Note: Supplier and EquipmentType are referenced via string to avoid circular dependency
+// Type-only imports for TypeScript type checking
+import type { EquipmentType } from '../../equipment/entities/equipment-type.entity';
+import type { Supplier } from '../../supplier/entities/supplier.entity';
 
 export enum SparePartStatus {
   IN_STOCK = 'in_stock',
@@ -65,7 +68,7 @@ export class SparePart {
 
   @ManyToOne('EquipmentType', { nullable: true })
   @JoinColumn({ name: 'equipmentTypeId' })
-  equipmentType?: any;
+  equipmentType?: EquipmentType;
 
   /**
    * Uyumlu ekipman tipleri (equipmentTypeId NULL ise)
@@ -78,7 +81,7 @@ export class SparePart {
 
   @ManyToOne('Supplier', { nullable: true })
   @JoinColumn({ name: 'supplierId' })
-  supplier?: any;
+  supplier?: Supplier;
 
   @Column({ length: 100, nullable: true })
   manufacturer?: string;

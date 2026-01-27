@@ -10,7 +10,7 @@ import {
   Unique,
 } from 'typeorm';
 import { ObjectType, Field, ID, Float, registerEnumType } from '@nestjs/graphql';
-import { Subscription } from './subscription.entity';
+import { forwardRef } from '@nestjs/common';
 
 /**
  * Status of a module within a subscription
@@ -121,9 +121,13 @@ export class SubscriptionModuleItem {
   @Column('uuid')
   subscriptionId!: string;
 
-  @ManyToOne(() => Subscription, (sub) => sub.moduleItems, { onDelete: 'CASCADE' })
+  @ManyToOne(
+    () => require('./subscription.entity').Subscription,
+    (sub: { moduleItems: unknown }) => sub.moduleItems,
+    { onDelete: 'CASCADE' },
+  )
   @JoinColumn({ name: 'subscription_id' })
-  subscription!: Subscription;
+  subscription!: import('./subscription.entity').Subscription;
 
   /**
    * Reference to system module

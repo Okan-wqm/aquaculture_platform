@@ -60,10 +60,20 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       const response = exception.getResponse();
       return {
         statusCode: exception.getStatus(),
-        message: typeof response === 'string' ? response : (response as any).message || exception.message,
+        message: typeof response === 'string'
+          ? response
+          : this.extractMessage(response) || exception.message,
       };
     }
     return { statusCode: HttpStatus.INTERNAL_SERVER_ERROR, message: exception instanceof Error ? exception.message : 'Unknown error' };
+  }
+
+  private extractMessage(response: unknown): string | undefined {
+    if (response && typeof response === 'object' && 'message' in response) {
+      const msg = (response as { message: unknown }).message;
+      return typeof msg === 'string' ? msg : undefined;
+    }
+    return undefined;
   }
 
   private getCode(statusCode: number): string {

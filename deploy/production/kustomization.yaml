@@ -1,0 +1,80 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: aquaculture-platform-production
+
+namespace: aquaculture-prod
+
+resources:
+  - ../base
+  - hpa.yaml
+  - pdb.yaml
+
+commonLabels:
+  environment: production
+
+patches:
+  # Production replicas and resources for backend
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend
+      spec:
+        replicas: 3
+        template:
+          spec:
+            containers:
+              - name: backend
+                resources:
+                  requests:
+                    cpu: 250m
+                    memory: 512Mi
+                  limits:
+                    cpu: 1000m
+                    memory: 1Gi
+  # Production replicas and resources for frontend
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: frontend
+      spec:
+        replicas: 3
+        template:
+          spec:
+            containers:
+              - name: frontend
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 128Mi
+                  limits:
+                    cpu: 500m
+                    memory: 256Mi
+  # Production ingress with rate limiting
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: aquaculture-ingress
+        annotations:
+          nginx.ingress.kubernetes.io/rate-limit: "100"
+          nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+      spec:
+        tls:
+          - hosts:
+              - app.aquaculture-platform.com
+            secretName: aquaculture-prod-tls
+        rules:
+          - host: app.aquaculture-platform.com
+
+configMapGenerator:
+  - name: aquaculture-config
+    behavior: merge
+    literals:
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+      - GRAPHQL_PLAYGROUND=false
+      - GRAPHQL_INTROSPECTION=false

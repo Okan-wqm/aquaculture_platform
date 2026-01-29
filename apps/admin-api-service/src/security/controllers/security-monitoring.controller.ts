@@ -39,19 +39,19 @@ import {
 
 class CreateSecurityEventDto {
   @IsIn(['authentication', 'authorization', 'data_access', 'system', 'threat', 'anomaly', 'policy_violation'])
-  eventType: SecurityEventType;
+  eventType!: SecurityEventType;
 
   @IsIn(['low', 'medium', 'high', 'critical'])
-  threatLevel: ThreatLevel;
+  threatLevel!: ThreatLevel;
 
   @IsString()
-  title: string;
+  title!: string;
 
   @IsString()
-  description: string;
+  description!: string;
 
   @IsString()
-  ipAddress: string;
+  ipAddress!: string;
 
   @IsOptional()
   geoLocation?: GeoLocation;
@@ -77,7 +77,7 @@ class CreateSecurityEventDto {
   targetEndpoint?: string;
 
   @IsString()
-  detectionSource: string;
+  detectionSource!: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -141,7 +141,7 @@ class QuerySecurityEventsDto {
 
 class UpdateSecurityEventStatusDto {
   @IsIn(['detected', 'investigating', 'mitigated', 'resolved', 'false_positive'])
-  status: SecurityEventStatus;
+  status!: SecurityEventStatus;
 
   @IsOptional()
   @IsString()
@@ -239,16 +239,16 @@ class QueryIncidentsDto {
 
 class AddThreatIndicatorDto {
   @IsIn(['ip', 'domain', 'url', 'email', 'file_hash', 'user_agent'])
-  indicatorType: ThreatIntelligence['indicatorType'];
+  indicatorType!: ThreatIntelligence['indicatorType'];
 
   @IsString()
-  value: string;
+  value!: string;
 
   @IsIn(['low', 'medium', 'high', 'critical'])
-  threatLevel: ThreatLevel;
+  threatLevel!: ThreatLevel;
 
   @IsString()
-  source: string;
+  source!: string;
 
   @IsOptional()
   @IsString()
@@ -297,13 +297,13 @@ class QueryThreatIntelligenceDto {
 
 class AnalyzeLoginDto {
   @IsString()
-  email: string;
+  email!: string;
 
   @IsString()
-  ipAddress: string;
+  ipAddress!: string;
 
   @IsBoolean()
-  success: boolean;
+  success!: boolean;
 
   @IsOptional()
   geoLocation?: GeoLocation;

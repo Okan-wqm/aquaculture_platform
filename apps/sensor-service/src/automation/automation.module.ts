@@ -1,8 +1,8 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { EdgeDeviceModule } from '../edge-device/edge-device.module';
-import { IngestionModule } from '../ingestion/ingestion.module';
+// SharedMqttModule is @Global, provides MqttClientService
 
 import { AutomationResolver, ProgramStepResolver } from './automation.resolver';
 import { AutomationService } from './automation.service';
@@ -32,7 +32,7 @@ import {
  * - EdgeDevice module: Programs are deployed to edge devices
  * - Process module: Variables bind to equipment nodes in process templates
  * - Sensor module: Variables can map to sensor data channels
- * - Ingestion module: MQTT communication for deployment
+ * - SharedMqttModule: MQTT communication for deployment
  */
 @Module({
   imports: [
@@ -43,8 +43,8 @@ import {
       ProgramTransition,
       ProgramVariable,
     ]),
-    forwardRef(() => EdgeDeviceModule),
-    forwardRef(() => IngestionModule),
+    EdgeDeviceModule, // For edge device service (no longer circular)
+    // MqttClientService is available via @Global SharedMqttModule
   ],
   providers: [
     AutomationService,

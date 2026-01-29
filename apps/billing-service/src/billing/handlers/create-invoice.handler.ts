@@ -1,6 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { CreateInvoiceCommand } from '../commands/create-invoice.command';
 import { Invoice, InvoiceStatus, InvoiceLineItem } from '../entities/invoice.entity';
@@ -18,15 +17,12 @@ function roundCurrency(amount: number): number {
 export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceCommand, Invoice> {
   private readonly logger = new Logger(CreateInvoiceHandler.name);
 
-  constructor(
-    @InjectRepository(Invoice)
-    private readonly invoiceRepository: Repository<Invoice>,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   async execute(command: CreateInvoiceCommand): Promise<Invoice> {
     const { tenantId, input, userId } = command;
+
+    const invoiceRepo = this.dataSource.getRepository(Invoice);
 
     // Validate line items are not empty
     if (!input.lineItems || input.lineItems.length === 0) {
@@ -68,7 +64,7 @@ export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceComman
     // Generate invoice number with collision-resistant approach
     const invoiceNumber = await this.generateInvoiceNumber(tenantId);
 
-    const invoice = this.invoiceRepository.create({
+    const invoice = invoiceRepo.create({
       tenantId,
       invoiceNumber,
       subscriptionId: input.subscriptionId,
@@ -108,7 +104,7 @@ export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceComman
       updatedBy: userId,
     });
 
-    const savedInvoice = await this.invoiceRepository.save(invoice);
+    const savedInvoice = await invoiceRepo.save(invoice);
 
     this.logger.log(
       `Invoice created: ${savedInvoice.id} (${savedInvoice.invoiceNumber}) for tenant ${tenantId}`,

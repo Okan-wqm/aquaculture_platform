@@ -106,16 +106,38 @@ export class TenantContextMiddleware implements NestMiddleware {
 
     // 4. Try from subdomain (e.g., tenant1.api.example.com)
     const host = req.hostname;
+
+    // Skip IP addresses (IPv4 and localhost)
+    if (this.isIPAddress(host)) {
+      return null;
+    }
+
     const parts = host.split('.');
     if (parts.length >= 3) {
       const subdomain = parts[0];
       // Exclude common prefixes
-      if (subdomain && !['www', 'api', 'app', 'admin'].includes(subdomain)) {
+      if (subdomain && !['www', 'api', 'app', 'admin', 'localhost'].includes(subdomain)) {
         return { tenantId: subdomain, source: 'subdomain' };
       }
     }
 
     return null;
+  }
+
+  /**
+   * Check if host is an IP address (IPv4)
+   */
+  private isIPAddress(host: string): boolean {
+    // IPv4 pattern: 4 parts, all numeric
+    const parts = host.split('.');
+    if (parts.length === 4) {
+      return parts.every(part => /^\d+$/.test(part));
+    }
+    // IPv6 or localhost
+    if (host.includes(':') || host === 'localhost') {
+      return true;
+    }
+    return false;
   }
 }
 

@@ -6,14 +6,13 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
-  Inject,
   Optional,
-  forwardRef,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
 
-import { MqttListenerService } from '../ingestion/mqtt-listener.service';
+import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
 import { DeviceIoConfig, IoType, IoDataType } from './entities/device-io-config.entity';
 import {
@@ -130,12 +129,20 @@ interface PendingPing {
 /**
  * Edge Device Service
  * Manages industrial edge controllers (Revolution Pi, Raspberry Pi, etc.)
+ *
+ * SOLID Principles:
+ * - Single Responsibility: Device lifecycle management
+ * - Open/Closed: Extensible via interfaces
+ * - Dependency Inversion: Optional MQTT injection
  */
 @Injectable()
-export class EdgeDeviceService {
+export class EdgeDeviceService implements OnModuleDestroy {
   private readonly logger = new Logger(EdgeDeviceService.name);
   private readonly pendingPings: Map<string, PendingPing> = new Map();
   private readonly PING_TIMEOUT_MS = 5000; // 5 seconds
+  private readonly CLEANUP_INTERVAL_MS = 60000; // 1 minute
+  private cleanupIntervalId: NodeJS.Timeout | null = null;
+  private isShuttingDown = false;
 
   constructor(
     @InjectRepository(EdgeDevice)
@@ -145,9 +152,87 @@ export class EdgeDeviceService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     @Optional()
-    @Inject(forwardRef(() => MqttListenerService))
-    private readonly mqttListener: MqttListenerService | null,
-  ) {}
+    private readonly mqttClient: MqttClientService | null,
+  ) {
+    // Start periodic cleanup of stale pending pings
+    this.startPendingPingsCleanup();
+  }
+
+  /**
+   * Lifecycle: Clean up resources on module destroy
+   * Prevents memory leaks from pending pings and intervals
+   */
+  async onModuleDestroy(): Promise<void> {
+    this.isShuttingDown = true;
+    this.logger.log('EdgeDeviceService shutting down...');
+
+    // Stop cleanup interval
+    if (this.cleanupIntervalId) {
+      clearInterval(this.cleanupIntervalId);
+      this.cleanupIntervalId = null;
+    }
+
+    // Clear all pending pings with rejection
+    this.clearAllPendingPings('Service shutting down');
+
+    this.logger.log('EdgeDeviceService cleanup complete');
+  }
+
+  /**
+   * Start periodic cleanup of stale pending pings
+   * Prevents memory buildup from abandoned ping requests
+   */
+  private startPendingPingsCleanup(): void {
+    this.cleanupIntervalId = setInterval(() => {
+      if (this.isShuttingDown) return;
+      this.cleanupStalePendingPings();
+    }, this.CLEANUP_INTERVAL_MS);
+
+    // Ensure interval doesn't prevent process exit
+    this.cleanupIntervalId.unref();
+  }
+
+  /**
+   * Clean up stale pending pings that exceeded timeout
+   * Safety net for pings that weren't properly cleared
+   */
+  private cleanupStalePendingPings(): void {
+    const now = Date.now();
+    const staleThreshold = this.PING_TIMEOUT_MS * 2; // 2x timeout as safety margin
+
+    for (const [commandId, pending] of this.pendingPings) {
+      if (now - pending.startTime > staleThreshold) {
+        this.logger.warn(`Cleaning up stale pending ping: ${commandId}`);
+        clearTimeout(pending.timeout);
+        this.pendingPings.delete(commandId);
+
+        // Resolve with timeout error (don't reject to avoid unhandled rejections)
+        pending.resolve({
+          success: false,
+          deviceCode: pending.deviceCode,
+          timestamp: new Date(),
+          error: 'Ping request expired (cleanup)',
+        });
+      }
+    }
+  }
+
+  /**
+   * Clear all pending pings with a specific error message
+   */
+  private clearAllPendingPings(errorMessage: string): void {
+    for (const [commandId, pending] of this.pendingPings) {
+      clearTimeout(pending.timeout);
+      pending.resolve({
+        success: false,
+        deviceCode: pending.deviceCode,
+        timestamp: new Date(),
+        error: errorMessage,
+      });
+    }
+    this.pendingPings.clear();
+    this.logger.debug(`Cleared ${this.pendingPings.size} pending pings`);
+  }
 
   /**
    * Register a new edge device
@@ -580,16 +665,16 @@ export class EdgeDeviceService {
 
   /**
    * Check if MQTT is available for commands
-   * Returns the MQTT listener if available, throws otherwise
+   * Returns the MQTT client if available, throws otherwise
    */
-  private ensureMqttAvailable(): MqttListenerService {
-    if (!this.mqttListener) {
+  private ensureMqttAvailable(): MqttClientService {
+    if (!this.mqttClient) {
       throw new BadRequestException('MQTT service not available');
     }
-    if (!this.mqttListener.isConnectedToBroker()) {
+    if (!this.mqttClient.isConnectedToBroker()) {
       throw new BadRequestException('Not connected to MQTT broker');
     }
-    return this.mqttListener;
+    return this.mqttClient;
   }
 
   /**

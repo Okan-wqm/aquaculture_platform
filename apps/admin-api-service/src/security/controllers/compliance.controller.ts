@@ -34,14 +34,14 @@ import {
 // ============================================================================
 
 class CreateDataRequestDto {
-  requestType: DataRequestType;
-  complianceFramework: ComplianceType;
-  tenantId: string;
-  tenantName: string;
+  requestType!: DataRequestType;
+  complianceFramework!: ComplianceType;
+  tenantId!: string;
+  tenantName!: string;
   requesterId?: string;
-  requesterName: string;
-  requesterEmail: string;
-  description: string;
+  requesterName!: string;
+  requesterEmail!: string;
+  description!: string;
   dataCategories?: string[];
   specificData?: string;
 }
@@ -55,13 +55,13 @@ class UpdateDataRequestDto {
 }
 
 class VerifyIdentityDto {
-  verifiedBy: string;
-  verificationMethod: string;
+  verifiedBy!: string;
+  verificationMethod!: string;
 }
 
 class CompleteDataRequestDto {
-  completedBy: string;
-  completionNotes: string;
+  completedBy!: string;
+  completionNotes!: string;
   deliveryFormat?: 'json' | 'csv' | 'pdf' | 'xml';
   downloadUrl?: string;
   downloadExpiresAt?: string;
@@ -80,12 +80,12 @@ class QueryDataRequestsDto {
 }
 
 class GenerateReportDto {
-  complianceType: ComplianceType;
-  reportPeriodStart: string;
-  reportPeriodEnd: string;
+  complianceType!: ComplianceType;
+  reportPeriodStart!: string;
+  reportPeriodEnd!: string;
   includedTenants?: string[];
-  generatedBy: string;
-  generatedByName: string;
+  generatedBy!: string;
+  generatedByName!: string;
 }
 
 class QueryReportsDto {

@@ -1,6 +1,11 @@
+# syntax=docker/dockerfile:1.4
 # =============================================================================
 # Aquaculture Platform - Backend Services Dockerfile
 # Multi-stage build for NestJS microservices
+# 
+# Optimizations:
+# - BuildKit cache mounts for npm and NX cache
+# - Use with: DOCKER_BUILDKIT=1 docker build ...
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -24,7 +29,9 @@ FROM base AS deps
 
 # Install all dependencies (including devDependencies for build)
 # Skip prepare script (husky) in Docker
-RUN npm ci --legacy-peer-deps --ignore-scripts
+# Use npm ci with BuildKit cache mount for faster subsequent builds
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm ci --legacy-peer-deps --ignore-scripts --no-audit
 
 # -----------------------------------------------------------------------------
 # Stage 3: Builder - Compile TypeScript
@@ -40,7 +47,11 @@ COPY platform/ ./platform/
 ARG SERVICE_NAME
 
 # Build the specific service using NX
-RUN npx nx build ${SERVICE_NAME} --skip-nx-cache
+# Increase Node memory limit for large builds (sensor-service has 1.4MB bundle)
+# Use NX cache mount for incremental builds
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+RUN --mount=type=cache,target=/app/.nx/cache,sharing=locked \
+    npx nx build ${SERVICE_NAME}
 
 # -----------------------------------------------------------------------------
 # Stage 4: Production dependencies only
@@ -48,7 +59,9 @@ RUN npx nx build ${SERVICE_NAME} --skip-nx-cache
 FROM base AS prod-deps
 
 # Skip prepare script (husky) in Docker
-RUN npm ci --legacy-peer-deps --omit=dev --ignore-scripts
+# Production dependencies only with BuildKit cache mount
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm ci --legacy-peer-deps --omit=dev --ignore-scripts --no-audit
 
 # -----------------------------------------------------------------------------
 # Stage 5: Production image

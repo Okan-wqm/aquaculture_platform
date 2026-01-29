@@ -246,7 +246,7 @@ export class AnnouncementService {
       }
 
       // Check target criteria
-      return this.matchesTargetCriteria(tenantId, a.targetCriteria);
+      return this.matchesTargetCriteria(tenantId, a.targetCriteria ?? null);
     });
   }
 

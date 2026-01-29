@@ -19,8 +19,8 @@ import { DebugSessionType, QueryLogType } from '../entities/debug-session.entity
 // ============================================================================
 
 class StartDebugSessionDto {
-  tenantId: string;
-  sessionType: DebugSessionType;
+  tenantId!: string;
+  sessionType!: DebugSessionType;
   configuration?: Record<string, unknown>;
   filters?: {
     startTime?: string;
@@ -37,12 +37,12 @@ class StartDebugSessionDto {
 }
 
 class CaptureQueryDto {
-  tenantId: string;
+  tenantId!: string;
   userId?: string;
-  queryType: QueryLogType;
-  query: string;
+  queryType!: QueryLogType;
+  query!: string;
   parameters?: unknown[];
-  durationMs: number;
+  durationMs!: number;
   rowsAffected?: number;
   rowsReturned?: number;
   tableName?: string;
@@ -54,18 +54,18 @@ class CaptureQueryDto {
 }
 
 class CaptureApiCallDto {
-  tenantId: string;
+  tenantId!: string;
   userId?: string;
-  method: string;
-  endpoint: string;
+  method!: string;
+  endpoint!: string;
   fullUrl?: string;
   requestHeaders?: Record<string, string>;
   requestBody?: unknown;
   queryParams?: Record<string, string>;
-  responseStatus: number;
+  responseStatus!: number;
   responseHeaders?: Record<string, string>;
   responseBody?: unknown;
-  durationMs: number;
+  durationMs!: number;
   clientIp?: string;
   userAgent?: string;
   correlationId?: string;
@@ -74,17 +74,17 @@ class CaptureApiCallDto {
 }
 
 class CreateFeatureFlagOverrideDto {
-  tenantId: string;
-  featureKey: string;
-  originalValue: unknown;
-  overrideValue: unknown;
+  tenantId!: string;
+  featureKey!: string;
+  originalValue!: unknown;
+  overrideValue!: unknown;
   reason?: string;
   expiresAt?: string;
 }
 
 class CaptureSnapshotDto {
   tenantId?: string;
-  key: string;
+  key!: string;
   value?: unknown;
   sizeBytes?: number;
   ttlSeconds?: number;

@@ -1,6 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { CancelSubscriptionCommand } from '../commands/cancel-subscription.command';
 import { Subscription, SubscriptionStatus } from '../entities/subscription.entity';
@@ -12,15 +11,14 @@ export class CancelSubscriptionHandler
 {
   private readonly logger = new Logger(CancelSubscriptionHandler.name);
 
-  constructor(
-    @InjectRepository(Subscription)
-    private readonly subscriptionRepository: Repository<Subscription>,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   async execute(command: CancelSubscriptionCommand): Promise<Subscription> {
     const { tenantId, subscriptionId, reason, userId } = command;
 
-    const subscription = await this.subscriptionRepository.findOne({
+    const subscriptionRepo = this.dataSource.getRepository(Subscription);
+
+    const subscription = await subscriptionRepo.findOne({
       where: { id: subscriptionId, tenantId },
     });
 
@@ -49,7 +47,7 @@ export class CancelSubscriptionHandler
     subscription.endDate = subscription.currentPeriodEnd; // Allow usage until end of current period
     subscription.updatedBy = userId;
 
-    const savedSubscription = await this.subscriptionRepository.save(subscription);
+    const savedSubscription = await subscriptionRepo.save(subscription);
 
     this.logger.log(
       `Subscription cancelled: ${savedSubscription.id} for tenant ${tenantId}. Reason: ${reason}`,

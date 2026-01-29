@@ -144,7 +144,7 @@ export class User {
 
   @BeforeInsert()
   @BeforeUpdate()
-  async hashPassword() {
+  async hashPassword(): Promise<void> {
     // Only hash if password exists and is not already hashed
     if (this.password && !this.password.startsWith('$2')) {
       const salt = await bcrypt.genSalt(12);

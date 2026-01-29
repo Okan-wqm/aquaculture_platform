@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RedisModule } from '@platform/backend-common';
@@ -18,7 +18,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
   imports: [
     ConfigModule,
     TypeOrmModule.forFeature([Sensor, SensorReading, SensorProtocol, SensorDataChannel]),
-    forwardRef(() => EdgeDeviceModule), // For edge device heartbeat handling
+    EdgeDeviceModule, // For edge device heartbeat handling (no longer circular)
     // Redis for sensor-topic caching (critical for MQTT message routing performance)
     RedisModule.forRootAsync({
       imports: [ConfigModule],

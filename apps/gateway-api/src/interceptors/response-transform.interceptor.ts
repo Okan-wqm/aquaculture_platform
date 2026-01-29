@@ -174,30 +174,11 @@ export class ResponseTransformInterceptor<T> implements NestInterceptor<T, ApiRe
     const path = request.originalUrl || request.url;
     const timestamp = new Date().toISOString();
 
-    // Check if data is paginated
-    const isPaginated = this.isPaginatedResponse(data);
-
     // Build meta information
     const meta: ResponseMeta = {
       processingTime,
       version: this.apiVersion,
     };
-
-    // Add pagination meta if applicable
-    if (isPaginated) {
-      const paginatedData = data as unknown as PaginatedData<unknown>;
-      const totalPages = Math.ceil(paginatedData.totalItems / paginatedData.pageSize);
-
-      meta.page = paginatedData.page;
-      meta.pageSize = paginatedData.pageSize;
-      meta.totalItems = paginatedData.totalItems;
-      meta.totalPages = totalPages;
-      meta.hasNextPage = paginatedData.page < totalPages;
-      meta.hasPreviousPage = paginatedData.page > 1;
-    }
-
-    // Build HATEOAS links
-    const links = this.buildLinks(request, data, isPaginated);
 
     // Add deprecation warning if applicable
     const deprecation = response.getHeader('Deprecation');
@@ -205,9 +186,39 @@ export class ResponseTransformInterceptor<T> implements NestInterceptor<T, ApiRe
       meta.deprecationWarning = `This endpoint is deprecated. ${String(deprecation)}`;
     }
 
+    // Check if data is paginated using type guard
+    if (this.isPaginatedResponse(data)) {
+      // Type is narrowed to PaginatedData<unknown> here
+      const totalPages = Math.ceil(data.totalItems / data.pageSize);
+
+      meta.page = data.page;
+      meta.pageSize = data.pageSize;
+      meta.totalItems = data.totalItems;
+      meta.totalPages = totalPages;
+      meta.hasNextPage = data.page < totalPages;
+      meta.hasPreviousPage = data.page > 1;
+
+      // Build HATEOAS links for paginated response
+      const links = this.buildPaginatedLinks(request, data);
+
+      return {
+        success: true,
+        // Items array from paginated response - cast to T for compatibility
+        data: data.items as T,
+        meta,
+        links,
+        timestamp,
+        requestId,
+        path,
+      };
+    }
+
+    // Non-paginated response
+    const links = this.buildNonPaginatedLinks(request);
+
     return {
       success: true,
-      data: isPaginated ? (data as unknown as PaginatedData<unknown>).items as unknown as T : data,
+      data,
       meta,
       links,
       timestamp,
@@ -217,9 +228,10 @@ export class ResponseTransformInterceptor<T> implements NestInterceptor<T, ApiRe
   }
 
   /**
-   * Check if response is paginated
+   * Type guard to check if response is paginated
+   * Returns true and narrows type to PaginatedData<unknown>
    */
-  private isPaginatedResponse(data: unknown): boolean {
+  private isPaginatedResponse(data: unknown): data is PaginatedData<unknown> {
     if (!data || typeof data !== 'object') {
       return false;
     }
@@ -229,53 +241,67 @@ export class ResponseTransformInterceptor<T> implements NestInterceptor<T, ApiRe
       'items' in paginated &&
       Array.isArray(paginated['items']) &&
       'page' in paginated &&
+      typeof paginated['page'] === 'number' &&
       'pageSize' in paginated &&
-      'totalItems' in paginated
+      typeof paginated['pageSize'] === 'number' &&
+      'totalItems' in paginated &&
+      typeof paginated['totalItems'] === 'number'
     );
   }
 
   /**
-   * Build HATEOAS links
+   * Build HATEOAS links for paginated response
+   * Uses properly typed PaginatedData parameter (no unsafe casts needed)
    */
-  private buildLinks(request: Request, data: T, isPaginated: boolean): ResponseLinks {
+  private buildPaginatedLinks(
+    request: Request,
+    paginatedData: PaginatedData<unknown>,
+  ): ResponseLinks {
     const baseUrl = this.getBaseUrl(request);
     const path = request.path;
     const links: ResponseLinks = {
       self: `${baseUrl}${request.originalUrl}`,
     };
 
-    if (isPaginated) {
-      const paginatedData = data as unknown as PaginatedData<unknown>;
-      const totalPages = Math.ceil(paginatedData.totalItems / paginatedData.pageSize);
-      const currentPage = paginatedData.page;
-      const pageSize = paginatedData.pageSize;
+    const totalPages = Math.ceil(paginatedData.totalItems / paginatedData.pageSize);
+    const currentPage = paginatedData.page;
+    const pageSize = paginatedData.pageSize;
 
-      // Build query string without page parameter
-      const queryParams = new URLSearchParams(request.query as Record<string, string>);
+    // Build query string without page parameter
+    const queryParams = new URLSearchParams(request.query as Record<string, string>);
 
-      // First page
-      queryParams.set('page', '1');
-      queryParams.set('pageSize', pageSize.toString());
-      links.first = `${baseUrl}${path}?${queryParams.toString()}`;
+    // First page
+    queryParams.set('page', '1');
+    queryParams.set('pageSize', pageSize.toString());
+    links.first = `${baseUrl}${path}?${queryParams.toString()}`;
 
-      // Last page
-      queryParams.set('page', totalPages.toString());
-      links.last = `${baseUrl}${path}?${queryParams.toString()}`;
+    // Last page
+    queryParams.set('page', totalPages.toString());
+    links.last = `${baseUrl}${path}?${queryParams.toString()}`;
 
-      // Next page
-      if (currentPage < totalPages) {
-        queryParams.set('page', (currentPage + 1).toString());
-        links.next = `${baseUrl}${path}?${queryParams.toString()}`;
-      }
+    // Next page
+    if (currentPage < totalPages) {
+      queryParams.set('page', (currentPage + 1).toString());
+      links.next = `${baseUrl}${path}?${queryParams.toString()}`;
+    }
 
-      // Previous page
-      if (currentPage > 1) {
-        queryParams.set('page', (currentPage - 1).toString());
-        links.prev = `${baseUrl}${path}?${queryParams.toString()}`;
-      }
+    // Previous page
+    if (currentPage > 1) {
+      queryParams.set('page', (currentPage - 1).toString());
+      links.prev = `${baseUrl}${path}?${queryParams.toString()}`;
     }
 
     return links;
+  }
+
+  /**
+   * Build HATEOAS links for non-paginated response
+   */
+  private buildNonPaginatedLinks(request: Request): ResponseLinks {
+    const baseUrl = this.getBaseUrl(request);
+    return {
+      self: `${baseUrl}${request.originalUrl}`,
+    };
   }
 
   /**

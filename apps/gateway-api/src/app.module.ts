@@ -26,24 +26,20 @@ import {
 import { StorageModule } from '@platform/storage';
 
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
-import { GraphQLAuthGuard } from './guards/graphql-auth.guard';
+import { AuthGuard, JwtPayload } from './guards/auth.guard';
 import { RateLimitGuard, RATE_LIMIT_STORE } from './guards/rate-limit.guard';
 import { RedisRateLimitStore } from './guards/redis-rate-limit.store';
+import {
+  TOKEN_BLACKLIST_STORE,
+  RedisTokenBlacklistStore,
+  InMemoryTokenBlacklistStore,
+} from './guards/redis-token-blacklist.store';
 import { HealthModule } from './health/health.module';
 import { RequestLoggingInterceptor } from './interceptors/request-logging.interceptor';
 import { UploadModule } from './upload/upload.module';
 import { WebSocketModule } from './websocket/websocket.module';
 
-/**
- * JWT Payload structure for decoded tokens
- */
-interface JwtPayload {
-  sub: string;
-  tenantId?: string;
-  roles?: string[];
-  iat?: number;
-  exp?: number;
-}
+// JwtPayload is imported from auth.guard.ts for consistency
 
 /**
  * Request headers structure
@@ -71,32 +67,15 @@ interface GatewayContext {
 }
 
 /**
- * Extract and decode JWT token from request
+ * SECURITY NOTE: JWT decoding moved to guard for proper verification.
+ * Context only passes through the original request reference.
+ * The guard will verify the JWT and set req.user with validated payload.
+ * willSendRequest then forwards the verified user data to subgraphs.
+ *
+ * DO NOT decode JWT without verification - it creates security risks:
+ * 1. Unverified claims could be forwarded to subgraphs
+ * 2. Attackers could craft malicious payloads that bypass validation
  */
-function decodeJwtFromRequest(req: RequestWithUser, _jwtSecret: string): JwtPayload | null {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return null;
-
-  const parts = authHeader.split(' ');
-  const type = parts[0];
-  const token = parts[1];
-  if (type !== 'Bearer' || !token) return null;
-
-  try {
-    // Simple JWT decode without verification (verification done by guard)
-    // We just need to extract the payload for forwarding
-    const tokenParts = token.split('.');
-    if (tokenParts.length !== 3) return null;
-
-    const payloadPart = tokenParts[1];
-    if (!payloadPart) return null;
-
-    const payload = JSON.parse(Buffer.from(payloadPart, 'base64').toString('utf8')) as JwtPayload;
-    return payload;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Retryable HTTP status codes for subgraph requests
@@ -178,48 +157,6 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
     }
   }
 
-  /**
-   * Handle errors with retry logic for transient failures
-   */
-  override async didReceiveResponse<TResult>({
-    response,
-    request,
-    context,
-  }: {
-    response: { http?: { status?: number }; data?: TResult; errors?: Array<{ message: string }> };
-    request: { http?: { url?: string } };
-    context: GatewayContext | Record<string, unknown>;
-  }): Promise<{ data?: TResult; errors?: Array<{ message: string }> }> {
-    const status = response.http?.status;
-    const url = request.http?.url || 'unknown';
-
-    // Log retryable errors for monitoring
-    if (status && RETRYABLE_STATUS_CODES.includes(status)) {
-      this.logger.warn(
-        `Subgraph ${url} returned ${status} - transient failure detected`,
-      );
-    }
-
-    return response;
-  }
-
-  /**
-   * Error handler with logging
-   */
-  override didEncounterError(
-    error: Error,
-    _fetchRequest: Request,
-    _fetchResponse?: Response,
-    context?: GatewayContext | Record<string, unknown>,
-  ): void {
-    const correlationId = context && 'req' in context
-      ? (context as GatewayContext).req.headers['x-correlation-id']
-      : 'unknown';
-
-    this.logger.error(
-      `Subgraph request failed [correlationId: ${correlationId}]: ${error.message}`,
-    );
-  }
 }
 
 @Module({
@@ -330,6 +267,10 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
                 name: 'billing',
                 url: configService.get('BILLING_SERVICE_URL', 'http://localhost:3006/graphql'),
               },
+              {
+                name: 'notification',
+                url: configService.get('NOTIFICATION_SERVICE_URL', 'http://localhost:3007/graphql'),
+              },
             ],
             pollIntervalInMs: 30000, // Poll for schema changes every 30 seconds
           }),
@@ -388,30 +329,19 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
               }),
             },
           ],
-          context: ({ req }: { req: { headers?: Record<string, string | undefined>; user?: JwtPayload } }): GatewayContext => {
-            // Decode JWT in context to make user available in willSendRequest
-            // Guard runs after context, so we need to decode here for forwarding
-            // NOTE: This is just for forwarding; actual validation happens in guards
-            const jwtSecret = configService.get<string>('JWT_SECRET') || 'context-decode-only';
+          context: ({ req }: { req: RequestWithUser }): GatewayContext => {
+            // SECURITY: Pass through original request reference (not a copy!)
+            // The guard will verify JWT and set req.user with validated payload
+            // willSendRequest uses the guard-verified user data from the same object
+            //
+            // IMPORTANT: We return a reference to the original req object.
+            // The guard runs AFTER context is created but BEFORE willSendRequest.
+            // By the time willSendRequest runs, req.user is populated by the guard.
+            //
+            // DO NOT decode JWT here - guard handles verification
+            // Unverified decode creates security risks if guard is bypassed
 
-            // Ensure headers object exists with proper type
-            const headers: RequestHeaders = {
-              authorization: req.headers?.['authorization'],
-              'x-tenant-id': req.headers?.['x-tenant-id'],
-              'x-correlation-id': req.headers?.['x-correlation-id'],
-            };
-
-            const requestWithUser: RequestWithUser = {
-              headers,
-              user: req.user,
-            };
-
-            const user = decodeJwtFromRequest(requestWithUser, jwtSecret);
-            if (user) {
-              requestWithUser.user = user;
-            }
-
-            return { req: requestWithUser };
+            return { req };
           },
         },
       }),
@@ -460,10 +390,12 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
     },
-    // Global auth guard
+    // Global auth guard (supports JWT, API key, and basic auth)
+    // SECURITY: AuthGuard performs proper JWT signature verification
+    // with timing-safe comparison and supports token blacklisting
     {
       provide: APP_GUARD,
-      useClass: GraphQLAuthGuard,
+      useClass: AuthGuard,
     },
     // Rate limiting guard
     {
@@ -476,6 +408,20 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       provide: RATE_LIMIT_STORE,
       useFactory: (redisService: RedisService) => new RedisRateLimitStore(redisService),
       inject: [RedisService],
+    },
+    // Redis-based token blacklist store for distributed token revocation
+    // Falls back to in-memory if Redis is unavailable
+    // SECURITY: Required for proper logout and token revocation across instances
+    {
+      provide: TOKEN_BLACKLIST_STORE,
+      useFactory: (redisService: RedisService, configService: ConfigService) => {
+        const useRedis = configService.get<string>('TOKEN_BLACKLIST_USE_REDIS', 'true') === 'true';
+        if (useRedis && redisService) {
+          return new RedisTokenBlacklistStore(redisService);
+        }
+        return new InMemoryTokenBlacklistStore();
+      },
+      inject: [RedisService, ConfigService],
     },
     // Request logging interceptor
     {

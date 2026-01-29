@@ -100,7 +100,7 @@ async function bootstrap() {
   // Graceful shutdown
   app.enableShutdownHooks();
 
-  const port = configService.get<number>('PORT', 3006);
+  const port = configService.get<number>('HR_SERVICE_PORT', 4006);
 
   await app.listen(port);
 

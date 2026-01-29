@@ -1,0 +1,201 @@
+# =============================================================================
+# Aquaculture Platform - Docker Compose Watch Configuration
+# Provides hot-reload development experience with Docker Compose Watch
+#
+# Usage:
+#   docker compose -f docker-compose.watch.yml up --watch
+#
+# Features:
+#   - Automatic file sync for source code changes
+#   - Container rebuild on dependency changes
+#   - Fast iteration without manual rebuilds
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Infrastructure (from infra file)
+  # ---------------------------------------------------------------------------
+  postgres:
+    extends:
+      file: docker-compose.infra.yml
+      service: postgres
+
+  redis:
+    extends:
+      file: docker-compose.infra.yml
+      service: redis
+
+  nats:
+    extends:
+      file: docker-compose.infra.yml
+      service: nats
+
+  # ---------------------------------------------------------------------------
+  # Auth Service (Development Mode)
+  # ---------------------------------------------------------------------------
+  auth-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend.dev
+      args:
+        SERVICE_NAME: auth-service
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgres://aquaculture:devpassword@postgres:5432/aquaculture
+      - REDIS_URL=redis://:devpassword@redis:6379
+      - NATS_URL=nats://nats:4222
+      - JWT_SECRET=dev-jwt-secret-change-in-production
+      - PORT=3000
+    ports:
+      - "3001:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/auth-service/src
+          target: /app/apps/auth-service/src
+        - action: sync
+          path: ./libs
+          target: /app/libs
+        - action: rebuild
+          path: ./package.json
+
+  # ---------------------------------------------------------------------------
+  # Farm Service (Development Mode)
+  # ---------------------------------------------------------------------------
+  farm-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend.dev
+      args:
+        SERVICE_NAME: farm-service
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgres://aquaculture:devpassword@postgres:5432/aquaculture
+      - NATS_URL=nats://nats:4222
+      - PORT=3000
+    ports:
+      - "3002:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/farm-service/src
+          target: /app/apps/farm-service/src
+        - action: sync
+          path: ./libs
+          target: /app/libs
+        - action: rebuild
+          path: ./package.json
+
+  # ---------------------------------------------------------------------------
+  # Sensor Service (Development Mode)
+  # ---------------------------------------------------------------------------
+  sensor-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend.dev
+      args:
+        SERVICE_NAME: sensor-service
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgres://aquaculture:devpassword@postgres:5432/aquaculture
+      - REDIS_URL=redis://:devpassword@redis:6379
+      - NATS_URL=nats://nats:4222
+      - PORT=3000
+    ports:
+      - "3003:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/sensor-service/src
+          target: /app/apps/sensor-service/src
+        - action: sync
+          path: ./libs
+          target: /app/libs
+        - action: rebuild
+          path: ./package.json
+
+  # ---------------------------------------------------------------------------
+  # HR Service (Development Mode)
+  # ---------------------------------------------------------------------------
+  hr-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend.dev
+      args:
+        SERVICE_NAME: hr-service
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgres://aquaculture:devpassword@postgres:5432/aquaculture
+      - NATS_URL=nats://nats:4222
+      - PORT=3000
+    ports:
+      - "3005:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/hr-service/src
+          target: /app/apps/hr-service/src
+        - action: sync
+          path: ./libs
+          target: /app/libs
+        - action: rebuild
+          path: ./package.json
+
+  # ---------------------------------------------------------------------------
+  # Gateway API (Development Mode)
+  # ---------------------------------------------------------------------------
+  gateway-api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend.dev
+      args:
+        SERVICE_NAME: gateway-api
+    environment:
+      - NODE_ENV=development
+      - AUTH_SERVICE_URL=http://auth-service:3000/graphql
+      - FARM_SERVICE_URL=http://farm-service:3000/graphql
+      - SENSOR_SERVICE_URL=http://sensor-service:3000/graphql
+      - HR_SERVICE_URL=http://hr-service:3000/graphql
+      - REDIS_URL=redis://:devpassword@redis:6379
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - auth-service
+      - farm-service
+      - sensor-service
+      - hr-service
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/gateway-api/src
+          target: /app/apps/gateway-api/src
+        - action: sync
+          path: ./libs
+          target: /app/libs
+        - action: rebuild
+          path: ./package.json

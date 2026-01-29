@@ -88,6 +88,30 @@ export class VfdPaginationDto {
 }
 
 /**
+ * VFD Connection Status output DTO
+ */
+@ObjectType('VfdConnectionStatus')
+export class VfdConnectionStatusDto {
+  @Field()
+  isConnected!: boolean;
+
+  @Field({ nullable: true })
+  lastTestedAt?: Date;
+
+  @Field({ nullable: true })
+  lastSuccessAt?: Date;
+
+  @Field({ nullable: true })
+  lastError?: string;
+
+  @Field(() => Int, { nullable: true })
+  latencyMs?: number;
+
+  @Field(() => Int, { nullable: true })
+  consecutiveFailures?: number;
+}
+
+/**
  * VFD Device output DTO
  */
 @ObjectType('VfdDevice')
@@ -139,30 +163,6 @@ export class VfdDeviceDto {
 
   @Field()
   updatedAt!: Date;
-}
-
-/**
- * VFD Connection Status output DTO
- */
-@ObjectType('VfdConnectionStatus')
-export class VfdConnectionStatusDto {
-  @Field()
-  isConnected!: boolean;
-
-  @Field({ nullable: true })
-  lastTestedAt?: Date;
-
-  @Field({ nullable: true })
-  lastSuccessAt?: Date;
-
-  @Field({ nullable: true })
-  lastError?: string;
-
-  @Field(() => Int, { nullable: true })
-  latencyMs?: number;
-
-  @Field(() => Int, { nullable: true })
-  consecutiveFailures?: number;
 }
 
 /**

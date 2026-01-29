@@ -1,8 +1,8 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { SimpleRateLimitGuard } from '../guards/rate-limit.guard';
-import { IngestionModule } from '../ingestion/ingestion.module';
+// SharedMqttModule is @Global, no need to import explicitly
 
 import { EdgeDeviceResolver } from './edge-device.resolver';
 import { EdgeDeviceService } from './edge-device.service';
@@ -16,7 +16,7 @@ import { ProvisioningService } from './provisioning.service';
 @Module({
   imports: [
     TypeOrmModule.forFeature([EdgeDevice, DeviceIoConfig]),
-    forwardRef(() => IngestionModule), // For MQTT command publishing
+    // MqttClientService is available via @Global SharedMqttModule
   ],
   controllers: [ProvisioningController],
   providers: [

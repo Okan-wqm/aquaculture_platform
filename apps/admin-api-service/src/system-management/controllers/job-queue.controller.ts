@@ -19,7 +19,7 @@ import { JobStatus, JobType, JobPriority, JobRetryPolicy } from '../entities/job
 // ============================================================================
 
 class CreateQueueDto {
-  name: string;
+  name!: string;
   description?: string;
   concurrency?: number;
   maxJobsPerSecond?: number;
@@ -29,8 +29,8 @@ class CreateQueueDto {
 }
 
 class CreateJobDto {
-  name: string;
-  queueName: string;
+  name!: string;
+  queueName!: string;
   jobType?: JobType;
   priority?: number;
   payload?: Record<string, unknown>;
@@ -47,9 +47,9 @@ class CreateJobDto {
 }
 
 class UpdateJobProgressDto {
-  current: number;
-  total: number;
-  percentage: number;
+  current!: number;
+  total!: number;
+  percentage!: number;
   message?: string;
   checkpoint?: unknown;
 }

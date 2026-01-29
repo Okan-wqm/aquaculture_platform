@@ -24,32 +24,32 @@ import { OnboardingStatus, TrainingSession } from '../entities/support.entity';
 // ============================================================================
 
 class InitializeOnboardingDto {
-  tenantId: string;
-  tenantName: string;
+  tenantId!: string;
+  tenantName!: string;
 }
 
 class SendWelcomeEmailDto {
-  recipientEmail: string;
-  recipientName: string;
+  recipientEmail!: string;
+  recipientName!: string;
 }
 
 class ScheduleTrainingDto {
-  title: string;
-  type: 'video_call' | 'webinar' | 'in_person';
-  scheduledAt: string;
-  duration: number;
-  trainer: string;
+  title!: string;
+  type!: 'video_call' | 'webinar' | 'in_person';
+  scheduledAt!: string;
+  duration!: number;
+  trainer!: string;
   meetingUrl?: string;
 }
 
 class UpdateTrainingDto {
-  status: 'completed' | 'cancelled';
+  status!: 'completed' | 'cancelled';
   notes?: string;
 }
 
 class AssignGuideDto {
-  guideId: string;
-  guideName: string;
+  guideId!: string;
+  guideName!: string;
 }
 
 // ============================================================================

@@ -100,7 +100,7 @@ async function bootstrap() {
   // Graceful shutdown
   app.enableShutdownHooks();
 
-  const port = configService.get<number>('PORT', 3002);
+  const port = configService.get<number>('FARM_SERVICE_PORT', 4002);
 
   await app.listen(port);
 

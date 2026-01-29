@@ -1,13 +1,14 @@
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
 
-async function bootstrap() {
+async function bootstrap(): Promise<void> {
   const logger = new Logger('AuthService');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   const configService = app.get(ConfigService);
 
@@ -73,7 +74,6 @@ async function bootstrap() {
   // SECURITY: Wildcard origin with credentials is dangerous
   // In production, CORS_ORIGINS must be set to explicit list of allowed origins
   const corsOrigins = configService.get<string>('CORS_ORIGINS', '*');
-  const isProduction = process.env['NODE_ENV'] === 'production';
 
   if (isProduction && corsOrigins === '*') {
     throw new Error(
@@ -104,7 +104,7 @@ async function bootstrap() {
   // Enable graceful shutdown hooks
   app.enableShutdownHooks();
 
-  const port = configService.get<number>('PORT', 3001);
+  const port = configService.get<number>('AUTH_SERVICE_PORT', 4001);
   await app.listen(port);
 
   logger.log(`Auth Service running on http://localhost:${port}`);

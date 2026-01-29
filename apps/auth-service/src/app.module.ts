@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -67,7 +69,7 @@ import { TenantModule } from './modules/tenant/tenant.module';
 
           return {
             rejectUnauthorized,
-            ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
+            ...(caPath ? { ca: readFileSync(caPath) } : {}),
           };
         })(),
       };
@@ -169,7 +171,7 @@ import { TenantModule } from './modules/tenant/tenant.module';
   ],
 })
 export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
+  configure(consumer: MiddlewareConsumer): void {
     consumer
       .apply(
         CorrelationIdMiddleware,

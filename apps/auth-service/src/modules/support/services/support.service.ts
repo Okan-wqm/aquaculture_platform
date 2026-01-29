@@ -117,7 +117,7 @@ export class SupportService {
       category: t.category,
       priority: t.priority,
       status: t.status,
-      assignedToName: t.assignedToName,
+      assignedToName: t.assignedToName ?? null,
       reportedByName: t.reportedByName,
       commentCount: t.commentCount,
       createdAt: t.createdAt,
@@ -179,7 +179,7 @@ export class SupportService {
       authorType: c.authorType,
       content: c.content,
       isInternal: c.isInternal,
-      attachments: c.attachments,
+      attachments: c.attachments ?? null,
       createdAt: c.createdAt,
     }));
   }
@@ -219,7 +219,7 @@ export class SupportService {
       priority: input.priority,
       status: TicketStatus.OPEN,
       reportedBy: userId,
-      reportedByName: `${user.firstName} ${user.lastName}`,
+      reportedByName: user.getDisplayName(),
       slaResponseDeadline,
       slaResolutionDeadline,
       tags: input.tags || [],
@@ -232,7 +232,7 @@ export class SupportService {
     const comment = this.commentRepository.create({
       ticketId: savedTicket.id,
       authorId: userId,
-      authorName: `${user.firstName} ${user.lastName}`,
+      authorName: user.getDisplayName(),
       authorType: CommentAuthorType.TENANT_ADMIN,
       content: input.description,
       isInternal: false,
@@ -271,7 +271,7 @@ export class SupportService {
     const comment = this.commentRepository.create({
       ticketId: ticket.id,
       authorId: userId,
-      authorName: `${user.firstName} ${user.lastName}`,
+      authorName: user.getDisplayName(),
       authorType: isSuperAdmin
         ? CommentAuthorType.SUPER_ADMIN
         : CommentAuthorType.TENANT_ADMIN,
@@ -355,7 +355,7 @@ export class SupportService {
     if (!assignee) throw new NotFoundException('Assignee not found');
 
     ticket.assignedTo = assignee.id;
-    ticket.assignedToName = `${assignee.firstName} ${assignee.lastName}`;
+    ticket.assignedToName = assignee.getDisplayName();
 
     if (ticket.status === TicketStatus.OPEN) {
       ticket.status = TicketStatus.IN_PROGRESS;

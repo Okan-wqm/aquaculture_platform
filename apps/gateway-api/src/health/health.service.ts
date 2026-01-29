@@ -88,6 +88,13 @@ export class HealthService {
           'http://localhost:3006/graphql',
         ),
       ],
+      [
+        'notification',
+        this.configService.get(
+          'NOTIFICATION_SERVICE_URL',
+          'http://localhost:3007/graphql',
+        ),
+      ],
     ]);
   }
 

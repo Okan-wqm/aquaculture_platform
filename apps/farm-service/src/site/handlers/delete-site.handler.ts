@@ -96,7 +96,7 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand> {
           .set({
             isActive: false,
             updatedBy: userId,
-          } as Partial<Tank>)
+          })
           .where('tenantId = :tenantId', { tenantId })
           .andWhere('departmentId IN (:...departmentIds)', { departmentIds })
           .execute();

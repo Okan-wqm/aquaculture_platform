@@ -48,7 +48,7 @@ import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 class GrantPermissionDto {
   @IsUUID('4', { message: 'Invalid super admin ID format' })
-  superAdminId: string;
+  superAdminId!: string;
 
   @IsOptional()
   @IsString()
@@ -105,7 +105,7 @@ class GrantPermissionDto {
 
 class StartImpersonationDto {
   @IsUUID('4', { message: 'Invalid target tenant ID format' })
-  targetTenantId: string;
+  targetTenantId!: string;
 
   @IsOptional()
   @IsString()
@@ -122,7 +122,7 @@ class StartImpersonationDto {
   targetUserEmail?: string;
 
   @IsEnum(ImpersonationReason, { message: 'Invalid impersonation reason' })
-  reason: ImpersonationReason;
+  reason!: ImpersonationReason;
 
   @IsOptional()
   @IsString()
@@ -148,11 +148,11 @@ class StartImpersonationDto {
 class LogActionDto {
   @IsString()
   @MaxLength(100)
-  action: string;
+  action!: string;
 
   @IsString()
   @MaxLength(100)
-  resource: string;
+  resource!: string;
 
   @IsOptional()
   @IsString()

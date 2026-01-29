@@ -1,0 +1,146 @@
+# =============================================================================
+# .dockerignore - Optimize Docker Build Context
+# Excludes unnecessary files from being sent to Docker daemon
+# =============================================================================
+
+# Node modules (will be installed in Docker)
+node_modules
+**/node_modules
+
+# Build outputs
+# NOTE: Only exclude backend dist (apps/*/dist) to reduce context
+# Frontend dist (web/*/dist) is INCLUDED because microfrontends need pre-built files
+apps/*/dist
+libs/*/dist
+platform/*/dist
+build
+**/build
+
+# Logo files (not needed in Docker)
+*.png
+*.svg
+logo*
+.next
+**/out
+
+# NX Cache
+.nx/cache
+.nx/workspace-data
+
+# Git
+.git
+.gitignore
+.github
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+pnpm-debug.log*
+
+# Testing
+coverage
+**/coverage
+.nyc_output
+**/.nyc_output
+*.lcov
+
+# Temp files
+tmp
+temp
+*.tmp
+*.temp
+
+# Environment files (should be mounted or passed as args)
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+
+# Docker files
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Documentation
+*.md
+!README.md
+docs
+LICENSE
+
+# CI/CD
+.circleci
+.travis.yml
+.gitlab-ci.yml
+azure-pipelines.yml
+Jenkinsfile
+
+# Misc
+.husky
+.editorconfig
+.prettierrc
+.prettierignore
+.eslintcache
+*.tsbuildinfo
+
+# Platform specific
+Thumbs.DB
+Desktop.ini
+
+# Nx Cloud
+.nx/cache
+.nx/workspace-data
+
+# Build artifacts that shouldn't be in context
+*.map
+*.spec.ts
+*.spec.js
+**/test
+**/__tests__
+**/*.test.ts
+**/*.test.js
+**/__mocks__
+
+# Large directories not needed in build
+sens-repo
+sens-repo-temp
+sensorprotocols
+
+# =============================================================================
+# CRITICAL: Large simulation data (1.34GB) - MUST exclude
+# =============================================================================
+infrastructure/simulators
+infrastructure/simulators/**
+
+# =============================================================================
+# Test artifacts - not needed in production builds
+# =============================================================================
+**/*.spec.ts
+**/*.spec.js
+**/*.test.ts
+**/*.test.js
+**/jest.config.ts
+**/jest.config.js
+**/vitest.config.ts
+**/vitest.config.js
+**/test-setup.ts
+**/test-setup.js
+**/*.spec.tsx
+**/*.test.tsx
+
+# Development configs not needed in build
+**/tsconfig.spec.json
+**/.eslintrc.json
+**/eslint.config.js

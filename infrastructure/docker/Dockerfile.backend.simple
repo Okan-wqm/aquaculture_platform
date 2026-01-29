@@ -1,0 +1,56 @@
+# syntax=docker/dockerfile:1.4
+# =============================================================================
+# Aquaculture Platform - Backend Services Dockerfile (Simplified)
+# Uses pre-built artifacts from host - MUCH FASTER
+# Build services on host first: npx nx build <service-name>
+#
+# Optimizations:
+# - BuildKit cache mount for npm
+# - Use with: DOCKER_BUILDKIT=1 docker build ...
+# =============================================================================
+
+FROM node:20-alpine AS base
+
+# Install curl for health checks and other utilities
+RUN apk add --no-cache curl dumb-init
+
+# Security: Run as non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nestjs -u 1001
+
+WORKDIR /app
+
+# Build argument for service name
+ARG SERVICE_NAME
+
+# Copy package files for production dependency installation
+COPY package*.json ./
+
+# Install ONLY production dependencies
+# This is much faster than full install + build
+# BuildKit cache mount preserves npm cache between builds
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm ci --legacy-peer-deps --omit=dev --ignore-scripts --no-audit
+
+# Copy the pre-built service from host's dist folder
+COPY --chown=nestjs:nodejs dist/apps/${SERVICE_NAME} ./dist
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV PORT=3000
+
+# Health check - uses /health/live endpoint for liveness probe
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl --fail --silent http://127.0.0.1:${PORT}/health/live || exit 1
+
+# Switch to non-root user
+USER nestjs
+
+# Expose port
+EXPOSE 3000
+
+# Use dumb-init to handle signals properly for graceful shutdown
+ENTRYPOINT ["dumb-init", "--"]
+
+# Start the service
+CMD ["node", "dist/main.js"]

@@ -101,13 +101,13 @@ class QueryActivitiesDto {
 
 class LogActivityDto {
   @IsIn(['user_action', 'system_event', 'api_call', 'data_access', 'security_event', 'configuration', 'authentication'])
-  category: ActivityCategory;
+  category!: ActivityCategory;
 
   @IsString()
-  action: string;
+  action!: string;
 
   @IsString()
-  description: string;
+  description!: string;
 
   @IsOptional()
   @IsIn(['debug', 'info', 'warning', 'error', 'critical'])
@@ -146,7 +146,7 @@ class LogActivityDto {
   entityName?: string;
 
   @IsString()
-  ipAddress: string;
+  ipAddress!: string;
 
   @IsOptional()
   @IsString()

@@ -8,8 +8,7 @@
  */
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, MoreThanOrEqual, Not } from 'typeorm';
+import { DataSource, Repository, In, MoreThanOrEqual, Not } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { MeterType, UsageMeteringService, MeterReading } from './usage-metering.service';
 import { UsageAggregation, UsageHourlyData } from './entities/usage-aggregation.entity';
@@ -148,16 +147,20 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
     lastAggregationTime: null as Date | null,
   };
 
+  private aggregationRepository!: Repository<UsageAggregation>;
+  private hourlyDataRepository!: Repository<UsageHourlyData>;
+
   constructor(
-    @InjectRepository(UsageAggregation)
-    private readonly aggregationRepository: Repository<UsageAggregation>,
-    @InjectRepository(UsageHourlyData)
-    private readonly hourlyDataRepository: Repository<UsageHourlyData>,
+    private readonly dataSource: DataSource,
     private readonly usageMeteringService: UsageMeteringService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async onModuleInit(): Promise<void> {
+    // Initialize repositories from DataSource
+    this.aggregationRepository = this.dataSource.getRepository(UsageAggregation);
+    this.hourlyDataRepository = this.dataSource.getRepository(UsageHourlyData);
+
     this.initializeDefaultRollupConfigs();
     this.setupEventListeners();
 

@@ -11,6 +11,12 @@ import { BillingModule } from './billing/billing.module';
 import { HealthModule } from './health/health.module';
 import { MeteringModule } from './modules/metering/metering.module';
 
+// Nested ObjectTypes for orphanedTypes registration
+import { InvoiceLineItem, TaxInfo, BillingAddress } from './billing/entities/invoice.entity';
+import { PaymentMethodDetails, RefundInfo } from './billing/entities/payment.entity';
+import { PlanLimits, PlanPricing } from './billing/entities/subscription.entity';
+import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscription-module-item.entity';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -69,6 +75,19 @@ import { MeteringModule } from './modules/metering/metering.module';
       driver: ApolloFederationDriver,
       autoSchemaFile: {
         federation: 2,
+      },
+      buildSchemaOptions: {
+        orphanedTypes: [
+          InvoiceLineItem,
+          TaxInfo,
+          BillingAddress,
+          PaymentMethodDetails,
+          RefundInfo,
+          PlanLimits,
+          PlanPricing,
+          ModuleQuantities,
+          ModuleLineItem,
+        ],
       },
       playground: process.env['NODE_ENV'] !== 'production',
       introspection: process.env['NODE_ENV'] !== 'production',

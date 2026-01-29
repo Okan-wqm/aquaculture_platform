@@ -1,5 +1,5 @@
 import { InputType, Field } from '@nestjs/graphql';
-import { IsEmail, IsString, MaxLength } from 'class-validator';
+import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
 
 /**
  * Login Input DTO
@@ -17,5 +17,7 @@ export class LoginInput {
 
   @Field()
   @IsString()
+  @MinLength(1, { message: 'Password is required' })
+  @MaxLength(128, { message: 'Password too long' })
   password!: string;
 }

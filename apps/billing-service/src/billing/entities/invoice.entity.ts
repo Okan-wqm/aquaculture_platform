@@ -11,7 +11,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
-import { forwardRef } from '@nestjs/common';
+import { forwardRef, Type } from '@nestjs/common';
 
 export enum InvoiceStatus {
   DRAFT = 'draft',
@@ -110,11 +110,8 @@ export class Invoice {
   @Column({ nullable: true })
   subscriptionId?: string;
 
-  @Field(() => require('./subscription.entity').Subscription, { nullable: true })
-  @ManyToOne(
-    () => require('./subscription.entity').Subscription,
-    (subscription: { invoices: unknown }) => subscription.invoices,
-  )
+  // Note: subscription field resolved via field resolver to avoid circular dependency
+  @ManyToOne('Subscription', 'invoices')
   @JoinColumn({ name: 'subscriptionId' })
   subscription?: import('./subscription.entity').Subscription;
 
@@ -194,11 +191,8 @@ export class Invoice {
   @Column({ nullable: true })
   pdfUrl?: string;
 
-  @Field(() => [require('./payment.entity').Payment], { nullable: true })
-  @OneToMany(
-    () => require('./payment.entity').Payment,
-    (payment: { invoice: unknown }) => payment.invoice,
-  )
+  // Note: payments field resolved via field resolver to avoid circular dependency
+  @OneToMany('Payment', 'invoice')
   payments?: Array<import('./payment.entity').Payment>;
 
   @Field()

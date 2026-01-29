@@ -102,13 +102,11 @@ export class Payment {
   @Index()
   invoiceId!: string;
 
-  @Field(() => require('./invoice.entity').Invoice)
-  @ManyToOne(
-    () => require('./invoice.entity').Invoice,
-    (invoice: { payments: unknown }) => invoice.payments,
-  )
+  // Bi-directional relationship - using string-based lazy loading to avoid circular dependency
+  // Invoice entity is loaded lazily by TypeORM at runtime
+  @ManyToOne('Invoice', (invoice: any) => invoice.payments)
   @JoinColumn({ name: 'invoiceId' })
-  invoice!: import('./invoice.entity').Invoice;
+  invoice?: any;
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 12, scale: 2 })

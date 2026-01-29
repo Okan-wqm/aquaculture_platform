@@ -1,3 +1,15 @@
+/**
+ * @deprecated Use AuthGuard from './auth.guard' instead.
+ * This guard is kept for backwards compatibility but is no longer used.
+ * AuthGuard provides:
+ * - Proper JWT signature verification with timing-safe comparison
+ * - API key authentication support
+ * - Basic authentication support
+ * - Token blacklisting
+ *
+ * Migration: Import { AuthGuard, Public } from './auth.guard'
+ */
+
 import {
   Injectable,
   CanActivate,
@@ -14,11 +26,13 @@ import { Request } from 'express';
 
 /**
  * Metadata key for public routes
+ * @deprecated Use IS_PUBLIC_KEY from './auth.guard' instead
  */
 export const IS_PUBLIC_KEY = 'isPublic';
 
 /**
  * Public decorator - marks a route as publicly accessible
+ * @deprecated Use Public from './auth.guard' instead
  */
 export const Public = (): ReturnType<typeof SetMetadata> => SetMetadata(IS_PUBLIC_KEY, true);
 

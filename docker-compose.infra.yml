@@ -10,16 +10,19 @@ services:
   # Database
   # ===========================================================================
   postgres:
-    image: postgres:16-alpine
+    image: timescale/timescaledb:latest-pg16
     container_name: aqua-postgres
     environment:
       POSTGRES_USER: aquaculture
       POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
       POSTGRES_DB: aquaculture
+      POSTGRES_HOST_AUTH_METHOD: trust
+    # Using default scram-sha-256 encryption (more secure than deprecated md5)
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/init-scripts:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aquaculture"]
       interval: 10s
@@ -59,6 +62,11 @@ services:
       - "8222:8222"
     volumes:
       - nats_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 4222 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - aqua-network
 
@@ -77,6 +85,12 @@ services:
       - "9001:9001"
     volumes:
       - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - aqua-network
 

@@ -140,7 +140,7 @@ async function bootstrap(): Promise<void> {
   // Enable graceful shutdown hooks
   app.enableShutdownHooks();
 
-  const port = configService.get<number>('PORT', 3000);
+  const port = configService.get<number>('GATEWAY_PORT', 4000);
   await app.listen(port);
 
   logger.log(`Gateway API running on http://localhost:${port}`);

@@ -1,4 +1,4 @@
-import { ObjectType, Field, ID } from '@nestjs/graphql';
+import { ObjectType, Field, ID, Int, GraphQLISODateTime } from '@nestjs/graphql';
 import {
   Entity,
   Column,
@@ -67,7 +67,7 @@ export class TenantModule {
    * Maximum users allowed for this module (tenant-specific limit)
    * NULL means use tenant's global maxUsers
    */
-  @Field(() => String, { nullable: true })
+  @Field(() => Int, { nullable: true })
   @Column({ type: 'int', nullable: true })
   maxModuleUsers?: number | null;
 
@@ -81,7 +81,7 @@ export class TenantModule {
   /**
    * Expiration date (for time-limited module access)
    */
-  @Field(() => String, { nullable: true })
+  @Field(() => GraphQLISODateTime, { nullable: true })
   @Column({ type: 'timestamp', nullable: true })
   expiresAt?: Date | null;
 

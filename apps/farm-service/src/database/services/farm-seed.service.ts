@@ -42,6 +42,12 @@ export class FarmSeedService implements OnModuleInit {
       return;
     }
 
+    // Check if farm seeding is disabled via environment variable
+    if (process.env.FARM_SEED_ENABLED === 'false') {
+      this.logger.log('Farm seed disabled via FARM_SEED_ENABLED=false');
+      return;
+    }
+
     try {
       // Equipment types sistem geneli olduğu için önce ve bağımsız olarak çalıştır
       await this.seedEquipmentTypesStandalone();

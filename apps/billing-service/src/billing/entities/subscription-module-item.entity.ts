@@ -121,12 +121,9 @@ export class SubscriptionModuleItem {
   @Column('uuid')
   subscriptionId!: string;
 
-  @ManyToOne(
-    () => require('./subscription.entity').Subscription,
-    (sub: { moduleItems: unknown }) => sub.moduleItems,
-    { onDelete: 'CASCADE' },
-  )
-  @JoinColumn({ name: 'subscription_id' })
+  // Bi-directional relationship - using string-based lazy loading to avoid circular dependency
+  @ManyToOne('Subscription', 'moduleItems', { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'subscriptionId' })
   subscription!: import('./subscription.entity').Subscription;
 
   /**

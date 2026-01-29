@@ -3,6 +3,8 @@
  * Supports 8 major brands and 7+ industrial protocols
  */
 
+import { registerEnumType } from '@nestjs/graphql';
+
 export enum VfdBrand {
   DANFOSS = 'danfoss',
   ABB = 'abb',
@@ -223,3 +225,39 @@ export const VFD_STATUS_BITS = {
   TARGET_REACHED: 10,
   INTERNAL_LIMIT: 11,
 };
+
+// Register enums with GraphQL
+registerEnumType(VfdBrand, {
+  name: 'VfdBrand',
+  description: 'VFD manufacturer brands',
+});
+
+registerEnumType(VfdProtocol, {
+  name: 'VfdProtocol',
+  description: 'VFD communication protocols',
+});
+
+registerEnumType(VfdParameterCategory, {
+  name: 'VfdParameterCategory',
+  description: 'VFD parameter categories',
+});
+
+registerEnumType(VfdDeviceStatus, {
+  name: 'VfdDeviceStatus',
+  description: 'VFD device status',
+});
+
+registerEnumType(VfdCommandType, {
+  name: 'VfdCommandType',
+  description: 'VFD command types',
+});
+
+registerEnumType(VfdDataType, {
+  name: 'VfdDataType',
+  description: 'VFD data types for register mapping',
+});
+
+registerEnumType(ByteOrder, {
+  name: 'ByteOrder',
+  description: 'Byte order for data parsing',
+});

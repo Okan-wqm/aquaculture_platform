@@ -50,19 +50,22 @@ export class InternalApiGuard implements CanActivate {
     }
 
     // Check for internal API key header
-    const providedKey =
+    const rawKey =
       request.headers['x-internal-api-key'] ||
       request.headers['authorization']?.replace('Bearer ', '');
 
-    if (!providedKey) {
+    if (!rawKey) {
       throw new UnauthorizedException({
         code: 'MISSING_INTERNAL_API_KEY',
         message: 'Internal API key is required',
       });
     }
 
+    // Handle array case (multiple headers)
+    const providedKey = Array.isArray(rawKey) ? rawKey[0] : rawKey;
+
     // Use timing-safe comparison to prevent timing attacks
-    if (!this.timingSafeEqual(providedKey, this.apiKey)) {
+    if (!providedKey || !this.timingSafeEqual(providedKey, this.apiKey)) {
       this.logger.warn(
         `Invalid internal API key attempt from ${request.ip}`,
       );

@@ -19,7 +19,7 @@ import { ErrorSeverity, ErrorStatus, ErrorContext } from '../entities/error-trac
 // ============================================================================
 
 class ReportErrorDto {
-  message: string;
+  message!: string;
   errorType?: string;
   stackTrace?: string;
   severity?: ErrorSeverity;
@@ -42,9 +42,9 @@ class UpdateErrorGroupDto {
 }
 
 class CreateAlertRuleDto {
-  name: string;
+  name!: string;
   description?: string;
-  conditions: {
+  conditions!: {
     severity?: ErrorSeverity[];
     service?: string[];
     errorType?: string[];
@@ -53,7 +53,7 @@ class CreateAlertRuleDto {
     timeWindowMinutes?: number;
     userCountThreshold?: number;
   };
-  actions: Array<{
+  actions!: Array<{
     type: 'email' | 'slack' | 'pagerduty' | 'webhook' | 'sms';
     config: Record<string, unknown>;
   }>;

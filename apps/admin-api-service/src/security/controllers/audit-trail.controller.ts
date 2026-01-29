@@ -119,21 +119,21 @@ class QueryAuditTrailDto {
 }
 
 class ExportAuditTrailDto {
-  format: 'csv' | 'json' | 'pdf';
+  format!: 'csv' | 'json' | 'pdf';
   tenantId?: string;
   userId?: string;
   category?: ActivityCategory;
-  startDate: string;
-  endDate: string;
+  startDate!: string;
+  endDate!: string;
   includeMetadata?: boolean;
   includeChanges?: boolean;
 }
 
 class CreateRetentionPolicyDto {
-  name: string;
-  category: ActivityCategory;
+  name!: string;
+  category!: ActivityCategory;
   description?: string;
-  retentionDays: number;
+  retentionDays!: number;
   archiveAfterDays?: number;
   deleteAfterArchiveDays?: number;
   isGlobal?: boolean;
@@ -154,10 +154,10 @@ class UpdateRetentionPolicyDto {
 }
 
 class CreateAlertRuleDto {
-  name: string;
-  description: string;
-  isActive: boolean;
-  conditions: {
+  name!: string;
+  description!: string;
+  isActive!: boolean;
+  conditions!: {
     category?: ActivityCategory[];
     severity?: ActivitySeverity[];
     actions?: string[];
@@ -166,9 +166,9 @@ class CreateAlertRuleDto {
     failureOnly?: boolean;
     ipPatterns?: string[];
   };
-  alertChannels: ('email' | 'webhook' | 'slack' | 'sms')[];
-  recipients: string[];
-  cooldownMinutes: number;
+  alertChannels!: ('email' | 'webhook' | 'slack' | 'sms')[];
+  recipients!: string[];
+  cooldownMinutes!: number;
 }
 
 // ============================================================================

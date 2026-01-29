@@ -30,7 +30,6 @@ import { MeteredBillingService } from './metered-billing.service';
     UsageMeteringService,
     UsageAggregatorService,
     MeteredBillingService,
-    TypeOrmModule,
   ],
 })
 export class MeteringModule {}

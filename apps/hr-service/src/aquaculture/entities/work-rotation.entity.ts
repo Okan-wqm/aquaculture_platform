@@ -193,8 +193,8 @@ export class WorkRotation {
   @Column({ type: 'timestamptz', nullable: true })
   lastCheckInTime?: Date;
 
-  @Field(() => [CheckInHistoryEntry], { nullable: 'itemsAndList' })
-  @Column('jsonb', { nullable: true, default: [] })
+  @Field(() => [CheckInHistoryEntry], { nullable: true })
+  @Column('jsonb', { nullable: true, default: () => "'[]'" })
   checkInHistory?: CheckInHistoryEntry[];
 
   @Field()

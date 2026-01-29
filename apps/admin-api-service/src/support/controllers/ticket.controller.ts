@@ -26,12 +26,12 @@ import { AllowTenantAdmin } from '../../decorators/roles.decorator';
 // ============================================================================
 
 class CreateTicketDto {
-  tenantId: string;
+  tenantId!: string;
   tenantName?: string;
-  createdByName: string;
+  createdByName!: string;
   createdByEmail?: string;
-  subject: string;
-  description: string;
+  subject!: string;
+  description!: string;
   category?: TicketCategory;
   priority?: TicketPriority;
   tags?: string[];
@@ -48,29 +48,29 @@ class UpdateTicketDto {
 }
 
 class AssignTicketDto {
-  assignedTo: string;
-  assignedToName: string;
+  assignedTo!: string;
+  assignedToName!: string;
 }
 
 class AddCommentDto {
-  content: string;
+  content!: string;
   authorName?: string;
   isInternal?: boolean;
   attachments?: TicketAttachment[];
 }
 
 class ChangeStatusDto {
-  status: TicketStatus;
+  status!: TicketStatus;
   changedByName?: string;
 }
 
 class ChangePriorityDto {
-  priority: TicketPriority;
+  priority!: TicketPriority;
   changedByName?: string;
 }
 
 class SatisfactionRatingDto {
-  rating: number;
+  rating!: number;
   feedback?: string;
 }
 

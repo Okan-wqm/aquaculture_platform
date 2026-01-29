@@ -27,10 +27,10 @@ import { AllowTenantAdmin } from '../../decorators/roles.decorator';
 // ============================================================================
 
 class CreateAnnouncementDto {
-  title: string;
-  content: string;
-  type: AnnouncementType;
-  isGlobal: boolean;
+  title!: string;
+  content!: string;
+  type!: AnnouncementType;
+  isGlobal!: boolean;
   targetCriteria?: AnnouncementTarget;
   publishAt?: string;
   expiresAt?: string;
@@ -49,9 +49,9 @@ class UpdateAnnouncementDto {
 }
 
 class AcknowledgeDto {
-  tenantId: string;
-  userId: string;
-  userName: string;
+  tenantId!: string;
+  userId!: string;
+  userName!: string;
 }
 
 // ============================================================================

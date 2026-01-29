@@ -41,6 +41,7 @@ import { ProcessModule } from './process/process.module';
 import { ProtocolModule } from './protocol/protocol.module';
 import { RegistrationModule } from './registration/registration.module';
 import { SensorModule } from './sensor/sensor.module';
+import { SharedMqttModule } from './shared-mqtt/shared-mqtt.module';
 import { VfdDevice } from './vfd/entities/vfd-device.entity';
 import { VfdReading } from './vfd/entities/vfd-reading.entity';
 import { VfdRegisterMapping } from './vfd/entities/vfd-register-mapping.entity';
@@ -95,7 +96,7 @@ import { VfdModule } from './vfd/vfd.module';
           ProgramTransition,
           ProgramVariable,
         ],
-        synchronize: false, // Disabled due to index conflict bug
+        synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {
@@ -137,6 +138,11 @@ import { VfdModule } from './vfd/vfd.module';
         autoSchemaFile: {
           federation: 2,
         },
+        buildSchemaOptions: {
+          // VFD entities and their nested types are registered via @ObjectType decorators
+          // This ensures proper schema composition in Apollo Federation
+          orphanedTypes: [],
+        },
         playground: configService.get('NODE_ENV') !== 'production',
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',
@@ -153,6 +159,9 @@ import { VfdModule } from './vfd/vfd.module';
         streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
       }),
     }),
+
+    // Shared MQTT module (@Global - provides MqttClientService everywhere)
+    SharedMqttModule,
 
     // Feature modules
     SensorModule,

@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { BillingResolver } from './billing.resolver';
+
+// Entities
 import { Subscription } from './entities/subscription.entity';
 import { Invoice } from './entities/invoice.entity';
 import { Payment } from './entities/payment.entity';
-import { BillingResolver } from './billing.resolver';
+import { SubscriptionModuleItem } from './entities/subscription-module-item.entity';
 
 // Command Handlers
 import { CreateSubscriptionHandler } from './handlers/create-subscription.handler';
@@ -39,7 +42,7 @@ const EventHandlers = [
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Subscription, Invoice, Payment]),
+    TypeOrmModule.forFeature([Subscription, Invoice, Payment, SubscriptionModuleItem]),
     CqrsModule,
   ],
   providers: [

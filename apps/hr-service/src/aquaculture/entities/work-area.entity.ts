@@ -8,19 +8,10 @@ import {
   Index,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
+import { WorkAreaType } from '../../common/enums';
 
-export enum WorkAreaType {
-  SHORE_FACILITY = 'shore_facility',
-  SEA_CAGE = 'sea_cage',
-  FLOATING_PLATFORM = 'floating_platform',
-  VESSEL = 'vessel',
-  FEED_BARGE = 'feed_barge',
-  PROCESSING_PLANT = 'processing_plant',
-  HATCHERY = 'hatchery',
-  WAREHOUSE = 'warehouse',
-  OFFICE = 'office',
-  LABORATORY = 'laboratory',
-}
+// Re-export WorkAreaType for backward compatibility with existing imports
+export { WorkAreaType };
 
 export enum WorkAreaRiskLevel {
   LOW = 'low',
@@ -29,7 +20,7 @@ export enum WorkAreaRiskLevel {
   CRITICAL = 'critical',
 }
 
-registerEnumType(WorkAreaType, { name: 'WorkAreaType' });
+// WorkAreaType is registered in common/enums.ts
 registerEnumType(WorkAreaRiskLevel, { name: 'WorkAreaRiskLevel' });
 
 @ObjectType()

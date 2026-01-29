@@ -19,8 +19,8 @@ function parseTimeString(time: string, fieldName: string): [number, number] {
     throw new BadRequestException(`${fieldName} must be in HH:mm format (e.g., "09:00")`);
   }
 
-  const hours = parseInt(parts[0], 10);
-  const minutes = parseInt(parts[1], 10);
+  const hours = parseInt(parts[0]!, 10);
+  const minutes = parseInt(parts[1]!, 10);
 
   if (isNaN(hours) || isNaN(minutes)) {
     throw new BadRequestException(`${fieldName} contains invalid numeric values`);

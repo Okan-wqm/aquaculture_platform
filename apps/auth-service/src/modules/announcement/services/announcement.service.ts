@@ -126,8 +126,8 @@ export class AnnouncementService {
         status: a.status,
         scope: a.scope,
         isGlobal: a.isGlobal,
-        publishAt: a.publishAt,
-        expiresAt: a.expiresAt,
+        publishAt: a.publishAt ?? null,
+        expiresAt: a.expiresAt ?? null,
         requiresAcknowledgment: a.requiresAcknowledgment,
         viewCount: a.viewCount,
         acknowledgmentCount: a.acknowledgmentCount,
@@ -210,7 +210,7 @@ export class AnnouncementService {
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       requiresAcknowledgment: input.requiresAcknowledgment,
       createdBy: userId,
-      createdByName: `${user.firstName} ${user.lastName}`,
+      createdByName: user.getDisplayName(),
     });
 
     const saved = await this.announcementRepository.save(announcement);
@@ -249,7 +249,7 @@ export class AnnouncementService {
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       requiresAcknowledgment: input.requiresAcknowledgment,
       createdBy: userId,
-      createdByName: `${user.firstName} ${user.lastName}`,
+      createdByName: user.getDisplayName(),
     });
 
     const saved = await this.announcementRepository.save(announcement);
@@ -360,7 +360,7 @@ export class AnnouncementService {
     ack = this.acknowledgmentRepository.create({
       announcementId,
       userId,
-      userName: `${user.firstName} ${user.lastName}`,
+      userName: user.getDisplayName(),
       tenantId: user.tenantId,
       tenantName,
     });

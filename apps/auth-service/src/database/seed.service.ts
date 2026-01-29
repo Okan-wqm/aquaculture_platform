@@ -28,11 +28,11 @@ export class SeedService implements OnModuleInit {
     private readonly moduleRepository: Repository<Module>,
   ) {}
 
-  async onModuleInit() {
+  async onModuleInit(): Promise<void> {
     await this.seed();
   }
 
-  async seed() {
+  async seed(): Promise<void> {
     this.logger.log('Starting database seed...');
 
     try {
@@ -48,7 +48,7 @@ export class SeedService implements OnModuleInit {
   /**
    * Seed default system modules
    */
-  private async seedModules() {
+  private async seedModules(): Promise<void> {
     const existingModules = await this.moduleRepository.count();
 
     if (existingModules > 0) {
@@ -72,9 +72,8 @@ export class SeedService implements OnModuleInit {
   /**
    * Seed SUPER_ADMIN user
    */
-  private async seedSuperAdmin() {
+  private async seedSuperAdmin(): Promise<void> {
     const superAdminEmail = process.env.SUPER_ADMIN_EMAIL || 'by-okan@live.com';
-    const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || '12345678';
 
     // Check if SUPER_ADMIN already exists
     const existingSuperAdmin = await this.userRepository.findOne({
@@ -93,6 +92,26 @@ export class SeedService implements OnModuleInit {
       }
 
       return;
+    }
+
+    // Password is required only when creating a new super admin
+    const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
+    if (!superAdminPassword) {
+      this.logger.error(
+        'SUPER_ADMIN_PASSWORD environment variable is required to create super admin. ' +
+          'Set a strong password (min 12 chars with uppercase, lowercase, numbers, and special characters).',
+      );
+      throw new Error(
+        'SUPER_ADMIN_PASSWORD environment variable must be set to create super admin',
+      );
+    }
+
+    // Validate password strength
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{12,}$/;
+    if (!passwordRegex.test(superAdminPassword)) {
+      throw new Error(
+        'SUPER_ADMIN_PASSWORD must be at least 12 characters with uppercase, lowercase, number, and special character',
+      );
     }
 
     this.logger.log(`Creating SUPER_ADMIN user: ${superAdminEmail}`);

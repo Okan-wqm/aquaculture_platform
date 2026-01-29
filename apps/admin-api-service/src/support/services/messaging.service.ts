@@ -160,7 +160,7 @@ export class MessagingService {
         tenantName: (thread.metadata as Record<string, string>)?.tenantName || 'Unknown',
         subject: thread.subject,
         lastMessage: lastMessage?.content.substring(0, 100) || '',
-        lastMessageAt: thread.lastMessageAt,
+        lastMessageAt: thread.lastMessageAt || new Date(),
         unreadCount: thread.unreadAdminCount,
         messageCount: thread.messageCount,
         isClosed: thread.isClosed,

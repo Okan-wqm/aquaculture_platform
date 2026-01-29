@@ -70,6 +70,7 @@ export interface TenantAwareRequest extends Request {
 
 /**
  * User payload from JWT
+ * May include additional claims like features and limits from tenant configuration
  */
 interface UserPayload {
   sub: string;
@@ -78,6 +79,14 @@ interface UserPayload {
   organizationId?: string;
   roles?: string[];
   permissions?: string[];
+  // Optional tenant configuration from JWT claims (camelCase)
+  features?: TenantFeatures;
+  limits?: TenantLimits;
+  subscriptionTier?: string;
+  tenantName?: string;
+  // Snake_case variants for compatibility with different JWT issuers
+  tenant_name?: string;
+  subscription_tier?: string;
 }
 
 /**
@@ -251,10 +260,8 @@ export class TenantContextInterceptor implements NestInterceptor {
    * Create tenant context from available data
    */
   private createTenantContext(tenantId: string, request: TenantAwareRequest): TenantContext {
+    // User payload is properly typed via UserPayload interface
     const user = (request as Request & { user?: UserPayload }).user;
-
-    // Extract features and limits from JWT claims if available
-    const jwtClaims = user as unknown as Record<string, unknown>;
 
     const context: TenantContext = {
       tenantId,
@@ -278,24 +285,33 @@ export class TenantContextInterceptor implements NestInterceptor {
       },
     };
 
-    // Override with JWT claims if present
-    if (jwtClaims) {
-      if (jwtClaims['tenant_name']) {
-        context.tenantName = jwtClaims['tenant_name'] as string;
+    // Override with JWT claims if present (supports both camelCase and snake_case)
+    if (user) {
+      // Tenant name - check both naming conventions
+      const tenantName = user.tenantName ?? user.tenant_name;
+      if (tenantName) {
+        context.tenantName = tenantName;
       }
-      if (jwtClaims['subscription_tier']) {
-        context.subscriptionTier = jwtClaims['subscription_tier'] as string;
+
+      // Subscription tier - check both naming conventions
+      const subscriptionTier = user.subscriptionTier ?? user.subscription_tier;
+      if (subscriptionTier) {
+        context.subscriptionTier = subscriptionTier;
       }
-      if (jwtClaims['features']) {
+
+      // Features from JWT
+      if (user.features) {
         context.features = {
           ...context.features,
-          ...(jwtClaims['features'] as TenantFeatures),
+          ...user.features,
         };
       }
-      if (jwtClaims['limits']) {
+
+      // Limits from JWT
+      if (user.limits) {
         context.limits = {
           ...context.limits,
-          ...(jwtClaims['limits'] as TenantLimits),
+          ...user.limits,
         };
       }
     }

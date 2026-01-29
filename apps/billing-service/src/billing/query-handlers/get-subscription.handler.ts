@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { GetSubscriptionQuery } from '../queries/get-subscription.query';
 import { Subscription } from '../entities/subscription.entity';
@@ -10,15 +9,14 @@ import { Subscription } from '../entities/subscription.entity';
 export class GetSubscriptionHandler
   implements IQueryHandler<GetSubscriptionQuery, Subscription | null>
 {
-  constructor(
-    @InjectRepository(Subscription)
-    private readonly subscriptionRepository: Repository<Subscription>,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   async execute(query: GetSubscriptionQuery): Promise<Subscription | null> {
     const { tenantId } = query;
 
-    const subscription = await this.subscriptionRepository.findOne({
+    const subscriptionRepo = this.dataSource.getRepository(Subscription);
+
+    const subscription = await subscriptionRepo.findOne({
       where: { tenantId },
       relations: ['invoices'],
       order: { createdAt: 'DESC' },

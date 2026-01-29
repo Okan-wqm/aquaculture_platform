@@ -13,7 +13,7 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Role } from '@platform/backend-common';
 import { IEventBus } from '@platform/event-bus';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { AuthPayload, MePayload } from '../dto/auth-response.dto';
 import { LoginInput } from '../dto/login.dto';
@@ -60,6 +60,7 @@ export class AuthenticationService {
     private readonly invitationRepository: Repository<Invitation>,
     @InjectRepository(UserModuleAssignment)
     private readonly userModuleAssignmentRepository: Repository<UserModuleAssignment>,
+    private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
@@ -177,6 +178,7 @@ export class AuthenticationService {
 
   /**
    * Accept invitation and set password
+   * Uses transaction to ensure user and invitation updates are atomic
    */
   async acceptInvitation(
     token: string,
@@ -185,7 +187,7 @@ export class AuthenticationService {
     lastName?: string,
     ipAddress?: string,
   ): Promise<AuthPayload> {
-    // Find invitation by token
+    // Find and validate invitation before starting transaction
     const invitation = await this.invitationRepository.findOne({
       where: { token },
     });
@@ -210,27 +212,30 @@ export class AuthenticationService {
       throw new BadRequestException('User not found for this invitation');
     }
 
-    // Update user with password and clear invitation token
-    user.password = password; // Will be hashed by BeforeUpdate hook
-    user.invitationToken = null;
-    user.invitationExpiresAt = null;
-    user.isEmailVerified = true;
+    // Execute updates in a transaction to ensure consistency
+    await this.dataSource.transaction(async (manager) => {
+      // Update user with password and clear invitation token
+      user.password = password; // Will be hashed by BeforeUpdate hook
+      user.invitationToken = null;
+      user.invitationExpiresAt = null;
+      user.isEmailVerified = true;
 
-    if (firstName) user.firstName = firstName;
-    if (lastName) user.lastName = lastName;
+      if (firstName) user.firstName = firstName;
+      if (lastName) user.lastName = lastName;
 
-    await this.userRepository.save(user);
+      await manager.save(User, user);
 
-    // Update invitation status
-    invitation.status = InvitationStatus.ACCEPTED;
-    invitation.acceptedAt = new Date();
-    invitation.userId = user.id;
-    invitation.acceptedFromIp = ipAddress ?? null;
-    await this.invitationRepository.save(invitation);
+      // Update invitation status
+      invitation.status = InvitationStatus.ACCEPTED;
+      invitation.acceptedAt = new Date();
+      invitation.userId = user.id;
+      invitation.acceptedFromIp = ipAddress ?? null;
+      await manager.save(Invitation, invitation);
+    });
 
     this.logger.log(`Invitation accepted: ${user.email} (role: ${user.role})`);
 
-    // Publish event
+    // Publish event (outside transaction - events can be retried)
     await this.eventBus.publish({
       eventId: crypto.randomUUID(),
       eventType: 'InvitationAccepted',
@@ -278,21 +283,42 @@ export class AuthenticationService {
     };
   }
 
+  /**
+   * Refresh access token using a valid refresh token.
+   * Uses atomic update to prevent race conditions where the same token
+   * could be used multiple times concurrently.
+   */
   async refreshToken(token: string): Promise<AuthPayload> {
+    // First, atomically try to revoke the token
+    // Only succeeds if the token exists and is not already revoked
+    const updateResult = await this.refreshTokenRepository
+      .createQueryBuilder()
+      .update(RefreshToken)
+      .set({
+        isRevoked: true,
+        revokedAt: new Date(),
+        revokedReason: 'Token refreshed',
+      })
+      .where('token = :token', { token })
+      .andWhere('isRevoked = :isRevoked', { isRevoked: false })
+      .andWhere('expiresAt > :now', { now: new Date() })
+      .execute();
+
+    // If no rows were updated, the token was invalid, already used, or expired
+    if (updateResult.affected === 0) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    // Now safely fetch the token with user relation
     const refreshToken = await this.refreshTokenRepository.findOne({
       where: { token },
       relations: ['user'],
     });
 
-    if (!refreshToken || !refreshToken.isValid()) {
-      throw new UnauthorizedException('Invalid or expired refresh token');
+    if (!refreshToken || !refreshToken.user) {
+      // This should not happen since we just updated the row
+      throw new UnauthorizedException('Refresh token data not found');
     }
-
-    // Revoke old refresh token
-    refreshToken.isRevoked = true;
-    refreshToken.revokedAt = new Date();
-    refreshToken.revokedReason = 'Token refreshed';
-    await this.refreshTokenRepository.save(refreshToken);
 
     // Generate new tokens
     return this.generateTokens(
@@ -415,15 +441,33 @@ export class AuthenticationService {
       }));
   }
 
+  /**
+   * Handle failed login with atomic database increment to prevent race conditions.
+   * Uses raw SQL to ensure atomicity even under concurrent login attempts.
+   */
   private async handleFailedLogin(user: User): Promise<void> {
-    user.failedLoginAttempts += 1;
+    // Atomic increment using raw query to prevent race conditions
+    // This ensures concurrent failed login attempts are all counted
+    await this.userRepository
+      .createQueryBuilder()
+      .update(User)
+      .set({
+        failedLoginAttempts: () => '"failedLoginAttempts" + 1',
+      })
+      .where('id = :id', { id: user.id })
+      .execute();
 
-    if (user.failedLoginAttempts >= this.maxFailedAttempts) {
-      user.lockedUntil = new Date(Date.now() + this.lockoutDurationMinutes * 60 * 1000);
-      this.logger.warn(`Account locked for user: ${user.email}`);
+    // Re-fetch to check current count and apply lockout if needed
+    const updatedUser = await this.userRepository.findOne({
+      where: { id: user.id },
+      select: ['id', 'email', 'failedLoginAttempts'],
+    });
+
+    if (updatedUser && updatedUser.failedLoginAttempts >= this.maxFailedAttempts) {
+      const lockoutUntil = new Date(Date.now() + this.lockoutDurationMinutes * 60 * 1000);
+      await this.userRepository.update(user.id, { lockedUntil: lockoutUntil });
+      this.logger.warn(`Account locked for user: ${user.email} until ${lockoutUntil.toISOString()}`);
     }
-
-    await this.userRepository.save(user);
   }
 
   private async generateTokens(
@@ -439,7 +483,7 @@ export class AuthenticationService {
       sub: user.id,
       email: user.email,
       role: user.role,
-      tenantId: user.tenantId,
+      tenantId: user.tenantId ?? null,
       modules: moduleCodes.length > 0 ? moduleCodes : undefined,
     };
 

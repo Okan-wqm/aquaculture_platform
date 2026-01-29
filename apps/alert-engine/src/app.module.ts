@@ -19,6 +19,10 @@ import { AlertModule } from './alert/alert.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
+// Nested ObjectTypes for orphanedTypes registration
+import { IncidentTimelineEvent } from './database/entities/alert-incident.entity';
+import { AlertCondition } from './database/entities/alert-rule.entity';
+
 @Module({
   imports: [
     // Global configuration
@@ -82,6 +86,9 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       useFactory: (configService: ConfigService) => ({
         autoSchemaFile: {
           federation: 2,
+        },
+        buildSchemaOptions: {
+          orphanedTypes: [IncidentTimelineEvent, AlertCondition],
         },
         playground: configService.get('NODE_ENV') !== 'production',
         // SECURITY: Disable introspection in production

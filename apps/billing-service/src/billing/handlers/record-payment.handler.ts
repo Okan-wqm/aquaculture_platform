@@ -1,6 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { RecordPaymentCommand } from '../commands/record-payment.command';
 import { Payment, PaymentStatus } from '../entities/payment.entity';
@@ -24,14 +23,7 @@ function safeSubtract(a: number, b: number): number {
 export class RecordPaymentHandler implements ICommandHandler<RecordPaymentCommand, Payment> {
   private readonly logger = new Logger(RecordPaymentHandler.name);
 
-  constructor(
-    @InjectRepository(Payment)
-    private readonly paymentRepository: Repository<Payment>,
-    @InjectRepository(Invoice)
-    private readonly invoiceRepository: Repository<Invoice>,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   async execute(command: RecordPaymentCommand): Promise<Payment> {
     const { tenantId, input, userId } = command;

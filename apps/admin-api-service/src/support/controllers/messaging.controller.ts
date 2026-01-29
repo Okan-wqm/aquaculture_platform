@@ -25,22 +25,22 @@ import { AllowTenantAdmin } from '../../decorators/roles.decorator';
 // ============================================================================
 
 class CreateThreadDto {
-  tenantId: string;
-  subject: string;
-  content: string;
+  tenantId!: string;
+  subject!: string;
+  content!: string;
   senderName?: string;
 }
 
 class AddMessageDto {
-  content: string;
+  content!: string;
   senderName?: string;
   isInternal?: boolean;
   attachments?: MessageAttachment[];
 }
 
 class BulkMessageDto {
-  subject: string;
-  content: string;
+  subject!: string;
+  content!: string;
   targetCriteria?: AnnouncementTarget;
   tenantIds?: string[];
   sendEmail?: boolean;

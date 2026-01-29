@@ -1,11 +1,9 @@
 import { randomUUID } from 'crypto';
 
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
-import * as mqtt from 'mqtt';
-import { MqttClient } from 'mqtt';
 import { Repository, DataSource } from 'typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
@@ -13,6 +11,7 @@ import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-met
 import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor, SensorStatus } from '../database/entities/sensor.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
+import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
 
 
@@ -88,15 +87,14 @@ interface TenantEdgeStatusPayload {
 /**
  * MQTT Listener Service
  * Global MQTT listener that subscribes to all sensor topics
- * and routes data to appropriate sensors
+ * and routes data to appropriate sensors.
+ *
+ * Uses MqttClientService for MQTT connection (shared with other modules).
  */
 @Injectable()
 export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MqttListenerService.name);
-  private client: MqttClient | null = null;
-  private isConnected = false;
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
+  private readonly messageHandler: (topic: string, message: Buffer) => void;
 
   constructor(
     private readonly configService: ConfigService,
@@ -112,11 +110,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus | null,
     @Optional()
-    @Inject(forwardRef(() => EdgeDeviceService))
     private readonly edgeDeviceService: EdgeDeviceService | null,
     @Optional()
     private readonly sensorTopicCache: SensorTopicCacheService | null,
-  ) {}
+    @Optional()
+    private readonly mqttClient: MqttClientService | null,
+  ) {
+    // Bind message handler to this instance
+    this.messageHandler = (topic: string, message: Buffer) => {
+      this.handleMessage(topic, message).catch((error: Error) => {
+        this.logger.error(`Unhandled error in message handler for topic ${topic}: ${error.message}`, error.stack);
+      });
+    };
+  }
 
   async onModuleInit(): Promise<void> {
     const mqttEnabled = this.configService.get('MQTT_ENABLED', 'true') === 'true';
@@ -126,100 +132,39 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    await this.connect();
+    if (!this.mqttClient) {
+      this.logger.warn('MqttClientService not available, MQTT listener will not start');
+      return;
+    }
+
+    // Register as message handler
+    this.mqttClient.addMessageHandler(this.messageHandler);
+
+    // Subscribe to topics
+    await this.subscribeToTopics();
+
+    this.logger.log('MQTT Listener initialized');
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.disconnect();
-  }
-
-  /**
-   * Connect to MQTT broker
-   */
-  async connect(): Promise<void> {
-    const brokerUrl = this.configService.get<string>('MQTT_BROKER_URL', 'mqtt://localhost:1883');
-    const username = this.configService.get<string>('MQTT_USERNAME');
-    const password = this.configService.get<string>('MQTT_PASSWORD');
-    const clientId = `aqua-sensor-service-${process.pid}-${Date.now()}`;
-
-    this.logger.log(`Connecting to MQTT broker: ${brokerUrl}`);
-
-    const options: mqtt.IClientOptions = {
-      clientId,
-      clean: true,
-      keepalive: 60,
-      reconnectPeriod: 5000,
-      connectTimeout: 30000,
-    };
-
-    if (username) {
-      options.username = username;
-      options.password = password;
+    // Unregister message handler
+    if (this.mqttClient) {
+      this.mqttClient.removeMessageHandler(this.messageHandler);
     }
-
-    return new Promise((resolve, reject) => {
-      this.client = mqtt.connect(brokerUrl, options);
-
-      this.client.on('connect', () => {
-        this.isConnected = true;
-        this.reconnectAttempts = 0;
-        this.logger.log('Connected to MQTT broker');
-
-        // Subscribe to all sensor topics
-        this.subscribeToTopics();
-        resolve();
-      });
-
-      this.client.on('error', (error) => {
-        this.logger.error(`MQTT error: ${error.message}`);
-        if (!this.isConnected) {
-          reject(error);
-        }
-      });
-
-      this.client.on('close', () => {
-        this.isConnected = false;
-        this.logger.warn('MQTT connection closed');
-      });
-
-      this.client.on('reconnect', () => {
-        this.reconnectAttempts++;
-        this.logger.log(`Reconnecting to MQTT broker (attempt ${this.reconnectAttempts})`);
-
-        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-          this.logger.error('Max reconnect attempts reached, stopping');
-          this.client?.end(true);
-        }
-      });
-
-      this.client.on('message', (topic, message) => {
-        this.handleMessage(topic, message).catch((error: Error) => {
-          this.logger.error(`Unhandled error in message handler for topic ${topic}: ${error.message}`, error.stack);
-        });
-      });
-    });
-  }
-
-  /**
-   * Disconnect from MQTT broker
-   */
-  async disconnect(): Promise<void> {
-    if (this.client) {
-      const client = this.client;
-      return new Promise((resolve) => {
-        client.end(false, {}, () => {
-          this.logger.log('Disconnected from MQTT broker');
-          resolve();
-        });
-      });
-    }
+    this.logger.log('MQTT Listener destroyed');
   }
 
   /**
    * Subscribe to sensor and edge device topics
    */
-  private subscribeToTopics(): void {
-    if (!this.client) return;
+  private async subscribeToTopics(): Promise<void> {
+    if (!this.mqttClient) return;
+
+    // Don't try to subscribe if not connected - will subscribe when connection is established
+    if (!this.mqttClient.isConnectedToBroker()) {
+      this.logger.warn('MQTT broker not connected, will subscribe when connection is established');
+      return;
+    }
 
     // Subscribe to wildcard topic patterns
     const topics = [
@@ -241,14 +186,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       'tenants/+/devices/+/response',   // Command response
     ];
 
-    for (const topic of topics) {
-      this.client.subscribe(topic, { qos: 1 }, (err) => {
-        if (err) {
-          this.logger.error(`Failed to subscribe to ${topic}: ${err.message}`);
-        } else {
-          this.logger.log(`Subscribed to topic: ${topic}`);
-        }
-      });
+    try {
+      await this.mqttClient.subscribe(topics);
+    } catch (error) {
+      this.logger.warn(`Failed to subscribe to topics: ${(error as Error).message}`);
     }
   }
 
@@ -1162,31 +1103,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Get connection status
    */
   isConnectedToBroker(): boolean {
-    return this.isConnected;
+    return this.mqttClient?.isConnectedToBroker() ?? false;
   }
 
   /**
    * Publish message to topic (for testing)
    */
   async publish(topic: string, message: string | object): Promise<void> {
-    if (!this.client || !this.isConnected) {
-      throw new Error('Not connected to MQTT broker');
+    if (!this.mqttClient) {
+      throw new Error('MQTT client not available');
     }
-
-    const payload = typeof message === 'string' ? message : JSON.stringify(message);
-
-    return new Promise((resolve, reject) => {
-      if (!this.client) {
-        reject(new Error('MQTT client not available'));
-        return;
-      }
-      this.client.publish(topic, payload, { qos: 1 }, (err) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
-    });
+    await this.mqttClient.publish(topic, message);
   }
 }

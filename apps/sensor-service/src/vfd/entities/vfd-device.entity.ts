@@ -6,6 +6,8 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import { ObjectType, Field, ID } from '@nestjs/graphql';
+import GraphQLJSON from 'graphql-type-json';
 
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from './vfd.enums';
 
@@ -95,36 +97,46 @@ export type VfdProtocolConfiguration =
  * VFD Device Entity
  * Stores VFD device configuration and status
  */
+@ObjectType({ description: 'VFD (Variable Frequency Drive) device' })
 @Entity('vfd_devices', { schema: 'sensor' })
 @Index(['tenantId'])
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'brand'])
 @Index(['tenantId', 'protocol'])
 export class VfdDevice {
+  @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
+  @Field()
   @Column({ length: 255 })
   name!: string;
 
+  @Field(() => VfdBrand)
   @Column({ type: 'varchar', length: 50 })
   brand!: VfdBrand;
 
+  @Field({ nullable: true })
   @Column({ type: 'varchar', length: 100, nullable: true })
   model?: string;
 
+  @Field({ nullable: true })
   @Column({ type: 'varchar', length: 100, nullable: true })
   serialNumber?: string;
 
+  @Field(() => VfdProtocol)
   @Column({ type: 'varchar', length: 50 })
   protocol!: VfdProtocol;
 
+  @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
   protocolConfiguration!: VfdProtocolConfiguration;
 
+  @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
   connectionStatus?: VfdConnectionStatus;
 
+  @Field(() => VfdDeviceStatus)
   @Column({
     type: 'varchar',
     length: 50,
@@ -132,25 +144,32 @@ export class VfdDevice {
   })
   status!: VfdDeviceStatus;
 
+  @Field()
   @Column({ type: 'uuid' })
   @Index()
   tenantId!: string;
 
+  @Field({ nullable: true })
   @Column({ type: 'uuid', nullable: true })
   farmId?: string;
 
+  @Field({ nullable: true })
   @Column({ type: 'uuid', nullable: true })
   tankId?: string;
 
+  @Field({ nullable: true })
   @Column({ type: 'varchar', length: 255, nullable: true })
   location?: string;
 
+  @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
   description?: string;
 
+  @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
+  @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
   customRegisterMappings?: Array<{
     parameterName: string;
@@ -165,21 +184,27 @@ export class VfdDevice {
     wordOrder: string;
   }>;
 
+  @Field()
   @Column({ type: 'int', default: 1000 })
   pollIntervalMs!: number;
 
+  @Field()
   @Column({ type: 'boolean', default: true })
   isPollingEnabled!: boolean;
 
+  @Field()
   @CreateDateColumn({ type: 'timestamp with time zone' })
   createdAt!: Date;
 
+  @Field()
   @UpdateDateColumn({ type: 'timestamp with time zone' })
   updatedAt!: Date;
 
+  @Field({ nullable: true })
   @Column({ type: 'uuid', nullable: true })
   createdBy?: string;
 
+  @Field({ nullable: true })
   @Column({ type: 'uuid', nullable: true })
   updatedBy?: string;
 }

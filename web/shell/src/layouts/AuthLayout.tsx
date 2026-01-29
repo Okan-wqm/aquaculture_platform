@@ -8,6 +8,7 @@
 import React from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
 import { useAuthContext } from '@aquaculture/shared-ui';
+import FishBackground from '../components/FishBackground';
 
 // ============================================================================
 // Layout Bileşeni
@@ -39,44 +40,36 @@ const AuthLayout: React.FC = () => {
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-white/5 rounded-full blur-3xl" />
       </div>
 
-      {/* Logo ve Başlık */}
-      <header className="relative z-10 pt-8 pb-4 text-center">
-        <div className="flex items-center justify-center space-x-3">
-          {/* Logo */}
-          <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg">
-            <svg
-              className="w-8 h-8 text-primary-600"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" />
-              <path d="M8 12c0-2.21 1.79-4 4-4s4 1.79 4 4-1.79 4-4 4" />
-              <path d="M12 8v8" />
-            </svg>
-          </div>
-          <h1 className="text-2xl font-bold text-white">Aquaculture Platform</h1>
-        </div>
-        <p className="mt-2 text-sm text-white/80">
-          Su Ürünleri Yetiştiriciliği Yönetim Sistemi
-        </p>
-      </header>
+      {/* Animasyonlu balık arkaplanı */}
+      <FishBackground fishCount={14} />
 
-      {/* İçerik Alanı */}
+      {/* İçerik Alanı - Logo ve Form Birleşik */}
       <main className="relative z-10 flex-1 flex items-center justify-center p-4">
         <div className="w-full max-w-md">
-          {/* Card Container */}
-          <div className="bg-white rounded-2xl shadow-2xl p-8 animate-fade-in">
+          {/* Card Container - Logo + Form Birleşik */}
+          <div className="backdrop-blur-md bg-white/65 border border-white/70 rounded-2xl shadow-2xl p-8 animate-fade-in">
+            {/* Logo */}
+            <div className="flex flex-col items-center mb-4">
+              <img
+                src="/logo4.png"
+                alt="Aquaculture Platform Logo"
+                className="w-64 h-64 object-contain drop-shadow-lg"
+              />
+              <p className="-mt-2 text-2xl text-blue-700 text-center" style={{ fontFamily: "'Caveat', cursive" }}>
+                Unlocks the power of farm management intelligence
+              </p>
+            </div>
+
+            {/* Form */}
             <Outlet />
           </div>
 
-          {/* Alt Bilgi */}
+          {/* Footer Info */}
           <div className="mt-6 text-center text-sm text-white/70">
             <p>
-              Yardım mı lazım?{' '}
+              Need help?{' '}
               <a href="/support" className="text-white hover:underline font-medium">
-                Destek
+                Support
               </a>
             </p>
           </div>
@@ -85,7 +78,7 @@ const AuthLayout: React.FC = () => {
 
       {/* Footer */}
       <footer className="relative z-10 py-4 text-center text-sm text-white/60">
-        <p>&copy; {new Date().getFullYear()} Aquaculture Platform. Tüm hakları saklıdır.</p>
+        <p>&copy; {new Date().getFullYear()} Aquaculture Platform. All rights reserved.</p>
       </footer>
     </div>
   );

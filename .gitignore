@@ -98,7 +98,7 @@ deploy/**/secret.yaml
 secrets/
 
 # Docker
-.dockerignore
+.docker-cache/
 
 # Nx
 .nx/

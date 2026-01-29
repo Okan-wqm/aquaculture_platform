@@ -89,7 +89,7 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
           .set({
             isActive: false,
             updatedBy: userId,
-          } as Partial<Tank>)
+          })
           .where('tenantId = :tenantId', { tenantId })
           .andWhere('departmentId = :departmentId', { departmentId })
           .execute();

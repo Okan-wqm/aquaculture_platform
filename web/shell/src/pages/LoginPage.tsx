@@ -97,8 +97,8 @@ const LoginForm: React.FC = () => {
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div className="text-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Giriş Yap</h2>
-        <p className="mt-1 text-sm text-gray-500">Hesabınıza giriş yapın</p>
+        <h2 className="text-2xl font-bold text-blue-700">Sign In</h2>
+        <p className="mt-1 text-sm text-blue-600">Access your account</p>
       </div>
 
       {authError && (
@@ -108,19 +108,19 @@ const LoginForm: React.FC = () => {
       )}
 
       <Input
-        label="E-posta"
+        label="Email"
         type="email"
         name="email"
         value={formData.email}
         onChange={handleChange}
-        placeholder="ornek@email.com"
+        placeholder="example@email.com"
         error={errors.email}
         autoComplete="email"
         required
       />
 
       <Input
-        label="Şifre"
+        label="Password"
         type="password"
         name="password"
         value={formData.password}
@@ -133,19 +133,19 @@ const LoginForm: React.FC = () => {
 
       <div className="flex items-center justify-between text-sm">
         <label className="flex items-center">
-          <input type="checkbox" className="rounded border-gray-300 text-primary-600" />
-          <span className="ml-2 text-gray-600">Beni hatırla</span>
+          <input type="checkbox" className="rounded border-blue-300 bg-white/50 text-blue-600" />
+          <span className="ml-2 text-blue-700">Remember me</span>
         </label>
-        <Link to="/forgot-password" className="text-primary-600 hover:text-primary-700 font-medium">
-          Şifremi unuttum
+        <Link to="/forgot-password" className="text-blue-600 hover:text-blue-800 font-medium">
+          Forgot password?
         </Link>
       </div>
 
       <Button type="submit" fullWidth loading={isSubmitting}>
-        Giriş Yap
+        Sign In
       </Button>
 
-      <div className="text-center text-xs text-gray-500 mt-4">
+      <div className="text-center text-xs text-blue-600 mt-4">
         <p>Demo: by-okan@live.com / 12345678</p>
       </div>
     </form>
@@ -180,7 +180,7 @@ const AcceptInvitationForm: React.FC = () => {
   React.useEffect(() => {
     const validateToken = async () => {
       if (!token) {
-        setValidationError('Geçersiz davet bağlantısı');
+        setValidationError('Invalid invitation link');
         setIsValidating(false);
         return;
       }
@@ -200,7 +200,7 @@ const AcceptInvitationForm: React.FC = () => {
           lastName: 'User',
         }));
       } catch {
-        setValidationError('Davet bağlantısı geçersiz veya süresi dolmuş');
+        setValidationError('Invitation link is invalid or expired');
       } finally {
         setIsValidating(false);
       }
@@ -221,14 +221,14 @@ const AcceptInvitationForm: React.FC = () => {
 
       const newErrors: Record<string, string> = {};
 
-      if (!formData.firstName.trim()) newErrors.firstName = 'Ad zorunludur';
-      if (!formData.lastName.trim()) newErrors.lastName = 'Soyad zorunludur';
+      if (!formData.firstName.trim()) newErrors.firstName = 'First name is required';
+      if (!formData.lastName.trim()) newErrors.lastName = 'Last name is required';
 
       const passwordResult = validateField(formData.password, [required(), minLength(8)]);
       if (!passwordResult.valid) newErrors.password = passwordResult.error || '';
 
       if (formData.password !== formData.confirmPassword) {
-        newErrors.confirmPassword = 'Şifreler eşleşmiyor';
+        newErrors.confirmPassword = 'Passwords do not match';
       }
 
       if (Object.keys(newErrors).length > 0) {
@@ -243,7 +243,7 @@ const AcceptInvitationForm: React.FC = () => {
         navigate('/login');
       } catch (err) {
         setErrors({
-          password: err instanceof Error ? err.message : 'Bir hata oluştu',
+          password: err instanceof Error ? err.message : 'An error occurred',
         });
       } finally {
         setIsSubmitting(false);
@@ -255,8 +255,8 @@ const AcceptInvitationForm: React.FC = () => {
   if (isValidating) {
     return (
       <div className="text-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
-        <p className="mt-4 text-gray-600">Davet doğrulanıyor...</p>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto"></div>
+        <p className="mt-4 text-white/80">Validating invitation...</p>
       </div>
     );
   }
@@ -264,16 +264,16 @@ const AcceptInvitationForm: React.FC = () => {
   if (validationError) {
     return (
       <div className="text-center">
-        <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
-          <svg className="w-6 h-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="mx-auto w-12 h-12 bg-red-500/30 rounded-full flex items-center justify-center mb-4">
+          <svg className="w-6 h-6 text-red-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </div>
-        <h2 className="text-xl font-bold text-gray-900 mb-2">Geçersiz Davet</h2>
-        <p className="text-gray-600 mb-6">{validationError}</p>
+        <h2 className="text-xl font-bold text-white mb-2">Invalid Invitation</h2>
+        <p className="text-white/70 mb-6">{validationError}</p>
         <Link to="/login">
           <Button variant="outline" fullWidth>
-            Giriş sayfasına dön
+            Back to login
           </Button>
         </Link>
       </div>
@@ -283,8 +283,8 @@ const AcceptInvitationForm: React.FC = () => {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="text-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Daveti Kabul Et</h2>
-        <p className="mt-1 text-sm text-gray-500">Hesabınızı tamamlayın</p>
+        <h2 className="text-2xl font-bold text-white drop-shadow-md">Accept Invitation</h2>
+        <p className="mt-1 text-sm text-white/80">Complete your account</p>
         {invitationData && (
           <p className="mt-2 text-sm text-primary-600">{invitationData.email}</p>
         )}
@@ -292,52 +292,52 @@ const AcceptInvitationForm: React.FC = () => {
 
       <div className="grid grid-cols-2 gap-4">
         <Input
-          label="Ad"
+          label="First Name"
           name="firstName"
           value={formData.firstName}
           onChange={handleChange}
-          placeholder="Ad"
+          placeholder="First name"
           error={errors.firstName}
           required
         />
         <Input
-          label="Soyad"
+          label="Last Name"
           name="lastName"
           value={formData.lastName}
           onChange={handleChange}
-          placeholder="Soyad"
+          placeholder="Last name"
           error={errors.lastName}
           required
         />
       </div>
 
       <Input
-        label="Şifre"
+        label="Password"
         type="password"
         name="password"
         value={formData.password}
         onChange={handleChange}
-        placeholder="En az 8 karakter"
+        placeholder="At least 8 characters"
         error={errors.password}
-        hint="En az 8 karakter"
+        hint="At least 8 characters"
         autoComplete="new-password"
         required
       />
 
       <Input
-        label="Şifre Tekrar"
+        label="Confirm Password"
         type="password"
         name="confirmPassword"
         value={formData.confirmPassword}
         onChange={handleChange}
-        placeholder="Şifreyi tekrar girin"
+        placeholder="Re-enter password"
         error={errors.confirmPassword}
         autoComplete="new-password"
         required
       />
 
       <Button type="submit" fullWidth loading={isSubmitting}>
-        Hesabı Oluştur
+        Create Account
       </Button>
     </form>
   );
@@ -370,7 +370,7 @@ const ForgotPasswordForm: React.FC = () => {
         // TODO: Call requestPasswordReset mutation
         setSuccess(true);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Bir hata oluştu');
+        setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setIsSubmitting(false);
       }
@@ -381,18 +381,18 @@ const ForgotPasswordForm: React.FC = () => {
   if (success) {
     return (
       <div className="text-center">
-        <div className="mx-auto w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-4">
-          <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="mx-auto w-12 h-12 bg-green-500/30 rounded-full flex items-center justify-center mb-4">
+          <svg className="w-6 h-6 text-green-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h2 className="text-xl font-bold text-gray-900 mb-2">E-posta Gönderildi</h2>
-        <p className="text-gray-600 mb-6">
-          Şifre sıfırlama bağlantısı e-posta adresinize gönderildi.
+        <h2 className="text-xl font-bold text-white mb-2">Email Sent</h2>
+        <p className="text-white/70 mb-6">
+          Password reset link has been sent to your email address.
         </p>
         <Link to="/login">
           <Button variant="outline" fullWidth>
-            Giriş sayfasına dön
+            Back to login
           </Button>
         </Link>
       </div>
@@ -402,9 +402,9 @@ const ForgotPasswordForm: React.FC = () => {
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div className="text-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Şifremi Unuttum</h2>
-        <p className="mt-1 text-sm text-gray-500">
-          E-posta adresinize şifre sıfırlama bağlantısı göndereceğiz
+        <h2 className="text-2xl font-bold text-white drop-shadow-md">Forgot Password</h2>
+        <p className="mt-1 text-sm text-white/80">
+          We'll send a password reset link to your email
         </p>
       </div>
 
@@ -415,22 +415,22 @@ const ForgotPasswordForm: React.FC = () => {
       )}
 
       <Input
-        label="E-posta"
+        label="Email"
         type="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
-        placeholder="ornek@email.com"
+        placeholder="example@email.com"
         autoComplete="email"
         required
       />
 
       <Button type="submit" fullWidth loading={isSubmitting}>
-        Şifre Sıfırlama Bağlantısı Gönder
+        Send Reset Link
       </Button>
 
-      <p className="text-center text-sm text-gray-600">
-        <Link to="/login" className="text-primary-600 hover:text-primary-700 font-medium">
-          Giriş sayfasına dön
+      <p className="text-center text-sm text-white/70">
+        <Link to="/login" className="text-white hover:text-white/80 font-medium">
+          Back to login
         </Link>
       </p>
     </form>
@@ -469,7 +469,7 @@ const ResetPasswordForm: React.FC = () => {
       if (!passwordResult.valid) newErrors.password = passwordResult.error || '';
 
       if (formData.password !== formData.confirmPassword) {
-        newErrors.confirmPassword = 'Şifreler eşleşmiyor';
+        newErrors.confirmPassword = 'Passwords do not match';
       }
 
       if (Object.keys(newErrors).length > 0) {
@@ -478,7 +478,7 @@ const ResetPasswordForm: React.FC = () => {
       }
 
       if (!token) {
-        setErrors({ password: 'Geçersiz sıfırlama bağlantısı' });
+        setErrors({ password: 'Invalid reset link' });
         return;
       }
 
@@ -490,7 +490,7 @@ const ResetPasswordForm: React.FC = () => {
         setTimeout(() => navigate('/login'), 3000);
       } catch (err) {
         setErrors({
-          password: err instanceof Error ? err.message : 'Bir hata oluştu',
+          password: err instanceof Error ? err.message : 'An error occurred',
         });
       } finally {
         setIsSubmitting(false);
@@ -502,14 +502,14 @@ const ResetPasswordForm: React.FC = () => {
   if (success) {
     return (
       <div className="text-center">
-        <div className="mx-auto w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-4">
-          <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="mx-auto w-12 h-12 bg-green-500/30 rounded-full flex items-center justify-center mb-4">
+          <svg className="w-6 h-6 text-green-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h2 className="text-xl font-bold text-gray-900 mb-2">Şifre Sıfırlandı</h2>
-        <p className="text-gray-600 mb-6">
-          Şifreniz başarıyla sıfırlandı. Giriş sayfasına yönlendiriliyorsunuz...
+        <h2 className="text-xl font-bold text-white mb-2">Password Reset</h2>
+        <p className="text-white/70 mb-6">
+          Your password has been reset successfully. Redirecting to login...
         </p>
       </div>
     );
@@ -518,37 +518,37 @@ const ResetPasswordForm: React.FC = () => {
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div className="text-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Yeni Şifre Belirle</h2>
-        <p className="mt-1 text-sm text-gray-500">Yeni şifrenizi girin</p>
+        <h2 className="text-2xl font-bold text-white drop-shadow-md">Set New Password</h2>
+        <p className="mt-1 text-sm text-white/80">Enter your new password</p>
       </div>
 
       <Input
-        label="Yeni Şifre"
+        label="New Password"
         type="password"
         name="password"
         value={formData.password}
         onChange={handleChange}
-        placeholder="En az 8 karakter"
+        placeholder="At least 8 characters"
         error={errors.password}
-        hint="En az 8 karakter"
+        hint="At least 8 characters"
         autoComplete="new-password"
         required
       />
 
       <Input
-        label="Şifre Tekrar"
+        label="Confirm Password"
         type="password"
         name="confirmPassword"
         value={formData.confirmPassword}
         onChange={handleChange}
-        placeholder="Şifreyi tekrar girin"
+        placeholder="Re-enter password"
         error={errors.confirmPassword}
         autoComplete="new-password"
         required
       />
 
       <Button type="submit" fullWidth loading={isSubmitting}>
-        Şifreyi Sıfırla
+        Reset Password
       </Button>
     </form>
   );

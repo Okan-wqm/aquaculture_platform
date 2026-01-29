@@ -11,6 +11,7 @@ import { VfdProfinetAdapter } from './adapters/vfd-profinet.adapter';
 import { VfdDevice } from './entities/vfd-device.entity';
 import { VfdReading } from './entities/vfd-reading.entity';
 import { VfdRegisterMapping } from './entities/vfd-register-mapping.entity';
+import { VfdDeviceResolver, VfdReadingResolver, VfdCommandResolver } from './resolvers';
 import { VfdCommandService } from './services/vfd-command.service';
 import { VfdConnectionTesterService } from './services/vfd-connection-tester.service';
 import { VfdDataReaderService } from './services/vfd-data-reader.service';
@@ -37,6 +38,11 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
     ]),
   ],
   providers: [
+    // Resolvers
+    VfdDeviceResolver,
+    VfdReadingResolver,
+    VfdCommandResolver,
+
     // Services
     VfdDeviceService,
     VfdRegisterMappingService,

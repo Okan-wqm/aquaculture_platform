@@ -125,17 +125,17 @@ services:
       minio:
         condition: service_healthy
       auth-service:
-        condition: service_started
+        condition: service_healthy
       farm-service:
-        condition: service_started
+        condition: service_healthy
       sensor-service:
-        condition: service_started
+        condition: service_healthy
       alert-engine:
-        condition: service_started
+        condition: service_healthy
       hr-service:
-        condition: service_started
+        condition: service_healthy
       billing-service:
-        condition: service_started
+        condition: service_healthy
     networks:
       - aqua-network
     restart: unless-stopped
@@ -161,6 +161,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
       JWT_EXPIRES_IN: 1h
       REFRESH_TOKEN_EXPIRES_IN: 7d
+    ports:
+      - "3001:3000"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
       interval: 30s
@@ -228,7 +230,7 @@ services:
       DATABASE_USER: aquaculture
       DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
       DATABASE_NAME: aquaculture
-      DATABASE_SYNC: "true"
+      DATABASE_SYNC: "false"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       MQTT_ENABLED: "true"
@@ -395,12 +397,23 @@ services:
       DATABASE_USER: aquaculture
       DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
       DATABASE_NAME: aquaculture
+      DATABASE_SCHEMA: admin
       DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+    ports:
+      - "3008:3000"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       nats:
         condition: service_healthy

@@ -115,7 +115,8 @@ export class CompressionMiddleware implements NestMiddleware {
       return true;
     };
 
-    // Override end method
+    // Override end method with async compression
+    // IMPORTANT: Using async compression to avoid blocking the event loop
     compressibleRes.end = function (
       chunk?: unknown,
       encodingOrCallback?: BufferEncoding | (() => void),
@@ -145,44 +146,32 @@ export class CompressionMiddleware implements NestMiddleware {
         return originalEnd();
       }
 
-      // Compress the response
-      try {
-        let compressed: Buffer;
-        let encodingHeader: string;
-
-        if (encoding === 'br') {
-          compressed = zlib.brotliCompressSync(body, {
-            params: {
-              [zlib.constants.BROTLI_PARAM_QUALITY]: 4,
-            },
-          });
-          encodingHeader = 'br';
-        } else if (encoding === 'gzip') {
-          compressed = zlib.gzipSync(body, { level: 6 });
-          encodingHeader = 'gzip';
-        } else {
-          compressed = zlib.deflateSync(body, { level: 6 });
-          encodingHeader = 'deflate';
-        }
-
-        // Only use compression if it actually reduces size
-        if (compressed.length < body.length) {
-          res.setHeader('Content-Encoding', encodingHeader);
-          res.setHeader('Content-Length', compressed.length);
-          res.setHeader('Vary', 'Accept-Encoding');
-          originalWrite(compressed);
-        } else {
-          // Compression didn't help, send original
+      // Compress asynchronously to avoid blocking event loop
+      compress(body, encoding as 'br' | 'gzip' | 'deflate')
+        .then((compressed) => {
+          // Only use compression if it actually reduces size
+          if (compressed.length < body.length) {
+            res.setHeader('Content-Encoding', encoding);
+            res.setHeader('Content-Length', compressed.length);
+            res.setHeader('Vary', 'Accept-Encoding');
+            originalWrite(compressed);
+          } else {
+            // Compression didn't help, send original
+            res.setHeader('Content-Length', body.length);
+            originalWrite(body);
+          }
+          originalEnd();
+        })
+        .catch(() => {
+          // On error, send uncompressed
           res.setHeader('Content-Length', body.length);
           originalWrite(body);
-        }
-      } catch (error) {
-        // On error, send uncompressed
-        res.setHeader('Content-Length', body.length);
-        originalWrite(body);
-      }
+          originalEnd();
+        });
 
-      return originalEnd();
+      // Return res to maintain interface compatibility
+      // Note: actual write happens asynchronously
+      return res;
     };
 
     // Store compression threshold on response

@@ -104,7 +104,7 @@ async function bootstrap() {
   // Enable graceful shutdown hooks
   app.enableShutdownHooks();
 
-  const port = process.env['PORT'] || 3008;
+  const port = process.env['PORT'] || 3000;
   await app.listen(port);
 
   logger.log(`Admin API Service running on port ${port}`);

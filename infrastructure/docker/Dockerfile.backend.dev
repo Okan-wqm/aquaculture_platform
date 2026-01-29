@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1.4
+# =============================================================================
+# Aquaculture Platform - Backend Development Dockerfile
+# Optimized for fast iteration with hot-reload support
+# =============================================================================
+
+FROM node:20-alpine AS development
+
+# Install build dependencies and development tools
+RUN apk add --no-cache python3 make g++ curl
+
+WORKDIR /app
+
+# Copy package files first (better layer caching)
+COPY package*.json ./
+
+# Install ALL dependencies with cache mount
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm ci --legacy-peer-deps --ignore-scripts --no-audit
+
+# Copy configuration files
+COPY tsconfig*.json ./
+COPY nx.json ./
+
+# Copy source code (will be overridden by volume mount in dev)
+COPY apps/ ./apps/
+COPY libs/ ./libs/
+COPY platform/ ./platform/
+
+# Build argument for service name
+ARG SERVICE_NAME
+ENV SERVICE_NAME=${SERVICE_NAME}
+
+# Increase memory for large builds
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+ENV NODE_ENV=development
+
+# Expose port
+EXPOSE 3000
+
+# Start with NX serve for hot reload
+CMD ["sh", "-c", "npx nx serve ${SERVICE_NAME} --host 0.0.0.0"]

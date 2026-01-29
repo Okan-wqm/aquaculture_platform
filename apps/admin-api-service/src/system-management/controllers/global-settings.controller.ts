@@ -30,8 +30,8 @@ import { ConfigCategory, ConfigValueType } from '../entities/global-config.entit
 // ============================================================================
 
 class CreateFeatureToggleDto {
-  key: string;
-  name: string;
+  key!: string;
+  name!: string;
   description?: string;
   scope?: FeatureToggleScope;
   status?: FeatureToggleStatus;
@@ -69,14 +69,14 @@ class EvaluateFeatureToggleDto {
 }
 
 class CreateMaintenanceDto {
-  title: string;
-  description: string;
+  title!: string;
+  description!: string;
   scope?: MaintenanceScope;
   type?: MaintenanceType;
   tenantId?: string;
   affectedTenants?: string[];
   affectedServices?: Array<{ name: string; status: 'unavailable' | 'degraded' | 'read_only'; message?: string }>;
-  scheduledStart: Date;
+  scheduledStart!: Date;
   scheduledEnd?: Date;
   estimatedDurationMinutes?: number;
   userMessage?: string;
@@ -86,9 +86,9 @@ class CreateMaintenanceDto {
 }
 
 class CreateVersionDto {
-  version: string;
-  releaseType: ReleaseType;
-  title: string;
+  version!: string;
+  releaseType!: ReleaseType;
+  title!: string;
   summary?: string;
   changelog?: ChangelogEntry[];
   breakingChanges?: string[];
@@ -99,12 +99,12 @@ class CreateVersionDto {
 }
 
 class CreateConfigDto {
-  key: string;
-  name: string;
+  key!: string;
+  name!: string;
   description?: string;
   category?: ConfigCategory;
   valueType?: ConfigValueType;
-  value: unknown;
+  value!: unknown;
   defaultValue?: unknown;
   validation?: {
     required?: boolean;
@@ -122,7 +122,7 @@ class CreateConfigDto {
 }
 
 class UpdateConfigDto {
-  value: unknown;
+  value!: unknown;
   reason?: string;
 }
 

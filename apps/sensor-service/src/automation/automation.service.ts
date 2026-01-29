@@ -7,14 +7,13 @@ import {
   ConflictException,
   BadRequestException,
   ForbiddenException,
-  Inject,
-  forwardRef,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, In } from 'typeorm';
 
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
-import { MqttListenerService } from '../ingestion/mqtt-listener.service';
+import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
 import {
   CreateProgramInput,
@@ -66,10 +65,10 @@ export class AutomationService {
     private readonly variableRepo: Repository<ProgramVariable>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    @Inject(forwardRef(() => EdgeDeviceService))
+    @Optional()
     private readonly edgeDeviceService: EdgeDeviceService,
-    @Inject(forwardRef(() => MqttListenerService))
-    private readonly mqttListener: MqttListenerService,
+    @Optional()
+    private readonly mqttClient: MqttClientService,
   ) {}
 
   // ============================================
@@ -955,6 +954,37 @@ export class AutomationService {
   // ============================================
 
   /**
+   * Ensure EdgeDeviceService is available
+   * Throws if @Optional service is not injected
+   */
+  private ensureEdgeDeviceServiceAvailable(): EdgeDeviceService {
+    if (!this.edgeDeviceService) {
+      throw new BadRequestException(
+        'Edge device functionality is not available. EdgeDeviceService is not configured.',
+      );
+    }
+    return this.edgeDeviceService;
+  }
+
+  /**
+   * Ensure MqttClientService is available and connected
+   * Throws if @Optional service is not injected or not connected
+   */
+  private ensureMqttAvailable(): MqttClientService {
+    if (!this.mqttClient) {
+      throw new BadRequestException(
+        'MQTT functionality is not available. MqttClientService is not configured.',
+      );
+    }
+    if (!this.mqttClient.isConnectedToBroker()) {
+      throw new BadRequestException(
+        'MQTT broker is not connected. Please try again later.',
+      );
+    }
+    return this.mqttClient;
+  }
+
+  /**
    * Deploy a program to an edge device
    *
    * This method:
@@ -971,6 +1001,10 @@ export class AutomationService {
     deployedBy: string,
     forceQueue?: boolean,
   ): Promise<DeploymentResult> {
+    // Ensure required services are available
+    const edgeService = this.ensureEdgeDeviceServiceAvailable();
+    const mqtt = this.ensureMqttAvailable();
+
     // 1. Get and validate program
     const program = await this.findByIdOrFail(programId, tenantId);
 
@@ -981,7 +1015,7 @@ export class AutomationService {
     }
 
     // 2. Get and validate device
-    const device = await this.edgeDeviceService.findByIdOrFail(deviceId, tenantId);
+    const device = await edgeService.findByIdOrFail(deviceId, tenantId);
 
     if (!device.isOnline && !forceQueue) {
       throw new BadRequestException(
@@ -1005,7 +1039,7 @@ export class AutomationService {
     const commandTopic = `tenants/${tenantId}/devices/${device.id}/commands`;
 
     try {
-      await this.mqttListener.publish(commandTopic, deployCommand);
+      await mqtt.publish(commandTopic, deployCommand);
       this.logger.log(
         `Deploy command sent to ${device.deviceCode}: ${commandId}`,
       );
@@ -1198,7 +1232,11 @@ export class AutomationService {
     tenantId: string,
     _rolledBackBy: string,
   ): Promise<DeploymentResult> {
-    const device = await this.edgeDeviceService.findByIdOrFail(deviceId, tenantId);
+    // Ensure required services are available
+    const edgeService = this.ensureEdgeDeviceServiceAvailable();
+    const mqtt = this.ensureMqttAvailable();
+
+    const device = await edgeService.findByIdOrFail(deviceId, tenantId);
 
     if (!device.isOnline) {
       throw new BadRequestException(
@@ -1217,7 +1255,7 @@ export class AutomationService {
     const commandTopic = `tenants/${tenantId}/devices/${device.id}/commands`;
 
     try {
-      await this.mqttListener.publish(commandTopic, rollbackCommand);
+      await mqtt.publish(commandTopic, rollbackCommand);
       this.logger.log(
         `Rollback command sent to ${device.deviceCode}: ${commandId}`,
       );

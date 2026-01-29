@@ -101,7 +101,7 @@ async function bootstrap(): Promise<void> {
   // Graceful shutdown
   app.enableShutdownHooks();
 
-  const port = configService.get<number>('PORT', 3003);
+  const port = configService.get<number>('SENSOR_SERVICE_PORT', 4003);
 
   await app.listen(port);
 

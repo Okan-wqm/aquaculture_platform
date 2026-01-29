@@ -14,9 +14,9 @@ import { MetricType } from '../entities/performance-metric.entity';
 // ============================================================================
 
 class RecordMetricDto {
-  metricType: MetricType;
-  name: string;
-  value: number;
+  metricType!: MetricType;
+  name!: string;
+  value!: number;
   unit?: string;
   service?: string;
   dimensions?: Record<string, string | undefined>;
@@ -25,7 +25,7 @@ class RecordMetricDto {
 }
 
 class UpdateThresholdsDto {
-  thresholds: MetricThreshold[];
+  thresholds!: MetricThreshold[];
 }
 
 // ============================================================================

@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual, Between } from 'typeorm';
+import { DataSource, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual, Between } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { GetInvoicesQuery } from '../queries/get-invoices.query';
 import { Invoice } from '../entities/invoice.entity';
@@ -8,13 +7,12 @@ import { Invoice } from '../entities/invoice.entity';
 @Injectable()
 @QueryHandler(GetInvoicesQuery)
 export class GetInvoicesHandler implements IQueryHandler<GetInvoicesQuery, Invoice[]> {
-  constructor(
-    @InjectRepository(Invoice)
-    private readonly invoiceRepository: Repository<Invoice>,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   async execute(query: GetInvoicesQuery): Promise<Invoice[]> {
     const { tenantId, filter } = query;
+
+    const invoiceRepo = this.dataSource.getRepository(Invoice);
 
     const where: FindOptionsWhere<Invoice> = { tenantId };
 
@@ -42,7 +40,7 @@ export class GetInvoicesHandler implements IQueryHandler<GetInvoicesQuery, Invoi
     const requestedLimit = filter?.limit || 20;
     const safeLimit = Math.min(Math.max(1, requestedLimit), MAX_LIMIT);
 
-    return this.invoiceRepository.find({
+    return invoiceRepo.find({
       where,
       relations,
       skip: Math.max(0, filter?.offset || 0),

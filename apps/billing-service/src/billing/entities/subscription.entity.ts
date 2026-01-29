@@ -167,21 +167,15 @@ export class Subscription {
   @Column({ nullable: true })
   stripeCustomerId?: string;
 
-  @Field(() => [require('./invoice.entity').Invoice], { nullable: true })
-  @OneToMany(
-    () => require('./invoice.entity').Invoice,
-    (invoice: { subscription: unknown }) => invoice.subscription,
-  )
+  // Note: invoices field resolved via field resolver to avoid circular dependency
+  @OneToMany('Invoice', 'subscription')
   invoices?: Array<import('./invoice.entity').Invoice>;
 
   /**
    * Module items included in this subscription
+   * Note: moduleItems field resolved via field resolver to avoid circular dependency
    */
-  @Field(() => [require('./subscription-module-item.entity').SubscriptionModuleItem], { nullable: true })
-  @OneToMany(
-    () => require('./subscription-module-item.entity').SubscriptionModuleItem,
-    (item: { subscription: unknown }) => item.subscription,
-  )
+  @OneToMany('SubscriptionModuleItem', 'subscription')
   moduleItems?: Array<import('./subscription-module-item.entity').SubscriptionModuleItem>;
 
   @Field()

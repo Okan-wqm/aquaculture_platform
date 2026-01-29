@@ -23,6 +23,11 @@ export { PROTOCOL_ADAPTERS } from './adapters/protocol-adapters.registry';
     TypeOrmModule.forFeature([SensorProtocol]),
   ],
   providers: [
+    // Adapter token olarak register et
+    {
+      provide: 'PROTOCOL_ADAPTERS',
+      useValue: PROTOCOL_ADAPTERS,
+    },
     // All protocol adapters (classes)
     ...PROTOCOL_ADAPTERS,
 

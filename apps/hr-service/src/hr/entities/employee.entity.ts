@@ -45,27 +45,14 @@ export enum PersonnelCategory {
   HYBRID = 'hybrid',
 }
 
-// Aquaculture-specific: Work Area Types
-export enum WorkAreaType {
-  SHORE_FACILITY = 'shore_facility',
-  SEA_CAGE = 'sea_cage',
-  FLOATING_PLATFORM = 'floating_platform',
-  VESSEL = 'vessel',
-  FEED_BARGE = 'feed_barge',
-  PROCESSING_PLANT = 'processing_plant',
-  HATCHERY = 'hatchery',
-  LABORATORY = 'laboratory',
-  OFFICE = 'office',
-  WAREHOUSE = 'warehouse',
-  WORKSHOP = 'workshop',
-  OTHER = 'other',
-}
+// Import shared WorkAreaType enum
+import { WorkAreaType } from '../../common/enums';
 
 registerEnumType(EmployeeStatus, { name: 'EmployeeStatus' });
 registerEnumType(EmploymentType, { name: 'EmploymentType' });
 registerEnumType(Department, { name: 'Department' });
 registerEnumType(PersonnelCategory, { name: 'PersonnelCategory' });
-registerEnumType(WorkAreaType, { name: 'WorkAreaType' });
+// WorkAreaType is registered in common/enums.ts
 
 @ObjectType()
 export class ContactInfo {

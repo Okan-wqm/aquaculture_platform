@@ -16,11 +16,19 @@ import {
   UnauthorizedException,
   Logger,
   SetMetadata,
+  Inject,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { Request } from 'express';
+
+import {
+  TokenBlacklistStore,
+  TOKEN_BLACKLIST_STORE,
+  InMemoryTokenBlacklistStore,
+} from './redis-token-blacklist.store';
 
 /**
  * Public route decorator
@@ -66,13 +74,7 @@ export interface AuthenticatedRequest extends Request {
   apiKey?: string;
 }
 
-/**
- * Token blacklist entry
- */
-interface BlacklistEntry {
-  jti: string;
-  exp: number;
-}
+// Token blacklist is now handled by TokenBlacklistStore (Redis or in-memory)
 
 /**
  * GraphQL context with request
@@ -92,13 +94,18 @@ export class AuthGuard implements CanActivate {
   private readonly jwtIssuer: string;
   private readonly jwtAudience: string[];
   private readonly apiKeys: Map<string, ApiKeyInfo>;
-  private readonly tokenBlacklist: Map<string, BlacklistEntry>;
+  private readonly tokenBlacklist: TokenBlacklistStore;
   private readonly basicAuthCredentials: Map<string, string>;
 
   constructor(
     private readonly reflector: Reflector,
     private readonly configService: ConfigService,
+    @Optional()
+    @Inject(TOKEN_BLACKLIST_STORE)
+    tokenBlacklistStore?: TokenBlacklistStore,
   ) {
+    // Use injected store or fallback to in-memory
+    this.tokenBlacklist = tokenBlacklistStore ?? new InMemoryTokenBlacklistStore();
     // SECURITY: Fail fast in production if JWT_SECRET is not configured
     const secret = this.configService.get<string>('JWT_SECRET');
     const isProduction = process.env['NODE_ENV'] === 'production';
@@ -118,15 +125,14 @@ export class AuthGuard implements CanActivate {
       .get<string>('JWT_AUDIENCE', 'aquaculture-api')
       .split(',');
     this.apiKeys = new Map();
-    this.tokenBlacklist = new Map();
     this.basicAuthCredentials = new Map();
 
     this.loadApiKeys();
     this.loadBasicAuthCredentials();
-    this.startBlacklistCleanup();
+    // Note: Cleanup is handled by the TokenBlacklistStore implementation
   }
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     // Check if route is public
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
@@ -166,7 +172,7 @@ export class AuthGuard implements CanActivate {
   /**
    * Validate JWT token
    */
-  private validateJwt(request: AuthenticatedRequest): boolean {
+  private async validateJwt(request: AuthenticatedRequest): Promise<boolean> {
     const authHeader = request.headers['authorization'];
 
     if (!authHeader) {
@@ -199,8 +205,8 @@ export class AuthGuard implements CanActivate {
         });
       }
 
-      // Check blacklist
-      if (payload.jti && this.isTokenBlacklisted(payload.jti)) {
+      // Check blacklist (async operation)
+      if (payload.jti && await this.tokenBlacklist.isBlacklisted(payload.jti)) {
         throw new UnauthorizedException({
           code: 'TOKEN_REVOKED',
           message: 'Token has been revoked',
@@ -412,16 +418,12 @@ export class AuthGuard implements CanActivate {
 
   /**
    * Add token to blacklist
+   * SECURITY: Use this when user logs out or token is compromised
+   * In distributed deployments, this uses Redis for cross-instance revocation
    */
-  blacklistToken(jti: string, exp: number): void {
-    this.tokenBlacklist.set(jti, { jti, exp });
-  }
-
-  /**
-   * Check if token is blacklisted
-   */
-  private isTokenBlacklisted(jti: string): boolean {
-    return this.tokenBlacklist.has(jti);
+  async blacklistToken(jti: string, exp: number): Promise<void> {
+    await this.tokenBlacklist.add(jti, exp);
+    this.logger.log(`Token blacklisted: ${jti.substring(0, 8)}...`);
   }
 
   /**
@@ -480,19 +482,9 @@ export class AuthGuard implements CanActivate {
     }
   }
 
-  /**
-   * Start blacklist cleanup interval
-   */
-  private startBlacklistCleanup(): void {
-    setInterval(() => {
-      const now = Math.floor(Date.now() / 1000);
-      for (const [jti, entry] of this.tokenBlacklist.entries()) {
-        if (entry.exp < now) {
-          this.tokenBlacklist.delete(jti);
-        }
-      }
-    }, 60000); // Cleanup every minute
-  }
+  // Note: Blacklist cleanup is handled by TokenBlacklistStore implementation
+  // - Redis store uses TTL for automatic cleanup
+  // - In-memory store has its own cleanup interval
 }
 
 /**

@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual, Between } from 'typeorm';
+import { DataSource, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual, Between } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { GetPaymentsQuery } from '../queries/get-payments.query';
 import { Payment } from '../entities/payment.entity';
@@ -8,13 +7,12 @@ import { Payment } from '../entities/payment.entity';
 @Injectable()
 @QueryHandler(GetPaymentsQuery)
 export class GetPaymentsHandler implements IQueryHandler<GetPaymentsQuery, Payment[]> {
-  constructor(
-    @InjectRepository(Payment)
-    private readonly paymentRepository: Repository<Payment>,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   async execute(query: GetPaymentsQuery): Promise<Payment[]> {
     const { tenantId, filter } = query;
+
+    const paymentRepo = this.dataSource.getRepository(Payment);
 
     const where: FindOptionsWhere<Payment> = { tenantId };
 
@@ -34,7 +32,7 @@ export class GetPaymentsHandler implements IQueryHandler<GetPaymentsQuery, Payme
       where.paymentDate = LessThanOrEqual(filter.endDate);
     }
 
-    return this.paymentRepository.find({
+    return paymentRepo.find({
       where,
       relations: ['invoice'],
       skip: filter?.offset || 0,

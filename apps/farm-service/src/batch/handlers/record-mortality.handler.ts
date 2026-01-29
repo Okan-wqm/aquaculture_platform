@@ -14,7 +14,7 @@ import { NatsEventBus } from '@platform/event-bus';
 import { RecordMortalityCommand } from '../commands/record-mortality.command';
 import { Batch } from '../entities/batch.entity';
 import { MortalityRecord, MortalityCause } from '../entities/mortality-record.entity';
-import { TankOperation, OperationType } from '../entities/tank-operation.entity';
+import { TankOperation, OperationType, MortalityReason } from '../entities/tank-operation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 
@@ -76,7 +76,7 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       recordDate: payload.observedAt,
       count: payload.quantity,
       estimatedBiomassLoss: biomassKg,
-      cause: payload.reason as MortalityCause,
+      cause: MortalityCause[payload.reason.toUpperCase() as keyof typeof MortalityCause] ?? MortalityCause.UNKNOWN,
       causeDetail: payload.detail,
       notes: payload.notes,
       recordedBy,
@@ -104,7 +104,7 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       quantity: payload.quantity,
       avgWeightG,
       biomassKg,
-      mortalityReason: payload.reason as MortalityCause,
+      mortalityReason: MortalityReason[payload.reason.toUpperCase() as keyof typeof MortalityReason] ?? MortalityReason.UNKNOWN,
       mortalityDetail: payload.detail,
       preOperationState,
       performedBy: recordedBy,

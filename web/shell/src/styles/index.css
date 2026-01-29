@@ -280,6 +280,139 @@
 }
 
 /* ============================================================================
+   Fish Background Animations - Login sayfası için
+   ============================================================================ */
+
+/* Çapraz yüzme animasyonu - CSS custom properties kullanır */
+@keyframes swimDiagonal {
+  0% {
+    left: var(--start-x);
+    top: var(--start-y);
+  }
+  100% {
+    left: var(--end-x);
+    top: var(--end-y);
+  }
+}
+
+/* Solungaç nefes animasyonu */
+@keyframes gillBreath {
+  0%, 100% {
+    transform: scaleX(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scaleX(1.3);
+    opacity: 0.7;
+  }
+}
+
+/* Balık yüzme stili */
+.swimming-fish {
+  animation-timing-function: linear;
+}
+
+/* Kuyruk sallama animasyonu */
+@keyframes tailWag {
+  0%, 100% {
+    transform: rotate(0deg) scaleX(1);
+  }
+  25% {
+    transform: rotate(8deg) scaleX(0.95);
+  }
+  75% {
+    transform: rotate(-8deg) scaleX(0.95);
+  }
+}
+
+.swimming-fish .fish-tail {
+  transform-origin: right center;
+  animation: tailWag var(--tail-speed, 0.8s) ease-in-out infinite;
+}
+
+/* Kelp dalgalanma animasyonu */
+@keyframes kelpSway {
+  0%, 100% {
+    transform: skewX(0deg);
+  }
+  25% {
+    transform: skewX(3deg);
+  }
+  75% {
+    transform: skewX(-3deg);
+  }
+}
+
+.kelp-strand {
+  transform-origin: bottom center;
+  animation: kelpSway 4s ease-in-out infinite;
+}
+
+.seaweed-strand {
+  transform-origin: bottom center;
+  animation: kelpSway 3s ease-in-out infinite;
+}
+
+/* Auth form - cam efektli input stilleri */
+.backdrop-blur-md input[type="text"],
+.backdrop-blur-md input[type="email"],
+.backdrop-blur-md input[type="password"] {
+  background: rgba(255, 255, 255, 0.5) !important;
+  border-color: rgba(37, 99, 235, 0.3) !important;
+  color: #1d4ed8 !important;
+}
+
+.backdrop-blur-md input::placeholder {
+  color: rgba(37, 99, 235, 0.5) !important;
+}
+
+.backdrop-blur-md input:focus {
+  background: rgba(255, 255, 255, 0.7) !important;
+  border-color: rgba(37, 99, 235, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) !important;
+}
+
+.backdrop-blur-md label {
+  color: #1d4ed8 !important;
+}
+
+.backdrop-blur-md button[type="submit"] {
+  background: #2563eb !important;
+  border: 1px solid #1d4ed8 !important;
+  color: white !important;
+}
+
+.backdrop-blur-md button[type="submit"]:hover {
+  background: #1d4ed8 !important;
+}
+
+/* Wave gradient overlay */
+.wave-overlay {
+  background:
+    radial-gradient(ellipse 100% 60% at 50% 0%, rgba(255,255,255,0.1) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 40% at 50% 100%, rgba(255,255,255,0.06) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 50% at 20% 50%, rgba(255,255,255,0.04) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 50% at 80% 50%, rgba(255,255,255,0.04) 0%, transparent 50%);
+  animation: waveGradient 20s ease-in-out infinite;
+}
+
+/* Wave gradient animasyonu */
+@keyframes waveGradient {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  33% {
+    opacity: 0.85;
+    transform: scale(1.02) translateY(-2px);
+  }
+  66% {
+    opacity: 0.9;
+    transform: scale(0.98) translateY(2px);
+  }
+}
+
+/* ============================================================================
    Print Styles
    ============================================================================ */
 

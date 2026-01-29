@@ -7,6 +7,8 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
+import GraphQLJSON from 'graphql-type-json';
 
 import { VfdDevice } from './vfd-device.entity';
 
@@ -72,49 +74,62 @@ export interface VfdStatusBits {
  * VFD Reading Entity
  * Stores VFD parameter readings with timestamp
  */
+@ObjectType({ description: 'VFD device reading with parameters' })
 @Entity('vfd_readings', { schema: 'sensor' })
 @Index(['vfdDeviceId', 'timestamp'])
 @Index(['tenantId', 'timestamp'])
 @Index(['vfdDeviceId'])
 @Index(['timestamp'])
 export class VfdReading {
+  @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
+  @Field()
   @Column({ type: 'uuid' })
   @Index()
   vfdDeviceId!: string;
 
+  @Field(() => VfdDevice, { nullable: true })
   @ManyToOne(() => VfdDevice, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'vfdDeviceId' })
   vfdDevice!: VfdDevice;
 
+  @Field()
   @Column({ type: 'uuid' })
   @Index()
   tenantId!: string;
 
+  @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
   parameters!: VfdParameters;
 
+  @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
   statusBits?: VfdStatusBits;
 
+  @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
   rawValues?: Record<string, number>;
 
+  @Field(() => Int, { nullable: true })
   @Column({ type: 'int', nullable: true })
   latencyMs?: number;
 
+  @Field()
   @Column({ type: 'boolean', default: true })
   isValid!: boolean;
 
+  @Field({ nullable: true })
   @Column({ type: 'varchar', length: 255, nullable: true })
   errorMessage?: string;
 
+  @Field()
   @Column({ type: 'timestamp with time zone' })
   @Index()
   timestamp!: Date;
 
+  @Field()
   @CreateDateColumn({ type: 'timestamp with time zone' })
   createdAt!: Date;
 }

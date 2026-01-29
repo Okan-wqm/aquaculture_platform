@@ -2,6 +2,7 @@ import { UseGuards } from '@nestjs/common';
 import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
 import { CurrentUser, Public } from '@platform/backend-common';
 
+import { AcceptInvitationInput } from '../dto/accept-invitation.dto';
 import {
   AuthPayload,
   LogoutResponse,
@@ -9,7 +10,6 @@ import {
   MePayload,
   InvitationValidationResponse,
 } from '../dto/auth-response.dto';
-import { AcceptInvitationInput } from '../dto/accept-invitation.dto';
 import { LoginInput } from '../dto/login.dto';
 import { RefreshTokenInput } from '../dto/refresh-token.dto';
 import { RegisterInput } from '../dto/register.dto';

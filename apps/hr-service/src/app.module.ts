@@ -43,6 +43,11 @@ import { WorkArea } from './aquaculture/entities/work-area.entity';
 import { WorkRotation } from './aquaculture/entities/work-rotation.entity';
 import { SafetyTrainingRecord } from './aquaculture/entities/safety-training-record.entity';
 
+// Nested ObjectTypes for orphanedTypes registration
+import { ContactInfo, Address, BankDetails, NextOfKin, EmergencyInfo } from './hr/entities/employee.entity';
+import { GeoCoordinates } from './aquaculture/entities/work-area.entity';
+import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquaculture/entities/work-rotation.entity';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -126,6 +131,19 @@ import { SafetyTrainingRecord } from './aquaculture/entities/safety-training-rec
       driver: ApolloFederationDriver,
       autoSchemaFile: {
         federation: 2,
+      },
+      buildSchemaOptions: {
+        orphanedTypes: [
+          ContactInfo,
+          Address,
+          BankDetails,
+          NextOfKin,
+          EmergencyInfo,
+          GeoCoordinates,
+          TransportInfo,
+          CheckInLocation,
+          CheckInHistoryEntry,
+        ],
       },
       playground: process.env['NODE_ENV'] !== 'production',
       introspection: process.env['NODE_ENV'] !== 'production',

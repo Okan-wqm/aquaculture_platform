@@ -101,8 +101,32 @@ export class User {
   invitedBy?: string | null;
 
   // ============================================
+  // Profile Fields
+  // ============================================
+
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  profileImageUrl?: string | null;
+
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  phoneNumber?: string | null;
+
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', length: 10, nullable: true, default: 'tr' })
+  preferredLanguage?: string | null;
+
+  // ============================================
   // Login & Security Fields
   // ============================================
+
+  @Field()
+  @Column({ type: 'boolean', default: false })
+  mfaEnabled!: boolean;
+
+  @HideField()
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  mfaSecret?: string | null;
 
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamp', nullable: true })

@@ -1,0 +1,367 @@
+/**
+ * MaintenanceSchedule GraphQL Resolver
+ *
+ * Bakım planı yönetimi ve otomatik iş emri oluşturma için GraphQL API.
+ *
+ * @module Maintenance/Resolvers
+ */
+import {
+  Resolver,
+  Query,
+  Mutation,
+  Args,
+  ID,
+  ObjectType,
+  Field,
+  Int,
+  Float,
+  registerEnumType,
+} from '@nestjs/graphql';
+import { Logger } from '@nestjs/common';
+import { Tenant, CurrentUser } from '@platform/backend-common';
+import {
+  MaintenanceSchedule,
+  MaintenanceScheduleStatus,
+  MaintenanceCategory,
+  RecurrenceType,
+} from '../entities/maintenance-schedule.entity';
+import { WorkOrder } from '../entities/work-order.entity';
+import {
+  MaintenanceScheduleService,
+  ScheduleAlert,
+  ComplianceReport,
+} from '../services/maintenance-schedule.service';
+import { CreateMaintenanceScheduleInput } from '../dto/create-maintenance-schedule.dto';
+import {
+  UpdateMaintenanceScheduleInput,
+  UpdateMeterReadingInput,
+  CompleteMaintenanceInput,
+} from '../dto/update-maintenance-schedule.dto';
+import { MaintenanceScheduleFilterInput } from '../dto/maintenance-schedule-filter.dto';
+
+// Register enums for GraphQL
+registerEnumType(MaintenanceScheduleStatus, {
+  name: 'MaintenanceScheduleStatus',
+  description: 'Bakım plan durumu',
+});
+
+registerEnumType(MaintenanceCategory, {
+  name: 'MaintenanceCategory',
+  description: 'Bakım kategorisi',
+});
+
+registerEnumType(RecurrenceType, {
+  name: 'RecurrenceType',
+  description: 'Tekrar sıklığı tipi',
+});
+
+/**
+ * User context interface
+ */
+interface UserContext {
+  sub: string;
+  email: string;
+  tenantId: string;
+  roles: string[];
+}
+
+// ============================================================================
+// RESPONSE TYPES
+// ============================================================================
+
+@ObjectType()
+export class MaintenanceScheduleListResponse {
+  @Field(() => [MaintenanceSchedule])
+  items: MaintenanceSchedule[];
+
+  @Field(() => Int)
+  total: number;
+
+  @Field(() => Int)
+  page: number;
+
+  @Field(() => Int)
+  limit: number;
+
+  @Field(() => Int)
+  totalPages: number;
+
+  @Field()
+  hasNextPage: boolean;
+
+  @Field()
+  hasPreviousPage: boolean;
+}
+
+@ObjectType()
+export class ScheduleAlertResponse {
+  @Field(() => MaintenanceSchedule)
+  schedule: MaintenanceSchedule;
+
+  @Field(() => Int)
+  daysUntilDue: number;
+
+  @Field()
+  alertType: string;
+}
+
+@ObjectType()
+export class CategoryComplianceStats {
+  @Field(() => Int)
+  total: number;
+
+  @Field(() => Float)
+  complianceRate: number;
+}
+
+@ObjectType()
+export class ComplianceReportResponse {
+  @Field(() => Int)
+  totalSchedules: number;
+
+  @Field(() => Int)
+  activeSchedules: number;
+
+  @Field(() => Int)
+  overdueSchedules: number;
+
+  @Field(() => Float)
+  avgComplianceRate: number;
+}
+
+@ObjectType()
+export class DeleteMaintenanceScheduleResponse {
+  @Field()
+  success: boolean;
+
+  @Field(() => ID)
+  id: string;
+
+  @Field({ nullable: true })
+  message?: string;
+}
+
+// ============================================================================
+// RESOLVER
+// ============================================================================
+
+@Resolver(() => MaintenanceSchedule)
+export class MaintenanceScheduleResolver {
+  private readonly logger = new Logger(MaintenanceScheduleResolver.name);
+
+  constructor(
+    private readonly maintenanceScheduleService: MaintenanceScheduleService,
+  ) {}
+
+  // -------------------------------------------------------------------------
+  // QUERIES
+  // -------------------------------------------------------------------------
+
+  @Query(() => MaintenanceSchedule, { name: 'maintenanceSchedule' })
+  async getMaintenanceSchedule(
+    @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
+  ): Promise<MaintenanceSchedule> {
+    this.logger.debug(`Getting maintenance schedule: ${id}`);
+    return this.maintenanceScheduleService.findById(tenantId, id);
+  }
+
+  @Query(() => MaintenanceSchedule, { name: 'maintenanceScheduleByCode' })
+  async getMaintenanceScheduleByCode(
+    @Args('code') code: string,
+    @Tenant() tenantId: string,
+  ): Promise<MaintenanceSchedule> {
+    this.logger.debug(`Getting maintenance schedule by code: ${code}`);
+    return this.maintenanceScheduleService.findByCode(tenantId, code);
+  }
+
+  @Query(() => MaintenanceScheduleListResponse, { name: 'maintenanceSchedules' })
+  async listMaintenanceSchedules(
+    @Tenant() tenantId: string,
+    @Args('filter', { type: () => MaintenanceScheduleFilterInput, nullable: true })
+    filter?: MaintenanceScheduleFilterInput,
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 })
+    page?: number,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 })
+    limit?: number,
+    @Args('sortBy', { nullable: true, defaultValue: 'nextDueDate' })
+    sortBy?: string,
+    @Args('sortOrder', { nullable: true, defaultValue: 'ASC' })
+    sortOrder?: 'ASC' | 'DESC',
+  ): Promise<MaintenanceScheduleListResponse> {
+    this.logger.debug(`Listing maintenance schedules for tenant: ${tenantId}`);
+    const result = await this.maintenanceScheduleService.findAll(
+      tenantId,
+      filter,
+      page,
+      limit,
+      sortBy,
+      sortOrder,
+    );
+
+    return {
+      items: result.data,
+      total: result.pagination.total,
+      page: result.pagination.page,
+      limit: result.pagination.limit,
+      totalPages: result.pagination.totalPages,
+      hasNextPage: result.pagination.hasNextPage,
+      hasPreviousPage: result.pagination.hasPreviousPage,
+    };
+  }
+
+  @Query(() => [MaintenanceSchedule], { name: 'upcomingMaintenanceSchedules' })
+  async getUpcomingMaintenanceSchedules(
+    @Tenant() tenantId: string,
+    @Args('days', { type: () => Int, nullable: true, defaultValue: 7 })
+    days?: number,
+  ): Promise<MaintenanceSchedule[]> {
+    this.logger.debug(`Getting upcoming maintenance schedules for tenant: ${tenantId}`);
+    return this.maintenanceScheduleService.findUpcoming(tenantId, days);
+  }
+
+  @Query(() => [MaintenanceSchedule], { name: 'overdueMaintenanceSchedules' })
+  async getOverdueMaintenanceSchedules(
+    @Tenant() tenantId: string,
+  ): Promise<MaintenanceSchedule[]> {
+    this.logger.debug(`Getting overdue maintenance schedules for tenant: ${tenantId}`);
+    return this.maintenanceScheduleService.findOverdue(tenantId);
+  }
+
+  @Query(() => [ScheduleAlertResponse], { name: 'maintenanceAlerts' })
+  async getMaintenanceAlerts(
+    @Tenant() tenantId: string,
+  ): Promise<ScheduleAlertResponse[]> {
+    this.logger.debug(`Getting maintenance alerts for tenant: ${tenantId}`);
+    const alerts = await this.maintenanceScheduleService.findSchedulesRequiringAlert(
+      tenantId,
+    );
+
+    return alerts.map((alert) => ({
+      schedule: alert.schedule,
+      daysUntilDue: alert.daysUntilDue,
+      alertType: alert.alertType,
+    }));
+  }
+
+  @Query(() => ComplianceReportResponse, { name: 'maintenanceComplianceReport' })
+  async getComplianceReport(
+    @Tenant() tenantId: string,
+  ): Promise<ComplianceReportResponse> {
+    this.logger.debug(`Getting compliance report for tenant: ${tenantId}`);
+    const report = await this.maintenanceScheduleService.getComplianceReport(
+      tenantId,
+    );
+
+    return {
+      totalSchedules: report.totalSchedules,
+      activeSchedules: report.activeSchedules,
+      overdueSchedules: report.overdueSchedules,
+      avgComplianceRate: report.avgComplianceRate,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // MUTATIONS
+  // -------------------------------------------------------------------------
+
+  @Mutation(() => MaintenanceSchedule)
+  async createMaintenanceSchedule(
+    @Args('input') input: CreateMaintenanceScheduleInput,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<MaintenanceSchedule> {
+    this.logger.log(`Creating maintenance schedule: ${input.name}`);
+    return this.maintenanceScheduleService.create(tenantId, input, user.sub);
+  }
+
+  @Mutation(() => MaintenanceSchedule)
+  async updateMaintenanceSchedule(
+    @Args('input') input: UpdateMaintenanceScheduleInput,
+    @Tenant() tenantId: string,
+  ): Promise<MaintenanceSchedule> {
+    this.logger.log(`Updating maintenance schedule: ${input.id}`);
+    return this.maintenanceScheduleService.update(tenantId, input);
+  }
+
+  @Mutation(() => DeleteMaintenanceScheduleResponse)
+  async deleteMaintenanceSchedule(
+    @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
+  ): Promise<DeleteMaintenanceScheduleResponse> {
+    this.logger.log(`Deleting maintenance schedule: ${id}`);
+    await this.maintenanceScheduleService.delete(tenantId, id);
+    return {
+      success: true,
+      id,
+      message: 'Bakım planı başarıyla silindi',
+    };
+  }
+
+  @Mutation(() => MaintenanceSchedule)
+  async pauseMaintenanceSchedule(
+    @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
+  ): Promise<MaintenanceSchedule> {
+    this.logger.log(`Pausing maintenance schedule: ${id}`);
+    return this.maintenanceScheduleService.pause(tenantId, id);
+  }
+
+  @Mutation(() => MaintenanceSchedule)
+  async resumeMaintenanceSchedule(
+    @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
+  ): Promise<MaintenanceSchedule> {
+    this.logger.log(`Resuming maintenance schedule: ${id}`);
+    return this.maintenanceScheduleService.resume(tenantId, id);
+  }
+
+  @Mutation(() => MaintenanceSchedule)
+  async completeMaintenance(
+    @Args('input') input: CompleteMaintenanceInput,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<MaintenanceSchedule> {
+    this.logger.log(`Completing maintenance: ${input.scheduleId}`);
+    return this.maintenanceScheduleService.completeMaintenance(
+      tenantId,
+      input,
+      user.sub,
+    );
+  }
+
+  @Mutation(() => MaintenanceSchedule)
+  async updateMeterReading(
+    @Args('input') input: UpdateMeterReadingInput,
+    @Tenant() tenantId: string,
+  ): Promise<MaintenanceSchedule> {
+    this.logger.log(`Updating meter reading: ${input.id}`);
+    return this.maintenanceScheduleService.updateMeterReading(tenantId, input);
+  }
+
+  @Mutation(() => WorkOrder)
+  async generateWorkOrderFromSchedule(
+    @Args('scheduleId', { type: () => ID }) scheduleId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<WorkOrder> {
+    this.logger.log(`Generating work order from schedule: ${scheduleId}`);
+    return this.maintenanceScheduleService.generateWorkOrder(
+      tenantId,
+      scheduleId,
+      user.sub,
+    );
+  }
+
+  @Mutation(() => [WorkOrder])
+  async processAutoGenerateWorkOrders(
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<WorkOrder[]> {
+    this.logger.log(`Processing auto-generate work orders for tenant: ${tenantId}`);
+    return this.maintenanceScheduleService.processAutoGenerateWorkOrders(
+      tenantId,
+      user.sub,
+    );
+  }
+}

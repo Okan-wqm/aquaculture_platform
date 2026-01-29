@@ -79,8 +79,17 @@ export interface User {
   lastName?: string;
   role: 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MODULE_MANAGER' | 'MODULE_USER';
   status: 'ACTIVE' | 'INACTIVE' | 'PENDING';
+  isActive?: boolean;
+  isEmailVerified?: boolean;
+  // Profile fields
+  profileImageUrl?: string | null;
+  phoneNumber?: string | null;
+  preferredLanguage?: string | null;
+  // Security fields
+  mfaEnabled?: boolean;
   lastLoginAt?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface TableInfo {

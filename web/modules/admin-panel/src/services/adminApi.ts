@@ -2085,6 +2085,14 @@ export interface User {
   tenantId: string | null;
   tenantName: string | null;
   isActive: boolean;
+  isEmailVerified?: boolean;
+  // Profile fields
+  profileImageUrl?: string | null;
+  phoneNumber?: string | null;
+  preferredLanguage?: string | null;
+  // Security fields
+  mfaEnabled?: boolean;
+  // Timestamps
   lastLoginAt: string | null;
   createdAt: string;
   updatedAt: string;

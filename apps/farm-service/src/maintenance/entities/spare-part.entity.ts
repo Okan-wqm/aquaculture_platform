@@ -13,6 +13,15 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
+import {
+  ObjectType,
+  Field,
+  ID,
+  Float,
+  Int,
+  registerEnumType,
+} from '@nestjs/graphql';
+import GraphQLJSON from 'graphql-type-json';
 // Note: Supplier and EquipmentType are referenced via string to avoid circular dependency
 // Type-only imports for TypeScript type checking
 import type { EquipmentType } from '../../equipment/entities/equipment-type.entity';
@@ -26,6 +35,11 @@ export enum SparePartStatus {
   DISCONTINUED = 'discontinued',
 }
 
+registerEnumType(SparePartStatus, {
+  name: 'SparePartStatus',
+  description: 'Yedek parça stok durumu',
+});
+
 export interface StorageLocation {
   warehouse?: string;
   shelf?: string;
@@ -33,6 +47,7 @@ export interface StorageLocation {
   notes?: string;
 }
 
+@ObjectType()
 @Entity('spare_parts')
 @Index(['tenantId', 'partNumber'], { unique: true })
 @Index(['tenantId', 'code'], { unique: true })
@@ -40,22 +55,28 @@ export interface StorageLocation {
 @Index(['tenantId', 'equipmentTypeId'])
 @Index(['tenantId', 'supplierId'])
 export class SparePart {
+  @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Field()
   @Column('uuid')
   @Index()
   tenantId: string;
 
+  @Field()
   @Column({ length: 255 })
   name: string;
 
+  @Field()
   @Column({ length: 50 })
   code: string;
 
+  @Field()
   @Column({ length: 100 })
   partNumber: string; // Üretici parça numarası
 
+  @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
   description?: string;
 
@@ -63,6 +84,7 @@ export class SparePart {
    * Bu yedek parça hangi ekipman tipi için kullanılır
    * NULL ise genel parça (birden fazla tip için)
    */
+  @Field({ nullable: true })
   @Column('uuid', { nullable: true })
   equipmentTypeId?: string;
 
@@ -73,9 +95,11 @@ export class SparePart {
   /**
    * Uyumlu ekipman tipleri (equipmentTypeId NULL ise)
    */
+  @Field(() => [String], { nullable: true })
   @Column({ type: 'simple-array', nullable: true })
   compatibleEquipmentTypes?: string[];
 
+  @Field({ nullable: true })
   @Column('uuid', { nullable: true })
   supplierId?: string;
 
@@ -83,24 +107,31 @@ export class SparePart {
   @JoinColumn({ name: 'supplierId' })
   supplier?: Supplier;
 
+  @Field({ nullable: true })
   @Column({ length: 100, nullable: true })
   manufacturer?: string;
 
+  @Field(() => Int)
   @Column({ type: 'int', default: 0 })
   quantity: number; // Mevcut stok
 
+  @Field(() => Int)
   @Column({ type: 'int', default: 0 })
   minStock: number; // Minimum stok seviyesi
 
+  @Field(() => Int)
   @Column({ type: 'int', default: 0 })
   maxStock: number; // Maximum stok seviyesi
 
+  @Field(() => Int)
   @Column({ type: 'int', default: 0 })
   reorderPoint: number; // Yeniden sipariş noktası
 
+  @Field()
   @Column({ length: 20, default: 'piece' })
   unit: string; // piece, set, box, kg, liter, meter
 
+  @Field(() => SparePartStatus)
   @Column({
     type: 'enum',
     enum: SparePartStatus,
@@ -108,45 +139,59 @@ export class SparePart {
   })
   status: SparePartStatus;
 
+  @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
   location?: StorageLocation;
 
+  @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
   unitPrice?: number;
 
+  @Field()
   @Column({ length: 3, default: 'TRY' })
   currency: string;
 
+  @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
   specifications?: Record<string, unknown>;
 
+  @Field(() => Int, { nullable: true })
   @Column({ type: 'int', nullable: true })
   leadTimeDays?: number; // Tedarik süresi
 
+  @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
   lastOrderDate?: Date;
 
+  @Field({ nullable: true })
   @Column({ type: 'date', nullable: true })
   lastUsedDate?: Date;
 
+  @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
   notes?: string;
 
+  @Field()
   @Column({ default: true })
   isActive: boolean;
 
+  @Field()
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
+  @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
+  @Field({ nullable: true })
   @Column('uuid', { nullable: true })
   createdBy?: string;
 
+  @Field({ nullable: true })
   @Column('uuid', { nullable: true })
   updatedBy?: string;
 
+  @Field(() => Int)
   @VersionColumn()
   version: number;
 }

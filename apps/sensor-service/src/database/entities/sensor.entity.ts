@@ -33,6 +33,11 @@ export enum SensorType {
   TURBIDITY = 'turbidity',
   WATER_LEVEL = 'water_level',
   MULTI_PARAMETER = 'multi_parameter',
+  FLOW_RATE = 'flow_rate',
+  CONDUCTIVITY = 'conductivity',
+  ORP = 'orp',
+  CHLORINE = 'chlorine',
+  CO2 = 'co2',
 }
 
 registerEnumType(SensorType, {

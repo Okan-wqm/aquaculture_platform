@@ -14,3 +14,4 @@ export * from './useCleanerFish';
 export * from './useFileUpload';
 export * from './useSentinelHub';
 export * from './useMapPointQuery';
+export * from './useMaintenance';

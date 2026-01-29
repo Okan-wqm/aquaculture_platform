@@ -94,7 +94,14 @@ interface User {
   lastName?: string;
   role: string;
   isActive: boolean;
+  isEmailVerified?: boolean;
+  profileImageUrl?: string | null;
+  phoneNumber?: string | null;
+  preferredLanguage?: string | null;
+  mfaEnabled?: boolean;
   lastLoginAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 /**

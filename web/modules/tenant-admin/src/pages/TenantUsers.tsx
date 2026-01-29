@@ -93,8 +93,13 @@ interface User {
   role: 'TENANT_ADMIN' | 'MODULE_MANAGER' | 'MODULE_USER' | 'SUPER_ADMIN';
   status: 'active' | 'inactive' | 'pending';
   modules: string[];
+  profileImageUrl?: string | null;
+  phoneNumber?: string | null;
+  preferredLanguage?: string | null;
+  mfaEnabled?: boolean;
   lastLogin: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 /**

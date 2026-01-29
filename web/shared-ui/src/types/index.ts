@@ -36,8 +36,16 @@ export interface User {
   tenantId?: string | null;
   isActive: boolean;
   isEmailVerified?: boolean;
+  // Profile fields
+  profileImageUrl?: string | null;
+  phoneNumber?: string | null;
+  preferredLanguage?: string | null;
+  // Security fields
+  mfaEnabled?: boolean;
+  // Timestamps
   lastLoginAt?: Date | null;
   createdAt?: Date;
+  updatedAt?: Date;
 }
 
 /**
@@ -242,6 +250,7 @@ export interface Pond {
 
 /**
  * Sensör tipleri
+ * Synchronized with backend SensorType enum
  */
 export type SensorType =
   | 'temperature'
@@ -253,7 +262,12 @@ export type SensorType =
   | 'nitrate'
   | 'salinity'
   | 'flow_rate'
-  | 'water_level';
+  | 'water_level'
+  | 'multi_parameter'
+  | 'conductivity'
+  | 'orp'
+  | 'chlorine'
+  | 'co2';
 
 /**
  * Sensör durumları

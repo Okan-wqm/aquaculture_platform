@@ -1,6 +1,6 @@
 /**
  * Spare Parts Page
- * Displays and manages spare parts inventory
+ * Displays and manages spare parts inventory with full CRUD operations
  */
 import React, { useState, useMemo } from 'react';
 import {
@@ -15,10 +15,15 @@ import {
 } from '@aquaculture/shared-ui';
 import {
   useSpareParts,
+  useCreateSparePart,
+  useUpdateSparePart,
+  useDeleteSparePart,
   useStockSummary,
+  useRecordStockMovement,
   SparePart,
   SparePartStatus,
   SparePartFilter,
+  CreateSparePartInput,
 } from '../../hooks/useMaintenance';
 
 // Status colors
@@ -39,15 +44,83 @@ const statusLabels: Record<SparePartStatus, string> = {
   DISCONTINUED: 'Üretilmiyor',
 };
 
+interface SparePartFormData {
+  code: string;
+  name: string;
+  partNumber: string;
+  description: string;
+  manufacturer: string;
+  quantity: number;
+  minStock: number;
+  maxStock: number;
+  reorderPoint: number;
+  unit: string;
+  unitPrice: number;
+  currency: string;
+  leadTimeDays: number;
+  warehouseLocation: string;
+  shelfLocation: string;
+  binLocation: string;
+  notes: string;
+}
+
+const defaultFormData: SparePartFormData = {
+  code: '',
+  name: '',
+  partNumber: '',
+  description: '',
+  manufacturer: '',
+  quantity: 0,
+  minStock: 5,
+  maxStock: 100,
+  reorderPoint: 10,
+  unit: 'adet',
+  unitPrice: 0,
+  currency: 'TRY',
+  leadTimeDays: 7,
+  warehouseLocation: '',
+  shelfLocation: '',
+  binLocation: '',
+  notes: '',
+};
+
+interface StockMovementFormData {
+  quantity: number;
+  movementType: 'in' | 'out' | 'adjustment';
+  reason: string;
+  notes: string;
+}
+
+const defaultStockMovementData: StockMovementFormData = {
+  quantity: 0,
+  movementType: 'in',
+  reason: '',
+  notes: '',
+};
+
 export const SparePartsPage: React.FC = () => {
   // Filter state
   const [filter, setFilter] = useState<SparePartFilter>({});
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Modal state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formData, setFormData] = useState<SparePartFormData>(defaultFormData);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Stock movement modal
+  const [isStockModalOpen, setIsStockModalOpen] = useState(false);
+  const [stockMovementData, setStockMovementData] = useState<StockMovementFormData>(defaultStockMovementData);
+  const [selectedPartForStock, setSelectedPartForStock] = useState<SparePart | null>(null);
+
   // API hooks
   const { data, isLoading, error, refetch } = useSpareParts(filter, page, 20);
   const { data: stockSummary } = useStockSummary();
+  const createMutation = useCreateSparePart();
+  const updateMutation = useUpdateSparePart();
+  const deleteMutation = useDeleteSparePart();
+  const stockMovementMutation = useRecordStockMovement();
 
   // Filtered data
   const filteredItems = useMemo(() => {
@@ -62,6 +135,128 @@ export const SparePartsPage: React.FC = () => {
         item.description?.toLowerCase().includes(term)
     );
   }, [data?.items, searchTerm]);
+
+  // Handlers
+  const handleOpenCreate = () => {
+    setFormData(defaultFormData);
+    setEditingId(null);
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEdit = (part: SparePart) => {
+    setFormData({
+      code: part.code,
+      name: part.name,
+      partNumber: part.partNumber,
+      description: part.description || '',
+      manufacturer: part.manufacturer || '',
+      quantity: part.quantity,
+      minStock: part.minStock,
+      maxStock: part.maxStock,
+      reorderPoint: part.reorderPoint,
+      unit: part.unit,
+      unitPrice: part.unitPrice || 0,
+      currency: part.currency || 'TRY',
+      leadTimeDays: part.leadTimeDays || 7,
+      warehouseLocation: part.location?.warehouse || '',
+      shelfLocation: part.location?.shelf || '',
+      binLocation: part.location?.bin || '',
+      notes: part.notes || '',
+    });
+    setEditingId(part.id);
+    setIsModalOpen(true);
+  };
+
+  const handleOpenStockMovement = (part: SparePart) => {
+    setSelectedPartForStock(part);
+    setStockMovementData(defaultStockMovementData);
+    setIsStockModalOpen(true);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const location = {
+        warehouse: formData.warehouseLocation || undefined,
+        shelf: formData.shelfLocation || undefined,
+        bin: formData.binLocation || undefined,
+      };
+
+      if (editingId) {
+        await updateMutation.mutateAsync({
+          id: editingId,
+          code: formData.code,
+          name: formData.name,
+          partNumber: formData.partNumber,
+          description: formData.description || undefined,
+          manufacturer: formData.manufacturer || undefined,
+          quantity: formData.quantity,
+          minStock: formData.minStock,
+          maxStock: formData.maxStock,
+          reorderPoint: formData.reorderPoint,
+          unit: formData.unit,
+          unitPrice: formData.unitPrice || undefined,
+          currency: formData.currency,
+          leadTimeDays: formData.leadTimeDays || undefined,
+          location: Object.values(location).some(v => v) ? location : undefined,
+          notes: formData.notes || undefined,
+        });
+      } else {
+        const input: CreateSparePartInput = {
+          code: formData.code,
+          name: formData.name,
+          partNumber: formData.partNumber,
+          description: formData.description || undefined,
+          manufacturer: formData.manufacturer || undefined,
+          quantity: formData.quantity,
+          minStock: formData.minStock,
+          maxStock: formData.maxStock,
+          reorderPoint: formData.reorderPoint,
+          unit: formData.unit,
+          unitPrice: formData.unitPrice || undefined,
+          currency: formData.currency,
+          leadTimeDays: formData.leadTimeDays || undefined,
+          location: Object.values(location).some(v => v) ? location : undefined,
+          notes: formData.notes || undefined,
+        };
+        await createMutation.mutateAsync(input);
+      }
+      setIsModalOpen(false);
+      refetch();
+    } catch (err) {
+      console.error('Error saving spare part:', err);
+    }
+  };
+
+  const handleStockMovementSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPartForStock) return;
+
+    try {
+      await stockMovementMutation.mutateAsync({
+        sparePartId: selectedPartForStock.id,
+        quantity: stockMovementData.quantity,
+        movementType: stockMovementData.movementType,
+        reason: stockMovementData.reason || undefined,
+        notes: stockMovementData.notes || undefined,
+      });
+      setIsStockModalOpen(false);
+      refetch();
+    } catch (err) {
+      console.error('Error recording stock movement:', err);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm('Bu yedek parçayı silmek istediğinizden emin misiniz?')) {
+      try {
+        await deleteMutation.mutateAsync(id);
+        refetch();
+      } catch (err) {
+        console.error('Error deleting spare part:', err);
+      }
+    }
+  };
 
   const handleFilterChange = (key: keyof SparePartFilter, value: string) => {
     if (value === '') {
@@ -101,12 +296,12 @@ export const SparePartsPage: React.FC = () => {
             Yedek parça envanterini görüntüleyin ve yönetin
           </p>
         </div>
-        <Button onClick={() => refetch()}>Yenile</Button>
+        <Button onClick={handleOpenCreate}>Yeni Yedek Parça</Button>
       </div>
 
       {/* Summary Cards */}
       {stockSummary && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Card className="p-4">
             <div className="text-sm text-gray-500">Toplam Parça</div>
             <div className="text-2xl font-bold text-gray-900">{stockSummary.totalParts}</div>
@@ -122,6 +317,10 @@ export const SparePartsPage: React.FC = () => {
           <Card className="p-4">
             <div className="text-sm text-gray-500">Stok Yok</div>
             <div className="text-2xl font-bold text-red-600">{stockSummary.outOfStockCount}</div>
+          </Card>
+          <Card className="p-4">
+            <div className="text-sm text-gray-500">Toplam Değer</div>
+            <div className="text-2xl font-bold text-blue-600">{formatCurrency(stockSummary.totalValue)}</div>
           </Card>
         </div>
       )}
@@ -177,12 +376,15 @@ export const SparePartsPage: React.FC = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Birim Fiyat
                   </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    İşlemler
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                       Henüz yedek parça bulunmuyor
                     </td>
                   </tr>
@@ -222,6 +424,26 @@ export const SparePartsPage: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {formatCurrency(item.unitPrice, item.currency)}
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button
+                          onClick={() => handleOpenStockMovement(item)}
+                          className="text-green-600 hover:text-green-900 mr-3"
+                        >
+                          Stok
+                        </button>
+                        <button
+                          onClick={() => handleOpenEdit(item)}
+                          className="text-indigo-600 hover:text-indigo-900 mr-3"
+                        >
+                          Düzenle
+                        </button>
+                        <button
+                          onClick={() => handleDelete(item.id)}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Sil
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -257,6 +479,222 @@ export const SparePartsPage: React.FC = () => {
           </div>
         )}
       </Card>
+
+      {/* Create/Edit Modal */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={editingId ? 'Yedek Parça Düzenle' : 'Yeni Yedek Parça'}
+      >
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Parça Kodu"
+              value={formData.code}
+              onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+              required
+            />
+            <Input
+              label="Parça Numarası"
+              value={formData.partNumber}
+              onChange={(e) => setFormData({ ...formData, partNumber: e.target.value })}
+              required
+            />
+          </div>
+          <Input
+            label="Parça Adı"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            required
+          />
+          <Input
+            label="Açıklama"
+            value={formData.description}
+            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+          />
+          <Input
+            label="Üretici"
+            value={formData.manufacturer}
+            onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
+          />
+          <div className="grid grid-cols-4 gap-4">
+            <Input
+              label="Miktar"
+              type="number"
+              value={formData.quantity}
+              onChange={(e) =>
+                setFormData({ ...formData, quantity: parseInt(e.target.value) || 0 })
+              }
+              required
+            />
+            <Input
+              label="Min Stok"
+              type="number"
+              value={formData.minStock}
+              onChange={(e) =>
+                setFormData({ ...formData, minStock: parseInt(e.target.value) || 0 })
+              }
+              required
+            />
+            <Input
+              label="Max Stok"
+              type="number"
+              value={formData.maxStock}
+              onChange={(e) =>
+                setFormData({ ...formData, maxStock: parseInt(e.target.value) || 0 })
+              }
+              required
+            />
+            <Input
+              label="Sipariş Noktası"
+              type="number"
+              value={formData.reorderPoint}
+              onChange={(e) =>
+                setFormData({ ...formData, reorderPoint: parseInt(e.target.value) || 0 })
+              }
+              required
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <Input
+              label="Birim"
+              value={formData.unit}
+              onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+              required
+            />
+            <Input
+              label="Birim Fiyat"
+              type="number"
+              step="0.01"
+              value={formData.unitPrice}
+              onChange={(e) =>
+                setFormData({ ...formData, unitPrice: parseFloat(e.target.value) || 0 })
+              }
+            />
+            <Select
+              label="Para Birimi"
+              value={formData.currency}
+              onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+              options={[
+                { value: 'TRY', label: 'TRY' },
+                { value: 'USD', label: 'USD' },
+                { value: 'EUR', label: 'EUR' },
+              ]}
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <Input
+              label="Depo"
+              value={formData.warehouseLocation}
+              onChange={(e) => setFormData({ ...formData, warehouseLocation: e.target.value })}
+            />
+            <Input
+              label="Raf"
+              value={formData.shelfLocation}
+              onChange={(e) => setFormData({ ...formData, shelfLocation: e.target.value })}
+            />
+            <Input
+              label="Kutu"
+              value={formData.binLocation}
+              onChange={(e) => setFormData({ ...formData, binLocation: e.target.value })}
+            />
+          </div>
+          <Input
+            label="Tedarik Süresi (gün)"
+            type="number"
+            value={formData.leadTimeDays}
+            onChange={(e) =>
+              setFormData({ ...formData, leadTimeDays: parseInt(e.target.value) || 0 })
+            }
+          />
+          <Input
+            label="Notlar"
+            value={formData.notes}
+            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+          />
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
+              İptal
+            </Button>
+            <Button
+              type="submit"
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {createMutation.isPending || updateMutation.isPending
+                ? 'Kaydediliyor...'
+                : 'Kaydet'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Stock Movement Modal */}
+      <Modal
+        isOpen={isStockModalOpen}
+        onClose={() => setIsStockModalOpen(false)}
+        title={`Stok Hareketi - ${selectedPartForStock?.name || ''}`}
+      >
+        <form onSubmit={handleStockMovementSubmit} className="space-y-4">
+          {selectedPartForStock && (
+            <div className="bg-gray-50 p-4 rounded-lg mb-4">
+              <div className="text-sm text-gray-500">Mevcut Stok</div>
+              <div className="text-2xl font-bold text-gray-900">
+                {selectedPartForStock.quantity} {selectedPartForStock.unit}
+              </div>
+            </div>
+          )}
+          <Select
+            label="Hareket Tipi"
+            value={stockMovementData.movementType}
+            onChange={(e) =>
+              setStockMovementData({
+                ...stockMovementData,
+                movementType: e.target.value as 'in' | 'out' | 'adjustment',
+              })
+            }
+            options={[
+              { value: 'in', label: 'Stok Girişi' },
+              { value: 'out', label: 'Stok Çıkışı' },
+              { value: 'adjustment', label: 'Düzeltme' },
+            ]}
+          />
+          <Input
+            label="Miktar"
+            type="number"
+            value={stockMovementData.quantity}
+            onChange={(e) =>
+              setStockMovementData({
+                ...stockMovementData,
+                quantity: parseInt(e.target.value) || 0,
+              })
+            }
+            required
+            min="1"
+          />
+          <Input
+            label="Sebep"
+            value={stockMovementData.reason}
+            onChange={(e) =>
+              setStockMovementData({ ...stockMovementData, reason: e.target.value })
+            }
+          />
+          <Input
+            label="Notlar"
+            value={stockMovementData.notes}
+            onChange={(e) =>
+              setStockMovementData({ ...stockMovementData, notes: e.target.value })
+            }
+          />
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="secondary" onClick={() => setIsStockModalOpen(false)}>
+              İptal
+            </Button>
+            <Button type="submit" disabled={stockMovementMutation.isPending}>
+              {stockMovementMutation.isPending ? 'Kaydediliyor...' : 'Kaydet'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

@@ -1,6 +1,6 @@
 /**
  * Maintenance Schedules Page
- * Displays and manages preventive maintenance schedules
+ * Displays and manages preventive maintenance schedules with full CRUD operations
  */
 import React, { useState, useMemo } from 'react';
 import {
@@ -15,11 +15,17 @@ import {
 } from '@aquaculture/shared-ui';
 import {
   useMaintenanceSchedules,
+  useCreateMaintenanceSchedule,
+  useUpdateMaintenanceSchedule,
+  useDeleteMaintenanceSchedule,
+  usePauseMaintenanceSchedule,
+  useResumeMaintenanceSchedule,
   MaintenanceSchedule,
   MaintenanceScheduleStatus,
   MaintenanceCategory,
   RecurrenceType,
   MaintenanceScheduleFilter,
+  CreateMaintenanceScheduleInput,
 } from '../../hooks/useMaintenance';
 
 // Status colors
@@ -65,14 +71,58 @@ const recurrenceLabels: Record<RecurrenceType, string> = {
   METER_BASED: 'Sayaç Bazlı',
 };
 
+interface ScheduleFormData {
+  name: string;
+  description: string;
+  category: MaintenanceCategory;
+  recurrenceType: RecurrenceType;
+  recurrenceInterval: number;
+  startDate: string;
+  endDate: string;
+  estimatedDurationMinutes: number;
+  estimatedCost: number;
+  currency: string;
+  instructions: string;
+  autoGenerateWorkOrder: boolean;
+  generateDaysBefore: number;
+  notes: string;
+}
+
+const defaultFormData: ScheduleFormData = {
+  name: '',
+  description: '',
+  category: 'GENERAL',
+  recurrenceType: 'MONTHLY',
+  recurrenceInterval: 1,
+  startDate: '',
+  endDate: '',
+  estimatedDurationMinutes: 60,
+  estimatedCost: 0,
+  currency: 'TRY',
+  instructions: '',
+  autoGenerateWorkOrder: true,
+  generateDaysBefore: 7,
+  notes: '',
+};
+
 export const MaintenanceSchedulesPage: React.FC = () => {
   // Filter state
   const [filter, setFilter] = useState<MaintenanceScheduleFilter>({});
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Modal state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formData, setFormData] = useState<ScheduleFormData>(defaultFormData);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   // API hooks
   const { data, isLoading, error, refetch } = useMaintenanceSchedules(filter, page, 20);
+  const createMutation = useCreateMaintenanceSchedule();
+  const updateMutation = useUpdateMaintenanceSchedule();
+  const deleteMutation = useDeleteMaintenanceSchedule();
+  const pauseMutation = usePauseMaintenanceSchedule();
+  const resumeMutation = useResumeMaintenanceSchedule();
 
   // Filtered data
   const filteredItems = useMemo(() => {
@@ -86,6 +136,114 @@ export const MaintenanceSchedulesPage: React.FC = () => {
         item.description?.toLowerCase().includes(term)
     );
   }, [data?.items, searchTerm]);
+
+  // Handlers
+  const handleOpenCreate = () => {
+    setFormData(defaultFormData);
+    setEditingId(null);
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEdit = (schedule: MaintenanceSchedule) => {
+    setFormData({
+      name: schedule.name,
+      description: schedule.description || '',
+      category: schedule.category,
+      recurrenceType: schedule.recurrenceRule.type,
+      recurrenceInterval: schedule.recurrenceRule.interval || 1,
+      startDate: schedule.startDate?.split('T')[0] || '',
+      endDate: schedule.endDate?.split('T')[0] || '',
+      estimatedDurationMinutes: schedule.estimatedDurationMinutes || 60,
+      estimatedCost: schedule.estimatedCost || 0,
+      currency: schedule.currency || 'TRY',
+      instructions: schedule.instructions || '',
+      autoGenerateWorkOrder: schedule.autoGenerateWorkOrder,
+      generateDaysBefore: schedule.generateDaysBefore || 7,
+      notes: schedule.notes || '',
+    });
+    setEditingId(schedule.id);
+    setIsModalOpen(true);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (editingId) {
+        await updateMutation.mutateAsync({
+          id: editingId,
+          name: formData.name,
+          description: formData.description || undefined,
+          category: formData.category,
+          recurrenceRule: {
+            type: formData.recurrenceType,
+            interval: formData.recurrenceInterval,
+          },
+          startDate: formData.startDate || undefined,
+          endDate: formData.endDate || undefined,
+          estimatedDurationMinutes: formData.estimatedDurationMinutes,
+          estimatedCost: formData.estimatedCost || undefined,
+          currency: formData.currency,
+          instructions: formData.instructions || undefined,
+          autoGenerateWorkOrder: formData.autoGenerateWorkOrder,
+          generateDaysBefore: formData.generateDaysBefore,
+          notes: formData.notes || undefined,
+        });
+      } else {
+        const input: CreateMaintenanceScheduleInput = {
+          name: formData.name,
+          description: formData.description || undefined,
+          category: formData.category,
+          recurrenceRule: {
+            type: formData.recurrenceType,
+            interval: formData.recurrenceInterval,
+          },
+          startDate: formData.startDate,
+          endDate: formData.endDate || undefined,
+          estimatedDurationMinutes: formData.estimatedDurationMinutes,
+          estimatedCost: formData.estimatedCost || undefined,
+          currency: formData.currency,
+          instructions: formData.instructions || undefined,
+          autoGenerateWorkOrder: formData.autoGenerateWorkOrder,
+          generateDaysBefore: formData.generateDaysBefore,
+          notes: formData.notes || undefined,
+        };
+        await createMutation.mutateAsync(input);
+      }
+      setIsModalOpen(false);
+      refetch();
+    } catch (err) {
+      console.error('Error saving maintenance schedule:', err);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm('Bu bakım planını silmek istediğinizden emin misiniz?')) {
+      try {
+        await deleteMutation.mutateAsync(id);
+        refetch();
+      } catch (err) {
+        console.error('Error deleting maintenance schedule:', err);
+      }
+    }
+  };
+
+  const handlePause = async (id: string) => {
+    try {
+      await pauseMutation.mutateAsync(id);
+      refetch();
+    } catch (err) {
+      console.error('Error pausing maintenance schedule:', err);
+    }
+  };
+
+  const handleResume = async (id: string) => {
+    try {
+      await resumeMutation.mutateAsync(id);
+      refetch();
+    } catch (err) {
+      console.error('Error resuming maintenance schedule:', err);
+    }
+  };
 
   const handleFilterChange = (key: keyof MaintenanceScheduleFilter, value: string) => {
     if (value === '') {
@@ -130,7 +288,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
             Önleyici bakım planlarını görüntüleyin ve yönetin
           </p>
         </div>
-        <Button onClick={() => refetch()}>Yenile</Button>
+        <Button onClick={handleOpenCreate}>Yeni Bakım Planı</Button>
       </div>
 
       {/* Filters */}
@@ -195,12 +353,15 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Çalıştırma
                   </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    İşlemler
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                       Henüz bakım planı bulunmuyor
                     </td>
                   </tr>
@@ -237,6 +398,36 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {item.executionCount} kez
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button
+                          onClick={() => handleOpenEdit(item)}
+                          className="text-indigo-600 hover:text-indigo-900 mr-3"
+                        >
+                          Düzenle
+                        </button>
+                        {item.status === 'ACTIVE' && (
+                          <button
+                            onClick={() => handlePause(item.id)}
+                            className="text-yellow-600 hover:text-yellow-900 mr-3"
+                          >
+                            Duraklat
+                          </button>
+                        )}
+                        {item.status === 'PAUSED' && (
+                          <button
+                            onClick={() => handleResume(item.id)}
+                            className="text-green-600 hover:text-green-900 mr-3"
+                          >
+                            Devam Et
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDelete(item.id)}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Sil
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -272,6 +463,141 @@ export const MaintenanceSchedulesPage: React.FC = () => {
           </div>
         )}
       </Card>
+
+      {/* Create/Edit Modal */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={editingId ? 'Bakım Planı Düzenle' : 'Yeni Bakım Planı'}
+      >
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Input
+            label="Plan Adı"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            required
+          />
+          <Input
+            label="Açıklama"
+            value={formData.description}
+            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+          />
+          <div className="grid grid-cols-2 gap-4">
+            <Select
+              label="Kategori"
+              value={formData.category}
+              onChange={(e) =>
+                setFormData({ ...formData, category: e.target.value as MaintenanceCategory })
+              }
+              options={Object.entries(categoryLabels).map(([value, label]) => ({
+                value,
+                label,
+              }))}
+            />
+            <Select
+              label="Tekrar Tipi"
+              value={formData.recurrenceType}
+              onChange={(e) =>
+                setFormData({ ...formData, recurrenceType: e.target.value as RecurrenceType })
+              }
+              options={Object.entries(recurrenceLabels).map(([value, label]) => ({
+                value,
+                label,
+              }))}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Başlangıç Tarihi"
+              type="date"
+              value={formData.startDate}
+              onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+              required
+            />
+            <Input
+              label="Bitiş Tarihi"
+              type="date"
+              value={formData.endDate}
+              onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Tahmini Süre (dk)"
+              type="number"
+              value={formData.estimatedDurationMinutes}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  estimatedDurationMinutes: parseInt(e.target.value) || 0,
+                })
+              }
+            />
+            <Input
+              label="Tahmini Maliyet"
+              type="number"
+              value={formData.estimatedCost}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  estimatedCost: parseFloat(e.target.value) || 0,
+                })
+              }
+            />
+          </div>
+          <Input
+            label="Talimatlar"
+            value={formData.instructions}
+            onChange={(e) => setFormData({ ...formData, instructions: e.target.value })}
+          />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex items-center">
+              <input
+                type="checkbox"
+                id="autoGenerate"
+                checked={formData.autoGenerateWorkOrder}
+                onChange={(e) =>
+                  setFormData({ ...formData, autoGenerateWorkOrder: e.target.checked })
+                }
+                className="mr-2"
+              />
+              <label htmlFor="autoGenerate" className="text-sm text-gray-700">
+                Otomatik İş Emri Oluştur
+              </label>
+            </div>
+            <Input
+              label="Kaç Gün Önce"
+              type="number"
+              value={formData.generateDaysBefore}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  generateDaysBefore: parseInt(e.target.value) || 0,
+                })
+              }
+              disabled={!formData.autoGenerateWorkOrder}
+            />
+          </div>
+          <Input
+            label="Notlar"
+            value={formData.notes}
+            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+          />
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
+              İptal
+            </Button>
+            <Button
+              type="submit"
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {createMutation.isPending || updateMutation.isPending
+                ? 'Kaydediliyor...'
+                : 'Kaydet'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

@@ -48,6 +48,7 @@ import { FeedModule } from './feed/feed.module';
 import { SystemModule } from './system/system.module';
 import { SentinelHubModule } from './sentinel-hub/sentinel-hub.module';
 import { RegulatoryModule } from './regulatory/regulatory.module';
+import { SchedulerModule } from './scheduler/scheduler.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
 @Module({
@@ -204,6 +205,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     SystemModule,
     SentinelHubModule,
     RegulatoryModule,
+    SchedulerModule,
   ],
   providers: [
     // Global exception filter

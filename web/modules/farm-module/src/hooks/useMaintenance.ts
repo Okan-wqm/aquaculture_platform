@@ -396,6 +396,7 @@ export interface SparePartFilter {
 
 const WORK_ORDER_FIELDS = `
   id
+  tenantId
   workOrderCode
   title
   description
@@ -438,6 +439,7 @@ const WORK_ORDER_FIELDS = `
 
 const MAINTENANCE_SCHEDULE_FIELDS = `
   id
+  tenantId
   scheduleCode
   name
   description
@@ -475,6 +477,7 @@ const MAINTENANCE_SCHEDULE_FIELDS = `
 
 const SPARE_PART_FIELDS = `
   id
+  tenantId
   code
   name
   partNumber
@@ -843,6 +846,217 @@ export function useMaintenanceAlerts() {
   });
 }
 
+// Input types for Maintenance Schedule mutations
+export interface CreateMaintenanceScheduleInput {
+  name: string;
+  description?: string;
+  category: MaintenanceCategory;
+  assetType?: AssetType;
+  assetId?: string;
+  assetName?: string;
+  recurrenceRule: {
+    type: RecurrenceType;
+    interval?: number;
+    daysOfWeek?: number[];
+    dayOfMonth?: number;
+    monthsOfYear?: number[];
+    endDate?: string;
+    maxOccurrences?: number;
+    meterType?: 'hours' | 'cycles' | 'km';
+    meterInterval?: number;
+  };
+  startDate: string;
+  endDate?: string;
+  estimatedDurationMinutes?: number;
+  estimatedCost?: number;
+  currency?: string;
+  checklistTemplate?: { items: { description: string; isRequired?: boolean }[] };
+  requiredMaterials?: { materialId?: string; name: string; quantity: number; unit: string; estimatedCost?: number }[];
+  instructions?: string;
+  defaultAssigneeId?: string;
+  defaultTeamId?: string;
+  alertSettings?: AlertSettings;
+  autoGenerateWorkOrder?: boolean;
+  generateDaysBefore?: number;
+  notes?: string;
+}
+
+export interface UpdateMaintenanceScheduleInput {
+  id: string;
+  name?: string;
+  description?: string;
+  category?: MaintenanceCategory;
+  status?: MaintenanceScheduleStatus;
+  assetType?: AssetType;
+  assetId?: string;
+  assetName?: string;
+  recurrenceRule?: {
+    type: RecurrenceType;
+    interval?: number;
+    daysOfWeek?: number[];
+    dayOfMonth?: number;
+    monthsOfYear?: number[];
+    endDate?: string;
+    maxOccurrences?: number;
+    meterType?: 'hours' | 'cycles' | 'km';
+    meterInterval?: number;
+  };
+  startDate?: string;
+  endDate?: string;
+  estimatedDurationMinutes?: number;
+  estimatedCost?: number;
+  currency?: string;
+  checklistTemplate?: { items: { description: string; isRequired?: boolean }[] };
+  requiredMaterials?: { materialId?: string; name: string; quantity: number; unit: string; estimatedCost?: number }[];
+  instructions?: string;
+  defaultAssigneeId?: string;
+  defaultTeamId?: string;
+  alertSettings?: AlertSettings;
+  autoGenerateWorkOrder?: boolean;
+  generateDaysBefore?: number;
+  notes?: string;
+}
+
+export function useCreateMaintenanceSchedule() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: CreateMaintenanceScheduleInput) => {
+      const mutation = `
+        mutation CreateMaintenanceSchedule($input: CreateMaintenanceScheduleInput!) {
+          createMaintenanceSchedule(input: $input) {
+            ${MAINTENANCE_SCHEDULE_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ createMaintenanceSchedule: MaintenanceSchedule }>(
+        mutation,
+        { input }
+      );
+
+      return result.createMaintenanceSchedule;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedules'] });
+      queryClient.invalidateQueries({ queryKey: ['upcomingMaintenanceSchedules'] });
+      queryClient.invalidateQueries({ queryKey: ['maintenanceAlerts'] });
+    },
+  });
+}
+
+export function useUpdateMaintenanceSchedule() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: UpdateMaintenanceScheduleInput) => {
+      const mutation = `
+        mutation UpdateMaintenanceSchedule($input: UpdateMaintenanceScheduleInput!) {
+          updateMaintenanceSchedule(input: $input) {
+            ${MAINTENANCE_SCHEDULE_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ updateMaintenanceSchedule: MaintenanceSchedule }>(
+        mutation,
+        { input }
+      );
+
+      return result.updateMaintenanceSchedule;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedules'] });
+      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedule', data.id] });
+      queryClient.invalidateQueries({ queryKey: ['upcomingMaintenanceSchedules'] });
+      queryClient.invalidateQueries({ queryKey: ['maintenanceAlerts'] });
+    },
+  });
+}
+
+export function useDeleteMaintenanceSchedule() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const mutation = `
+        mutation DeleteMaintenanceSchedule($id: ID!) {
+          deleteMaintenanceSchedule(id: $id) {
+            success
+            id
+            message
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{
+        deleteMaintenanceSchedule: { success: boolean; id: string; message?: string };
+      }>(mutation, { id });
+
+      return result.deleteMaintenanceSchedule;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedules'] });
+      queryClient.invalidateQueries({ queryKey: ['upcomingMaintenanceSchedules'] });
+      queryClient.invalidateQueries({ queryKey: ['maintenanceAlerts'] });
+    },
+  });
+}
+
+export function usePauseMaintenanceSchedule() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const mutation = `
+        mutation PauseMaintenanceSchedule($id: ID!) {
+          pauseMaintenanceSchedule(id: $id) {
+            ${MAINTENANCE_SCHEDULE_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ pauseMaintenanceSchedule: MaintenanceSchedule }>(
+        mutation,
+        { id }
+      );
+
+      return result.pauseMaintenanceSchedule;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedules'] });
+      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedule', data.id] });
+    },
+  });
+}
+
+export function useResumeMaintenanceSchedule() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const mutation = `
+        mutation ResumeMaintenanceSchedule($id: ID!) {
+          resumeMaintenanceSchedule(id: $id) {
+            ${MAINTENANCE_SCHEDULE_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ resumeMaintenanceSchedule: MaintenanceSchedule }>(
+        mutation,
+        { id }
+      );
+
+      return result.resumeMaintenanceSchedule;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedules'] });
+      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedule', data.id] });
+    },
+  });
+}
+
 // ============================================================================
 // HOOKS - Spare Parts
 // ============================================================================
@@ -1005,6 +1219,139 @@ export function useRecordStockMovement() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['spareParts'] });
       queryClient.invalidateQueries({ queryKey: ['sparePart', data.id] });
+      queryClient.invalidateQueries({ queryKey: ['lowStockAlerts'] });
+      queryClient.invalidateQueries({ queryKey: ['stockSummary'] });
+    },
+  });
+}
+
+// Input types for Spare Part mutations
+export interface CreateSparePartInput {
+  code: string;
+  name: string;
+  partNumber: string;
+  description?: string;
+  equipmentTypeId?: string;
+  compatibleEquipmentTypes?: string[];
+  supplierId?: string;
+  manufacturer?: string;
+  quantity: number;
+  minStock: number;
+  maxStock: number;
+  reorderPoint: number;
+  unit: string;
+  location?: StorageLocation;
+  unitPrice?: number;
+  currency?: string;
+  specifications?: Record<string, unknown>;
+  leadTimeDays?: number;
+  notes?: string;
+}
+
+export interface UpdateSparePartInput {
+  id: string;
+  code?: string;
+  name?: string;
+  partNumber?: string;
+  description?: string;
+  equipmentTypeId?: string;
+  compatibleEquipmentTypes?: string[];
+  supplierId?: string;
+  manufacturer?: string;
+  quantity?: number;
+  minStock?: number;
+  maxStock?: number;
+  reorderPoint?: number;
+  unit?: string;
+  status?: SparePartStatus;
+  location?: StorageLocation;
+  unitPrice?: number;
+  currency?: string;
+  specifications?: Record<string, unknown>;
+  leadTimeDays?: number;
+  notes?: string;
+  isActive?: boolean;
+}
+
+export function useCreateSparePart() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: CreateSparePartInput) => {
+      const mutation = `
+        mutation CreateSparePart($input: CreateSparePartInput!) {
+          createSparePart(input: $input) {
+            ${SPARE_PART_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ createSparePart: SparePart }>(
+        mutation,
+        { input }
+      );
+
+      return result.createSparePart;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['spareParts'] });
+      queryClient.invalidateQueries({ queryKey: ['stockSummary'] });
+    },
+  });
+}
+
+export function useUpdateSparePart() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: UpdateSparePartInput) => {
+      const mutation = `
+        mutation UpdateSparePart($input: UpdateSparePartInput!) {
+          updateSparePart(input: $input) {
+            ${SPARE_PART_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ updateSparePart: SparePart }>(
+        mutation,
+        { input }
+      );
+
+      return result.updateSparePart;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['spareParts'] });
+      queryClient.invalidateQueries({ queryKey: ['sparePart', data.id] });
+      queryClient.invalidateQueries({ queryKey: ['lowStockAlerts'] });
+      queryClient.invalidateQueries({ queryKey: ['stockSummary'] });
+    },
+  });
+}
+
+export function useDeleteSparePart() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const mutation = `
+        mutation DeleteSparePart($id: ID!) {
+          deleteSparePart(id: $id) {
+            success
+            id
+            message
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{
+        deleteSparePart: { success: boolean; id: string; message?: string };
+      }>(mutation, { id });
+
+      return result.deleteSparePart;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['spareParts'] });
       queryClient.invalidateQueries({ queryKey: ['lowStockAlerts'] });
       queryClient.invalidateQueries({ queryKey: ['stockSummary'] });
     },

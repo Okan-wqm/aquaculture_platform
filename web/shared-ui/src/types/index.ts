@@ -270,9 +270,9 @@ export type SensorType =
   | 'co2';
 
 /**
- * Sensör durumları
+ * Sensör durumları - synchronized with backend SensorStatus enum
  */
-export type SensorStatus = 'online' | 'offline' | 'warning' | 'error' | 'maintenance';
+export type SensorStatus = 'active' | 'inactive' | 'maintenance' | 'error' | 'offline';
 
 /**
  * Sensör bilgileri

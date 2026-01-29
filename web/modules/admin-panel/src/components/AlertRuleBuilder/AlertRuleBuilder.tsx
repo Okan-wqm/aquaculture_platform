@@ -23,7 +23,14 @@ export type SensorType =
   | 'ammonia'
   | 'nitrite'
   | 'nitrate'
-  | 'salinity';
+  | 'salinity'
+  | 'water_level'
+  | 'multi_parameter'
+  | 'flow_rate'
+  | 'conductivity'
+  | 'orp'
+  | 'chlorine'
+  | 'co2';
 
 export interface RuleCondition {
   id: string;
@@ -123,6 +130,13 @@ export const SENSOR_TYPE_OPTIONS: Array<{ value: SensorType; label: string; unit
   { value: 'nitrite', label: 'Nitrit', unit: 'mg/L' },
   { value: 'nitrate', label: 'Nitrat', unit: 'mg/L' },
   { value: 'salinity', label: 'Tuzluluk', unit: 'ppt' },
+  { value: 'water_level', label: 'Su Seviyesi', unit: 'cm' },
+  { value: 'multi_parameter', label: 'Çoklu Parametre', unit: '-' },
+  { value: 'flow_rate', label: 'Akış Hızı', unit: 'L/dk' },
+  { value: 'conductivity', label: 'İletkenlik', unit: 'μS/cm' },
+  { value: 'orp', label: 'ORP', unit: 'mV' },
+  { value: 'chlorine', label: 'Klor', unit: 'mg/L' },
+  { value: 'co2', label: 'CO₂', unit: 'mg/L' },
 ];
 
 export const TIME_UNIT_OPTIONS: Array<{ value: TimeUnit; label: string }> = [

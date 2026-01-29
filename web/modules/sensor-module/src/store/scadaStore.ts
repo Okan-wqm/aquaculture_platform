@@ -10,7 +10,7 @@ import {
   ProcessEdgeData,
 } from '../types/scada-types';
 
-// Sensor reading types
+// Sensor reading types - synchronized with backend SensorType enum
 export type SensorType =
   | 'temperature'
   | 'ph'
@@ -20,7 +20,13 @@ export type SensorType =
   | 'nitrite'
   | 'nitrate'
   | 'turbidity'
-  | 'water_level';
+  | 'water_level'
+  | 'multi_parameter'
+  | 'flow_rate'
+  | 'conductivity'
+  | 'orp'
+  | 'chlorine'
+  | 'co2';
 
 export type SensorStatus = 'normal' | 'warning' | 'critical' | 'offline';
 

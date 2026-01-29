@@ -5,3 +5,4 @@
 
 export * from './work-order.entity';
 export * from './maintenance-schedule.entity';
+export * from './spare-part.entity';

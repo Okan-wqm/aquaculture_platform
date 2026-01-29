@@ -776,10 +776,12 @@ export class MaintenanceScheduleService {
         if (!report.byAssetType[schedule.assetType]) {
           report.byAssetType[schedule.assetType] = { total: 0, complianceRate: 0 };
         }
-        report.byAssetType[schedule.assetType].total++;
-        if (schedule.metrics?.complianceRate) {
-          report.byAssetType[schedule.assetType].complianceRate +=
-            schedule.metrics.complianceRate;
+        const assetTypeData = report.byAssetType[schedule.assetType];
+        if (assetTypeData) {
+          assetTypeData.total++;
+          if (schedule.metrics?.complianceRate) {
+            assetTypeData.complianceRate += schedule.metrics.complianceRate;
+          }
         }
       }
 
@@ -802,9 +804,9 @@ export class MaintenanceScheduleService {
     }
 
     for (const assetType of Object.keys(report.byAssetType)) {
-      if (report.byAssetType[assetType].total > 0) {
-        report.byAssetType[assetType].complianceRate /=
-          report.byAssetType[assetType].total;
+      const assetData = report.byAssetType[assetType];
+      if (assetData && assetData.total > 0) {
+        assetData.complianceRate /= assetData.total;
       }
     }
 

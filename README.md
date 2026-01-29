@@ -269,6 +269,53 @@ All services expose health endpoints:
 3. Run `npm run lint` and `npm run test` before committing
 4. Update documentation as needed
 
+## Recent Updates (v1.1.0)
+
+### Backend Enhancements
+
+**Scheduler Module**
+- Added `SchedulerModule` with cron job support for automated tasks
+- `CronJobsService` for scheduled maintenance and alert generation
+- `FeedingSchedulerService` for automated feeding schedule management
+- Integration with `@nestjs/schedule` and `EventEmitter2`
+
+**Maintenance Module**
+- Complete CRUD operations for Work Orders, Maintenance Schedules, and Spare Parts
+- GraphQL resolvers with tenant isolation
+- Stock movement tracking for spare parts inventory
+- Automated work order generation from maintenance schedules
+
+**Sensor Enhancements**
+- Extended `SensorType` enum with: `FLOW_RATE`, `CONDUCTIVITY`, `ORP`, `CHLORINE`, `CO2`
+- Unified `SensorStatus` across all services: `active`, `inactive`, `maintenance`, `error`, `offline`
+
+**User Entity Extensions**
+- Added profile fields: `profileImageUrl`, `phoneNumber`, `preferredLanguage`
+- MFA support: `mfaEnabled`, `mfaSecret`
+
+### Frontend Enhancements
+
+**Maintenance Management Pages**
+- `WorkOrdersPage` - Full CRUD with status management, filtering, and statistics
+- `MaintenanceSchedulesPage` - Schedule management with pause/resume functionality
+- `SparePartsPage` - Inventory management with stock movement tracking
+
+**React Hooks**
+- `useWorkOrders`, `useCreateWorkOrder`, `useUpdateWorkOrder`, `useDeleteWorkOrder`
+- `useMaintenanceSchedules`, `useCreateMaintenanceSchedule`, `useUpdateMaintenanceSchedule`, `useDeleteMaintenanceSchedule`
+- `useSpareParts`, `useCreateSparePart`, `useUpdateSparePart`, `useDeleteSparePart`
+- `useStockSummary`, `useLowStockAlerts`, `useRecordStockMovement`
+
+**Type Consistency**
+- Synchronized `SensorType` across `shared-ui`, `scadaStore`, and `AlertRuleBuilder`
+- Updated `SENSOR_TYPE_OPTIONS` with Turkish labels and units
+- Aligned `SensorStatus` with backend enum values
+
+### Architecture Improvements
+- Multi-tenant support with `tenantId` in all GraphQL queries
+- Proper entity exports from maintenance module
+- Event-driven maintenance scheduling
+
 ## License
 
 MIT License - see [LICENSE](./LICENSE) file for details

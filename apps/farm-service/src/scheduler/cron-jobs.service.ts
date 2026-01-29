@@ -443,8 +443,10 @@ export class CronJobsService implements OnModuleInit {
   getJobStatus(jobName: string): { running: boolean; lastRun?: Date; nextRun?: Date } {
     try {
       const job = this.schedulerRegistry.getCronJob(jobName);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isRunning = (job as any).running || false;
       return {
-        running: job.running || false,
+        running: isRunning,
         lastRun: job.lastDate() || undefined,
         nextRun: job.nextDate().toJSDate(),
       };

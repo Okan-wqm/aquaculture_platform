@@ -50,6 +50,12 @@ const getTypeIcon = (type: SensorType, className: string = 'w-3 h-3') => {
     nitrate: <Activity className={className} />,
     turbidity: <Activity className={className} />,
     water_level: <Activity className={className} />,
+    multi_parameter: <Gauge className={className} />,
+    flow_rate: <Activity className={className} />,
+    conductivity: <Activity className={className} />,
+    orp: <Gauge className={className} />,
+    chlorine: <Droplets className={className} />,
+    co2: <Activity className={className} />,
   };
   return icons[type] || <Activity className={className} />;
 };

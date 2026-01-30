@@ -17,7 +17,8 @@ import {
   Float,
   registerEnumType,
 } from '@nestjs/graphql';
-import { Logger } from '@nestjs/common';
+import { Logger, UseGuards } from '@nestjs/common';
+import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { Tenant, CurrentUser } from '@platform/backend-common';
 import { SparePart, SparePartStatus } from '../entities/spare-part.entity';
 import {
@@ -146,6 +147,7 @@ export class BulkStockInItemInput {
 // RESOLVER
 // ============================================================================
 
+@UseGuards(GqlAuthGuard)
 @Resolver(() => SparePart)
 export class SparePartResolver {
   private readonly logger = new Logger(SparePartResolver.name);

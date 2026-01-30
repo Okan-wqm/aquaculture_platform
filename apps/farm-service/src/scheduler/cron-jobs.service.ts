@@ -586,7 +586,8 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
         lastRun: job.lastDate() || undefined,
         nextRun: job.nextDate().toJSDate(),
       };
-    } catch {
+    } catch (error) {
+      this.logger.debug(`Error in getJobStatus: ${error?.message || error}`);
       return { running: false };
     }
   }

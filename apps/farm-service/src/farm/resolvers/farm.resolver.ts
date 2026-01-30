@@ -8,6 +8,7 @@ import {
   ResolveReference,
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
+import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { CommandBus, QueryBus } from '@platform/cqrs';
 import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
 import { Farm } from '../entities/farm.entity';
@@ -43,6 +44,7 @@ interface UserContext {
  * GraphQL resolver for farm-related operations
  * Implements Apollo Federation
  */
+@UseGuards(GqlAuthGuard)
 @Resolver(() => Farm)
 export class FarmResolver {
   private readonly logger = new Logger(FarmResolver.name);
@@ -74,7 +76,8 @@ export class FarmResolver {
       return await this.queryBus.execute(
         new GetFarmQuery(reference.id, reference.tenantId ?? '', true, false),
       );
-    } catch {
+    } catch (error) {
+      this.logger.debug(`Error in resolveReference: ${error?.message || error}`);
       return null;
     }
   }

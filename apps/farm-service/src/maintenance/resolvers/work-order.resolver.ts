@@ -18,7 +18,8 @@ import {
   InputType,
   registerEnumType,
 } from '@nestjs/graphql';
-import { Logger } from '@nestjs/common';
+import { Logger, UseGuards } from '@nestjs/common';
+import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { Tenant, CurrentUser } from '@platform/backend-common';
 import {
   WorkOrder,
@@ -158,6 +159,7 @@ export class DeleteWorkOrderResponse {
 // RESOLVER
 // ============================================================================
 
+@UseGuards(GqlAuthGuard)
 @Resolver(() => WorkOrder)
 export class WorkOrderResolver {
   private readonly logger = new Logger(WorkOrderResolver.name);

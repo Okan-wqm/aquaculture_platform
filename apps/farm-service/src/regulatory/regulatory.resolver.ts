@@ -10,7 +10,8 @@
  * @module Regulatory/Resolvers
  */
 import { Resolver, Mutation, Query, Args, Context } from '@nestjs/graphql';
-import { Logger, UnauthorizedException } from '@nestjs/common';
+import { Logger, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import {
   MattilsynetApiService,
   SeaLicePayload,
@@ -107,6 +108,7 @@ class RegulatoryHealthStatus {
 // Resolver
 // ============================================================================
 
+@UseGuards(GqlAuthGuard)
 @Resolver()
 export class RegulatoryResolver {
   private readonly logger = new Logger(RegulatoryResolver.name);

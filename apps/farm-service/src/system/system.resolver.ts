@@ -184,7 +184,8 @@ export class SystemResolver {
     try {
       const query = new GetSiteQuery(system.siteId, system.tenantId);
       return this.queryBus.execute(query);
-    } catch {
+    } catch (error) {
+      this.logger.debug(`Error resolving site: ${error?.message || error}`);
       return null;
     }
   }
@@ -199,7 +200,8 @@ export class SystemResolver {
     try {
       const query = new GetDepartmentQuery(system.departmentId, system.tenantId);
       return this.queryBus.execute(query);
-    } catch {
+    } catch (error) {
+      this.logger.debug(`Error resolving department: ${error?.message || error}`);
       return null;
     }
   }
@@ -214,7 +216,8 @@ export class SystemResolver {
     try {
       const query = new GetSystemQuery(system.parentSystemId, system.tenantId);
       return this.queryBus.execute(query);
-    } catch {
+    } catch (error) {
+      this.logger.debug(`Error resolving parentSystem: ${error?.message || error}`);
       return null;
     }
   }
@@ -230,7 +233,8 @@ export class SystemResolver {
       const query = new ListSystemsQuery(system.tenantId, { parentSystemId: system.id, isActive: true }, { limit: 1000 });
       const result = await this.queryBus.execute(query);
       return result.items;
-    } catch {
+    } catch (error) {
+      this.logger.debug(`Error resolving childSystemsField: ${error?.message || error}`);
       return [];
     }
   }

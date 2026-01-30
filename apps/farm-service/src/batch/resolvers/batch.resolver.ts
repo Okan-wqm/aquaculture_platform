@@ -22,6 +22,7 @@ import {
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-type-json';
 import { UseGuards, Logger } from '@nestjs/common';
+import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { IsUUID, IsNotEmpty, IsInt, Min, IsOptional, IsNumber, IsString, IsDate, IsEnum } from 'class-validator';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
@@ -635,6 +636,7 @@ export class AvailableTankResponse implements AvailableTank {
 // RESOLVER
 // ============================================================================
 
+@UseGuards(GqlAuthGuard)
 @Resolver(() => Batch)
 export class BatchResolver {
   private readonly logger = new Logger(BatchResolver.name);

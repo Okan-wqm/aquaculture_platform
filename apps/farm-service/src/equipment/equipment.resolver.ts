@@ -7,6 +7,7 @@ import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard } from '@platform/backend-common';
+import { getTenantSchemaName } from '../common/utils/schema-sanitizer';
 import { EquipmentResponse, PaginatedEquipmentResponse, EquipmentTypeResponse, EquipmentSystemResponse, EquipmentBatchMetrics } from './dto/equipment.response';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { FeedSelectorService } from '../feeding/services/feed-selector.service';
@@ -185,7 +186,8 @@ export class EquipmentResolver {
     try {
       const query = new GetDepartmentQuery(equipment.departmentId, equipment.tenantId);
       return this.queryBus.execute(query);
-    } catch {
+    } catch (error) {
+      this.logger.debug(`Error resolving department: ${error?.message || error}`);
       return null;
     }
   }
@@ -235,7 +237,7 @@ export class EquipmentResolver {
 
     // Use raw query with explicit tenant schema to avoid search_path issues
     const tenantId = equipment.tenantId;
-    const schemaName = `tenant_${tenantId.substring(0, 8)}`;
+    const schemaName = getTenantSchemaName(tenantId);
 
     const result = await this.tankBatchRepository.query(
       `SELECT * FROM "${schemaName}".tank_batches WHERE "tenantId" = $1 AND "tankId" = $2 LIMIT 1`,

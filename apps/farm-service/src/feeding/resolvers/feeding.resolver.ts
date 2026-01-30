@@ -23,7 +23,9 @@ import {
 } from '@nestjs/graphql';
 import { IsOptional, IsUUID, IsNumber, IsPositive, IsInt, Min, IsArray, IsDate } from 'class-validator';
 import { CommandBus, QueryBus } from '@platform/cqrs';
+import { UseGuards } from '@nestjs/common';
 import { Roles, Role } from '@platform/backend-common';
+import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import GraphQLJSON from 'graphql-type-json';
 
 // Entities
@@ -765,6 +767,7 @@ export class ActiveTankResponse {
 // RESOLVER
 // ============================================================================
 
+@UseGuards(GqlAuthGuard)
 @Resolver(() => FeedingRecord)
 export class FeedingResolver {
   constructor(
@@ -1211,6 +1214,7 @@ export class FeedingResolver {
 // FEED INVENTORY RESOLVER
 // ============================================================================
 
+@UseGuards(GqlAuthGuard)
 @Resolver(() => FeedInventory)
 export class FeedInventoryResolver {
   // ==========================================================================

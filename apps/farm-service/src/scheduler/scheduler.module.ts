@@ -70,6 +70,8 @@ import { SparePartService } from '../maintenance/services/spare-part.service';
   exports: [
     CronJobsService,
     FeedingSchedulerService,
+    MaintenanceScheduleService,
+    SparePartService,
   ],
 })
 export class SchedulerModule {}

@@ -44,9 +44,6 @@ import { GrowthMeasurement } from '../growth/entities/growth-measurement.entity'
 // Controllers
 import { BatchController, TankOperationsController } from './controllers/batch.controller';
 
-// Database services
-import { CodeGeneratorService } from '../database/services/code-generator.service';
-
 // Command Handlers
 import { BatchCommandHandlers } from './handlers';
 
@@ -83,7 +80,6 @@ import { BatchResolvers } from './resolvers';
     BatchService,
     SGRCalculatorService,
     BiomassCalculatorService,
-    CodeGeneratorService,
     ...BatchCommandHandlers,
     ...BatchQueryHandlers,
     ...BatchResolvers,

@@ -308,7 +308,8 @@ export class FeedConsumptionForecastService {
           [tenantId]
         );
         return rawTanks;
-      } catch {
+      } catch (error) {
+        this.logger.debug(`Error in getActiveTanks fallback: ${error?.message || error}`);
         this.logger.warn('Fallback query also failed, returning empty array');
         return [];
       }
@@ -338,8 +339,9 @@ export class FeedConsumptionForecastService {
     // Try to get batches - use simpler query if entity fields don't match DB
     try {
       return await queryBuilder.getMany();
-    } catch {
+    } catch (error) {
       // Fallback: Query with minimal filtering if entity mapping fails
+      this.logger.debug(`Error in getActiveBatches: ${error?.message || error}`);
       this.logger.warn('Batch entity mapping issue, using fallback query');
       const rawBatches = await this.batchRepo.query(
         `SELECT * FROM "${schemaName}".batches WHERE "tenantId" = $1 AND "status" IN ('ACTIVE', 'STOCKED', 'QUARANTINE')`,
@@ -374,8 +376,9 @@ export class FeedConsumptionForecastService {
           inventory.set(feed.code, parseFloat(String(feed.quantity ?? 0)) || 0);
         }
       }
-    } catch {
+    } catch (error) {
       // Fallback to raw query
+      this.logger.debug(`Error in getCurrentInventory: ${error?.message || error}`);
       this.logger.warn('Feed entity mapping issue, using fallback query');
       const query = `
         SELECT code, quantity

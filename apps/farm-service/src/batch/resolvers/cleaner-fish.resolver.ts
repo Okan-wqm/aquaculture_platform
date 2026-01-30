@@ -18,7 +18,8 @@ import {
   Float,
   InputType,
 } from '@nestjs/graphql';
-import { Logger } from '@nestjs/common';
+import { Logger, UseGuards } from '@nestjs/common';
+import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { IsUUID, IsNotEmpty, IsInt, Min, IsOptional, IsNumber, IsString, IsEnum, IsDateString } from 'class-validator';
 import { CommandBus, QueryBus } from '@platform/cqrs';
 import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
@@ -413,6 +414,7 @@ export class CleanerFishReport {
 // RESOLVER
 // ============================================================================
 
+@UseGuards(GqlAuthGuard)
 @Resolver(() => Batch)
 export class CleanerFishResolver {
   private readonly logger = new Logger(CleanerFishResolver.name);

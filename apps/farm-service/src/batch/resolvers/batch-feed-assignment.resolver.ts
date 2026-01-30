@@ -9,6 +9,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TenantGuard, CurrentTenant, CurrentUser } from '@platform/backend-common';
+import { getTenantSchemaName } from '../../common/utils/schema-sanitizer';
 import { BatchFeedAssignment, FeedAssignmentEntry } from '../entities/batch-feed-assignment.entity';
 import { Batch } from '../entities/batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
@@ -53,7 +54,7 @@ export class BatchFeedAssignmentResolver {
     @Args('batchId', { type: () => ID }) batchId: string,
     @CurrentTenant() tenantId: string,
   ): Promise<BatchFeedAssignmentResponse | null> {
-    const schemaName = `tenant_${tenantId.substring(0, 8)}`;
+    const schemaName = getTenantSchemaName(tenantId);
 
     const result = await this.feedAssignmentRepo.query(
       `SELECT * FROM "${schemaName}".batch_feed_assignments
@@ -78,7 +79,7 @@ export class BatchFeedAssignmentResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<BatchFeedAssignmentResponse> {
-    const schemaName = `tenant_${tenantId.substring(0, 8)}`;
+    const schemaName = getTenantSchemaName(tenantId);
     this.logger.log(`Assigning feeds to batch ${input.batchId} for tenant ${tenantId}`);
 
     // Validate batch exists
@@ -158,7 +159,7 @@ export class BatchFeedAssignmentResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<BatchFeedAssignmentResponse> {
-    const schemaName = `tenant_${tenantId.substring(0, 8)}`;
+    const schemaName = getTenantSchemaName(tenantId);
     this.logger.log(`Updating feed assignment ${input.id} for tenant ${tenantId}`);
 
     // Validate assignment exists
@@ -244,7 +245,7 @@ export class BatchFeedAssignmentResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<boolean> {
-    const schemaName = `tenant_${tenantId.substring(0, 8)}`;
+    const schemaName = getTenantSchemaName(tenantId);
     this.logger.log(`Deleting feed assignment ${id} for tenant ${tenantId}`);
 
     const result = await this.feedAssignmentRepo.query(

@@ -198,7 +198,8 @@ export class SentinelHubService implements OnModuleInit {
         try {
           const decrypted = this.decrypt(settings.clientId);
           clientIdMasked = this.maskClientId(decrypted);
-        } catch {
+        } catch (error) {
+          this.logger.debug(`Error decrypting clientId in getStatus: ${error?.message || error}`);
           // If decryption fails, settings are corrupted
           clientIdMasked = '****';
         }
@@ -209,7 +210,8 @@ export class SentinelHubService implements OnModuleInit {
         try {
           const decrypted = this.decrypt(settings.instanceId);
           instanceIdMasked = this.maskClientId(decrypted);
-        } catch {
+        } catch (error) {
+          this.logger.debug(`Error decrypting instanceId in getStatus: ${error?.message || error}`);
           instanceIdMasked = '****';
         }
       }

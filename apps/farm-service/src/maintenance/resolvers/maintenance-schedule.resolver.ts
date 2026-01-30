@@ -17,7 +17,8 @@ import {
   Float,
   registerEnumType,
 } from '@nestjs/graphql';
-import { Logger } from '@nestjs/common';
+import { Logger, UseGuards } from '@nestjs/common';
+import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { Tenant, CurrentUser } from '@platform/backend-common';
 import {
   MaintenanceSchedule,
@@ -145,6 +146,7 @@ export class DeleteMaintenanceScheduleResponse {
 // RESOLVER
 // ============================================================================
 
+@UseGuards(GqlAuthGuard)
 @Resolver(() => MaintenanceSchedule)
 export class MaintenanceScheduleResolver {
   private readonly logger = new Logger(MaintenanceScheduleResolver.name);

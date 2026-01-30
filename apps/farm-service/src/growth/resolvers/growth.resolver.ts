@@ -21,7 +21,9 @@ import {
   ObjectType,
 } from '@nestjs/graphql';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
+import { UseGuards } from '@nestjs/common';
 import { Roles, Role } from '@platform/backend-common';
+import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import GraphQLJSON from 'graphql-type-json';
 
 // Entities
@@ -392,6 +394,7 @@ export class GrowthAnalysisResponse {
 // RESOLVER
 // ============================================================================
 
+@UseGuards(GqlAuthGuard)
 @Resolver(() => GrowthMeasurement)
 export class GrowthResolver {
   constructor(

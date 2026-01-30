@@ -202,6 +202,11 @@ export class FCRCalculationService {
     const effectiveTargetFCR = targetFCR || await this.getTargetFCR(batchId);
 
     // Analiz oluştur
+    // Edge case: when effectiveTargetFCR=0, fcrVariance calculation would divide by zero; return 0
+    const fcrVariance = effectiveTargetFCR === 0 || effectiveTargetFCR === null || effectiveTargetFCR === undefined
+      ? 0
+      : ((cumulativeResult.fcr - effectiveTargetFCR) / effectiveTargetFCR) * 100;
+
     const analysis: FCRAnalysis = {
       periodFeedGiven: totalFeed,
       periodGrowth: growthKg,
@@ -210,7 +215,7 @@ export class FCRCalculationService {
       cumulativeGrowth: cumulativeResult.totalGrowth,
       cumulativeFCR: cumulativeResult.fcr,
       targetFCR: effectiveTargetFCR,
-      fcrVariance: ((cumulativeResult.fcr - effectiveTargetFCR) / effectiveTargetFCR) * 100,
+      fcrVariance,
       fcrTrend: trendAnalysis.trend,
     };
 
@@ -375,8 +380,14 @@ export class FCRCalculationService {
     const industryAvgFCR = this.industryAverageFCR[speciesType || 'default'] || 1.5;
 
     // Varyanslar
-    const varianceFromTarget = ((currentFCR - targetFCR) / targetFCR) * 100;
-    const varianceFromIndustry = ((currentFCR - industryAvgFCR) / industryAvgFCR) * 100;
+    // Edge case: when targetFCR=0, variance calculation would divide by zero; return 0
+    const varianceFromTarget = targetFCR === 0 || targetFCR === null || targetFCR === undefined
+      ? 0
+      : ((currentFCR - targetFCR) / targetFCR) * 100;
+    // Edge case: when industryAvgFCR=0, variance calculation would divide by zero; return 0
+    const varianceFromIndustry = industryAvgFCR === 0 || industryAvgFCR === null || industryAvgFCR === undefined
+      ? 0
+      : ((currentFCR - industryAvgFCR) / industryAvgFCR) * 100;
 
     // Performans değerlendirmesi
     let performance: FCRComparison['performance'];
@@ -554,23 +565,35 @@ export class FCRCalculationService {
   private linearRegression(points: { x: number; y: number }[]): { slope: number; correlation: number } {
     const n = points.length;
 
+    // Edge case: when n=0, all divisions would fail; return safe defaults
+    if (n === 0 || n === null || n === undefined) {
+      return { slope: 0, correlation: 0 };
+    }
+
     const sumX = points.reduce((sum, p) => sum + p.x, 0);
     const sumY = points.reduce((sum, p) => sum + p.y, 0);
     const sumXY = points.reduce((sum, p) => sum + p.x * p.y, 0);
     const sumX2 = points.reduce((sum, p) => sum + p.x * p.x, 0);
     const sumY2 = points.reduce((sum, p) => sum + p.y * p.y, 0);
 
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+    // Edge case: when denominator (n * sumX2 - sumX * sumX) = 0, slope would be undefined; return 0
+    const slopeDenominator = n * sumX2 - sumX * sumX;
+    const slope = slopeDenominator === 0 || slopeDenominator === null || slopeDenominator === undefined
+      ? 0
+      : (n * sumXY - sumX * sumY) / slopeDenominator;
 
     // R-squared hesaplama
+    // Edge case: meanY division by n is safe here since n > 0 was checked above
     const meanY = sumY / n;
     const ssTotal = points.reduce((sum, p) => sum + Math.pow(p.y - meanY, 2), 0);
+    // Edge case: intercept division by n is safe here since n > 0 was checked above
     const intercept = (sumY - slope * sumX) / n;
     const ssResidual = points.reduce((sum, p) => {
       const predicted = slope * p.x + intercept;
       return sum + Math.pow(p.y - predicted, 2);
     }, 0);
 
+    // Edge case: ssTotal=0 check is already in place
     const correlation = ssTotal > 0 ? 1 - (ssResidual / ssTotal) : 0;
 
     return { slope: isNaN(slope) ? 0 : slope, correlation };

@@ -549,26 +549,41 @@ export class WorkOrderService {
           ...this.transformUsedMaterials(input.usedMaterials),
         ];
 
-        // Update spare part stock within transaction
-        for (const material of input.usedMaterials) {
-          if (material.materialId) {
-            const sparePart = await queryRunner.manager.findOne(SparePart, {
-              where: { id: material.materialId, tenantId },
-            });
+        // Batch fetch all spare parts to avoid N+1 queries
+        const materialIds = input.usedMaterials
+          .filter((m) => m.materialId)
+          .map((m) => m.materialId!);
 
-            if (sparePart) {
-              sparePart.quantity = Math.max(0, sparePart.quantity - material.quantity);
-              sparePart.lastUsedDate = new Date();
+        if (materialIds.length > 0) {
+          const spareParts = await queryRunner.manager.find(SparePart, {
+            where: { id: In(materialIds), tenantId },
+          });
 
-              // Update status based on stock level
-              if (sparePart.quantity === 0) {
-                sparePart.status = 'out_of_stock' as any;
-              } else if (sparePart.quantity <= sparePart.minStock) {
-                sparePart.status = 'low_stock' as any;
+          // Create a map for quick lookup
+          const sparePartMap = new Map(spareParts.map((sp) => [sp.id, sp]));
+
+          // Update spare part stock within transaction
+          for (const material of input.usedMaterials) {
+            if (material.materialId) {
+              const sparePart = sparePartMap.get(material.materialId);
+
+              if (sparePart) {
+                sparePart.quantity = Math.max(0, sparePart.quantity - material.quantity);
+                sparePart.lastUsedDate = new Date();
+
+                // Update status based on stock level
+                if (sparePart.quantity === 0) {
+                  sparePart.status = 'out_of_stock' as any;
+                } else if (sparePart.quantity <= sparePart.minStock) {
+                  sparePart.status = 'low_stock' as any;
+                }
               }
-
-              await queryRunner.manager.save(sparePart);
             }
+          }
+
+          // Batch save all updated spare parts
+          if (spareParts.length > 0) {
+            await queryRunner.manager.save(spareParts);
           }
         }
       }
@@ -958,17 +973,34 @@ export class WorkOrderService {
 
   /**
    * Yedek parça stoğunu günceller
+   * Optimized to batch fetch and save spare parts to avoid N+1 queries
    */
   private async updateSparePartStock(
     tenantId: string,
     materials: UsedMaterialInput[],
     workOrderId: string,
   ): Promise<void> {
+    // Collect all material IDs that need to be fetched
+    const materialIds = materials
+      .filter((m) => m.materialId)
+      .map((m) => m.materialId!);
+
+    if (materialIds.length === 0) {
+      return;
+    }
+
+    // Batch fetch all spare parts at once to avoid N+1 queries
+    const spareParts = await this.sparePartRepository.find({
+      where: { id: In(materialIds), tenantId },
+    });
+
+    // Create a map for quick lookup
+    const sparePartMap = new Map(spareParts.map((sp) => [sp.id, sp]));
+
+    // Update each spare part's stock
     for (const material of materials) {
       if (material.materialId) {
-        const sparePart = await this.sparePartRepository.findOne({
-          where: { id: material.materialId, tenantId },
-        });
+        const sparePart = sparePartMap.get(material.materialId);
 
         if (sparePart) {
           sparePart.quantity = Math.max(0, sparePart.quantity - material.quantity);
@@ -980,10 +1012,13 @@ export class WorkOrderService {
           } else if (sparePart.quantity <= sparePart.minStock) {
             sparePart.status = 'low_stock' as any;
           }
-
-          await this.sparePartRepository.save(sparePart);
         }
       }
+    }
+
+    // Batch save all updated spare parts at once
+    if (spareParts.length > 0) {
+      await this.sparePartRepository.save(spareParts);
     }
   }
 

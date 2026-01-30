@@ -2,7 +2,7 @@
  * System Module
  * Manages System and SubSystem entities
  */
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { System } from './entities/system.entity';
@@ -20,8 +20,8 @@ import { DepartmentModule } from '../department/department.module';
   imports: [
     TypeOrmModule.forFeature([System, SubSystem, Site, Department, Equipment, EquipmentSystem]),
     CqrsModule,
-    forwardRef(() => SiteModule),
-    forwardRef(() => DepartmentModule),
+    SiteModule,
+    DepartmentModule,
   ],
   providers: [
     SystemResolver,

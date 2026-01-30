@@ -1,7 +1,7 @@
 /**
  * Equipment Module
  */
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 
@@ -66,7 +66,7 @@ const QueryHandlers = [
       Feed,
     ]),
     CqrsModule,
-    forwardRef(() => FeedingModule),
+    FeedingModule,
   ],
   providers: [
     EquipmentResolver,

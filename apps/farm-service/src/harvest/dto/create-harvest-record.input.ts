@@ -5,55 +5,144 @@
  *
  * @module Harvest/DTO
  */
-import { InputType, Field, Float, Int } from '@nestjs/graphql';
-import { IsNotEmpty, IsUUID, IsPositive, IsOptional, IsString, IsDateString } from 'class-validator';
+import { InputType, Field, Float, Int, ID } from '@nestjs/graphql';
+import {
+  IsNotEmpty,
+  IsUUID,
+  IsPositive,
+  IsOptional,
+  IsString,
+  IsDateString,
+  IsNumber,
+  IsEnum,
+  Min,
+  Max,
+  MaxLength,
+} from 'class-validator';
+import { QualityGrade } from '../entities/harvest-record.entity';
+import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
 
 @InputType()
 export class CreateHarvestRecordInput {
-  @Field()
+  @Field(() => ID, { description: 'Batch ID' })
   @IsNotEmpty()
   @IsUUID()
   batchId: string;
 
-  @Field()
+  @Field(() => ID, { description: 'Tank ID' })
   @IsNotEmpty()
   @IsUUID()
   tankId: string;
 
-  @Field(() => Int)
+  @Field(() => ID, { nullable: true, description: 'Pond ID (alternative to tank)' })
+  @IsOptional()
+  @IsUUID()
+  pondId?: string;
+
+  @Field(() => Int, { description: 'Number of fish harvested' })
+  @IsNotEmpty()
+  @IsNumber()
   @IsPositive()
+  @Min(1)
   quantityHarvested: number;
 
-  @Field(() => Float)
+  @Field(() => Float, { description: 'Average weight in grams' })
+  @IsNotEmpty()
+  @IsNumber()
   @IsPositive()
+  @Min(0.01)
+  @Max(100000)
   averageWeight: number;
 
-  @Field(() => Float)
+  @Field(() => Float, { description: 'Total biomass in kg' })
+  @IsNotEmpty()
+  @IsNumber()
   @IsPositive()
+  @Min(0.01)
   totalBiomass: number;
 
-  @Field()
+  @Field(() => QualityGrade, { description: 'Quality grade of harvested fish' })
   @IsNotEmpty()
-  @IsString()
-  qualityGrade: string;
+  @IsEnum(QualityGrade)
+  qualityGrade: QualityGrade;
 
-  @Field()
+  @Field({ description: 'Harvest date (ISO 8601 format)' })
   @IsNotEmpty()
   @IsDateString()
   harvestDate: string;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => HarvestMethod, { nullable: true, description: 'Harvest method used' })
   @IsOptional()
-  @IsPositive()
+  @IsEnum(HarvestMethod)
+  method?: HarvestMethod;
+
+  @Field(() => ProductForm, { nullable: true, description: 'Product form (whole, gutted, fillet, etc.)' })
+  @IsOptional()
+  @IsEnum(ProductForm)
+  productForm?: ProductForm;
+
+  @Field(() => Float, { nullable: true, description: 'Price per kilogram' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
   pricePerKg?: number;
 
-  @Field({ nullable: true })
+  @Field(() => Float, { nullable: true, description: 'Total revenue from harvest' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  totalRevenue?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Harvest operation cost' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  harvestCost?: number;
+
+  @Field({ nullable: true, defaultValue: 'TRY', description: 'Currency code' })
   @IsOptional()
   @IsString()
+  @MaxLength(3)
+  currency?: string;
+
+  @Field({ nullable: true, description: 'Buyer name' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
   buyerName?: string;
 
-  @Field({ nullable: true })
+  @Field({ nullable: true, description: 'Lot number for traceability' })
   @IsOptional()
   @IsString()
+  @MaxLength(100)
+  lotNumber?: string;
+
+  @Field(() => Int, { nullable: true, description: 'Mortality count during harvest' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  mortalityDuringHarvest?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Rejected quantity (kg)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  rejectedQuantity?: number;
+
+  @Field({ nullable: true, description: 'Reason for rejection' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  rejectionReason?: string;
+
+  @Field(() => ID, { description: 'User ID who performed the harvest' })
+  @IsNotEmpty()
+  @IsUUID()
+  harvestedBy: string;
+
+  @Field({ nullable: true, description: 'Additional notes' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
   notes?: string;
 }

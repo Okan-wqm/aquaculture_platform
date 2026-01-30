@@ -9,8 +9,10 @@
  *
  * SECURITY: Sensitive credentials (client ID, private key) are encrypted
  * at rest using AES-256-CBC with random IV per encryption.
+ * Encryption key must be provided via environment variables - no hardcoded fallback.
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
@@ -18,12 +20,6 @@ import {
   RegulatorySettings,
   CompanyAddress,
 } from './entities/regulatory-settings.entity';
-
-// Encryption key - 32 characters for AES-256
-const ENCRYPTION_KEY =
-  process.env.REGULATORY_ENCRYPTION_KEY ||
-  process.env.ENCRYPTION_KEY ||
-  'aquaculture-platform-32char-key!'; // Default for development only
 
 const IV_LENGTH = 16;
 
@@ -46,13 +42,38 @@ export interface UpdateRegulatorySettingsInput {
 }
 
 @Injectable()
-export class RegulatorySettingsService {
+export class RegulatorySettingsService implements OnModuleInit {
   private readonly logger = new Logger(RegulatorySettingsService.name);
+  private readonly encryptionKey: string;
 
   constructor(
     @InjectRepository(RegulatorySettings)
     private readonly repo: Repository<RegulatorySettings>,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    // Get encryption key from environment variables - no hardcoded fallback
+    const key =
+      this.configService.get<string>('REGULATORY_ENCRYPTION_KEY') ||
+      this.configService.get<string>('ENCRYPTION_KEY');
+
+    if (!key) {
+      throw new Error(
+        'Missing required encryption key. Set REGULATORY_ENCRYPTION_KEY or ENCRYPTION_KEY environment variable.',
+      );
+    }
+
+    if (key.length < 32) {
+      throw new Error(
+        'Encryption key must be at least 32 characters for AES-256.',
+      );
+    }
+
+    this.encryptionKey = key;
+  }
+
+  onModuleInit() {
+    this.logger.log('RegulatorySettingsService initialized with secure encryption key from environment');
+  }
 
   // ===========================================================================
   // ENCRYPTION METHODS (AES-256-CBC)
@@ -66,7 +87,7 @@ export class RegulatorySettingsService {
       const iv = crypto.randomBytes(IV_LENGTH);
       const cipher = crypto.createCipheriv(
         'aes-256-cbc',
-        Buffer.from(ENCRYPTION_KEY.slice(0, 32)),
+        Buffer.from(this.encryptionKey.slice(0, 32)),
         iv,
       );
       let encrypted = cipher.update(text);
@@ -88,7 +109,7 @@ export class RegulatorySettingsService {
       const encrypted = Buffer.from(parts.join(':'), 'hex');
       const decipher = crypto.createDecipheriv(
         'aes-256-cbc',
-        Buffer.from(ENCRYPTION_KEY.slice(0, 32)),
+        Buffer.from(this.encryptionKey.slice(0, 32)),
         iv,
       );
       let decrypted = decipher.update(encrypted);

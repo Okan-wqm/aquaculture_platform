@@ -3,8 +3,12 @@
  *
  * Tenant bazlı Sentinel Hub kimlik bilgilerini yönetir.
  * Kimlik bilgileri AES-256-CBC ile şifrelenerek saklanır.
+ *
+ * SECURITY: Encryption key must be provided via environment variables.
+ * No hardcoded fallback keys are used.
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
@@ -15,22 +19,41 @@ import {
   SentinelHubWmtsConfig,
 } from './entities/sentinel-hub-settings.entity';
 
-// Encryption key - 32 characters for AES-256
-const ENCRYPTION_KEY =
-  process.env.SENTINEL_HUB_ENCRYPTION_KEY ||
-  process.env.ENCRYPTION_KEY ||
-  'aquaculture-platform-32char-key!'; // Default for development
-
 const IV_LENGTH = 16;
 
 @Injectable()
-export class SentinelHubService {
+export class SentinelHubService implements OnModuleInit {
   private readonly logger = new Logger(SentinelHubService.name);
+  private readonly encryptionKey: string;
 
   constructor(
     @InjectRepository(SentinelHubSettings)
     private readonly settingsRepo: Repository<SentinelHubSettings>,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    // Get encryption key from environment variables - no hardcoded fallback
+    const key =
+      this.configService.get<string>('SENTINEL_HUB_ENCRYPTION_KEY') ||
+      this.configService.get<string>('ENCRYPTION_KEY');
+
+    if (!key) {
+      throw new Error(
+        'Missing required encryption key. Set SENTINEL_HUB_ENCRYPTION_KEY or ENCRYPTION_KEY environment variable.',
+      );
+    }
+
+    if (key.length < 32) {
+      throw new Error(
+        'Encryption key must be at least 32 characters for AES-256.',
+      );
+    }
+
+    this.encryptionKey = key;
+  }
+
+  onModuleInit() {
+    this.logger.log('SentinelHubService initialized with secure encryption key from environment');
+  }
 
   /**
    * Encrypt text using AES-256-CBC
@@ -40,7 +63,7 @@ export class SentinelHubService {
       const iv = crypto.randomBytes(IV_LENGTH);
       const cipher = crypto.createCipheriv(
         'aes-256-cbc',
-        Buffer.from(ENCRYPTION_KEY.slice(0, 32)),
+        Buffer.from(this.encryptionKey.slice(0, 32)),
         iv,
       );
       let encrypted = cipher.update(text);
@@ -62,7 +85,7 @@ export class SentinelHubService {
       const encrypted = Buffer.from(parts.join(':'), 'hex');
       const decipher = crypto.createDecipheriv(
         'aes-256-cbc',
-        Buffer.from(ENCRYPTION_KEY.slice(0, 32)),
+        Buffer.from(this.encryptionKey.slice(0, 32)),
         iv,
       );
       let decrypted = decipher.update(encrypted);

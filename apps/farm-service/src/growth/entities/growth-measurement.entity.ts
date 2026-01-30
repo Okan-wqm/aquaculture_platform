@@ -482,11 +482,18 @@ export class GrowthMeasurement {
 
     // Standart sapma
     const squaredDiffs = weights.map(w => Math.pow(w - mean, 2));
-    const variance = squaredDiffs.reduce((a, b) => a + b, 0) / (n - 1);
+    // Edge case: when n=1, variance divisor (n-1) would be 0; return 0 for single sample
+    const varianceDivisor = n - 1;
+    const variance = varianceDivisor === 0 || varianceDivisor === null || varianceDivisor === undefined
+      ? 0
+      : squaredDiffs.reduce((a, b) => a + b, 0) / varianceDivisor;
     const stdDev = Math.sqrt(variance);
 
     // CV (Coefficient of Variation)
-    const cv = (stdDev / mean) * 100;
+    // Edge case: when mean=0, CV calculation would divide by zero; return 0 for zero mean
+    const cv = mean === 0 || mean === null || mean === undefined
+      ? 0
+      : (stdDev / mean) * 100;
 
     // 95% Confidence Interval
     const tValue = this.getTValue(n - 1); // t-distribution değeri
@@ -524,9 +531,16 @@ export class GrowthMeasurement {
       const lengthMean = lengthSum / lengths.length;
       const lengthSorted = [...lengths].sort((a, b) => a - b);
       const lengthSquaredDiffs = lengths.map(l => Math.pow(l - lengthMean, 2));
-      const lengthVariance = lengthSquaredDiffs.reduce((a, b) => a + b, 0) / (lengths.length - 1);
+      // Edge case: when lengths.length=1, variance divisor would be 0; return 0 for single sample
+      const lengthVarianceDivisor = lengths.length - 1;
+      const lengthVariance = lengthVarianceDivisor === 0 || lengthVarianceDivisor === null || lengthVarianceDivisor === undefined
+        ? 0
+        : lengthSquaredDiffs.reduce((a, b) => a + b, 0) / lengthVarianceDivisor;
       const lengthStdDev = Math.sqrt(lengthVariance);
-      const lengthCV = (lengthStdDev / lengthMean) * 100;
+      // Edge case: when lengthMean=0, CV calculation would divide by zero; return 0 for zero mean
+      const lengthCV = lengthMean === 0 || lengthMean === null || lengthMean === undefined
+        ? 0
+        : (lengthStdDev / lengthMean) * 100;
 
       this.averageLength = lengthMean;
       this.statistics.length = {
@@ -546,7 +560,11 @@ export class GrowthMeasurement {
         const kSum = kFactors.reduce((a, b) => a + b, 0);
         const kMean = kSum / kFactors.length;
         const kSquaredDiffs = kFactors.map(k => Math.pow(k - kMean, 2));
-        const kVariance = kSquaredDiffs.reduce((a, b) => a + b, 0) / (kFactors.length - 1);
+        // Edge case: when kFactors.length=1, variance divisor would be 0; return 0 for single sample
+        const kVarianceDivisor = kFactors.length - 1;
+        const kVariance = kVarianceDivisor === 0 || kVarianceDivisor === null || kVarianceDivisor === undefined
+          ? 0
+          : kSquaredDiffs.reduce((a, b) => a + b, 0) / kVarianceDivisor;
         const kStdDev = Math.sqrt(kVariance);
 
         this.conditionFactor = kMean;
@@ -697,7 +715,12 @@ export class GrowthMeasurement {
       const nextKey = keys[i + 1];
       if (currentKey !== undefined && nextKey !== undefined && df > currentKey && df < nextKey) {
         // Lineer interpolasyon
-        const ratio = (df - currentKey) / (nextKey - currentKey);
+        // Edge case: if nextKey equals currentKey, divisor would be 0; return default t-value
+        const interpolationDivisor = nextKey - currentKey;
+        if (interpolationDivisor === 0 || interpolationDivisor === null || interpolationDivisor === undefined) {
+          return 1.96;
+        }
+        const ratio = (df - currentKey) / interpolationDivisor;
         const currentVal = tValues[currentKey] ?? 1.96;
         const nextVal = tValues[nextKey] ?? 1.96;
         return currentVal + ratio * (nextVal - currentVal);

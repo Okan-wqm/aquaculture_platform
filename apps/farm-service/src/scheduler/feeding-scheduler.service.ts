@@ -16,6 +16,7 @@ import {
   Injectable,
   Logger,
   OnModuleInit,
+  OnModuleDestroy,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
@@ -129,16 +130,23 @@ interface TenantFeedingConfig {
   fcrAlertsEnabled: boolean;
   stockAlertsEnabled: boolean;
   systemUserId: string;
+  lastAccessed: Date;
 }
 
 // ============================================================================
 // SERVICE
 // ============================================================================
 
+// Default TTL for tenant configs: 24 hours
+const TENANT_CONFIG_TTL_MS = 24 * 60 * 60 * 1000;
+// Cleanup interval: 1 hour
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+
 @Injectable()
-export class FeedingSchedulerService implements OnModuleInit {
+export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(FeedingSchedulerService.name);
   private tenantConfigs: Map<string, TenantFeedingConfig> = new Map();
+  private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(
     @InjectRepository(FeedingRecord)
@@ -158,6 +166,71 @@ export class FeedingSchedulerService implements OnModuleInit {
   async onModuleInit() {
     this.logger.log('FeedingSchedulerService initialized');
     await this.loadTenantConfigs();
+
+    // Start periodic cleanup of stale tenant configs
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupStaleTenantConfigs();
+    }, CLEANUP_INTERVAL_MS);
+
+    this.logger.log('Started tenant config cleanup interval');
+  }
+
+  /**
+   * Cleanup resources on module destroy to prevent memory leaks
+   */
+  onModuleDestroy() {
+    this.logger.log('FeedingSchedulerService shutting down, cleaning up resources');
+
+    // Clear the cleanup interval
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+
+    // Clear tenant configs
+    this.tenantConfigs.clear();
+
+    this.logger.log('FeedingSchedulerService cleanup completed');
+  }
+
+  /**
+   * Remove stale tenant configurations that haven't been accessed recently
+   * This prevents memory leaks from accumulating tenant data
+   */
+  private cleanupStaleTenantConfigs(): void {
+    const now = Date.now();
+    const staleThreshold = now - TENANT_CONFIG_TTL_MS;
+    let removedCount = 0;
+
+    for (const [tenantId, config] of this.tenantConfigs) {
+      if (config.lastAccessed.getTime() < staleThreshold) {
+        this.tenantConfigs.delete(tenantId);
+        removedCount++;
+      }
+    }
+
+    if (removedCount > 0) {
+      this.logger.log(`Cleaned up ${removedCount} stale tenant configs`);
+    }
+  }
+
+  /**
+   * Remove a specific tenant's configuration (e.g., when tenant is deactivated)
+   */
+  removeTenantConfig(tenantId: string): void {
+    if (this.tenantConfigs.has(tenantId)) {
+      this.tenantConfigs.delete(tenantId);
+      this.logger.log(`Removed tenant config for ${tenantId}`);
+    }
+  }
+
+  /**
+   * Clear all tenant configurations (useful for testing or full refresh)
+   */
+  clearAllTenantConfigs(): void {
+    const count = this.tenantConfigs.size;
+    this.tenantConfigs.clear();
+    this.logger.log(`Cleared all ${count} tenant configs`);
   }
 
   // -------------------------------------------------------------------------
@@ -166,6 +239,7 @@ export class FeedingSchedulerService implements OnModuleInit {
 
   /**
    * Load tenant configurations for feeding scheduler
+   * Updates existing configs with fresh lastAccessed time, adds new ones
    */
   private async loadTenantConfigs(): Promise<void> {
     try {
@@ -176,14 +250,35 @@ export class FeedingSchedulerService implements OnModuleInit {
         .where('batch.isActive = :isActive', { isActive: true })
         .getRawMany();
 
+      const now = new Date();
+      const currentTenantIds = new Set<string>();
+
       for (const { tenantId } of tenants) {
-        this.tenantConfigs.set(tenantId, {
-          tenantId,
-          feedingEnabled: true,
-          fcrAlertsEnabled: true,
-          stockAlertsEnabled: true,
-          systemUserId: 'system',
-        });
+        currentTenantIds.add(tenantId);
+        const existingConfig = this.tenantConfigs.get(tenantId);
+
+        if (existingConfig) {
+          // Update lastAccessed for existing config
+          existingConfig.lastAccessed = now;
+        } else {
+          // Add new tenant config
+          this.tenantConfigs.set(tenantId, {
+            tenantId,
+            feedingEnabled: true,
+            fcrAlertsEnabled: true,
+            stockAlertsEnabled: true,
+            systemUserId: 'system',
+            lastAccessed: now,
+          });
+        }
+      }
+
+      // Remove configs for tenants that no longer have active batches
+      for (const tenantId of this.tenantConfigs.keys()) {
+        if (!currentTenantIds.has(tenantId)) {
+          this.tenantConfigs.delete(tenantId);
+          this.logger.debug(`Removed config for inactive tenant ${tenantId}`);
+        }
       }
 
       this.logger.log(`Loaded feeding configurations for ${this.tenantConfigs.size} tenants`);
@@ -199,6 +294,18 @@ export class FeedingSchedulerService implements OnModuleInit {
     // Refresh tenant configs
     await this.loadTenantConfigs();
     return Array.from(this.tenantConfigs.keys());
+  }
+
+  /**
+   * Get tenant config and update lastAccessed timestamp
+   * This helps track which configs are actively used for TTL-based cleanup
+   */
+  private getTenantConfig(tenantId: string): TenantFeedingConfig | undefined {
+    const config = this.tenantConfigs.get(tenantId);
+    if (config) {
+      config.lastAccessed = new Date();
+    }
+    return config;
   }
 
   // -------------------------------------------------------------------------
@@ -633,7 +740,7 @@ export class FeedingSchedulerService implements OnModuleInit {
       const tenantIds = await this.getActiveTenants();
 
       for (const tenantId of tenantIds) {
-        const config = this.tenantConfigs.get(tenantId);
+        const config = this.getTenantConfig(tenantId);
         if (!config?.feedingEnabled) continue;
 
         try {
@@ -664,7 +771,7 @@ export class FeedingSchedulerService implements OnModuleInit {
       const now = new Date();
 
       for (const tenantId of tenantIds) {
-        const config = this.tenantConfigs.get(tenantId);
+        const config = this.getTenantConfig(tenantId);
         if (!config?.feedingEnabled) continue;
 
         try {
@@ -743,7 +850,7 @@ export class FeedingSchedulerService implements OnModuleInit {
       const tenantIds = await this.getActiveTenants();
 
       for (const tenantId of tenantIds) {
-        const config = this.tenantConfigs.get(tenantId);
+        const config = this.getTenantConfig(tenantId);
         if (!config?.fcrAlertsEnabled) continue;
 
         try {
@@ -788,7 +895,7 @@ export class FeedingSchedulerService implements OnModuleInit {
       const tenantIds = await this.getActiveTenants();
 
       for (const tenantId of tenantIds) {
-        const config = this.tenantConfigs.get(tenantId);
+        const config = this.getTenantConfig(tenantId);
         if (!config?.stockAlertsEnabled) continue;
 
         try {

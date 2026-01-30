@@ -7,7 +7,7 @@
  *
  * @module Growth/QueryHandlers
  */
-import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
@@ -21,6 +21,7 @@ import { RedisService } from '@platform/backend-common';
 @QueryHandler(GetGrowthAnalysisQuery)
 export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysisQuery, GrowthAnalysisResult> {
   private static readonly CACHE_TTL = 7200; // 2 hours
+  private readonly logger = new Logger(GetGrowthAnalysisHandler.name);
 
   constructor(
     @InjectRepository(GrowthMeasurement)
@@ -210,8 +211,8 @@ export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysis
 
     // Cache the result (TTL: 2 hours)
     if (this.redisService) {
-      this.redisService.setJson(cacheKey, result, GetGrowthAnalysisHandler.CACHE_TTL).catch(() => {
-        // Ignore cache write errors
+      this.redisService.setJson(cacheKey, result, GetGrowthAnalysisHandler.CACHE_TTL).catch((err) => {
+        this.logger.warn(`Failed to cache growth analysis result: ${err instanceof Error ? err.message : String(err)}`);
       });
     }
 

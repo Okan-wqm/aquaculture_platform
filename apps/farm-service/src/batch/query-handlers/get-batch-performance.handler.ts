@@ -7,7 +7,7 @@
  *
  * @module Batch/QueryHandlers
  */
-import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
@@ -20,6 +20,8 @@ import { RedisService } from '@platform/backend-common';
 @Injectable()
 @QueryHandler(GetBatchPerformanceQuery)
 export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerformanceQuery, BatchPerformanceResult> {
+  private readonly logger = new Logger(GetBatchPerformanceHandler.name);
+
   constructor(
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
@@ -182,8 +184,8 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
 
     // Cache the result (TTL: 1 hour = 3600 seconds)
     if (this.redisService) {
-      this.redisService.setJson(cacheKey, result, 3600).catch(() => {
-        // Ignore cache write errors
+      this.redisService.setJson(cacheKey, result, 3600).catch((err) => {
+        this.logger.warn(`Failed to cache batch performance result: ${err instanceof Error ? err.message : String(err)}`);
       });
     }
 

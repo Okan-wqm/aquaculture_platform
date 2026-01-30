@@ -445,6 +445,7 @@ export class SparePartService {
   /**
    * İş emri için malzemeleri çıkış yapar
    * Uses transaction to ensure all material consumptions succeed or fail together
+   * Optimized to batch fetch spare parts to avoid N+1 queries
    */
   async consumeForWorkOrder(
     tenantId: string,
@@ -457,11 +458,18 @@ export class SparePartService {
     await queryRunner.startTransaction();
 
     try {
+      // Batch fetch all spare parts at once to avoid N+1 queries
+      const sparePartIds = materials.map((m) => m.sparePartId);
+      const spareParts = await queryRunner.manager.find(SparePart, {
+        where: { id: In(sparePartIds), tenantId },
+      });
+
+      // Create a map for quick lookup
+      const sparePartMap = new Map(spareParts.map((sp) => [sp.id, sp]));
+
+      // Validate all materials first before making any changes
       for (const material of materials) {
-        // Find spare part within transaction
-        const sparePart = await queryRunner.manager.findOne(SparePart, {
-          where: { id: material.sparePartId, tenantId },
-        });
+        const sparePart = sparePartMap.get(material.sparePartId);
 
         if (!sparePart) {
           throw new NotFoundException(`Yedek parça bulunamadı: ${material.sparePartId}`);
@@ -472,6 +480,11 @@ export class SparePartService {
             `Yetersiz stok. Mevcut: ${sparePart.quantity}, İstenen: ${material.quantity}`,
           );
         }
+      }
+
+      // Now apply all changes
+      for (const material of materials) {
+        const sparePart = sparePartMap.get(material.sparePartId)!;
 
         const previousQuantity = sparePart.quantity;
         sparePart.quantity -= material.quantity;
@@ -481,14 +494,14 @@ export class SparePartService {
         // Update stock status
         this.updateStockStatus(sparePart);
 
-        // Save within transaction
-        await queryRunner.manager.save(sparePart);
-
         // Log movement
         this.logger.log(
           `Stock movement recorded: ${sparePart.code} - out ${material.quantity} for work order ${workOrderId}`,
         );
       }
+
+      // Batch save all updated spare parts at once
+      await queryRunner.manager.save(spareParts);
 
       await queryRunner.commitTransaction();
     } catch (error) {
@@ -501,6 +514,7 @@ export class SparePartService {
 
   /**
    * Toplu stok girişi yapar
+   * Optimized to batch fetch and save spare parts to avoid N+1 queries
    */
   async bulkStockIn(
     tenantId: string,
@@ -508,24 +522,48 @@ export class SparePartService {
     performedBy: string,
     reason?: string,
   ): Promise<SparePart[]> {
-    const results: SparePart[] = [];
-
-    for (const item of items) {
-      const sparePart = await this.recordStockMovement(
-        tenantId,
-        {
-          sparePartId: item.sparePartId,
-          quantity: item.quantity,
-          movementType: 'in',
-          reason: reason || 'Toplu stok girişi',
-          notes: item.notes,
-        },
-        performedBy,
-      );
-      results.push(sparePart);
+    if (items.length === 0) {
+      return [];
     }
 
-    return results;
+    // Batch fetch all spare parts at once to avoid N+1 queries
+    const sparePartIds = items.map((item) => item.sparePartId);
+    const spareParts = await this.sparePartRepository.find({
+      where: { id: In(sparePartIds), tenantId },
+    });
+
+    // Create a map for quick lookup
+    const sparePartMap = new Map(spareParts.map((sp) => [sp.id, sp]));
+
+    // Validate all items exist
+    for (const item of items) {
+      if (!sparePartMap.has(item.sparePartId)) {
+        throw new NotFoundException(`Yedek parça bulunamadı: ${item.sparePartId}`);
+      }
+    }
+
+    // Apply all stock movements
+    for (const item of items) {
+      const sparePart = sparePartMap.get(item.sparePartId)!;
+      const previousQuantity = sparePart.quantity;
+
+      sparePart.quantity += item.quantity;
+      sparePart.lastOrderDate = new Date();
+      sparePart.updatedBy = performedBy;
+
+      // Update status
+      this.updateStockStatus(sparePart);
+
+      // Log movement
+      this.logger.log(
+        `Stock movement recorded: ${sparePart.code} - in ${item.quantity}`,
+      );
+    }
+
+    // Batch save all updated spare parts at once
+    const savedParts = await this.sparePartRepository.save(spareParts);
+
+    return savedParts;
   }
 
   // -------------------------------------------------------------------------

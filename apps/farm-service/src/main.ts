@@ -1,8 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+
+// Default allowed origins for development
+const DEFAULT_DEV_ORIGINS = 'http://localhost:3000,http://localhost:5173,http://localhost:4000,http://localhost:4001,http://localhost:4002';
 
 async function bootstrap() {
   const logger = new Logger('FarmService');
@@ -54,18 +58,32 @@ async function bootstrap() {
   );
 
   // CORS configuration
-  // SECURITY: credentials cannot be true when origin is '*' (wildcard)
-  const corsOrigins = configService.get<string>('CORS_ORIGINS', '*');
-  const isWildcard = corsOrigins === '*';
+  // SECURITY: Never use wildcard '*' - always use explicit origin allowlist
+  const corsOriginsEnv = configService.get<string>('CORS_ORIGINS');
 
-  // SECURITY: Throw error in production if wildcard CORS is configured
-  if (isWildcard && isProduction) {
-    throw new Error('CORS_ORIGINS cannot be "*" in production. Configure an explicit allowlist.');
+  // Use environment variable if set, otherwise use safe defaults for development
+  const corsOrigins = corsOriginsEnv || (isProduction ? '' : DEFAULT_DEV_ORIGINS);
+
+  // SECURITY: Reject wildcard configuration
+  if (corsOrigins === '*') {
+    throw new Error('CORS_ORIGINS cannot be "*". Configure an explicit allowlist of allowed origins.');
   }
 
-  const parsedOrigins = isWildcard ? '*' : corsOrigins.split(',').map((o: string) => o.trim()).filter(Boolean);
+  // SECURITY: Require explicit CORS_ORIGINS in production
+  if (isProduction && !corsOriginsEnv) {
+    throw new Error('CORS_ORIGINS environment variable must be set in production.');
+  }
 
-  app.enableCors({
+  const parsedOrigins: string[] = corsOrigins
+    .split(',')
+    .map((origin: string) => origin.trim())
+    .filter((origin: string) => origin.length > 0);
+
+  if (parsedOrigins.length === 0) {
+    throw new Error('CORS_ORIGINS must contain at least one valid origin.');
+  }
+
+  const corsOptions: CorsOptions = {
     origin: parsedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
@@ -75,9 +93,13 @@ async function bootstrap() {
       'X-Correlation-Id',
       'X-Request-Id',
     ],
-    // SECURITY: credentials must be false when using wildcard origin
-    credentials: !isWildcard,
-  });
+    credentials: true,
+    maxAge: 86400, // 24 hours - cache preflight requests
+  };
+
+  app.enableCors(corsOptions);
+
+  logger.log(`CORS enabled for origins: ${parsedOrigins.join(', ')}`);
 
   // Global validation pipe with security settings
   app.useGlobalPipes(

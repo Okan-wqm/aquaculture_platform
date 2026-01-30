@@ -673,6 +673,7 @@ export class MaintenanceScheduleService {
 
   /**
    * Otomatik iş emri oluşturma gerektiren planları işler
+   * Optimized to avoid N+1 queries by batch-fetching existing work orders
    */
   async processAutoGenerateWorkOrders(
     tenantId: string,
@@ -690,35 +691,58 @@ export class MaintenanceScheduleService {
       },
     });
 
-    for (const schedule of schedules) {
-      if (!schedule.nextDueDate) continue;
-
+    // Filter schedules that are due for work order generation
+    const schedulesNeedingWorkOrder = schedules.filter((schedule) => {
+      if (!schedule.nextDueDate) return false;
       const daysUntilDue = schedule.getDaysUntilDue();
+      return daysUntilDue <= schedule.generateDaysBefore;
+    });
 
-      // Check if we should generate a work order
-      if (daysUntilDue <= schedule.generateDaysBefore) {
-        // Check if work order already exists for this due date
-        const existingWorkOrder = await this.workOrderRepository.findOne({
-          where: {
+    if (schedulesNeedingWorkOrder.length === 0) {
+      return generatedWorkOrders;
+    }
+
+    // Batch fetch all existing work orders for these schedules to avoid N+1 queries
+    const scheduleIds = schedulesNeedingWorkOrder.map((s) => s.id);
+    const existingWorkOrders = await this.workOrderRepository.find({
+      where: {
+        tenantId,
+        maintenanceScheduleId: In(scheduleIds),
+      },
+      select: ['id', 'maintenanceScheduleId', 'dueDate'],
+    });
+
+    // Create a map for quick lookup of existing work orders by schedule ID and due date
+    const existingWorkOrderMap = new Map<string, Set<string>>();
+    for (const wo of existingWorkOrders) {
+      if (wo.maintenanceScheduleId) {
+        const key = wo.maintenanceScheduleId;
+        if (!existingWorkOrderMap.has(key)) {
+          existingWorkOrderMap.set(key, new Set());
+        }
+        if (wo.dueDate) {
+          existingWorkOrderMap.get(key)!.add(wo.dueDate.toISOString());
+        }
+      }
+    }
+
+    for (const schedule of schedulesNeedingWorkOrder) {
+      // Check if work order already exists for this due date using the pre-fetched map
+      const existingDueDates = existingWorkOrderMap.get(schedule.id);
+      const dueDateString = schedule.nextDueDate?.toISOString();
+
+      if (!existingDueDates || !dueDateString || !existingDueDates.has(dueDateString)) {
+        try {
+          const workOrder = await this.generateWorkOrder(
             tenantId,
-            maintenanceScheduleId: schedule.id,
-            dueDate: schedule.nextDueDate,
-          },
-        });
-
-        if (!existingWorkOrder) {
-          try {
-            const workOrder = await this.generateWorkOrder(
-              tenantId,
-              schedule.id,
-              systemUserId,
-            );
-            generatedWorkOrders.push(workOrder);
-          } catch (error) {
-            this.logger.error(
-              `Failed to generate work order for schedule ${schedule.scheduleCode}: ${error}`,
-            );
-          }
+            schedule.id,
+            systemUserId,
+          );
+          generatedWorkOrders.push(workOrder);
+        } catch (error) {
+          this.logger.error(
+            `Failed to generate work order for schedule ${schedule.scheduleCode}: ${error}`,
+          );
         }
       }
     }

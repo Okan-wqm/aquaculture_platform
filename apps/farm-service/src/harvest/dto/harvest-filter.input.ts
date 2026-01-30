@@ -6,7 +6,22 @@
  * @module Harvest/DTO
  */
 import { InputType, Field, Int, ID, Float } from '@nestjs/graphql';
-import { IsOptional, IsUUID, IsEnum, IsString, IsInt, Min, Max, IsDate, IsBoolean } from 'class-validator';
+import {
+  IsOptional,
+  IsUUID,
+  IsEnum,
+  IsString,
+  IsInt,
+  IsNumber,
+  IsArray,
+  Min,
+  Max,
+  IsDate,
+  IsBoolean,
+  IsNotEmpty,
+  MaxLength,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { HarvestRecordStatus, QualityGrade } from '../entities/harvest-record.entity';
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
 
@@ -20,20 +35,54 @@ export class HarvestFilterInput {
   @IsUUID()
   batchId?: string;
 
+  @Field(() => [ID], { nullable: true, description: 'Filter by multiple batch IDs' })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  batchIds?: string[];
+
   @Field(() => ID, { nullable: true, description: 'Filter by tank ID' })
   @IsOptional()
   @IsUUID()
   tankId?: string;
+
+  @Field(() => [ID], { nullable: true, description: 'Filter by multiple tank IDs' })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  tankIds?: string[];
+
+  @Field(() => ID, { nullable: true, description: 'Filter by pond ID' })
+  @IsOptional()
+  @IsUUID()
+  pondId?: string;
+
+  @Field(() => ID, { nullable: true, description: 'Filter by site ID' })
+  @IsOptional()
+  @IsUUID()
+  siteId?: string;
 
   @Field(() => HarvestRecordStatus, { nullable: true, description: 'Filter by status' })
   @IsOptional()
   @IsEnum(HarvestRecordStatus)
   status?: HarvestRecordStatus;
 
+  @Field(() => [HarvestRecordStatus], { nullable: true, description: 'Filter by multiple statuses' })
+  @IsOptional()
+  @IsArray()
+  @IsEnum(HarvestRecordStatus, { each: true })
+  statuses?: HarvestRecordStatus[];
+
   @Field(() => QualityGrade, { nullable: true, description: 'Filter by quality grade' })
   @IsOptional()
   @IsEnum(QualityGrade)
   qualityGrade?: QualityGrade;
+
+  @Field(() => [QualityGrade], { nullable: true, description: 'Filter by multiple quality grades' })
+  @IsOptional()
+  @IsArray()
+  @IsEnum(QualityGrade, { each: true })
+  qualityGrades?: QualityGrade[];
 
   @Field(() => HarvestMethod, { nullable: true, description: 'Filter by harvest method' })
   @IsOptional()
@@ -48,11 +97,13 @@ export class HarvestFilterInput {
   @Field({ nullable: true, description: 'Filter harvests from this date' })
   @IsOptional()
   @IsDate()
+  @Type(() => Date)
   startDate?: Date;
 
   @Field({ nullable: true, description: 'Filter harvests until this date' })
   @IsOptional()
   @IsDate()
+  @Type(() => Date)
   endDate?: Date;
 
   @Field({ nullable: true, description: 'Filter by quality approval status' })
@@ -60,18 +111,52 @@ export class HarvestFilterInput {
   @IsBoolean()
   qualityApproved?: boolean;
 
+  @Field(() => ID, { nullable: true, description: 'Filter by user who performed harvest' })
+  @IsOptional()
+  @IsUUID()
+  harvestedBy?: string;
+
   @Field({ nullable: true, description: 'Search in record code, lot number, or notes' })
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   search?: string;
 
   @Field(() => Float, { nullable: true, description: 'Minimum total biomass (kg)' })
   @IsOptional()
+  @IsNumber()
+  @Min(0)
   minBiomass?: number;
 
   @Field(() => Float, { nullable: true, description: 'Maximum total biomass (kg)' })
   @IsOptional()
+  @IsNumber()
+  @Min(0)
   maxBiomass?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Minimum average weight (grams)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  minAverageWeight?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Maximum average weight (grams)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  maxAverageWeight?: number;
+
+  @Field(() => Int, { nullable: true, description: 'Minimum quantity harvested' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  minQuantity?: number;
+
+  @Field(() => Int, { nullable: true, description: 'Maximum quantity harvested' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  maxQuantity?: number;
 }
 
 /**
@@ -95,6 +180,7 @@ export class HarvestPaginationInput {
   @Field({ nullable: true, defaultValue: 'harvestDate', description: 'Field to sort by' })
   @IsOptional()
   @IsString()
+  @MaxLength(50)
   sortBy?: string;
 
   @Field({ nullable: true, defaultValue: 'DESC', description: 'Sort direction (ASC or DESC)' })
@@ -109,10 +195,14 @@ export class HarvestPaginationInput {
 @InputType()
 export class DateRangeInput {
   @Field({ description: 'Start date of the range' })
+  @IsNotEmpty()
   @IsDate()
+  @Type(() => Date)
   startDate: Date;
 
   @Field({ description: 'End date of the range' })
+  @IsNotEmpty()
   @IsDate()
+  @Type(() => Date)
   endDate: Date;
 }

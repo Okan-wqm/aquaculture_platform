@@ -12,7 +12,7 @@
  *
  * @module Scheduler
  */
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -52,12 +52,19 @@ export interface TenantCronConfig {
   alertsEnabled: boolean;
   reportsEnabled: boolean;
   systemUserId: string;
+  lastAccessed: Date;
 }
 
+// Default TTL for tenant configs: 24 hours
+const TENANT_CONFIG_TTL_MS = 24 * 60 * 60 * 1000;
+// Cleanup interval: 1 hour
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+
 @Injectable()
-export class CronJobsService implements OnModuleInit {
+export class CronJobsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CronJobsService.name);
   private tenantConfigs: Map<string, TenantCronConfig> = new Map();
+  private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(
     @InjectRepository(MaintenanceSchedule)
@@ -75,10 +82,88 @@ export class CronJobsService implements OnModuleInit {
   async onModuleInit() {
     this.logger.log('CronJobsService initialized');
     await this.loadTenantConfigs();
+
+    // Start periodic cleanup of stale tenant configs
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupStaleTenantConfigs();
+    }, CLEANUP_INTERVAL_MS);
+
+    this.logger.log('Started tenant config cleanup interval');
+  }
+
+  /**
+   * Cleanup resources on module destroy to prevent memory leaks
+   */
+  onModuleDestroy() {
+    this.logger.log('CronJobsService shutting down, cleaning up resources');
+
+    // Clear the cleanup interval
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+
+    // Clear tenant configs
+    this.tenantConfigs.clear();
+
+    this.logger.log('CronJobsService cleanup completed');
+  }
+
+  /**
+   * Remove stale tenant configurations that haven't been accessed recently
+   * This prevents memory leaks from accumulating tenant data
+   */
+  private cleanupStaleTenantConfigs(): void {
+    const now = Date.now();
+    const staleThreshold = now - TENANT_CONFIG_TTL_MS;
+    let removedCount = 0;
+
+    for (const [tenantId, config] of this.tenantConfigs) {
+      if (config.lastAccessed.getTime() < staleThreshold) {
+        this.tenantConfigs.delete(tenantId);
+        removedCount++;
+      }
+    }
+
+    if (removedCount > 0) {
+      this.logger.log(`Cleaned up ${removedCount} stale tenant configs`);
+    }
+  }
+
+  /**
+   * Remove a specific tenant's configuration (e.g., when tenant is deactivated)
+   */
+  removeTenantConfig(tenantId: string): void {
+    if (this.tenantConfigs.has(tenantId)) {
+      this.tenantConfigs.delete(tenantId);
+      this.logger.log(`Removed tenant config for ${tenantId}`);
+    }
+  }
+
+  /**
+   * Clear all tenant configurations (useful for testing or full refresh)
+   */
+  clearAllTenantConfigs(): void {
+    const count = this.tenantConfigs.size;
+    this.tenantConfigs.clear();
+    this.logger.log(`Cleared all ${count} tenant configs`);
+  }
+
+  /**
+   * Get tenant config and update lastAccessed timestamp
+   * This helps track which configs are actively used for TTL-based cleanup
+   */
+  private getTenantConfig(tenantId: string): TenantCronConfig | undefined {
+    const config = this.tenantConfigs.get(tenantId);
+    if (config) {
+      config.lastAccessed = new Date();
+    }
+    return config;
   }
 
   /**
    * Load tenant configurations for cron jobs
+   * Updates existing configs with fresh lastAccessed time, adds new ones
    */
   private async loadTenantConfigs(): Promise<void> {
     const schedules = await this.scheduleRepository
@@ -86,14 +171,35 @@ export class CronJobsService implements OnModuleInit {
       .select('DISTINCT s.tenantId', 'tenantId')
       .getRawMany();
 
+    const now = new Date();
+    const currentTenantIds = new Set<string>();
+
     for (const { tenantId } of schedules) {
-      this.tenantConfigs.set(tenantId, {
-        tenantId,
-        maintenanceEnabled: true,
-        alertsEnabled: true,
-        reportsEnabled: true,
-        systemUserId: 'system',
-      });
+      currentTenantIds.add(tenantId);
+      const existingConfig = this.tenantConfigs.get(tenantId);
+
+      if (existingConfig) {
+        // Update lastAccessed for existing config
+        existingConfig.lastAccessed = now;
+      } else {
+        // Add new tenant config
+        this.tenantConfigs.set(tenantId, {
+          tenantId,
+          maintenanceEnabled: true,
+          alertsEnabled: true,
+          reportsEnabled: true,
+          systemUserId: 'system',
+          lastAccessed: now,
+        });
+      }
+    }
+
+    // Remove configs for tenants that no longer have active schedules
+    for (const tenantId of this.tenantConfigs.keys()) {
+      if (!currentTenantIds.has(tenantId)) {
+        this.tenantConfigs.delete(tenantId);
+        this.logger.debug(`Removed config for inactive tenant ${tenantId}`);
+      }
     }
 
     this.logger.log(`Loaded configurations for ${this.tenantConfigs.size} tenants`);
@@ -114,8 +220,13 @@ export class CronJobsService implements OnModuleInit {
     this.logger.log('Starting maintenance work order generation job');
     const startTime = Date.now();
 
-    for (const [tenantId, config] of this.tenantConfigs) {
-      if (!config.maintenanceEnabled) continue;
+    // Refresh tenant configs before processing
+    await this.loadTenantConfigs();
+    const tenantIds = Array.from(this.tenantConfigs.keys());
+
+    for (const tenantId of tenantIds) {
+      const config = this.getTenantConfig(tenantId);
+      if (!config?.maintenanceEnabled) continue;
 
       try {
         const workOrders = await this.maintenanceScheduleService.processAutoGenerateWorkOrders(
@@ -154,8 +265,13 @@ export class CronJobsService implements OnModuleInit {
   async checkOverdueMaintenance(): Promise<void> {
     this.logger.log('Starting overdue maintenance check job');
 
-    for (const [tenantId, config] of this.tenantConfigs) {
-      if (!config.alertsEnabled) continue;
+    // Refresh tenant configs before processing
+    await this.loadTenantConfigs();
+    const tenantIds = Array.from(this.tenantConfigs.keys());
+
+    for (const tenantId of tenantIds) {
+      const config = this.getTenantConfig(tenantId);
+      if (!config?.alertsEnabled) continue;
 
       try {
         const overdueSchedules = await this.scheduleRepository.find({
@@ -207,8 +323,13 @@ export class CronJobsService implements OnModuleInit {
   async checkOverdueWorkOrders(): Promise<void> {
     this.logger.log('Starting overdue work orders check job');
 
-    for (const [tenantId, config] of this.tenantConfigs) {
-      if (!config.alertsEnabled) continue;
+    // Refresh tenant configs before processing
+    await this.loadTenantConfigs();
+    const tenantIds = Array.from(this.tenantConfigs.keys());
+
+    for (const tenantId of tenantIds) {
+      const config = this.getTenantConfig(tenantId);
+      if (!config?.alertsEnabled) continue;
 
       try {
         const overdueWorkOrders = await this.workOrderRepository.find({
@@ -259,8 +380,13 @@ export class CronJobsService implements OnModuleInit {
   async checkLowStock(): Promise<void> {
     this.logger.log('Starting low stock check job');
 
-    for (const [tenantId, config] of this.tenantConfigs) {
-      if (!config.alertsEnabled) continue;
+    // Refresh tenant configs before processing
+    await this.loadTenantConfigs();
+    const tenantIds = Array.from(this.tenantConfigs.keys());
+
+    for (const tenantId of tenantIds) {
+      const config = this.getTenantConfig(tenantId);
+      if (!config?.alertsEnabled) continue;
 
       try {
         const lowStockParts = await this.sparePartRepository.find({
@@ -311,11 +437,16 @@ export class CronJobsService implements OnModuleInit {
   async weeklyMaintenanceSummary(): Promise<void> {
     this.logger.log('Starting weekly maintenance summary job');
 
+    // Refresh tenant configs before processing
+    await this.loadTenantConfigs();
+    const tenantIds = Array.from(this.tenantConfigs.keys());
+
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
 
-    for (const [tenantId, config] of this.tenantConfigs) {
-      if (!config.reportsEnabled) continue;
+    for (const tenantId of tenantIds) {
+      const config = this.getTenantConfig(tenantId);
+      if (!config?.reportsEnabled) continue;
 
       try {
         const completedWorkOrders = await this.workOrderRepository.find({
@@ -366,8 +497,13 @@ export class CronJobsService implements OnModuleInit {
   async monthlyComplianceReport(): Promise<void> {
     this.logger.log('Starting monthly compliance report job');
 
-    for (const [tenantId, config] of this.tenantConfigs) {
-      if (!config.reportsEnabled) continue;
+    // Refresh tenant configs before processing
+    await this.loadTenantConfigs();
+    const tenantIds = Array.from(this.tenantConfigs.keys());
+
+    for (const tenantId of tenantIds) {
+      const config = this.getTenantConfig(tenantId);
+      if (!config?.reportsEnabled) continue;
 
       try {
         const report = await this.maintenanceScheduleService.getComplianceReport(

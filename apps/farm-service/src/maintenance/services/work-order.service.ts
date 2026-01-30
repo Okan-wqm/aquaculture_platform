@@ -13,7 +13,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, Between, LessThan, MoreThan, Like, ILike } from 'typeorm';
+import { Repository, In, Between, LessThan, MoreThan, Like, ILike, DataSource } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import {
   WorkOrder,
@@ -82,6 +82,7 @@ export class WorkOrderService {
     private readonly scheduleRepository: Repository<MaintenanceSchedule>,
     @InjectRepository(SparePart)
     private readonly sparePartRepository: Repository<SparePart>,
+    private readonly dataSource: DataSource,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -503,63 +504,109 @@ export class WorkOrderService {
 
   /**
    * İş emrini tamamlar
+   * Uses transaction to ensure work order completion, stock updates, and schedule updates succeed or fail together
    */
   async complete(
     tenantId: string,
     input: CompleteWorkOrderInput,
     userId: string,
   ): Promise<WorkOrder> {
-    const workOrder = await this.findById(tenantId, input.id);
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    if (workOrder.status !== WorkOrderStatus.IN_PROGRESS) {
-      throw new BadRequestException(
-        'Sadece devam eden iş emirleri tamamlanabilir',
-      );
-    }
+    try {
+      const workOrder = await queryRunner.manager.findOne(WorkOrder, {
+        where: { id: input.id, tenantId },
+      });
 
-    // Check required checklist items
-    if (workOrder.checklist) {
-      const incompleteRequired = workOrder.checklist.filter(
-        (item) => item.isRequired && !item.isCompleted,
-      );
-      if (incompleteRequired.length > 0) {
+      if (!workOrder) {
+        throw new NotFoundException(`İş emri bulunamadı: ${input.id}`);
+      }
+
+      if (workOrder.status !== WorkOrderStatus.IN_PROGRESS) {
         throw new BadRequestException(
-          `Zorunlu checklist öğeleri tamamlanmadı: ${incompleteRequired.length} öğe`,
+          'Sadece devam eden iş emirleri tamamlanabilir',
         );
       }
+
+      // Check required checklist items
+      if (workOrder.checklist) {
+        const incompleteRequired = workOrder.checklist.filter(
+          (item) => item.isRequired && !item.isCompleted,
+        );
+        if (incompleteRequired.length > 0) {
+          throw new BadRequestException(
+            `Zorunlu checklist öğeleri tamamlanmadı: ${incompleteRequired.length} öğe`,
+          );
+        }
+      }
+
+      // Add used materials if provided
+      if (input.usedMaterials) {
+        workOrder.usedMaterials = [
+          ...(workOrder.usedMaterials || []),
+          ...this.transformUsedMaterials(input.usedMaterials),
+        ];
+
+        // Update spare part stock within transaction
+        for (const material of input.usedMaterials) {
+          if (material.materialId) {
+            const sparePart = await queryRunner.manager.findOne(SparePart, {
+              where: { id: material.materialId, tenantId },
+            });
+
+            if (sparePart) {
+              sparePart.quantity = Math.max(0, sparePart.quantity - material.quantity);
+              sparePart.lastUsedDate = new Date();
+
+              // Update status based on stock level
+              if (sparePart.quantity === 0) {
+                sparePart.status = 'out_of_stock' as any;
+              } else if (sparePart.quantity <= sparePart.minStock) {
+                sparePart.status = 'low_stock' as any;
+              }
+
+              await queryRunner.manager.save(sparePart);
+            }
+          }
+        }
+      }
+
+      // Add labor records if provided
+      if (input.laborRecords) {
+        workOrder.laborRecords = [
+          ...(workOrder.laborRecords || []),
+          ...this.transformLaborRecords(input.laborRecords),
+        ];
+      }
+
+      workOrder.complete(userId, input.completionNotes);
+      workOrder.calculateCostSummary();
+
+      // Save work order within transaction
+      await queryRunner.manager.save(workOrder);
+
+      // Update maintenance schedule if linked (within transaction)
+      if (workOrder.maintenanceScheduleId) {
+        const schedule = await queryRunner.manager.findOne(MaintenanceSchedule, {
+          where: { id: workOrder.maintenanceScheduleId, tenantId },
+        });
+
+        if (schedule) {
+          schedule.markCompleted();
+          await queryRunner.manager.save(schedule);
+        }
+      }
+
+      await queryRunner.commitTransaction();
+      return workOrder;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-
-    // Add used materials if provided
-    if (input.usedMaterials) {
-      workOrder.usedMaterials = [
-        ...(workOrder.usedMaterials || []),
-        ...this.transformUsedMaterials(input.usedMaterials),
-      ];
-
-      // Update spare part stock
-      await this.updateSparePartStock(tenantId, input.usedMaterials, workOrder.id);
-    }
-
-    // Add labor records if provided
-    if (input.laborRecords) {
-      workOrder.laborRecords = [
-        ...(workOrder.laborRecords || []),
-        ...this.transformLaborRecords(input.laborRecords),
-      ];
-    }
-
-    workOrder.complete(userId, input.completionNotes);
-    workOrder.calculateCostSummary();
-
-    // Update maintenance schedule if linked
-    if (workOrder.maintenanceScheduleId) {
-      await this.updateMaintenanceScheduleAfterCompletion(
-        tenantId,
-        workOrder.maintenanceScheduleId,
-      );
-    }
-
-    return this.workOrderRepository.save(workOrder);
   }
 
   /**

@@ -21,7 +21,7 @@ import {
 import { Logger } from '@nestjs/common';
 import { IsUUID, IsNotEmpty, IsInt, Min, IsOptional, IsNumber, IsString, IsEnum, IsDateString } from 'class-validator';
 import { CommandBus, QueryBus } from '@platform/cqrs';
-import { Tenant, CurrentUser } from '@platform/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Batch, BatchStatus, BatchType } from '../entities/batch.entity';
@@ -543,6 +543,7 @@ export class CleanerFishResolver {
   // -------------------------------------------------------------------------
 
   @Mutation(() => Batch, { name: 'createCleanerFishBatch' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createCleanerFishBatch(
     @Args('input') input: CreateCleanerBatchInput,
     @Tenant() tenantId: string,
@@ -569,6 +570,7 @@ export class CleanerFishResolver {
   }
 
   @Mutation(() => Batch, { name: 'deployCleanerFish' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async deployCleanerFish(
     @Args('input') input: DeployCleanerFishInput,
     @Tenant() tenantId: string,
@@ -591,6 +593,7 @@ export class CleanerFishResolver {
   }
 
   @Mutation(() => Batch, { name: 'recordCleanerMortality' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async recordCleanerMortality(
     @Args('input') input: RecordCleanerMortalityInput,
     @Tenant() tenantId: string,
@@ -614,6 +617,7 @@ export class CleanerFishResolver {
   }
 
   @Mutation(() => Batch, { name: 'transferCleanerFish' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async transferCleanerFish(
     @Args('input') input: TransferCleanerFishInput,
     @Tenant() tenantId: string,
@@ -637,6 +641,7 @@ export class CleanerFishResolver {
   }
 
   @Mutation(() => Batch, { name: 'removeCleanerFish' })
+  @Roles(Role.TENANT_ADMIN)
   async removeCleanerFish(
     @Args('input') input: RemoveCleanerFishInput,
     @Tenant() tenantId: string,

@@ -44,24 +44,24 @@ export type BatchDocumentType =
   | 'TRANSPORT_DOCUMENT'
   | 'OTHER';
 
-// Tank Operation Types
+// Tank Operation Types - lowercase to match backend enum values
 export type MortalityReason =
-  | 'DISEASE'
-  | 'WATER_QUALITY'
-  | 'STRESS'
-  | 'HANDLING'
-  | 'TEMPERATURE'
-  | 'OXYGEN'
-  | 'UNKNOWN'
-  | 'OTHER';
+  | 'disease'
+  | 'water_quality'
+  | 'stress'
+  | 'handling'
+  | 'temperature'
+  | 'oxygen'
+  | 'unknown'
+  | 'other';
 
 export type CullReason =
-  | 'SMALL_SIZE'
-  | 'DEFORMED'
-  | 'SICK'
-  | 'POOR_GROWTH'
-  | 'GRADING'
-  | 'OTHER';
+  | 'small_size'
+  | 'deformed'
+  | 'sick'
+  | 'poor_growth'
+  | 'grading'
+  | 'other';
 
 export type QualityGrade =
   | 'PREMIUM'

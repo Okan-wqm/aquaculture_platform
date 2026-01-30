@@ -13,7 +13,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, LessThanOrEqual, Like } from 'typeorm';
+import { Repository, In, LessThanOrEqual, Like, DataSource } from 'typeorm';
 import { SparePart, SparePartStatus } from '../entities/spare-part.entity';
 import {
   CreateSparePartInput,
@@ -70,6 +70,7 @@ export class SparePartService {
   constructor(
     @InjectRepository(SparePart)
     private readonly sparePartRepository: Repository<SparePart>,
+    private readonly dataSource: DataSource,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -443,6 +444,7 @@ export class SparePartService {
 
   /**
    * İş emri için malzemeleri çıkış yapar
+   * Uses transaction to ensure all material consumptions succeed or fail together
    */
   async consumeForWorkOrder(
     tenantId: string,
@@ -450,18 +452,50 @@ export class SparePartService {
     materials: { sparePartId: string; quantity: number }[],
     performedBy: string,
   ): Promise<void> {
-    for (const material of materials) {
-      await this.recordStockMovement(
-        tenantId,
-        {
-          sparePartId: material.sparePartId,
-          quantity: material.quantity,
-          movementType: 'out',
-          workOrderId,
-          reason: 'İş emri malzeme kullanımı',
-        },
-        performedBy,
-      );
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      for (const material of materials) {
+        // Find spare part within transaction
+        const sparePart = await queryRunner.manager.findOne(SparePart, {
+          where: { id: material.sparePartId, tenantId },
+        });
+
+        if (!sparePart) {
+          throw new NotFoundException(`Yedek parça bulunamadı: ${material.sparePartId}`);
+        }
+
+        if (sparePart.quantity < material.quantity) {
+          throw new BadRequestException(
+            `Yetersiz stok. Mevcut: ${sparePart.quantity}, İstenen: ${material.quantity}`,
+          );
+        }
+
+        const previousQuantity = sparePart.quantity;
+        sparePart.quantity -= material.quantity;
+        sparePart.lastUsedDate = new Date();
+        sparePart.updatedBy = performedBy;
+
+        // Update stock status
+        this.updateStockStatus(sparePart);
+
+        // Save within transaction
+        await queryRunner.manager.save(sparePart);
+
+        // Log movement
+        this.logger.log(
+          `Stock movement recorded: ${sparePart.code} - out ${material.quantity} for work order ${workOrderId}`,
+        );
+      }
+
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
   }
 

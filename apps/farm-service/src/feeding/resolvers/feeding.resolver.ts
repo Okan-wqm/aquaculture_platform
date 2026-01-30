@@ -23,6 +23,7 @@ import {
 } from '@nestjs/graphql';
 import { IsOptional, IsUUID, IsNumber, IsPositive, IsInt, Min, IsArray, IsDate } from 'class-validator';
 import { CommandBus, QueryBus } from '@platform/cqrs';
+import { Roles, Role } from '@platform/backend-common';
 import GraphQLJSON from 'graphql-type-json';
 
 // Entities
@@ -1015,6 +1016,7 @@ export class FeedingResolver {
    * Create a new feeding record
    */
   @Mutation(() => FeedingRecord)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createFeedingRecord(
     @Args('tenantId', { type: () => ID }) tenantId: string,
     @Args('userId', { type: () => ID }) userId: string,
@@ -1055,6 +1057,7 @@ export class FeedingResolver {
    * Update a feeding record
    */
   @Mutation(() => FeedingRecord)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateFeedingRecord(
     @Args('tenantId', { type: () => ID }) tenantId: string,
     @Args('id', { type: () => ID }) id: string,
@@ -1081,6 +1084,7 @@ export class FeedingResolver {
    * Add feed inventory
    */
   @Mutation(() => FeedInventory)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async addFeedInventory(
     @Args('tenantId', { type: () => ID }) tenantId: string,
     @Args('userId', { type: () => ID }) userId: string,
@@ -1112,6 +1116,7 @@ export class FeedingResolver {
    * Consume feed from inventory
    */
   @Mutation(() => FeedInventory)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async consumeFeedInventory(
     @Args('tenantId', { type: () => ID }) tenantId: string,
     @Args('userId', { type: () => ID }) userId: string,
@@ -1136,6 +1141,7 @@ export class FeedingResolver {
    * Adjust feed inventory (correction)
    */
   @Mutation(() => FeedInventory)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async adjustFeedInventory(
     @Args('tenantId', { type: () => ID }) tenantId: string,
     @Args('userId', { type: () => ID }) userId: string,

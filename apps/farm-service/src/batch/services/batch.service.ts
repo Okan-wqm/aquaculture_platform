@@ -8,7 +8,7 @@
  */
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, DataSource } from 'typeorm';
 import { Batch, BatchStatus, BatchInputType } from '../entities/batch.entity';
 import { TankAllocation, AllocationType } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
@@ -88,6 +88,7 @@ export class BatchService {
     private readonly operationRepository: Repository<TankOperation>,
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
+    private readonly dataSource: DataSource,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -248,51 +249,245 @@ export class BatchService {
 
   /**
    * Batch'i tank'a dağıtır
+   * Uses transaction to ensure allocation and batch status updates succeed or fail together
    */
   async allocateBatchToTank(input: AllocateBatchInput): Promise<TankAllocation> {
-    const batch = await this.batchRepository.findOne({ where: { id: input.batchId } });
-    if (!batch) {
-      throw new NotFoundException(`Batch ${input.batchId} bulunamadı`);
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const batch = await queryRunner.manager.findOne(Batch, { where: { id: input.batchId } });
+      if (!batch) {
+        throw new NotFoundException(`Batch ${input.batchId} bulunamadı`);
+      }
+
+      const tank = await queryRunner.manager.findOne(Tank, { where: { id: input.tankId } });
+      if (!tank) {
+        throw new NotFoundException(`Tank ${input.tankId} bulunamadı`);
+      }
+
+      const biomassKg = (input.quantity * input.avgWeightG) / 1000;
+      const effectiveVolume = Number(tank.waterVolume || tank.volume) || 1;
+      const densityKgM3 = effectiveVolume > 0 ? biomassKg / effectiveVolume : 0;
+
+      // Allocation kaydı oluştur
+      const allocation = queryRunner.manager.create(TankAllocation, {
+        tenantId: batch.tenantId,
+        batchId: input.batchId,
+        tankId: input.tankId,
+        allocationType: input.allocationType,
+        allocationDate: new Date(),
+        quantity: input.quantity,
+        avgWeightG: input.avgWeightG,
+        biomassKg,
+        densityKgM3,
+        allocatedBy: input.allocatedBy,
+        notes: input.notes,
+        isDeleted: false,
+      });
+
+      const savedAllocation = await queryRunner.manager.save(allocation);
+
+      // TankBatch güncelle veya oluştur (within transaction)
+      await this.updateTankBatchWithManager(queryRunner.manager, batch.tenantId, input.tankId, input.batchId);
+
+      // Batch durumunu ACTIVE yap
+      if (batch.status === BatchStatus.QUARANTINE) {
+        batch.status = BatchStatus.ACTIVE;
+        batch.statusChangedAt = new Date();
+        await queryRunner.manager.save(batch);
+      }
+
+      await queryRunner.commitTransaction();
+      return savedAllocation;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
+  }
 
-    const tank = await this.tankRepository.findOne({ where: { id: input.tankId } });
-    if (!tank) {
-      throw new NotFoundException(`Tank ${input.tankId} bulunamadı`);
+  /**
+   * Batch'i bir tank'tan diğerine transfer eder
+   * Uses transaction to ensure both source and destination updates succeed or fail together
+   */
+  async transferBatch(
+    tenantId: string,
+    batchId: string,
+    sourceTankId: string,
+    destinationTankId: string,
+    quantity: number,
+    avgWeightG: number,
+    performedBy: string,
+    notes?: string,
+  ): Promise<{ sourceOperation: TankOperation; destinationOperation: TankOperation }> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Validate batch
+      const batch = await queryRunner.manager.findOne(Batch, {
+        where: { id: batchId, tenantId, isActive: true },
+      });
+      if (!batch) {
+        throw new NotFoundException(`Batch ${batchId} bulunamadı`);
+      }
+
+      // Validate source tank
+      const sourceTank = await queryRunner.manager.findOne(Tank, { where: { id: sourceTankId } });
+      if (!sourceTank) {
+        throw new NotFoundException(`Kaynak tank ${sourceTankId} bulunamadı`);
+      }
+
+      // Validate destination tank
+      const destinationTank = await queryRunner.manager.findOne(Tank, { where: { id: destinationTankId } });
+      if (!destinationTank) {
+        throw new NotFoundException(`Hedef tank ${destinationTankId} bulunamadı`);
+      }
+
+      // Check source tank has enough quantity
+      const sourceTankBatch = await queryRunner.manager.findOne(TankBatch, {
+        where: { tenantId, tankId: sourceTankId },
+      });
+      if (!sourceTankBatch || sourceTankBatch.totalQuantity < quantity) {
+        throw new BadRequestException(
+          `Kaynak tankta yeterli balık yok. Mevcut: ${sourceTankBatch?.totalQuantity || 0}, İstenen: ${quantity}`,
+        );
+      }
+
+      const biomassKg = (quantity * avgWeightG) / 1000;
+      const operationDate = new Date();
+
+      // Create TRANSFER_OUT operation for source tank
+      const sourceOperation = queryRunner.manager.create(TankOperation, {
+        tenantId,
+        tankId: sourceTankId,
+        batchId,
+        operationType: OperationType.TRANSFER_OUT,
+        operationDate,
+        quantity,
+        avgWeightG,
+        biomassKg,
+        destinationTankId,
+        transferReason: notes || 'Tank transfer',
+        preOperationState: {
+          quantity: sourceTankBatch.totalQuantity,
+          biomassKg: sourceTankBatch.totalBiomassKg,
+          densityKgM3: sourceTankBatch.densityKgM3,
+        },
+        performedBy,
+        notes,
+        isDeleted: false,
+      });
+      const savedSourceOperation = await queryRunner.manager.save(sourceOperation);
+
+      // Create TRANSFER_IN operation for destination tank
+      const destTankBatch = await queryRunner.manager.findOne(TankBatch, {
+        where: { tenantId, tankId: destinationTankId },
+      });
+
+      const destinationOperation = queryRunner.manager.create(TankOperation, {
+        tenantId,
+        tankId: destinationTankId,
+        batchId,
+        operationType: OperationType.TRANSFER_IN,
+        operationDate,
+        quantity,
+        avgWeightG,
+        biomassKg,
+        sourceTankId,
+        transferReason: notes || 'Tank transfer',
+        preOperationState: destTankBatch ? {
+          quantity: destTankBatch.totalQuantity,
+          biomassKg: destTankBatch.totalBiomassKg,
+          densityKgM3: destTankBatch.densityKgM3,
+        } : undefined,
+        performedBy,
+        notes,
+        isDeleted: false,
+      });
+      const savedDestinationOperation = await queryRunner.manager.save(destinationOperation);
+
+      // Update source tank allocation - reduce quantity
+      const sourceAllocation = await queryRunner.manager.findOne(TankAllocation, {
+        where: { tenantId, tankId: sourceTankId, batchId, isDeleted: false },
+      });
+      if (sourceAllocation) {
+        sourceAllocation.quantity -= quantity;
+        sourceAllocation.biomassKg = (sourceAllocation.quantity * sourceAllocation.avgWeightG) / 1000;
+        if (sourceAllocation.quantity <= 0) {
+          sourceAllocation.isDeleted = true;
+        }
+        await queryRunner.manager.save(sourceAllocation);
+      }
+
+      // Update or create destination tank allocation
+      let destAllocation = await queryRunner.manager.findOne(TankAllocation, {
+        where: { tenantId, tankId: destinationTankId, batchId, isDeleted: false },
+      });
+      if (destAllocation) {
+        destAllocation.quantity += quantity;
+        destAllocation.biomassKg = (destAllocation.quantity * destAllocation.avgWeightG) / 1000;
+      } else {
+        const destVolume = Number(destinationTank.waterVolume || destinationTank.volume) || 1;
+        destAllocation = queryRunner.manager.create(TankAllocation, {
+          tenantId,
+          batchId,
+          tankId: destinationTankId,
+          allocationType: AllocationType.TRANSFER_IN,
+          allocationDate: operationDate,
+          quantity,
+          avgWeightG,
+          biomassKg,
+          densityKgM3: destVolume > 0 ? biomassKg / destVolume : 0,
+          allocatedBy: performedBy,
+          notes: `Transfer from tank ${sourceTankId}`,
+          isDeleted: false,
+        });
+      }
+      await queryRunner.manager.save(destAllocation);
+
+      // Update TankBatch snapshots for both tanks
+      await this.updateTankBatchWithManager(queryRunner.manager, tenantId, sourceTankId, batchId);
+      await this.updateTankBatchWithManager(queryRunner.manager, tenantId, destinationTankId, batchId);
+
+      // Update post-operation states
+      const updatedSourceTankBatch = await queryRunner.manager.findOne(TankBatch, {
+        where: { tenantId, tankId: sourceTankId },
+      });
+      const updatedDestTankBatch = await queryRunner.manager.findOne(TankBatch, {
+        where: { tenantId, tankId: destinationTankId },
+      });
+
+      savedSourceOperation.postOperationState = updatedSourceTankBatch ? {
+        quantity: updatedSourceTankBatch.totalQuantity,
+        biomassKg: updatedSourceTankBatch.totalBiomassKg,
+        densityKgM3: updatedSourceTankBatch.densityKgM3,
+      } : undefined;
+      await queryRunner.manager.save(savedSourceOperation);
+
+      savedDestinationOperation.postOperationState = updatedDestTankBatch ? {
+        quantity: updatedDestTankBatch.totalQuantity,
+        biomassKg: updatedDestTankBatch.totalBiomassKg,
+        densityKgM3: updatedDestTankBatch.densityKgM3,
+      } : undefined;
+      await queryRunner.manager.save(savedDestinationOperation);
+
+      await queryRunner.commitTransaction();
+
+      return {
+        sourceOperation: savedSourceOperation,
+        destinationOperation: savedDestinationOperation,
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-
-    const biomassKg = (input.quantity * input.avgWeightG) / 1000;
-    const effectiveVolume = Number(tank.waterVolume || tank.volume) || 1;
-    const densityKgM3 = effectiveVolume > 0 ? biomassKg / effectiveVolume : 0;
-
-    // Allocation kaydı oluştur
-    const allocation = this.allocationRepository.create({
-      tenantId: batch.tenantId,
-      batchId: input.batchId,
-      tankId: input.tankId,
-      allocationType: input.allocationType,
-      allocationDate: new Date(),
-      quantity: input.quantity,
-      avgWeightG: input.avgWeightG,
-      biomassKg,
-      densityKgM3,
-      allocatedBy: input.allocatedBy,
-      notes: input.notes,
-      isDeleted: false,
-    });
-
-    const savedAllocation = await this.allocationRepository.save(allocation);
-
-    // TankBatch güncelle veya oluştur
-    await this.updateTankBatch(batch.tenantId, input.tankId, input.batchId);
-
-    // Batch durumunu ACTIVE yap
-    if (batch.status === BatchStatus.QUARANTINE) {
-      batch.status = BatchStatus.ACTIVE;
-      batch.statusChangedAt = new Date();
-      await this.batchRepository.save(batch);
-    }
-
-    return savedAllocation;
   }
 
   /**
@@ -367,6 +562,81 @@ export class BatchService {
       : undefined;
 
     return this.tankBatchRepository.save(tankBatch);
+  }
+
+  /**
+   * TankBatch snapshot'ını EntityManager ile günceller (for transaction support)
+   */
+  private async updateTankBatchWithManager(
+    manager: import('typeorm').EntityManager,
+    tenantId: string,
+    tankId: string,
+    primaryBatchId?: string,
+  ): Promise<TankBatch> {
+    // Mevcut TankBatch bul veya oluştur
+    let tankBatch = await manager.findOne(TankBatch, {
+      where: { tenantId, tankId },
+    });
+
+    // Aktif allocation'ları al
+    const allocations = await manager.find(TankAllocation, {
+      where: { tenantId, tankId, isDeleted: false },
+      relations: ['batch'],
+    });
+
+    const tank = await manager.findOne(Tank, { where: { id: tankId } });
+
+    if (!tankBatch) {
+      tankBatch = manager.create(TankBatch, {
+        tenantId,
+        tankId,
+      });
+    }
+
+    // Toplam değerleri hesapla
+    let totalQuantity = 0;
+    let totalBiomass = 0;
+    const batchDetails: TankBatchDetail[] = [];
+
+    for (const alloc of allocations) {
+      totalQuantity += alloc.quantity;
+      totalBiomass += Number(alloc.biomassKg);
+
+      batchDetails.push({
+        batchId: alloc.batchId,
+        batchNumber: alloc.batch?.batchNumber || '',
+        quantity: alloc.quantity,
+        avgWeightG: alloc.avgWeightG,
+        biomassKg: alloc.biomassKg,
+        percentageOfTank: 0, // Sonra hesaplanacak
+      });
+    }
+
+    // Yüzdeleri hesapla
+    if (totalQuantity > 0) {
+      for (const detail of batchDetails) {
+        detail.percentageOfTank = (detail.quantity / totalQuantity) * 100;
+      }
+    }
+
+    // TankBatch güncelle
+    tankBatch.primaryBatchId = primaryBatchId || batchDetails[0]?.batchId || undefined;
+    tankBatch.totalQuantity = totalQuantity;
+    tankBatch.totalBiomassKg = totalBiomass;
+    tankBatch.avgWeightG = totalQuantity > 0 ? (totalBiomass * 1000) / totalQuantity : 0;
+    const tankVolume = Number(tank?.waterVolume || tank?.volume) || 1;
+    tankBatch.densityKgM3 = tankVolume > 0 ? totalBiomass / tankVolume : 0;
+    tankBatch.isMixedBatch = batchDetails.length > 1;
+    tankBatch.batchDetails = batchDetails.length > 1 ? batchDetails : undefined;
+
+    // Kapasite kontrolü
+    const maxDensity = Number(tank?.maxDensity) || 25; // kg/m³
+    tankBatch.isOverCapacity = tankBatch.densityKgM3 > maxDensity;
+    tankBatch.capacityUsedPercent = tankVolume > 0
+      ? (tankBatch.densityKgM3 / maxDensity) * 100
+      : undefined;
+
+    return manager.save(tankBatch);
   }
 
   // -------------------------------------------------------------------------

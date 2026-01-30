@@ -49,6 +49,7 @@ import { SystemModule } from './system/system.module';
 import { SentinelHubModule } from './sentinel-hub/sentinel-hub.module';
 import { RegulatoryModule } from './regulatory/regulatory.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
+import { EventListenersModule } from './events/event-listeners.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
 @Module({
@@ -206,6 +207,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     SentinelHubModule,
     RegulatoryModule,
     SchedulerModule,
+    EventListenersModule,
   ],
   providers: [
     // Global exception filter

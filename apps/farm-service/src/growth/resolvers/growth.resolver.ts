@@ -21,6 +21,7 @@ import {
   ObjectType,
 } from '@nestjs/graphql';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
+import { Roles, Role } from '@platform/backend-common';
 import GraphQLJSON from 'graphql-type-json';
 
 // Entities
@@ -499,6 +500,7 @@ export class GrowthResolver {
    * Record a new growth sample
    */
   @Mutation(() => GrowthMeasurement)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async recordGrowthSample(
     @Args('tenantId', { type: () => ID }) tenantId: string,
     @Args('userId', { type: () => ID }) userId: string,
@@ -529,6 +531,7 @@ export class GrowthResolver {
    * Update batch weight from a sample measurement
    */
   @Mutation(() => GrowthMeasurement)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateBatchWeightFromSample(
     @Args('tenantId', { type: () => ID }) tenantId: string,
     @Args('userId', { type: () => ID }) userId: string,
@@ -544,6 +547,7 @@ export class GrowthResolver {
    * Verify a measurement
    */
   @Mutation(() => GrowthMeasurement)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async verifyMeasurement(
     @Args('tenantId', { type: () => ID }) tenantId: string,
     @Args('measurementId', { type: () => ID }) measurementId: string,

@@ -28,8 +28,15 @@ import { Tank } from '../tank/entities/tank.entity';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { TankOperation } from '../batch/entities/tank-operation.entity';
 
-// Handlers
+// Command Handlers
 import { CreateHarvestRecordHandler } from './handlers/create-harvest-record.handler';
+import { UpdateHarvestRecordHandler } from './handlers/update-harvest-record.handler';
+import { DeleteHarvestRecordHandler } from './handlers/delete-harvest-record.handler';
+
+// Query Handlers
+import { ListHarvestsHandler } from './handlers/list-harvests.handler';
+import { GetHarvestHandler } from './handlers/get-harvest.handler';
+import { GetHarvestStatisticsHandler } from './handlers/get-harvest-statistics.handler';
 
 // Resolvers
 import { HarvestResolver } from './resolvers/harvest.resolver';
@@ -47,8 +54,14 @@ import { HarvestResolver } from './resolvers/harvest.resolver';
     CqrsModule,
   ],
   providers: [
-    // Handlers
+    // Command Handlers
     CreateHarvestRecordHandler,
+    UpdateHarvestRecordHandler,
+    DeleteHarvestRecordHandler,
+    // Query Handlers
+    ListHarvestsHandler,
+    GetHarvestHandler,
+    GetHarvestStatisticsHandler,
     // Resolvers
     HarvestResolver,
   ],

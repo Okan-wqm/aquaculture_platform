@@ -349,16 +349,20 @@ export class WaterQualityService {
       .addSelect('AVG(wq.nitrite)', 'avgNitrite')
       .addSelect('COUNT(*)', 'measurementCount')
       .addSelect(
-        `SUM(CASE WHEN wq.overallStatus = '${WaterQualityStatus.CRITICAL}' THEN 1 ELSE 0 END)`,
+        'SUM(CASE WHEN wq.overallStatus = :criticalStatus THEN 1 ELSE 0 END)',
         'criticalCount',
       )
       .addSelect(
-        `SUM(CASE WHEN wq.overallStatus = '${WaterQualityStatus.WARNING}' THEN 1 ELSE 0 END)`,
+        'SUM(CASE WHEN wq.overallStatus = :warningStatus THEN 1 ELSE 0 END)',
         'warningCount',
       )
       .where('wq.tenantId = :tenantId', { tenantId })
       .andWhere('wq.tankId = :tankId', { tankId })
       .andWhere('wq.measuredAt >= :fromDate', { fromDate })
+      .setParameters({
+        criticalStatus: WaterQualityStatus.CRITICAL,
+        warningStatus: WaterQualityStatus.WARNING,
+      })
       .getRawOne();
 
     const lastMeasurement = await this.findLatestByTank(tenantId, tankId);

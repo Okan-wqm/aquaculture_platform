@@ -11,10 +11,19 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 
-// Entities
+// Maintenance Entities
 import { WorkOrder } from '../maintenance/entities/work-order.entity';
 import { MaintenanceSchedule } from '../maintenance/entities/maintenance-schedule.entity';
 import { SparePart } from '../maintenance/entities/spare-part.entity';
+
+// Feeding Entities
+import { FeedingRecord } from '../feeding/entities/feeding-record.entity';
+import { FeedingTable } from '../feeding/entities/feeding-table.entity';
+import { FeedInventory } from '../feeding/entities/feed-inventory.entity';
+
+// Related Entities
+import { Batch } from '../batch/entities/batch.entity';
+import { Feed } from '../feed/entities/feed.entity';
 
 // Services
 import { CronJobsService } from './cron-jobs.service';
@@ -39,9 +48,17 @@ import { SparePartService } from '../maintenance/services/spare-part.service';
     }),
     // TypeORM repositories
     TypeOrmModule.forFeature([
+      // Maintenance entities
       WorkOrder,
       MaintenanceSchedule,
       SparePart,
+      // Feeding entities
+      FeedingRecord,
+      FeedingTable,
+      FeedInventory,
+      // Related entities
+      Batch,
+      Feed,
     ]),
   ],
   providers: [

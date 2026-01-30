@@ -2,17 +2,53 @@
  * HarvestResolver
  *
  * GraphQL resolvers for harvest operations.
+ * Provides comprehensive CRUD operations and statistics queries.
  *
  * @module Harvest/Resolvers
  */
-import { Resolver, Mutation, Query, Args } from '@nestjs/graphql';
-import { CommandBus } from '@platform/cqrs';
-import { Tenant, CurrentUser } from '@platform/backend-common';
-import { HarvestRecord } from '../entities/harvest-record.entity';
+import {
+  Resolver,
+  Query,
+  Mutation,
+  Args,
+  ID,
+  Int,
+  Float,
+  ObjectType,
+  Field,
+  ResolveField,
+  Parent,
+} from '@nestjs/graphql';
+import { UseGuards, Logger } from '@nestjs/common';
+import { CommandBus, QueryBus } from '@platform/cqrs';
+import { TenantGuard, Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
+
+// Entities
+import { HarvestRecord, HarvestRecordStatus, QualityGrade } from '../entities/harvest-record.entity';
 import { HarvestPlan } from '../entities/harvest-plan.entity';
-import { CreateHarvestRecordInput } from '../dto/create-harvest-record.input';
-import { CreateHarvestRecordCommand } from '../commands/create-harvest-record.command';
 import { Batch } from '../../batch/entities/batch.entity';
+
+// DTOs
+import { CreateHarvestRecordInput } from '../dto/create-harvest-record.input';
+import { UpdateHarvestRecordInput } from '../dto/update-harvest-record.input';
+import { HarvestFilterInput, HarvestPaginationInput, DateRangeInput } from '../dto/harvest-filter.input';
+
+// Commands
+import { CreateHarvestRecordCommand } from '../commands/create-harvest-record.command';
+import { UpdateHarvestRecordCommand } from '../commands/update-harvest-record.command';
+import { DeleteHarvestRecordCommand } from '../commands/delete-harvest-record.command';
+
+// Queries
+import { ListHarvestsQuery } from '../queries/list-harvests.query';
+import { GetHarvestQuery } from '../queries/get-harvest.query';
+import { GetHarvestStatisticsQuery } from '../queries/get-harvest-statistics.query';
+
+// Handler Types
+import { HarvestStatistics } from '../handlers/get-harvest-statistics.handler';
+
+// ============================================================================
+// RESPONSE TYPES
+// ============================================================================
 
 /**
  * User context interface for CurrentUser decorator
@@ -24,21 +60,429 @@ interface UserContext {
   roles: string[];
 }
 
+/**
+ * Paginated harvest records response
+ */
+@ObjectType()
+export class PaginatedHarvestsResponse {
+  @Field(() => [HarvestRecord])
+  items: HarvestRecord[];
+
+  @Field(() => Int)
+  total: number;
+
+  @Field(() => Int)
+  page: number;
+
+  @Field(() => Int)
+  limit: number;
+
+  @Field()
+  hasMore: boolean;
+}
+
+/**
+ * Status statistics item
+ */
+@ObjectType()
+export class HarvestStatusStats {
+  @Field(() => HarvestRecordStatus)
+  status: HarvestRecordStatus;
+
+  @Field(() => Int)
+  count: number;
+
+  @Field(() => Float)
+  totalBiomass: number;
+}
+
+/**
+ * Quality grade statistics item
+ */
+@ObjectType()
+export class HarvestQualityStats {
+  @Field(() => QualityGrade)
+  grade: QualityGrade;
+
+  @Field(() => Int)
+  count: number;
+
+  @Field(() => Float)
+  totalBiomass: number;
+
+  @Field(() => Float)
+  percentage: number;
+}
+
+/**
+ * Monthly statistics item
+ */
+@ObjectType()
+export class HarvestMonthlyStats {
+  @Field(() => Int)
+  year: number;
+
+  @Field(() => Int)
+  month: number;
+
+  @Field(() => Int)
+  count: number;
+
+  @Field(() => Float)
+  totalBiomass: number;
+
+  @Field(() => Float)
+  totalRevenue: number;
+}
+
+/**
+ * Harvest summary statistics
+ */
+@ObjectType()
+export class HarvestSummary {
+  @Field(() => Int)
+  totalHarvests: number;
+
+  @Field(() => Int)
+  totalQuantityHarvested: number;
+
+  @Field(() => Float)
+  totalBiomassKg: number;
+
+  @Field(() => Float)
+  totalRevenue: number;
+
+  @Field(() => Float)
+  averageWeight: number;
+
+  @Field(() => Float)
+  averagePricePerKg: number;
+}
+
+/**
+ * Harvest trends
+ */
+@ObjectType()
+export class HarvestTrends {
+  @Field(() => Float)
+  avgBiomassPerHarvest: number;
+
+  @Field(() => Float)
+  avgQuantityPerHarvest: number;
+
+  @Field(() => Float)
+  harvestsPerMonth: number;
+}
+
+/**
+ * Harvest statistics response
+ */
+@ObjectType()
+export class HarvestStatisticsResponse {
+  @Field()
+  tenantId: string;
+
+  @Field()
+  startDate: Date;
+
+  @Field()
+  endDate: Date;
+
+  @Field(() => HarvestSummary)
+  summary: HarvestSummary;
+
+  @Field(() => [HarvestStatusStats])
+  byStatus: HarvestStatusStats[];
+
+  @Field(() => [HarvestQualityStats])
+  byQualityGrade: HarvestQualityStats[];
+
+  @Field(() => [HarvestMonthlyStats])
+  byMonth: HarvestMonthlyStats[];
+
+  @Field(() => HarvestTrends)
+  trends: HarvestTrends;
+}
+
+// ============================================================================
+// RESOLVER
+// ============================================================================
+
 @Resolver(() => HarvestRecord)
+@UseGuards(TenantGuard)
 export class HarvestResolver {
-  constructor(private readonly commandBus: CommandBus) {}
+  private readonly logger = new Logger(HarvestResolver.name);
+
+  constructor(
+    private readonly commandBus: CommandBus,
+    private readonly queryBus: QueryBus,
+  ) {}
+
+  // ==========================================================================
+  // QUERIES
+  // ==========================================================================
+
+  /**
+   * List all harvest records with filtering and pagination
+   */
+  @Query(() => PaginatedHarvestsResponse, { description: 'List harvest records with filtering and pagination' })
+  async harvests(
+    @Tenant() tenantId: string,
+    @Args('filter', { type: () => HarvestFilterInput, nullable: true }) filter?: HarvestFilterInput,
+    @Args('pagination', { type: () => HarvestPaginationInput, nullable: true }) pagination?: HarvestPaginationInput,
+  ): Promise<PaginatedHarvestsResponse> {
+    this.logger.log(`Listing harvests for tenant ${tenantId}`);
+
+    const query = new ListHarvestsQuery(
+      tenantId,
+      filter ? {
+        batchId: filter.batchId,
+        tankId: filter.tankId,
+        status: filter.status,
+        qualityGrade: filter.qualityGrade,
+        method: filter.method,
+        productForm: filter.productForm,
+        startDate: filter.startDate,
+        endDate: filter.endDate,
+        qualityApproved: filter.qualityApproved,
+        search: filter.search,
+        minBiomass: filter.minBiomass,
+        maxBiomass: filter.maxBiomass,
+      } : undefined,
+      pagination ? {
+        page: pagination.page,
+        limit: pagination.limit,
+        sortBy: pagination.sortBy,
+        sortOrder: pagination.sortOrder,
+      } : undefined,
+    );
+
+    return this.queryBus.execute(query);
+  }
+
+  /**
+   * Get a single harvest record by ID
+   */
+  @Query(() => HarvestRecord, { nullable: true, description: 'Get a single harvest record by ID' })
+  async harvest(
+    @Tenant() tenantId: string,
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<HarvestRecord | null> {
+    this.logger.log(`Getting harvest ${id} for tenant ${tenantId}`);
+
+    const query = new GetHarvestQuery(tenantId, id);
+    return this.queryBus.execute(query);
+  }
+
+  /**
+   * Get harvest records for a specific batch
+   */
+  @Query(() => PaginatedHarvestsResponse, { description: 'Get harvest records for a specific batch' })
+  async harvestsByBatch(
+    @Tenant() tenantId: string,
+    @Args('batchId', { type: () => ID }) batchId: string,
+    @Args('pagination', { type: () => HarvestPaginationInput, nullable: true }) pagination?: HarvestPaginationInput,
+  ): Promise<PaginatedHarvestsResponse> {
+    this.logger.log(`Listing harvests for batch ${batchId} in tenant ${tenantId}`);
+
+    const query = new ListHarvestsQuery(
+      tenantId,
+      { batchId },
+      pagination ? {
+        page: pagination.page,
+        limit: pagination.limit,
+        sortBy: pagination.sortBy || 'harvestDate',
+        sortOrder: pagination.sortOrder || 'DESC',
+      } : { sortBy: 'harvestDate', sortOrder: 'DESC' },
+    );
+
+    return this.queryBus.execute(query);
+  }
+
+  /**
+   * Get harvest statistics for a tenant within a date range
+   */
+  @Query(() => HarvestStatisticsResponse, { description: 'Get harvest statistics for a tenant within a date range' })
+  async harvestStatistics(
+    @Tenant() tenantId: string,
+    @Args('dateRange', { type: () => DateRangeInput }) dateRange: DateRangeInput,
+  ): Promise<HarvestStatisticsResponse> {
+    this.logger.log(`Getting harvest statistics for tenant ${tenantId} from ${dateRange.startDate} to ${dateRange.endDate}`);
+
+    const query = new GetHarvestStatisticsQuery(tenantId, {
+      startDate: dateRange.startDate,
+      endDate: dateRange.endDate,
+    });
+
+    const result: HarvestStatistics = await this.queryBus.execute(query);
+
+    return {
+      tenantId: result.tenantId,
+      startDate: result.dateRange.startDate,
+      endDate: result.dateRange.endDate,
+      summary: result.summary,
+      byStatus: result.byStatus,
+      byQualityGrade: result.byQualityGrade,
+      byMonth: result.byMonth,
+      trends: result.trends,
+    };
+  }
+
+  // ==========================================================================
+  // MUTATIONS
+  // ==========================================================================
 
   /**
    * Create a new harvest record
    */
   @Mutation(() => Batch, { description: 'Create a harvest record and update batch/tank quantities' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createHarvestRecord(
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
     @Args('input') input: CreateHarvestRecordInput,
   ): Promise<Batch> {
+    this.logger.log(`Creating harvest record for tenant ${tenantId} by user ${user.sub}`);
+
     return this.commandBus.execute(
       new CreateHarvestRecordCommand(tenantId, input, user.sub)
     );
+  }
+
+  /**
+   * Update an existing harvest record
+   */
+  @Mutation(() => HarvestRecord, { description: 'Update an existing harvest record' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async updateHarvestRecord(
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+    @Args('input') input: UpdateHarvestRecordInput,
+  ): Promise<HarvestRecord> {
+    this.logger.log(`Updating harvest record ${input.id} for tenant ${tenantId} by user ${user.sub}`);
+
+    return this.commandBus.execute(
+      new UpdateHarvestRecordCommand(
+        tenantId,
+        input.id,
+        {
+          status: input.status,
+          quantityHarvested: input.quantityHarvested,
+          totalBiomass: input.totalBiomass,
+          averageWeight: input.averageWeight,
+          qualityGrade: input.qualityGrade,
+          method: input.method,
+          productForm: input.productForm,
+          totalRevenue: input.totalRevenue,
+          harvestCost: input.harvestCost,
+          currency: input.currency,
+          mortalityDuringHarvest: input.mortalityDuringHarvest,
+          rejectedQuantity: input.rejectedQuantity,
+          rejectionReason: input.rejectionReason,
+          notes: input.notes,
+        },
+        user.sub
+      )
+    );
+  }
+
+  /**
+   * Delete (soft delete) a harvest record
+   */
+  @Mutation(() => Boolean, { description: 'Delete (cancel) a harvest record and reverse quantity changes' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async deleteHarvestRecord(
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<boolean> {
+    this.logger.log(`Deleting harvest record ${id} for tenant ${tenantId} by user ${user.sub}`);
+
+    return this.commandBus.execute(
+      new DeleteHarvestRecordCommand(tenantId, id, user.sub)
+    );
+  }
+
+  // ==========================================================================
+  // FIELD RESOLVERS
+  // ==========================================================================
+
+  /**
+   * Calculate net yield (after rejected quantity)
+   */
+  @ResolveField(() => Float)
+  netBiomass(@Parent() harvest: HarvestRecord): number {
+    const rejected = Number(harvest.rejectedQuantity || 0);
+    return Number(harvest.totalBiomass) - rejected;
+  }
+
+  /**
+   * Calculate price per kg
+   */
+  @ResolveField(() => Float, { nullable: true })
+  pricePerKg(@Parent() harvest: HarvestRecord): number | null {
+    if (!harvest.totalRevenue || !harvest.totalBiomass) return null;
+    return Number(harvest.totalRevenue) / Number(harvest.totalBiomass);
+  }
+
+  /**
+   * Calculate profit margin
+   */
+  @ResolveField(() => Float, { nullable: true })
+  profitMargin(@Parent() harvest: HarvestRecord): number | null {
+    if (!harvest.totalRevenue || !harvest.harvestCost) return null;
+    const revenue = Number(harvest.totalRevenue);
+    const cost = Number(harvest.harvestCost);
+    if (revenue === 0) return null;
+    return ((revenue - cost) / revenue) * 100;
+  }
+
+  /**
+   * Check if harvest is complete
+   */
+  @ResolveField(() => Boolean)
+  isComplete(@Parent() harvest: HarvestRecord): boolean {
+    return harvest.status === HarvestRecordStatus.COMPLETED ||
+           harvest.status === HarvestRecordStatus.DISPATCHED ||
+           harvest.status === HarvestRecordStatus.DELIVERED;
+  }
+
+  /**
+   * Check if harvest can be edited
+   */
+  @ResolveField(() => Boolean)
+  canEdit(@Parent() harvest: HarvestRecord): boolean {
+    return harvest.status !== HarvestRecordStatus.DISPATCHED &&
+           harvest.status !== HarvestRecordStatus.DELIVERED &&
+           harvest.status !== HarvestRecordStatus.CANCELLED;
+  }
+
+  /**
+   * Check if harvest can be deleted
+   */
+  @ResolveField(() => Boolean)
+  canDelete(@Parent() harvest: HarvestRecord): boolean {
+    return harvest.status !== HarvestRecordStatus.DISPATCHED &&
+           harvest.status !== HarvestRecordStatus.DELIVERED &&
+           harvest.status !== HarvestRecordStatus.CANCELLED;
+  }
+
+  /**
+   * Get rejection percentage
+   */
+  @ResolveField(() => Float)
+  rejectionPercentage(@Parent() harvest: HarvestRecord): number {
+    if (!harvest.rejectedQuantity || !harvest.totalBiomass) return 0;
+    return (Number(harvest.rejectedQuantity) / Number(harvest.totalBiomass)) * 100;
+  }
+
+  /**
+   * Get mortality percentage during harvest
+   */
+  @ResolveField(() => Float)
+  harvestMortalityPercentage(@Parent() harvest: HarvestRecord): number {
+    if (!harvest.mortalityDuringHarvest || !harvest.quantityHarvested) return 0;
+    const totalAttempted = harvest.quantityHarvested + harvest.mortalityDuringHarvest;
+    return (harvest.mortalityDuringHarvest / totalAttempted) * 100;
   }
 }

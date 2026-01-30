@@ -7,7 +7,7 @@
  */
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
+import { Repository, Between, MoreThanOrEqual, LessThanOrEqual, In } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { GetFeedingSummaryQuery, FeedingSummaryResult } from '../queries/get-feeding-summary.query';
 import { FeedingRecord, FishAppetite } from '../entities/feeding-record.entity';
@@ -128,15 +128,21 @@ export class GetFeedingSummaryHandler implements IQueryHandler<GetFeedingSummary
       }
     }
 
-    // Feed isimlerini al
+    // Batch fetch all feeds to avoid N+1 queries
+    const feedIds = Array.from(feedMap.keys());
+    const feeds = feedIds.length > 0
+      ? await this.feedRepository.find({
+          where: { id: In(feedIds), tenantId },
+        })
+      : [];
+    const feedNameMap = new Map(feeds.map(f => [f.id, f.name]));
+
+    // Build feed type distribution using the pre-fetched feed names
     const feedTypeDistribution = [];
     for (const [feedId, data] of feedMap) {
-      const feed = await this.feedRepository.findOne({
-        where: { id: feedId, tenantId },
-      });
       feedTypeDistribution.push({
         feedId,
-        feedName: feed?.name || 'Unknown',
+        feedName: feedNameMap.get(feedId) || 'Unknown',
         totalKg: data.totalKg,
         percentage: totalActualKg > 0 ? (data.totalKg / totalActualKg) * 100 : 0,
       });

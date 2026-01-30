@@ -16,7 +16,7 @@
  * - mattilsynet:akvakultur.innrapportering.slakt
  */
 
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as jwt from 'jsonwebtoken';
 import * as crypto from 'crypto';
@@ -56,6 +56,11 @@ export interface CachedToken {
   scopes: string[];
 }
 
+export interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -92,20 +97,114 @@ export const MASKINPORTEN_ENVIRONMENTS = {
 // ============================================================================
 
 @Injectable()
-export class MaskinportenService {
+export class MaskinportenService implements OnModuleDestroy {
   private readonly logger = new Logger(MaskinportenService.name);
 
-  /** Token cache: Map<tenantId:scopes, CachedToken> */
-  private tokenCache: Map<string, CachedToken> = new Map();
+  /** Maximum number of entries in each cache */
+  private readonly MAX_CACHE_SIZE = 100;
 
-  /** Discovery cache per environment: Map<environment, { tokenEndpoint, issuer }> */
-  private discoveryCache: Map<string, { tokenEndpoint: string; issuer: string }> = new Map();
+  /** TTL for token cache entries in milliseconds (1 hour) */
+  private readonly TOKEN_CACHE_TTL = 3600000;
+
+  /** TTL for discovery cache entries in milliseconds (24 hours) */
+  private readonly DISCOVERY_CACHE_TTL = 86400000;
+
+  /** Cleanup interval in milliseconds (5 minutes) */
+  private readonly CLEANUP_INTERVAL = 300000;
+
+  /** Token cache: Map<tenantId:scopes, CacheEntry<CachedToken>> */
+  private tokenCache: Map<string, CacheEntry<CachedToken>> = new Map();
+
+  /** Discovery cache per environment: Map<environment, CacheEntry<{ tokenEndpoint, issuer }>> */
+  private discoveryCache: Map<string, CacheEntry<{ tokenEndpoint: string; issuer: string }>> = new Map();
+
+  /** Interval for periodic cache cleanup */
+  private cleanupInterval: NodeJS.Timeout;
 
   constructor(
     private readonly configService: ConfigService,
     @Inject(forwardRef(() => RegulatorySettingsService))
     private readonly settingsService: RegulatorySettingsService,
-  ) {}
+  ) {
+    // Start periodic cleanup to prevent memory leaks
+    this.cleanupInterval = setInterval(() => this.cleanupExpiredEntries(), this.CLEANUP_INTERVAL);
+  }
+
+  /**
+   * Lifecycle hook - clean up resources on module destroy
+   */
+  onModuleDestroy(): void {
+    this.logger.debug('Cleaning up MaskinportenService resources');
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+    }
+    this.tokenCache.clear();
+    this.discoveryCache.clear();
+  }
+
+  /**
+   * Clean up expired entries from all caches
+   */
+  private cleanupExpiredEntries(): void {
+    const now = Date.now();
+    let tokenCleanedCount = 0;
+    let discoveryCleanedCount = 0;
+
+    for (const [key, entry] of this.tokenCache) {
+      if (entry.expiresAt < now) {
+        this.tokenCache.delete(key);
+        tokenCleanedCount++;
+      }
+    }
+
+    for (const [key, entry] of this.discoveryCache) {
+      if (entry.expiresAt < now) {
+        this.discoveryCache.delete(key);
+        discoveryCleanedCount++;
+      }
+    }
+
+    if (tokenCleanedCount > 0 || discoveryCleanedCount > 0) {
+      this.logger.debug(
+        `Cache cleanup: removed ${tokenCleanedCount} token entries and ${discoveryCleanedCount} discovery entries`
+      );
+    }
+  }
+
+  /**
+   * Set a cache entry with TTL and size limit enforcement
+   */
+  private setCacheEntry<T>(
+    cache: Map<string, CacheEntry<T>>,
+    key: string,
+    data: T,
+    ttl: number,
+  ): void {
+    // Enforce maximum cache size by removing oldest entry (first inserted)
+    if (cache.size >= this.MAX_CACHE_SIZE) {
+      const firstKey = cache.keys().next().value;
+      if (firstKey !== undefined) {
+        cache.delete(firstKey);
+        this.logger.debug(`Cache size limit reached, evicted oldest entry: ${firstKey}`);
+      }
+    }
+    cache.set(key, { data, expiresAt: Date.now() + ttl });
+  }
+
+  /**
+   * Get a cache entry if it exists and is not expired
+   */
+  private getCacheEntry<T>(cache: Map<string, CacheEntry<T>>, key: string): T | null {
+    const entry = cache.get(key);
+    if (!entry) {
+      return null;
+    }
+    if (entry.expiresAt < Date.now()) {
+      cache.delete(key);
+      return null;
+    }
+    return entry.data;
+  }
 
   /**
    * Normalize private key (handle escaped newlines from env vars or textarea input)
@@ -120,7 +219,7 @@ export class MaskinportenService {
    */
   private async discoverEndpoints(environment: string): Promise<{ tokenEndpoint: string; issuer: string }> {
     // Check cache first
-    const cached = this.discoveryCache.get(environment);
+    const cached = this.getCacheEntry(this.discoveryCache, environment);
     if (cached) {
       return cached;
     }
@@ -141,8 +240,8 @@ export class MaskinportenService {
         issuer: discovery.issuer,
       };
 
-      // Cache discovery result
-      this.discoveryCache.set(environment, result);
+      // Cache discovery result with TTL
+      this.setCacheEntry(this.discoveryCache, environment, result, this.DISCOVERY_CACHE_TTL);
       this.logger.debug(`Discovered token endpoint: ${discovery.token_endpoint}`);
 
       return result;
@@ -174,7 +273,7 @@ export class MaskinportenService {
     const cacheKey = `${tenantId}:${requestedScopes.sort().join(' ')}`;
 
     // Check cache
-    const cached = this.tokenCache.get(cacheKey);
+    const cached = this.getCacheEntry(this.tokenCache, cacheKey);
     if (cached && this.isTokenValid(cached)) {
       this.logger.debug(`Using cached Maskinporten token for tenant: ${tenantId}`);
       return cached.accessToken;
@@ -193,13 +292,15 @@ export class MaskinportenService {
       requestedScopes,
     );
 
-    // Cache the token
-    const expiresAt = new Date(Date.now() + (token.expires_in - 60) * 1000); // 1 min buffer
-    this.tokenCache.set(cacheKey, {
+    // Cache the token with TTL based on token expiration (with 1 min buffer)
+    const tokenTtl = Math.min((token.expires_in - 60) * 1000, this.TOKEN_CACHE_TTL);
+    const expiresAt = new Date(Date.now() + tokenTtl);
+    const cachedToken: CachedToken = {
       accessToken: token.access_token,
       expiresAt,
       scopes: requestedScopes,
-    });
+    };
+    this.setCacheEntry(this.tokenCache, cacheKey, cachedToken, tokenTtl);
 
     return token.access_token;
   }
@@ -328,11 +429,11 @@ export class MaskinportenService {
    */
   clearTenantCache(tenantId: string): void {
     const keysToDelete: string[] = [];
-    this.tokenCache.forEach((_, key) => {
+    for (const key of this.tokenCache.keys()) {
       if (key.startsWith(`${tenantId}:`)) {
         keysToDelete.push(key);
       }
-    });
+    }
     keysToDelete.forEach(key => this.tokenCache.delete(key));
     this.logger.debug(`Token cache cleared for tenant: ${tenantId}`);
   }
@@ -342,7 +443,18 @@ export class MaskinportenService {
    */
   clearCache(): void {
     this.tokenCache.clear();
-    this.logger.debug('All token cache cleared');
+    this.discoveryCache.clear();
+    this.logger.debug('All caches cleared');
+  }
+
+  /**
+   * Get cache statistics (useful for monitoring/debugging)
+   */
+  getCacheStats(): { tokenCacheSize: number; discoveryCacheSize: number } {
+    return {
+      tokenCacheSize: this.tokenCache.size,
+      discoveryCacheSize: this.discoveryCache.size,
+    };
   }
 
   /**
@@ -361,15 +473,17 @@ export class MaskinportenService {
     environment: string;
     scopes: string[];
     tokenEndpoint?: string;
+    cacheStats?: { tokenCacheSize: number; discoveryCacheSize: number };
   } {
     const defaultEnv = this.configService.get<string>('MASKINPORTEN_ENV', 'TEST');
-    const discovery = this.discoveryCache.get(defaultEnv);
+    const discovery = this.getCacheEntry(this.discoveryCache, defaultEnv);
 
     return {
       configured: false, // Always false - use isConfiguredForTenant() for tenant-specific check
       environment: defaultEnv,
       scopes: ALL_MATTILSYNET_SCOPES,
       tokenEndpoint: discovery?.tokenEndpoint,
+      cacheStats: this.getCacheStats(),
     };
   }
 

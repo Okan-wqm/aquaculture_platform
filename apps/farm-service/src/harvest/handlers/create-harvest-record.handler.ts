@@ -8,7 +8,7 @@
  */
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { CreateHarvestRecordCommand, CreateHarvestRecordInput } from '../commands/create-harvest-record.command';
 import { HarvestRecord, HarvestRecordStatus, QualityGrade, HarvestOperation, LotInfo } from '../entities/harvest-record.entity';
@@ -22,6 +22,7 @@ import { Tank } from '../../tank/entities/tank.entity';
 @CommandHandler(CreateHarvestRecordCommand)
 export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvestRecordCommand, Batch> {
   constructor(
+    private readonly dataSource: DataSource,
     @InjectRepository(HarvestRecord)
     private readonly harvestRepository: Repository<HarvestRecord>,
     @InjectRepository(Batch)
@@ -37,7 +38,7 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
   async execute(command: CreateHarvestRecordCommand): Promise<Batch> {
     const { tenantId, input, recordedBy } = command;
 
-    // Batch'i bul
+    // Read operations for validation (outside transaction)
     const batch = await this.batchRepository.findOne({
       where: { id: input.batchId, tenantId, isActive: true },
     });
@@ -46,7 +47,6 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       throw new NotFoundException(`Batch ${input.batchId} bulunamadı`);
     }
 
-    // Tank'ı bul
     const tank = await this.tankRepository.findOne({
       where: { id: input.tankId, tenantId, isActive: true },
     });
@@ -55,14 +55,12 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       throw new NotFoundException(`Tank ${input.tankId} bulunamadı`);
     }
 
-    // Validasyon: harvest miktarı mevcut sayıyı aşamaz
     if (input.quantityHarvested > batch.currentQuantity) {
       throw new BadRequestException(
         `Harvest miktarı (${input.quantityHarvested}) batch'in mevcut miktarından (${batch.currentQuantity}) fazla olamaz`
       );
     }
 
-    // TankBatch'i bul
     const tankBatch = await this.tankBatchRepository.findOne({
       where: { tenantId, tankId: input.tankId },
     });
@@ -76,7 +74,7 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     // Biomass hesapla
     const biomassKg = input.totalBiomass || (input.quantityHarvested * input.averageWeight) / 1000;
 
-    // Record code ve lot number oluştur
+    // Record code ve lot number oluştur (outside transaction for code generation)
     const recordCode = await this.generateCode(tenantId, 'HR');
     const lotNumber = await this.generateCode(tenantId, 'LOT');
 
@@ -107,111 +105,128 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       densityKgM3: tankBatch.densityKgM3,
     } : undefined;
 
-    // HarvestRecord oluştur
-    const harvestRecord = this.harvestRepository.create({
-      tenantId,
-      recordCode,
-      lotNumber,
-      batchId: input.batchId,
-      tankId: input.tankId,
-      status: HarvestRecordStatus.COMPLETED,
-      harvestDate,
-      operation,
-      method: HarvestMethod.NET,
-      quantityHarvested: input.quantityHarvested,
-      totalBiomass: biomassKg,
-      averageWeight: input.averageWeight,
-      productForm: ProductForm.FRESH_WHOLE,
-      qualityGrade,
-      lotInfo,
-      supervisorId: recordedBy,
-      notes: input.notes,
-      totalRevenue: input.pricePerKg ? biomassKg * input.pricePerKg : undefined,
-      currency: input.pricePerKg ? 'TRY' : undefined,
-    });
+    // Start transaction for all write operations
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    // Customer delivery bilgisi ekle
-    if (input.buyerName) {
-      harvestRecord.customerDeliveries = [{
-        customerId: 'direct-buyer',
-        customerName: input.buyerName,
-        quantity: biomassKg,
-        quantityUnit: 'kg',
-        unitPrice: input.pricePerKg || 0,
-        totalValue: input.pricePerKg ? biomassKg * input.pricePerKg : 0,
-        currency: 'TRY',
-        deliveryStatus: 'pending',
-      }];
-    }
+    try {
+      // HarvestRecord oluştur
+      const harvestRecord = queryRunner.manager.create(HarvestRecord, {
+        tenantId,
+        recordCode,
+        lotNumber,
+        batchId: input.batchId,
+        tankId: input.tankId,
+        status: HarvestRecordStatus.COMPLETED,
+        harvestDate,
+        operation,
+        method: HarvestMethod.NET,
+        quantityHarvested: input.quantityHarvested,
+        totalBiomass: biomassKg,
+        averageWeight: input.averageWeight,
+        productForm: ProductForm.FRESH_WHOLE,
+        qualityGrade,
+        lotInfo,
+        supervisorId: recordedBy,
+        notes: input.notes,
+        totalRevenue: input.pricePerKg ? biomassKg * input.pricePerKg : undefined,
+        currency: input.pricePerKg ? 'TRY' : undefined,
+      });
 
-    await this.harvestRepository.save(harvestRecord);
-
-    // TankOperation kaydı oluştur
-    const tankOperation = this.operationRepository.create({
-      tenantId,
-      tankId: input.tankId,
-      batchId: input.batchId,
-      operationType: OperationType.HARVEST,
-      operationDate: harvestDate,
-      quantity: input.quantityHarvested,
-      avgWeightG: input.averageWeight,
-      biomassKg,
-      preOperationState,
-      performedBy: recordedBy,
-      notes: input.notes,
-      isDeleted: false,
-    });
-
-    await this.operationRepository.save(tankOperation);
-
-    // Batch güncelle
-    batch.currentQuantity -= input.quantityHarvested;
-    batch.harvestedQuantity = (batch.harvestedQuantity || 0) + input.quantityHarvested;
-    batch.retentionRate = batch.getRetentionRate();
-    batch.updatedBy = recordedBy;
-
-    await this.batchRepository.save(batch);
-
-    // TankBatch güncelle
-    if (tankBatch) {
-      // Ensure numeric operations (decimal columns may come as strings)
-      tankBatch.totalQuantity = Number(tankBatch.totalQuantity) - input.quantityHarvested;
-      tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) - biomassKg;
-      tankBatch.currentQuantity = tankBatch.totalQuantity;
-      tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
-
-      if (tankBatch.totalQuantity > 0) {
-        tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
-        const effectiveVolume = tank.waterVolume || tank.volume;
-        tankBatch.densityKgM3 = effectiveVolume ? Number(tankBatch.totalBiomassKg) / Number(effectiveVolume) : 0;
-      } else {
-        tankBatch.avgWeightG = 0;
-        tankBatch.densityKgM3 = 0;
+      // Customer delivery bilgisi ekle
+      if (input.buyerName) {
+        harvestRecord.customerDeliveries = [{
+          customerId: 'direct-buyer',
+          customerName: input.buyerName,
+          quantity: biomassKg,
+          quantityUnit: 'kg',
+          unitPrice: input.pricePerKg || 0,
+          totalValue: input.pricePerKg ? biomassKg * input.pricePerKg : 0,
+          currency: 'TRY',
+          deliveryStatus: 'pending',
+        }];
       }
 
-      await this.tankBatchRepository.save(tankBatch);
+      await queryRunner.manager.save(HarvestRecord, harvestRecord);
+
+      // TankOperation kaydı oluştur
+      const tankOperation = queryRunner.manager.create(TankOperation, {
+        tenantId,
+        tankId: input.tankId,
+        batchId: input.batchId,
+        operationType: OperationType.HARVEST,
+        operationDate: harvestDate,
+        quantity: input.quantityHarvested,
+        avgWeightG: input.averageWeight,
+        biomassKg,
+        preOperationState,
+        performedBy: recordedBy,
+        notes: input.notes,
+        isDeleted: false,
+      });
+
+      await queryRunner.manager.save(TankOperation, tankOperation);
+
+      // Batch güncelle
+      batch.currentQuantity -= input.quantityHarvested;
+      batch.harvestedQuantity = (batch.harvestedQuantity || 0) + input.quantityHarvested;
+      batch.retentionRate = batch.getRetentionRate();
+      batch.updatedBy = recordedBy;
+
+      await queryRunner.manager.save(Batch, batch);
+
+      // TankBatch güncelle
+      if (tankBatch) {
+        // Ensure numeric operations (decimal columns may come as strings)
+        tankBatch.totalQuantity = Number(tankBatch.totalQuantity) - input.quantityHarvested;
+        tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) - biomassKg;
+        tankBatch.currentQuantity = tankBatch.totalQuantity;
+        tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
+
+        if (tankBatch.totalQuantity > 0) {
+          tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
+          const effectiveVolume = tank.waterVolume || tank.volume;
+          tankBatch.densityKgM3 = effectiveVolume ? Number(tankBatch.totalBiomassKg) / Number(effectiveVolume) : 0;
+        } else {
+          tankBatch.avgWeightG = 0;
+          tankBatch.densityKgM3 = 0;
+        }
+
+        await queryRunner.manager.save(TankBatch, tankBatch);
+      }
+
+      // Tank güncelle
+      tank.currentBiomass = Number(tank.currentBiomass || 0) - biomassKg;
+      tank.currentCount = (tank.currentCount || 0) - input.quantityHarvested;
+      await queryRunner.manager.save(Tank, tank);
+
+      // Post-operation state güncelle
+      const updatedTankBatch = await queryRunner.manager.findOne(TankBatch, {
+        where: { tenantId, tankId: input.tankId },
+      });
+
+      if (updatedTankBatch) {
+        tankOperation.postOperationState = {
+          quantity: updatedTankBatch.totalQuantity,
+          biomassKg: updatedTankBatch.totalBiomassKg,
+          densityKgM3: updatedTankBatch.densityKgM3,
+        };
+        await queryRunner.manager.save(TankOperation, tankOperation);
+      }
+
+      // Commit transaction
+      await queryRunner.commitTransaction();
+
+      return batch;
+    } catch (error) {
+      // Rollback transaction on any error
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      // Release query runner
+      await queryRunner.release();
     }
-
-    // Tank güncelle
-    tank.currentBiomass = Number(tank.currentBiomass || 0) - biomassKg;
-    tank.currentCount = (tank.currentCount || 0) - input.quantityHarvested;
-    await this.tankRepository.save(tank);
-
-    // Post-operation state güncelle
-    const updatedTankBatch = await this.tankBatchRepository.findOne({
-      where: { tenantId, tankId: input.tankId },
-    });
-
-    if (updatedTankBatch) {
-      tankOperation.postOperationState = {
-        quantity: updatedTankBatch.totalQuantity,
-        biomassKg: updatedTankBatch.totalBiomassKg,
-        densityKgM3: updatedTankBatch.densityKgM3,
-      };
-      await this.operationRepository.save(tankOperation);
-    }
-
-    return batch;
   }
 
   /**

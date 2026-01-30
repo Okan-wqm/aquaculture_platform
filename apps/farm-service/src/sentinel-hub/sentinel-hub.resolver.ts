@@ -29,8 +29,9 @@ export class SentinelHubResolver {
   }
 
   /**
-   * Get Sentinel Hub credentials (decrypted)
-   * Only used internally by the frontend for API calls
+   * Get Sentinel Hub credentials info (SAFE - secrets are masked)
+   * Returns masked clientId, instanceId and metadata
+   * SECURITY: clientSecret is NEVER returned - only hasClientSecret boolean
    */
   @Query(() => SentinelHubCredentials, {
     name: 'sentinelHubCredentials',

@@ -7,7 +7,7 @@
  */
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { GetTankBatchesQuery, TankBatchesResult, TankBatchInfo } from '../queries/get-tank-batches.query';
 import { Tank } from '../entities/tank.entity';
@@ -74,20 +74,33 @@ export class GetTankBatchesHandler implements IQueryHandler<GetTankBatchesQuery,
         }
       }
 
+      // Batch fetch all batches to avoid N+1 queries
+      const batchIds = batchDetails.map(d => d.batchId);
+      const batchEntities = batchIds.length > 0
+        ? await this.batchRepository.find({
+            where: { id: In(batchIds), tenantId },
+          })
+        : [];
+      const batchMap = new Map(batchEntities.map(b => [b.id, b]));
+
+      // Batch fetch all species to avoid N+1 queries
+      const speciesIds = [...new Set(batchEntities.map(b => b.speciesId))];
+      const speciesEntities = speciesIds.length > 0
+        ? await this.speciesRepository.find({
+            where: { id: In(speciesIds), tenantId },
+          })
+        : [];
+      const speciesMap = new Map(speciesEntities.map(s => [s.id, s]));
+
       for (const detail of batchDetails) {
-        const batch = await this.batchRepository.findOne({
-          where: { id: detail.batchId, tenantId },
-        });
+        const batch = batchMap.get(detail.batchId);
 
         if (!batch) continue;
 
-        // İnaktif batch'leri filtrele
+        // Filter inactive batches
         if (!includeInactive && !batch.isActive) continue;
 
-        const species = await this.speciesRepository.findOne({
-          where: { id: batch.speciesId, tenantId },
-        });
-
+        const species = speciesMap.get(batch.speciesId);
         const densityKgM3 = effectiveVolume > 0 ? detail.biomassKg / effectiveVolume : 0;
 
         batches.push({

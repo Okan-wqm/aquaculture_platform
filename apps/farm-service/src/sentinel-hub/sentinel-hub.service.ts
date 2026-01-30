@@ -147,9 +147,60 @@ export class SentinelHubService implements OnModuleInit {
   }
 
   /**
-   * Get decrypted credentials for a tenant
+   * Get credentials info for a tenant (SAFE - no secrets exposed)
+   * Returns masked clientId and metadata only
    */
   async getCredentials(tenantId: string): Promise<SentinelHubCredentials | null> {
+    try {
+      const settings = await this.settingsRepo.findOne({ where: { tenantId } });
+
+      if (!settings || !settings.isConfigured) {
+        return null;
+      }
+
+      // Decrypt clientId for masking (not the secret!)
+      let clientIdMasked = '****';
+      try {
+        const decryptedClientId = this.decrypt(settings.clientId);
+        clientIdMasked = this.maskClientId(decryptedClientId);
+      } catch {
+        // If decryption fails, use masked placeholder
+      }
+
+      // Decrypt instanceId for masking if present
+      let instanceIdMasked: string | undefined;
+      if (settings.instanceId) {
+        try {
+          const decryptedInstanceId = this.decrypt(settings.instanceId);
+          instanceIdMasked = this.maskClientId(decryptedInstanceId);
+        } catch {
+          instanceIdMasked = '****';
+        }
+      }
+
+      // Return SAFE response - no secrets!
+      return {
+        clientId: clientIdMasked,
+        instanceId: instanceIdMasked,
+        hasClientSecret: !!settings.clientSecret,
+        isConfigured: settings.isConfigured,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to get credentials for tenant ${tenantId}:`,
+        error,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Get decrypted credentials for internal use only (token generation)
+   * PRIVATE - Never expose via GraphQL or API
+   */
+  private async getDecryptedCredentialsInternal(
+    tenantId: string,
+  ): Promise<{ clientId: string; clientSecret: string } | null> {
     try {
       const settings = await this.settingsRepo.findOne({ where: { tenantId } });
 
@@ -162,14 +213,14 @@ export class SentinelHubService implements OnModuleInit {
       settings.lastUsed = new Date();
       await this.settingsRepo.save(settings);
 
-      // Decrypt and return
+      // Decrypt and return (INTERNAL USE ONLY)
       return {
         clientId: this.decrypt(settings.clientId),
         clientSecret: this.decrypt(settings.clientSecret),
       };
     } catch (error) {
       this.logger.error(
-        `Failed to get credentials for tenant ${tenantId}:`,
+        `Failed to get internal credentials for tenant ${tenantId}:`,
         error,
       );
       return null;
@@ -198,8 +249,8 @@ export class SentinelHubService implements OnModuleInit {
         try {
           const decrypted = this.decrypt(settings.clientId);
           clientIdMasked = this.maskClientId(decrypted);
-        } catch (error) {
-          this.logger.debug(`Error decrypting clientId in getStatus: ${error?.message || error}`);
+        } catch (error: unknown) {
+          this.logger.debug(`Error decrypting clientId in getStatus: ${error instanceof Error ? error.message : String(error)}`);
           // If decryption fails, settings are corrupted
           clientIdMasked = '****';
         }
@@ -210,8 +261,8 @@ export class SentinelHubService implements OnModuleInit {
         try {
           const decrypted = this.decrypt(settings.instanceId);
           instanceIdMasked = this.maskClientId(decrypted);
-        } catch (error) {
-          this.logger.debug(`Error decrypting instanceId in getStatus: ${error?.message || error}`);
+        } catch (error: unknown) {
+          this.logger.debug(`Error decrypting instanceId in getStatus: ${error instanceof Error ? error.message : String(error)}`);
           instanceIdMasked = '****';
         }
       }
@@ -269,12 +320,14 @@ export class SentinelHubService implements OnModuleInit {
   /**
    * Get access token from CDSE (Copernicus Data Space Ecosystem)
    * This proxies the token request to avoid CORS issues in the browser
+   * Uses internal method to get decrypted credentials (never exposed via API)
    */
   async getAccessToken(tenantId: string): Promise<{ accessToken: string; expiresIn: number } | null> {
     const CDSE_TOKEN_URL = 'https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token';
 
     try {
-      const credentials = await this.getCredentials(tenantId);
+      // Use internal method to get decrypted credentials (not the public API)
+      const credentials = await this.getDecryptedCredentialsInternal(tenantId);
       if (!credentials) {
         this.logger.warn(`No credentials found for tenant ${tenantId}`);
         return null;

@@ -4,7 +4,7 @@
  */
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { NotFoundException, Logger } from '@nestjs/common';
 import { GetSystemDeletePreviewQuery } from '../queries/get-system-delete-preview.query';
 import { System } from '../entities/system.entity';
@@ -110,21 +110,41 @@ export class GetSystemDeletePreviewHandler
   }
 
   /**
-   * Recursively get all child systems
+   * Get all child systems using batch loading to avoid N+1 queries
+   * Uses iterative breadth-first approach with depth limit
    */
   private async getChildSystemsRecursive(
     parentId: string,
     tenantId: string,
+    maxDepth: number = 10,
   ): Promise<System[]> {
-    const children = await this.systemRepository.find({
-      where: { parentSystemId: parentId, tenantId, isDeleted: false },
-    });
+    const allChildren: System[] = [];
+    let currentParentIds = [parentId];
+    let depth = 0;
 
-    let allChildren = [...children];
+    while (currentParentIds.length > 0 && depth < maxDepth) {
+      // Batch fetch all children for current level
+      const children = await this.systemRepository.find({
+        where: {
+          parentSystemId: In(currentParentIds),
+          tenantId,
+          isDeleted: false,
+        },
+      });
 
-    for (const child of children) {
-      const grandChildren = await this.getChildSystemsRecursive(child.id, tenantId);
-      allChildren = [...allChildren, ...grandChildren];
+      if (children.length === 0) {
+        break;
+      }
+
+      allChildren.push(...children);
+      currentParentIds = children.map((child) => child.id);
+      depth++;
+    }
+
+    if (depth >= maxDepth) {
+      this.logger.warn(
+        `Max depth (${maxDepth}) reached while fetching child systems for parent ${parentId}`,
+      );
     }
 
     return allChildren;

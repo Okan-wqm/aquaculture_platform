@@ -13,15 +13,13 @@ import { Equipment } from '../equipment/entities/equipment.entity';
 import { EquipmentSystem } from '../equipment/entities/equipment-system.entity';
 import { SystemResolver } from './system.resolver';
 import { SystemHandlers } from './handlers';
-import { SiteModule } from '../site/site.module';
-import { DepartmentModule } from '../department/department.module';
 
 @Module({
   imports: [
+    // Note: Site and Department entities are registered here for repository access
+    // No need to import SiteModule/DepartmentModule - they only export TypeOrmModule
     TypeOrmModule.forFeature([System, SubSystem, Site, Department, Equipment, EquipmentSystem]),
     CqrsModule,
-    SiteModule,
-    DepartmentModule,
   ],
   providers: [
     SystemResolver,

@@ -25,6 +25,18 @@ import { HealthEvent } from './entities/health-event.entity';
 import { Batch } from '../batch/entities/batch.entity';
 import { Tank } from '../tank/entities/tank.entity';
 
+/**
+ * TODO: Fish Health Module - Pending Implementation
+ *
+ * This module is scaffolded but not yet implemented. Planned features:
+ * - HealthEventService for managing health events
+ * - Command handlers for CRUD operations
+ * - Query handlers for listing and filtering health events
+ * - GraphQL resolvers for API exposure
+ *
+ * Note: Module is imported in AppModule to reserve the namespace and
+ * ensure entity registrations are in place for future development.
+ */
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -35,9 +47,11 @@ import { Tank } from '../tank/entities/tank.entity';
     CqrsModule,
   ],
   providers: [
-    // HealthEventService,
-    // Handlers will be added
-    // Resolvers will be added
+    // TODO: Implement the following:
+    // - HealthEventService
+    // - CreateHealthEventHandler, UpdateHealthEventHandler, DeleteHealthEventHandler
+    // - GetHealthEventHandler, ListHealthEventsHandler
+    // - HealthEventResolver
   ],
   exports: [
     TypeOrmModule,

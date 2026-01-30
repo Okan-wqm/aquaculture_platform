@@ -83,8 +83,14 @@ export class SentinelHubCredentials {
   @Field()
   clientId: string;
 
+  @Field({ nullable: true })
+  instanceId?: string;
+
   @Field()
-  clientSecret: string;
+  hasClientSecret: boolean;
+
+  @Field({ description: 'Indicates credentials are configured and valid' })
+  isConfigured: boolean;
 }
 
 @ObjectType()

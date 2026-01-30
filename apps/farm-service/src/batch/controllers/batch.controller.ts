@@ -19,7 +19,9 @@ import {
   HttpCode,
   ParseUUIDPipe,
   BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { BatchService, CreateBatchInput, AllocateBatchInput, RecordOperationInput } from '../services/batch.service';
 import { BatchStatus } from '../entities/batch.entity';
 import { AllocationType } from '../entities/tank-allocation.entity';
@@ -134,6 +136,7 @@ class BatchListQueryDto {
 // CONTROLLER
 // ============================================================================
 
+@UseGuards(JwtAuthGuard)
 @Controller('batches')
 export class BatchController {
   constructor(private readonly batchService: BatchService) {}
@@ -404,6 +407,7 @@ export class BatchController {
 // TANK OPERATIONS CONTROLLER
 // ============================================================================
 
+@UseGuards(JwtAuthGuard)
 @Controller('tank-operations')
 export class TankOperationsController {
   constructor(private readonly batchService: BatchService) {}

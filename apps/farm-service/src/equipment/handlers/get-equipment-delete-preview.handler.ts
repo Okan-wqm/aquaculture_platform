@@ -4,7 +4,7 @@
  */
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { NotFoundException, Logger } from '@nestjs/common';
 import { GetEquipmentDeletePreviewQuery } from '../queries/get-equipment-delete-preview.query';
 import { Equipment } from '../entities/equipment.entity';
@@ -88,21 +88,41 @@ export class GetEquipmentDeletePreviewHandler
   }
 
   /**
-   * Recursively get all child equipment
+   * Get all child equipment using batch loading to avoid N+1 queries
+   * Uses iterative breadth-first approach with depth limit
    */
   private async getChildEquipmentRecursive(
     parentId: string,
     tenantId: string,
+    maxDepth: number = 10,
   ): Promise<Equipment[]> {
-    const children = await this.equipmentRepository.find({
-      where: { parentEquipmentId: parentId, tenantId, isDeleted: false },
-    });
+    const allChildren: Equipment[] = [];
+    let currentParentIds = [parentId];
+    let depth = 0;
 
-    let allChildren = [...children];
+    while (currentParentIds.length > 0 && depth < maxDepth) {
+      // Batch fetch all children for current level
+      const children = await this.equipmentRepository.find({
+        where: {
+          parentEquipmentId: In(currentParentIds),
+          tenantId,
+          isDeleted: false,
+        },
+      });
 
-    for (const child of children) {
-      const grandChildren = await this.getChildEquipmentRecursive(child.id, tenantId);
-      allChildren = [...allChildren, ...grandChildren];
+      if (children.length === 0) {
+        break;
+      }
+
+      allChildren.push(...children);
+      currentParentIds = children.map((child) => child.id);
+      depth++;
+    }
+
+    if (depth >= maxDepth) {
+      this.logger.warn(
+        `Max depth (${maxDepth}) reached while fetching child equipment for parent ${parentId}`,
+      );
     }
 
     return allChildren;

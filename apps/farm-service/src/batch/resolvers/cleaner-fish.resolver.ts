@@ -476,6 +476,7 @@ export class CleanerFishResolver {
 
     return this.batchRepository.find({
       where,
+      relations: ['species'],
       order: { stockedAt: 'DESC' },
     });
   }

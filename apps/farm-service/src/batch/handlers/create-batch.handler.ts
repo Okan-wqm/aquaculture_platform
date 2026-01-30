@@ -9,7 +9,7 @@ import { randomUUID } from 'crypto';
 
 import { Injectable, BadRequestException, Inject, Optional, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { BatchCreatedEvent } from '@platform/event-contracts';
@@ -27,6 +27,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
   private readonly logger = new Logger(CreateBatchHandler.name);
 
   constructor(
+    private readonly dataSource: DataSource,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(BatchDocument)
@@ -45,7 +46,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
   async execute(command: CreateBatchCommand): Promise<Batch> {
     const { tenantId, payload, createdBy } = command;
 
-    // Species kontrolü
+    // Species kontrolü (read operation, outside transaction)
     const species = await this.speciesRepository.findOne({
       where: { id: payload.speciesId, tenantId, isActive: true, isDeleted: false },
     });
@@ -54,7 +55,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
       throw new BadRequestException(`Species ${payload.speciesId} bulunamadı veya aktif değil`);
     }
 
-    // Batch numarası oluştur
+    // Batch numarası oluştur (outside transaction for code generation)
     const generatedCode = payload.batchNumber ? null : await this.codeGenerator.generateCode({
       prefix: 'B',
       tenantId,
@@ -79,275 +80,292 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
       }
     }
 
-    // Batch entity oluştur
-    const batch = this.batchRepository.create({
-      tenantId,
-      batchNumber,
-      name: payload.name,
-      description: payload.description,
-      speciesId: payload.speciesId,
-      strain: payload.strain,
-      inputType: payload.inputType,
-      initialQuantity: payload.initialQuantity,
-      currentQuantity: payload.initialQuantity,
-      totalMortality: 0,
-      cullCount: 0,
-      totalFeedConsumed: 0,
-      totalFeedCost: 0,
-      stockedAt: payload.stockedAt,
-      expectedHarvestDate,
-      supplierId: payload.supplierId,
-      supplierBatchNumber: payload.supplierBatchNumber,
-      purchaseCost: payload.purchaseCost,
-      currency: payload.currency || 'TRY',
-      arrivalMethod: payload.arrivalMethod,
-      status: BatchStatus.QUARANTINE,
-      isActive: true,
-      notes: payload.notes,
-      createdBy,
+    // Start transaction for all database write operations
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-      // Weight tracking
-      weight: {
-        initial: {
-          avgWeight: payload.initialAvgWeightG,
-          totalBiomass: initialBiomass,
-          measuredAt: new Date(),
-        },
-        theoretical: {
-          avgWeight: payload.initialAvgWeightG,
-          totalBiomass: initialBiomass,
-          lastCalculatedAt: new Date(),
-          basedOnFCR: targetFCR,
-        },
-        actual: {
-          avgWeight: payload.initialAvgWeightG,
-          totalBiomass: initialBiomass,
-          lastMeasuredAt: new Date(),
-          sampleSize: 0,
-          confidencePercent: 0,
-        },
-        variance: {
-          weightDifference: 0,
-          percentageDifference: 0,
-          isSignificant: false,
-        },
-      },
-
-      // FCR tracking
-      fcr: {
-        target: targetFCR,
-        actual: 0,
-        theoretical: targetFCR,
-        isUserOverride: !!payload.targetFCR,
-        lastUpdatedAt: new Date(),
-      },
-
-      // Feeding summary
-      feedingSummary: {
-        totalFeedGiven: 0,
-        totalFeedCost: 0,
-      },
-
-      // Growth metrics
-      growthMetrics: {
-        growthRate: {
-          actual: 0,
-          target: species.growthParameters?.avgDailyGrowth || 0,
-          variancePercent: 0,
-        },
-        daysInProduction: 0,
-        projections: {
-          harvestDate: expectedHarvestDate,
-          harvestWeight: species.growthParameters?.avgHarvestWeight,
-          confidenceLevel: 'low',
-        },
-      },
-
-      // Mortality summary
-      mortalitySummary: {
+    try {
+      // Batch entity oluştur
+      const batch = queryRunner.manager.create(Batch, {
+        tenantId,
+        batchNumber,
+        name: payload.name,
+        description: payload.description,
+        speciesId: payload.speciesId,
+        strain: payload.strain,
+        inputType: payload.inputType,
+        initialQuantity: payload.initialQuantity,
+        currentQuantity: payload.initialQuantity,
         totalMortality: 0,
-        mortalityRate: 0,
-      },
-    });
+        cullCount: 0,
+        totalFeedConsumed: 0,
+        totalFeedCost: 0,
+        stockedAt: payload.stockedAt,
+        expectedHarvestDate,
+        supplierId: payload.supplierId,
+        supplierBatchNumber: payload.supplierBatchNumber,
+        purchaseCost: payload.purchaseCost,
+        currency: payload.currency || 'TRY',
+        arrivalMethod: payload.arrivalMethod,
+        status: BatchStatus.QUARANTINE,
+        isActive: true,
+        notes: payload.notes,
+        createdBy,
 
-    const savedBatch = await this.batchRepository.save(batch);
+        // Weight tracking
+        weight: {
+          initial: {
+            avgWeight: payload.initialAvgWeightG,
+            totalBiomass: initialBiomass,
+            measuredAt: new Date(),
+          },
+          theoretical: {
+            avgWeight: payload.initialAvgWeightG,
+            totalBiomass: initialBiomass,
+            lastCalculatedAt: new Date(),
+            basedOnFCR: targetFCR,
+          },
+          actual: {
+            avgWeight: payload.initialAvgWeightG,
+            totalBiomass: initialBiomass,
+            lastMeasuredAt: new Date(),
+            sampleSize: 0,
+            confidencePercent: 0,
+          },
+          variance: {
+            weightDifference: 0,
+            percentageDifference: 0,
+            isSignificant: false,
+          },
+        },
 
-    // Save health certificates
-    if (payload.healthCertificates && payload.healthCertificates.length > 0) {
-      const healthCertDocs = payload.healthCertificates.map(doc =>
-        this.documentRepository.create({
-          tenantId,
-          batchId: savedBatch.id,
-          documentType: BatchDocumentType.HEALTH_CERTIFICATE,
-          documentName: doc.documentName,
-          documentNumber: doc.documentNumber,
-          storagePath: doc.storagePath,
-          storageUrl: doc.storageUrl,
-          originalFilename: doc.originalFilename,
-          mimeType: doc.mimeType,
-          fileSize: doc.fileSize,
-          issueDate: doc.issueDate ? new Date(doc.issueDate) : undefined,
-          expiryDate: doc.expiryDate ? new Date(doc.expiryDate) : undefined,
-          issuingAuthority: doc.issuingAuthority,
-          notes: doc.notes,
-          isActive: true,
-          createdBy,
-        })
-      );
-      await this.documentRepository.save(healthCertDocs);
-    }
+        // FCR tracking
+        fcr: {
+          target: targetFCR,
+          actual: 0,
+          theoretical: targetFCR,
+          isUserOverride: !!payload.targetFCR,
+          lastUpdatedAt: new Date(),
+        },
 
-    // Save import documents
-    if (payload.importDocuments && payload.importDocuments.length > 0) {
-      const importDocs = payload.importDocuments.map(doc =>
-        this.documentRepository.create({
-          tenantId,
-          batchId: savedBatch.id,
-          documentType: BatchDocumentType.IMPORT_DOCUMENT,
-          documentName: doc.documentName,
-          documentNumber: doc.documentNumber,
-          storagePath: doc.storagePath,
-          storageUrl: doc.storageUrl,
-          originalFilename: doc.originalFilename,
-          mimeType: doc.mimeType,
-          fileSize: doc.fileSize,
-          issueDate: doc.issueDate ? new Date(doc.issueDate) : undefined,
-          expiryDate: doc.expiryDate ? new Date(doc.expiryDate) : undefined,
-          issuingAuthority: doc.issuingAuthority,
-          notes: doc.notes,
-          isActive: true,
-          createdBy,
-        })
-      );
-      await this.documentRepository.save(importDocs);
-    }
+        // Feeding summary
+        feedingSummary: {
+          totalFeedGiven: 0,
+          totalFeedCost: 0,
+        },
 
-    // Process initial locations and create TankBatch records
-    if (payload.initialLocations && payload.initialLocations.length > 0) {
-      this.logger.log(`Processing ${payload.initialLocations.length} initial location(s) for batch ${savedBatch.batchNumber}`);
+        // Growth metrics
+        growthMetrics: {
+          growthRate: {
+            actual: 0,
+            target: species.growthParameters?.avgDailyGrowth || 0,
+            variancePercent: 0,
+          },
+          daysInProduction: 0,
+          projections: {
+            harvestDate: expectedHarvestDate,
+            harvestWeight: species.growthParameters?.avgHarvestWeight,
+            confidenceLevel: 'low',
+          },
+        },
 
-      for (const location of payload.initialLocations) {
-        const tankId = location.tankId || location.pondId;
-        if (!tankId) {
-          this.logger.warn('Skipping location without tankId or pondId');
-          continue;
-        }
+        // Mortality summary
+        mortalitySummary: {
+          totalMortality: 0,
+          mortalityRate: 0,
+        },
+      });
 
-        // Find the equipment (tank/pond/cage)
-        const equipment = await this.equipmentRepository.findOne({
-          where: { id: tankId, tenantId },
-          relations: ['equipmentType'],
-        });
+      const savedBatch = await queryRunner.manager.save(Batch, batch);
 
-        if (!equipment) {
-          this.logger.warn(`Equipment ${tankId} not found, skipping allocation`);
-          continue;
-        }
-
-        // Calculate avg weight from biomass and quantity
-        const avgWeightG = location.quantity > 0
-          ? (location.biomass * 1000) / location.quantity
-          : payload.initialAvgWeightG;
-
-        // Check if TankBatch already exists for this equipment
-        let tankBatch = await this.tankBatchRepository.findOne({
-          where: { tankId, tenantId },
-        });
-
-        // Calculate density if equipment has volume
-        const specs = equipment.specifications as Record<string, unknown> | undefined;
-        const tankVolume = Number(specs?.waterVolume || specs?.effectiveVolume || specs?.volume || 0);
-        const density = tankVolume > 0 ? location.biomass / tankVolume : 0;
-
-        // Calculate capacity usage
-        const maxBiomass = Number(specs?.maxBiomass || 0);
-        const capacityUsedPercent = maxBiomass > 0 ? (location.biomass / maxBiomass) * 100 : 0;
-        const isOverCapacity = capacityUsedPercent > 100;
-
-        if (tankBatch) {
-          // Update existing TankBatch (mixed batch scenario)
-          tankBatch.isMixedBatch = true;
-          tankBatch.totalQuantity += location.quantity;
-          tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) + location.biomass;
-          tankBatch.avgWeightG = tankBatch.totalQuantity > 0
-            ? (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity
-            : avgWeightG;
-          tankBatch.densityKgM3 = density;
-          tankBatch.capacityUsedPercent = capacityUsedPercent;
-          tankBatch.isOverCapacity = isOverCapacity;
-
-          // Add to batch details
-          const batchDetails = tankBatch.batchDetails || [];
-          batchDetails.push({
-            batchId: savedBatch.id,
-            batchNumber: savedBatch.batchNumber,
-            quantity: location.quantity,
-            avgWeightG: avgWeightG,
-            biomassKg: location.biomass,
-            percentageOfTank: (location.biomass / Number(tankBatch.totalBiomassKg)) * 100,
-          });
-          tankBatch.batchDetails = batchDetails;
-
-          this.logger.log(`Updated existing TankBatch for equipment ${equipment.code} (mixed batch)`);
-        } else {
-          // Create new TankBatch
-          tankBatch = this.tankBatchRepository.create({
+      // Save health certificates
+      if (payload.healthCertificates && payload.healthCertificates.length > 0) {
+        const healthCertDocs = payload.healthCertificates.map(doc =>
+          queryRunner.manager.create(BatchDocument, {
             tenantId,
-            tankId,
-            tankName: equipment.name,
-            tankCode: equipment.code,
-            primaryBatchId: savedBatch.id,
-            primaryBatchNumber: savedBatch.batchNumber,
-            totalQuantity: location.quantity,
-            currentQuantity: location.quantity,
-            avgWeightG: avgWeightG,
-            totalBiomassKg: location.biomass,
-            currentBiomassKg: location.biomass,
-            densityKgM3: density,
-            capacityUsedPercent: capacityUsedPercent,
-            isOverCapacity: isOverCapacity,
-            isMixedBatch: false,
+            batchId: savedBatch.id,
+            documentType: BatchDocumentType.HEALTH_CERTIFICATE,
+            documentName: doc.documentName,
+            documentNumber: doc.documentNumber,
+            storagePath: doc.storagePath,
+            storageUrl: doc.storageUrl,
+            originalFilename: doc.originalFilename,
+            mimeType: doc.mimeType,
+            fileSize: doc.fileSize,
+            issueDate: doc.issueDate ? new Date(doc.issueDate) : undefined,
+            expiryDate: doc.expiryDate ? new Date(doc.expiryDate) : undefined,
+            issuingAuthority: doc.issuingAuthority,
+            notes: doc.notes,
+            isActive: true,
+            createdBy,
+          })
+        );
+        await queryRunner.manager.save(BatchDocument, healthCertDocs);
+      }
+
+      // Save import documents
+      if (payload.importDocuments && payload.importDocuments.length > 0) {
+        const importDocs = payload.importDocuments.map(doc =>
+          queryRunner.manager.create(BatchDocument, {
+            tenantId,
+            batchId: savedBatch.id,
+            documentType: BatchDocumentType.IMPORT_DOCUMENT,
+            documentName: doc.documentName,
+            documentNumber: doc.documentNumber,
+            storagePath: doc.storagePath,
+            storageUrl: doc.storageUrl,
+            originalFilename: doc.originalFilename,
+            mimeType: doc.mimeType,
+            fileSize: doc.fileSize,
+            issueDate: doc.issueDate ? new Date(doc.issueDate) : undefined,
+            expiryDate: doc.expiryDate ? new Date(doc.expiryDate) : undefined,
+            issuingAuthority: doc.issuingAuthority,
+            notes: doc.notes,
+            isActive: true,
+            createdBy,
+          })
+        );
+        await queryRunner.manager.save(BatchDocument, importDocs);
+      }
+
+      // Process initial locations and create TankBatch records
+      if (payload.initialLocations && payload.initialLocations.length > 0) {
+        this.logger.log(`Processing ${payload.initialLocations.length} initial location(s) for batch ${savedBatch.batchNumber}`);
+
+        for (const location of payload.initialLocations) {
+          const tankId = location.tankId || location.pondId;
+          if (!tankId) {
+            this.logger.warn('Skipping location without tankId or pondId');
+            continue;
+          }
+
+          // Find the equipment (tank/pond/cage)
+          const equipment = await queryRunner.manager.findOne(Equipment, {
+            where: { id: tankId, tenantId },
+            relations: ['equipmentType'],
           });
 
-          this.logger.log(`Created new TankBatch for equipment ${equipment.code}`);
+          if (!equipment) {
+            this.logger.warn(`Equipment ${tankId} not found, skipping allocation`);
+            continue;
+          }
+
+          // Calculate avg weight from biomass and quantity
+          const avgWeightG = location.quantity > 0
+            ? (location.biomass * 1000) / location.quantity
+            : payload.initialAvgWeightG;
+
+          // Check if TankBatch already exists for this equipment
+          let tankBatch = await queryRunner.manager.findOne(TankBatch, {
+            where: { tankId, tenantId },
+          });
+
+          // Calculate density if equipment has volume
+          const specs = equipment.specifications as Record<string, unknown> | undefined;
+          const tankVolume = Number(specs?.waterVolume || specs?.effectiveVolume || specs?.volume || 0);
+          const density = tankVolume > 0 ? location.biomass / tankVolume : 0;
+
+          // Calculate capacity usage
+          const maxBiomass = Number(specs?.maxBiomass || 0);
+          const capacityUsedPercent = maxBiomass > 0 ? (location.biomass / maxBiomass) * 100 : 0;
+          const isOverCapacity = capacityUsedPercent > 100;
+
+          if (tankBatch) {
+            // Update existing TankBatch (mixed batch scenario)
+            tankBatch.isMixedBatch = true;
+            tankBatch.totalQuantity += location.quantity;
+            tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) + location.biomass;
+            tankBatch.avgWeightG = tankBatch.totalQuantity > 0
+              ? (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity
+              : avgWeightG;
+            tankBatch.densityKgM3 = density;
+            tankBatch.capacityUsedPercent = capacityUsedPercent;
+            tankBatch.isOverCapacity = isOverCapacity;
+
+            // Add to batch details
+            const batchDetails = tankBatch.batchDetails || [];
+            batchDetails.push({
+              batchId: savedBatch.id,
+              batchNumber: savedBatch.batchNumber,
+              quantity: location.quantity,
+              avgWeightG: avgWeightG,
+              biomassKg: location.biomass,
+              percentageOfTank: (location.biomass / Number(tankBatch.totalBiomassKg)) * 100,
+            });
+            tankBatch.batchDetails = batchDetails;
+
+            this.logger.log(`Updated existing TankBatch for equipment ${equipment.code} (mixed batch)`);
+          } else {
+            // Create new TankBatch
+            tankBatch = queryRunner.manager.create(TankBatch, {
+              tenantId,
+              tankId,
+              tankName: equipment.name,
+              tankCode: equipment.code,
+              primaryBatchId: savedBatch.id,
+              primaryBatchNumber: savedBatch.batchNumber,
+              totalQuantity: location.quantity,
+              currentQuantity: location.quantity,
+              avgWeightG: avgWeightG,
+              totalBiomassKg: location.biomass,
+              currentBiomassKg: location.biomass,
+              densityKgM3: density,
+              capacityUsedPercent: capacityUsedPercent,
+              isOverCapacity: isOverCapacity,
+              isMixedBatch: false,
+            });
+
+            this.logger.log(`Created new TankBatch for equipment ${equipment.code}`);
+          }
+
+          await queryRunner.manager.save(TankBatch, tankBatch);
+
+          // Update equipment's currentBiomass and currentCount
+          await queryRunner.manager.update(Equipment, tankId, {
+            currentBiomass: Number(tankBatch.totalBiomassKg),
+            currentCount: tankBatch.totalQuantity,
+          });
+
+          this.logger.log(`Allocated ${location.quantity} fish (${location.biomass} kg) to ${equipment.code}`);
         }
-
-        await this.tankBatchRepository.save(tankBatch);
-
-        // Update equipment's currentBiomass and currentCount
-        await this.equipmentRepository.update(tankId, {
-          currentBiomass: Number(tankBatch.totalBiomassKg),
-          currentCount: tankBatch.totalQuantity,
-        });
-
-        this.logger.log(`Allocated ${location.quantity} fish (${location.biomass} kg) to ${equipment.code}`);
       }
-    }
 
-    // Publish domain event: BatchCreated
-    if (this.eventBus) {
-      try {
-        const event: BatchCreatedEvent = {
-          eventId: randomUUID(),
-          eventType: 'BatchCreated',
-          tenantId,
-          timestamp: new Date(),
-          batchId: savedBatch.id,
-          farmId: '', // Not applicable in current schema
-          pondId: '', // Not applicable - using tankId instead
-          name: savedBatch.batchNumber,
-          species: species.commonName,
-          quantity: savedBatch.initialQuantity,
-          stockedAt: savedBatch.stockedAt,
-        };
-        await this.eventBus.publish(event);
-        this.logger.debug(`Published BatchCreatedEvent for batch ${savedBatch.id}`);
-      } catch (eventError) {
-        // Log but don't fail the transaction for event publishing errors
-        this.logger.warn(`Failed to publish BatchCreatedEvent: ${(eventError as Error).message}`);
+      // Commit transaction
+      await queryRunner.commitTransaction();
+
+      // Publish domain event: BatchCreated (after commit, outside transaction)
+      if (this.eventBus) {
+        try {
+          const event: BatchCreatedEvent = {
+            eventId: randomUUID(),
+            eventType: 'BatchCreated',
+            tenantId,
+            timestamp: new Date(),
+            batchId: savedBatch.id,
+            farmId: '', // Not applicable in current schema
+            pondId: '', // Not applicable - using tankId instead
+            name: savedBatch.batchNumber,
+            species: species.commonName,
+            quantity: savedBatch.initialQuantity,
+            stockedAt: savedBatch.stockedAt,
+          };
+          await this.eventBus.publish(event);
+          this.logger.debug(`Published BatchCreatedEvent for batch ${savedBatch.id}`);
+        } catch (eventError) {
+          // Log but don't fail for event publishing errors
+          this.logger.warn(`Failed to publish BatchCreatedEvent: ${(eventError as Error).message}`);
+        }
       }
-    }
 
-    return savedBatch;
+      return savedBatch;
+    } catch (error) {
+      // Rollback transaction on any error
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      // Release query runner
+      await queryRunner.release();
+    }
   }
 }

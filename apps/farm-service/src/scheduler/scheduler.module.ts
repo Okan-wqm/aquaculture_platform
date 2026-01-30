@@ -11,10 +11,8 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 
-// Maintenance Entities
-import { WorkOrder } from '../maintenance/entities/work-order.entity';
-import { MaintenanceSchedule } from '../maintenance/entities/maintenance-schedule.entity';
-import { SparePart } from '../maintenance/entities/spare-part.entity';
+// Modules
+import { MaintenanceModule } from '../maintenance/maintenance.module';
 
 // Feeding Entities
 import { FeedingRecord } from '../feeding/entities/feeding-record.entity';
@@ -28,8 +26,6 @@ import { Feed } from '../feed/entities/feed.entity';
 // Services
 import { CronJobsService } from './cron-jobs.service';
 import { FeedingSchedulerService } from './feeding-scheduler.service';
-import { MaintenanceScheduleService } from '../maintenance/services/maintenance-schedule.service';
-import { SparePartService } from '../maintenance/services/spare-part.service';
 
 @Module({
   imports: [
@@ -46,12 +42,10 @@ import { SparePartService } from '../maintenance/services/spare-part.service';
       // Max listeners per event
       maxListeners: 10,
     }),
+    // Import MaintenanceModule to access MaintenanceScheduleService and SparePartService
+    MaintenanceModule,
     // TypeORM repositories
     TypeOrmModule.forFeature([
-      // Maintenance entities
-      WorkOrder,
-      MaintenanceSchedule,
-      SparePart,
       // Feeding entities
       FeedingRecord,
       FeedingTable,
@@ -64,14 +58,10 @@ import { SparePartService } from '../maintenance/services/spare-part.service';
   providers: [
     CronJobsService,
     FeedingSchedulerService,
-    MaintenanceScheduleService,
-    SparePartService,
   ],
   exports: [
     CronJobsService,
     FeedingSchedulerService,
-    MaintenanceScheduleService,
-    SparePartService,
   ],
 })
 export class SchedulerModule {}

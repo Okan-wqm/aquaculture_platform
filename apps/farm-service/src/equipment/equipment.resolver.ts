@@ -186,8 +186,8 @@ export class EquipmentResolver {
     try {
       const query = new GetDepartmentQuery(equipment.departmentId, equipment.tenantId);
       return this.queryBus.execute(query);
-    } catch (error) {
-      this.logger.debug(`Error resolving department: ${error?.message || error}`);
+    } catch (error: unknown) {
+      this.logger.debug(`Error resolving department: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }

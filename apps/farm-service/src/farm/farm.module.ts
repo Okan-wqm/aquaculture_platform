@@ -12,6 +12,7 @@ import { FarmResolver } from './resolvers/farm.resolver';
 
 // Command Handlers
 import { CreateFarmHandler } from './handlers/create-farm.handler';
+import { UpdateFarmHandler } from './handlers/update-farm.handler';
 import { CreatePondHandler } from './handlers/create-pond.handler';
 import { CreatePondBatchHandler } from './handlers/create-batch.handler';
 import { HarvestBatchHandler } from './handlers/harvest-batch.handler';
@@ -58,6 +59,7 @@ import { FeedModule } from '../feed/feed.module';
 
     // Command Handlers
     CreateFarmHandler,
+    UpdateFarmHandler,
     CreatePondHandler,
     CreatePondBatchHandler,
     HarvestBatchHandler,

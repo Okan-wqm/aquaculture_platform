@@ -76,8 +76,8 @@ export class FarmResolver {
       return await this.queryBus.execute(
         new GetFarmQuery(reference.id, reference.tenantId ?? '', true, false),
       );
-    } catch (error) {
-      this.logger.debug(`Error in resolveReference: ${error?.message || error}`);
+    } catch (error: unknown) {
+      this.logger.debug(`Error in resolveReference: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }

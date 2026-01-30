@@ -265,6 +265,61 @@ try {
 5. Write unit tests for services
 6. Use parameterized queries for SQL
 
+## Changelog
+
+### Recent Audit & Improvements (January 2026)
+
+#### ec9c2c5 - Comprehensive farm-service audit fixes
+- Added JwtAuthGuard to REST controllers
+- Fixed secret exposure in SentinelHub resolver
+- Added transaction management to create-batch, transfer-batch, create-harvest handlers
+- Fixed MaskinportenService memory leak with TTL-based cache cleanup
+- Fixed N+1 queries with batch fetching in 7+ files
+
+#### e5badfe - Security hardening and code quality improvements
+- Added GqlAuthGuard to 10 unprotected resolver classes
+- Created schema-sanitizer utility for SQL injection prevention
+- Fixed 13 empty catch blocks with proper error logging
+- Added comprehensive README documentation
+
+#### e1690fc - Critical bug fixes and security improvements
+- Removed hardcoded encryption keys (now via ConfigService)
+- Fixed division by zero in growth-measurement and fcr-calculation
+- Replaced wildcard CORS with environment-based configuration
+- Added memory leak prevention in scheduler services
+
+#### 446bdb4 - Comprehensive farm-service improvements
+- Added 27 new DTO files with validation decorators
+- Implemented FeedingSchedulerService completely
+- Created EventListenersModule with 6 event listeners
+- Added transaction management to critical operations
+- Fixed SQL injection with parameterized queries
+
+#### aa11c18 - TypeScript errors and README documentation
+- Fixed TypeScript compilation errors
+- Added comprehensive README documentation
+
+### Audit Status
+
+| Category | Status | Notes |
+|----------|--------|-------|
+| TypeScript Compilation | ✅ Pass | All errors fixed |
+| Security (Guards) | ✅ Pass | All resolvers protected |
+| Security (RBAC) | ✅ Pass | @Roles on mutations |
+| SQL Injection | ✅ Pass | Schema sanitization |
+| N+1 Queries | ✅ Pass | Batch fetching implemented |
+| Transaction Management | ✅ Pass | Critical handlers covered |
+| Memory Management | ✅ Pass | TTL cleanup implemented |
+| Error Handling | ✅ Pass | Proper type guards |
+| Module Structure | ✅ Pass | No circular deps |
+| Test Coverage | ⚠️ 21% | Needs improvement |
+
+### Known Limitations
+
+- FishHealthModule is scaffolded but not fully implemented
+- Test coverage at 21% (priority for future sprints)
+- Some TODO comments for EventBus integration pending
+
 ## License
 
 Proprietary - All rights reserved

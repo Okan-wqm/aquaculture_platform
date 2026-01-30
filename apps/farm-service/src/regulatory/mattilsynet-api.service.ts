@@ -16,7 +16,7 @@
  * - POST /api/slakt/v1/utfort          - Executed slaughter reports
  */
 
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MaskinportenService, MATTILSYNET_SCOPES } from './maskinporten.service';
 import { RegulatorySettingsService } from './regulatory-settings.service';
@@ -367,7 +367,7 @@ export class MattilsynetApiService {
   constructor(
     private readonly configService: ConfigService,
     private readonly maskinporten: MaskinportenService,
-    @Inject(forwardRef(() => RegulatorySettingsService))
+    @Inject(RegulatorySettingsService)
     private readonly settingsService: RegulatorySettingsService,
   ) {
     // Default to test environment

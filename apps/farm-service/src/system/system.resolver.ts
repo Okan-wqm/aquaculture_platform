@@ -184,8 +184,8 @@ export class SystemResolver {
     try {
       const query = new GetSiteQuery(system.siteId, system.tenantId);
       return this.queryBus.execute(query);
-    } catch (error) {
-      this.logger.debug(`Error resolving site: ${error?.message || error}`);
+    } catch (error: unknown) {
+      this.logger.debug(`Error resolving site: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
@@ -200,8 +200,8 @@ export class SystemResolver {
     try {
       const query = new GetDepartmentQuery(system.departmentId, system.tenantId);
       return this.queryBus.execute(query);
-    } catch (error) {
-      this.logger.debug(`Error resolving department: ${error?.message || error}`);
+    } catch (error: unknown) {
+      this.logger.debug(`Error resolving department: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
@@ -216,8 +216,8 @@ export class SystemResolver {
     try {
       const query = new GetSystemQuery(system.parentSystemId, system.tenantId);
       return this.queryBus.execute(query);
-    } catch (error) {
-      this.logger.debug(`Error resolving parentSystem: ${error?.message || error}`);
+    } catch (error: unknown) {
+      this.logger.debug(`Error resolving parentSystem: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
@@ -233,8 +233,8 @@ export class SystemResolver {
       const query = new ListSystemsQuery(system.tenantId, { parentSystemId: system.id, isActive: true }, { limit: 1000 });
       const result = await this.queryBus.execute(query);
       return result.items;
-    } catch (error) {
-      this.logger.debug(`Error resolving childSystemsField: ${error?.message || error}`);
+    } catch (error: unknown) {
+      this.logger.debug(`Error resolving childSystemsField: ${error instanceof Error ? error.message : String(error)}`);
       return [];
     }
   }

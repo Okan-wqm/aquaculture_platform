@@ -10,7 +10,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { GrowthMeasurement } from '../../growth/entities/growth-measurement.entity';
 import { Batch } from '../entities/batch.entity';
 import { Species } from '../../species/entities/species.entity';
@@ -245,12 +245,15 @@ export class SGRCalculatorService {
   ): Promise<SGRComparison[]> {
     const comparisons: SGRComparison[] = [];
 
-    for (const batchId of batchIds) {
-      const batch = await this.batchRepository.findOne({
-        where: { id: batchId, tenantId },
-        relations: ['species'],
-      });
+    // Batch fetch all batches at once to avoid N+1 query problem
+    const batches = await this.batchRepository.find({
+      where: { id: In(batchIds), tenantId },
+      relations: ['species'],
+    });
+    const batchMap = new Map(batches.map(b => [b.id, b]));
 
+    for (const batchId of batchIds) {
+      const batch = batchMap.get(batchId);
       if (!batch) continue;
 
       const trendAnalysis = await this.analyzeSGRTrend(batchId, tenantId);

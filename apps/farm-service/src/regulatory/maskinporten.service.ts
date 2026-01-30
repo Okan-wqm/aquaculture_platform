@@ -16,7 +16,7 @@
  * - mattilsynet:akvakultur.innrapportering.slakt
  */
 
-import { Injectable, Logger, Inject, forwardRef, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, Inject, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as jwt from 'jsonwebtoken';
 import * as crypto from 'crypto';
@@ -123,7 +123,7 @@ export class MaskinportenService implements OnModuleDestroy {
 
   constructor(
     private readonly configService: ConfigService,
-    @Inject(forwardRef(() => RegulatorySettingsService))
+    @Inject(RegulatorySettingsService)
     private readonly settingsService: RegulatorySettingsService,
   ) {
     // Start periodic cleanup to prevent memory leaks

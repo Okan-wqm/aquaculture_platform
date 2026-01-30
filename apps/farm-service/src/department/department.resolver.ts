@@ -140,8 +140,8 @@ export class DepartmentResolver {
     try {
       const query = new GetSiteQuery(department.siteId, department.tenantId);
       return this.queryBus.execute(query);
-    } catch (error) {
-      this.logger.debug(`Error resolving site: ${error?.message || error}`);
+    } catch (error: unknown) {
+      this.logger.debug(`Error resolving site: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }

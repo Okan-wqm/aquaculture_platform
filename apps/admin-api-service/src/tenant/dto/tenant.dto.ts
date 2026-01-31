@@ -113,24 +113,37 @@ export class TenantSettingsDto {
   features?: string[];
 }
 
+/**
+ * Contact information DTO with proper validation
+ * Used for primaryContact and billingContact fields
+ */
 export class TenantContactDto {
   @IsString()
-  @MaxLength(100)
-  @IsNotEmpty()
+  @MinLength(2, { message: 'Name must be at least 2 characters' })
+  @MaxLength(100, { message: 'Name must not exceed 100 characters' })
+  @IsNotEmpty({ message: 'Name is required' })
+  @Transform(({ value }) => value?.trim())
   name!: string;
 
-  @IsEmail()
+  @IsEmail({}, { message: 'Email must be a valid email address' })
   @MaxLength(255)
+  @IsNotEmpty({ message: 'Email is required' })
+  @Transform(({ value }) => value?.toLowerCase().trim())
   email!: string;
 
   @IsOptional()
   @IsString()
+  @Matches(/^\+?[1-9]\d{1,14}$|^(\+?\d{1,4}[-.\s]?)?(\(?\d{1,4}\)?[-.\s]?)?\d{1,4}[-.\s]?\d{1,9}$/, {
+    message: 'Phone must be in E.164 format (e.g., +1234567890) or common phone format',
+  })
   @MaxLength(30)
   phone?: string;
 
+  @IsOptional()
   @IsString()
-  @MaxLength(50)
-  role!: string;
+  @MaxLength(100, { message: 'Role must not exceed 100 characters' })
+  @Transform(({ value }) => value?.trim())
+  role?: string;
 }
 
 /**
@@ -233,7 +246,10 @@ export class CreateTenantDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(100)
+  @Matches(/^[A-Z]{2}$/, {
+    message: 'Country must be a valid ISO 3166-1 alpha-2 code (e.g., US, GB, AU)',
+  })
+  @Transform(({ value }) => value?.toUpperCase().trim())
   country?: string;
 
   @IsOptional()
@@ -336,7 +352,10 @@ export class UpdateTenantDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(100)
+  @Matches(/^[A-Z]{2}$/, {
+    message: 'Country must be a valid ISO 3166-1 alpha-2 code (e.g., US, GB, AU)',
+  })
+  @Transform(({ value }) => value?.toUpperCase().trim())
   country?: string;
 
   @IsOptional()

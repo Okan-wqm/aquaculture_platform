@@ -5,6 +5,21 @@ import { Tenant, TenantStatus } from '../entities/tenant.entity';
 import * as crypto from 'crypto';
 import { EmailSenderService } from '../../settings/services/email-sender.service';
 import { SchemaManagerService } from '@platform/backend-common';
+import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
+import { RoleTemplateService } from '../../users/services/role-template.service';
+
+/**
+ * Default tenant role definition for provisioning
+ */
+export interface DefaultTenantRole {
+  code: string;
+  name: string;
+  description: string;
+  permissions: string[];
+  isDefault: boolean;
+  isEditable: boolean;
+  displayOrder: number;
+}
 
 export interface ProvisioningResult {
   success: boolean;
@@ -39,11 +54,126 @@ export class TenantProvisioningService {
   private readonly logger = new Logger(TenantProvisioningService.name);
   private readonly schemaManager: SchemaManagerService;
 
+  /**
+   * Default roles to be created for each tenant during provisioning
+   */
+  private readonly defaultRoles: DefaultTenantRole[] = [
+    {
+      code: 'TENANT_ADMIN',
+      name: 'Tenant Administrator',
+      description: 'Full administrative access to all tenant resources and settings',
+      permissions: [
+        'dashboard:view',
+        'dashboard:analytics',
+        'users:view',
+        'users:create',
+        'users:edit',
+        'users:delete',
+        'users:invite',
+        'users:roles',
+        'farms:view',
+        'farms:create',
+        'farms:edit',
+        'farms:delete',
+        'farms:manage',
+        'ponds:view',
+        'ponds:create',
+        'ponds:edit',
+        'ponds:delete',
+        'sensors:view',
+        'sensors:create',
+        'sensors:edit',
+        'sensors:delete',
+        'sensors:calibrate',
+        'alerts:view',
+        'alerts:create',
+        'alerts:edit',
+        'alerts:delete',
+        'alerts:acknowledge',
+        'feed:view',
+        'feed:create',
+        'feed:edit',
+        'feed:schedule',
+        'reports:view',
+        'reports:create',
+        'reports:export',
+        'settings:view',
+        'settings:edit',
+        'billing:view',
+        'billing:manage',
+        'audit:view',
+        'api:manage',
+      ],
+      isDefault: true,
+      isEditable: false,
+      displayOrder: 1,
+    },
+    {
+      code: 'TENANT_MANAGER',
+      name: 'Tenant Manager',
+      description: 'Manage operations, users, and resources within the tenant',
+      permissions: [
+        'dashboard:view',
+        'dashboard:analytics',
+        'users:view',
+        'users:create',
+        'users:edit',
+        'users:invite',
+        'farms:view',
+        'farms:create',
+        'farms:edit',
+        'ponds:view',
+        'ponds:create',
+        'ponds:edit',
+        'sensors:view',
+        'sensors:create',
+        'sensors:edit',
+        'sensors:calibrate',
+        'alerts:view',
+        'alerts:create',
+        'alerts:edit',
+        'alerts:acknowledge',
+        'feed:view',
+        'feed:create',
+        'feed:edit',
+        'feed:schedule',
+        'reports:view',
+        'reports:create',
+        'reports:export',
+        'settings:view',
+      ],
+      isDefault: true,
+      isEditable: true,
+      displayOrder: 2,
+    },
+    {
+      code: 'TENANT_USER',
+      name: 'Tenant User',
+      description: 'Standard user access with read and basic write permissions',
+      permissions: [
+        'dashboard:view',
+        'farms:view',
+        'ponds:view',
+        'sensors:view',
+        'alerts:view',
+        'alerts:acknowledge',
+        'feed:view',
+        'feed:create',
+        'reports:view',
+      ],
+      isDefault: true,
+      isEditable: true,
+      displayOrder: 3,
+    },
+  ];
+
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly tenantConfigurationService: TenantConfigurationService,
+    private readonly roleTemplateService: RoleTemplateService,
     @Optional()
     private readonly emailSenderService?: EmailSenderService,
   ) {
@@ -400,22 +530,237 @@ export class TenantProvisioningService {
     );
   }
 
+  /**
+   * Setup default roles for a newly provisioned tenant
+   * Creates TENANT_ADMIN, TENANT_MANAGER, and TENANT_USER roles
+   */
   private async setupDefaultRoles(tenant: Tenant): Promise<void> {
-    // Setup default roles for the tenant
     this.logger.log(`Setting up default roles for tenant ${tenant.id}`);
 
-    // Default roles: admin, manager, operator, viewer
-    // In real implementation, this would create role records
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Ensure the tenant_roles table exists
+    await this.ensureTenantRolesTableExists();
+
+    // Create each default role for the tenant
+    for (const role of this.defaultRoles) {
+      try {
+        // Check if role already exists for this tenant
+        const existingRole = await this.dataSource.query(
+          `SELECT id FROM tenant_roles WHERE tenant_id = $1 AND code = $2`,
+          [tenant.id, role.code],
+        );
+
+        if (existingRole && existingRole.length > 0) {
+          this.logger.debug(
+            `Role ${role.code} already exists for tenant ${tenant.id}, skipping`,
+          );
+          continue;
+        }
+
+        // Insert the role
+        await this.dataSource.query(
+          `
+          INSERT INTO tenant_roles (
+            id, tenant_id, code, name, description, permissions,
+            is_default, is_editable, display_order, created_at, updated_at
+          ) VALUES (
+            gen_random_uuid(), $1, $2, $3, $4, $5,
+            $6, $7, $8, NOW(), NOW()
+          )
+        `,
+          [
+            tenant.id,
+            role.code,
+            role.name,
+            role.description,
+            JSON.stringify(role.permissions),
+            role.isDefault,
+            role.isEditable,
+            role.displayOrder,
+          ],
+        );
+
+        this.logger.debug(`Created role ${role.code} for tenant ${tenant.id}`);
+      } catch (error) {
+        this.logger.error(
+          `Failed to create role ${role.code} for tenant ${tenant.id}: ${(error as Error).message}`,
+        );
+        throw error;
+      }
+    }
+
+    this.logger.log(
+      `Successfully created ${this.defaultRoles.length} default roles for tenant ${tenant.id}`,
+    );
   }
 
+  /**
+   * Ensure the tenant_roles table exists in the database
+   */
+  private async ensureTenantRolesTableExists(): Promise<void> {
+    try {
+      await this.dataSource.query(`
+        CREATE TABLE IF NOT EXISTS tenant_roles (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          tenant_id UUID NOT NULL,
+          code VARCHAR(50) NOT NULL,
+          name VARCHAR(100) NOT NULL,
+          description TEXT,
+          permissions JSONB NOT NULL DEFAULT '[]',
+          is_default BOOLEAN NOT NULL DEFAULT false,
+          is_editable BOOLEAN NOT NULL DEFAULT true,
+          display_order INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          CONSTRAINT uk_tenant_roles_tenant_code UNIQUE (tenant_id, code),
+          CONSTRAINT fk_tenant_roles_tenant FOREIGN KEY (tenant_id)
+            REFERENCES tenants(id) ON DELETE CASCADE
+        )
+      `);
+
+      // Create indexes for better query performance
+      await this.dataSource.query(`
+        CREATE INDEX IF NOT EXISTS idx_tenant_roles_tenant_id
+        ON tenant_roles(tenant_id)
+      `);
+
+      await this.dataSource.query(`
+        CREATE INDEX IF NOT EXISTS idx_tenant_roles_code
+        ON tenant_roles(code)
+      `);
+    } catch (error) {
+      // Table might already exist or constraint might already be in place
+      this.logger.debug(
+        `tenant_roles table setup: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Get default roles for a tenant
+   */
+  async getTenantRoles(
+    tenantId: string,
+  ): Promise<Array<DefaultTenantRole & { id: string; createdAt: Date; updatedAt: Date }>> {
+    const roles = await this.dataSource.query(
+      `
+      SELECT id, tenant_id, code, name, description, permissions,
+             is_default, is_editable, display_order, created_at, updated_at
+      FROM tenant_roles
+      WHERE tenant_id = $1
+      ORDER BY display_order ASC
+    `,
+      [tenantId],
+    );
+
+    return roles.map(
+      (row: {
+        id: string;
+        code: string;
+        name: string;
+        description: string;
+        permissions: string;
+        is_default: boolean;
+        is_editable: boolean;
+        display_order: number;
+        created_at: Date;
+        updated_at: Date;
+      }) => ({
+        id: row.id,
+        code: row.code,
+        name: row.name,
+        description: row.description,
+        permissions:
+          typeof row.permissions === 'string'
+            ? JSON.parse(row.permissions)
+            : row.permissions,
+        isDefault: row.is_default,
+        isEditable: row.is_editable,
+        displayOrder: row.display_order,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }),
+    );
+  }
+
+  /**
+   * Get a specific role for a tenant by code
+   */
+  async getTenantRoleByCode(
+    tenantId: string,
+    roleCode: string,
+  ): Promise<(DefaultTenantRole & { id: string }) | null> {
+    const roles = await this.dataSource.query(
+      `
+      SELECT id, code, name, description, permissions,
+             is_default, is_editable, display_order
+      FROM tenant_roles
+      WHERE tenant_id = $1 AND code = $2
+    `,
+      [tenantId, roleCode],
+    );
+
+    if (!roles || roles.length === 0) {
+      return null;
+    }
+
+    const row = roles[0];
+    return {
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      description: row.description,
+      permissions:
+        typeof row.permissions === 'string'
+          ? JSON.parse(row.permissions)
+          : row.permissions,
+      isDefault: row.is_default,
+      isEditable: row.is_editable,
+      displayOrder: row.display_order,
+    };
+  }
+
+  /**
+   * Create default configuration for a newly provisioned tenant
+   * Uses the TenantConfigurationService to create the configuration record
+   */
   private async createDefaultConfiguration(tenant: Tenant): Promise<void> {
-    // Create default configuration for the tenant
     this.logger.log(`Creating default configuration for tenant ${tenant.id}`);
 
-    // In real implementation, this would create configuration records
-    // using the Config Service
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    try {
+      // Use the TenantConfigurationService to create the configuration
+      // This will use the defaults from createDefaultTenantConfiguration
+      await this.tenantConfigurationService.createConfiguration({
+        tenantId: tenant.id,
+        // Override defaults with tenant-specific settings if available
+        brandingConfig: {
+          companyName: tenant.name,
+        },
+        // Enable basic feature flags for new tenants
+        featureFlags: {
+          dataExport: true,
+          auditLog: true,
+          mobileAccess: true,
+          iotDeviceSupport: true,
+        },
+      });
+
+      this.logger.log(
+        `Successfully created default configuration for tenant ${tenant.id}`,
+      );
+    } catch (error) {
+      // If configuration already exists, log and continue
+      if ((error as Error).message?.includes('already exists')) {
+        this.logger.warn(
+          `Configuration already exists for tenant ${tenant.id}, skipping creation`,
+        );
+        return;
+      }
+
+      this.logger.error(
+        `Failed to create configuration for tenant ${tenant.id}: ${(error as Error).message}`,
+      );
+      throw error;
+    }
   }
 
   private async backupTenantData(tenant: Tenant): Promise<void> {

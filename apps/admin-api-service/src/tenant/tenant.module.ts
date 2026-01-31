@@ -33,6 +33,7 @@ import { ModuleAssignmentService } from '../modules/tenant-management/services/m
 import { AuditLogModule } from '../audit/audit.module';
 import { SettingsModule } from '../settings/settings.module';
 import { BillingModule } from '../billing/billing.module';
+import { UsersModule } from '../users/users.module';
 
 const CommandHandlers = [
   CreateTenantHandler,
@@ -67,6 +68,7 @@ const QueryHandlers = [
     AuditLogModule,
     SettingsModule,
     BillingModule,
+    UsersModule,
   ],
   controllers: [TenantController],
   providers: [

@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { WorkArea } from './entities/work-area.entity';
@@ -15,7 +15,7 @@ import { HRModule } from '../hr/hr.module';
       WorkRotation,
       SafetyTrainingRecord,
     ]),
-    forwardRef(() => HRModule),
+    HRModule,
     CqrsModule,
   ],
   providers: [

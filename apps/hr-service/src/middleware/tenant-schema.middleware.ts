@@ -112,7 +112,7 @@ export class TenantSchemaMiddleware implements NestMiddleware {
       this.logger.debug(`Schema: ${req.schemaName} (${Date.now() - startTime}ms)`);
 
     } catch (error) {
-      this.logger.error(`Schema middleware error: ${(error as Error).message}`);
+      this.logger.error(`Schema middleware error: ${error instanceof Error ? error.message : String(error)}`);
 
       // Attempt fallback
       try {
@@ -126,12 +126,16 @@ export class TenantSchemaMiddleware implements NestMiddleware {
     // CRITICAL: Reset search_path when response finishes
     // Prevents connection pool contamination
     res.on('finish', () => {
-      this.resetSearchPath().catch(() => {});
+      this.resetSearchPath().catch((err) => {
+        this.logger.warn(`Failed to reset search path: ${err instanceof Error ? err.message : String(err)}`);
+      });
     });
 
     // Also reset on connection close (client disconnect)
     res.on('close', () => {
-      this.resetSearchPath().catch(() => {});
+      this.resetSearchPath().catch((err) => {
+        this.logger.warn(`Failed to reset search path: ${err instanceof Error ? err.message : String(err)}`);
+      });
     });
 
     next();

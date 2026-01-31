@@ -1,5 +1,9 @@
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
-import { UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException, UseGuards } from '@nestjs/common';
+import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Role } from '../common/enums/role.enum';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Employee, EmployeeStatus, Department } from './entities/employee.entity';
 import { Payroll, PayrollStatus } from './entities/payroll.entity';
@@ -28,6 +32,7 @@ interface GraphQLContext {
   };
 }
 
+@UseGuards(GqlAuthGuard)
 @Resolver(() => Employee)
 export class HRResolver {
   constructor(
@@ -46,10 +51,10 @@ export class HRResolver {
   }
 
   private getUserId(context: GraphQLContext): string {
-    const userId =
-      context.req.user?.sub ||
-      context.req.headers['x-user-id'] ||
-      'system';
+    const userId = context.req.user?.sub || context.req.headers['x-user-id'];
+    if (!userId || typeof userId !== 'string') {
+      throw new UnauthorizedException('User ID is required');
+    }
     return userId;
   }
 
@@ -95,6 +100,8 @@ export class HRResolver {
 
   // Employee Mutations
   @Mutation(() => Employee)
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER)
   async createEmployee(
     @Args('input') input: CreateEmployeeInput,
     @Context() context: GraphQLContext,
@@ -107,6 +114,8 @@ export class HRResolver {
   }
 
   @Mutation(() => Employee)
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER)
   async updateEmployee(
     @Args('input') input: UpdateEmployeeInput,
     @Context() context: GraphQLContext,
@@ -119,6 +128,8 @@ export class HRResolver {
   }
 
   @Mutation(() => Employee)
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER)
   async terminateEmployee(
     @Args('id', { type: () => ID }) id: string,
     @Args('terminationDate') terminationDate: string,
@@ -165,6 +176,8 @@ export class HRResolver {
 
   // Payroll Mutations
   @Mutation(() => Payroll)
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER)
   async createPayroll(
     @Args('input') input: CreatePayrollInput,
     @Context() context: GraphQLContext,
@@ -177,6 +190,8 @@ export class HRResolver {
   }
 
   @Mutation(() => Payroll)
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
   async approvePayroll(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,

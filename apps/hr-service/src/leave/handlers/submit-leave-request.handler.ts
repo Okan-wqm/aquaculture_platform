@@ -1,7 +1,7 @@
 import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { SubmitLeaveRequestCommand } from '../commands/submit-leave-request.command';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { LeaveBalance } from '../entities/leave-balance.entity';
@@ -11,6 +11,8 @@ import { LeaveRequestSubmittedEvent } from '../events/leave.events';
 export class SubmitLeaveRequestHandler
   implements ICommandHandler<SubmitLeaveRequestCommand>
 {
+  private readonly logger = new Logger(SubmitLeaveRequestHandler.name);
+
   constructor(
     @InjectRepository(LeaveRequest)
     private readonly leaveRequestRepository: Repository<LeaveRequest>,
@@ -76,7 +78,9 @@ export class SubmitLeaveRequestHandler
     const savedRequest = await this.leaveRequestRepository.save(leaveRequest);
 
     // Publish event for notification/audit purposes
-    this.eventBus.publish(new LeaveRequestSubmittedEvent(savedRequest));
+    this.eventBus.publish(new LeaveRequestSubmittedEvent(savedRequest)).catch((err) => {
+      this.logger.warn(`Failed to publish LeaveRequestSubmittedEvent: ${err instanceof Error ? err.message : String(err)}`);
+    });
 
     return savedRequest;
   }

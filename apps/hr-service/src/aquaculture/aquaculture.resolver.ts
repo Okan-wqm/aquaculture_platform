@@ -1,5 +1,6 @@
 import { Resolver, Query, Args, ID, Context } from '@nestjs/graphql';
-import { UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException, UseGuards } from '@nestjs/common';
+import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { QueryBus } from '@nestjs/cqrs';
 import { WorkArea, WorkAreaType } from './entities/work-area.entity';
 import { WorkRotation, RotationStatus } from './entities/work-rotation.entity';
@@ -23,6 +24,7 @@ interface GraphQLContext {
   };
 }
 
+@UseGuards(GqlAuthGuard)
 @Resolver()
 export class AquacultureResolver {
   constructor(private readonly queryBus: QueryBus) {}
@@ -38,10 +40,10 @@ export class AquacultureResolver {
   }
 
   private getUserId(context: GraphQLContext): string {
-    const userId =
-      context.req.user?.sub ||
-      context.req.headers['x-user-id'] ||
-      'system';
+    const userId = context.req.user?.sub || context.req.headers['x-user-id'];
+    if (!userId || typeof userId !== 'string') {
+      throw new UnauthorizedException('User ID is required');
+    }
     return userId;
   }
 

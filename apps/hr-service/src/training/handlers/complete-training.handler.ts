@@ -1,7 +1,7 @@
 import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { CompleteTrainingCommand } from '../commands/complete-training.command';
 import { TrainingEnrollment, EnrollmentStatus, AssessmentAttempt } from '../entities/training-enrollment.entity';
 import { TrainingCourse } from '../entities/training-course.entity';
@@ -11,6 +11,8 @@ import { TrainingCompletedEvent } from '../events/training.events';
 export class CompleteTrainingHandler
   implements ICommandHandler<CompleteTrainingCommand>
 {
+  private readonly logger = new Logger(CompleteTrainingHandler.name);
+
   constructor(
     @InjectRepository(TrainingEnrollment)
     private readonly enrollmentRepository: Repository<TrainingEnrollment>,
@@ -94,7 +96,9 @@ export class CompleteTrainingHandler
 
     // Publish event for notification/audit purposes when training is completed
     if (savedEnrollment.status === EnrollmentStatus.PASSED || savedEnrollment.status === EnrollmentStatus.COMPLETED) {
-      this.eventBus.publish(new TrainingCompletedEvent(savedEnrollment));
+      this.eventBus.publish(new TrainingCompletedEvent(savedEnrollment)).catch((err) => {
+        this.logger.warn(`Failed to publish TrainingCompletedEvent: ${err instanceof Error ? err.message : String(err)}`);
+      });
     }
 
     return savedEnrollment;

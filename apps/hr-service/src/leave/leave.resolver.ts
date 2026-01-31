@@ -1,5 +1,9 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
-import { UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException, UseGuards } from '@nestjs/common';
+import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Role } from '../common/enums/role.enum';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { LeaveType, LeaveCategory } from './entities/leave-type.entity';
 import { LeaveBalance } from './entities/leave-balance.entity';
@@ -54,6 +58,7 @@ class LeaveRequestConnection {
   hasMore!: boolean;
 }
 
+@UseGuards(GqlAuthGuard)
 @Resolver(() => LeaveRequest)
 export class LeaveResolver {
   constructor(
@@ -72,10 +77,10 @@ export class LeaveResolver {
   }
 
   private getUserId(context: GraphQLContext): string {
-    const userId =
-      context.req.user?.sub ||
-      context.req.headers['x-user-id'] ||
-      'system';
+    const userId = context.req.user?.sub || context.req.headers['x-user-id'];
+    if (!userId || typeof userId !== 'string') {
+      throw new UnauthorizedException('User ID is required');
+    }
     return userId;
   }
 
@@ -248,6 +253,8 @@ export class LeaveResolver {
   }
 
   @Mutation(() => LeaveRequest)
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
   async approveLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -261,6 +268,8 @@ export class LeaveResolver {
   }
 
   @Mutation(() => LeaveRequest)
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
   async rejectLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
     @Args('reason') reason: string,

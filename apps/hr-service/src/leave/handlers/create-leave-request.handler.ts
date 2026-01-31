@@ -171,8 +171,8 @@ export class CreateLeaveRequestHandler
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(
-        `Failed to create leave request: ${(error as Error).message}`,
-        (error as Error).stack,
+        `Failed to create leave request: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
       );
       throw error;
     } finally {

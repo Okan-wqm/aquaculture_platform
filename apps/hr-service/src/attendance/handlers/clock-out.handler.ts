@@ -1,7 +1,7 @@
 import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { Repository, DataSource } from 'typeorm';
+import { BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { ClockOutCommand } from '../commands/clock-out.command';
 import { AttendanceRecord, AttendanceStatus, ApprovalStatus } from '../entities/attendance-record.entity';
 import { Shift } from '../entities/shift.entity';
@@ -29,119 +29,137 @@ function safeParseTime(time: string | undefined): [number, number] {
 
 @CommandHandler(ClockOutCommand)
 export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
+  private readonly logger = new Logger(ClockOutHandler.name);
+
   constructor(
     @InjectRepository(AttendanceRecord)
     private readonly attendanceRepository: Repository<AttendanceRecord>,
     @InjectRepository(Shift)
     private readonly shiftRepository: Repository<Shift>,
     private readonly eventBus: EventBus,
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(command: ClockOutCommand): Promise<AttendanceRecord> {
     const { tenantId, userId, employeeId, method, location, remarks } = command;
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    // Find today's attendance record with clock-in
-    const attendanceRecord = await this.attendanceRepository.findOne({
-      where: {
-        tenantId,
-        employeeId,
-        date: today,
-        isDeleted: false,
-      },
-      relations: ['shift'],
-    });
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
-    if (!attendanceRecord) {
-      throw new NotFoundException('No attendance record found for today. Please clock in first.');
-    }
-
-    if (!attendanceRecord.clockIn) {
-      throw new BadRequestException('Cannot clock out without clocking in first');
-    }
-
-    if (attendanceRecord.clockOut) {
-      throw new BadRequestException('Employee has already clocked out today');
-    }
-
-    const now = new Date();
-    const clockInTime = new Date(attendanceRecord.clockIn);
-
-    // Calculate worked minutes
-    const workedMinutes = Math.floor((now.getTime() - clockInTime.getTime()) / 60000);
-
-    // Get shift details if available
-    let earlyLeaveMinutes = 0;
-    let overtimeMinutes = 0;
-    let shift: Shift | null = null;
-
-    if (attendanceRecord.shiftId) {
-      shift = await this.shiftRepository.findOne({
-        where: { id: attendanceRecord.shiftId },
+      // Find today's attendance record with clock-in
+      const attendanceRecord = await queryRunner.manager.findOne(AttendanceRecord, {
+        where: {
+          tenantId,
+          employeeId,
+          date: today,
+          isDeleted: false,
+        },
+        relations: ['shift'],
       });
-    }
 
-    if (shift) {
-      // Safely parse shift end time with validation
-      const [shiftEndHours, shiftEndMinutes] = safeParseTime(shift.endTime);
-      const shiftEnd = new Date(today);
-      shiftEnd.setHours(shiftEndHours, shiftEndMinutes, 0, 0);
-
-      if (shift.crossesMidnight) {
-        shiftEnd.setDate(shiftEnd.getDate() + 1);
+      if (!attendanceRecord) {
+        throw new NotFoundException('No attendance record found for today. Please clock in first.');
       }
 
-      // Calculate early leave
-      if (now < shiftEnd) {
-        earlyLeaveMinutes = Math.floor((shiftEnd.getTime() - now.getTime()) / 60000);
+      if (!attendanceRecord.clockIn) {
+        throw new BadRequestException('Cannot clock out without clocking in first');
       }
 
-      // Calculate overtime
-      if (now > shiftEnd) {
-        overtimeMinutes = Math.floor((now.getTime() - shiftEnd.getTime()) / 60000);
+      if (attendanceRecord.clockOut) {
+        throw new BadRequestException('Employee has already clocked out today');
       }
+
+      const now = new Date();
+      const clockInTime = new Date(attendanceRecord.clockIn);
+
+      // Calculate worked minutes
+      const workedMinutes = Math.floor((now.getTime() - clockInTime.getTime()) / 60000);
+
+      // Get shift details if available
+      let earlyLeaveMinutes = 0;
+      let overtimeMinutes = 0;
+      let shift: Shift | null = null;
+
+      if (attendanceRecord.shiftId) {
+        shift = await queryRunner.manager.findOne(Shift, {
+          where: { id: attendanceRecord.shiftId },
+        });
+      }
+
+      if (shift) {
+        // Safely parse shift end time with validation
+        const [shiftEndHours, shiftEndMinutes] = safeParseTime(shift.endTime);
+        const shiftEnd = new Date(today);
+        shiftEnd.setHours(shiftEndHours, shiftEndMinutes, 0, 0);
+
+        if (shift.crossesMidnight) {
+          shiftEnd.setDate(shiftEnd.getDate() + 1);
+        }
+
+        // Calculate early leave
+        if (now < shiftEnd) {
+          earlyLeaveMinutes = Math.floor((shiftEnd.getTime() - now.getTime()) / 60000);
+        }
+
+        // Calculate overtime
+        if (now > shiftEnd) {
+          overtimeMinutes = Math.floor((now.getTime() - shiftEnd.getTime()) / 60000);
+        }
+      }
+
+      // Update status based on calculations
+      let status = attendanceRecord.status;
+      if (earlyLeaveMinutes > 0) {
+        status = status === AttendanceStatus.LATE ? AttendanceStatus.LATE : AttendanceStatus.EARLY_LEAVE;
+      }
+
+      // Calculate actual break time (if any recorded breaks)
+      const breakMinutes = shift?.breakMinutes || 0;
+      const netWorkedMinutes = workedMinutes - breakMinutes;
+
+      // Update attendance record
+      attendanceRecord.clockOut = now;
+      attendanceRecord.clockOutMethod = method;
+      attendanceRecord.clockOutLocation = location;
+      attendanceRecord.workedMinutes = netWorkedMinutes > 0 ? netWorkedMinutes : 0;
+      attendanceRecord.overtimeMinutes = overtimeMinutes;
+      attendanceRecord.earlyLeaveMinutes = earlyLeaveMinutes;
+      attendanceRecord.breakMinutes = breakMinutes;
+      attendanceRecord.status = status;
+
+      // If there were any irregularities, set for review
+      if (earlyLeaveMinutes > 0 || attendanceRecord.lateMinutes > 0) {
+        attendanceRecord.approvalStatus = ApprovalStatus.PENDING_REVIEW;
+      }
+
+      if (remarks) {
+        attendanceRecord.remarks = attendanceRecord.remarks
+          ? `${attendanceRecord.remarks}; ${remarks}`
+          : remarks;
+      }
+
+      attendanceRecord.updatedBy = userId;
+
+      const savedRecord = await queryRunner.manager.save(AttendanceRecord, attendanceRecord);
+
+      await queryRunner.commitTransaction();
+
+      // Publish event for notification/audit purposes
+      this.eventBus.publish(new EmployeeClockedOutEvent(savedRecord)).catch((err) => {
+        this.logger.warn(`Failed to publish EmployeeClockedOutEvent: ${err instanceof Error ? err.message : String(err)}`);
+      });
+
+      return savedRecord;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-
-    // Update status based on calculations
-    let status = attendanceRecord.status;
-    if (earlyLeaveMinutes > 0) {
-      status = status === AttendanceStatus.LATE ? AttendanceStatus.LATE : AttendanceStatus.EARLY_LEAVE;
-    }
-
-    // Calculate actual break time (if any recorded breaks)
-    const breakMinutes = shift?.breakMinutes || 0;
-    const netWorkedMinutes = workedMinutes - breakMinutes;
-
-    // Update attendance record
-    attendanceRecord.clockOut = now;
-    attendanceRecord.clockOutMethod = method;
-    attendanceRecord.clockOutLocation = location;
-    attendanceRecord.workedMinutes = netWorkedMinutes > 0 ? netWorkedMinutes : 0;
-    attendanceRecord.overtimeMinutes = overtimeMinutes;
-    attendanceRecord.earlyLeaveMinutes = earlyLeaveMinutes;
-    attendanceRecord.breakMinutes = breakMinutes;
-    attendanceRecord.status = status;
-
-    // If there were any irregularities, set for review
-    if (earlyLeaveMinutes > 0 || attendanceRecord.lateMinutes > 0) {
-      attendanceRecord.approvalStatus = ApprovalStatus.PENDING_REVIEW;
-    }
-
-    if (remarks) {
-      attendanceRecord.remarks = attendanceRecord.remarks
-        ? `${attendanceRecord.remarks}; ${remarks}`
-        : remarks;
-    }
-
-    attendanceRecord.updatedBy = userId;
-
-    const savedRecord = await this.attendanceRepository.save(attendanceRecord);
-
-    // Publish event for notification/audit purposes
-    this.eventBus.publish(new EmployeeClockedOutEvent(savedRecord));
-
-    return savedRecord;
   }
 }

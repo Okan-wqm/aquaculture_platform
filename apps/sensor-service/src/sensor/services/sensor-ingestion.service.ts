@@ -1,14 +1,39 @@
-import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+/**
+ * Sensor Ingestion Service
+ * Handles high-throughput sensor data ingestion
+ * Optimized for TimescaleDB and 10K+ readings per second
+ *
+ * SOLID Principles Applied:
+ * - SRP: Ingestion only, calibration delegated to CalibrationService
+ * - OCP: Uses ReadingMapperRegistry for extensible sensor type mapping
+ * - DIP: Depends on interfaces (ICalibrationService, IEventPublisher)
+ *
+ * Security:
+ * - Input validation with sanitizers
+ * - UUID format validation
+ *
+ * Resilience:
+ * - Retry logic for transient failures
+ * - Circuit breaker for failing dependencies
+ * - Proper error types for client handling
+ */
+
+import { Injectable, Logger, Inject, Optional, BadRequestException } from '@nestjs/common';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
-import { Repository } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
 import { SensorReading, SensorReadings } from '../../database/entities/sensor-reading.entity';
-import { Sensor, SensorRole } from '../../database/entities/sensor.entity';
+import { Sensor, SensorRole, SensorType } from '../../database/entities/sensor.entity';
+import { CalibrationService } from './calibration.service';
+import { DataQualityService } from './data-quality.service';
+import { ReadingMapperRegistry } from './reading-mapper.service';
+import { validateSensorId, validateTenantId, validateDataPath, MAX_DATA_PATH_DEPTH } from '../validation/input-sanitizer';
+import { withRetry, RetryableErrors, CircuitBreaker } from '../utils/retry.util';
 
 /**
- * Ingest reading data
+ * Ingest reading data input
  */
 export interface IngestReadingData {
   sensorId: string;
@@ -21,17 +46,92 @@ export interface IngestReadingData {
 }
 
 /**
+ * Ingest result with success/failure info
+ */
+export interface IngestResult {
+  success: boolean;
+  reading?: SensorReading;
+  error?: string;
+  errorCode?: 'VALIDATION_ERROR' | 'SENSOR_NOT_FOUND' | 'DATABASE_ERROR' | 'EVENT_ERROR';
+}
+
+/**
+ * Parent routing result
+ */
+export interface ParentRoutingResult {
+  childReadings: SensorReading[];
+  errors: Array<{ childId: string; error: string }>;
+  processedCount: number;
+  errorCount: number;
+}
+
+/**
+ * LRU Cache with TTL and max size
+ */
+class BoundedCache<K, V> {
+  private cache = new Map<K, { value: V; expiry: number }>();
+
+  constructor(
+    private readonly maxSize: number,
+    private readonly ttlMs: number,
+  ) {}
+
+  get(key: K): V | undefined {
+    const entry = this.cache.get(key);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expiry) {
+      this.cache.delete(key);
+      return undefined;
+    }
+    // Move to end (LRU)
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+    return entry.value;
+  }
+
+  set(key: K, value: V): void {
+    if (this.cache.size >= this.maxSize) {
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey !== undefined) {
+        this.cache.delete(firstKey);
+      }
+    }
+    this.cache.set(key, { value, expiry: Date.now() + this.ttlMs });
+  }
+
+  delete(key: K): boolean {
+    return this.cache.delete(key);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  get size(): number {
+    return this.cache.size;
+  }
+}
+
+/**
  * Sensor Ingestion Service
- * Handles high-throughput sensor data ingestion
- * Optimized for TimescaleDB and 10K+ readings per second
  */
 @Injectable()
 export class SensorIngestionService {
   private readonly logger = new Logger(SensorIngestionService.name);
 
-  // Channel cache to avoid repeated DB lookups
-  private channelCache = new Map<string, { channels: SensorDataChannel[]; expiry: number }>();
-  private readonly CACHE_TTL = 60000; // 1 minute
+  // Bounded caches with LRU eviction
+  private readonly channelCache: BoundedCache<string, SensorDataChannel[]>;
+  private readonly childSensorCache: BoundedCache<string, Sensor[]>;
+
+  // Circuit breakers for external dependencies
+  private readonly eventBusCircuitBreaker: CircuitBreaker;
+  private readonly databaseCircuitBreaker: CircuitBreaker;
+
+  // Configuration
+  private static readonly CACHE_MAX_SIZE = 1000;
+  private static readonly CACHE_TTL_MS = 60000; // 1 minute
+  private static readonly BATCH_CHUNK_SIZE = 1000;
+  private static readonly MAX_BATCH_SIZE = 10000;
 
   constructor(
     @InjectRepository(SensorReading)
@@ -41,247 +141,180 @@ export class SensorIngestionService {
     @Optional()
     @InjectRepository(SensorDataChannel)
     private readonly channelRepository: Repository<SensorDataChannel> | null,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus,
-  ) {}
+    private readonly calibrationService: CalibrationService,
+    private readonly dataQualityService: DataQualityService,
+    private readonly readingMapperRegistry: ReadingMapperRegistry,
+  ) {
+    this.channelCache = new BoundedCache(
+      SensorIngestionService.CACHE_MAX_SIZE,
+      SensorIngestionService.CACHE_TTL_MS,
+    );
+    this.childSensorCache = new BoundedCache(
+      SensorIngestionService.CACHE_MAX_SIZE,
+      SensorIngestionService.CACHE_TTL_MS,
+    );
+
+    // Initialize circuit breakers
+    this.eventBusCircuitBreaker = new CircuitBreaker('EventBus', 5, 30000);
+    this.databaseCircuitBreaker = new CircuitBreaker('Database', 10, 60000);
+  }
 
   /**
-   * Ingest a single sensor reading
+   * Ingest a single sensor reading with full validation and processing
    */
   async ingestReading(data: IngestReadingData): Promise<SensorReading> {
-    // Apply calibration transformations if channels are configured
-    const transformedReadings = await this.applyCalibration(data.sensorId, data.readings);
+    // Validate inputs
+    const validatedData = this.validateIngestInput(data);
 
+    // Validate readings have at least one metric
+    if (!this.dataQualityService.hasValidMetrics(validatedData.readings)) {
+      throw new BadRequestException('Readings must contain at least one valid metric');
+    }
+
+    // Apply calibration transformations
+    const transformedReadings = await this.calibrationService.applyCalibration(
+      validatedData.sensorId,
+      validatedData.readings,
+    );
+
+    // Calculate data quality score
+    const quality = this.dataQualityService.calculateQuality(transformedReadings);
+
+    // Create reading entity
     const reading = this.readingRepository.create({
       id: crypto.randomUUID(),
-      sensorId: data.sensorId,
-      tenantId: data.tenantId,
+      sensorId: validatedData.sensorId,
+      tenantId: validatedData.tenantId,
       readings: transformedReadings,
-      pondId: data.pondId,
-      farmId: data.farmId,
-      timestamp: data.timestamp || new Date(),
-      source: data.source || 'http',
-      quality: this.calculateDataQuality(transformedReadings),
+      pondId: validatedData.pondId,
+      farmId: validatedData.farmId,
+      timestamp: validatedData.timestamp || new Date(),
+      source: validatedData.source || 'http',
+      quality,
     });
 
-    const saved = await this.readingRepository.save(reading);
-
-    // Update sensor last seen
-    await this.updateSensorLastSeen(data.sensorId);
-
-    // Publish event for real-time processing and alerting
-    await this.eventBus.publish({
-      eventId: crypto.randomUUID(),
-      eventType: 'SensorReading',
-      timestamp: saved.timestamp,
-      payload: {
-        readingId: saved.id,
-        sensorId: saved.sensorId,
-        tenantId: saved.tenantId,
-        readings: saved.readings,
-        pondId: saved.pondId,
-        farmId: saved.farmId,
+    // Save with retry
+    const saveResult = await withRetry(
+      () => this.databaseCircuitBreaker.execute(() => this.readingRepository.save(reading)),
+      {
+        maxRetries: 3,
+        initialDelayMs: 100,
+        maxDelayMs: 2000,
+        isRetryable: RetryableErrors.isTransientDatabaseError,
+        loggerName: 'SensorIngestion:save',
       },
-      metadata: {
-        tenantId: saved.tenantId,
-        source: 'sensor-service',
-      },
-    });
+    );
 
-    this.logger.debug(`Ingested reading from sensor ${data.sensorId}`);
+    if (!saveResult.success) {
+      this.logger.error(`Failed to save reading after retries: ${saveResult.error?.message}`);
+      throw saveResult.error;
+    }
 
+    const saved = saveResult.result!;
+
+    // Update sensor last seen (fire and forget with logging)
+    this.updateSensorLastSeen(validatedData.sensorId).catch((err) =>
+      this.logger.warn(`Failed to update lastSeenAt: ${err.message}`),
+    );
+
+    // Publish event with circuit breaker
+    this.publishReadingEvent(saved).catch((err) =>
+      this.logger.warn(`Failed to publish event: ${err.message}`),
+    );
+
+    this.logger.debug(`Ingested reading from sensor ${validatedData.sensorId}`);
     return saved;
   }
 
   /**
    * Ingest multiple sensor readings in batch
-   * Optimized for high-throughput scenarios
+   * Optimized for high-throughput scenarios with calibration applied
    */
   async ingestBatch(readings: IngestReadingData[]): Promise<number> {
     if (readings.length === 0) {
       return 0;
     }
 
-    const entities = readings.map((data) =>
-      this.readingRepository.create({
-        id: crypto.randomUUID(),
-        sensorId: data.sensorId,
-        tenantId: data.tenantId,
-        readings: data.readings,
-        pondId: data.pondId,
-        farmId: data.farmId,
-        timestamp: data.timestamp || new Date(),
-        source: data.source || 'batch',
-        quality: this.calculateDataQuality(data.readings),
-      }),
-    );
-
-    // Use chunked inserts for very large batches
-    const chunkSize = 1000;
-    let totalInserted = 0;
-
-    for (let i = 0; i < entities.length; i += chunkSize) {
-      const chunk = entities.slice(i, i + chunkSize);
-      await this.readingRepository.insert(chunk);
-      totalInserted += chunk.length;
+    if (readings.length > SensorIngestionService.MAX_BATCH_SIZE) {
+      throw new BadRequestException(
+        `Batch size ${readings.length} exceeds maximum of ${SensorIngestionService.MAX_BATCH_SIZE}`,
+      );
     }
 
-    // Update last seen for all unique sensors
-    const sensorIds = [...new Set(readings.map((r) => r.sensorId))];
-    await Promise.all(sensorIds.map((id) => this.updateSensorLastSeen(id)));
+    // Validate all inputs first
+    const validatedReadings = readings.map((r) => this.validateIngestInput(r));
 
-    this.logger.log(`Batch ingested ${totalInserted} readings`);
+    // Pre-fetch calibration configs for all unique sensors
+    const sensorIds = [...new Set(validatedReadings.map((r) => r.sensorId))];
+    await this.prefetchCalibrationConfigs(sensorIds);
 
+    // Process readings with calibration
+    const entities: SensorReading[] = [];
+    for (const data of validatedReadings) {
+      // Apply calibration (uses cached configs)
+      const transformedReadings = await this.calibrationService.applyCalibration(
+        data.sensorId,
+        data.readings,
+      );
+
+      const quality = this.dataQualityService.calculateQuality(transformedReadings);
+
+      entities.push(
+        this.readingRepository.create({
+          id: crypto.randomUUID(),
+          sensorId: data.sensorId,
+          tenantId: data.tenantId,
+          readings: transformedReadings,
+          pondId: data.pondId,
+          farmId: data.farmId,
+          timestamp: data.timestamp || new Date(),
+          source: data.source || 'batch',
+          quality,
+        }),
+      );
+    }
+
+    // Use chunked inserts with transaction
+    let totalInserted = 0;
+
+    const insertResult = await withRetry(
+      async () => {
+        return this.dataSource.transaction(async (manager) => {
+          for (let i = 0; i < entities.length; i += SensorIngestionService.BATCH_CHUNK_SIZE) {
+            const chunk = entities.slice(i, i + SensorIngestionService.BATCH_CHUNK_SIZE);
+            await manager.insert(SensorReading, chunk);
+            totalInserted += chunk.length;
+          }
+          return totalInserted;
+        });
+      },
+      {
+        maxRetries: 3,
+        initialDelayMs: 200,
+        maxDelayMs: 5000,
+        isRetryable: RetryableErrors.isTransientDatabaseError,
+        loggerName: 'SensorIngestion:batchInsert',
+      },
+    );
+
+    if (!insertResult.success) {
+      this.logger.error(`Batch insert failed after retries: ${insertResult.error?.message}`);
+      throw insertResult.error;
+    }
+
+    // Bulk update last seen for all sensors (more efficient)
+    await this.bulkUpdateLastSeen(sensorIds);
+
+    this.logger.log(`Batch ingested ${totalInserted} readings from ${sensorIds.length} sensors`);
     return totalInserted;
   }
 
   /**
-   * Update sensor's last seen timestamp
-   */
-  private async updateSensorLastSeen(sensorId: string): Promise<void> {
-    try {
-      await this.sensorRepository.update(
-        { id: sensorId },
-        { lastSeenAt: new Date() },
-      );
-    } catch (error) {
-      this.logger.warn(
-        `Failed to update lastSeenAt for sensor ${sensorId}`,
-        error,
-      );
-    }
-  }
-
-  /**
-   * Calculate data quality score based on reading values
-   */
-  private calculateDataQuality(readings: SensorReadings): number {
-    let score = 100;
-    const checks: { value?: number; min: number; max: number }[] = [];
-
-    if (readings.temperature !== undefined) {
-      checks.push({ value: readings.temperature, min: -10, max: 50 });
-    }
-
-    if (readings.ph !== undefined) {
-      checks.push({ value: readings.ph, min: 0, max: 14 });
-    }
-
-    if (readings.dissolvedOxygen !== undefined) {
-      checks.push({ value: readings.dissolvedOxygen, min: 0, max: 20 });
-    }
-
-    if (readings.salinity !== undefined) {
-      checks.push({ value: readings.salinity, min: 0, max: 45 });
-    }
-
-    for (const check of checks) {
-      if (
-        check.value !== undefined &&
-        (check.value < check.min || check.value > check.max)
-      ) {
-        score -= 25; // Deduct for out-of-range values
-      }
-    }
-
-    return Math.max(0, score);
-  }
-
-  /**
-   * Get channels for a sensor with caching
-   */
-  private async getChannelsForSensor(sensorId: string): Promise<SensorDataChannel[]> {
-    if (!this.channelRepository) {
-      return [];
-    }
-
-    const now = Date.now();
-    const cached = this.channelCache.get(sensorId);
-
-    if (cached && cached.expiry > now) {
-      return cached.channels;
-    }
-
-    try {
-      const channels = await this.channelRepository.find({
-        where: { sensorId, isEnabled: true },
-      });
-
-      this.channelCache.set(sensorId, {
-        channels,
-        expiry: now + this.CACHE_TTL,
-      });
-
-      return channels;
-    } catch (error) {
-      this.logger.warn(`Failed to fetch channels for sensor ${sensorId}`, error);
-      return [];
-    }
-  }
-
-  /**
-   * Apply calibration transformations to readings based on channel configuration
-   */
-  private async applyCalibration(
-    sensorId: string,
-    readings: SensorReadings,
-  ): Promise<SensorReadings> {
-    const channels = await this.getChannelsForSensor(sensorId);
-
-    if (channels.length === 0) {
-      return readings;
-    }
-
-    const transformed = { ...readings };
-
-    for (const channel of channels) {
-      if (!channel.calibrationEnabled) {
-        continue;
-      }
-
-      // Map channel key to reading property
-      const key = channel.channelKey as keyof SensorReadings;
-      const rawValue = transformed[key];
-
-      if (rawValue !== undefined && typeof rawValue === 'number') {
-        // Apply linear calibration: calibrated = (raw * multiplier) + offset
-        const multiplier = Number(channel.calibrationMultiplier) || 1;
-        const offset = Number(channel.calibrationOffset) || 0;
-        const calibratedValue = (rawValue * multiplier) + offset;
-
-        // Update the reading with calibrated value
-        (transformed as Record<string, number | undefined>)[key] = calibratedValue;
-
-        this.logger.debug(
-          `Calibrated ${channel.channelKey}: ${rawValue} -> ${calibratedValue} ` +
-          `(×${multiplier} +${offset})`,
-        );
-      }
-    }
-
-    return transformed;
-  }
-
-  /**
-   * Clear channel cache for a sensor (call when channels are updated)
-   */
-  clearChannelCache(sensorId?: string): void {
-    if (sensorId) {
-      this.channelCache.delete(sensorId);
-    } else {
-      this.channelCache.clear();
-    }
-  }
-
-  // ==================== Parent-Child Routing ====================
-
-  // Cache for child sensors lookup
-  private childSensorCache = new Map<string, { children: Sensor[]; expiry: number }>();
-  private readonly CHILD_CACHE_TTL = 60000; // 1 minute
-
-  /**
    * Ingest a parent device reading and route values to child sensors
-   * This is used when a multi-parameter device sends data containing multiple values
    */
   async ingestParentReading(
     parentId: string,
@@ -289,22 +322,36 @@ export class SensorIngestionService {
     payload: Record<string, unknown>,
     timestamp?: Date,
     source?: string,
-  ): Promise<{ childReadings: SensorReading[]; errors: string[] }> {
-    const errors: string[] = [];
+  ): Promise<ParentRoutingResult> {
+    // Validate inputs
+    const validParentId = validateSensorId(parentId);
+    const validTenantId = validateTenantId(tenantId);
+
+    const errors: Array<{ childId: string; error: string }> = [];
     const childReadings: SensorReading[] = [];
 
-    // Get child sensors for this parent
-    const children = await this.getChildSensorsForParent(parentId, tenantId);
+    // Get child sensors with caching
+    const children = await this.getChildSensorsForParent(validParentId, validTenantId);
 
     if (children.length === 0) {
-      this.logger.warn(`No child sensors found for parent ${parentId}`);
-      return { childReadings, errors: ['No child sensors configured'] };
+      this.logger.warn(`No child sensors found for parent ${validParentId}`);
+      return {
+        childReadings,
+        errors: [{ childId: validParentId, error: 'No child sensors configured' }],
+        processedCount: 0,
+        errorCount: 1,
+      };
     }
 
     // Process each child sensor
     for (const child of children) {
       try {
-        // Extract value from payload using dataPath
+        // Validate and extract value from payload
+        if (!child.dataPath) {
+          errors.push({ childId: child.id, error: 'No dataPath configured' });
+          continue;
+        }
+
         const value = this.extractValueFromPayload(payload, child.dataPath);
 
         if (value === undefined) {
@@ -312,14 +359,20 @@ export class SensorIngestionService {
           continue;
         }
 
-        // Build readings object based on sensor type
-        const readings: SensorReadings = this.buildReadingsForChild(child, value);
+        // Build readings using mapper registry (OCP compliant)
+        const readings = this.readingMapperRegistry.mapToReadings(value, {
+          sensorType: child.type,
+          dataPath: child.dataPath,
+        });
 
-        // Ingest the reading for this child sensor
+        // Apply child-specific calibration
+        const calibratedReadings = this.applyChildCalibration(child, readings);
+
+        // Ingest the reading
         const reading = await this.ingestReading({
           sensorId: child.id,
-          tenantId,
-          readings,
+          tenantId: validTenantId,
+          readings: calibratedReadings,
           pondId: child.pondId,
           farmId: child.farmId,
           timestamp: timestamp || new Date(),
@@ -328,35 +381,84 @@ export class SensorIngestionService {
 
         childReadings.push(reading);
       } catch (error) {
-        const errorMsg = `Failed to process child sensor ${child.id} (${child.dataPath}): ${(error as Error).message}`;
+        const errorMsg = `Failed to process child sensor ${child.id}: ${(error as Error).message}`;
         this.logger.error(errorMsg);
-        errors.push(errorMsg);
+        errors.push({ childId: child.id, error: (error as Error).message });
       }
     }
 
     this.logger.log(
-      `Routed parent ${parentId} reading to ${childReadings.length}/${children.length} children`
+      `Routed parent ${validParentId} reading to ${childReadings.length}/${children.length} children`,
     );
 
     // Publish parent routing event
-    await this.eventBus.publish({
-      eventId: crypto.randomUUID(),
-      eventType: 'ParentReadingRouted',
-      timestamp: timestamp || new Date(),
-      payload: {
-        parentId,
-        tenantId,
-        childCount: children.length,
-        processedCount: childReadings.length,
-        errorCount: errors.length,
-      },
-      metadata: {
-        tenantId,
-        source: 'sensor-service',
-      },
-    });
+    this.publishParentRoutingEvent(
+      validParentId,
+      validTenantId,
+      children.length,
+      childReadings.length,
+      errors.length,
+      timestamp,
+    ).catch((err) => this.logger.warn(`Failed to publish routing event: ${err.message}`));
 
-    return { childReadings, errors };
+    return {
+      childReadings,
+      errors,
+      processedCount: childReadings.length,
+      errorCount: errors.length,
+    };
+  }
+
+  /**
+   * Validate ingest input data
+   */
+  private validateIngestInput(data: IngestReadingData): IngestReadingData {
+    return {
+      ...data,
+      sensorId: validateSensorId(data.sensorId),
+      tenantId: validateTenantId(data.tenantId),
+      pondId: data.pondId ? validateSensorId(data.pondId) : undefined,
+      farmId: data.farmId ? validateSensorId(data.farmId) : undefined,
+    };
+  }
+
+  /**
+   * Update sensor's last seen timestamp
+   */
+  private async updateSensorLastSeen(sensorId: string): Promise<void> {
+    try {
+      await this.sensorRepository.update({ id: sensorId }, { lastSeenAt: new Date() });
+    } catch (error) {
+      // Log but don't throw - this is a non-critical operation
+      this.logger.warn(`Failed to update lastSeenAt for sensor ${sensorId}: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Bulk update last seen timestamps - more efficient for batch operations
+   */
+  private async bulkUpdateLastSeen(sensorIds: string[]): Promise<void> {
+    if (sensorIds.length === 0) return;
+
+    try {
+      await this.sensorRepository.update(
+        { id: In(sensorIds) },
+        { lastSeenAt: new Date() },
+      );
+    } catch (error) {
+      this.logger.warn(`Failed to bulk update lastSeenAt: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Prefetch calibration configs for multiple sensors
+   */
+  private async prefetchCalibrationConfigs(sensorIds: string[]): Promise<void> {
+    // CalibrationService will cache these internally
+    for (const sensorId of sensorIds) {
+      // Warm up the cache by calling applyCalibration with empty readings
+      await this.calibrationService.applyCalibration(sensorId, {});
+    }
   }
 
   /**
@@ -364,11 +466,10 @@ export class SensorIngestionService {
    */
   private async getChildSensorsForParent(parentId: string, tenantId: string): Promise<Sensor[]> {
     const cacheKey = `${parentId}:${tenantId}`;
-    const now = Date.now();
-    const cached = this.childSensorCache.get(cacheKey);
 
-    if (cached && cached.expiry > now) {
-      return cached.children;
+    const cached = this.childSensorCache.get(cacheKey);
+    if (cached) {
+      return cached;
     }
 
     try {
@@ -382,32 +483,33 @@ export class SensorIngestionService {
         order: { createdAt: 'ASC' },
       });
 
-      this.childSensorCache.set(cacheKey, {
-        children,
-        expiry: now + this.CHILD_CACHE_TTL,
-      });
-
+      this.childSensorCache.set(cacheKey, children);
       return children;
     } catch (error) {
-      this.logger.error(`Failed to fetch child sensors for parent ${parentId}`, error);
+      this.logger.error(`Failed to fetch child sensors for parent ${parentId}: ${(error as Error).message}`);
       return [];
     }
   }
 
   /**
    * Extract value from payload using dot notation path
-   * Supports nested paths like "sensors.ph" or simple paths like "ph"
+   * Validates path depth to prevent DoS
    */
   private extractValueFromPayload(
     payload: Record<string, unknown>,
-    dataPath?: string,
+    dataPath: string,
   ): number | undefined {
     if (!dataPath) return undefined;
 
-    // Support dot notation for nested values
+    // Validate path depth
     const parts = dataPath.split('.');
-    let value: unknown = payload;
+    if (parts.length > MAX_DATA_PATH_DEPTH) {
+      this.logger.warn(`Data path exceeds maximum depth: ${dataPath}`);
+      return undefined;
+    }
 
+    // Navigate to value
+    let value: unknown = payload;
     for (const part of parts) {
       if (value && typeof value === 'object' && part in value) {
         value = (value as Record<string, unknown>)[part];
@@ -416,77 +518,111 @@ export class SensorIngestionService {
       }
     }
 
-    // Convert to number if possible
-    if (typeof value === 'number') {
+    // Convert to number
+    if (typeof value === 'number' && Number.isFinite(value)) {
       return value;
     }
 
     if (typeof value === 'string') {
       const num = parseFloat(value);
-      return isNaN(num) ? undefined : num;
+      return Number.isFinite(num) ? num : undefined;
     }
 
     return undefined;
   }
 
   /**
-   * Build readings object for a child sensor based on its type
+   * Apply calibration for a child sensor
    */
-  private buildReadingsForChild(child: Sensor, rawValue: number): SensorReadings {
-    // Apply calibration if enabled
-    let value = rawValue;
-    if (child.calibrationEnabled) {
-      const multiplier = Number(child.calibrationMultiplier) || 1;
-      const offset = Number(child.calibrationOffset) || 0;
-      value = (rawValue * multiplier) + offset;
-
-      this.logger.debug(
-        `Calibrated ${child.dataPath}: ${rawValue} -> ${value} (×${multiplier} +${offset})`
-      );
+  private applyChildCalibration(child: Sensor, readings: SensorReadings): SensorReadings {
+    if (!child.calibrationEnabled) {
+      return readings;
     }
 
-    // Map sensor type to reading key
-    const readings: SensorReadings = {};
-    const sensorType = String(child.type);
+    const multiplier = Number(child.calibrationMultiplier) || 1;
+    const offset = Number(child.calibrationOffset) || 0;
 
-    switch (sensorType) {
-      case 'temperature':
-        readings.temperature = value;
-        break;
-      case 'ph':
-        readings.ph = value;
-        break;
-      case 'dissolved_oxygen':
-        readings.dissolvedOxygen = value;
-        break;
-      case 'salinity':
-        readings.salinity = value;
-        break;
-      case 'ammonia':
-        readings.ammonia = value;
-        break;
-      case 'nitrite':
-        readings.nitrite = value;
-        break;
-      case 'nitrate':
-        readings.nitrate = value;
-        break;
-      case 'turbidity':
-        readings.turbidity = value;
-        break;
-      case 'water_level':
-        readings.waterLevel = value;
-        break;
-      default:
-        // For other types, use a generic "value" key or the dataPath
-        (readings as Record<string, number>)[child.dataPath || 'value'] = value;
+    const calibrated = { ...readings };
+    for (const [key, value] of Object.entries(calibrated)) {
+      if (typeof value === 'number') {
+        (calibrated as Record<string, number>)[key] = value * multiplier + offset;
+      }
     }
 
-    return readings;
+    return calibrated;
   }
 
   /**
-   * Clear child sensor cache for a parent (call when children are updated)
+   * Publish sensor reading event
+   */
+  private async publishReadingEvent(reading: SensorReading): Promise<void> {
+    await this.eventBusCircuitBreaker.execute(() =>
+      this.eventBus.publish({
+        eventId: crypto.randomUUID(),
+        eventType: 'SensorReading',
+        timestamp: reading.timestamp,
+        payload: {
+          readingId: reading.id,
+          sensorId: reading.sensorId,
+          tenantId: reading.tenantId,
+          readings: reading.readings,
+          pondId: reading.pondId,
+          farmId: reading.farmId,
+        },
+        metadata: {
+          tenantId: reading.tenantId,
+          source: 'sensor-service',
+        },
+      }),
+    );
+  }
+
+  /**
+   * Publish parent routing event
+   */
+  private async publishParentRoutingEvent(
+    parentId: string,
+    tenantId: string,
+    childCount: number,
+    processedCount: number,
+    errorCount: number,
+    timestamp?: Date,
+  ): Promise<void> {
+    await this.eventBusCircuitBreaker.execute(() =>
+      this.eventBus.publish({
+        eventId: crypto.randomUUID(),
+        eventType: 'ParentReadingRouted',
+        timestamp: timestamp || new Date(),
+        payload: {
+          parentId,
+          tenantId,
+          childCount,
+          processedCount,
+          errorCount,
+        },
+        metadata: {
+          tenantId,
+          source: 'sensor-service',
+        },
+      }),
+    );
+  }
+
+  /**
+   * Clear channel cache (call when channels are updated)
+   */
+  clearChannelCache(sensorId?: string): void {
+    if (sensorId) {
+      this.channelCache.delete(sensorId);
+      this.calibrationService.clearCache(sensorId);
+    } else {
+      this.channelCache.clear();
+      this.calibrationService.clearCache();
+    }
+  }
+
+  /**
+   * Clear child sensor cache (call when children are updated)
    */
   clearChildCache(parentId?: string, tenantId?: string): void {
     if (parentId && tenantId) {
@@ -494,5 +630,37 @@ export class SensorIngestionService {
     } else {
       this.childSensorCache.clear();
     }
+  }
+
+  /**
+   * Get cache statistics for monitoring
+   */
+  getCacheStats(): {
+    channelCache: { size: number; maxSize: number };
+    childSensorCache: { size: number; maxSize: number };
+  } {
+    return {
+      channelCache: {
+        size: this.channelCache.size,
+        maxSize: SensorIngestionService.CACHE_MAX_SIZE,
+      },
+      childSensorCache: {
+        size: this.childSensorCache.size,
+        maxSize: SensorIngestionService.CACHE_MAX_SIZE,
+      },
+    };
+  }
+
+  /**
+   * Get circuit breaker states for monitoring
+   */
+  getCircuitBreakerStates(): {
+    eventBus: string;
+    database: string;
+  } {
+    return {
+      eventBus: this.eventBusCircuitBreaker.getState(),
+      database: this.databaseCircuitBreaker.getState(),
+    };
   }
 }

@@ -6,6 +6,23 @@ import { DataSource } from 'typeorm';
 import { Sensor } from '../database/entities/sensor.entity';
 
 /**
+ * Validate PostgreSQL schema name to prevent SQL injection
+ * Schema names must match: ^[a-zA-Z_][a-zA-Z0-9_]*$
+ */
+function isValidSchemaName(name: string): boolean {
+  if (!name || name.length > 63) return false;
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name);
+}
+
+/**
+ * Quote identifier for safe SQL interpolation
+ * Escapes double quotes and wraps in double quotes
+ */
+function quoteIdentifier(identifier: string): string {
+  return `"${identifier.replace(/"/g, '""')}"`;
+}
+
+/**
  * Cached sensor data structure for topic lookups
  * Contains minimal data needed for message routing
  */
@@ -185,6 +202,12 @@ export class SensorTopicCacheService implements OnModuleInit {
 
       for (const { schema_name } of tenantSchemas) {
         try {
+          // Validate schema name to prevent SQL injection
+          if (!isValidSchemaName(schema_name)) {
+            this.logger.warn(`Invalid schema name encountered: ${schema_name}`);
+            continue;
+          }
+
           // Check if sensors table exists
           const tableCheck = await this.dataSource.query(`
             SELECT 1 FROM information_schema.tables
@@ -194,9 +217,10 @@ export class SensorTopicCacheService implements OnModuleInit {
           if (tableCheck.length === 0) continue;
 
           // Get all sensors with MQTT topics
+          // Schema name is validated above, safe to interpolate with quoting
           const sensors: Sensor[] = await this.dataSource.query(`
             SELECT id, name, type, tenant_id, protocol_configuration, metadata
-            FROM "${schema_name}".sensors
+            FROM ${quoteIdentifier(schema_name)}.sensors
             WHERE protocol_configuration->>'topic' IS NOT NULL
           `);
 
@@ -244,6 +268,12 @@ export class SensorTopicCacheService implements OnModuleInit {
 
       for (const { schema_name } of tenantSchemas) {
         try {
+          // Validate schema name to prevent SQL injection
+          if (!isValidSchemaName(schema_name)) {
+            this.logger.warn(`Invalid schema name encountered: ${schema_name}`);
+            continue;
+          }
+
           // Check if sensors table exists
           const tableCheck = await this.dataSource.query(`
             SELECT 1 FROM information_schema.tables
@@ -253,6 +283,7 @@ export class SensorTopicCacheService implements OnModuleInit {
           if (tableCheck.length === 0) continue;
 
           // Try exact topic match
+          // Schema name is validated above, safe to interpolate with quoting
           const sensors: Array<{
             id: string;
             name: string;
@@ -262,7 +293,7 @@ export class SensorTopicCacheService implements OnModuleInit {
             metadata: Record<string, unknown>;
           }> = await this.dataSource.query(`
             SELECT id, name, type, tenant_id, protocol_configuration, metadata
-            FROM "${schema_name}".sensors
+            FROM ${quoteIdentifier(schema_name)}.sensors
             WHERE protocol_configuration->>'topic' = $1
             LIMIT 1
           `, [topic]);
@@ -281,9 +312,10 @@ export class SensorTopicCacheService implements OnModuleInit {
           }
 
           // Try wildcard match
+          // Schema name is validated above, safe to interpolate with quoting
           const wildcardSensors = await this.dataSource.query(`
             SELECT id, name, type, tenant_id, protocol_configuration, metadata
-            FROM "${schema_name}".sensors
+            FROM ${quoteIdentifier(schema_name)}.sensors
             WHERE protocol_configuration->>'topic' LIKE '%#%'
                OR protocol_configuration->>'topic' LIKE '%+%'
           `);

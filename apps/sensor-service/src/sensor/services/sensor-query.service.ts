@@ -1,4 +1,19 @@
-import { Injectable, Logger } from '@nestjs/common';
+/**
+ * Sensor Query Service
+ * Provides optimized time-series queries using TimescaleDB features
+ *
+ * Security:
+ * - SQL injection protection with parameterized queries
+ * - Aggregation interval whitelist validation
+ * - Input validation for all parameters
+ *
+ * Performance:
+ * - TimescaleDB time_bucket for efficient aggregation
+ * - Automatic interval selection based on time range
+ * - Query result caching consideration
+ */
+
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, Between, DataSource } from 'typeorm';
 
@@ -10,18 +25,20 @@ import {
   AggregatedReadingType,
   AggregatedReadingsResponse,
 } from '../dto/aggregated-reading.dto';
+import {
+  validateSensorId,
+  validateTenantId,
+  validateAggregationInterval,
+  validateDateRange,
+  validateLimit,
+  ALLOWED_AGGREGATION_INTERVALS,
+  SafeAggregationInterval,
+} from '../validation/input-sanitizer';
 
 /**
- * Aggregation interval options
+ * Aggregation interval type - restricted to whitelist
  */
-export type AggregationInterval =
-  | '1 minute'
-  | '5 minutes'
-  | '15 minutes'
-  | '1 hour'
-  | '4 hours'
-  | '1 day'
-  | '1 week';
+export type AggregationInterval = SafeAggregationInterval;
 
 /**
  * Query result row for aggregated readings
@@ -36,6 +53,8 @@ interface AggregatedReadingRow {
   avg_ammonia?: string;
   avg_nitrite?: string;
   avg_nitrate?: string;
+  avg_turbidity?: string;
+  avg_water_level?: string;
   min_temperature?: string;
   max_temperature?: string;
   min_ph?: string;
@@ -44,6 +63,8 @@ interface AggregatedReadingRow {
   max_dissolved_oxygen?: string;
   min_salinity?: string;
   max_salinity?: string;
+  min_ammonia?: string;
+  max_ammonia?: string;
 }
 
 /**
@@ -67,13 +88,28 @@ export interface AggregatedSensorData {
 }
 
 /**
+ * Maximum allowed query time range (365 days)
+ */
+const MAX_QUERY_RANGE_MS = 365 * 24 * 60 * 60 * 1000;
+
+/**
+ * Maximum results limit
+ */
+const MAX_RESULTS_LIMIT = 10000;
+
+/**
+ * Default results limit
+ */
+const DEFAULT_RESULTS_LIMIT = 1000;
+
+/**
  * Determine optimal aggregation interval based on time range
+ * Target: 50-200 data points for optimal visualization
  */
 export function getOptimalInterval(startTime: Date, endTime: Date): AggregationInterval {
   const durationMs = endTime.getTime() - startTime.getTime();
   const hours = durationMs / (1000 * 60 * 60);
 
-  // Target: 50-200 data points for optimal visualization
   if (hours <= 1) return '1 minute'; // 60 points max
   if (hours <= 6) return '5 minutes'; // 72 points max
   if (hours <= 24) return '15 minutes'; // 96 points max
@@ -84,8 +120,18 @@ export function getOptimalInterval(startTime: Date, endTime: Date): AggregationI
 }
 
 /**
+ * Safely parse numeric string to number or undefined
+ */
+function parseNumericOrUndefined(value: string | null | undefined): number | undefined {
+  if (value === null || value === undefined || value === '') {
+    return undefined;
+  }
+  const num = parseFloat(value);
+  return Number.isFinite(num) ? num : undefined;
+}
+
+/**
  * Sensor Query Service
- * Provides optimized time-series queries using TimescaleDB features
  */
 @Injectable()
 export class SensorQueryService {
@@ -105,8 +151,12 @@ export class SensorQueryService {
     sensorId: string,
     tenantId: string,
   ): Promise<SensorReading | null> {
+    // Validate inputs
+    const validSensorId = validateSensorId(sensorId);
+    const validTenantId = validateTenantId(tenantId);
+
     return await this.readingRepository.findOne({
-      where: { sensorId, tenantId },
+      where: { sensorId: validSensorId, tenantId: validTenantId },
       order: { timestamp: 'DESC' },
     });
   }
@@ -119,24 +169,34 @@ export class SensorQueryService {
     tenantId: string,
     startTime: Date,
     endTime: Date,
-    limit = 1000,
+    limit?: number,
   ): Promise<SensorReading[]> {
-    // Order by DESC to get most recent readings first
-    // Frontend will sort for charts if needed
+    // Validate inputs
+    const validSensorId = validateSensorId(sensorId);
+    const validTenantId = validateTenantId(tenantId);
+    const { startTime: validStart, endTime: validEnd } = validateDateRange(
+      startTime,
+      endTime,
+      MAX_QUERY_RANGE_MS,
+    );
+    const validLimit = validateLimit(limit, MAX_RESULTS_LIMIT);
+
     return await this.readingRepository.find({
       where: {
-        sensorId,
-        tenantId,
-        timestamp: Between(startTime, endTime),
+        sensorId: validSensorId,
+        tenantId: validTenantId,
+        timestamp: Between(validStart, validEnd),
       },
       order: { timestamp: 'DESC' },
-      take: limit,
+      take: validLimit,
     });
   }
 
   /**
    * Get aggregated data using TimescaleDB time_bucket
    * This provides efficient time-series aggregation
+   *
+   * SECURITY: Uses parameterized queries and whitelist validation for interval
    */
   async getAggregatedData(
     sensorId: string,
@@ -145,6 +205,23 @@ export class SensorQueryService {
     endTime: Date,
     interval: AggregationInterval,
   ): Promise<AggregatedSensorData[]> {
+    // Validate all inputs
+    const validSensorId = validateSensorId(sensorId);
+    const validTenantId = validateTenantId(tenantId);
+    const { startTime: validStart, endTime: validEnd } = validateDateRange(
+      startTime,
+      endTime,
+      MAX_QUERY_RANGE_MS,
+    );
+    const validInterval = validateAggregationInterval(interval);
+
+    if (!validInterval) {
+      throw new BadRequestException(
+        `Invalid interval. Allowed values: ${ALLOWED_AGGREGATION_INTERVALS.join(', ')}`,
+      );
+    }
+
+    // Parameterized query - interval is validated against whitelist
     const query = `
       SELECT
         time_bucket($1::interval, timestamp) AS bucket,
@@ -167,55 +244,39 @@ export class SensorQueryService {
     `;
 
     const results = await this.dataSource.query<AggregatedReadingRow[]>(query, [
-      interval,
-      sensorId,
-      tenantId,
-      startTime,
-      endTime,
+      validInterval,
+      validSensorId,
+      validTenantId,
+      validStart,
+      validEnd,
     ]);
 
-    return results.map(
-      (row: AggregatedReadingRow) => ({
-        bucket: row.bucket,
-        count: parseInt(row.count, 10),
-        averages: {
-          temperature: row.avg_temperature
-            ? parseFloat(row.avg_temperature)
-            : undefined,
-          ph: row.avg_ph ? parseFloat(row.avg_ph) : undefined,
-          dissolvedOxygen: row.avg_dissolved_oxygen
-            ? parseFloat(row.avg_dissolved_oxygen)
-            : undefined,
-          salinity: row.avg_salinity
-            ? parseFloat(row.avg_salinity)
-            : undefined,
-          ammonia: row.avg_ammonia
-            ? parseFloat(row.avg_ammonia)
-            : undefined,
-          nitrite: row.avg_nitrite
-            ? parseFloat(row.avg_nitrite)
-            : undefined,
-          nitrate: row.avg_nitrate
-            ? parseFloat(row.avg_nitrate)
-            : undefined,
-        },
-        minimums: {
-          temperature: row.min_temperature
-            ? parseFloat(row.min_temperature)
-            : undefined,
-        },
-        maximums: {
-          temperature: row.max_temperature
-            ? parseFloat(row.max_temperature)
-            : undefined,
-        },
-      }),
-    );
+    return results.map((row: AggregatedReadingRow) => ({
+      bucket: row.bucket,
+      count: parseInt(row.count, 10),
+      averages: {
+        temperature: parseNumericOrUndefined(row.avg_temperature),
+        ph: parseNumericOrUndefined(row.avg_ph),
+        dissolvedOxygen: parseNumericOrUndefined(row.avg_dissolved_oxygen),
+        salinity: parseNumericOrUndefined(row.avg_salinity),
+        ammonia: parseNumericOrUndefined(row.avg_ammonia),
+        nitrite: parseNumericOrUndefined(row.avg_nitrite),
+        nitrate: parseNumericOrUndefined(row.avg_nitrate),
+      },
+      minimums: {
+        temperature: parseNumericOrUndefined(row.min_temperature),
+      },
+      maximums: {
+        temperature: parseNumericOrUndefined(row.max_temperature),
+      },
+    }));
   }
 
   /**
    * Get aggregated readings with full min/max for all metrics
    * Optimized for frontend chart rendering
+   *
+   * SECURITY: Uses parameterized queries and whitelist validation for interval
    */
   async getAggregatedReadings(
     sensorId: string,
@@ -224,9 +285,27 @@ export class SensorQueryService {
     endTime: Date,
     interval?: AggregationInterval,
   ): Promise<AggregatedReadingsResponse> {
-    // Auto-select optimal interval if not provided
-    const effectiveInterval = interval || getOptimalInterval(startTime, endTime);
+    // Validate all inputs
+    const validSensorId = validateSensorId(sensorId);
+    const validTenantId = validateTenantId(tenantId);
+    const { startTime: validStart, endTime: validEnd } = validateDateRange(
+      startTime,
+      endTime,
+      MAX_QUERY_RANGE_MS,
+    );
 
+    // Auto-select optimal interval if not provided
+    const effectiveInterval = interval
+      ? validateAggregationInterval(interval)
+      : getOptimalInterval(validStart, validEnd);
+
+    if (!effectiveInterval) {
+      throw new BadRequestException(
+        `Invalid interval. Allowed values: ${ALLOWED_AGGREGATION_INTERVALS.join(', ')}`,
+      );
+    }
+
+    // Parameterized query with comprehensive metrics
     const query = `
       SELECT
         time_bucket($1::interval, timestamp) AS bucket,
@@ -268,58 +347,54 @@ export class SensorQueryService {
       ORDER BY bucket ASC
     `;
 
-    const results: Array<Record<string, string | null>> = await this.dataSource.query(query, [
-      effectiveInterval,
-      sensorId,
-      tenantId,
-      startTime,
-      endTime,
-    ]);
-
-    const data: AggregatedReadingType[] = results.map(
-      (row) => ({
-        bucket: new Date(row.bucket as string),
-        count: parseInt(row.count || '0', 10),
-        avgTemperature: row.avg_temperature ? parseFloat(row.avg_temperature) : undefined,
-        minTemperature: row.min_temperature ? parseFloat(row.min_temperature) : undefined,
-        maxTemperature: row.max_temperature ? parseFloat(row.max_temperature) : undefined,
-        avgPh: row.avg_ph ? parseFloat(row.avg_ph) : undefined,
-        minPh: row.min_ph ? parseFloat(row.min_ph) : undefined,
-        maxPh: row.max_ph ? parseFloat(row.max_ph) : undefined,
-        avgDissolvedOxygen: row.avg_dissolved_oxygen ? parseFloat(row.avg_dissolved_oxygen) : undefined,
-        minDissolvedOxygen: row.min_dissolved_oxygen ? parseFloat(row.min_dissolved_oxygen) : undefined,
-        maxDissolvedOxygen: row.max_dissolved_oxygen ? parseFloat(row.max_dissolved_oxygen) : undefined,
-        avgSalinity: row.avg_salinity ? parseFloat(row.avg_salinity) : undefined,
-        minSalinity: row.min_salinity ? parseFloat(row.min_salinity) : undefined,
-        maxSalinity: row.max_salinity ? parseFloat(row.max_salinity) : undefined,
-        avgAmmonia: row.avg_ammonia ? parseFloat(row.avg_ammonia) : undefined,
-        minAmmonia: row.min_ammonia ? parseFloat(row.min_ammonia) : undefined,
-        maxAmmonia: row.max_ammonia ? parseFloat(row.max_ammonia) : undefined,
-        avgNitrite: row.avg_nitrite ? parseFloat(row.avg_nitrite) : undefined,
-        avgNitrate: row.avg_nitrate ? parseFloat(row.avg_nitrate) : undefined,
-        avgTurbidity: row.avg_turbidity ? parseFloat(row.avg_turbidity) : undefined,
-        avgWaterLevel: row.avg_water_level ? parseFloat(row.avg_water_level) : undefined,
-      }),
+    const results: Array<Record<string, string | null>> = await this.dataSource.query(
+      query,
+      [effectiveInterval, validSensorId, validTenantId, validStart, validEnd],
     );
 
-    // Get sensor name
+    const data: AggregatedReadingType[] = results.map((row) => ({
+      bucket: new Date(row.bucket as string),
+      count: parseInt(row.count || '0', 10),
+      avgTemperature: parseNumericOrUndefined(row.avg_temperature),
+      minTemperature: parseNumericOrUndefined(row.min_temperature),
+      maxTemperature: parseNumericOrUndefined(row.max_temperature),
+      avgPh: parseNumericOrUndefined(row.avg_ph),
+      minPh: parseNumericOrUndefined(row.min_ph),
+      maxPh: parseNumericOrUndefined(row.max_ph),
+      avgDissolvedOxygen: parseNumericOrUndefined(row.avg_dissolved_oxygen),
+      minDissolvedOxygen: parseNumericOrUndefined(row.min_dissolved_oxygen),
+      maxDissolvedOxygen: parseNumericOrUndefined(row.max_dissolved_oxygen),
+      avgSalinity: parseNumericOrUndefined(row.avg_salinity),
+      minSalinity: parseNumericOrUndefined(row.min_salinity),
+      maxSalinity: parseNumericOrUndefined(row.max_salinity),
+      avgAmmonia: parseNumericOrUndefined(row.avg_ammonia),
+      minAmmonia: parseNumericOrUndefined(row.min_ammonia),
+      maxAmmonia: parseNumericOrUndefined(row.max_ammonia),
+      avgNitrite: parseNumericOrUndefined(row.avg_nitrite),
+      avgNitrate: parseNumericOrUndefined(row.avg_nitrate),
+      avgTurbidity: parseNumericOrUndefined(row.avg_turbidity),
+      avgWaterLevel: parseNumericOrUndefined(row.avg_water_level),
+    }));
+
+    // Get sensor name with error handling
     let sensorName: string | undefined;
     try {
       const sensor: Array<{ name: string }> = await this.dataSource.query(
         `SELECT name FROM sensors WHERE id = $1 AND "tenantId" = $2`,
-        [sensorId, tenantId],
+        [validSensorId, validTenantId],
       );
       sensorName = sensor[0]?.name;
     } catch {
-      // Sensor name is optional
+      // Sensor name is optional, don't fail the query
+      this.logger.debug(`Could not fetch sensor name for ${validSensorId}`);
     }
 
     return {
-      sensorId,
+      sensorId: validSensorId,
       sensorName,
       interval: effectiveInterval,
-      startTime,
-      endTime,
+      startTime: validStart,
+      endTime: validEnd,
       totalDataPoints: data.length,
       data,
     };
@@ -334,11 +409,20 @@ export class SensorQueryService {
     startTime: Date,
     endTime: Date,
   ): Promise<SensorReading[]> {
+    // Validate inputs
+    const validPondId = validateSensorId(pondId); // UUID format
+    const validTenantId = validateTenantId(tenantId);
+    const { startTime: validStart, endTime: validEnd } = validateDateRange(
+      startTime,
+      endTime,
+      MAX_QUERY_RANGE_MS,
+    );
+
     return await this.readingRepository.find({
       where: {
-        pondId,
-        tenantId,
-        timestamp: Between(startTime, endTime),
+        pondId: validPondId,
+        tenantId: validTenantId,
+        timestamp: Between(validStart, validEnd),
       },
       order: { timestamp: 'ASC' },
       take: 5000,
@@ -358,6 +442,15 @@ export class SensorQueryService {
     lastReading: Date | null;
     readingsPerDay: number;
   }> {
+    // Validate inputs
+    const validSensorId = validateSensorId(sensorId);
+    const validTenantId = validateTenantId(tenantId);
+
+    // Validate days parameter
+    if (!Number.isInteger(days) || days < 1 || days > 365) {
+      throw new BadRequestException('Days must be an integer between 1 and 365');
+    }
+
     const startTime = new Date();
     startTime.setDate(startTime.getDate() - days);
 
@@ -373,8 +466,8 @@ export class SensorQueryService {
     `;
 
     const results: SensorStatsRow[] = await this.dataSource.query(query, [
-      sensorId,
-      tenantId,
+      validSensorId,
+      validTenantId,
       startTime,
     ]);
 
@@ -387,7 +480,87 @@ export class SensorQueryService {
         ? parseFloat(result.average_quality)
         : 0,
       lastReading: result?.last_reading || null,
-      readingsPerDay: totalReadings / days,
+      readingsPerDay: days > 0 ? totalReadings / days : 0,
     };
+  }
+
+  /**
+   * Get multiple sensors' latest readings efficiently
+   * Useful for dashboard views
+   */
+  async getLatestReadingsForSensors(
+    sensorIds: string[],
+    tenantId: string,
+  ): Promise<Map<string, SensorReading>> {
+    if (sensorIds.length === 0) {
+      return new Map();
+    }
+
+    // Validate inputs
+    const validTenantId = validateTenantId(tenantId);
+    const validSensorIds = sensorIds.map((id) => validateSensorId(id));
+
+    // Use DISTINCT ON for PostgreSQL to get latest reading per sensor
+    const query = `
+      SELECT DISTINCT ON ("sensorId") *
+      FROM sensor_readings
+      WHERE "sensorId" = ANY($1)
+        AND "tenantId" = $2
+      ORDER BY "sensorId", timestamp DESC
+    `;
+
+    const results: SensorReading[] = await this.dataSource.query(query, [
+      validSensorIds,
+      validTenantId,
+    ]);
+
+    const readingsMap = new Map<string, SensorReading>();
+    for (const reading of results) {
+      readingsMap.set(reading.sensorId, reading);
+    }
+
+    return readingsMap;
+  }
+
+  /**
+   * Get aggregated readings for multiple sensors
+   * Useful for comparing sensors
+   */
+  async getMultiSensorAggregatedReadings(
+    sensorIds: string[],
+    tenantId: string,
+    startTime: Date,
+    endTime: Date,
+    interval?: AggregationInterval,
+  ): Promise<Map<string, AggregatedReadingsResponse>> {
+    if (sensorIds.length === 0) {
+      return new Map();
+    }
+
+    // Limit to prevent performance issues
+    if (sensorIds.length > 10) {
+      throw new BadRequestException('Maximum 10 sensors can be queried at once');
+    }
+
+    const resultsMap = new Map<string, AggregatedReadingsResponse>();
+
+    // Fetch in parallel but with controlled concurrency
+    const promises = sensorIds.map((sensorId) =>
+      this.getAggregatedReadings(sensorId, tenantId, startTime, endTime, interval)
+        .then((result) => ({ sensorId, result, error: null }))
+        .catch((error) => ({ sensorId, result: null, error })),
+    );
+
+    const results = await Promise.all(promises);
+
+    for (const { sensorId, result, error } of results) {
+      if (result) {
+        resultsMap.set(sensorId, result);
+      } else {
+        this.logger.warn(`Failed to get readings for sensor ${sensorId}: ${error?.message}`);
+      }
+    }
+
+    return resultsMap;
   }
 }

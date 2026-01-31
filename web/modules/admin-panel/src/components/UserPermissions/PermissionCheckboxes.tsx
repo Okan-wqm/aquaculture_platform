@@ -114,7 +114,7 @@ export const PermissionCheckboxes: React.FC<PermissionCheckboxesProps> = ({
         return (
           <div key={category} className="permission-category">
             <div className="category-header" onClick={() => toggleCategory(category)}>
-              <span className="expand-icon">{isExpanded ? '▼' : '▶'}</span>
+              <span className="expand-icon" aria-hidden="true">{isExpanded ? '▼' : '▶'}</span>
               <label className="category-checkbox">
                 <input
                   type="checkbox"

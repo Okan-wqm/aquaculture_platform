@@ -8,7 +8,7 @@ import { PanelPermissions } from '../entities/user-permissions.entity';
  */
 export class InviteUserDto {
   @IsEmail({}, { message: 'Valid email address is required' })
-  email: string;
+  email!: string;
 
   @IsString()
   @IsOptional()
@@ -32,19 +32,19 @@ export class InviteUserDto {
  */
 export class UpdateUserPermissionsDto {
   @IsObject()
-  permissions: Partial<PanelPermissions>;
+  permissions!: Partial<PanelPermissions>;
 }
 
 /**
  * Response DTO for user with permissions
  */
 export class UserWithPermissionsDto {
-  id: string;
-  email: string;
+  id!: string;
+  email!: string;
   firstName?: string;
   lastName?: string;
-  isActive: boolean;
-  permissions: PanelPermissions;
-  invitedAt: Date;
+  isActive!: boolean;
+  permissions!: PanelPermissions;
+  invitedAt!: Date;
   lastLoginAt?: Date;
 }

@@ -100,13 +100,13 @@ export class UserPermissionsService {
     existing: PanelPermissions,
     updates: Partial<PanelPermissions>,
   ): PanelPermissions {
-    const result = { ...existing };
+    const result = JSON.parse(JSON.stringify(existing)) as PanelPermissions;
 
     for (const [category, perms] of Object.entries(updates)) {
-      if (perms && typeof perms === 'object') {
-        result[category as keyof PanelPermissions] = {
-          ...result[category as keyof PanelPermissions],
-          ...perms,
+      if (perms && typeof perms === 'object' && category in result) {
+        (result as Record<string, Record<string, boolean>>)[category] = {
+          ...(result as Record<string, Record<string, boolean>>)[category],
+          ...(perms as Record<string, boolean>),
         };
       }
     }

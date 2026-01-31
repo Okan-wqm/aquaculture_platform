@@ -98,9 +98,9 @@ export const InviteUserModal: React.FC<InviteUserModalProps> = ({
 
   return (
     <div className="modal-overlay">
-      <div className="modal-content">
+      <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="invite-modal-title">
         <div className="modal-header">
-          <h2>Invite New User</h2>
+          <h2 id="invite-modal-title">Invite New User</h2>
           <button className="close-button" onClick={onClose} disabled={isLoading}>×</button>
         </div>
 

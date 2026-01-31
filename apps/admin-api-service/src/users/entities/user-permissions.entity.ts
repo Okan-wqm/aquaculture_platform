@@ -97,6 +97,7 @@ export interface PanelPermissions {
 @Entity('user_permissions', { schema: 'public' })
 @Index('idx_user_permissions_user', ['userId'])
 @Index('idx_user_permissions_tenant', ['tenantId'])
+@Index('idx_user_permissions_user_tenant_unique', ['userId', 'tenantId'], { unique: true })
 export class UserPermissions {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

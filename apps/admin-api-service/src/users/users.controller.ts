@@ -495,7 +495,7 @@ export class UsersController {
 
     // Check user limit for tenant
     const limitCheck = await this.userProvisioningService.checkUserLimit(tenantId);
-    if (!limitCheck.canAddUser) {
+    if (!limitCheck.canCreate) {
       throw new BadRequestException(
         `User limit reached. Current: ${limitCheck.currentCount}/${limitCheck.limit}`,
       );

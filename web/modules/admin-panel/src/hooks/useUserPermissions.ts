@@ -43,7 +43,7 @@ export const usePermissionCategories = () => {
       try {
         const response = await fetch(`${API_BASE}/permission-categories`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
           },
         });
         if (!response.ok) throw new Error('Failed to fetch permission categories');
@@ -71,7 +71,7 @@ export const useTenantUsers = () => {
     try {
       const response = await fetch(`${API_BASE}/tenant/users-with-permissions`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
         },
       });
       if (!response.ok) throw new Error('Failed to fetch users');
@@ -104,12 +104,12 @@ export const useInviteUser = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
         },
         body: JSON.stringify(data),
       });
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({ message: 'Request failed' }));
         throw new Error(errorData.message || 'Failed to invite user');
       }
     } catch (err) {
@@ -136,12 +136,12 @@ export const useUpdateUserPermissions = () => {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
         },
         body: JSON.stringify({ permissions }),
       });
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({ message: 'Request failed' }));
         throw new Error(errorData.message || 'Failed to update permissions');
       }
     } catch (err) {
@@ -172,7 +172,7 @@ export const useUserPermissions = (userId: string | null) => {
       try {
         const response = await fetch(`${API_BASE}/${userId}/permissions`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
           },
         });
         if (!response.ok) throw new Error('Failed to fetch permissions');

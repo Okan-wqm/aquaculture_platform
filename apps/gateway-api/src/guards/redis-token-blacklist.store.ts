@@ -69,10 +69,11 @@ export class RedisTokenBlacklistStore implements TokenBlacklistStore {
       return exists !== null;
     } catch (error) {
       this.logger.error(`Failed to check token blacklist: ${error}`);
-      // Fail closed - if we can't check, assume not blacklisted
-      // This is a security trade-off: availability vs security
-      // For most applications, failing open is acceptable
-      return false;
+      // SECURITY: Fail closed - if we can't verify, treat token as potentially revoked
+      // This prevents revoked tokens from being used during Redis outages
+      // Trade-off: Availability impact during Redis failures, but prevents security bypass
+      // For security-critical applications, this is the correct approach
+      return true;
     }
   }
 }

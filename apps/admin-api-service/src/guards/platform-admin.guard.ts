@@ -1,3 +1,5 @@
+import { randomBytes } from 'crypto';
+
 import {
   Injectable,
   CanActivate,
@@ -57,8 +59,9 @@ export class PlatformAdminGuard implements CanActivate {
           'to use auto-generated development secret. NEVER use this in production!',
         );
       }
-      // Generate unique per-instance dev secret (not predictable)
-      this.jwtSecret = `dev-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${process.pid}`;
+      // SECURITY: Generate cryptographically secure dev secret (not predictable)
+      // Using crypto.randomBytes instead of Math.random for better security
+      this.jwtSecret = `dev-${randomBytes(32).toString('hex')}`;
       this.logger.warn(
         'Using auto-generated development JWT secret. This is NOT secure for production use.',
       );

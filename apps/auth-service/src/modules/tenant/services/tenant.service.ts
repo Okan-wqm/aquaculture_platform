@@ -9,7 +9,7 @@ import {
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Role, SchemaManagerService } from '@platform/backend-common';
 import { IEventBus } from '@platform/event-bus';
-import { TenantCreatedEvent, TenantUpdatedEvent } from '@platform/event-contracts';
+import { TenantCreatedEvent, TenantUpdatedEvent, UserInvitedEvent } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import { Repository, DataSource } from 'typeorm';
 
@@ -220,27 +220,49 @@ export class TenantService {
         return existingUser;
       }
 
-      // Generate temporary password (user will need to reset)
-      const tempPassword = crypto.randomUUID().substring(0, 12);
-      const passwordHash = await bcrypt.hash(tempPassword, 10);
+      // Generate password reset token (user will set their own password)
+      const resetToken = crypto.randomUUID();
+      const resetTokenHash = await bcrypt.hash(resetToken, 10);
 
-      // Create admin user
+      // Create admin user with pending password reset
       const adminUser = this.userRepository.create({
         email,
-        password: passwordHash,
+        password: resetTokenHash, // Temporary hash, user must reset
         firstName: 'Admin',
         lastName: tenant.name,
         role: Role.TENANT_ADMIN,
         tenantId: tenant.id,
         isActive: true,
         isEmailVerified: false, // Will need to verify
+        passwordResetToken: resetToken,
+        passwordResetExpires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
       });
 
       const savedUser = await this.userRepository.save(adminUser);
       this.logger.log(`Created admin user ${email} for tenant ${tenant.id}`);
 
-      // TODO: Send welcome email with password reset link
-      // await this.emailService.sendWelcomeEmail(email, tempPassword, tenant.name);
+      // Publish UserInvitedEvent for notification service to send welcome email
+      const baseUrl = process.env['APP_URL'] || 'https://app.aquaculture-platform.com';
+      const actionUrl = `${baseUrl}/auth/set-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
+
+      const userInvitedEvent: UserInvitedEvent = {
+        eventId: crypto.randomUUID(),
+        eventType: 'UserInvited',
+        timestamp: new Date(),
+        tenantId: tenant.id,
+        userId: savedUser.id,
+        email: savedUser.email,
+        firstName: savedUser.firstName || undefined,
+        lastName: savedUser.lastName || undefined,
+        role: savedUser.role,
+        tenantName: tenant.name,
+        credentialType: 'reset_token',
+        actionUrl,
+      };
+
+      // Publish event - notification service will handle email sending
+      await this.eventBus.publish(userInvitedEvent);
+      this.logger.log(`Published UserInvitedEvent for ${email} (tenant: ${tenant.id})`);
 
       return savedUser;
     } catch (error) {

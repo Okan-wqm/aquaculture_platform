@@ -11,6 +11,7 @@ import {
   HttpStatus,
   Headers,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { EventStoreService } from './services/event-store.service';
 import {
@@ -93,7 +94,7 @@ export class EventStoreController {
     @Headers('x-tenant-id') tenantId: string,
     @Param('aggregateType') aggregateType: string,
     @Param('aggregateId', ParseUUIDPipe) aggregateId: string,
-  ): Promise<StreamInfoDto | { message: string }> {
+  ): Promise<StreamInfoDto> {
     this.validateTenantId(tenantId);
 
     const stream = await this.eventStoreService.getStreamInfo(
@@ -103,7 +104,7 @@ export class EventStoreController {
     );
 
     if (!stream) {
-      return { message: 'Stream not found' };
+      throw new NotFoundException(`Stream ${aggregateType}/${aggregateId} not found`);
     }
 
     const snapshot = await this.eventStoreService.getSnapshot(
@@ -274,7 +275,7 @@ export class EventStoreController {
     @Headers('x-tenant-id') tenantId: string,
     @Param('aggregateType') aggregateType: string,
     @Param('aggregateId', ParseUUIDPipe) aggregateId: string,
-  ): Promise<SnapshotData | { message: string }> {
+  ): Promise<SnapshotData> {
     this.validateTenantId(tenantId);
 
     const snapshot = await this.eventStoreService.getSnapshot(
@@ -284,7 +285,7 @@ export class EventStoreController {
     );
 
     if (!snapshot) {
-      return { message: 'Snapshot not found' };
+      throw new NotFoundException(`Snapshot for ${aggregateType}/${aggregateId} not found`);
     }
 
     return snapshot;

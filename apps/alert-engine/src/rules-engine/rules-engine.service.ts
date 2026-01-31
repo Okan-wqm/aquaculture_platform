@@ -37,10 +37,10 @@ export interface RuleMatch {
 }
 
 /**
- * Cached rule entry
+ * Cached rules entry - stores all rules for a given cache key
  */
-interface CachedRule {
-  rule: AlertRule;
+interface CachedRules {
+  rules: AlertRule[];
   cachedAt: number;
   ttlMs: number;
 }
@@ -52,7 +52,7 @@ interface CachedRule {
 @Injectable()
 export class RulesEngineService {
   private readonly logger = new Logger(RulesEngineService.name);
-  private ruleCache: Map<string, CachedRule> = new Map();
+  private ruleCache: Map<string, CachedRules> = new Map();
   private readonly DEFAULT_CACHE_TTL_MS = 60000; // 1 minute
   private readonly EVALUATION_TIMEOUT_MS = 5000; // 5 seconds
 
@@ -393,18 +393,16 @@ export class RulesEngineService {
       return null;
     }
 
-    return [cached.rule];
+    return cached.rules;
   }
 
   private cacheRules(key: string, rules: AlertRule[]): void {
-    // Cache individual rules
-    for (const rule of rules) {
-      this.ruleCache.set(`${key}:${rule.id}`, {
-        rule,
-        cachedAt: Date.now(),
-        ttlMs: this.DEFAULT_CACHE_TTL_MS,
-      });
-    }
+    // Cache all rules under the same key
+    this.ruleCache.set(key, {
+      rules,
+      cachedAt: Date.now(),
+      ttlMs: this.DEFAULT_CACHE_TTL_MS,
+    });
   }
 
   private invalidateTenantCache(tenantId: string): void {

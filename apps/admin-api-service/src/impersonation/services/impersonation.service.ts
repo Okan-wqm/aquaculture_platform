@@ -68,6 +68,11 @@ export class ImpersonationService {
   private activeSessions: Map<string, ImpersonationSession> = new Map();
   private readonly TOKEN_EXPIRY_BUFFER_MS = 60000; // 1 minute
 
+  // SECURITY: Rate limiting for impersonation attempts
+  private readonly rateLimitMap: Map<string, { count: number; resetAt: number }> = new Map();
+  private readonly RATE_LIMIT_MAX_ATTEMPTS = 5; // Max attempts per window
+  private readonly RATE_LIMIT_WINDOW_MS = 300000; // 5 minutes window
+
   constructor(
     @InjectRepository(ImpersonationSession)
     private readonly sessionRepo: Repository<ImpersonationSession>,
@@ -75,6 +80,42 @@ export class ImpersonationService {
     private readonly permissionRepo: Repository<ImpersonationPermission>,
   ) {
     this.loadActiveSessions();
+    // Clean up rate limit map periodically
+    setInterval(() => this.cleanupRateLimitMap(), 60000);
+  }
+
+  /**
+   * SECURITY: Check rate limit for impersonation attempts
+   * Prevents brute-force attacks on impersonation
+   */
+  private checkRateLimit(key: string): { allowed: boolean; retryAfterMs?: number } {
+    const now = Date.now();
+    const entry = this.rateLimitMap.get(key);
+
+    if (!entry || now > entry.resetAt) {
+      // Reset or create new entry
+      this.rateLimitMap.set(key, { count: 1, resetAt: now + this.RATE_LIMIT_WINDOW_MS });
+      return { allowed: true };
+    }
+
+    if (entry.count >= this.RATE_LIMIT_MAX_ATTEMPTS) {
+      return { allowed: false, retryAfterMs: entry.resetAt - now };
+    }
+
+    entry.count++;
+    return { allowed: true };
+  }
+
+  /**
+   * Clean up expired rate limit entries
+   */
+  private cleanupRateLimitMap(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.rateLimitMap.entries()) {
+      if (now > entry.resetAt) {
+        this.rateLimitMap.delete(key);
+      }
+    }
   }
 
   private async loadActiveSessions(): Promise<void> {
@@ -276,6 +317,27 @@ export class ImpersonationService {
   // ============================================================================
 
   async startImpersonation(request: StartImpersonationRequest): Promise<ImpersonationSession> {
+    // SECURITY: Rate limiting based on admin ID and IP address
+    const rateLimitKey = `impersonate:${request.superAdminId}:${request.ipAddress || 'unknown'}`;
+    const rateCheck = this.checkRateLimit(rateLimitKey);
+
+    if (!rateCheck.allowed) {
+      const retryAfterSeconds = Math.ceil((rateCheck.retryAfterMs || 0) / 1000);
+      this.logger.warn(
+        `Rate limit exceeded for impersonation: admin=${request.superAdminId}, ip=${request.ipAddress}`,
+      );
+      throw new ForbiddenException(
+        `Too many impersonation attempts. Please try again in ${retryAfterSeconds} seconds.`,
+      );
+    }
+
+    // SECURITY: Log all impersonation attempts for audit
+    this.logger.log(
+      `Impersonation attempt: admin=${request.superAdminEmail} (${request.superAdminId}), ` +
+      `target=${request.targetTenantId}, ip=${request.ipAddress || 'unknown'}, ` +
+      `reason=${request.reason}`,
+    );
+
     // Validate permission
     const { allowed, reason, permission } = await this.canImpersonate(
       request.superAdminId,

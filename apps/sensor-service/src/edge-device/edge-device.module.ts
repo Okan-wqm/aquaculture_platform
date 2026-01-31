@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { AutomationProgram } from '../automation/entities/automation-program.entity';
+import { Sensor } from '../database/entities/sensor.entity';
 import { SimpleRateLimitGuard } from '../guards/rate-limit.guard';
+import { PlcAlarm } from '../plc-control/entities/plc-alarm.entity';
 // SharedMqttModule is @Global, no need to import explicitly
 
 import { EdgeDeviceResolver } from './edge-device.resolver';
@@ -15,7 +18,14 @@ import { ProvisioningService } from './provisioning.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([EdgeDevice, DeviceIoConfig]),
+    TypeOrmModule.forFeature([
+      EdgeDevice,
+      DeviceIoConfig,
+      // Additional entities for field resolver counts
+      AutomationProgram,
+      Sensor,
+      PlcAlarm,
+    ]),
     // MqttClientService is available via @Global SharedMqttModule
   ],
   controllers: [ProvisioningController],

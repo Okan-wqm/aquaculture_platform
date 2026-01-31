@@ -9,7 +9,13 @@ import {
   ResolveField,
   Parent,
 } from '@nestjs/graphql';
+import { InjectRepository } from '@nestjs/typeorm';
 import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
+import { Repository } from 'typeorm';
+
+import { AutomationProgram, ProgramStatus } from '../automation/entities/automation-program.entity';
+import { Sensor, SensorStatus } from '../database/entities/sensor.entity';
+import { PlcAlarm } from '../plc-control/entities/plc-alarm.entity';
 
 import {
   RegisterEdgeDeviceInput,
@@ -51,6 +57,12 @@ export class EdgeDeviceResolver {
   constructor(
     private readonly edgeDeviceService: EdgeDeviceService,
     private readonly provisioningService: ProvisioningService,
+    @InjectRepository(AutomationProgram)
+    private readonly automationProgramRepo: Repository<AutomationProgram>,
+    @InjectRepository(Sensor)
+    private readonly sensorRepo: Repository<Sensor>,
+    @InjectRepository(PlcAlarm)
+    private readonly plcAlarmRepo: Repository<PlcAlarm>,
   ) {}
 
   // ==================== Queries ====================
@@ -299,37 +311,76 @@ export class EdgeDeviceResolver {
 
   /**
    * Resolve sensor count for a device
-   * TODO: Implement when sensor-edgeDevice relation is added
+   * Counts sensors that share the same siteId as the device
+   * (Direct device-sensor relation can be added in future if needed)
    */
   @ResolveField(() => Int, { name: 'sensorCount', nullable: true })
-  resolveSensorCount(
-    @Parent() _device: EdgeDevice,
-  ): number {
-    // Placeholder - will be implemented when sensor relation is added
-    return 0;
+  async resolveSensorCount(
+    @Parent() device: EdgeDevice,
+  ): Promise<number> {
+    // If device has no siteId, return 0
+    if (!device.siteId) {
+      return 0;
+    }
+
+    try {
+      // Count active sensors on the same site as this device
+      return await this.sensorRepo.count({
+        where: {
+          tenantId: device.tenantId,
+          siteId: device.siteId,
+          status: SensorStatus.ACTIVE,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(`Failed to count sensors for device ${device.id}: ${(error as Error).message}`);
+      return 0;
+    }
   }
 
   /**
    * Resolve program count for a device
-   * TODO: Implement when automation module is added
+   * Counts automation programs deployed to or targeting this device
    */
   @ResolveField(() => Int, { name: 'programCount', nullable: true })
-  resolveProgramCount(
-    @Parent() _device: EdgeDevice,
-  ): number {
-    // Placeholder - will be implemented in Sprint 3
-    return 0;
+  async resolveProgramCount(
+    @Parent() device: EdgeDevice,
+  ): Promise<number> {
+    try {
+      // Count programs assigned to this device (deployed or approved)
+      return await this.automationProgramRepo.count({
+        where: {
+          tenantId: device.tenantId,
+          deviceId: device.id,
+          status: ProgramStatus.DEPLOYED,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(`Failed to count programs for device ${device.id}: ${(error as Error).message}`);
+      return 0;
+    }
   }
 
   /**
    * Resolve active alarm count for a device
-   * TODO: Implement when alarm module is added
+   * Counts unacknowledged alarms from sensors/PLCs on the same site
    */
   @ResolveField(() => Int, { name: 'activeAlarmCount', nullable: true })
-  resolveActiveAlarmCount(
-    @Parent() _device: EdgeDevice,
-  ): number {
-    // Placeholder - will be implemented in Sprint 2
-    return 0;
+  async resolveActiveAlarmCount(
+    @Parent() device: EdgeDevice,
+  ): Promise<number> {
+    try {
+      // Count unacknowledged alarms for this tenant
+      // Note: When PLC-EdgeDevice relation is established, filter by device
+      return await this.plcAlarmRepo.count({
+        where: {
+          tenantId: device.tenantId,
+          acknowledged: false,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(`Failed to count alarms for device ${device.id}: ${(error as Error).message}`);
+      return 0;
+    }
   }
 }

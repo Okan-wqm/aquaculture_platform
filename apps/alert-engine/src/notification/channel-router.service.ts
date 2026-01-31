@@ -123,7 +123,7 @@ export class ChannelRouterService {
   private userPreferences: Map<string, UserNotificationPreferences> = new Map();
   private channelStatus: Map<NotificationChannel, ChannelStatus> = new Map();
   private routingRules: Map<string, RoutingRule> = new Map();
-  private rateLimitCounters: Map<string, { hourly: number; daily: number; lastReset: Date }> = new Map();
+  private rateLimitCounters: Map<string, { hourly: number; daily: number; hourlyResetAt: Date; dailyResetAt: Date }> = new Map();
 
   constructor() {
     this.initializeChannelStatus();
@@ -414,8 +414,21 @@ export class ChannelRouterService {
     const now = new Date();
     let counter = this.rateLimitCounters.get(key);
 
-    if (!counter || this.shouldResetCounters(counter.lastReset, now)) {
-      counter = { hourly: 0, daily: 0, lastReset: now };
+    // Initialize counter if not exists
+    if (!counter) {
+      counter = { hourly: 0, daily: 0, hourlyResetAt: now, dailyResetAt: now };
+    }
+
+    // Reset hourly counter if 1 hour has passed
+    if (this.shouldResetHourlyCounter(counter.hourlyResetAt, now)) {
+      counter.hourly = 0;
+      counter.hourlyResetAt = now;
+    }
+
+    // Reset daily counter if 24 hours have passed
+    if (this.shouldResetDailyCounter(counter.dailyResetAt, now)) {
+      counter.daily = 0;
+      counter.dailyResetAt = now;
     }
 
     return channels.filter(channel => {
@@ -442,10 +455,17 @@ export class ChannelRouterService {
   }
 
   /**
-   * Check if rate limit counters should reset
+   * Check if hourly counter should reset (every 1 hour)
    */
-  private shouldResetCounters(lastReset: Date, now: Date): boolean {
+  private shouldResetHourlyCounter(lastReset: Date, now: Date): boolean {
     return now.getTime() - lastReset.getTime() > 60 * 60 * 1000; // 1 hour
+  }
+
+  /**
+   * Check if daily counter should reset (every 24 hours)
+   */
+  private shouldResetDailyCounter(lastReset: Date, now: Date): boolean {
+    return now.getTime() - lastReset.getTime() > 24 * 60 * 60 * 1000; // 24 hours
   }
 
   /**

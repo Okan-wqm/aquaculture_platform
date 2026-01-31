@@ -239,14 +239,20 @@ export class DatabaseExplorerController {
       const totalRows = parseInt(countResult[0]?.count || '0', 10);
       const totalPages = Math.ceil(totalRows / limit);
 
-      // Verileri al
+      // Verileri al - SECURITY: Use parameterized queries for LIMIT and OFFSET
       let dataQuery = `SELECT * FROM "${schema}"."${table}"`;
+      const queryParams: (string | number)[] = [];
+      let paramIndex = 1;
+
       if (orderBy) {
         dataQuery += ` ORDER BY "${orderBy}" ${orderDirection}`;
       }
-      dataQuery += ` LIMIT ${limit} OFFSET ${offset}`;
 
-      const rows = await queryRunner.query(dataQuery);
+      // SECURITY: Use parameterized values for LIMIT and OFFSET to prevent SQL injection
+      dataQuery += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+      queryParams.push(limit, offset);
+
+      const rows = await queryRunner.query(dataQuery, queryParams);
 
       return {
         tableName: table,

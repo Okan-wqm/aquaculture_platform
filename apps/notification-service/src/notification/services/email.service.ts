@@ -32,6 +32,19 @@ export interface AlertEmailData {
 }
 
 /**
+ * Welcome email data for new users
+ */
+export interface WelcomeEmailData {
+  firstName?: string;
+  lastName?: string;
+  email: string;
+  tenantName: string;
+  role: string;
+  actionUrl: string;
+  expiresInDays?: number;
+}
+
+/**
  * Regulatory report email data (for Mattilsynet urgent reports)
  */
 export interface RegulatoryReportEmailData {
@@ -167,6 +180,103 @@ export class EmailService {
     const html = this.generateAlertEmailTemplate(alertData);
 
     return await this.sendEmail(to, subject, html);
+  }
+
+  /**
+   * Send a welcome email to a newly invited user
+   */
+  async sendWelcomeEmail(data: WelcomeEmailData): Promise<string> {
+    const subject = `Welcome to ${data.tenantName} - Set Up Your Account`;
+    const html = this.generateWelcomeEmailTemplate(data);
+
+    return await this.sendEmail(data.email, subject, html);
+  }
+
+  /**
+   * Generate welcome email HTML template
+   */
+  private generateWelcomeEmailTemplate(data: WelcomeEmailData): string {
+    const displayName = data.firstName
+      ? `${data.firstName}${data.lastName ? ' ' + data.lastName : ''}`
+      : 'there';
+    const expiresIn = data.expiresInDays || 7;
+
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
+            .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
+            .header { background-color: #0066cc; color: white; padding: 32px; text-align: center; }
+            .header h1 { margin: 0; font-size: 28px; }
+            .header p { margin: 8px 0 0 0; opacity: 0.9; }
+            .content { padding: 32px; }
+            .greeting { font-size: 18px; margin-bottom: 16px; }
+            .info-box { background-color: #f8f9fa; border-radius: 8px; padding: 20px; margin: 20px 0; }
+            .info-row { display: flex; margin-bottom: 8px; }
+            .info-label { font-weight: 600; color: #666; min-width: 120px; }
+            .info-value { color: #333; }
+            .button-container { text-align: center; margin: 32px 0; }
+            .button { display: inline-block; background-color: #0066cc; color: white; padding: 16px 48px; text-decoration: none; border-radius: 6px; font-size: 16px; font-weight: 600; }
+            .button:hover { background-color: #0052a3; }
+            .warning { background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 12px 16px; margin: 20px 0; font-size: 14px; }
+            .footer { padding: 24px 32px; font-size: 12px; color: #666; border-top: 1px solid #eee; text-align: center; }
+            .link-fallback { font-size: 12px; color: #666; word-break: break-all; margin-top: 16px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>🐟 Welcome to Aquaculture Platform</h1>
+              <p>Your account has been created</p>
+            </div>
+            <div class="content">
+              <p class="greeting">Hello ${escapeHtml(displayName)},</p>
+              <p>
+                You've been invited to join <strong>${escapeHtml(data.tenantName)}</strong> on Aquaculture Platform.
+                Your account has been created and is ready for you to set up.
+              </p>
+
+              <div class="info-box">
+                <div class="info-row">
+                  <span class="info-label">Organization:</span>
+                  <span class="info-value">${escapeHtml(data.tenantName)}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Email:</span>
+                  <span class="info-value">${escapeHtml(data.email)}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Role:</span>
+                  <span class="info-value">${escapeHtml(data.role.replace('_', ' '))}</span>
+                </div>
+              </div>
+
+              <div class="button-container">
+                <a href="${escapeHtml(data.actionUrl)}" class="button">Set Up Your Password</a>
+              </div>
+
+              <div class="warning">
+                ⏰ <strong>Important:</strong> This link will expire in ${expiresIn} days.
+                Please set up your password before the link expires.
+              </div>
+
+              <p class="link-fallback">
+                If the button doesn't work, copy and paste this link into your browser:<br>
+                ${escapeHtml(data.actionUrl)}
+              </p>
+            </div>
+            <div class="footer">
+              <p>This is an automated message from Aquaculture Platform.</p>
+              <p>If you didn't expect this email, please ignore it or contact your administrator.</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
   }
 
   /**

@@ -1,5 +1,6 @@
-import { Logger } from '@nestjs/common';
+import { Logger, ForbiddenException } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
+import { Roles, Role } from '@platform/backend-common';
 
 import { DashboardService } from './dashboard.service';
 import { SaveDashboardLayoutInput, CreateSystemDefaultLayoutInput } from './dto/dashboard-layout.dto';
@@ -15,6 +16,7 @@ interface GraphQLContext {
     user?: {
       sub?: string;
       id?: string;
+      roles?: string[];
     };
   };
 }
@@ -84,15 +86,28 @@ export class DashboardResolver {
 
   /**
    * Save system default layout (admin only)
+   * Only TENANT_ADMIN or higher can modify system default layouts
    */
   @Mutation(() => DashboardLayout, { name: 'saveSystemDefaultLayout' })
+  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
   async saveSystemDefaultLayout(
     @Args('input') input: CreateSystemDefaultLayoutInput,
     @Context() ctx: GraphQLContext,
   ): Promise<DashboardLayout> {
     const { tenantId, userId } = this.extractContext(ctx);
-    // TODO: Add role check for TENANT_ADMIN
-    this.logger.log(`Saving system default layout for tenant ${tenantId}`);
+
+    // Additional role verification from context
+    const userRoles = ctx.req?.user?.roles || [];
+    const hasAdminRole = userRoles.some(
+      role => role === Role.SUPER_ADMIN || role === Role.TENANT_ADMIN
+    );
+
+    if (!hasAdminRole) {
+      this.logger.warn(`Unauthorized attempt to modify system default layout by user ${userId}`);
+      throw new ForbiddenException('Only tenant administrators can modify system default layouts');
+    }
+
+    this.logger.log(`Saving system default layout for tenant ${tenantId} by admin ${userId}`);
     return this.dashboardService.saveSystemDefaultLayout(input, tenantId, userId);
   }
 

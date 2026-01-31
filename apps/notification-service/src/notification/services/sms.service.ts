@@ -21,16 +21,79 @@ export class SmsService {
   private readonly logger = new Logger(SmsService.name);
   private readonly isEnabled: boolean;
   private readonly provider: string;
+  private readonly isProduction: boolean;
+  private providerHealthy = true;
+
+  // Supported providers that have actual implementations
+  private static readonly IMPLEMENTED_PROVIDERS = ['mock'];
+  private static readonly PLANNED_PROVIDERS = ['twilio', 'aws_sns'];
 
   constructor(private readonly configService: ConfigService) {
     this.isEnabled = this.configService.get('SMS_ENABLED', 'false') === 'true';
     this.provider = this.configService.get('SMS_PROVIDER', 'mock');
+    this.isProduction = this.configService.get('NODE_ENV') === 'production';
+
+    // SECURITY: Validate configuration at startup
+    this.validateConfiguration();
 
     if (this.isEnabled) {
       this.logger.log(`SMS service initialized with provider: ${this.provider}`);
     } else {
       this.logger.warn('SMS service is disabled');
     }
+  }
+
+  /**
+   * Validate SMS configuration at startup
+   * Warns if non-implemented provider is configured
+   */
+  private validateConfiguration(): void {
+    if (!this.isEnabled) {
+      return;
+    }
+
+    const isImplemented = SmsService.IMPLEMENTED_PROVIDERS.includes(this.provider);
+    const isPlanned = SmsService.PLANNED_PROVIDERS.includes(this.provider);
+
+    if (!isImplemented && !isPlanned) {
+      this.logger.error(
+        `Unknown SMS provider configured: ${this.provider}. ` +
+        `Valid options: ${[...SmsService.IMPLEMENTED_PROVIDERS, ...SmsService.PLANNED_PROVIDERS].join(', ')}`,
+      );
+      this.providerHealthy = false;
+    }
+
+    if (isPlanned && !isImplemented) {
+      const message = `SMS provider '${this.provider}' is configured but not yet implemented. ` +
+        `Falling back to mock provider. Set SMS_PROVIDER=mock to silence this warning.`;
+
+      if (this.isProduction) {
+        // CRITICAL: In production, log error and mark unhealthy
+        this.logger.error(`PRODUCTION WARNING: ${message}`);
+        this.providerHealthy = false;
+      } else {
+        this.logger.warn(message);
+      }
+    }
+  }
+
+  /**
+   * Check if SMS provider is healthy
+   */
+  isHealthy(): boolean {
+    return this.providerHealthy;
+  }
+
+  /**
+   * Get provider status for health checks
+   */
+  getProviderStatus(): { provider: string; enabled: boolean; healthy: boolean; implemented: boolean } {
+    return {
+      provider: this.provider,
+      enabled: this.isEnabled,
+      healthy: this.providerHealthy,
+      implemented: SmsService.IMPLEMENTED_PROVIDERS.includes(this.provider),
+    };
   }
 
   /**

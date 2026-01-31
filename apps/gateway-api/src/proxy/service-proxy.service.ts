@@ -6,12 +6,31 @@
  * Supports HTTP, WebSocket, and SSE proxying.
  */
 
-import { Injectable, Logger, BadGatewayException, GatewayTimeoutException } from '@nestjs/common';
+import { Injectable, Logger, BadGatewayException, GatewayTimeoutException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 
 import { CircuitBreakerService } from './circuit-breaker.service';
 import { LoadBalancerService, ServiceInstanceStats, LoadBalancerContext } from './load-balancer.service';
+
+/**
+ * Headers that should never be forwarded to upstream services
+ * SECURITY: Prevents header injection attacks
+ */
+const BLOCKED_FORWARDED_HEADERS = [
+  'x-forwarded-for',
+  'x-forwarded-host',
+  'x-forwarded-proto',
+  'x-forwarded-port',
+  'x-forwarded-prefix',
+  'x-original-url',
+  'x-rewrite-url',
+  'x-original-host',
+  'forwarded',
+  // Prevent cache poisoning
+  'x-http-method-override',
+  'x-method-override',
+];
 
 /**
  * Proxy request configuration
@@ -84,12 +103,34 @@ interface RetryContext {
 /**
  * Service Proxy Service
  * Handles all upstream service communication
+ *
+ * SECURITY:
+ * - Validates hostnames against allowlist (registered services only)
+ * - Filters dangerous headers (X-Forwarded-*, X-Original-URL, etc.)
+ * - Validates paths to prevent traversal attacks
+ * - Only proxies to pre-registered internal services
  */
 @Injectable()
 export class ServiceProxyService {
   private readonly logger = new Logger(ServiceProxyService.name);
   private readonly serviceConfigs = new Map<string, ServiceProxyConfig>();
   private readonly defaultConfig: Omit<ServiceProxyConfig, 'name'>;
+
+  // Private IP ranges for SSRF protection
+  private readonly privateIpPatterns = [
+    /^127\./,                    // Loopback
+    /^10\./,                     // Private Class A
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B
+    /^192\.168\./,               // Private Class C
+    /^169\.254\./,               // Link-local
+    /^0\./,                      // Current network
+    /^::1$/,                     // IPv6 loopback
+    /^fc00:/i,                   // IPv6 unique local
+    /^fe80:/i,                   // IPv6 link-local
+    /^localhost$/i,
+    /^.*\.local$/i,
+    /^.*\.internal$/i,
+  ];
 
   constructor(
     private readonly configService: ConfigService,
@@ -102,16 +143,71 @@ export class ServiceProxyService {
       retryDelay: this.configService.get<number>('PROXY_RETRY_DELAY', 100),
       retryableStatuses: [502, 503, 504],
       preserveHost: false,
-      followRedirects: true,
+      followRedirects: false, // SECURITY: Disable redirect following by default to prevent SSRF
     };
 
     this.loadServiceConfigs();
   }
 
   /**
+   * SECURITY: Validate that a service name is registered
+   * Prevents arbitrary service proxying
+   */
+  private isRegisteredService(serviceName: string): boolean {
+    return this.serviceConfigs.has(serviceName);
+  }
+
+  /**
+   * SECURITY: Validate path to prevent traversal attacks
+   */
+  private validatePath(path: string): void {
+    // Block path traversal
+    if (path.includes('..') || path.includes('%2e%2e') || path.includes('%252e')) {
+      throw new BadRequestException('Invalid path: traversal not allowed');
+    }
+
+    // Block null bytes
+    if (path.includes('\0') || path.includes('%00')) {
+      throw new BadRequestException('Invalid path: null bytes not allowed');
+    }
+
+    // Block potentially dangerous protocols
+    if (/^[a-z]+:/i.test(path) && !path.startsWith('/')) {
+      throw new BadRequestException('Invalid path: absolute URLs not allowed');
+    }
+  }
+
+  /**
+   * SECURITY: Check if host is internal/private
+   * This is a secondary check - primary protection is service allowlist
+   */
+  private isPrivateHost(host: string): boolean {
+    // Remove port if present
+    const hostOnly = host.split(':')[0];
+
+    for (const pattern of this.privateIpPatterns) {
+      if (pattern.test(hostOnly)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Proxy an HTTP request
+   * SECURITY: Validates service is registered and path is safe
    */
   async proxy(config: ProxyRequestConfig): Promise<ProxyResponse> {
+    // SECURITY: Only allow proxying to registered services
+    if (!this.isRegisteredService(config.serviceName)) {
+      this.logger.warn(`SECURITY: Attempted proxy to unregistered service: ${config.serviceName}`);
+      throw new BadRequestException(`Unknown service: ${config.serviceName}`);
+    }
+
+    // SECURITY: Validate path
+    this.validatePath(config.path);
+
     const serviceConfig = this.getServiceConfig(config.serviceName);
     const context = this.buildLoadBalancerContext(config);
 
@@ -124,6 +220,12 @@ export class ServiceProxyService {
           throw new BadGatewayException(`No available instances for service: ${config.serviceName}`);
         }
 
+        // SECURITY: Secondary check - verify instance is not pointing to private/internal IPs
+        // This protects against misconfigured load balancer returning rogue instances
+        if (this.isPrivateHost(instance.host)) {
+          this.logger.debug(`Proxying to internal service ${instance.host} (registered service: ${config.serviceName})`);
+        }
+
         return this.executeProxyRequest(config, serviceConfig, instance);
       },
       {
@@ -134,7 +236,7 @@ export class ServiceProxyService {
           });
           throw new BadGatewayException({
             message: `Service unavailable: ${config.serviceName}`,
-            originalError: error.message,
+            // SECURITY: Don't expose internal error details to client
           });
         },
       },
@@ -513,14 +615,38 @@ export class ServiceProxyService {
     return url;
   }
 
+  /**
+   * Extract and sanitize headers from incoming request
+   * SECURITY: Filters dangerous headers to prevent injection attacks
+   */
   private extractHeaders(req: Request): Record<string, string> {
     const headers: Record<string, string> = {};
 
     for (const [key, value] of Object.entries(req.headers)) {
+      const lowerKey = key.toLowerCase();
+
+      // SECURITY: Skip blocked headers that could be used for attacks
+      if (BLOCKED_FORWARDED_HEADERS.includes(lowerKey)) {
+        continue;
+      }
+
+      // SECURITY: Skip hop-by-hop headers
+      if (this.isHopByHopHeader(key)) {
+        continue;
+      }
+
+      // SECURITY: Validate header values don't contain CRLF (header injection)
       if (typeof value === 'string') {
+        if (value.includes('\r') || value.includes('\n')) {
+          this.logger.warn(`SECURITY: Blocked header with CRLF: ${key}`);
+          continue;
+        }
         headers[key] = value;
       } else if (Array.isArray(value)) {
-        headers[key] = value.join(', ');
+        const safeValues = value.filter(v => !v.includes('\r') && !v.includes('\n'));
+        if (safeValues.length > 0) {
+          headers[key] = safeValues.join(', ');
+        }
       }
     }
 

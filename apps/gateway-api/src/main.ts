@@ -1,15 +1,29 @@
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('GatewayAPI');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    // SECURITY: Disable raw body parsing - we configure it ourselves with limits
+    rawBody: false,
+  });
 
   const configService = app.get(ConfigService);
+
+  // SECURITY: Configure request body size limits to prevent DoS attacks
+  // These limits should be set based on your application's requirements
+  const jsonLimit = configService.get<string>('REQUEST_JSON_LIMIT', '1mb');
+  const urlencodedLimit = configService.get<string>('REQUEST_URLENCODED_LIMIT', '1mb');
+
+  app.use(json({ limit: jsonLimit }));
+  app.use(urlencoded({ limit: urlencodedLimit, extended: true }));
+
+  logger.log(`Request body limits: JSON=${jsonLimit}, URLEncoded=${urlencodedLimit}`);
 
   // Trust proxy configuration for deployments behind reverse proxy (nginx, cloudflare, etc)
   // This ensures req.ip contains the real client IP from X-Forwarded-For header

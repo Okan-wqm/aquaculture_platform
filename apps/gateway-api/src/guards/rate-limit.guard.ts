@@ -59,6 +59,15 @@ export interface RateLimitStore {
   get(key: string): Promise<RateLimitEntry | null>;
   set(key: string, entry: RateLimitEntry, ttlMs: number): Promise<void>;
   increment(key: string): Promise<number>;
+  /**
+   * Atomic increment-or-create operation to prevent race conditions
+   * Returns the updated entry with current count
+   */
+  incrementOrCreate(key: string, windowMs: number): Promise<{ entry: RateLimitEntry; isNew: boolean }>;
+  /**
+   * Check if the store is healthy/available
+   */
+  isHealthy(): Promise<boolean>;
 }
 
 /**
@@ -68,10 +77,12 @@ export const RATE_LIMIT_STORE = 'RATE_LIMIT_STORE';
 
 /**
  * In-memory rate limit store (fallback for single-instance deployments)
+ * SECURITY: Uses synchronous operations for atomicity in single-threaded Node.js
  */
 class InMemoryRateLimitStore implements RateLimitStore {
   private readonly store = new Map<string, RateLimitEntry>();
   private readonly cleanupInterval: NodeJS.Timeout;
+  private healthy = true;
 
   constructor() {
     // Cleanup expired entries every minute
@@ -85,20 +96,47 @@ class InMemoryRateLimitStore implements RateLimitStore {
       this.store.delete(key);
       return null;
     }
-    return entry;
+    return { ...entry }; // Return copy to prevent external mutation
   }
 
   async set(key: string, entry: RateLimitEntry, _ttlMs: number): Promise<void> {
-    this.store.set(key, entry);
+    this.store.set(key, { ...entry }); // Store copy
   }
 
   async increment(key: string): Promise<number> {
     const entry = this.store.get(key);
-    if (entry) {
+    if (entry && Date.now() <= entry.resetTime) {
       entry.count++;
       return entry.count;
     }
     return 1;
+  }
+
+  /**
+   * Atomic increment-or-create operation
+   * SECURITY: This is atomic in single-threaded Node.js since we don't yield
+   */
+  async incrementOrCreate(key: string, windowMs: number): Promise<{ entry: RateLimitEntry; isNew: boolean }> {
+    const now = Date.now();
+    const existing = this.store.get(key);
+
+    // Check if entry exists and is still valid
+    if (existing && now <= existing.resetTime) {
+      existing.count++;
+      return { entry: { ...existing }, isNew: false };
+    }
+
+    // Create new entry (atomically replaces expired entry)
+    const newEntry: RateLimitEntry = {
+      count: 1,
+      resetTime: now + windowMs,
+    };
+    this.store.set(key, newEntry);
+    return { entry: { ...newEntry }, isNew: true };
+  }
+
+  async isHealthy(): Promise<boolean> {
+    return this.healthy;
   }
 
   private cleanup(): void {
@@ -111,6 +149,7 @@ class InMemoryRateLimitStore implements RateLimitStore {
   }
 
   destroy(): void {
+    this.healthy = false;
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
     }
@@ -123,7 +162,11 @@ class InMemoryRateLimitStore implements RateLimitStore {
  * Supports per-tenant, per-user, and per-IP rate limiting
  * Enterprise-grade with configurable limits per endpoint
  *
- * Supports both Redis (distributed) and in-memory (single instance) storage
+ * SECURITY:
+ * - Uses atomic increment operations to prevent race conditions
+ * - Fails CLOSED when Redis is unavailable (denies requests)
+ * - Validates IP addresses to prevent spoofing attacks
+ * - Supports both Redis (distributed) and in-memory (single instance) storage
  */
 @Injectable()
 export class RateLimitGuard implements CanActivate {
@@ -136,6 +179,12 @@ export class RateLimitGuard implements CanActivate {
   private readonly tenantLimit: number;
   private readonly anonymousLimit: number;
   private readonly useRedis: boolean;
+  private readonly failClosed: boolean;
+  private readonly isProduction: boolean;
+
+  // IP validation regex (IPv4 and IPv6)
+  private readonly ipv4Regex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+  private readonly ipv6Regex = /^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}$|^(?:[0-9a-fA-F]{1,4}:){1,7}:$|^(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}$/;
 
   constructor(
     private readonly reflector: Reflector,
@@ -159,6 +208,14 @@ export class RateLimitGuard implements CanActivate {
       20,
     );
     this.useRedis = this.configService.get<boolean>('RATE_LIMIT_USE_REDIS', false);
+    this.isProduction = process.env['NODE_ENV'] === 'production';
+
+    // SECURITY: Fail closed by default in production
+    // When Redis is down, deny requests rather than allowing them through
+    this.failClosed = this.configService.get<boolean>(
+      'RATE_LIMIT_FAIL_CLOSED',
+      this.isProduction,
+    );
 
     // Create fallback in-memory store
     this.fallbackStore = new InMemoryRateLimitStore();
@@ -168,36 +225,80 @@ export class RateLimitGuard implements CanActivate {
         'RATE_LIMIT_USE_REDIS is enabled but no Redis store provided. Falling back to in-memory store.',
       );
     }
+
+    if (this.failClosed) {
+      this.logger.log('Rate limiting configured to FAIL CLOSED when store unavailable');
+    }
   }
 
-  private get store(): RateLimitStore {
+  /**
+   * Get the active rate limit store
+   * SECURITY: Checks store health and handles failures appropriately
+   */
+  private async getStore(): Promise<RateLimitStore> {
     if (this.useRedis && this.redisStore) {
-      return this.redisStore;
+      try {
+        const healthy = await this.redisStore.isHealthy();
+        if (healthy) {
+          return this.redisStore;
+        }
+        this.logger.warn('Redis store unhealthy, checking fail mode');
+      } catch (error) {
+        this.logger.error(`Redis health check failed: ${(error as Error).message}`);
+      }
+
+      // SECURITY: In production with fail-closed, throw error
+      if (this.failClosed) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+            message: 'Rate limiting service unavailable',
+          },
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
+
+      // Development: fall back to in-memory
+      this.logger.warn('Falling back to in-memory store (dev mode)');
     }
+
     return this.fallbackStore;
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = this.getRequest(context);
-    const key = this.generateKey(request);
     const config = this.getRateLimitConfig(context, request);
 
-    const now = Date.now();
-    let entry = await this.store.get(key);
+    // Generate rate limit key
+    const key = this.generateKey(request);
 
-    if (!entry || now > entry.resetTime) {
-      // Create new entry
-      entry = {
-        count: 1,
-        resetTime: now + config.windowMs,
-      };
-      await this.store.set(key, entry, config.windowMs);
-      this.setRateLimitHeaders(request, config, entry);
-      return true;
+    // SECURITY: Get store with health check
+    let store: RateLimitStore;
+    try {
+      store = await this.getStore();
+    } catch (error) {
+      // Re-throw service unavailable errors
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      // Unexpected error - fail closed in production
+      if (this.failClosed) {
+        this.logger.error(`Rate limit store error: ${(error as Error).message}`);
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+            message: 'Rate limiting service unavailable',
+          },
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
+      store = this.fallbackStore;
     }
 
-    // Increment count
-    entry.count = await this.store.increment(key);
+    // SECURITY: Use atomic increment-or-create to prevent race conditions
+    // This ensures correct counting even under high concurrency
+    const { entry } = await store.incrementOrCreate(key, config.windowMs);
+
     this.setRateLimitHeaders(request, config, entry);
 
     if (entry.count > config.limit) {
@@ -205,6 +306,7 @@ export class RateLimitGuard implements CanActivate {
         `Rate limit exceeded for ${key}: ${entry.count}/${config.limit}`,
       );
 
+      const now = Date.now();
       const retryAfter = Math.ceil((entry.resetTime - now) / 1000);
 
       throw new HttpException(
@@ -255,33 +357,65 @@ export class RateLimitGuard implements CanActivate {
   }
 
   /**
+   * Validate IP address format
+   * SECURITY: Prevents IP spoofing via malformed headers
+   */
+  private isValidIp(ip: string): boolean {
+    if (!ip || ip === 'unknown') return false;
+    // Remove IPv6 prefix if present
+    const cleanIp = ip.replace(/^::ffff:/, '');
+    return this.ipv4Regex.test(cleanIp) || this.ipv6Regex.test(ip);
+  }
+
+  /**
    * Extract client IP with proxy support
-   * When behind a reverse proxy (nginx, cloudflare, etc), the real client IP
-   * is in X-Forwarded-For header. Express's req.ip handles this when trust proxy is enabled.
+   * SECURITY:
+   * - Validates IP format to prevent spoofing attacks
+   * - Only trusts X-Forwarded-For when Express trust proxy is configured
+   * - Falls back to direct connection IP when headers are invalid
    */
   private extractClientIp(request: RateLimitRequest): string {
     // req.ip is populated correctly when trust proxy is configured
+    // This is the most secure method as Express validates the header chain
     if (request.ip && request.ip !== '::1' && request.ip !== '127.0.0.1') {
-      return request.ip;
+      if (this.isValidIp(request.ip)) {
+        return request.ip;
+      }
+      this.logger.warn(`Invalid IP from request: ${request.ip}`);
     }
 
-    // Fallback: manually parse X-Forwarded-For (first IP is client)
+    // SECURITY: Only parse X-Forwarded-For as fallback
+    // This should only be used in development or when trust proxy handles validation
     const forwardedFor = request.headers['x-forwarded-for'];
     if (typeof forwardedFor === 'string') {
       const firstIp = forwardedFor.split(',')[0]?.trim();
-      if (firstIp) {
+      if (firstIp && this.isValidIp(firstIp)) {
+        // SECURITY: Log when using unverified forwarded IP in production
+        if (this.isProduction) {
+          this.logger.warn(
+            `Using unverified X-Forwarded-For IP: ${firstIp}. ` +
+            'Configure trust proxy for secure IP extraction.',
+          );
+        }
         return firstIp;
       }
     }
 
     // X-Real-IP header (common with nginx)
     const realIp = request.headers['x-real-ip'];
-    if (typeof realIp === 'string' && realIp) {
+    if (typeof realIp === 'string' && this.isValidIp(realIp)) {
       return realIp;
     }
 
-    // Last resort: connection remote address or unknown
-    return request.connection?.remoteAddress ?? request.ip ?? 'unknown';
+    // Last resort: connection remote address
+    const connectionIp = request.connection?.remoteAddress;
+    if (connectionIp && this.isValidIp(connectionIp)) {
+      return connectionIp;
+    }
+
+    // SECURITY: Use a consistent fallback to prevent bypass via invalid IPs
+    // All requests with invalid IPs share one bucket
+    return 'invalid-ip';
   }
 
   private getRateLimitConfig(

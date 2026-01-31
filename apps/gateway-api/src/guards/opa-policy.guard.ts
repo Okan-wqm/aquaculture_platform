@@ -138,6 +138,8 @@ export class OpaPolicyGuard implements CanActivate {
   private readonly timeout: number;
   private readonly decisionCache: Map<string, { decision: OpaDecision; expiry: number }>;
   private readonly cacheTtl: number;
+  private readonly maxCacheSize: number;
+  private readonly cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly reflector: Reflector,
@@ -151,11 +153,67 @@ export class OpaPolicyGuard implements CanActivate {
     this.failOpen = this.configService.get<boolean>('OPA_FAIL_OPEN', false);
     this.timeout = this.configService.get<number>('OPA_TIMEOUT_MS', 5000);
     this.cacheTtl = this.configService.get<number>('OPA_CACHE_TTL_MS', 30000);
+    this.maxCacheSize = this.configService.get<number>('OPA_MAX_CACHE_SIZE', 10000);
     this.decisionCache = new Map();
+
+    // SECURITY: Set up automatic cache cleanup
+    // This ensures stale permissions are eventually removed
+    this.cleanupInterval = setInterval(() => this.cleanupExpiredEntries(), this.cacheTtl);
 
     this.logger.log(
       `OpaPolicyGuard initialized: enabled=${this.enabled}, url=${this.opaUrl}`,
     );
+  }
+
+  /**
+   * Cleanup resources on module destroy
+   */
+  onModuleDestroy(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+    }
+  }
+
+  /**
+   * SECURITY: Cleanup expired cache entries
+   * Prevents memory growth and ensures stale permissions expire
+   */
+  private cleanupExpiredEntries(): void {
+    const now = Date.now();
+    let removed = 0;
+
+    for (const [key, value] of this.decisionCache) {
+      if (value.expiry < now) {
+        this.decisionCache.delete(key);
+        removed++;
+      }
+    }
+
+    if (removed > 0) {
+      this.logger.debug(`OPA cache cleanup: removed ${removed} expired entries`);
+    }
+  }
+
+  /**
+   * SECURITY: Enforce cache size limit
+   * Removes oldest entries when cache exceeds max size
+   */
+  private enforceCacheSizeLimit(): void {
+    if (this.decisionCache.size <= this.maxCacheSize) {
+      return;
+    }
+
+    // Convert to array and sort by expiry (oldest first)
+    const entries = Array.from(this.decisionCache.entries())
+      .sort((a, b) => a[1].expiry - b[1].expiry);
+
+    // Remove oldest entries until we're under the limit
+    const toRemove = entries.slice(0, entries.length - this.maxCacheSize + 100);
+    for (const [key] of toRemove) {
+      this.decisionCache.delete(key);
+    }
+
+    this.logger.debug(`OPA cache size limit enforced: removed ${toRemove.length} entries`);
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -351,11 +409,12 @@ export class OpaPolicyGuard implements CanActivate {
       const result = (await response.json()) as OpaResultResponse;
       const decision = this.parseOpaResult(result);
 
-      // Cache the decision
+      // Cache the decision with size limit enforcement
       this.decisionCache.set(cacheKey, {
         decision,
         expiry: Date.now() + this.cacheTtl,
       });
+      this.enforceCacheSizeLimit();
 
       return decision;
     } catch (error) {
@@ -429,5 +488,61 @@ export class OpaPolicyGuard implements CanActivate {
       size: this.decisionCache.size,
       oldestEntry: oldest ? oldest - Date.now() : null,
     };
+  }
+
+  /**
+   * SECURITY: Invalidate cache for a specific user
+   * Call this when user permissions change
+   */
+  invalidateUserCache(userId: string): number {
+    let invalidated = 0;
+    const prefix = `:${userId}:`;
+
+    for (const key of this.decisionCache.keys()) {
+      if (key.includes(prefix)) {
+        this.decisionCache.delete(key);
+        invalidated++;
+      }
+    }
+
+    this.logger.log(`OPA cache invalidated for user ${userId}: ${invalidated} entries`);
+    return invalidated;
+  }
+
+  /**
+   * SECURITY: Invalidate cache for a specific tenant
+   * Call this when tenant policies or permissions change
+   */
+  invalidateTenantCache(tenantId: string): number {
+    let invalidated = 0;
+    const prefix = `:${tenantId}:`;
+
+    for (const key of this.decisionCache.keys()) {
+      if (key.includes(prefix)) {
+        this.decisionCache.delete(key);
+        invalidated++;
+      }
+    }
+
+    this.logger.log(`OPA cache invalidated for tenant ${tenantId}: ${invalidated} entries`);
+    return invalidated;
+  }
+
+  /**
+   * SECURITY: Invalidate cache for a specific policy
+   * Call this when a policy is updated in OPA
+   */
+  invalidatePolicyCache(policyName: string): number {
+    let invalidated = 0;
+
+    for (const key of this.decisionCache.keys()) {
+      if (key.startsWith(policyName + ':')) {
+        this.decisionCache.delete(key);
+        invalidated++;
+      }
+    }
+
+    this.logger.log(`OPA cache invalidated for policy ${policyName}: ${invalidated} entries`);
+    return invalidated;
   }
 }

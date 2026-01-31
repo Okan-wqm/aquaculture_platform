@@ -94,10 +94,20 @@ export class TenantIsolationGuard implements CanActivate {
     const requestedTenantId = this.extractRequestedTenantId(request);
     const userTenantId = user.tenantId;
 
-    // Validate tenant context
+    // Validate user's tenant association
     if (!userTenantId) {
       this.logger.error('User has no tenant association', { userId: user.sub });
       throw new ForbiddenException('User is not associated with any tenant');
+    }
+
+    // SECURITY: Validate the user's tenant ID format from JWT
+    // This catches malformed tokens that somehow passed JWT validation
+    if (!this.isValidTenantId(userTenantId)) {
+      this.logger.error('User has invalid tenant ID format in token', {
+        userId: user.sub,
+        tenantId: userTenantId?.substring(0, 50),
+      });
+      throw new ForbiddenException('Invalid tenant association');
     }
 
     // If no specific tenant requested, use user's tenant
@@ -139,39 +149,65 @@ export class TenantIsolationGuard implements CanActivate {
   }
 
   /**
-   * Extract requested tenant ID from various sources
+   * Extract and validate requested tenant ID from various sources
+   * SECURITY: Validates UUID format to prevent injection attacks
    */
   private extractRequestedTenantId(request: AuthenticatedRequest): string | null {
-    // Check header
+    let tenantId: string | null = null;
+
+    // Check header (highest priority for API clients)
     const headerTenantId = request.headers['x-tenant-id'];
-    if (typeof headerTenantId === 'string') {
-      return headerTenantId;
+    if (typeof headerTenantId === 'string' && headerTenantId.length > 0) {
+      tenantId = headerTenantId;
+    }
+
+    // Check URL parameter (for RESTful routes like /tenants/:tenantId/...)
+    if (!tenantId) {
+      const paramTenantId = request.params?.['tenantId'];
+      if (typeof paramTenantId === 'string' && paramTenantId.length > 0) {
+        tenantId = paramTenantId;
+      }
     }
 
     // Check query parameter
-    const queryTenantId = request.query?.['tenantId'];
-    if (typeof queryTenantId === 'string') {
-      return queryTenantId;
-    }
-
-    // Check URL parameter
-    const paramTenantId = request.params?.['tenantId'];
-    if (typeof paramTenantId === 'string') {
-      return paramTenantId;
+    if (!tenantId) {
+      const queryTenantId = request.query?.['tenantId'];
+      if (typeof queryTenantId === 'string' && queryTenantId.length > 0) {
+        tenantId = queryTenantId;
+      }
     }
 
     // Check request body
-    const body = request.body as Record<string, unknown> | undefined;
-    if (body) {
-      if (typeof body['tenantId'] === 'string') {
-        return body['tenantId'];
+    if (!tenantId) {
+      const body = request.body as Record<string, unknown> | undefined;
+      if (body) {
+        if (typeof body['tenantId'] === 'string' && body['tenantId'].length > 0) {
+          tenantId = body['tenantId'];
+        } else {
+          // Check GraphQL variables
+          const variables = body['variables'] as Record<string, unknown> | undefined;
+          if (variables && typeof variables['tenantId'] === 'string' && variables['tenantId'].length > 0) {
+            tenantId = variables['tenantId'];
+          }
+        }
+      }
+    }
+
+    // SECURITY: Validate tenant ID format if found
+    if (tenantId) {
+      // Normalize to lowercase for consistent comparison
+      const normalizedTenantId = tenantId.toLowerCase().trim();
+
+      if (!this.isValidTenantId(normalizedTenantId)) {
+        this.logger.warn('Invalid tenant ID format received', {
+          tenantId: tenantId.substring(0, 50), // Truncate for logging
+          path: request.url,
+          method: request.method,
+        });
+        throw new ForbiddenException('Invalid tenant identifier');
       }
 
-      // Check GraphQL variables
-      const variables = body['variables'] as Record<string, unknown> | undefined;
-      if (variables && typeof variables['tenantId'] === 'string') {
-        return variables['tenantId'];
-      }
+      return normalizedTenantId;
     }
 
     return null;

@@ -6,7 +6,7 @@
  * Protects against common attack vectors like injection attacks.
  */
 
-import { Injectable, NestMiddleware, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, NestMiddleware, Logger, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response, NextFunction } from 'express';
 
@@ -233,11 +233,27 @@ export class RequestValidatorMiddleware implements NestMiddleware {
         throw error;
       }
 
-      this.logger.error('Request validation error', {
+      // SECURITY: Log the error and FAIL CLOSED
+      // Never allow requests through when validation encounters unexpected errors
+      this.logger.error('Request validation error - FAIL CLOSED', {
         error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
         path: req.path,
+        method: req.method,
       });
 
+      // SECURITY: In production, reject the request
+      // This prevents validation bypass through crafted inputs that cause exceptions
+      const isProduction = process.env['NODE_ENV'] === 'production';
+      if (isProduction) {
+        throw new InternalServerErrorException('Request validation failed');
+      }
+
+      // Development: Allow through with warning for easier debugging
+      this.logger.warn(
+        'DEV MODE: Allowing request despite validation error. ' +
+        'This would be blocked in production.',
+      );
       next();
     }
   }

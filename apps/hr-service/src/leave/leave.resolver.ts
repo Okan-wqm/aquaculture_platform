@@ -26,6 +26,7 @@ import {
 } from './queries';
 import { PaginatedLeaveRequests } from './query-handlers/get-leave-requests.handler';
 import { LeaveCalendarEntry } from './query-handlers/get-team-leave-calendar.handler';
+import { PaginatedPendingApprovals } from './query-handlers/get-pending-approvals.handler';
 
 interface GraphQLContext {
   req: {
@@ -42,6 +43,24 @@ interface GraphQLContext {
 
 @ObjectType()
 class LeaveRequestConnection {
+  @Field(() => [LeaveRequest])
+  items!: LeaveRequest[];
+
+  @Field(() => Int)
+  total!: number;
+
+  @Field(() => Int)
+  limit!: number;
+
+  @Field(() => Int)
+  offset!: number;
+
+  @Field()
+  hasMore!: boolean;
+}
+
+@ObjectType()
+class PendingLeaveApprovalsConnection {
   @Field(() => [LeaveRequest])
   items!: LeaveRequest[];
 
@@ -189,17 +208,19 @@ export class LeaveResolver {
     return result.items;
   }
 
-  @Query(() => [LeaveRequest], { name: 'pendingLeaveApprovals' })
+  @Query(() => PendingLeaveApprovalsConnection, { name: 'pendingLeaveApprovals' })
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
   async getPendingLeaveApprovals(
     @Context() context: GraphQLContext,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
-  ): Promise<LeaveRequest[]> {
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
+  ): Promise<PaginatedPendingApprovals> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
     return this.queryBus.execute(
-      new GetPendingApprovalsQuery(tenantId, userId, departmentId),
+      new GetPendingApprovalsQuery(tenantId, userId, departmentId, limit, offset),
     );
   }
 

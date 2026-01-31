@@ -3,11 +3,22 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { ClockInCommand } from '../commands/clock-in.command';
-import { AttendanceRecord, AttendanceStatus, ApprovalStatus, ClockMethod } from '../entities/attendance-record.entity';
+import {
+  AttendanceRecord,
+  AttendanceStatus,
+  ApprovalStatus,
+  ClockMethod,
+  convertLocalToUtc,
+  isValidTimezone,
+  getTimezoneOffset,
+} from '../entities/attendance-record.entity';
 import { Schedule, ScheduleStatus } from '../entities/schedule.entity';
 import { Shift } from '../entities/shift.entity';
 import { Employee } from '../../hr/entities/employee.entity';
 import { EmployeeClockedInEvent } from '../events/attendance.events';
+
+/** Default timezone if none specified */
+const DEFAULT_TIMEZONE = 'UTC';
 
 /**
  * Safely parse time string in HH:mm format with validation
@@ -45,7 +56,7 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
   ) {}
 
   async execute(command: ClockInCommand): Promise<AttendanceRecord> {
-    const { tenantId, userId, employeeId, method, location, remarks, workAreaId } = command;
+    const { tenantId, userId, employeeId, method, location, remarks, workAreaId, timezone: commandTimezone } = command;
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -61,7 +72,18 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
         throw new NotFoundException(`Employee with ID ${employeeId} not found`);
       }
 
-      const today = new Date();
+      // Determine timezone: use command timezone, employee timezone, or default to UTC
+      const timezone = commandTimezone && isValidTimezone(commandTimezone)
+        ? commandTimezone
+        : (employee.timezone && isValidTimezone(employee.timezone) ? employee.timezone : DEFAULT_TIMEZONE);
+
+      // Current time in UTC for storage
+      const nowUtc = new Date();
+
+      // Calculate today's date in the employee's local timezone for record lookup
+      const tzOffset = getTimezoneOffset(timezone, nowUtc);
+      const localNow = new Date(nowUtc.getTime() - tzOffset * 60000);
+      const today = new Date(localNow);
       today.setHours(0, 0, 0, 0);
 
       // Check for existing clock-in today
@@ -89,21 +111,22 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
         relations: ['shift'],
       });
 
-      const now = new Date();
       let lateMinutes = 0;
       let status: AttendanceStatus = AttendanceStatus.PRESENT;
 
-      // Calculate if late based on shift
+      // Calculate if late based on shift (using local time for comparison)
       if (schedule?.shift) {
         // Safely parse shift start time with validation
         const [shiftHours, shiftMinutes] = safeParseTime(schedule.shift.startTime);
-        const shiftStart = new Date(today);
-        shiftStart.setHours(shiftHours, shiftMinutes, 0, 0);
+        const shiftStartLocal = new Date(today);
+        shiftStartLocal.setHours(shiftHours, shiftMinutes, 0, 0);
 
-        const graceEnd = new Date(shiftStart.getTime() + (schedule.shift.graceMinutes || 0) * 60000);
+        // Convert shift start to UTC for comparison
+        const shiftStartUtc = convertLocalToUtc(shiftStartLocal, timezone);
+        const graceEndUtc = new Date(shiftStartUtc.getTime() + (schedule.shift.graceMinutes || 0) * 60000);
 
-        if (now > graceEnd) {
-          lateMinutes = Math.floor((now.getTime() - shiftStart.getTime()) / 60000);
+        if (nowUtc > graceEndUtc) {
+          lateMinutes = Math.floor((nowUtc.getTime() - shiftStartUtc.getTime()) / 60000);
           status = AttendanceStatus.LATE;
         }
       }
@@ -114,9 +137,11 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
       let savedRecord: AttendanceRecord;
 
       // Create or update attendance record
+      // All times are stored in UTC with timezone field for local conversion
       if (existingRecord) {
         // Update existing record (created by schedule)
-        existingRecord.clockIn = now;
+        existingRecord.clockIn = nowUtc; // Store in UTC
+        existingRecord.timezone = timezone;
         existingRecord.clockInMethod = method;
         existingRecord.clockInLocation = location;
         existingRecord.status = status;
@@ -135,7 +160,8 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
           departmentId: employee.departmentHrId,
           shiftId: schedule?.shiftId,
           date: today,
-          clockIn: now,
+          clockIn: nowUtc, // Store in UTC
+          timezone, // Store timezone for local time conversion
           clockInMethod: method,
           clockInLocation: location,
           status,

@@ -5,6 +5,14 @@ import { GetPendingApprovalsQuery } from '../queries/get-pending-approvals.query
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { Employee } from '../../hr/entities/employee.entity';
 
+export interface PaginatedPendingApprovals {
+  items: LeaveRequest[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 @QueryHandler(GetPendingApprovalsQuery)
 export class GetPendingApprovalsHandler implements IQueryHandler<GetPendingApprovalsQuery> {
   constructor(
@@ -14,8 +22,12 @@ export class GetPendingApprovalsHandler implements IQueryHandler<GetPendingAppro
     private readonly employeeRepository: Repository<Employee>,
   ) {}
 
-  async execute(query: GetPendingApprovalsQuery): Promise<LeaveRequest[]> {
-    const { tenantId, approverId, departmentId } = query;
+  async execute(query: GetPendingApprovalsQuery): Promise<PaginatedPendingApprovals> {
+    const { tenantId, approverId, departmentId, limit = 20, offset = 0 } = query;
+
+    // Enforce pagination limits
+    const effectiveLimit = Math.min(Math.max(limit, 1), 100);
+    const effectiveOffset = Math.max(offset, 0);
 
     // Get the approver's details to determine which requests they can approve
     const approver = await this.employeeRepository.findOne({
@@ -44,6 +56,17 @@ export class GetPendingApprovalsHandler implements IQueryHandler<GetPendingAppro
       });
     }
 
-    return queryBuilder.getMany();
+    const [items, total] = await queryBuilder
+      .skip(effectiveOffset)
+      .take(effectiveLimit)
+      .getManyAndCount();
+
+    return {
+      items,
+      total,
+      limit: effectiveLimit,
+      offset: effectiveOffset,
+      hasMore: effectiveOffset + items.length < total,
+    };
   }
 }

@@ -45,8 +45,12 @@ export class AssessmentAttempt {
 
 @ObjectType()
 @Entity('training_enrollments', { schema: 'hr' })
+// Composite indexes for common query patterns
+@Index('idx_enrollment_tenant_employee', ['tenantId', 'employeeId'])
+@Index('idx_enrollment_tenant_status', ['tenantId', 'status'])
+@Index('idx_enrollment_course', ['trainingCourseId'])
+// Extended composite indexes
 @Index(['tenantId', 'employeeId', 'trainingCourseId'])
-@Index(['tenantId', 'status'])
 @Index(['tenantId', 'enrollmentDate'])
 @Index(['tenantId', 'completedAt'])
 export class TrainingEnrollment {

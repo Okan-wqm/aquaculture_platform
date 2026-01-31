@@ -24,6 +24,8 @@ import {
 } from './queries';
 import { PaginatedAttendanceRecords } from './query-handlers/get-attendance-records.handler';
 import { AttendanceSummary } from './query-handlers/get-attendance-summary.handler';
+import { PaginatedShifts } from './query-handlers/get-shifts.handler';
+import { PaginatedPendingAttendanceApprovals } from './query-handlers/get-pending-attendance-approvals.handler';
 
 interface GraphQLContext {
   req: {
@@ -40,6 +42,42 @@ interface GraphQLContext {
 
 @ObjectType()
 class AttendanceRecordConnection {
+  @Field(() => [AttendanceRecord])
+  items!: AttendanceRecord[];
+
+  @Field(() => Int)
+  total!: number;
+
+  @Field(() => Int)
+  limit!: number;
+
+  @Field(() => Int)
+  offset!: number;
+
+  @Field()
+  hasMore!: boolean;
+}
+
+@ObjectType()
+class ShiftConnection {
+  @Field(() => [Shift])
+  items!: Shift[];
+
+  @Field(() => Int)
+  total!: number;
+
+  @Field(() => Int)
+  limit!: number;
+
+  @Field(() => Int)
+  offset!: number;
+
+  @Field()
+  hasMore!: boolean;
+}
+
+@ObjectType()
+class PendingAttendanceApprovalsConnection {
   @Field(() => [AttendanceRecord])
   items!: AttendanceRecord[];
 
@@ -85,14 +123,16 @@ export class AttendanceResolver {
   // =====================
   // Shift Queries
   // =====================
-  @Query(() => [Shift], { name: 'shifts' })
+  @Query(() => ShiftConnection, { name: 'shifts' })
   async getShifts(
     @Context() context: GraphQLContext,
     @Args('isActive', { nullable: true }) isActive?: boolean,
     @Args('shiftType', { type: () => ShiftType, nullable: true }) shiftType?: ShiftType,
-  ): Promise<Shift[]> {
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
+  ): Promise<PaginatedShifts> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(new GetShiftsQuery(tenantId, isActive, shiftType));
+    return this.queryBus.execute(new GetShiftsQuery(tenantId, isActive, shiftType, limit, offset));
   }
 
   // =====================
@@ -177,15 +217,17 @@ export class AttendanceResolver {
     );
   }
 
-  @Query(() => [AttendanceRecord], { name: 'pendingAttendanceApprovals' })
+  @Query(() => PendingAttendanceApprovalsConnection, { name: 'pendingAttendanceApprovals' })
   async getPendingAttendanceApprovals(
     @Context() context: GraphQLContext,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
-  ): Promise<AttendanceRecord[]> {
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
+  ): Promise<PaginatedPendingAttendanceApprovals> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
     return this.queryBus.execute(
-      new GetPendingAttendanceApprovalsQuery(tenantId, userId, departmentId),
+      new GetPendingAttendanceApprovalsQuery(tenantId, userId, departmentId, limit, offset),
     );
   }
 

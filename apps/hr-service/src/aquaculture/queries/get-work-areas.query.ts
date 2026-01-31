@@ -6,5 +6,7 @@ export class GetWorkAreasQuery {
     public readonly workAreaType?: WorkAreaType,
     public readonly isOffshore?: boolean,
     public readonly isActive?: boolean,
+    public readonly limit: number = 20,
+    public readonly offset: number = 0,
   ) {}
 }

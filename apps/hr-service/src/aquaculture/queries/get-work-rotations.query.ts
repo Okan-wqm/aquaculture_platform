@@ -8,5 +8,7 @@ export class GetWorkRotationsQuery {
     public readonly status?: RotationStatus,
     public readonly startDate?: string,
     public readonly endDate?: string,
+    public readonly limit: number = 20,
+    public readonly offset: number = 0,
   ) {}
 }

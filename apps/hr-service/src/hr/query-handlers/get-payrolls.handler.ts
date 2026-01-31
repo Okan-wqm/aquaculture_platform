@@ -5,15 +5,23 @@ import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { GetPayrollsQuery } from '../queries/get-payrolls.query';
 import { Payroll } from '../entities/payroll.entity';
 
+export interface PaginatedPayrolls {
+  items: Payroll[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 @Injectable()
 @QueryHandler(GetPayrollsQuery)
-export class GetPayrollsHandler implements IQueryHandler<GetPayrollsQuery, Payroll[]> {
+export class GetPayrollsHandler implements IQueryHandler<GetPayrollsQuery, PaginatedPayrolls> {
   constructor(
     @InjectRepository(Payroll)
     private readonly payrollRepository: Repository<Payroll>,
   ) {}
 
-  async execute(query: GetPayrollsQuery): Promise<Payroll[]> {
+  async execute(query: GetPayrollsQuery): Promise<PaginatedPayrolls> {
     const { tenantId, filter } = query;
 
     const where: FindOptionsWhere<Payroll> = { tenantId };
@@ -34,12 +42,24 @@ export class GetPayrollsHandler implements IQueryHandler<GetPayrollsQuery, Payro
       where.payPeriodEnd = LessThanOrEqual(filter.endDate);
     }
 
-    return this.payrollRepository.find({
+    // Enforce pagination limits
+    const effectiveLimit = Math.min(Math.max(filter?.limit || 20, 1), 100);
+    const effectiveOffset = Math.max(filter?.offset || 0, 0);
+
+    const [items, total] = await this.payrollRepository.findAndCount({
       where,
       relations: ['employee'],
-      skip: filter?.offset || 0,
-      take: filter?.limit || 20,
+      skip: effectiveOffset,
+      take: effectiveLimit,
       order: { payPeriodStart: 'DESC' },
     });
+
+    return {
+      items,
+      total,
+      limit: effectiveLimit,
+      offset: effectiveOffset,
+      hasMore: effectiveOffset + items.length < total,
+    };
   }
 }

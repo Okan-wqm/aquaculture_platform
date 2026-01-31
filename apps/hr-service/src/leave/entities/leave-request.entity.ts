@@ -60,7 +60,13 @@ export class LeaveAttachment {
 
 @ObjectType()
 @Entity('leave_requests', { schema: 'hr' })
-@Index(['tenantId', 'requestNumber'], { unique: true })
+// Unique index
+@Index('idx_leave_request_number', ['tenantId', 'requestNumber'], { unique: true })
+// Composite indexes for common query patterns
+@Index('idx_leave_tenant_employee', ['tenantId', 'employeeId'])
+@Index('idx_leave_tenant_status', ['tenantId', 'status'])
+@Index('idx_leave_date_range', ['startDate', 'endDate'])
+// Extended composite indexes
 @Index(['tenantId', 'employeeId', 'status'])
 @Index(['tenantId', 'startDate', 'endDate'])
 @Index(['tenantId', 'status', 'createdAt'])

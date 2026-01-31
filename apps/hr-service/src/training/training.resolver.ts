@@ -1,4 +1,4 @@
-import { Resolver, Query, Mutation, Args, ID, Context, Int, Float } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Context, Int, Float, ObjectType, Field } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -23,6 +23,44 @@ import {
   GetTrainingCoursesQuery,
   GetTrainingEnrollmentsQuery,
 } from './queries';
+import { PaginatedTrainingCourses } from './query-handlers/get-training-courses.handler';
+import { PaginatedTrainingEnrollments } from './query-handlers/get-training-enrollments.handler';
+
+@ObjectType()
+class TrainingCourseConnection {
+  @Field(() => [TrainingCourse])
+  items!: TrainingCourse[];
+
+  @Field(() => Int)
+  total!: number;
+
+  @Field(() => Int)
+  limit!: number;
+
+  @Field(() => Int)
+  offset!: number;
+
+  @Field()
+  hasMore!: boolean;
+}
+
+@ObjectType()
+class TrainingEnrollmentConnection {
+  @Field(() => [TrainingEnrollment])
+  items!: TrainingEnrollment[];
+
+  @Field(() => Int)
+  total!: number;
+
+  @Field(() => Int)
+  limit!: number;
+
+  @Field(() => Int)
+  offset!: number;
+
+  @Field()
+  hasMore!: boolean;
+}
 
 interface GraphQLContext {
   req: {
@@ -120,32 +158,36 @@ export class TrainingResolver {
   // =====================
   // Training Course Queries
   // =====================
-  @Query(() => [TrainingCourse], { name: 'trainingCourses' })
+  @Query(() => TrainingCourseConnection, { name: 'trainingCourses' })
   async getTrainingCourses(
     @Context() context: GraphQLContext,
     @Args('trainingType', { type: () => TrainingType, nullable: true }) trainingType?: TrainingType,
     @Args('isMandatory', { nullable: true }) isMandatory?: boolean,
     @Args('isActive', { nullable: true }) isActive?: boolean,
-  ): Promise<TrainingCourse[]> {
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
+  ): Promise<PaginatedTrainingCourses> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute(
-      new GetTrainingCoursesQuery(tenantId, trainingType, isMandatory, isActive),
+      new GetTrainingCoursesQuery(tenantId, trainingType, isMandatory, isActive, limit, offset),
     );
   }
 
   // =====================
   // Training Enrollment Queries
   // =====================
-  @Query(() => [TrainingEnrollment], { name: 'trainingEnrollments' })
+  @Query(() => TrainingEnrollmentConnection, { name: 'trainingEnrollments' })
   async getTrainingEnrollments(
     @Context() context: GraphQLContext,
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
     @Args('trainingCourseId', { type: () => ID, nullable: true }) trainingCourseId?: string,
     @Args('status', { type: () => EnrollmentStatus, nullable: true }) status?: EnrollmentStatus,
-  ): Promise<TrainingEnrollment[]> {
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
+  ): Promise<PaginatedTrainingEnrollments> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute(
-      new GetTrainingEnrollmentsQuery(tenantId, employeeId, trainingCourseId, status),
+      new GetTrainingEnrollmentsQuery(tenantId, employeeId, trainingCourseId, status, limit, offset),
     );
   }
 
@@ -153,12 +195,15 @@ export class TrainingResolver {
   async getMyTrainingEnrollments(
     @Context() context: GraphQLContext,
     @Args('status', { type: () => EnrollmentStatus, nullable: true }) status?: EnrollmentStatus,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
   ): Promise<TrainingEnrollment[]> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    return this.queryBus.execute(
-      new GetTrainingEnrollmentsQuery(tenantId, userId, undefined, status),
+    const result = await this.queryBus.execute(
+      new GetTrainingEnrollmentsQuery(tenantId, userId, undefined, status, limit, offset),
     );
+    return result.items;
   }
 
   // =====================

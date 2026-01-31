@@ -19,6 +19,7 @@ export class GetEmployeeCertificationsHandler
     const queryBuilder = this.certRepository
       .createQueryBuilder('ec')
       .leftJoinAndSelect('ec.certificationType', 'certificationType')
+      .leftJoinAndSelect('ec.employee', 'employee')
       .where('ec.tenantId = :tenantId', { tenantId })
       .andWhere('ec.employeeId = :employeeId', { employeeId })
       .andWhere('ec.isDeleted = false')

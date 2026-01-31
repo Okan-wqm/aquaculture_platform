@@ -9,10 +9,88 @@ import {
   ManyToOne,
   JoinColumn,
   BeforeInsert,
+  AfterLoad,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 import { Shift } from './shift.entity';
+
+/**
+ * Helper function to convert a local time to UTC
+ * @param localTime - The local Date object
+ * @param timezone - IANA timezone string (e.g., 'Asia/Manila', 'America/New_York')
+ * @returns Date object in UTC
+ */
+export function convertLocalToUtc(localTime: Date, timezone: string): Date {
+  try {
+    // Get the UTC timestamp by accounting for timezone offset
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+
+    // Get local time string in the target timezone
+    const localStr = formatter.format(localTime);
+    const [datePart, timePart] = localStr.split(', ');
+    const [month, day, year] = datePart!.split('/');
+    const [hour, minute, second] = timePart!.split(':');
+
+    // Create a date assuming it's in the local timezone and convert to UTC
+    const tzOffset = getTimezoneOffset(timezone, localTime);
+    const utcTime = new Date(localTime.getTime() + tzOffset * 60000);
+    return utcTime;
+  } catch {
+    // Fallback: return as-is if timezone is invalid
+    return localTime;
+  }
+}
+
+/**
+ * Helper function to convert UTC time to local time
+ * @param utcTime - The UTC Date object
+ * @param timezone - IANA timezone string
+ * @returns Date object in local time
+ */
+export function convertUtcToLocal(utcTime: Date, timezone: string): Date {
+  try {
+    const tzOffset = getTimezoneOffset(timezone, utcTime);
+    return new Date(utcTime.getTime() - tzOffset * 60000);
+  } catch {
+    return utcTime;
+  }
+}
+
+/**
+ * Get timezone offset in minutes for a given timezone and date
+ * Positive offset means timezone is behind UTC, negative means ahead
+ */
+export function getTimezoneOffset(timezone: string, date: Date): number {
+  try {
+    const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
+    const tzDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }));
+    return (utcDate.getTime() - tzDate.getTime()) / 60000;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Validate if a timezone string is valid IANA timezone
+ */
+export function isValidTimezone(timezone: string): boolean {
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export enum AttendanceStatus {
   PRESENT = 'present',
@@ -65,7 +143,13 @@ export class GeoLocation {
 
 @ObjectType()
 @Entity('attendance_records', { schema: 'hr' })
-@Index(['tenantId', 'recordNumber'], { unique: true })
+// Unique index
+@Index('idx_attendance_record_number', ['tenantId', 'recordNumber'], { unique: true })
+// Composite indexes for common query patterns
+@Index('idx_attendance_tenant_employee', ['tenantId', 'employeeId'])
+@Index('idx_attendance_tenant_date', ['tenantId', 'date'])
+@Index('idx_attendance_status_tenant', ['status', 'tenantId'])
+// Extended composite indexes
 @Index(['tenantId', 'employeeId', 'date'])
 @Index(['tenantId', 'date', 'status'])
 @Index(['tenantId', 'approvalStatus'])
@@ -133,6 +217,29 @@ export class AttendanceRecord {
   @Column('jsonb', { nullable: true })
   clockOutLocation?: GeoLocation;
 
+  /**
+   * IANA timezone string for the employee's local timezone
+   * All clock times are stored in UTC but this field allows
+   * proper local time display and shift calculations
+   */
+  @Field({ nullable: true })
+  @Column({ length: 50, nullable: true, default: 'UTC' })
+  timezone?: string;
+
+  /**
+   * Break start time - stored in UTC
+   */
+  @Field({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
+  breakStartTime?: Date;
+
+  /**
+   * Break end time - stored in UTC
+   */
+  @Field({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
+  breakEndTime?: Date;
+
   @Field(() => AttendanceStatus)
   @Column({ type: 'enum', enum: AttendanceStatus, default: AttendanceStatus.PRESENT })
   status!: AttendanceStatus;
@@ -156,6 +263,13 @@ export class AttendanceRecord {
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
   breakMinutes!: number;
+
+  /**
+   * Calculated total break minutes based on breakStartTime and breakEndTime
+   * This is computed on load and not stored in the database
+   */
+  @Field(() => Int, { nullable: true })
+  totalBreakMinutes?: number;
 
   @Field(() => ApprovalStatus)
   @Column({ type: 'enum', enum: ApprovalStatus, default: ApprovalStatus.AUTO_APPROVED })
@@ -243,5 +357,57 @@ export class AttendanceRecord {
       const random = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
       this.recordNumber = `ATT-${year}${month}-${random}`;
     }
+  }
+
+  /**
+   * Calculate totalBreakMinutes after loading from database
+   */
+  @AfterLoad()
+  calculateTotalBreakMinutes(): void {
+    if (this.breakStartTime && this.breakEndTime) {
+      const breakStart = new Date(this.breakStartTime);
+      const breakEnd = new Date(this.breakEndTime);
+      this.totalBreakMinutes = Math.max(0, Math.floor((breakEnd.getTime() - breakStart.getTime()) / 60000));
+    } else {
+      // Fall back to stored breakMinutes if break times not recorded
+      this.totalBreakMinutes = this.breakMinutes || 0;
+    }
+  }
+
+  /**
+   * Calculate actual worked minutes accounting for breaks and overnight shifts
+   * @param clockIn - Clock in time (UTC)
+   * @param clockOut - Clock out time (UTC)
+   * @param breakMinutes - Total break time in minutes
+   * @returns Net worked minutes
+   */
+  static calculateWorkedMinutes(clockIn: Date, clockOut: Date, breakMinutes: number = 0): number {
+    const clockInTime = new Date(clockIn).getTime();
+    const clockOutTime = new Date(clockOut).getTime();
+
+    // Handle overnight shift: if clockOut is before clockIn on same day comparison,
+    // it means the shift crossed midnight
+    let totalMinutes = Math.floor((clockOutTime - clockInTime) / 60000);
+
+    // Subtract break time
+    const netMinutes = totalMinutes - breakMinutes;
+
+    return Math.max(0, netMinutes);
+  }
+
+  /**
+   * Get clock-in time converted to local timezone
+   */
+  getLocalClockIn(): Date | undefined {
+    if (!this.clockIn || !this.timezone) return this.clockIn;
+    return convertUtcToLocal(new Date(this.clockIn), this.timezone);
+  }
+
+  /**
+   * Get clock-out time converted to local timezone
+   */
+  getLocalClockOut(): Date | undefined {
+    if (!this.clockOut || !this.timezone) return this.clockOut;
+    return convertUtcToLocal(new Date(this.clockOut), this.timezone);
   }
 }

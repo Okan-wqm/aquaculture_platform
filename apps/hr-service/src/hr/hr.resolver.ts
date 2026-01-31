@@ -1,4 +1,4 @@
-import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -18,6 +18,44 @@ import { ApprovePayrollCommand } from './commands/approve-payroll.command';
 import { GetEmployeeQuery } from './queries/get-employee.query';
 import { GetEmployeesQuery } from './queries/get-employees.query';
 import { GetPayrollsQuery, PayrollFilterInput } from './queries/get-payrolls.query';
+import { PaginatedEmployees } from './query-handlers/get-employees.handler';
+import { PaginatedPayrolls } from './query-handlers/get-payrolls.handler';
+
+@ObjectType()
+class EmployeeConnection {
+  @Field(() => [Employee])
+  items!: Employee[];
+
+  @Field(() => Int)
+  total!: number;
+
+  @Field(() => Int)
+  limit!: number;
+
+  @Field(() => Int)
+  offset!: number;
+
+  @Field()
+  hasMore!: boolean;
+}
+
+@ObjectType()
+class PayrollConnection {
+  @Field(() => [Payroll])
+  items!: Payroll[];
+
+  @Field(() => Int)
+  total!: number;
+
+  @Field(() => Int)
+  limit!: number;
+
+  @Field(() => Int)
+  offset!: number;
+
+  @Field()
+  hasMore!: boolean;
+}
 
 interface GraphQLContext {
   req: {
@@ -70,13 +108,13 @@ export class HRResolver {
     return this.queryBus.execute(new GetEmployeeQuery(tenantId, id));
   }
 
-  @Query(() => [Employee], { name: 'employees' })
+  @Query(() => EmployeeConnection, { name: 'employees' })
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
   async getEmployees(
     @Args('filter', { nullable: true }) filter: EmployeeFilterInput,
     @Context() context: GraphQLContext,
-  ): Promise<Employee[]> {
+  ): Promise<PaginatedEmployees> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute(new GetEmployeesQuery(tenantId, filter));
   }
@@ -84,22 +122,28 @@ export class HRResolver {
   @Query(() => [Employee], { name: 'employeesByDepartment' })
   async getEmployeesByDepartment(
     @Args('department', { type: () => Department }) department: Department,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset: number,
     @Context() context: GraphQLContext,
   ): Promise<Employee[]> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
-      new GetEmployeesQuery(tenantId, { department }),
+    const result = await this.queryBus.execute(
+      new GetEmployeesQuery(tenantId, { department, limit, offset }),
     );
+    return result.items;
   }
 
   @Query(() => [Employee], { name: 'activeEmployees' })
   async getActiveEmployees(
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset: number,
     @Context() context: GraphQLContext,
   ): Promise<Employee[]> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
-      new GetEmployeesQuery(tenantId, { status: EmployeeStatus.ACTIVE }),
+    const result = await this.queryBus.execute(
+      new GetEmployeesQuery(tenantId, { status: EmployeeStatus.ACTIVE, limit, offset }),
     );
+    return result.items;
   }
 
   // Employee Mutations
@@ -155,16 +199,18 @@ export class HRResolver {
   }
 
   // Payroll Queries
-  @Query(() => [Payroll], { name: 'payrolls' })
+  @Query(() => PayrollConnection, { name: 'payrolls' })
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN, Role.HR_MANAGER)
   async getPayrolls(
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId: string,
     @Args('status', { type: () => PayrollStatus, nullable: true }) status: PayrollStatus,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset: number,
     @Context() context: GraphQLContext,
-  ): Promise<Payroll[]> {
+  ): Promise<PaginatedPayrolls> {
     const tenantId = this.getTenantId(context);
-    const filter: PayrollFilterInput = {};
+    const filter: PayrollFilterInput = { limit, offset };
     if (employeeId) filter.employeeId = employeeId;
     if (status) filter.status = status;
     return this.queryBus.execute(new GetPayrollsQuery(tenantId, filter));
@@ -174,12 +220,15 @@ export class HRResolver {
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN, Role.HR_MANAGER)
   async getPendingPayrolls(
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset: number,
     @Context() context: GraphQLContext,
   ): Promise<Payroll[]> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
-      new GetPayrollsQuery(tenantId, { status: PayrollStatus.PENDING_APPROVAL }),
+    const result = await this.queryBus.execute(
+      new GetPayrollsQuery(tenantId, { status: PayrollStatus.PENDING_APPROVAL, limit, offset }),
     );
+    return result.items;
   }
 
   // Payroll Mutations

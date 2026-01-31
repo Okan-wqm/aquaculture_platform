@@ -4,6 +4,14 @@ import { Repository } from 'typeorm';
 import { GetShiftsQuery } from '../queries/get-shifts.query';
 import { Shift } from '../entities/shift.entity';
 
+export interface PaginatedShifts {
+  items: Shift[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 @QueryHandler(GetShiftsQuery)
 export class GetShiftsHandler implements IQueryHandler<GetShiftsQuery> {
   constructor(
@@ -11,8 +19,12 @@ export class GetShiftsHandler implements IQueryHandler<GetShiftsQuery> {
     private readonly shiftRepository: Repository<Shift>,
   ) {}
 
-  async execute(query: GetShiftsQuery): Promise<Shift[]> {
-    const { tenantId, isActive, shiftType } = query;
+  async execute(query: GetShiftsQuery): Promise<PaginatedShifts> {
+    const { tenantId, isActive, shiftType, limit = 20, offset = 0 } = query;
+
+    // Enforce pagination limits
+    const effectiveLimit = Math.min(Math.max(limit, 1), 100);
+    const effectiveOffset = Math.max(offset, 0);
 
     const queryBuilder = this.shiftRepository
       .createQueryBuilder('s')
@@ -29,6 +41,17 @@ export class GetShiftsHandler implements IQueryHandler<GetShiftsQuery> {
       queryBuilder.andWhere('s.shiftType = :shiftType', { shiftType });
     }
 
-    return queryBuilder.getMany();
+    const [items, total] = await queryBuilder
+      .skip(effectiveOffset)
+      .take(effectiveLimit)
+      .getManyAndCount();
+
+    return {
+      items,
+      total,
+      limit: effectiveLimit,
+      offset: effectiveOffset,
+      hasMore: effectiveOffset + items.length < total,
+    };
   }
 }

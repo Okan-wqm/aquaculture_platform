@@ -1,4 +1,4 @@
-import { Resolver, Query, Args, ID, Context } from '@nestjs/graphql';
+import { Resolver, Query, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { QueryBus } from '@nestjs/cqrs';
@@ -10,6 +10,44 @@ import {
   GetWorkRotationsQuery,
   GetCurrentlyOffshoreQuery,
 } from './queries';
+import { PaginatedWorkAreas } from './query-handlers/get-work-areas.handler';
+import { PaginatedWorkRotations } from './query-handlers/get-work-rotations.handler';
+
+@ObjectType()
+class WorkAreaConnection {
+  @Field(() => [WorkArea])
+  items!: WorkArea[];
+
+  @Field(() => Int)
+  total!: number;
+
+  @Field(() => Int)
+  limit!: number;
+
+  @Field(() => Int)
+  offset!: number;
+
+  @Field()
+  hasMore!: boolean;
+}
+
+@ObjectType()
+class WorkRotationConnection {
+  @Field(() => [WorkRotation])
+  items!: WorkRotation[];
+
+  @Field(() => Int)
+  total!: number;
+
+  @Field(() => Int)
+  limit!: number;
+
+  @Field(() => Int)
+  offset!: number;
+
+  @Field()
+  hasMore!: boolean;
+}
 
 interface GraphQLContext {
   req: {
@@ -50,33 +88,38 @@ export class AquacultureResolver {
   // =====================
   // Work Area Queries
   // =====================
-  @Query(() => [WorkArea], { name: 'workAreas' })
+  @Query(() => WorkAreaConnection, { name: 'workAreas' })
   async getWorkAreas(
     @Context() context: GraphQLContext,
     @Args('workAreaType', { type: () => WorkAreaType, nullable: true }) workAreaType?: WorkAreaType,
     @Args('isOffshore', { nullable: true }) isOffshore?: boolean,
     @Args('isActive', { nullable: true }) isActive?: boolean,
-  ): Promise<WorkArea[]> {
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
+  ): Promise<PaginatedWorkAreas> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute(
-      new GetWorkAreasQuery(tenantId, workAreaType, isOffshore, isActive),
+      new GetWorkAreasQuery(tenantId, workAreaType, isOffshore, isActive, limit, offset),
     );
   }
 
   @Query(() => [WorkArea], { name: 'offshoreWorkAreas' })
   async getOffshoreWorkAreas(
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset: number,
     @Context() context: GraphQLContext,
   ): Promise<WorkArea[]> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
-      new GetWorkAreasQuery(tenantId, undefined, true, true),
+    const result = await this.queryBus.execute(
+      new GetWorkAreasQuery(tenantId, undefined, true, true, limit, offset),
     );
+    return result.items;
   }
 
   // =====================
   // Work Rotation Queries
   // =====================
-  @Query(() => [WorkRotation], { name: 'workRotations' })
+  @Query(() => WorkRotationConnection, { name: 'workRotations' })
   async getWorkRotations(
     @Context() context: GraphQLContext,
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
@@ -84,10 +127,12 @@ export class AquacultureResolver {
     @Args('status', { type: () => RotationStatus, nullable: true }) status?: RotationStatus,
     @Args('startDate', { nullable: true }) startDate?: string,
     @Args('endDate', { nullable: true }) endDate?: string,
-  ): Promise<WorkRotation[]> {
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
+  ): Promise<PaginatedWorkRotations> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute(
-      new GetWorkRotationsQuery(tenantId, employeeId, workAreaId, status, startDate, endDate),
+      new GetWorkRotationsQuery(tenantId, employeeId, workAreaId, status, startDate, endDate, limit, offset),
     );
   }
 
@@ -95,12 +140,15 @@ export class AquacultureResolver {
   async getMyWorkRotations(
     @Context() context: GraphQLContext,
     @Args('status', { type: () => RotationStatus, nullable: true }) status?: RotationStatus,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
   ): Promise<WorkRotation[]> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    return this.queryBus.execute(
-      new GetWorkRotationsQuery(tenantId, userId, undefined, status),
+    const result = await this.queryBus.execute(
+      new GetWorkRotationsQuery(tenantId, userId, undefined, status, undefined, undefined, limit, offset),
     );
+    return result.items;
   }
 
   @Query(() => [Employee], { name: 'currentlyOffshore' })
@@ -118,15 +166,22 @@ export class AquacultureResolver {
   async getActiveRotations(
     @Context() context: GraphQLContext,
     @Args('workAreaId', { type: () => ID, nullable: true }) workAreaId?: string,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
   ): Promise<WorkRotation[]> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
+    const result = await this.queryBus.execute(
       new GetWorkRotationsQuery(
         tenantId,
         undefined,
         workAreaId,
         RotationStatus.IN_PROGRESS,
+        undefined,
+        undefined,
+        limit,
+        offset,
       ),
     );
+    return result.items;
   }
 }

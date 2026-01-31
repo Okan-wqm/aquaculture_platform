@@ -4,6 +4,14 @@ import { Repository } from 'typeorm';
 import { GetWorkAreasQuery } from '../queries/get-work-areas.query';
 import { WorkArea } from '../entities/work-area.entity';
 
+export interface PaginatedWorkAreas {
+  items: WorkArea[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 @QueryHandler(GetWorkAreasQuery)
 export class GetWorkAreasHandler implements IQueryHandler<GetWorkAreasQuery> {
   constructor(
@@ -11,8 +19,12 @@ export class GetWorkAreasHandler implements IQueryHandler<GetWorkAreasQuery> {
     private readonly workAreaRepository: Repository<WorkArea>,
   ) {}
 
-  async execute(query: GetWorkAreasQuery): Promise<WorkArea[]> {
-    const { tenantId, workAreaType, isOffshore, isActive } = query;
+  async execute(query: GetWorkAreasQuery): Promise<PaginatedWorkAreas> {
+    const { tenantId, workAreaType, isOffshore, isActive, limit = 20, offset = 0 } = query;
+
+    // Enforce pagination limits
+    const effectiveLimit = Math.min(Math.max(limit, 1), 100);
+    const effectiveOffset = Math.max(offset, 0);
 
     const queryBuilder = this.workAreaRepository
       .createQueryBuilder('wa')
@@ -33,6 +45,17 @@ export class GetWorkAreasHandler implements IQueryHandler<GetWorkAreasQuery> {
       queryBuilder.andWhere('wa.isActive = :isActive', { isActive });
     }
 
-    return queryBuilder.getMany();
+    const [items, total] = await queryBuilder
+      .skip(effectiveOffset)
+      .take(effectiveLimit)
+      .getManyAndCount();
+
+    return {
+      items,
+      total,
+      limit: effectiveLimit,
+      offset: effectiveOffset,
+      hasMore: effectiveOffset + items.length < total,
+    };
   }
 }

@@ -137,9 +137,15 @@ export class EmergencyInfo {
 
 @ObjectType()
 @Entity('employees', { schema: 'hr' })
-@Index(['tenantId', 'email'], { unique: true })
-@Index(['tenantId', 'employeeNumber'], { unique: true })
-@Index(['tenantId', 'status'])
+// Unique composite indexes
+@Index('idx_employee_email_tenant', ['tenantId', 'email'], { unique: true })
+@Index('idx_employee_number_tenant', ['employeeNumber', 'tenantId'], { unique: true })
+// Single-column indexes for frequent lookups
+@Index('idx_employee_tenant', ['tenantId'])
+@Index('idx_employee_email', ['email'])
+@Index('idx_employee_department', ['departmentHrId'])
+// Composite indexes for common query patterns
+@Index('idx_employee_status_tenant', ['status', 'tenantId'])
 @Index(['tenantId', 'department'])
 @Index(['tenantId', 'farmId'])
 @Index(['tenantId', 'personnelCategory'])
@@ -277,6 +283,14 @@ export class Employee {
   @Field({ nullable: true })
   @Column({ nullable: true })
   currentRotationId?: string;
+
+  /**
+   * IANA timezone string for the employee's local timezone (e.g., 'Asia/Manila')
+   * Used for attendance tracking and shift calculations
+   */
+  @Field({ nullable: true })
+  @Column({ length: 50, nullable: true, default: 'UTC' })
+  timezone?: string;
 
   // ==========================================
   // Audit fields

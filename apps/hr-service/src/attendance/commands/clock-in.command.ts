@@ -9,5 +9,10 @@ export class ClockInCommand {
     public readonly location?: GeoLocation,
     public readonly remarks?: string,
     public readonly workAreaId?: string,
+    /**
+     * IANA timezone string for the employee's local timezone (e.g., 'Asia/Manila')
+     * Used to properly calculate shift times and store timezone context
+     */
+    public readonly timezone?: string,
   ) {}
 }

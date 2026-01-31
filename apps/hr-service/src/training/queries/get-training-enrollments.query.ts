@@ -6,5 +6,7 @@ export class GetTrainingEnrollmentsQuery {
     public readonly employeeId?: string,
     public readonly trainingCourseId?: string,
     public readonly status?: EnrollmentStatus,
+    public readonly limit: number = 20,
+    public readonly offset: number = 0,
   ) {}
 }

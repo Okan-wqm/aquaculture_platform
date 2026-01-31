@@ -272,7 +272,37 @@ LRU cache for tenant schema validation:
 
 ## Changelog
 
-### Recent Audit & Improvements (January 2026)
+### End-to-End Workflow Audit (January 2026) - 10 Agent Analysis
+
+#### Employee CRUD Workflow Fixes
+- Added soft delete filtering to `GetEmployeeHandler` and `GetEmployeesHandler`
+- Added transaction management with SERIALIZABLE isolation to `UpdateEmployeeHandler`
+- Added date validation (dateOfBirth, hireDate, terminationDate) to update handler
+- Added proper error handling with try-catch and rollback
+
+#### Leave Workflow Fixes
+- Fixed column name error: `displayOrder` → `sortOrder` in `GetLeaveBalancesHandler`
+- Added SERIALIZABLE transaction to `SubmitLeaveRequestHandler`
+- Added SERIALIZABLE transaction to `RejectLeaveRequestHandler`
+- Changed `ApproveLeaveRequestHandler` to use SERIALIZABLE isolation
+
+#### Training Workflow Fixes
+- Fixed race condition in `EnrollInTrainingHandler` with SERIALIZABLE transaction
+- Combined duplicate enrollment checks into single atomic query
+- Changed exception type to `ConflictException` for enrollment conflicts
+
+#### Payroll Workflow Fixes
+- Added period overlap validation (prevents overlapping pay periods)
+- Added pay period date validation (start < end)
+- Added validation: deductions cannot exceed gross pay
+- Added validation: net pay cannot be negative
+
+#### Security Enhancements
+- Added `@Roles` to employee read queries (ADMIN, HR_MANAGER, MANAGER)
+- Added `@Roles` to payroll queries (ADMIN, HR_MANAGER only)
+- Added `@Roles` to leave balance/approval queries (ADMIN, HR_MANAGER, MANAGER)
+
+### Previous Audit (January 2026)
 
 #### Security Hardening
 - Added `GqlAuthGuard` to all 5 resolver classes
@@ -300,10 +330,12 @@ LRU cache for tenant schema validation:
 | Category | Status | Notes |
 |----------|--------|-------|
 | Authentication | ✅ Pass | GqlAuthGuard on all resolvers |
-| Authorization | ✅ Pass | @Roles on sensitive mutations |
+| Authorization | ✅ Pass | @Roles on queries and mutations |
 | User Validation | ✅ Pass | No 'system' fallback |
 | Error Handling | ✅ Pass | Proper type guards |
-| Transaction Management | ✅ Pass | Critical handlers covered |
+| Transaction Management | ✅ Pass | SERIALIZABLE isolation |
+| Race Conditions | ✅ Pass | Fixed in enrollment, leave |
+| Data Integrity | ✅ Pass | Soft delete, validation |
 | Module Structure | ✅ Pass | No circular deps |
 | DTO Validation | ✅ Pass | class-validator decorators |
 | Test Coverage | ⚠️ ~8% | Needs improvement |
@@ -311,8 +343,9 @@ LRU cache for tenant schema validation:
 ### Known Limitations
 
 - Test coverage at ~8% (only leave and training have tests)
+- Timezone handling relies on server timezone
+- Attendance break time tracking is assumption-based
 - Some pagination inconsistencies between modules
-- Enum casing not fully standardized
 
 ## Contributing
 

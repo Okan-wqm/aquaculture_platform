@@ -101,6 +101,8 @@ export class LeaveResolver {
   // Leave Balance Queries
   // =====================
   @Query(() => [LeaveBalance], { name: 'leaveBalances' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
   async getLeaveBalances(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Context() context: GraphQLContext,
@@ -188,6 +190,8 @@ export class LeaveResolver {
   }
 
   @Query(() => [LeaveRequest], { name: 'pendingLeaveApprovals' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
   async getPendingLeaveApprovals(
     @Context() context: GraphQLContext,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,

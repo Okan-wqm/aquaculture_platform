@@ -16,7 +16,7 @@ export class GetEmployeesHandler implements IQueryHandler<GetEmployeesQuery, Emp
   async execute(query: GetEmployeesQuery): Promise<Employee[]> {
     const { tenantId, filter } = query;
 
-    const where: FindOptionsWhere<Employee> = { tenantId };
+    const where: FindOptionsWhere<Employee> = { tenantId, isDeleted: false };
 
     if (filter?.status) {
       where.status = filter.status;

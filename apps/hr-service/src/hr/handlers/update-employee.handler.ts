@@ -1,6 +1,5 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not } from 'typeorm';
+import { Injectable, NotFoundException, ConflictException, Logger, InternalServerErrorException } from '@nestjs/common';
+import { DataSource, QueryRunner, Not } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { UpdateEmployeeCommand } from '../commands/update-employee.command';
 import { Employee } from '../entities/employee.entity';
@@ -11,59 +10,106 @@ export class UpdateEmployeeHandler implements ICommandHandler<UpdateEmployeeComm
   private readonly logger = new Logger(UpdateEmployeeHandler.name);
 
   constructor(
-    @InjectRepository(Employee)
-    private readonly employeeRepository: Repository<Employee>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(command: UpdateEmployeeCommand): Promise<Employee> {
     const { tenantId, input, userId } = command;
 
-    const employee = await this.employeeRepository.findOne({
-      where: { id: input.id, tenantId },
-    });
+    // Create a query runner for transaction management
+    const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction('SERIALIZABLE');
 
-    if (!employee) {
-      throw new NotFoundException(`Employee with id ${input.id} not found`);
-    }
+    try {
+      const employeeRepo = queryRunner.manager.getRepository(Employee);
 
-    // Check for email conflict if email is being updated
-    if (input.email && input.email !== employee.email) {
-      const existingByEmail = await this.employeeRepository.findOne({
-        where: { tenantId, email: input.email, id: Not(input.id) },
+      const employee = await employeeRepo.findOne({
+        where: { id: input.id, tenantId },
+        lock: { mode: 'pessimistic_write' },
       });
 
-      if (existingByEmail) {
-        throw new ConflictException(`Employee with email ${input.email} already exists`);
+      if (!employee) {
+        throw new NotFoundException(`Employee with id ${input.id} not found`);
       }
+
+      // Check for email conflict if email is being updated
+      if (input.email && input.email !== employee.email) {
+        const existingByEmail = await employeeRepo.findOne({
+          where: { tenantId, email: input.email, id: Not(input.id) },
+        });
+
+        if (existingByEmail) {
+          throw new ConflictException(`Employee with email ${input.email} already exists`);
+        }
+      }
+
+      // Update fields - extract and convert properly
+      const { id: _id, dateOfBirth, hireDate, terminationDate, ...restInput } = input;
+
+      const updateData: Partial<Employee> = {
+        ...restInput,
+        updatedBy: userId,
+      };
+
+      // Handle date conversions with validation
+      if (dateOfBirth) {
+        const parsedDateOfBirth = new Date(dateOfBirth);
+        if (isNaN(parsedDateOfBirth.getTime())) {
+          throw new ConflictException('Invalid date of birth');
+        }
+        if (parsedDateOfBirth > new Date()) {
+          throw new ConflictException('Date of birth cannot be in the future');
+        }
+        updateData.dateOfBirth = parsedDateOfBirth;
+      }
+      if (hireDate) {
+        const parsedHireDate = new Date(hireDate);
+        if (isNaN(parsedHireDate.getTime())) {
+          throw new ConflictException('Invalid hire date');
+        }
+        if (parsedHireDate > new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)) {
+          throw new ConflictException('Hire date cannot be more than 1 year in the future');
+        }
+        updateData.hireDate = parsedHireDate;
+      }
+      if (terminationDate) {
+        const parsedTerminationDate = new Date(terminationDate);
+        if (isNaN(parsedTerminationDate.getTime())) {
+          throw new ConflictException('Invalid termination date');
+        }
+        updateData.terminationDate = parsedTerminationDate;
+      }
+
+      Object.assign(employee, updateData);
+
+      const savedEmployee = await employeeRepo.save(employee);
+
+      // Commit transaction
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Employee updated: ${savedEmployee.id} (${savedEmployee.employeeNumber}) for tenant ${tenantId}`,
+      );
+
+      return savedEmployee;
+    } catch (error) {
+      // Rollback transaction on error
+      await queryRunner.rollbackTransaction();
+
+      if (error instanceof NotFoundException || error instanceof ConflictException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Failed to update employee ${input.id} for tenant ${tenantId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+
+      throw new InternalServerErrorException('Failed to update employee');
+    } finally {
+      // Release the query runner
+      await queryRunner.release();
     }
-
-    // Update fields - extract and convert properly
-    const { id: _id, dateOfBirth, hireDate, terminationDate, ...restInput } = input;
-
-    const updateData: Partial<Employee> = {
-      ...restInput,
-      updatedBy: userId,
-    };
-
-    // Handle date conversions
-    if (dateOfBirth) {
-      updateData.dateOfBirth = new Date(dateOfBirth);
-    }
-    if (hireDate) {
-      updateData.hireDate = new Date(hireDate);
-    }
-    if (terminationDate) {
-      updateData.terminationDate = new Date(terminationDate);
-    }
-
-    Object.assign(employee, updateData);
-
-    const savedEmployee = await this.employeeRepository.save(employee);
-
-    this.logger.log(
-      `Employee updated: ${savedEmployee.id} (${savedEmployee.employeeNumber}) for tenant ${tenantId}`,
-    );
-
-    return savedEmployee;
   }
 }

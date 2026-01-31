@@ -60,6 +60,8 @@ export class HRResolver {
 
   // Employee Queries
   @Query(() => Employee, { name: 'employee' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
   async getEmployee(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -69,6 +71,8 @@ export class HRResolver {
   }
 
   @Query(() => [Employee], { name: 'employees' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
   async getEmployees(
     @Args('filter', { nullable: true }) filter: EmployeeFilterInput,
     @Context() context: GraphQLContext,
@@ -152,6 +156,8 @@ export class HRResolver {
 
   // Payroll Queries
   @Query(() => [Payroll], { name: 'payrolls' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER)
   async getPayrolls(
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId: string,
     @Args('status', { type: () => PayrollStatus, nullable: true }) status: PayrollStatus,
@@ -165,6 +171,8 @@ export class HRResolver {
   }
 
   @Query(() => [Payroll], { name: 'pendingPayrolls' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER)
   async getPendingPayrolls(
     @Context() context: GraphQLContext,
   ): Promise<Payroll[]> {

@@ -27,7 +27,7 @@ export class ApproveLeaveRequestHandler
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
-    await queryRunner.startTransaction();
+    await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
       const leaveRequest = await queryRunner.manager.findOne(LeaveRequest, {

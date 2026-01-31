@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
@@ -36,20 +36,22 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
         throw new NotFoundException(`Employee with id ${input.employeeId} not found`);
       }
 
-      // Check for duplicate payroll for same period
-      const existingPayroll = await queryRunner.manager.findOne(Payroll, {
-        where: {
-          tenantId,
-          employeeId: input.employeeId,
-          payPeriodStart: new Date(input.payPeriodStart),
-          payPeriodEnd: new Date(input.payPeriodEnd),
-        },
-      });
+      // Validate pay period dates
+      if (new Date(input.payPeriodStart) >= new Date(input.payPeriodEnd)) {
+        throw new BadRequestException('Pay period start date must be before end date');
+      }
 
-      if (existingPayroll) {
-        throw new ConflictException(
-          `Payroll already exists for employee ${input.employeeId} for period ${input.payPeriodStart} - ${input.payPeriodEnd}`,
-        );
+      // Check for overlapping payroll periods
+      const overlappingPayroll = await queryRunner.manager
+        .createQueryBuilder(Payroll, 'p')
+        .where('p.tenantId = :tenantId', { tenantId })
+        .andWhere('p.employeeId = :employeeId', { employeeId: input.employeeId })
+        .andWhere('p.payPeriodStart < :endDate', { endDate: new Date(input.payPeriodEnd) })
+        .andWhere('p.payPeriodEnd > :startDate', { startDate: new Date(input.payPeriodStart) })
+        .getOne();
+
+      if (overlappingPayroll) {
+        throw new ConflictException('Overlapping payroll period exists');
       }
 
       // Calculate earnings breakdown
@@ -83,8 +85,18 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
           (deductionInput.otherDeductions || 0),
       };
 
+      // Validate deductions don't exceed gross pay
+      if (deductions.totalDeductions > earnings.grossPay) {
+        throw new BadRequestException('Total deductions cannot exceed gross pay');
+      }
+
       // Calculate net pay
       const netPay = earnings.grossPay - deductions.totalDeductions;
+
+      // Validate net pay is not negative
+      if (netPay < 0) {
+        throw new BadRequestException('Net pay cannot be negative');
+      }
 
       // Generate payroll number
       const payrollNumber = await this.generatePayrollNumber(tenantId, queryRunner);

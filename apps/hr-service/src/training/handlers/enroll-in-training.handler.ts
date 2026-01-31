@@ -1,7 +1,7 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { Repository, DataSource } from 'typeorm';
+import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { EnrollInTrainingCommand } from '../commands/enroll-in-training.command';
 import { TrainingEnrollment, EnrollmentStatus } from '../entities/training-enrollment.entity';
 import { TrainingCourse } from '../entities/training-course.entity';
@@ -18,6 +18,7 @@ export class EnrollInTrainingHandler
     private readonly courseRepository: Repository<TrainingCourse>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(command: EnrollInTrainingCommand): Promise<TrainingEnrollment> {
@@ -32,78 +33,72 @@ export class EnrollInTrainingHandler
       location,
     } = command;
 
-    // Validate employee
-    const employee = await this.employeeRepository.findOne({
-      where: { id: employeeId, tenantId, isDeleted: false },
-    });
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction('SERIALIZABLE');
 
-    if (!employee) {
-      throw new NotFoundException(`Employee with ID ${employeeId} not found`);
-    }
+    try {
+      // Validate employee
+      const employee = await queryRunner.manager.findOne(Employee, {
+        where: { id: employeeId, tenantId, isDeleted: false },
+      });
 
-    // Validate course
-    const course = await this.courseRepository.findOne({
-      where: { id: trainingCourseId, tenantId, isDeleted: false },
-    });
+      if (!employee) {
+        throw new NotFoundException(`Employee with ID ${employeeId} not found`);
+      }
 
-    if (!course) {
-      throw new NotFoundException(`Training course with ID ${trainingCourseId} not found`);
-    }
+      // Validate course
+      const course = await queryRunner.manager.findOne(TrainingCourse, {
+        where: { id: trainingCourseId, tenantId, isDeleted: false },
+      });
 
-    if (!course.isActive) {
-      throw new BadRequestException(`Training course ${course.name} is not active`);
-    }
+      if (!course) {
+        throw new NotFoundException(`Training course with ID ${trainingCourseId} not found`);
+      }
 
-    // Check for existing enrollment
-    const existingEnrollment = await this.enrollmentRepository.findOne({
-      where: {
+      if (!course.isActive) {
+        throw new BadRequestException(`Training course ${course.name} is not active`);
+      }
+
+      // Check for existing enrollment with either ENROLLED or IN_PROGRESS status
+      const existingEnrollment = await queryRunner.manager.findOne(TrainingEnrollment, {
+        where: [
+          { tenantId, employeeId, trainingCourseId, status: EnrollmentStatus.ENROLLED, isDeleted: false },
+          { tenantId, employeeId, trainingCourseId, status: EnrollmentStatus.IN_PROGRESS, isDeleted: false },
+        ],
+      });
+
+      if (existingEnrollment) {
+        const statusMessage = existingEnrollment.status === EnrollmentStatus.ENROLLED
+          ? `Employee is already enrolled in ${course.name}`
+          : `Employee already has ${course.name} in progress`;
+        throw new ConflictException(statusMessage);
+      }
+
+      const enrollment = queryRunner.manager.create(TrainingEnrollment, {
         tenantId,
         employeeId,
         trainingCourseId,
         status: EnrollmentStatus.ENROLLED,
-        isDeleted: false,
-      },
-    });
+        enrollmentDate: new Date(),
+        dueDate: dueDate ? new Date(dueDate) : undefined,
+        progressPercent: 0,
+        attemptCount: 0,
+        sessionId,
+        instructor,
+        location,
+        createdBy: userId,
+        updatedBy: userId,
+      });
 
-    if (existingEnrollment) {
-      throw new BadRequestException(
-        `Employee is already enrolled in ${course.name}`,
-      );
+      const result = await queryRunner.manager.save(enrollment);
+      await queryRunner.commitTransaction();
+      return result;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-
-    // Check in-progress enrollment
-    const inProgressEnrollment = await this.enrollmentRepository.findOne({
-      where: {
-        tenantId,
-        employeeId,
-        trainingCourseId,
-        status: EnrollmentStatus.IN_PROGRESS,
-        isDeleted: false,
-      },
-    });
-
-    if (inProgressEnrollment) {
-      throw new BadRequestException(
-        `Employee already has ${course.name} in progress`,
-      );
-    }
-
-    const enrollment = this.enrollmentRepository.create({
-      tenantId,
-      employeeId,
-      trainingCourseId,
-      status: EnrollmentStatus.ENROLLED,
-      enrollmentDate: new Date(),
-      dueDate: dueDate ? new Date(dueDate) : undefined,
-      progressPercent: 0,
-      attemptCount: 0,
-      sessionId,
-      instructor,
-      location,
-      createdBy: userId,
-      updatedBy: userId,
-    });
-
-    return this.enrollmentRepository.save(enrollment);
   }
 }

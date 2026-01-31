@@ -23,7 +23,7 @@ export class GetLeaveBalancesHandler implements IQueryHandler<GetLeaveBalancesQu
       .andWhere('lb.employeeId = :employeeId', { employeeId })
       .andWhere('lb.year = :year', { year: currentYear })
       .andWhere('lb.isDeleted = false')
-      .orderBy('leaveType.displayOrder', 'ASC');
+      .orderBy('leaveType.sortOrder', 'ASC');
 
     if (leaveTypeId) {
       queryBuilder.andWhere('lb.leaveTypeId = :leaveTypeId', { leaveTypeId });

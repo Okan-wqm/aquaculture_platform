@@ -7,6 +7,7 @@ import { EmailSenderService } from '../../settings/services/email-sender.service
 import { SchemaManagerService } from '@platform/backend-common';
 import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
 import { RoleTemplateService } from '../../users/services/role-template.service';
+import { UserPermissionsService } from '../../users/services/user-permissions.service';
 
 /**
  * Default tenant role definition for provisioning
@@ -55,115 +56,18 @@ export class TenantProvisioningService {
   private readonly schemaManager: SchemaManagerService;
 
   /**
-   * Default roles to be created for each tenant during provisioning
+   * Default roles to be created for each tenant during provisioning.
+   * Only TENANT_ADMIN role is created - actual permissions are managed via user_permissions table.
    */
   private readonly defaultRoles: DefaultTenantRole[] = [
     {
       code: 'TENANT_ADMIN',
       name: 'Tenant Administrator',
-      description: 'Full administrative access to all tenant resources and settings',
-      permissions: [
-        'dashboard:view',
-        'dashboard:analytics',
-        'users:view',
-        'users:create',
-        'users:edit',
-        'users:delete',
-        'users:invite',
-        'users:roles',
-        'farms:view',
-        'farms:create',
-        'farms:edit',
-        'farms:delete',
-        'farms:manage',
-        'ponds:view',
-        'ponds:create',
-        'ponds:edit',
-        'ponds:delete',
-        'sensors:view',
-        'sensors:create',
-        'sensors:edit',
-        'sensors:delete',
-        'sensors:calibrate',
-        'alerts:view',
-        'alerts:create',
-        'alerts:edit',
-        'alerts:delete',
-        'alerts:acknowledge',
-        'feed:view',
-        'feed:create',
-        'feed:edit',
-        'feed:schedule',
-        'reports:view',
-        'reports:create',
-        'reports:export',
-        'settings:view',
-        'settings:edit',
-        'billing:view',
-        'billing:manage',
-        'audit:view',
-        'api:manage',
-      ],
-      isDefault: true,
+      description: 'Full administrative access to all tenant features. Can manage users and assign permissions.',
+      permissions: ['*'], // Full access - actual permissions managed via user_permissions table
+      isDefault: false,
       isEditable: false,
       displayOrder: 1,
-    },
-    {
-      code: 'TENANT_MANAGER',
-      name: 'Tenant Manager',
-      description: 'Manage operations, users, and resources within the tenant',
-      permissions: [
-        'dashboard:view',
-        'dashboard:analytics',
-        'users:view',
-        'users:create',
-        'users:edit',
-        'users:invite',
-        'farms:view',
-        'farms:create',
-        'farms:edit',
-        'ponds:view',
-        'ponds:create',
-        'ponds:edit',
-        'sensors:view',
-        'sensors:create',
-        'sensors:edit',
-        'sensors:calibrate',
-        'alerts:view',
-        'alerts:create',
-        'alerts:edit',
-        'alerts:acknowledge',
-        'feed:view',
-        'feed:create',
-        'feed:edit',
-        'feed:schedule',
-        'reports:view',
-        'reports:create',
-        'reports:export',
-        'settings:view',
-      ],
-      isDefault: true,
-      isEditable: true,
-      displayOrder: 2,
-    },
-    {
-      code: 'TENANT_USER',
-      name: 'Tenant User',
-      description: 'Standard user access with read and basic write permissions',
-      permissions: [
-        'dashboard:view',
-        'farms:view',
-        'ponds:view',
-        'sensors:view',
-        'alerts:view',
-        'alerts:acknowledge',
-        'feed:view',
-        'feed:create',
-        'reports:view',
-      ],
-      isDefault: true,
-      isEditable: true,
-      displayOrder: 3,
     },
   ];
 
@@ -174,6 +78,7 @@ export class TenantProvisioningService {
     private readonly dataSource: DataSource,
     private readonly tenantConfigurationService: TenantConfigurationService,
     private readonly roleTemplateService: RoleTemplateService,
+    private readonly userPermissionsService: UserPermissionsService,
     @Optional()
     private readonly emailSenderService?: EmailSenderService,
   ) {
@@ -531,8 +436,8 @@ export class TenantProvisioningService {
   }
 
   /**
-   * Setup default roles for a newly provisioned tenant
-   * Creates TENANT_ADMIN, TENANT_MANAGER, and TENANT_USER roles
+   * Setup default roles for a newly provisioned tenant.
+   * Creates only the TENANT_ADMIN role - actual permissions are managed via user_permissions table.
    */
   private async setupDefaultRoles(tenant: Tenant): Promise<void> {
     this.logger.log(`Setting up default roles for tenant ${tenant.id}`);
@@ -861,8 +766,16 @@ export class TenantProvisioningService {
         return { userId };
       });
 
+      // Create user permissions with TENANT_ADMIN_PERMISSIONS
+      await this.userPermissionsService.createDefaultPermissions(
+        result.userId,
+        tenantId,
+        'system', // grantedBy - system for initial provisioning
+        true, // isAdmin - true to use TENANT_ADMIN_PERMISSIONS
+      );
+
       this.logger.log(
-        `Created first admin user for tenant ${tenantId}: ${email}`,
+        `Created first admin user for tenant ${tenantId}: ${email} with TENANT_ADMIN permissions`,
       );
 
       return {

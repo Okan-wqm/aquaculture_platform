@@ -272,6 +272,32 @@ LRU cache for tenant schema validation:
 
 ## Changelog
 
+### Performance & Quality Improvements (January 2026)
+
+#### Timezone & Attendance Fixes
+- Added `timezone` field to Employee and AttendanceRecord entities
+- All times stored in UTC, converted for display
+- Added timezone helper functions (`convertLocalToUtc`, `convertUtcToLocal`)
+- Added break time tracking (`breakStartTime`, `breakEndTime`, `totalBreakMinutes`)
+- Fixed midnight shift handling with proper day rollover detection
+
+#### Database Performance (16 New Indexes)
+- **Employee**: tenant, email, department, status composite indexes
+- **AttendanceRecord**: tenant+employee, tenant+date, status indexes
+- **LeaveRequest**: tenant+employee, tenant+status, date range indexes
+- **TrainingEnrollment**: tenant+employee, tenant+status, course indexes
+
+#### N+1 Query Fixes
+- Added `relations: ['payrolls']` to GetEmployeesHandler
+- Added `leftJoinAndSelect` for employee in GetEmployeeCertificationsHandler
+- Verified all handlers have proper eager loading
+
+#### Pagination Standardization
+- All list queries support: offset (default: 0), limit (default: 20, max: 100)
+- Paginated results include: `{ items, total, limit, offset, hasMore }`
+- Added GraphQL Connection types for all list queries
+- Standardized across all 5 modules
+
 ### End-to-End Workflow Audit (January 2026) - 10 Agent Analysis
 
 #### Employee CRUD Workflow Fixes
@@ -331,13 +357,13 @@ LRU cache for tenant schema validation:
 |----------|--------|-------|
 | Authentication | ✅ Pass | GqlAuthGuard on all resolvers |
 | Authorization | ✅ Pass | @Roles on queries and mutations |
-| User Validation | ✅ Pass | No 'system' fallback |
-| Error Handling | ✅ Pass | Proper type guards |
+| Timezone Handling | ✅ Pass | UTC storage, local display |
+| Database Performance | ✅ Pass | 16 indexes added |
+| N+1 Queries | ✅ Pass | Eager loading verified |
+| Pagination | ✅ Pass | Standardized across modules |
 | Transaction Management | ✅ Pass | SERIALIZABLE isolation |
 | Race Conditions | ✅ Pass | Fixed in enrollment, leave |
 | Data Integrity | ✅ Pass | Soft delete, validation |
-| Module Structure | ✅ Pass | No circular deps |
-| DTO Validation | ✅ Pass | class-validator decorators |
 | Test Coverage | ⚠️ ~8% | Needs improvement |
 
 ### Known Limitations

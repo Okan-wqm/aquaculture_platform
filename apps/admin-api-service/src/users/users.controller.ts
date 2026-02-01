@@ -15,6 +15,7 @@ import {
   UseGuards,
   Req,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import {
   IsString,
@@ -207,6 +208,8 @@ export class ListUsersQueryDto {
 @Controller('users')
 @UseGuards(PlatformAdminGuard)
 export class UsersController {
+  private readonly logger = new Logger(UsersController.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly userProvisioningService: UserProvisioningService,
@@ -537,7 +540,7 @@ export class UsersController {
         );
       } catch (error) {
         // Log error but don't fail the invitation
-        console.error('Failed to set initial permissions:', error);
+        this.logger.error('Failed to set initial permissions', error instanceof Error ? error.stack : error);
       }
     } else {
       // Create default permissions

@@ -3,19 +3,40 @@ import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { ROLES_KEY, Role, IS_PUBLIC_KEY } from '../decorators/roles.decorator';
+import { ROLES_KEY, Role, IS_PUBLIC_KEY, roleHasPermission } from '../decorators/roles.decorator';
 import { CurrentUserPayload } from '../decorators/current-user.decorator';
 
 /**
+ * User with role(s) - supports both single role and multiple roles
+ */
+interface UserWithRoles {
+  sub?: string;
+  userId?: string;
+  role?: string | Role;
+  roles?: (string | Role)[];
+  tenantId?: string | null;
+}
+
+/**
  * Roles Guard
- * Checks if user has required role(s) to access a resource
+ *
+ * Checks if user has required role(s) to access a resource.
+ * Supports role hierarchy - higher roles inherit lower role permissions.
+ *
+ * SECURITY:
+ * - Generic error messages to prevent user enumeration
+ * - Requires authentication unless @Public() decorator is used
+ * - Uses role hierarchy for permission inheritance
  */
 @Injectable()
 export class RolesGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  private readonly logger = new Logger(RolesGuard.name);
+
+  constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
     // Check if endpoint is public
@@ -37,45 +58,109 @@ export class RolesGuard implements CanActivate {
     // Get user from request
     const user = this.getUser(context);
 
+    // SECURITY: Generic message to prevent information disclosure
+    const accessDeniedMessage = 'Access denied';
+
     // SECURITY FIX: Always require authenticated user unless endpoint is public
-    // Previously, empty roles allowed unauthenticated access which was a security gap
     if (!requiredRoles || requiredRoles.length === 0) {
       // Require at least an authenticated user when no specific roles are defined
       if (!user) {
-        throw new ForbiddenException('Authentication required');
+        throw new ForbiddenException(accessDeniedMessage);
       }
       return true;
     }
 
     if (!user) {
-      throw new ForbiddenException('User not authenticated');
+      throw new ForbiddenException(accessDeniedMessage);
     }
 
-    // Super admin has access to everything
-    if (user.roles.includes(Role.SUPER_ADMIN)) {
-      return true;
+    // Get user roles - support both single role and roles array
+    const userRoles = this.extractUserRoles(user);
+
+    if (userRoles.length === 0) {
+      this.logger.debug(`User ${user.sub || user.userId} has no roles assigned`);
+      throw new ForbiddenException(accessDeniedMessage);
     }
 
-    // Check if user has at least one required role
-    const hasRole = requiredRoles.some((role) => user.roles.includes(role));
+    // Check if user has any of the required roles (with hierarchy support)
+    const hasRequiredRole = this.checkRoleAccess(userRoles, requiredRoles);
 
-    if (!hasRole) {
-      throw new ForbiddenException(
-        `Access denied. Required roles: ${requiredRoles.join(', ')}`,
+    if (!hasRequiredRole) {
+      this.logger.debug(
+        `Access denied for user ${user.sub || user.userId}: ` +
+        `has [${userRoles.join(', ')}], needs one of [${requiredRoles.join(', ')}]`,
       );
+      throw new ForbiddenException(accessDeniedMessage);
     }
 
     return true;
   }
 
-  private getUser(context: ExecutionContext): CurrentUserPayload | undefined {
+  /**
+   * Extract user roles from various formats
+   * Handles both single role and roles array
+   */
+  private extractUserRoles(user: UserWithRoles): Role[] {
+    const roles: Role[] = [];
+
+    // Handle roles array
+    if (Array.isArray(user.roles)) {
+      for (const role of user.roles) {
+        if (this.isValidRole(role)) {
+          roles.push(role as Role);
+        }
+      }
+    }
+
+    // Handle single role (backward compatibility)
+    if (user.role && this.isValidRole(user.role)) {
+      if (!roles.includes(user.role as Role)) {
+        roles.push(user.role as Role);
+      }
+    }
+
+    return roles;
+  }
+
+  /**
+   * Check if a role string is a valid Role enum value
+   */
+  private isValidRole(role: string | Role): boolean {
+    return Object.values(Role).includes(role as Role);
+  }
+
+  /**
+   * Check if user has access based on role hierarchy
+   */
+  private checkRoleAccess(userRoles: Role[], requiredRoles: Role[]): boolean {
+    for (const userRole of userRoles) {
+      // Super admin has access to everything
+      if (userRole === Role.SUPER_ADMIN) {
+        return true;
+      }
+
+      // Direct role match or hierarchy match
+      for (const requiredRole of requiredRoles) {
+        if (roleHasPermission(userRole, requiredRole)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Get user from request context
+   */
+  private getUser(context: ExecutionContext): UserWithRoles | undefined {
     const contextType = context.getType<string>();
 
     if (contextType === 'graphql') {
       const gqlCtx = GqlExecutionContext.create(context);
-      return gqlCtx.getContext().req?.user;
+      return gqlCtx.getContext().req?.user as UserWithRoles | undefined;
     }
 
-    return context.switchToHttp().getRequest()?.user;
+    return context.switchToHttp().getRequest()?.user as UserWithRoles | undefined;
   }
 }

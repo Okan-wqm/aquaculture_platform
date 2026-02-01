@@ -23,3 +23,6 @@ export * from './redis';
 
 // Telemetry
 export * from './telemetry';
+
+// Security - Rate Limiting, Token Blacklist, Session Management, GDPR, etc.
+export * from './security';

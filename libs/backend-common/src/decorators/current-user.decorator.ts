@@ -1,18 +1,69 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
+import { Role } from './roles.decorator';
+
 /**
  * Current User Type - JWT payload structure
+ *
+ * Note: tenantId is optional because SUPER_ADMIN users
+ * operate at the system level without tenant restriction.
  */
 export interface CurrentUserPayload {
+  /**
+   * User ID (subject)
+   */
   sub: string;
+
+  /**
+   * User email
+   */
   email: string;
-  tenantId: string;
-  roles: string[];
+
+  /**
+   * Tenant ID - null for SUPER_ADMIN users
+   */
+  tenantId: string | null;
+
+  /**
+   * User role (single role for backward compatibility)
+   */
+  role?: Role | string;
+
+  /**
+   * User roles array
+   */
+  roles: (Role | string)[];
+
+  /**
+   * Module codes user has access to
+   */
+  modules?: string[];
+
+  /**
+   * First name (optional)
+   */
   firstName?: string;
+
+  /**
+   * Last name (optional)
+   */
   lastName?: string;
+
+  /**
+   * Token issued at timestamp
+   */
   iat?: number;
+
+  /**
+   * Token expiration timestamp
+   */
   exp?: number;
+
+  /**
+   * JWT ID for token blacklisting
+   */
+  jti?: string;
 }
 
 /**

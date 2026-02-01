@@ -144,7 +144,7 @@ export class SensorReadingsGateway
     this.logger.log('WebSocket Gateway initialized');
   }
 
-  handleConnection(client: Socket): void {
+  async handleConnection(client: Socket): Promise<void> {
     try {
       // Extract and validate JWT token
       const token = this.extractToken(client);
@@ -376,22 +376,35 @@ export class SensorReadingsGateway
   }
 
   private extractToken(client: Socket): string | null {
+    // SECURITY PRIORITY ORDER:
+    // 1. socket.io auth object (most secure - encrypted in WebSocket handshake)
+    // 2. Authorization header (standard approach)
+    // 3. Query parameter (least secure - logged in URLs, visible in referrers)
+
+    // Try auth object first (recommended)
+    const auth = client.handshake.auth as Record<string, unknown> | undefined;
+    if (auth && typeof auth.token === 'string') {
+      return auth.token;
+    }
+
     // Try Authorization header
     const authHeader = client.handshake.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       return authHeader.substring(7);
     }
 
-    // Try query parameter
-    const token = client.handshake.query.token;
-    if (typeof token === 'string') {
-      return token;
-    }
-
-    // Try auth object
-    const auth = client.handshake.auth as Record<string, unknown> | undefined;
-    if (auth && typeof auth.token === 'string') {
-      return auth.token;
+    // Try query parameter - SECURITY WARNING: tokens in URLs are logged
+    const queryToken = client.handshake.query.token;
+    if (typeof queryToken === 'string') {
+      // SECURITY: In production, discourage query parameter tokens
+      // They appear in server logs, browser history, and referrer headers
+      if (this.isProduction) {
+        this.logger.warn(
+          `SECURITY: Client ${client.id} using query parameter for token. ` +
+          `This is insecure - use socket.io auth object or Authorization header instead.`,
+        );
+      }
+      return queryToken;
     }
 
     return null;

@@ -965,15 +965,34 @@ export class SchemaManagerService {
    * This method is safe to use only when:
    * - You're within a transaction that holds the connection
    * - You immediately execute queries after this call
+   *
+   * SECURITY: Schema name is validated via getTenantSchemaName() which:
+   * - Validates UUID format
+   * - Generates safe schema name (tenant_ + 16 hex chars only)
+   * Additional validation via isValidSchemaName() prevents SQL injection
    */
   async setTenantSearchPath(tenantId: string): Promise<void> {
     const schemaName = this.getTenantSchemaName(tenantId);
-    await this.dataSource.query(`SET search_path TO "${schemaName}", public`);
+
+    // SECURITY: Double-check schema name format to prevent SQL injection
+    if (!this.isValidSchemaName(schemaName)) {
+      throw new BadRequestException(`SECURITY: Invalid schema name format: ${schemaName}`);
+    }
+
+    // SECURITY: Use parameterized query with pg_catalog.set_config for safe schema setting
+    // This is safer than string interpolation in SET command
+    await this.dataSource.query(
+      `SELECT pg_catalog.set_config('search_path', $1 || ', public', false)`,
+      [schemaName],
+    );
   }
 
   /**
    * Set search_path within a transaction (connection-safe)
    * Use this for reliable tenant isolation in connection pools
+   *
+   * SECURITY: Uses SET LOCAL which is transaction-scoped and safe.
+   * Schema name is validated to prevent SQL injection.
    *
    * @example
    * await dataSource.transaction(async (manager) => {
@@ -983,11 +1002,22 @@ export class SchemaManagerService {
    * });
    */
   async setTenantSearchPathInTransaction(
-    manager: { query: (sql: string) => Promise<unknown> },
+    manager: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
     tenantId: string,
   ): Promise<void> {
     const schemaName = this.getTenantSchemaName(tenantId);
-    await manager.query(`SET LOCAL search_path TO "${schemaName}", public`);
+
+    // SECURITY: Double-check schema name format to prevent SQL injection
+    if (!this.isValidSchemaName(schemaName)) {
+      throw new BadRequestException(`SECURITY: Invalid schema name format: ${schemaName}`);
+    }
+
+    // SECURITY: Use parameterized query with pg_catalog.set_config for safe schema setting
+    // The 'true' parameter makes it LOCAL (transaction-scoped)
+    await manager.query(
+      `SELECT pg_catalog.set_config('search_path', $1 || ', public', true)`,
+      [schemaName],
+    );
   }
 
   /**
@@ -996,7 +1026,10 @@ export class SchemaManagerService {
    * WARNING: Same connection pool limitations as setTenantSearchPath()
    */
   async resetSearchPath(): Promise<void> {
-    await this.dataSource.query(`SET search_path TO public`);
+    // SECURITY: No user input involved, safe to use directly
+    await this.dataSource.query(
+      `SELECT pg_catalog.set_config('search_path', 'public', false)`,
+    );
   }
 
   /**

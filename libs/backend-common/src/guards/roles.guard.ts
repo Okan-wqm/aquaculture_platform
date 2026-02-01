@@ -34,13 +34,19 @@ export class RolesGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    // If no roles specified, allow access (assume authentication is sufficient)
+    // Get user from request
+    const user = this.getUser(context);
+
+    // SECURITY FIX: Always require authenticated user unless endpoint is public
+    // Previously, empty roles allowed unauthenticated access which was a security gap
     if (!requiredRoles || requiredRoles.length === 0) {
+      // Require at least an authenticated user when no specific roles are defined
+      if (!user) {
+        throw new ForbiddenException('Authentication required');
+      }
       return true;
     }
 
-    // Get user from request
-    const user = this.getUser(context);
     if (!user) {
       throw new ForbiddenException('User not authenticated');
     }

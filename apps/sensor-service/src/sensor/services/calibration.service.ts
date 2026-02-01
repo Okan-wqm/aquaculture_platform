@@ -174,31 +174,45 @@ export class LookupTableCalibrationStrategy implements ICalibrationStrategy {
 
     const table = [...config.lookupTable].sort((a, b) => a.raw - b.raw);
 
-    // Handle out of range values
-    if (rawValue <= table[0].raw) {
+    // Ensure table has at least 2 entries for interpolation
+    if (table.length < 2) {
       return {
         originalValue: rawValue,
-        calibratedValue: table[0].calibrated,
-        method: 'lookup',
-        confidence: rawValue === table[0].raw ? 1.0 : 0.8,
+        calibratedValue: rawValue,
+        method: 'none',
       };
     }
 
-    if (rawValue >= table[table.length - 1].raw) {
+    const firstEntry = table[0]!;
+    const lastEntry = table[table.length - 1]!;
+
+    // Handle out of range values
+    if (rawValue <= firstEntry.raw) {
       return {
         originalValue: rawValue,
-        calibratedValue: table[table.length - 1].calibrated,
+        calibratedValue: firstEntry.calibrated,
         method: 'lookup',
-        confidence: rawValue === table[table.length - 1].raw ? 1.0 : 0.8,
+        confidence: rawValue === firstEntry.raw ? 1.0 : 0.8,
+      };
+    }
+
+    if (rawValue >= lastEntry.raw) {
+      return {
+        originalValue: rawValue,
+        calibratedValue: lastEntry.calibrated,
+        method: 'lookup',
+        confidence: rawValue === lastEntry.raw ? 1.0 : 0.8,
       };
     }
 
     // Find surrounding points and interpolate
     for (let i = 0; i < table.length - 1; i++) {
-      if (rawValue >= table[i].raw && rawValue <= table[i + 1].raw) {
-        const ratio = (rawValue - table[i].raw) / (table[i + 1].raw - table[i].raw);
-        const calibratedValue =
-          table[i].calibrated + ratio * (table[i + 1].calibrated - table[i].calibrated);
+      const current = table[i]!;
+      const next = table[i + 1]!;
+
+      if (rawValue >= current.raw && rawValue <= next.raw) {
+        const ratio = (rawValue - current.raw) / (next.raw - current.raw);
+        const calibratedValue = current.calibrated + ratio * (next.calibrated - current.calibrated);
 
         return {
           originalValue: rawValue,

@@ -378,10 +378,20 @@ export class ImpersonationService {
       canExportData: false,
     };
 
+    // SECURITY FIX: Request permissions can only RESTRICT, not EXPAND capabilities
+    // Admin-granted permissions (permission.defaultPermissions) define the maximum
+    // Client request can only request a subset of what's allowed
+    const grantedPerms = permission?.defaultPermissions || defaultPerms;
+
+    // For each permission, take the most restrictive value:
+    // - Only allow if granted by admin permission AND requested by client (or use granted default)
     const permissions: ImpersonationPermissions = {
-      ...defaultPerms,
-      ...permission?.defaultPermissions,
-      ...request.permissions,
+      canViewData: grantedPerms.canViewData && (request.permissions?.canViewData ?? grantedPerms.canViewData),
+      canModifyData: grantedPerms.canModifyData && (request.permissions?.canModifyData ?? false),
+      canAccessSettings: grantedPerms.canAccessSettings && (request.permissions?.canAccessSettings ?? false),
+      canManageUsers: grantedPerms.canManageUsers && (request.permissions?.canManageUsers ?? false),
+      canViewBilling: grantedPerms.canViewBilling && (request.permissions?.canViewBilling ?? false),
+      canExportData: grantedPerms.canExportData && (request.permissions?.canExportData ?? false),
     };
 
     // Create session

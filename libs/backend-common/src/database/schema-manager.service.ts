@@ -289,10 +289,16 @@ export class SchemaManagerService {
    * Generate advisory lock key from tenant ID
    * Creates a deterministic 32-bit integer for PostgreSQL advisory locks
    * Used to prevent race conditions when creating schemas
+   *
+   * SECURITY FIX: Uses SHA-256 instead of MD5 (which is cryptographically weak)
+   * Also uses Math.abs() to ensure positive lock keys (PostgreSQL supports negative,
+   * but positive values are more predictable for logging/debugging)
    */
   private getAdvisoryLockKey(tenantId: string): number {
-    const hash = crypto.createHash('md5').update(tenantId).digest();
-    return hash.readInt32LE(0);
+    const hash = crypto.createHash('sha256').update(tenantId).digest();
+    // Use absolute value to avoid negative lock keys
+    // readInt32LE can return negative values due to signed integer representation
+    return Math.abs(hash.readInt32LE(0));
   }
 
   /**

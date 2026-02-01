@@ -9,9 +9,43 @@ import {
   Get,
   Query,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import { AnalyticsService } from '../services/analytics.service';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
+
+// INPUT VALIDATION: Constants for parameter limits
+const MIN_DATA_POINTS = 1;
+const MAX_DATA_POINTS = 365;
+const VALID_PERIODS = ['day', 'week', 'month', 'year'] as const;
+
+/**
+ * Validate and sanitize dataPoints parameter
+ * Prevents DoS attacks from extremely large values and ensures valid input
+ */
+function validateDataPoints(value: unknown): number {
+  const num = typeof value === 'string' ? parseInt(value, 10) : Number(value);
+
+  if (isNaN(num) || num < MIN_DATA_POINTS) {
+    throw new BadRequestException(
+      `dataPoints must be a positive integer (min: ${MIN_DATA_POINTS}, max: ${MAX_DATA_POINTS})`,
+    );
+  }
+
+  return Math.min(num, MAX_DATA_POINTS);
+}
+
+/**
+ * Validate period parameter
+ */
+function validatePeriod(value: string): 'day' | 'week' | 'month' | 'year' {
+  if (!VALID_PERIODS.includes(value as typeof VALID_PERIODS[number])) {
+    throw new BadRequestException(
+      `period must be one of: ${VALID_PERIODS.join(', ')}`,
+    );
+  }
+  return value as 'day' | 'week' | 'month' | 'year';
+}
 
 // ============================================================================
 // Controller
@@ -47,18 +81,32 @@ export class AnalyticsController {
 
   @Get('tenants/growth')
   async getTenantGrowthTrend(
-    @Query('period') period: 'day' | 'week' | 'month' | 'year' = 'month',
-    @Query('dataPoints') dataPoints = 12,
+    @Query('period') period: string = 'month',
+    @Query('dataPoints') dataPoints: unknown = 12,
   ) {
-    return this.analyticsService.getTenantGrowthTrend({ period, dataPoints });
+    // INPUT VALIDATION: Sanitize and validate query parameters
+    const validatedPeriod = validatePeriod(period);
+    const validatedDataPoints = validateDataPoints(dataPoints);
+
+    return this.analyticsService.getTenantGrowthTrend({
+      period: validatedPeriod,
+      dataPoints: validatedDataPoints,
+    });
   }
 
   @Get('tenants/churn')
   async getChurnRateTrend(
-    @Query('period') period: 'day' | 'week' | 'month' | 'year' = 'month',
-    @Query('dataPoints') dataPoints = 12,
+    @Query('period') period: string = 'month',
+    @Query('dataPoints') dataPoints: unknown = 12,
   ) {
-    return this.analyticsService.getChurnRateTrend({ period, dataPoints });
+    // INPUT VALIDATION: Sanitize and validate query parameters
+    const validatedPeriod = validatePeriod(period);
+    const validatedDataPoints = validateDataPoints(dataPoints);
+
+    return this.analyticsService.getChurnRateTrend({
+      period: validatedPeriod,
+      dataPoints: validatedDataPoints,
+    });
   }
 
   // ============================================================================
@@ -72,10 +120,17 @@ export class AnalyticsController {
 
   @Get('users/activity')
   async getUserActivityTrend(
-    @Query('period') period: 'day' | 'week' | 'month' | 'year' = 'day',
-    @Query('dataPoints') dataPoints = 30,
+    @Query('period') period: string = 'day',
+    @Query('dataPoints') dataPoints: unknown = 30,
   ) {
-    return this.analyticsService.getUserActivityTrend({ period, dataPoints });
+    // INPUT VALIDATION: Sanitize and validate query parameters
+    const validatedPeriod = validatePeriod(period);
+    const validatedDataPoints = validateDataPoints(dataPoints);
+
+    return this.analyticsService.getUserActivityTrend({
+      period: validatedPeriod,
+      dataPoints: validatedDataPoints,
+    });
   }
 
   @Get('users/heatmap')
@@ -94,10 +149,17 @@ export class AnalyticsController {
 
   @Get('financial/revenue')
   async getRevenueTrend(
-    @Query('period') period: 'day' | 'week' | 'month' | 'year' = 'month',
-    @Query('dataPoints') dataPoints = 12,
+    @Query('period') period: string = 'month',
+    @Query('dataPoints') dataPoints: unknown = 12,
   ) {
-    return this.analyticsService.getRevenueTrend({ period, dataPoints });
+    // INPUT VALIDATION: Sanitize and validate query parameters
+    const validatedPeriod = validatePeriod(period);
+    const validatedDataPoints = validateDataPoints(dataPoints);
+
+    return this.analyticsService.getRevenueTrend({
+      period: validatedPeriod,
+      dataPoints: validatedDataPoints,
+    });
   }
 
   @Get('financial/by-plan')

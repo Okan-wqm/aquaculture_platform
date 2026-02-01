@@ -1061,7 +1061,11 @@ export class AnalyticsService {
       if (!monthlyData.has(monthKey)) {
         monthlyData.set(monthKey, []);
       }
-      monthlyData.get(monthKey)!.push(mrr);
+      // SECURITY FIX: Use safe access pattern instead of non-null assertion
+      const monthValues = monthlyData.get(monthKey);
+      if (monthValues) {
+        monthValues.push(mrr);
+      }
     }
 
     // Average MRR per month
@@ -1071,7 +1075,9 @@ export class AnalyticsService {
 
     const sortedMonths = Array.from(monthlyData.keys()).sort();
     for (const monthKey of sortedMonths) {
-      const values = monthlyData.get(monthKey)!;
+      // SECURITY FIX: Safe access with fallback to prevent division by zero
+      const values = monthlyData.get(monthKey) || [];
+      if (values.length === 0) continue; // Skip months with no data to avoid NaN
       const avgRevenue = values.reduce((a, b) => a + b, 0) / values.length;
       const growth = previousRevenue > 0
         ? Number((((avgRevenue - previousRevenue) / previousRevenue) * 100).toFixed(2))

@@ -1,3 +1,5 @@
+import * as crypto from 'crypto';
+
 import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
 import {
   Entity,
@@ -173,13 +175,14 @@ export class SupportTicket {
 
   /**
    * Generate ticket number before insert
+   * Uses cryptographically secure random number generation
    */
   @BeforeInsert()
   generateTicketNumber() {
     const year = new Date().getFullYear();
-    const random = Math.floor(Math.random() * 1000000)
-      .toString()
-      .padStart(6, '0');
+    // SECURITY FIX: Use crypto.randomBytes instead of Math.random() for unpredictable ticket numbers
+    const randomBytes = crypto.randomBytes(4);
+    const random = (randomBytes.readUInt32BE(0) % 1000000).toString().padStart(6, '0');
     this.ticketNumber = `TKT-${year}-${random}`;
   }
 

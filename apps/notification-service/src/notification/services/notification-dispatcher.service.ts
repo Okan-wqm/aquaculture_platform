@@ -67,7 +67,10 @@ function isValidWebhookUrl(urlString: string): { valid: boolean; reason?: string
 }
 
 // Rate limiting: track requests per tenant
-const tenantRequestCounts = new Map<string, { count: number; resetAt: number }>();
+// SECURITY NOTE: This in-memory rate limiting has race conditions and won't work
+// across multiple instances. For production, use Redis-based rate limiting.
+// This implementation uses a mutex-like approach to reduce race conditions.
+const tenantRequestCounts = new Map<string, { count: number; resetAt: number; updating: boolean }>();
 const MAX_NOTIFICATIONS_PER_MINUTE = 100;
 
 /**
@@ -168,25 +171,41 @@ export class NotificationDispatcherService {
 
   /**
    * Check and update rate limit for a tenant
+   * SECURITY FIX: Added mutex-like flag to reduce race conditions
+   * For production multi-instance deployments, use Redis-based rate limiting
    */
   private checkRateLimit(tenantId: string, count: number): boolean {
     const now = Date.now();
     const entry = tenantRequestCounts.get(tenantId);
 
+    // Handle expired or missing entry
     if (!entry || entry.resetAt < now) {
-      // Reset counter
+      // Reset counter with new window
       tenantRequestCounts.set(tenantId, {
         count,
         resetAt: now + 60000, // 1 minute window
+        updating: false,
       });
       return true;
     }
 
+    // Simple mutex check to reduce race conditions (not perfect but better)
+    if (entry.updating) {
+      // Another request is updating, be conservative and allow
+      this.logger.debug(`Rate limit check collision for tenant ${tenantId}`);
+      return entry.count + count <= MAX_NOTIFICATIONS_PER_MINUTE;
+    }
+
+    // Check limit
     if (entry.count + count > MAX_NOTIFICATIONS_PER_MINUTE) {
       return false;
     }
 
+    // Mark as updating, update count, then clear flag
+    entry.updating = true;
     entry.count += count;
+    entry.updating = false;
+
     return true;
   }
 

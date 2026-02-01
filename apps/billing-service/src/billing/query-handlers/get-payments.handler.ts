@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { DataSource, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual, Between } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { GetPaymentsQuery } from '../queries/get-payments.query';
 import { Payment } from '../entities/payment.entity';
+import { Invoice } from '../entities/invoice.entity';
 
 @Injectable()
 @QueryHandler(GetPaymentsQuery)
@@ -16,7 +17,22 @@ export class GetPaymentsHandler implements IQueryHandler<GetPaymentsQuery, Payme
 
     const where: FindOptionsWhere<Payment> = { tenantId };
 
+    // SECURITY FIX: Validate that invoiceId belongs to the requesting tenant
+    // This prevents IDOR attacks where a user could access payments for invoices
+    // belonging to other tenants by guessing invoiceIds
     if (filter?.invoiceId) {
+      const invoiceRepo = this.dataSource.getRepository(Invoice);
+      const invoice = await invoiceRepo.findOne({
+        where: { id: filter.invoiceId, tenantId },
+        select: ['id'],
+      });
+
+      if (!invoice) {
+        throw new BadRequestException(
+          `Invoice ${filter.invoiceId} not found or does not belong to this tenant`,
+        );
+      }
+
       where.invoiceId = filter.invoiceId;
     }
     if (filter?.status) {

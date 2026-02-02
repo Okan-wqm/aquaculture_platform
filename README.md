@@ -390,4 +390,6 @@ All services expose health endpoints:
 
 ## License
 
-MIT License - see [LICENSE](./LICENSE) file for details
+**PROPRIETARY SOFTWARE - ALL RIGHTS RESERVED**
+
+This software is proprietary and confidential. Unauthorized copying, distribution, modification, or use of this software is strictly prohibited. See [LICENSE](./LICENSE) file for details.

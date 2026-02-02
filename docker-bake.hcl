@@ -33,16 +33,23 @@ variable "BRANCH" {
   default = "main"
 }
 
+# Cache mode: "local", "registry", or "gha" (GitHub Actions)
+variable "CACHE_MODE" {
+  default = "local"
+}
+
 # Helper function for registry prefix
 function "registry_prefix" {
   params = []
   result = REGISTRY != "" ? "${REGISTRY}/" : ""
 }
 
-# Helper function for cache sources (local + optional registry)
+# Helper function for cache sources (supports local, registry, or GHA)
 function "cache_from_backend" {
   params = []
-  result = CACHE_REGISTRY != "" ? [
+  result = CACHE_MODE == "gha" ? [
+    "type=gha,scope=backend"
+  ] : CACHE_REGISTRY != "" ? [
     "type=local,src=.docker-cache/backend",
     "type=registry,ref=${CACHE_REGISTRY}:backend-${BRANCH}",
     "type=registry,ref=${CACHE_REGISTRY}:backend-main"
@@ -53,11 +60,38 @@ function "cache_from_backend" {
 
 function "cache_to_backend" {
   params = []
-  result = CACHE_REGISTRY != "" ? [
+  result = CACHE_MODE == "gha" ? [
+    "type=gha,scope=backend,mode=max"
+  ] : CACHE_REGISTRY != "" ? [
     "type=local,dest=.docker-cache/backend,mode=max",
     "type=registry,ref=${CACHE_REGISTRY}:backend-${BRANCH},mode=max"
   ] : [
     "type=local,dest=.docker-cache/backend,mode=max"
+  ]
+}
+
+# Helper function for frontend cache
+function "cache_from_frontend" {
+  params = []
+  result = CACHE_MODE == "gha" ? [
+    "type=gha,scope=frontend"
+  ] : CACHE_REGISTRY != "" ? [
+    "type=local,src=.docker-cache/frontend",
+    "type=registry,ref=${CACHE_REGISTRY}:frontend-${BRANCH}"
+  ] : [
+    "type=local,src=.docker-cache/frontend"
+  ]
+}
+
+function "cache_to_frontend" {
+  params = []
+  result = CACHE_MODE == "gha" ? [
+    "type=gha,scope=frontend,mode=max"
+  ] : CACHE_REGISTRY != "" ? [
+    "type=local,dest=.docker-cache/frontend,mode=max",
+    "type=registry,ref=${CACHE_REGISTRY}:frontend-${BRANCH},mode=max"
+  ] : [
+    "type=local,dest=.docker-cache/frontend,mode=max"
   ]
 }
 
@@ -301,26 +335,18 @@ target "_frontend-common" {
   dockerfile = "infrastructure/docker/Dockerfile.microfrontend.simple"
   context    = "."
   platforms  = ["linux/amd64"]
-  
-  cache-from = [
-    "type=local,src=.docker-cache/frontend"
-  ]
-  cache-to = [
-    "type=local,dest=.docker-cache/frontend,mode=max"
-  ]
+
+  cache-from = cache_from_frontend()
+  cache-to   = cache_to_frontend()
 }
 
 target "_shell-common" {
   dockerfile = "infrastructure/docker/Dockerfile.shell"
   context    = "."
   platforms  = ["linux/amd64"]
-  
-  cache-from = [
-    "type=local,src=.docker-cache/shell"
-  ]
-  cache-to = [
-    "type=local,dest=.docker-cache/shell,mode=max"
-  ]
+
+  cache-from = cache_from_frontend()
+  cache-to   = cache_to_frontend()
 }
 
 # =============================================================================

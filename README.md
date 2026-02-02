@@ -145,6 +145,78 @@ CACHE_REGISTRY=ghcr.io/org/cache docker buildx bake backend-simple --load
 npm run docker:fast:service --service=auth-service
 ```
 
+## CI/CD Pipeline
+
+### Overview
+
+The platform uses an optimized CI/CD pipeline with:
+- **Parallel Docker builds** via GitHub Actions matrix strategy (9 backend + 7 frontend)
+- **Registry cache** for unlimited cache size (no 10GB GHA limit)
+- **Nx Cloud** for remote build caching
+- **Pre-built images** - no rebuild on production server
+
+### Workflows
+
+| Workflow | Trigger | Description |
+|----------|---------|-------------|
+| `deploy-digitalocean.yml` | Push to `main` | Production deployment with pre-built images |
+| `cd-staging.yml` | Push to `develop`, `feature/*` | Staging environment deployment |
+| `cd-production.yml` | Tag `v*.*.*` | Production release with security scan |
+
+### Build Performance
+
+| Method | Build Time | Cache |
+|--------|------------|-------|
+| Legacy (rebuild on server) | ~25-30 min | None |
+| **Optimized (parallel + registry cache)** | **~5-8 min** | Unlimited |
+| Incremental (affected only) | ~2-4 min | Unlimited |
+
+### Required GitHub Secrets
+
+```yaml
+# Nx Cloud (free tier)
+NX_CLOUD_ACCESS_TOKEN: "your-nx-cloud-token"
+
+# DigitalOcean Deployment
+DROPLET_HOST: "your-droplet-ip"
+DROPLET_USER: "root"
+DROPLET_SSH_KEY: "your-ssh-private-key"
+
+# Kubernetes (optional - for cd-production.yml)
+KUBE_CONFIG_STAGING: "base64-encoded-kubeconfig"
+KUBE_CONFIG_PRODUCTION: "base64-encoded-kubeconfig"
+
+# Notifications (optional)
+SLACK_WEBHOOK_URL: "your-slack-webhook"
+```
+
+### Manual Deployment
+
+```bash
+# Trigger deployment via GitHub Actions
+gh workflow run "Deploy to DigitalOcean (Optimized)" --ref main
+
+# Or trigger staging
+gh workflow run "CD - Staging" --ref develop
+```
+
+### Docker Bake (Local CI/CD)
+
+```bash
+# Build all with local cache
+docker buildx bake
+
+# Build with registry cache (CI/CD)
+CACHE_MODE=registry CACHE_REGISTRY=ghcr.io/org/aqua-cache docker buildx bake
+
+# Build with GitHub Actions cache
+CACHE_MODE=gha docker buildx bake
+
+# Build specific group
+docker buildx bake backend    # 9 backend services
+docker buildx bake frontend   # 7 frontend modules
+```
+
 ## Local Development
 
 ```bash

@@ -1,15 +1,50 @@
-name: Deploy to DigitalOcean
+# =============================================================================
+# DEPRECATED: Use deploy-digitalocean.yml instead
+#
+# This workflow is kept for backward compatibility but redirects to the
+# optimized workflow. The new workflow:
+# - Builds images in parallel (9 backend + 7 frontend simultaneously)
+# - Uses registry cache (unlimited size)
+# - Pulls pre-built images on server (no rebuild!)
+# - Supports affected-only builds
+# =============================================================================
+
+name: Deploy to DigitalOcean (Legacy)
 
 on:
-  push:
-    branches:
-      - main
+  # Disabled - use deploy-digitalocean.yml
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "confirm" to use legacy deploy'
+        required: true
 
 jobs:
-  deploy:
+  redirect:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy via SSH
+      - name: Redirect notice
+        run: |
+          echo "::warning::This workflow is deprecated!"
+          echo "Please use 'Deploy to DigitalOcean (Optimized)' workflow instead."
+          echo ""
+          echo "The new workflow provides:"
+          echo "  - 4x faster builds (parallel matrix strategy)"
+          echo "  - Unlimited cache (registry-based)"
+          echo "  - No rebuild on server (pulls pre-built images)"
+          echo "  - Affected-only builds"
+
+          if [ "${{ github.event.inputs.confirm }}" != "confirm" ]; then
+            echo "::error::Legacy deploy cancelled. Use the optimized workflow."
+            exit 1
+          fi
+
+  legacy-deploy:
+    needs: redirect
+    if: github.event.inputs.confirm == 'confirm'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH (Legacy - rebuilds on server)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DROPLET_HOST }}

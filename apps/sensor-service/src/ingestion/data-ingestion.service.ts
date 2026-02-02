@@ -348,16 +348,26 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Batch insert metrics using raw SQL for maximum throughput
-   * Note: UUID values are validated before insertion to prevent SQL injection
+   * Batch insert metrics using parameterized queries for maximum security
+   *
+   * SECURITY FIX: Changed from string interpolation to parameterized queries
+   * to prevent SQL injection attacks.
+   *
+   * Uses chunked inserts to handle large batches efficiently while
+   * staying within PostgreSQL parameter limits (65535 params max).
    */
   private async batchInsertMetrics(metrics: SensorMetricInput[]): Promise<void> {
     if (metrics.length === 0) return;
 
-    // Validate required UUIDs
+    // Validate required UUIDs and filter invalid entries
     const validMetrics = metrics.filter(m => {
       if (!this.isValidUUID(m.sensorId) || !this.isValidUUID(m.channelId) || !this.isValidUUID(m.tenantId)) {
         this.logger.warn(`Skipping metric with invalid UUID - sensorId: ${m.sensorId}, channelId: ${m.channelId}`);
+        return false;
+      }
+      // SECURITY: Validate Infinity values that could cause issues
+      if (!Number.isFinite(m.rawValue) || !Number.isFinite(m.value)) {
+        this.logger.warn(`Skipping metric with non-finite value - rawValue: ${m.rawValue}, value: ${m.value}`);
         return false;
       }
       return true;
@@ -365,40 +375,80 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
 
     if (validMetrics.length === 0) return;
 
-    const values = validMetrics.map(m => `(
-      '${m.time.toISOString()}',
-      ${this.formatUUID(m.sensorId)},
-      ${this.formatUUID(m.channelId)},
-      ${this.formatUUID(m.tenantId)},
-      ${this.formatUUID(m.siteId)},
-      ${this.formatUUID(m.departmentId)},
-      ${this.formatUUID(m.systemId)},
-      ${this.formatUUID(m.equipmentId)},
-      ${this.formatUUID(m.tankId)},
-      ${this.formatUUID(m.pondId)},
-      ${this.formatUUID(m.farmId)},
-      ${Number.isFinite(m.rawValue) ? m.rawValue : 0},
-      ${Number.isFinite(m.value) ? m.value : 0},
-      ${Number.isInteger(m.qualityCode) ? m.qualityCode : 192},
-      ${Number.isInteger(m.qualityBits) ? m.qualityBits : 0},
-      ${this.formatProtocol(m.sourceProtocol)},
-      ${m.sourceTimestamp ? `'${m.sourceTimestamp.toISOString()}'` : 'NULL'},
-      ${m.sourceTimestamp ? new Date().getTime() - m.sourceTimestamp.getTime() : 'NULL'},
-      ${this.formatUUID(m.batchId)}
-    )`).join(',\n');
+    // SECURITY: Use parameterized queries instead of string interpolation
+    // Parameters per row: 19
+    // PostgreSQL max parameters: 65535
+    // Safe batch size: floor(65535 / 19) = 3449, using 1000 for safety
+    const BATCH_SIZE = 1000;
+    const chunks: SensorMetricInput[][] = [];
 
-    await this.dataSource.query(`
+    for (let i = 0; i < validMetrics.length; i += BATCH_SIZE) {
+      chunks.push(validMetrics.slice(i, i + BATCH_SIZE));
+    }
+
+    for (const chunk of chunks) {
+      await this.insertMetricChunk(chunk);
+    }
+  }
+
+  /**
+   * Insert a single chunk of metrics using parameterized queries
+   */
+  private async insertMetricChunk(metrics: SensorMetricInput[]): Promise<void> {
+    const params: unknown[] = [];
+    const valuePlaceholders: string[] = [];
+
+    let paramIndex = 1;
+    const PARAMS_PER_ROW = 19;
+
+    for (const m of metrics) {
+      const placeholders: string[] = [];
+
+      // Build placeholders for this row
+      for (let i = 0; i < PARAMS_PER_ROW; i++) {
+        placeholders.push(`$${paramIndex++}`);
+      }
+
+      valuePlaceholders.push(`(${placeholders.join(', ')})`);
+
+      // Push parameters in order
+      params.push(
+        m.time.toISOString(),                                    // time
+        m.sensorId,                                              // sensor_id
+        m.channelId,                                             // channel_id
+        m.tenantId,                                              // tenant_id
+        m.siteId || null,                                        // site_id
+        m.departmentId || null,                                  // department_id
+        m.systemId || null,                                      // system_id
+        m.equipmentId || null,                                   // equipment_id
+        m.tankId || null,                                        // tank_id
+        m.pondId || null,                                        // pond_id
+        m.farmId || null,                                        // farm_id
+        Number.isFinite(m.rawValue) ? m.rawValue : 0,           // raw_value
+        Number.isFinite(m.value) ? m.value : 0,                 // value
+        Number.isInteger(m.qualityCode) ? m.qualityCode : 192,  // quality_code
+        Number.isInteger(m.qualityBits) ? m.qualityBits : 0,    // quality_bits
+        m.sourceProtocol ? m.sourceProtocol.replace(/[^a-zA-Z0-9_-]/g, '') : null, // source_protocol
+        m.sourceTimestamp?.toISOString() || null,               // source_timestamp
+        m.sourceTimestamp ? new Date().getTime() - m.sourceTimestamp.getTime() : null, // ingestion_latency_ms
+        m.batchId || null,                                      // batch_id
+      );
+    }
+
+    const sql = `
       INSERT INTO sensor_metrics (
         time, sensor_id, channel_id, tenant_id,
         site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
         raw_value, value, quality_code, quality_bits,
         source_protocol, source_timestamp, ingestion_latency_ms, batch_id
-      ) VALUES ${values}
+      ) VALUES ${valuePlaceholders.join(',\n')}
       ON CONFLICT (time, sensor_id, channel_id) DO UPDATE SET
         value = EXCLUDED.value,
         raw_value = EXCLUDED.raw_value,
         quality_code = EXCLUDED.quality_code
-    `);
+    `;
+
+    await this.dataSource.query(sql, params);
   }
 
   /**

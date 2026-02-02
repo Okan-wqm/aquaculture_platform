@@ -4,6 +4,26 @@ import { DataSource, Repository, Between, LessThanOrEqual, MoreThanOrEqual, In }
 import { InvoiceReadOnly, InvoiceStatus } from '../../analytics/entities/external/invoice.entity';
 
 /**
+ * SECURITY: Sanitize search string for LIKE queries
+ * Escapes SQL wildcards to prevent pattern injection attacks
+ */
+function sanitizeSearchString(search: string, maxLength = 100): string {
+  if (!search) return '';
+
+  // Truncate to max length
+  let sanitized = search.slice(0, maxLength);
+
+  // Escape SQL LIKE special characters: %, _, and \
+  sanitized = sanitized.replace(/[%_\\]/g, (char) => `\\${char}`);
+
+  // Remove null bytes (potential injection vector)
+  sanitized = sanitized.replace(/\0/g, '');
+
+  // Trim whitespace
+  return sanitized.trim();
+}
+
+/**
  * Invoice overview for admin panel
  */
 export interface InvoiceOverview {
@@ -119,9 +139,15 @@ export class InvoiceManagementService {
     }
 
     if (filters.search) {
-      query += ` AND (i."invoiceNumber" ILIKE $${paramIndex} OR t.name ILIKE $${paramIndex})`;
-      params.push(`%${filters.search}%`);
-      paramIndex++;
+      // SECURITY: Sanitize search string to escape SQL wildcards (%, _, \)
+      // This prevents pattern injection attacks where user input could
+      // manipulate the LIKE clause behavior
+      const sanitizedSearch = sanitizeSearchString(filters.search);
+      if (sanitizedSearch) {
+        query += ` AND (i."invoiceNumber" ILIKE $${paramIndex} OR t.name ILIKE $${paramIndex}) ESCAPE '\\'`;
+        params.push(`%${sanitizedSearch}%`);
+        paramIndex++;
+      }
     }
 
     if (filters.dateFrom) {

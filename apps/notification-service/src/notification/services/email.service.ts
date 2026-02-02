@@ -380,6 +380,24 @@ export class EmailService {
   // ==========================================================================
 
   /**
+   * Sanitize email address to prevent header injection (CRLF injection)
+   * Removes newlines, carriage returns, and validates basic email format
+   */
+  private sanitizeEmailAddress(email: string): string {
+    // Remove any CRLF characters that could be used for header injection
+    const sanitized = email.replace(/[\r\n\t]/g, '').trim();
+
+    // Basic email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(sanitized)) {
+      this.logger.warn(`Invalid email format detected: ${sanitized.substring(0, 20)}...`);
+      throw new Error(`Invalid email format: ${sanitized}`);
+    }
+
+    return sanitized;
+  }
+
+  /**
    * Send a regulatory report email to Mattilsynet
    * Used for welfare events, disease outbreaks, and escape reports
    */
@@ -400,8 +418,12 @@ export class EmailService {
       recipients.push(data.siteManagerEmail);
     }
 
+    // SECURITY FIX: Sanitize all recipient email addresses to prevent header injection
+    // This prevents CRLF injection attacks that could manipulate email headers (BCC injection, etc.)
+    const sanitizedRecipients = recipients.map(email => this.sanitizeEmailAddress(email));
+
     const messageId = await this.sendEmail(
-      recipients.join(', '),
+      sanitizedRecipients.join(', '),
       subject,
       html,
     );
@@ -410,7 +432,7 @@ export class EmailService {
       `Regulatory report email sent: ${data.reportType} for ${data.siteName}`,
     );
 
-    return { messageId, sentTo: recipients };
+    return { messageId, sentTo: sanitizedRecipients };
   }
 
   /**

@@ -289,10 +289,16 @@ export class SchemaManagerService {
    * Generate advisory lock key from tenant ID
    * Creates a deterministic 32-bit integer for PostgreSQL advisory locks
    * Used to prevent race conditions when creating schemas
+   *
+   * SECURITY FIX: Uses SHA-256 instead of MD5 (which is cryptographically weak)
+   * Also uses Math.abs() to ensure positive lock keys (PostgreSQL supports negative,
+   * but positive values are more predictable for logging/debugging)
    */
   private getAdvisoryLockKey(tenantId: string): number {
-    const hash = crypto.createHash('md5').update(tenantId).digest();
-    return hash.readInt32LE(0);
+    const hash = crypto.createHash('sha256').update(tenantId).digest();
+    // Use absolute value to avoid negative lock keys
+    // readInt32LE can return negative values due to signed integer representation
+    return Math.abs(hash.readInt32LE(0));
   }
 
   /**
@@ -507,59 +513,67 @@ export class SchemaManagerService {
   /**
    * Copy reference data from source schema to tenant schema
    * Used for lookup/configuration tables like equipment_types
+   *
+   * SECURITY: All schema and table names are validated before use in SQL
+   * to prevent SQL injection attacks.
    */
   private async copyReferenceDataTable(
     targetSchema: string,
     sourceSchema: string,
     tableName: string,
   ): Promise<number> {
+    // SECURITY: Validate all identifiers before using in SQL queries
+    const safeTargetSchema = validateSqlIdentifier(targetSchema, 'schema');
+    const safeSourceSchema = validateSqlIdentifier(sourceSchema, 'schema');
+    const safeTableName = validateSqlIdentifier(tableName, 'table');
+
     // Check if target table exists
-    const targetExists = await this.tableExists(targetSchema, tableName);
+    const targetExists = await this.tableExists(safeTargetSchema, safeTableName);
     if (!targetExists) {
-      this.logger.debug(`Target table ${targetSchema}.${tableName} does not exist, skipping copy`);
+      this.logger.debug(`Target table ${safeTargetSchema}.${safeTableName} does not exist, skipping copy`);
       return 0;
     }
 
     // Check if source table exists and has data
-    const sourceExists = await this.tableExists(sourceSchema, tableName);
+    const sourceExists = await this.tableExists(safeSourceSchema, safeTableName);
     if (!sourceExists) {
-      this.logger.debug(`Source table ${sourceSchema}.${tableName} does not exist, skipping copy`);
+      this.logger.debug(`Source table ${safeSourceSchema}.${safeTableName} does not exist, skipping copy`);
       return 0;
     }
 
     // Check if target already has data (avoid duplicate copies)
     const existingCount = await this.dataSource.query(
-      `SELECT COUNT(*) as count FROM "${targetSchema}"."${tableName}"`,
+      `SELECT COUNT(*) as count FROM "${safeTargetSchema}"."${safeTableName}"`,
     );
     if (parseInt(existingCount[0]?.count || '0', 10) > 0) {
-      this.logger.debug(`Target table ${targetSchema}.${tableName} already has data, skipping copy`);
+      this.logger.debug(`Target table ${safeTargetSchema}.${safeTableName} already has data, skipping copy`);
       return 0;
     }
 
     // Get source row count first
     const sourceCountResult = await this.dataSource.query(
-      `SELECT COUNT(*) as count FROM "${sourceSchema}"."${tableName}"`,
+      `SELECT COUNT(*) as count FROM "${safeSourceSchema}"."${safeTableName}"`,
     );
     const sourceCount = parseInt(sourceCountResult[0]?.count || '0', 10);
 
     if (sourceCount === 0) {
-      this.logger.debug(`Source table ${sourceSchema}.${tableName} is empty, skipping copy`);
+      this.logger.debug(`Source table ${safeSourceSchema}.${safeTableName} is empty, skipping copy`);
       return 0;
     }
 
     // Copy data from source to target
     await this.dataSource.query(`
-      INSERT INTO "${targetSchema}"."${tableName}"
-      SELECT * FROM "${sourceSchema}"."${tableName}"
+      INSERT INTO "${safeTargetSchema}"."${safeTableName}"
+      SELECT * FROM "${safeSourceSchema}"."${safeTableName}"
     `);
 
     // Verify rows were copied by counting target
     const targetCountResult = await this.dataSource.query(
-      `SELECT COUNT(*) as count FROM "${targetSchema}"."${tableName}"`,
+      `SELECT COUNT(*) as count FROM "${safeTargetSchema}"."${safeTableName}"`,
     );
     const rowsCopied = parseInt(targetCountResult[0]?.count || '0', 10);
 
-    this.logger.debug(`Copied ${rowsCopied} rows to ${targetSchema}.${tableName}`);
+    this.logger.debug(`Copied ${rowsCopied} rows to ${safeTargetSchema}.${safeTableName}`);
     return rowsCopied;
   }
 
@@ -881,6 +895,9 @@ export class SchemaManagerService {
 
   /**
    * Migrate existing data from shared schema to tenant schema
+   *
+   * SECURITY: All schema and table names are validated before use in SQL
+   * to prevent SQL injection attacks.
    */
   async migrateDataToTenantSchema(
     tenantId: string,
@@ -889,33 +906,38 @@ export class SchemaManagerService {
   ): Promise<{ rowsMigrated: number; error?: string }> {
     const schemaName = this.getTenantSchemaName(tenantId);
 
+    // SECURITY: Validate all identifiers before using in SQL queries
+    const safeSchemaName = validateSqlIdentifier(schemaName, 'schema');
+    const safeSourceSchema = validateSqlIdentifier(sourceSchema, 'schema');
+    const safeTableName = validateSqlIdentifier(tableName, 'table');
+
     try {
       this.logger.log(
-        `Migrating data from ${sourceSchema}.${tableName} to ${schemaName}.${tableName}`,
+        `Migrating data from ${safeSourceSchema}.${safeTableName} to ${safeSchemaName}.${safeTableName}`,
       );
 
       // Count rows before migration
       const beforeCountResult = await this.dataSource.query(
-        `SELECT COUNT(*) as count FROM "${schemaName}"."${tableName}"`,
+        `SELECT COUNT(*) as count FROM "${safeSchemaName}"."${safeTableName}"`,
       );
       const beforeCount = parseInt(beforeCountResult[0]?.count || '0', 10);
 
       // Insert data with tenant filter
       await this.dataSource.query(`
-        INSERT INTO "${schemaName}"."${tableName}"
-        SELECT * FROM "${sourceSchema}"."${tableName}"
+        INSERT INTO "${safeSchemaName}"."${safeTableName}"
+        SELECT * FROM "${safeSourceSchema}"."${safeTableName}"
         WHERE "tenantId" = $1
         ON CONFLICT DO NOTHING
       `, [tenantId]);
 
       // Count rows after migration to get actual migrated count
       const afterCountResult = await this.dataSource.query(
-        `SELECT COUNT(*) as count FROM "${schemaName}"."${tableName}"`,
+        `SELECT COUNT(*) as count FROM "${safeSchemaName}"."${safeTableName}"`,
       );
       const afterCount = parseInt(afterCountResult[0]?.count || '0', 10);
       const rowsMigrated = afterCount - beforeCount;
 
-      this.logger.log(`Migrated ${rowsMigrated} rows to ${schemaName}.${tableName}`);
+      this.logger.log(`Migrated ${rowsMigrated} rows to ${safeSchemaName}.${safeTableName}`);
 
       return { rowsMigrated };
     } catch (error) {
@@ -965,15 +987,34 @@ export class SchemaManagerService {
    * This method is safe to use only when:
    * - You're within a transaction that holds the connection
    * - You immediately execute queries after this call
+   *
+   * SECURITY: Schema name is validated via getTenantSchemaName() which:
+   * - Validates UUID format
+   * - Generates safe schema name (tenant_ + 16 hex chars only)
+   * Additional validation via isValidSchemaName() prevents SQL injection
    */
   async setTenantSearchPath(tenantId: string): Promise<void> {
     const schemaName = this.getTenantSchemaName(tenantId);
-    await this.dataSource.query(`SET search_path TO "${schemaName}", public`);
+
+    // SECURITY: Double-check schema name format to prevent SQL injection
+    if (!this.isValidSchemaName(schemaName)) {
+      throw new BadRequestException(`SECURITY: Invalid schema name format: ${schemaName}`);
+    }
+
+    // SECURITY: Use parameterized query with pg_catalog.set_config for safe schema setting
+    // This is safer than string interpolation in SET command
+    await this.dataSource.query(
+      `SELECT pg_catalog.set_config('search_path', $1 || ', public', false)`,
+      [schemaName],
+    );
   }
 
   /**
    * Set search_path within a transaction (connection-safe)
    * Use this for reliable tenant isolation in connection pools
+   *
+   * SECURITY: Uses SET LOCAL which is transaction-scoped and safe.
+   * Schema name is validated to prevent SQL injection.
    *
    * @example
    * await dataSource.transaction(async (manager) => {
@@ -983,11 +1024,22 @@ export class SchemaManagerService {
    * });
    */
   async setTenantSearchPathInTransaction(
-    manager: { query: (sql: string) => Promise<unknown> },
+    manager: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
     tenantId: string,
   ): Promise<void> {
     const schemaName = this.getTenantSchemaName(tenantId);
-    await manager.query(`SET LOCAL search_path TO "${schemaName}", public`);
+
+    // SECURITY: Double-check schema name format to prevent SQL injection
+    if (!this.isValidSchemaName(schemaName)) {
+      throw new BadRequestException(`SECURITY: Invalid schema name format: ${schemaName}`);
+    }
+
+    // SECURITY: Use parameterized query with pg_catalog.set_config for safe schema setting
+    // The 'true' parameter makes it LOCAL (transaction-scoped)
+    await manager.query(
+      `SELECT pg_catalog.set_config('search_path', $1 || ', public', true)`,
+      [schemaName],
+    );
   }
 
   /**
@@ -996,7 +1048,10 @@ export class SchemaManagerService {
    * WARNING: Same connection pool limitations as setTenantSearchPath()
    */
   async resetSearchPath(): Promise<void> {
-    await this.dataSource.query(`SET search_path TO public`);
+    // SECURITY: No user input involved, safe to use directly
+    await this.dataSource.query(
+      `SELECT pg_catalog.set_config('search_path', 'public', false)`,
+    );
   }
 
   /**

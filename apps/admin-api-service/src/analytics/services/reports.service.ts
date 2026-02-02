@@ -151,8 +151,9 @@ export class ReportsService {
     const result = await compute();
 
     if (this.redisService) {
-      this.redisService.setJson(cacheKey, result, ReportsService.CACHE_TTL).catch(() => {
-        // Ignore cache write errors
+      // ERROR HANDLING FIX: Log cache write errors instead of silently ignoring
+      this.redisService.setJson(cacheKey, result, ReportsService.CACHE_TTL).catch((error) => {
+        this.logger.warn(`Failed to write cache for key ${cacheKey}: ${(error as Error).message}`);
       });
     }
 

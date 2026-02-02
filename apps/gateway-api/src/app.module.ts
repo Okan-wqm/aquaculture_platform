@@ -1,7 +1,4 @@
-import {
-  IntrospectAndCompose,
-  RemoteGraphQLDataSource,
-} from '@apollo/gateway';
+import { RemoteGraphQLDataSource } from '@apollo/gateway';
 import { RetryableIntrospectAndCompose } from './config/retryable-introspect';
 import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
@@ -76,11 +73,6 @@ interface GatewayContext {
  * 1. Unverified claims could be forwarded to subgraphs
  * 2. Attackers could craft malicious payloads that bypass validation
  */
-
-/**
- * Retryable HTTP status codes for subgraph requests
- */
-const RETRYABLE_STATUS_CODES = [502, 503, 504, 429]; // Bad Gateway, Service Unavailable, Gateway Timeout, Too Many Requests
 
 /**
  * Custom data source that forwards headers to subgraphs

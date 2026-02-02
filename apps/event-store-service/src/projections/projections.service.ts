@@ -92,19 +92,30 @@ export class ProjectionsService {
 
   /**
    * Start processing a projection
+   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async startProjection(name: string): Promise<void> {
+  async startProjection(name: string, tenantId?: string): Promise<void> {
     const registration = this.registeredProjections.get(name);
     if (!registration) {
       throw new NotFoundException(`Projection ${name} not found`);
     }
 
+    const whereClause: Record<string, unknown> = { projectionName: name };
+    if (tenantId) {
+      whereClause.tenantId = tenantId;
+    }
+
     const checkpoint = await this.checkpointRepository.findOne({
-      where: { projectionName: name },
+      where: whereClause,
     });
 
     if (!checkpoint) {
       throw new NotFoundException(`Checkpoint for projection ${name} not found`);
+    }
+
+    // SECURITY: Verify tenant isolation
+    if (tenantId && checkpoint.tenantId && checkpoint.tenantId !== tenantId) {
+      throw new NotFoundException(`Projection ${name} not found`);
     }
 
     checkpoint.status = ProjectionStatus.RUNNING;
@@ -118,14 +129,25 @@ export class ProjectionsService {
 
   /**
    * Stop a projection
+   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async stopProjection(name: string): Promise<void> {
+  async stopProjection(name: string, tenantId?: string): Promise<void> {
+    const whereClause: Record<string, unknown> = { projectionName: name };
+    if (tenantId) {
+      whereClause.tenantId = tenantId;
+    }
+
     const checkpoint = await this.checkpointRepository.findOne({
-      where: { projectionName: name },
+      where: whereClause,
     });
 
     if (!checkpoint) {
       throw new NotFoundException(`Checkpoint for projection ${name} not found`);
+    }
+
+    // SECURITY: Verify tenant isolation
+    if (tenantId && checkpoint.tenantId && checkpoint.tenantId !== tenantId) {
+      throw new NotFoundException(`Projection ${name} not found`);
     }
 
     checkpoint.status = ProjectionStatus.STOPPED;
@@ -146,14 +168,25 @@ export class ProjectionsService {
 
   /**
    * Pause a projection
+   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async pauseProjection(name: string): Promise<void> {
+  async pauseProjection(name: string, tenantId?: string): Promise<void> {
+    const whereClause: Record<string, unknown> = { projectionName: name };
+    if (tenantId) {
+      whereClause.tenantId = tenantId;
+    }
+
     const checkpoint = await this.checkpointRepository.findOne({
-      where: { projectionName: name },
+      where: whereClause,
     });
 
     if (!checkpoint) {
       throw new NotFoundException(`Checkpoint for projection ${name} not found`);
+    }
+
+    // SECURITY: Verify tenant isolation
+    if (tenantId && checkpoint.tenantId && checkpoint.tenantId !== tenantId) {
+      throw new NotFoundException(`Projection ${name} not found`);
     }
 
     checkpoint.status = ProjectionStatus.PAUSED;
@@ -164,14 +197,25 @@ export class ProjectionsService {
 
   /**
    * Resume a paused projection
+   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async resumeProjection(name: string): Promise<void> {
+  async resumeProjection(name: string, tenantId?: string): Promise<void> {
+    const whereClause: Record<string, unknown> = { projectionName: name };
+    if (tenantId) {
+      whereClause.tenantId = tenantId;
+    }
+
     const checkpoint = await this.checkpointRepository.findOne({
-      where: { projectionName: name },
+      where: whereClause,
     });
 
     if (!checkpoint) {
       throw new NotFoundException(`Checkpoint for projection ${name} not found`);
+    }
+
+    // SECURITY: Verify tenant isolation
+    if (tenantId && checkpoint.tenantId && checkpoint.tenantId !== tenantId) {
+      throw new NotFoundException(`Projection ${name} not found`);
     }
 
     if (checkpoint.status !== ProjectionStatus.PAUSED) {
@@ -186,14 +230,25 @@ export class ProjectionsService {
 
   /**
    * Reset a projection to a specific position
+   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async resetProjection(name: string, position: number = 0): Promise<void> {
+  async resetProjection(name: string, position: number = 0, tenantId?: string): Promise<void> {
+    const whereClause: Record<string, unknown> = { projectionName: name };
+    if (tenantId) {
+      whereClause.tenantId = tenantId;
+    }
+
     const checkpoint = await this.checkpointRepository.findOne({
-      where: { projectionName: name },
+      where: whereClause,
     });
 
     if (!checkpoint) {
       throw new NotFoundException(`Checkpoint for projection ${name} not found`);
+    }
+
+    // SECURITY: Verify tenant isolation
+    if (tenantId && checkpoint.tenantId && checkpoint.tenantId !== tenantId) {
+      throw new NotFoundException(`Projection ${name} not found`);
     }
 
     checkpoint.position = position;
@@ -208,32 +263,63 @@ export class ProjectionsService {
 
   /**
    * Get projection status
+   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async getProjectionStatus(name: string): Promise<ProjectionCheckpoint | null> {
-    return this.checkpointRepository.findOne({
-      where: { projectionName: name },
+  async getProjectionStatus(name: string, tenantId?: string): Promise<ProjectionCheckpoint | null> {
+    const whereClause: Record<string, unknown> = { projectionName: name };
+    if (tenantId) {
+      whereClause.tenantId = tenantId;
+    }
+
+    const checkpoint = await this.checkpointRepository.findOne({
+      where: whereClause,
     });
+
+    // SECURITY: Verify tenant isolation
+    if (checkpoint && tenantId && checkpoint.tenantId && checkpoint.tenantId !== tenantId) {
+      return null;
+    }
+
+    return checkpoint;
   }
 
   /**
    * Get all projections
+   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async getAllProjections(): Promise<ProjectionCheckpoint[]> {
+  async getAllProjections(tenantId?: string): Promise<ProjectionCheckpoint[]> {
+    const whereClause: Record<string, unknown> = {};
+    if (tenantId) {
+      whereClause.tenantId = tenantId;
+    }
+
     return this.checkpointRepository.find({
+      where: whereClause,
       order: { projectionName: 'ASC' },
     });
   }
 
   /**
    * Get projection lag (events behind)
+   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async getProjectionLag(name: string): Promise<number> {
+  async getProjectionLag(name: string, tenantId?: string): Promise<number> {
+    const whereClause: Record<string, unknown> = { projectionName: name };
+    if (tenantId) {
+      whereClause.tenantId = tenantId;
+    }
+
     const checkpoint = await this.checkpointRepository.findOne({
-      where: { projectionName: name },
+      where: whereClause,
     });
 
     if (!checkpoint) {
       throw new NotFoundException(`Checkpoint for projection ${name} not found`);
+    }
+
+    // SECURITY: Verify tenant isolation
+    if (tenantId && checkpoint.tenantId && checkpoint.tenantId !== tenantId) {
+      throw new NotFoundException(`Projection ${name} not found`);
     }
 
     const latestEvent = await this.eventRepository
@@ -247,8 +333,9 @@ export class ProjectionsService {
 
   /**
    * Process a batch of events for a projection
+   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async processBatch(name: string): Promise<{
+  async processBatch(name: string, tenantId?: string): Promise<{
     processed: number;
     failed: number;
     newPosition: number;

@@ -104,8 +104,10 @@ export class UserPermissionsService {
 
     for (const [category, perms] of Object.entries(updates)) {
       if (perms && typeof perms === 'object' && category in result) {
-        (result as Record<string, Record<string, boolean>>)[category] = {
-          ...(result as Record<string, Record<string, boolean>>)[category],
+        const resultRecord = result as unknown as Record<string, Record<string, boolean>>;
+        const existingPerms = resultRecord[category] ?? {};
+        resultRecord[category] = {
+          ...existingPerms,
           ...(perms as Record<string, boolean>),
         };
       }

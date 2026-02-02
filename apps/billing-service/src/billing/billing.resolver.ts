@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
-import { UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Subscription } from './entities/subscription.entity';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
@@ -15,6 +15,46 @@ import { GetSubscriptionQuery } from './queries/get-subscription.query';
 import { GetInvoicesQuery, InvoiceFilterInput } from './queries/get-invoices.query';
 import { GetPaymentsQuery, PaymentFilterInput } from './queries/get-payments.query';
 
+/**
+ * SECURITY: Role-based authorization for billing operations
+ * Defines which roles can perform various billing actions
+ */
+enum BillingRole {
+  SUPER_ADMIN = 'super_admin',
+  TENANT_ADMIN = 'tenant_admin',
+  BILLING_ADMIN = 'billing_admin',
+  FINANCE_MANAGER = 'finance_manager',
+}
+
+/** Roles allowed to create/modify subscriptions */
+const SUBSCRIPTION_WRITE_ROLES: string[] = [
+  BillingRole.SUPER_ADMIN,
+  BillingRole.TENANT_ADMIN,
+  BillingRole.BILLING_ADMIN,
+];
+
+/** Roles allowed to create invoices */
+const INVOICE_WRITE_ROLES: string[] = [
+  BillingRole.SUPER_ADMIN,
+  BillingRole.BILLING_ADMIN,
+  BillingRole.FINANCE_MANAGER,
+];
+
+/** Roles allowed to record payments */
+const PAYMENT_WRITE_ROLES: string[] = [
+  BillingRole.SUPER_ADMIN,
+  BillingRole.BILLING_ADMIN,
+  BillingRole.FINANCE_MANAGER,
+];
+
+/** Roles allowed to read billing data */
+const BILLING_READ_ROLES: string[] = [
+  BillingRole.SUPER_ADMIN,
+  BillingRole.TENANT_ADMIN,
+  BillingRole.BILLING_ADMIN,
+  BillingRole.FINANCE_MANAGER,
+];
+
 interface GraphQLContext {
   req: {
     headers: {
@@ -24,6 +64,7 @@ interface GraphQLContext {
     user?: {
       sub: string;
       tenantId: string;
+      roles?: string[];
     };
   };
 }
@@ -62,6 +103,26 @@ function extractUserId(context: GraphQLContext): string {
   return userId;
 }
 
+/**
+ * SECURITY: Validates that the user has at least one of the required roles
+ * @throws ForbiddenException if user lacks required roles
+ */
+function requireRoles(context: GraphQLContext, allowedRoles: string[], operation: string): void {
+  const userRoles = context.req.user?.roles || [];
+
+  // Super admin bypass
+  if (userRoles.includes(BillingRole.SUPER_ADMIN)) {
+    return;
+  }
+
+  const hasRole = allowedRoles.some((role) => userRoles.includes(role));
+  if (!hasRole) {
+    throw new ForbiddenException(
+      `Access denied: ${operation} requires one of these roles: ${allowedRoles.join(', ')}`,
+    );
+  }
+}
+
 @Resolver(() => Subscription)
 export class BillingResolver {
   constructor(
@@ -75,6 +136,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Subscription | null> {
     const tenantId = extractTenantId(context);
+    requireRoles(context, BILLING_READ_ROLES, 'view subscription');
     return this.queryBus.execute(new GetSubscriptionQuery(tenantId));
   }
 
@@ -85,6 +147,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Subscription> {
     const tenantId = extractTenantId(context);
+    requireRoles(context, SUBSCRIPTION_WRITE_ROLES, 'create subscription');
     const userId = extractUserId(context);
     return this.commandBus.execute(
       new CreateSubscriptionCommand(tenantId, input, userId),
@@ -98,6 +161,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Subscription> {
     const tenantId = extractTenantId(context);
+    requireRoles(context, SUBSCRIPTION_WRITE_ROLES, 'cancel subscription');
     const userId = extractUserId(context);
     return this.commandBus.execute(
       new CancelSubscriptionCommand(tenantId, id, reason, userId),
@@ -111,6 +175,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Invoice[]> {
     const tenantId = extractTenantId(context);
+    requireRoles(context, BILLING_READ_ROLES, 'view invoices');
     const filter: InvoiceFilterInput = {};
     if (status) filter.status = status;
     return this.queryBus.execute(new GetInvoicesQuery(tenantId, filter));
@@ -121,6 +186,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Invoice[]> {
     const tenantId = extractTenantId(context);
+    requireRoles(context, BILLING_READ_ROLES, 'view overdue invoices');
     return this.queryBus.execute(
       new GetInvoicesQuery(tenantId, { status: InvoiceStatus.OVERDUE }),
     );
@@ -131,6 +197,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Invoice[]> {
     const tenantId = extractTenantId(context);
+    requireRoles(context, BILLING_READ_ROLES, 'view unpaid invoices');
     // Get both pending and overdue invoices
     const pendingInvoices = await this.queryBus.execute(
       new GetInvoicesQuery(tenantId, { status: InvoiceStatus.PENDING }),
@@ -148,6 +215,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Invoice> {
     const tenantId = extractTenantId(context);
+    requireRoles(context, INVOICE_WRITE_ROLES, 'create invoice');
     const userId = extractUserId(context);
     return this.commandBus.execute(
       new CreateInvoiceCommand(tenantId, input, userId),
@@ -162,6 +230,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Payment[]> {
     const tenantId = extractTenantId(context);
+    requireRoles(context, BILLING_READ_ROLES, 'view payments');
     const filter: PaymentFilterInput = {};
     if (invoiceId) filter.invoiceId = invoiceId;
     if (status) filter.status = status;
@@ -175,6 +244,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Payment> {
     const tenantId = extractTenantId(context);
+    requireRoles(context, PAYMENT_WRITE_ROLES, 'record payment');
     const userId = extractUserId(context);
     return this.commandBus.execute(
       new RecordPaymentCommand(tenantId, input, userId),

@@ -183,7 +183,7 @@ export class ServiceProxyService {
    */
   private isPrivateHost(host: string): boolean {
     // Remove port if present
-    const hostOnly = host.split(':')[0];
+    const hostOnly = host.split(':')[0] ?? host;
 
     for (const pattern of this.privateIpPatterns) {
       if (pattern.test(hostOnly)) {

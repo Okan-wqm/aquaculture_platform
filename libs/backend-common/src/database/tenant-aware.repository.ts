@@ -84,26 +84,44 @@ export class TenantAwareRepository<T extends TenantEntity> {
 
   /**
    * Find all entities for current tenant
+   *
+   * SECURITY: Always applies tenant filter to prevent cross-tenant data access.
+   * The options.where clause is merged with tenant filter.
    */
   async find(options?: FindManyOptions<T>): Promise<T[]> {
     const tenantId = this.requireTenantId();
 
-    return this.repository
-      .createQueryBuilder('entity')
-      .where('"tenantId" = :tenantId', { tenantId })
-      .getMany();
+    // Merge tenant filter with provided where clause
+    const mergedOptions: FindManyOptions<T> = {
+      ...options,
+      where: {
+        ...(options?.where as Record<string, unknown> || {}),
+        tenantId,
+      } as T extends ObjectLiteral ? T : never,
+    };
+
+    return this.repository.find(mergedOptions);
   }
 
   /**
    * Find one entity for current tenant
+   *
+   * SECURITY: Always applies tenant filter to prevent cross-tenant data access.
+   * The options.where clause is merged with tenant filter.
    */
   async findOne(options: FindOneOptions<T>): Promise<T | null> {
     const tenantId = this.requireTenantId();
 
-    return this.repository
-      .createQueryBuilder('entity')
-      .where('"tenantId" = :tenantId', { tenantId })
-      .getOne();
+    // Merge tenant filter with provided where clause
+    const mergedOptions: FindOneOptions<T> = {
+      ...options,
+      where: {
+        ...(options?.where as Record<string, unknown> || {}),
+        tenantId,
+      } as T extends ObjectLiteral ? T : never,
+    };
+
+    return this.repository.findOne(mergedOptions);
   }
 
   /**
@@ -262,6 +280,13 @@ export class TenantAwareRepository<T extends TenantEntity> {
 
   /**
    * Execute raw query with tenant filter
+   *
+   * SECURITY: Uses pg_catalog.set_config with parameterized query to prevent SQL injection.
+   * The schema name is validated through getTenantSchemaName() which ensures UUID format.
+   *
+   * WARNING: This method sets search_path at connection level. In a connection pool,
+   * the next query might use a different connection. For reliable tenant isolation,
+   * execute all related queries immediately after this call or use transactions.
    */
   async executeRaw<R = unknown>(
     query: string,
@@ -269,16 +294,30 @@ export class TenantAwareRepository<T extends TenantEntity> {
   ): Promise<R> {
     this.requireTenantId();
 
-    // Set search_path for tenant isolation
+    // SECURITY: Validate schema name format before using in query
+    // Schema name comes from getTenantSchemaName() which validates UUID format
+    // Additional validation ensures only safe characters (tenant_ + 16 hex chars)
+    if (this.schemaName && !/^tenant_[a-f0-9]{16}$/.test(this.schemaName)) {
+      throw new Error(`SECURITY: Invalid schema name format: ${this.schemaName}`);
+    }
+
+    // SECURITY: Use pg_catalog.set_config with parameterized query instead of
+    // template literal interpolation. This prevents SQL injection even if
+    // schemaName validation is bypassed.
     if (this.schemaName) {
-      await this.dataSource.query(`SET search_path TO "${this.schemaName}", public`);
+      await this.dataSource.query(
+        `SELECT pg_catalog.set_config('search_path', $1 || ', public', false)`,
+        [this.schemaName],
+      );
     }
 
     try {
       return await this.dataSource.query(query, parameters);
     } finally {
-      // Reset search_path
-      await this.dataSource.query(`SET search_path TO public`);
+      // SECURITY: Reset search_path using safe method
+      await this.dataSource.query(
+        `SELECT pg_catalog.set_config('search_path', 'public', false)`,
+      );
     }
   }
 }

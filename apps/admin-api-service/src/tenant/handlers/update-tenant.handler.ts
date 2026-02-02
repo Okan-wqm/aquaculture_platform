@@ -106,7 +106,12 @@ export class UpdateTenantHandler
           old: tenant.primaryContact,
           new: data.primaryContact,
         };
-        tenant.primaryContact = data.primaryContact;
+        tenant.primaryContact = {
+          name: data.primaryContact.name,
+          email: data.primaryContact.email,
+          phone: data.primaryContact.phone,
+          role: data.primaryContact.role || 'Primary Contact',
+        };
       }
 
       if (data.billingContact !== undefined) {
@@ -114,7 +119,12 @@ export class UpdateTenantHandler
           old: tenant.billingContact,
           new: data.billingContact,
         };
-        tenant.billingContact = data.billingContact;
+        tenant.billingContact = {
+          name: data.billingContact.name,
+          email: data.billingContact.email,
+          phone: data.billingContact.phone,
+          role: data.billingContact.role || 'Billing Contact',
+        };
       }
 
       if (data.billingEmail !== undefined) {

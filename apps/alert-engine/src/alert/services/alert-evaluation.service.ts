@@ -1,6 +1,6 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, MoreThan, DataSource } from 'typeorm';
 import {
   AlertRule,
   AlertCondition,
@@ -38,6 +38,8 @@ export class AlertEvaluationService {
     private readonly historyRepository: Repository<AlertHistory>,
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -64,18 +66,10 @@ export class AlertEvaluationService {
         );
 
         if (triggeredCondition) {
-          const canTrigger = await this.checkCooldown(
-            rule.id,
-            rule.cooldownMinutes,
-          );
-
-          if (canTrigger) {
-            await this.triggerAlert(rule, reading, triggeredCondition);
-          } else {
-            this.logger.debug(
-              `Alert for rule ${rule.id} is in cooldown period`,
-            );
-          }
+          // SECURITY FIX: Use atomic cooldown check and alert creation
+          // to prevent race condition where multiple alerts could be triggered
+          // if concurrent requests both pass cooldown check before either creates alert
+          await this.atomicCheckCooldownAndTrigger(rule, reading, triggeredCondition);
         }
       }
     } catch (error) {
@@ -166,7 +160,150 @@ export class AlertEvaluationService {
   }
 
   /**
-   * Check if cooldown period has passed
+   * SECURITY FIX: Atomic cooldown check and alert trigger
+   * Uses database transaction with row-level locking to prevent race condition
+   * where concurrent requests could both pass cooldown check
+   */
+  private async atomicCheckCooldownAndTrigger(
+    rule: AlertRule,
+    reading: SensorReadingData,
+    condition: AlertCondition,
+  ): Promise<void> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction('SERIALIZABLE');
+
+    try {
+      // Check cooldown with FOR UPDATE lock to prevent concurrent reads
+      const canTrigger = await this.checkCooldownInTransaction(
+        queryRunner,
+        rule.id,
+        rule.cooldownMinutes,
+      );
+
+      if (!canTrigger) {
+        this.logger.debug(`Alert for rule ${rule.id} is in cooldown period`);
+        await queryRunner.rollbackTransaction();
+        return;
+      }
+
+      // Trigger alert within same transaction
+      await this.triggerAlertInTransaction(queryRunner, rule, reading, condition);
+
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      // Log but don't throw - we don't want to fail other rule evaluations
+      this.logger.error(
+        `Failed to trigger alert for rule ${rule.id}: ${(error as Error).message}`,
+      );
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * Check cooldown within a transaction with row locking
+   */
+  private async checkCooldownInTransaction(
+    queryRunner: import('typeorm').QueryRunner,
+    ruleId: string,
+    cooldownMinutes: number,
+  ): Promise<boolean> {
+    if (cooldownMinutes === 0) {
+      return true;
+    }
+
+    const cooldownDate = new Date();
+    cooldownDate.setMinutes(cooldownDate.getMinutes() - cooldownMinutes);
+
+    // Use FOR UPDATE to lock any recent alert rows and prevent concurrent inserts
+    const recentAlert = await queryRunner.manager
+      .createQueryBuilder(AlertHistory, 'history')
+      .where('history.ruleId = :ruleId', { ruleId })
+      .andWhere('history.triggeredAt > :cooldownDate', { cooldownDate })
+      .orderBy('history.triggeredAt', 'DESC')
+      .setLock('pessimistic_write')
+      .getOne();
+
+    return !recentAlert;
+  }
+
+  /**
+   * Trigger alert within a transaction
+   */
+  private async triggerAlertInTransaction(
+    queryRunner: import('typeorm').QueryRunner,
+    rule: AlertRule,
+    reading: SensorReadingData,
+    condition: AlertCondition,
+  ): Promise<void> {
+    const currentValue = reading.readings[condition.parameter];
+    const message = `Alert: ${rule.name} - ${condition.parameter} is ${this.formatOperator(condition.operator)} ${condition.threshold}. Current value: ${currentValue}`;
+
+    this.logger.log(`Triggering alert for rule ${rule.id}: ${message}`);
+
+    // Create alert history record
+    const history = queryRunner.manager.create(AlertHistory, {
+      ruleId: rule.id,
+      ruleName: rule.name,
+      tenantId: reading.tenantId,
+      farmId: reading.farmId,
+      pondId: reading.pondId,
+      sensorId: reading.sensorId,
+      severity: condition.severity,
+      message,
+      triggeringData: {
+        sensorId: reading.sensorId,
+        readings: reading.readings,
+        timestamp: reading.timestamp,
+        condition: {
+          parameter: condition.parameter,
+          operator: condition.operator,
+          threshold: condition.threshold,
+          actualValue: currentValue,
+        },
+      },
+      triggeredAt: reading.timestamp,
+    });
+
+    const savedHistory = await queryRunner.manager.save(history);
+
+    // Publish alert event (outside transaction to avoid blocking)
+    // Event publishing is queued and will be processed after transaction commits
+    setImmediate(async () => {
+      try {
+        await this.eventBus.publish({
+          eventId: crypto.randomUUID(),
+          eventType: 'AlertTriggered',
+          timestamp: new Date(),
+          payload: {
+            alertId: savedHistory.id,
+            ruleId: rule.id,
+            ruleName: rule.name,
+            tenantId: reading.tenantId,
+            severity: condition.severity,
+            message,
+            channels: rule.notificationChannels || [],
+            recipients: rule.recipients || [],
+            triggeringData: savedHistory.triggeringData,
+          },
+          metadata: {
+            tenantId: reading.tenantId,
+            source: 'alert-engine',
+          },
+        });
+      } catch (error) {
+        this.logger.error(
+          `Failed to publish alert event: ${(error as Error).message}`,
+        );
+      }
+    });
+  }
+
+  /**
+   * Check if cooldown period has passed (non-transactional, for backwards compatibility)
+   * @deprecated Use atomicCheckCooldownAndTrigger instead
    */
   private async checkCooldown(
     ruleId: string,

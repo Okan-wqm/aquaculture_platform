@@ -54,8 +54,16 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
         );
       }
 
-      // Use safe decimal comparison (convert to cents for comparison)
+      // ERROR HANDLING FIX: Validate amountDue to prevent NaN comparisons
+      // Number(undefined) and Number(null) both return NaN, which breaks comparisons
       const amountDue = Number(invoice.amountDue);
+      if (isNaN(amountDue)) {
+        throw new BadRequestException(
+          `Invoice ${input.invoiceId} has invalid amount due value`,
+        );
+      }
+
+      // Use safe decimal comparison (convert to cents for comparison)
       if (input.amount > amountDue + 0.001) { // Small epsilon for floating point
         throw new BadRequestException(
           `Payment amount ${input.amount} exceeds amount due ${amountDue}`,

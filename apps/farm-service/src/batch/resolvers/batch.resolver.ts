@@ -736,7 +736,7 @@ export class BatchResolver {
   // MUTATIONS
   // -------------------------------------------------------------------------
 
-  @Roles(Role.ADMIN, Role.MANAGER, Role.OPERATOR)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Mutation(() => Batch)
   async createBatch(
     @Args('input') input: CreateBatchInput,
@@ -788,7 +788,7 @@ export class BatchResolver {
     );
   }
 
-  @Roles(Role.ADMIN, Role.MANAGER, Role.OPERATOR)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Mutation(() => Batch)
   async updateBatch(
     @Args('input') input: UpdateBatchInput,
@@ -801,7 +801,7 @@ export class BatchResolver {
     );
   }
 
-  @Roles(Role.ADMIN, Role.MANAGER, Role.OPERATOR)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Mutation(() => Batch)
   async updateBatchStatus(
     @Args('id', { type: () => ID }) id: string,
@@ -816,7 +816,7 @@ export class BatchResolver {
     );
   }
 
-  @Roles(Role.ADMIN, Role.MANAGER, Role.OPERATOR)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Mutation(() => Batch)
   async recordMortality(
     @Args('input') input: RecordMortalityInput,
@@ -830,7 +830,7 @@ export class BatchResolver {
     );
   }
 
-  @Roles(Role.ADMIN, Role.MANAGER, Role.OPERATOR)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Mutation(() => Batch)
   async recordCull(
     @Args('input') input: RecordCullInput,
@@ -844,7 +844,7 @@ export class BatchResolver {
     );
   }
 
-  @Roles(Role.ADMIN, Role.MANAGER, Role.OPERATOR)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Mutation(() => Batch)
   async allocateBatchToTank(
     @Args('input') input: AllocateToTankInput,
@@ -859,7 +859,7 @@ export class BatchResolver {
     );
   }
 
-  @Roles(Role.ADMIN, Role.MANAGER, Role.OPERATOR)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Mutation(() => Batch)
   async transferBatch(
     @Args('input') input: TransferBatchInput,
@@ -874,7 +874,7 @@ export class BatchResolver {
     );
   }
 
-  @Roles(Role.ADMIN, Role.MANAGER, Role.OPERATOR)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Mutation(() => Batch)
   async closeBatch(
     @Args('id', { type: () => ID }) id: string,

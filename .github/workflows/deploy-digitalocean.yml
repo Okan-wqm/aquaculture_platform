@@ -62,7 +62,7 @@ jobs:
           BACKEND_SERVICES='["gateway-api","auth-service","farm-service","sensor-service","alert-engine","billing-service","hr-service","notification-service","admin-api-service"]'
 
           # Frontend modules matrix
-          FRONTEND_MODULES='["shell","dashboard","farm-module","hr-module","sensor-module","admin-panel","tenant-admin"]'
+          FRONTEND_MODULES='["shell","dashboard","farm-module","hr-module","sensor-module","admin-panel","tenant-admin","aquamobil"]'
 
           # Check for shared library changes (rebuild all if libs changed)
           if echo "$CHANGED_FILES" | grep -q "^libs/"; then
@@ -219,6 +219,9 @@ jobs:
           - module: tenant-admin
             dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
             module_path: web/modules/tenant-admin
+          - module: aquamobil
+            dockerfile: infrastructure/docker/Dockerfile.aquamobil
+            module_path: web/apps/aquamobil
     steps:
       - uses: actions/checkout@v4
 

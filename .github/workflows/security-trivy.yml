@@ -13,6 +13,9 @@ jobs:
   trivy-fs-scan:
     runs-on: ubuntu-latest
     timeout-minutes: 15  # Prevent infinite runs
+    permissions:
+      contents: read
+      security-events: write  # Required for SARIF upload
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

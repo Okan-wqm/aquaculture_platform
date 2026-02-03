@@ -1,4 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID, Context, ResolveField, Parent } from '@nestjs/graphql';
+import { Roles, Role } from '@platform/backend-common';
 
 import {
   VfdDeviceFilterDto,
@@ -81,8 +82,10 @@ export class VfdDeviceResolver {
 
   /**
    * Register a new VFD device
+   * SECURITY: Requires elevated permissions - creates industrial equipment entry
    */
   @Mutation(() => VfdDevice, { name: 'registerVfdDevice' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async registerVfdDevice(
     @Args('input', { type: () => RegisterVfdDto }) input: RegisterVfdDto,
     @Context() context: { tenantId: string }
@@ -92,8 +95,10 @@ export class VfdDeviceResolver {
 
   /**
    * Update a VFD device
+   * SECURITY: Requires elevated permissions - modifies industrial equipment config
    */
   @Mutation(() => VfdDevice, { name: 'updateVfdDevice' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateVfdDevice(
     @Args('id', { type: () => ID }) id: string,
     @Args('input', { type: () => UpdateVfdDto }) input: UpdateVfdDto,
@@ -104,8 +109,10 @@ export class VfdDeviceResolver {
 
   /**
    * Delete a VFD device
+   * SECURITY: Requires TENANT_ADMIN - permanent deletion of industrial equipment
    */
   @Mutation(() => Boolean, { name: 'deleteVfdDevice' })
+  @Roles(Role.TENANT_ADMIN)
   async deleteVfdDevice(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: { tenantId: string }
@@ -115,8 +122,10 @@ export class VfdDeviceResolver {
 
   /**
    * Test connection for a VFD device
+   * SECURITY: Requires elevated permissions - tests industrial equipment connectivity
    */
   @Mutation(() => Boolean, { name: 'testVfdConnection' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async testVfdConnection(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: { tenantId: string }
@@ -127,8 +136,10 @@ export class VfdDeviceResolver {
 
   /**
    * Activate a VFD device
+   * SECURITY: Requires elevated permissions - enables industrial equipment
    */
   @Mutation(() => VfdDevice, { name: 'activateVfdDevice' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async activateVfdDevice(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: { tenantId: string }
@@ -138,8 +149,10 @@ export class VfdDeviceResolver {
 
   /**
    * Deactivate a VFD device
+   * SECURITY: Requires elevated permissions - disables industrial equipment
    */
   @Mutation(() => VfdDevice, { name: 'deactivateVfdDevice' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async deactivateVfdDevice(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: { tenantId: string }

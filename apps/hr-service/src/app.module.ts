@@ -3,15 +3,20 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { JwtModule } from '@nestjs/jwt';
+import { APP_GUARD } from '@nestjs/core';
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
 import { CqrsModule } from '@nestjs/cqrs';
+import { GraphQLError } from 'graphql';
+import depthLimit from 'graphql-depth-limit';
+import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
   UserContextMiddleware,
+  RolesGuard,
 } from '@platform/backend-common';
 import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
 import { HRModule } from './hr/hr.module';
@@ -146,6 +151,26 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
           CheckInHistoryEntry,
         ],
       },
+      validationRules: [depthLimit(10)],
+      plugins: [
+        {
+          requestDidStart: async () => ({
+            async didResolveOperation({ request, document, schema }) {
+              const complexity = getComplexity({
+                schema,
+                operationName: request.operationName,
+                query: document,
+                variables: request.variables,
+                estimators: [fieldExtensionsEstimator(), simpleEstimator({ defaultComplexity: 1 })],
+              });
+              const maxComplexity = 1000;
+              if (complexity > maxComplexity) {
+                throw new GraphQLError(`Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`);
+              }
+            },
+          }),
+        },
+      ],
       playground: process.env['NODE_ENV'] !== 'production',
       introspection: process.env['NODE_ENV'] !== 'production',
       context: ({ req }: { req: Request }) => ({ req }),
@@ -167,6 +192,12 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
     TrainingModule,
     AquacultureModule,
     HealthModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
+    },
   ],
 })
 export class AppModule implements NestModule {

@@ -1,7 +1,6 @@
 import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+import { BadRequestException, NotFoundException, ForbiddenException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { CancelLeaveRequestCommand } from '../commands/cancel-leave-request.command';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { LeaveBalance } from '../entities/leave-balance.entity';
@@ -11,106 +10,138 @@ import { LeaveCancelledEvent } from '../events/leave.events';
 export class CancelLeaveRequestHandler
   implements ICommandHandler<CancelLeaveRequestCommand>
 {
+  private readonly logger = new Logger(CancelLeaveRequestHandler.name);
+
   constructor(
-    @InjectRepository(LeaveRequest)
-    private readonly leaveRequestRepository: Repository<LeaveRequest>,
-    @InjectRepository(LeaveBalance)
-    private readonly leaveBalanceRepository: Repository<LeaveBalance>,
+    private readonly dataSource: DataSource,
     private readonly eventBus: EventBus,
   ) {}
 
   async execute(command: CancelLeaveRequestCommand): Promise<LeaveRequest> {
     const { tenantId, userId, leaveRequestId, reason } = command;
 
-    const leaveRequest = await this.leaveRequestRepository.findOne({
-      where: { id: leaveRequestId, tenantId, isDeleted: false },
-    });
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    if (!leaveRequest) {
-      throw new NotFoundException(`Leave request with ID ${leaveRequestId} not found`);
-    }
+    try {
+      const leaveRequestRepo = queryRunner.manager.getRepository(LeaveRequest);
+      const leaveBalanceRepo = queryRunner.manager.getRepository(LeaveBalance);
 
-    // Only the employee or an approver can cancel
-    const isOwnRequest = leaveRequest.employeeId === userId || leaveRequest.createdBy === userId;
+      const leaveRequest = await leaveRequestRepo.findOne({
+        where: { id: leaveRequestId, tenantId, isDeleted: false },
+      });
 
-    // Cannot cancel already cancelled, rejected or withdrawn requests
-    const nonCancellableStatuses = [
-      LeaveRequestStatus.CANCELLED,
-      LeaveRequestStatus.REJECTED,
-      LeaveRequestStatus.WITHDRAWN,
-    ];
+      if (!leaveRequest) {
+        throw new NotFoundException(`Leave request with ID ${leaveRequestId} not found`);
+      }
 
-    if (nonCancellableStatuses.includes(leaveRequest.status)) {
-      throw new BadRequestException(
-        `Cannot cancel leave request with status ${leaveRequest.status}`,
-      );
-    }
+      // Only the employee or an approver can cancel
+      const isOwnRequest = leaveRequest.employeeId === userId || leaveRequest.createdBy === userId;
+      if (!isOwnRequest) {
+        throw new ForbiddenException('You can only cancel your own leave requests');
+      }
 
-    // If approved, check if leave hasn't started yet
-    if (leaveRequest.status === LeaveRequestStatus.APPROVED) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const startDate = new Date(leaveRequest.startDate);
-      startDate.setHours(0, 0, 0, 0);
+      // Cannot cancel already cancelled, rejected or withdrawn requests
+      const nonCancellableStatuses = [
+        LeaveRequestStatus.CANCELLED,
+        LeaveRequestStatus.REJECTED,
+        LeaveRequestStatus.WITHDRAWN,
+      ];
 
-      if (startDate <= today) {
+      if (nonCancellableStatuses.includes(leaveRequest.status)) {
         throw new BadRequestException(
-          'Cannot cancel leave request that has already started or completed',
+          `Cannot cancel leave request with status ${leaveRequest.status}`,
         );
       }
-    }
 
-    // Restore balance based on previous status
-    const currentYear = new Date(leaveRequest.startDate).getFullYear();
-    const leaveBalance = await this.leaveBalanceRepository.findOne({
-      where: {
-        tenantId,
-        employeeId: leaveRequest.employeeId,
-        leaveTypeId: leaveRequest.leaveTypeId,
-        year: currentYear,
-        isDeleted: false,
-      },
-    });
+      // If approved, check if leave hasn't started yet
+      if (leaveRequest.status === LeaveRequestStatus.APPROVED) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const startDate = new Date(leaveRequest.startDate);
+        startDate.setHours(0, 0, 0, 0);
 
-    if (leaveBalance) {
-      if (leaveRequest.status === LeaveRequestStatus.PENDING) {
-        // Restore from pending
-        leaveBalance.pending = Math.max(
-          0,
-          Number(leaveBalance.pending) - Number(leaveRequest.totalDays),
-        );
-      } else if (leaveRequest.status === LeaveRequestStatus.APPROVED) {
-        // Restore from used
-        leaveBalance.used = Math.max(
-          0,
-          Number(leaveBalance.used) - Number(leaveRequest.totalDays),
-        );
+        if (startDate <= today) {
+          throw new BadRequestException(
+            'Cannot cancel leave request that has already started or completed',
+          );
+        }
       }
-      leaveBalance.updatedBy = userId;
-      await this.leaveBalanceRepository.save(leaveBalance);
+
+      // Restore balance based on previous status
+      const currentYear = new Date(leaveRequest.startDate).getFullYear();
+      const leaveBalance = await leaveBalanceRepo.findOne({
+        where: {
+          tenantId,
+          employeeId: leaveRequest.employeeId,
+          leaveTypeId: leaveRequest.leaveTypeId,
+          year: currentYear,
+          isDeleted: false,
+        },
+      });
+
+      if (leaveBalance) {
+        if (leaveRequest.status === LeaveRequestStatus.PENDING) {
+          // Restore from pending
+          leaveBalance.pending = Math.max(
+            0,
+            Number(leaveBalance.pending) - Number(leaveRequest.totalDays),
+          );
+        } else if (leaveRequest.status === LeaveRequestStatus.APPROVED) {
+          // Restore from used
+          leaveBalance.used = Math.max(
+            0,
+            Number(leaveBalance.used) - Number(leaveRequest.totalDays),
+          );
+        }
+        leaveBalance.updatedBy = userId;
+        await leaveBalanceRepo.save(leaveBalance);
+      }
+
+      // Update leave request
+      leaveRequest.status = LeaveRequestStatus.CANCELLED;
+      leaveRequest.cancelledBy = userId;
+      leaveRequest.cancelledAt = new Date();
+      leaveRequest.cancellationReason = reason;
+      leaveRequest.approvalHistory = [
+        ...(leaveRequest.approvalHistory || []),
+        {
+          action: 'cancelled',
+          actorId: userId,
+          timestamp: new Date(),
+          notes: reason || 'Leave request cancelled',
+        },
+      ];
+      leaveRequest.updatedBy = userId;
+
+      const savedRequest = await leaveRequestRepo.save(leaveRequest);
+
+      await queryRunner.commitTransaction();
+
+      // Publish event for notification/audit purposes
+      this.eventBus.publish(new LeaveCancelledEvent(savedRequest));
+
+      return savedRequest;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Failed to cancel leave request ${leaveRequestId} for tenant ${tenantId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+
+      throw new InternalServerErrorException('Failed to cancel leave request');
+    } finally {
+      await queryRunner.release();
     }
-
-    // Update leave request
-    leaveRequest.status = LeaveRequestStatus.CANCELLED;
-    leaveRequest.cancelledBy = userId;
-    leaveRequest.cancelledAt = new Date();
-    leaveRequest.cancellationReason = reason;
-    leaveRequest.approvalHistory = [
-      ...(leaveRequest.approvalHistory || []),
-      {
-        action: 'cancelled',
-        actorId: userId,
-        timestamp: new Date(),
-        notes: reason || 'Leave request cancelled',
-      },
-    ];
-    leaveRequest.updatedBy = userId;
-
-    const savedRequest = await this.leaveRequestRepository.save(leaveRequest);
-
-    // Publish event for notification/audit purposes
-    this.eventBus.publish(new LeaveCancelledEvent(savedRequest));
-
-    return savedRequest;
   }
 }

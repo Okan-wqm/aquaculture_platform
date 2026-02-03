@@ -1,7 +1,6 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { ConflictException, BadRequestException } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+import { ConflictException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { CreateShiftCommand } from '../commands/create-shift.command';
 import { Shift, WeekDay } from '../entities/shift.entity';
 
@@ -39,9 +38,10 @@ function parseTimeString(time: string, fieldName: string): [number, number] {
 
 @CommandHandler(CreateShiftCommand)
 export class CreateShiftHandler implements ICommandHandler<CreateShiftCommand> {
+  private readonly logger = new Logger(CreateShiftHandler.name);
+
   constructor(
-    @InjectRepository(Shift)
-    private readonly shiftRepository: Repository<Shift>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(command: CreateShiftCommand): Promise<Shift> {
@@ -66,63 +66,90 @@ export class CreateShiftHandler implements ICommandHandler<CreateShiftCommand> {
       displayOrder,
     } = command;
 
-    // Check for duplicate code
-    const existingShift = await this.shiftRepository.findOne({
-      where: { tenantId, code, isDeleted: false },
-    });
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    if (existingShift) {
-      throw new ConflictException(`Shift with code ${code} already exists`);
-    }
+    try {
+      const shiftRepo = queryRunner.manager.getRepository(Shift);
 
-    // Calculate total minutes if not provided
-    let calculatedTotalMinutes = totalMinutes;
-    if (!calculatedTotalMinutes) {
-      // Validate time format before parsing
-      const [startHours, startMins] = parseTimeString(startTime, 'startTime');
-      const [endHours, endMins] = parseTimeString(endTime, 'endTime');
+      // Check for duplicate code within transaction to prevent race condition
+      const existingShift = await shiftRepo.findOne({
+        where: { tenantId, code, isDeleted: false },
+      });
 
-      let startMinutes = startHours * 60 + startMins;
-      let endMinutes = endHours * 60 + endMins;
-
-      if (crossesMidnight && endMinutes < startMinutes) {
-        endMinutes += 24 * 60;
+      if (existingShift) {
+        throw new ConflictException(`Shift with code ${code} already exists`);
       }
 
-      calculatedTotalMinutes = endMinutes - startMinutes;
+      // Calculate total minutes if not provided
+      let calculatedTotalMinutes = totalMinutes;
+      if (!calculatedTotalMinutes) {
+        // Validate time format before parsing
+        const [startHours, startMins] = parseTimeString(startTime, 'startTime');
+        const [endHours, endMins] = parseTimeString(endTime, 'endTime');
+
+        let startMinutes = startHours * 60 + startMins;
+        let endMinutes = endHours * 60 + endMins;
+
+        if (crossesMidnight && endMinutes < startMinutes) {
+          endMinutes += 24 * 60;
+        }
+
+        calculatedTotalMinutes = endMinutes - startMinutes;
+      }
+
+      const defaultWorkDays = workDays || [
+        WeekDay.MONDAY,
+        WeekDay.TUESDAY,
+        WeekDay.WEDNESDAY,
+        WeekDay.THURSDAY,
+        WeekDay.FRIDAY,
+      ];
+
+      const shift = shiftRepo.create({
+        tenantId,
+        code,
+        name,
+        description,
+        shiftType,
+        startTime,
+        endTime,
+        totalMinutes: calculatedTotalMinutes,
+        breakMinutes,
+        breakPeriods,
+        workDays: defaultWorkDays,
+        crossesMidnight,
+        graceMinutes,
+        earlyClockInMinutes,
+        lateClockOutMinutes,
+        colorCode,
+        displayOrder,
+        isActive: true,
+        createdBy: userId,
+        updatedBy: userId,
+      });
+
+      const savedShift = await shiftRepo.save(shift);
+
+      await queryRunner.commitTransaction();
+
+      return savedShift;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+
+      if (error instanceof ConflictException || error instanceof BadRequestException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Failed to create shift for tenant ${tenantId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+
+      throw new InternalServerErrorException('Failed to create shift');
+    } finally {
+      await queryRunner.release();
     }
-
-    const defaultWorkDays = workDays || [
-      WeekDay.MONDAY,
-      WeekDay.TUESDAY,
-      WeekDay.WEDNESDAY,
-      WeekDay.THURSDAY,
-      WeekDay.FRIDAY,
-    ];
-
-    const shift = this.shiftRepository.create({
-      tenantId,
-      code,
-      name,
-      description,
-      shiftType,
-      startTime,
-      endTime,
-      totalMinutes: calculatedTotalMinutes,
-      breakMinutes,
-      breakPeriods,
-      workDays: defaultWorkDays,
-      crossesMidnight,
-      graceMinutes,
-      earlyClockInMinutes,
-      lateClockOutMinutes,
-      colorCode,
-      displayOrder,
-      isActive: true,
-      createdBy: userId,
-      updatedBy: userId,
-    });
-
-    return this.shiftRepository.save(shift);
   }
 }

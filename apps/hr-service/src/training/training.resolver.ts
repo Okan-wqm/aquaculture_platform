@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, Float, ObjectType, Field } from '@nestjs/graphql';
-import { UnauthorizedException, UseGuards } from '@nestjs/common';
+import { UnauthorizedException, ForbiddenException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -84,19 +84,19 @@ export class TrainingResolver {
   ) {}
 
   private getTenantId(context: GraphQLContext): string {
-    const tenantId =
-      context.req.user?.tenantId ||
-      context.req.headers['x-tenant-id'];
+    // SECURITY: Only trust JWT-verified tenantId, never trust headers directly
+    const tenantId = context.req.user?.tenantId;
     if (!tenantId) {
-      throw new UnauthorizedException('Tenant ID is required');
+      throw new UnauthorizedException('Tenant ID is required - authentication required');
     }
     return tenantId;
   }
 
   private getUserId(context: GraphQLContext): string {
-    const userId = context.req.user?.sub || context.req.headers['x-user-id'];
+    // SECURITY: Only trust JWT-verified userId, never trust headers directly
+    const userId = context.req.user?.sub;
     if (!userId || typeof userId !== 'string') {
-      throw new UnauthorizedException('User ID is required');
+      throw new UnauthorizedException('User ID is required - authentication required');
     }
     return userId;
   }
@@ -210,6 +210,8 @@ export class TrainingResolver {
   // Certification Mutations
   // =====================
   @Mutation(() => EmployeeCertification)
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER)
   async addEmployeeCertification(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Args('certificationTypeId', { type: () => ID }) certificationTypeId: string,
@@ -238,6 +240,8 @@ export class TrainingResolver {
   }
 
   @Mutation(() => EmployeeCertification)
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER)
   async verifyCertification(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -269,6 +273,8 @@ export class TrainingResolver {
   // Training Enrollment Mutations
   // =====================
   @Mutation(() => TrainingEnrollment)
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER)
   async enrollInTraining(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Args('trainingCourseId', { type: () => ID }) trainingCourseId: string,
@@ -280,6 +286,14 @@ export class TrainingResolver {
   ): Promise<TrainingEnrollment> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
+
+    // SECURITY: Users can only enroll themselves in training unless they have elevated role
+    // For self-service, employeeId should match userId
+    if (employeeId !== userId) {
+      // Only managers can enroll others - this should be handled by a separate mutation
+      throw new ForbiddenException('You can only enroll yourself in training');
+    }
+
     return this.commandBus.execute(
       new EnrollInTrainingCommand(
         tenantId,
@@ -295,6 +309,8 @@ export class TrainingResolver {
   }
 
   @Mutation(() => TrainingEnrollment)
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER)
   async completeTraining(
     @Args('enrollmentId', { type: () => ID }) enrollmentId: string,
     @Context() context: GraphQLContext,

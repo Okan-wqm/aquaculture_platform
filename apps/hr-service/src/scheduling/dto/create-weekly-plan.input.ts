@@ -4,6 +4,7 @@ import {
   IsDateString,
   IsOptional,
   IsString,
+  IsEnum,
   MaxLength,
   ArrayMaxSize,
   ArrayMinSize,
@@ -49,6 +50,7 @@ export class CreateWeeklyPlanInput {
   @Field(() => [WeekDay], { nullable: true })
   @IsOptional()
   @IsArray()
+  @IsEnum(WeekDay, { each: true })
   @ArrayMaxSize(7, { message: 'defaultOffDays cannot have more than 7 days' })
   defaultOffDays?: WeekDay[]; // e.g., [SATURDAY, SUNDAY]
 
@@ -81,6 +83,7 @@ export class CreateBulkWeeklyPlansInput {
   @Field(() => [WeekDay], { nullable: true })
   @IsOptional()
   @IsArray()
+  @IsEnum(WeekDay, { each: true })
   @ArrayMaxSize(7, { message: 'defaultOffDays cannot have more than 7 days' })
   defaultOffDays?: WeekDay[];
 }

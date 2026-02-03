@@ -80,6 +80,8 @@ services:
       - DATABASE_URL=postgres://aquaculture:devpassword@postgres:5432/aquaculture
       - NATS_URL=nats://nats:4222
       - PORT=3000
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-aquaculture-dev-encryption-32ch!}
+      - FARM_SEED_ENABLED=false
     ports:
       - "3002:3000"
     depends_on:

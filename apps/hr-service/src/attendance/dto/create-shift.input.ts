@@ -5,11 +5,15 @@ import {
   IsEnum,
   IsInt,
   IsBoolean,
+  IsUUID,
   MaxLength,
   Min,
   Max,
   IsArray,
+  Matches,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ShiftType, WeekDay } from '../entities/shift.entity';
 
 @InputType()
@@ -51,10 +55,12 @@ export class CreateShiftInput {
 
   @Field()
   @IsString()
+  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
   startTime!: string; // HH:mm format
 
   @Field()
   @IsString()
+  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
   endTime!: string; // HH:mm format
 
   @Field(() => Int, { nullable: true })
@@ -71,6 +77,8 @@ export class CreateShiftInput {
 
   @Field(() => [BreakPeriodInput], { nullable: true })
   @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BreakPeriodInput)
   @IsOptional()
   breakPeriods?: BreakPeriodInput[];
 
@@ -113,7 +121,7 @@ export class CreateShiftInput {
 @InputType()
 export class UpdateShiftInput {
   @Field()
-  @IsString()
+  @IsUUID()
   id!: string;
 
   @Field({ nullable: true })
@@ -136,11 +144,13 @@ export class UpdateShiftInput {
   @Field({ nullable: true })
   @IsString()
   @IsOptional()
+  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, { message: 'startTime must be in HH:MM format' })
   startTime?: string;
 
   @Field({ nullable: true })
   @IsString()
   @IsOptional()
+  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, { message: 'endTime must be in HH:MM format' })
   endTime?: string;
 
   @Field(() => Int, { nullable: true })
@@ -158,6 +168,8 @@ export class UpdateShiftInput {
 
   @Field(() => [BreakPeriodInput], { nullable: true })
   @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BreakPeriodInput)
   @IsOptional()
   breakPeriods?: BreakPeriodInput[];
 

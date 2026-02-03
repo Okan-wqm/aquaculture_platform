@@ -205,6 +205,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       FARM_SEED_ENABLED: "false"
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-aquaculture-dev-encryption-32ch!}
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
       interval: 30s
@@ -413,6 +414,101 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Frontend Services (Module Federation)
+  # ===========================================================================
+
+  shell:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.shell
+    container_name: aqua-shell
+    environment:
+      DASHBOARD_URL: http://dashboard:80
+      FARM_MODULE_URL: http://farm-module:80
+      HR_MODULE_URL: http://hr-module:80
+      SENSOR_MODULE_URL: http://sensor-module:80
+      ADMIN_PANEL_URL: http://admin-panel:80
+      TENANT_ADMIN_URL: http://tenant-admin:80
+    ports:
+      - "8080:80"
+    depends_on:
+      - dashboard
+      - farm-module
+      - hr-module
+      - sensor-module
+      - admin-panel
+      - tenant-admin
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+      args:
+        MODULE_PATH: web/modules/dashboard
+    container_name: aqua-dashboard
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  farm-module:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+      args:
+        MODULE_PATH: web/modules/farm-module
+    container_name: aqua-farm-module
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  admin-panel:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+      args:
+        MODULE_PATH: web/modules/admin-panel
+    container_name: aqua-admin-panel
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  tenant-admin:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+      args:
+        MODULE_PATH: web/modules/tenant-admin
+    container_name: aqua-tenant-admin
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  hr-module:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+      args:
+        MODULE_PATH: web/modules/hr-module
+    container_name: aqua-hr-module
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  sensor-module:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+      args:
+        MODULE_PATH: web/modules/sensor-module
+    container_name: aqua-sensor-module
     networks:
       - aqua-network
     restart: unless-stopped

@@ -200,6 +200,8 @@ services:
       DATABASE_LOGGING: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-aquaculture-dev-encryption-32ch!}
+      FARM_SEED_ENABLED: "false"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
       interval: 30s

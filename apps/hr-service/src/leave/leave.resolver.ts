@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
-import { UnauthorizedException, UseGuards } from '@nestjs/common';
+import { UnauthorizedException, ForbiddenException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -86,19 +86,19 @@ export class LeaveResolver {
   ) {}
 
   private getTenantId(context: GraphQLContext): string {
-    const tenantId =
-      context.req.user?.tenantId ||
-      context.req.headers['x-tenant-id'];
+    // SECURITY: Only trust JWT-verified tenantId, never trust headers directly
+    const tenantId = context.req.user?.tenantId;
     if (!tenantId) {
-      throw new UnauthorizedException('Tenant ID is required');
+      throw new UnauthorizedException('Tenant ID is required - authentication required');
     }
     return tenantId;
   }
 
   private getUserId(context: GraphQLContext): string {
-    const userId = context.req.user?.sub || context.req.headers['x-user-id'];
+    // SECURITY: Only trust JWT-verified userId, never trust headers directly
+    const userId = context.req.user?.sub;
     if (!userId || typeof userId !== 'string') {
-      throw new UnauthorizedException('User ID is required');
+      throw new UnauthorizedException('User ID is required - authentication required');
     }
     return userId;
   }
@@ -247,11 +247,20 @@ export class LeaveResolver {
   ): Promise<LeaveRequest> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
+
+    // SECURITY: Users can only create leave requests for themselves unless they have elevated role
+    // For self-service, employeeId should match userId or be omitted
+    const employeeId = input.employeeId || userId;
+    if (employeeId !== userId) {
+      // Only managers can create leave requests for others - this should be handled by a separate mutation
+      throw new ForbiddenException('You can only create leave requests for yourself');
+    }
+
     return this.commandBus.execute(
       new CreateLeaveRequestCommand(
         tenantId,
         userId,
-        input.employeeId,
+        employeeId,
         input.leaveTypeId,
         input.startDate,
         input.endDate,

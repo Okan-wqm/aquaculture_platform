@@ -11,6 +11,7 @@ import {
   Int,
 } from '@nestjs/graphql';
 import { IsString, IsOptional, IsBoolean, IsNumber, IsObject } from 'class-validator';
+import { Roles, Role, Tenant } from '@platform/backend-common';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { ProtocolCategory } from '../../database/entities/sensor-protocol.entity';
@@ -225,8 +226,18 @@ export class ProtocolResolver {
   }
 
   // Mutations
+  // SECURITY: Mutations require elevated permissions for protocol configuration
+
+  /**
+   * Validate protocol configuration
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => ValidationResultType, { name: 'validateProtocolConfig' })
-  validateConfig(@Args('input') input: ValidateConfigInput): ValidationResultType {
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  validateConfig(
+    @Args('input') input: ValidateConfigInput,
+    @Tenant() _tenantId: string,
+  ): ValidationResultType {
     const result = this.protocolValidator.validate(input.protocolCode, input.config);
     return {
       isValid: result.isValid,
@@ -234,9 +245,15 @@ export class ProtocolResolver {
     };
   }
 
+  /**
+   * Test protocol connection
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER - tests network connectivity
+   */
   @Mutation(() => ProtocolConnectionTestResultType, { name: 'testProtocolConnection' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async testConnection(
     @Args('input') input: TestConnectionInput,
+    @Tenant() _tenantId: string,
   ): Promise<ProtocolConnectionTestResultType> {
     const result = await this.connectionTester.testConnection(
       input.protocolCode,
@@ -259,11 +276,17 @@ export class ProtocolResolver {
     };
   }
 
+  /**
+   * Ping protocol to test connectivity
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER - sends network requests
+   */
   @Mutation(() => PingTestResultType, { name: 'pingProtocol' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async pingProtocol(
     @Args('protocolCode') protocolCode: string,
     @Args('config', { type: () => GraphQLJSON }) config: object,
     @Args('count', { type: () => Int, nullable: true }) count?: number,
+    @Tenant() _tenantId?: string,
   ): Promise<PingTestResultType> {
     return this.connectionTester.pingTest(
       protocolCode,
@@ -272,10 +295,16 @@ export class ProtocolResolver {
     );
   }
 
+  /**
+   * Apply default values to protocol configuration
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => GraphQLJSON, { name: 'applyProtocolDefaults' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   applyDefaults(
     @Args('protocolCode') protocolCode: string,
     @Args('config', { type: () => GraphQLJSON }) config: object,
+    @Tenant() _tenantId?: string,
   ): Record<string, unknown> {
     return this.protocolValidator.applyDefaults(protocolCode, config as Record<string, unknown>);
   }

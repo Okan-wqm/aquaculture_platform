@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
+import { Tenant, Roles, Role } from '@platform/backend-common';
 import { Request } from 'express';
 
 import { SensorDataChannel, ChannelDataType } from '../../database/entities/sensor-data-channel.entity';
@@ -89,10 +90,17 @@ export class ChannelResolver {
   }
 
   // === Mutations ===
+  // SECURITY: All mutations require elevated permissions
 
+  /**
+   * Discover data channels from sample data
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => DiscoveryResultType, { name: 'discoverDataChannels' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async discoverChannels(
     @Args('input') input: DiscoverChannelsInput,
+    @Tenant() _tenantId: string,
   ): Promise<DiscoveryResultType> {
     const result = await this.discoveryService.discoverChannels(
       input.sampleData,
@@ -117,14 +125,17 @@ export class ChannelResolver {
     };
   }
 
+  /**
+   * Create a new data channel
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => DataChannelType, { name: 'createDataChannel' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createChannel(
     @Args('sensorId', { type: () => ID }) sensorId: string,
     @Args('input') input: CreateDataChannelInput,
-    @Context() context: GqlContext,
+    @Tenant() tenantId: string,
   ): Promise<SensorDataChannel> {
-    const tenantId = context.req?.user?.tenantId || 'default';
-
     const createInput: CreateChannelInput = {
       channelKey: input.channelKey,
       displayLabel: input.displayLabel,
@@ -147,9 +158,15 @@ export class ChannelResolver {
     return this.managementService.createChannel(sensorId, tenantId, createInput);
   }
 
+  /**
+   * Update a data channel
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => DataChannelType, { name: 'updateDataChannel' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateChannel(
     @Args('input') input: UpdateDataChannelInput,
+    @Tenant() _tenantId: string,
   ): Promise<SensorDataChannel> {
     return this.managementService.updateChannel(input.channelId, {
       displayLabel: input.displayLabel,
@@ -168,21 +185,30 @@ export class ChannelResolver {
     });
   }
 
+  /**
+   * Delete a data channel
+   * SECURITY: Requires TENANT_ADMIN
+   */
   @Mutation(() => Boolean, { name: 'deleteDataChannel' })
+  @Roles(Role.TENANT_ADMIN)
   async deleteChannel(
     @Args('channelId', { type: () => ID }) channelId: string,
+    @Tenant() _tenantId: string,
   ): Promise<boolean> {
     await this.managementService.deleteChannel(channelId);
     return true;
   }
 
+  /**
+   * Save discovered channels to sensor
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => [DataChannelType], { name: 'saveDiscoveredChannels' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async saveDiscoveredChannels(
     @Args('input') input: SaveDiscoveredChannelsInput,
-    @Context() context: GqlContext,
+    @Tenant() tenantId: string,
   ): Promise<SensorDataChannel[]> {
-    const tenantId = context.req?.user?.tenantId || 'default';
-
     // Convert GraphQL input to service input
     const discoveredChannels = input.channels.map(ch => ({
       channelKey: ch.channelKey,
@@ -203,16 +229,28 @@ export class ChannelResolver {
     );
   }
 
+  /**
+   * Reorder data channels
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => [DataChannelType], { name: 'reorderDataChannels' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async reorderChannels(
     @Args('input') input: ReorderChannelsInput,
+    @Tenant() _tenantId: string,
   ): Promise<SensorDataChannel[]> {
     return this.managementService.reorderChannels(input.sensorId, input.channelIds);
   }
 
+  /**
+   * Delete all channels for a sensor
+   * SECURITY: Requires TENANT_ADMIN
+   */
   @Mutation(() => Boolean, { name: 'deleteAllChannelsForSensor' })
+  @Roles(Role.TENANT_ADMIN)
   async deleteAllChannels(
     @Args('sensorId', { type: () => ID }) sensorId: string,
+    @Tenant() _tenantId: string,
   ): Promise<boolean> {
     await this.managementService.deleteChannelsForSensor(sensorId);
     return true;

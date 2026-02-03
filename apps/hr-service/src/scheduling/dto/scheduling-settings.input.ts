@@ -1,5 +1,5 @@
 import { InputType, Field, ID, Int } from '@nestjs/graphql';
-import { IsUUID, IsOptional, IsInt, Min, Max, IsBoolean } from 'class-validator';
+import { IsUUID, IsOptional, IsInt, IsEnum, Min, Max, IsBoolean } from 'class-validator';
 import { WeekDay } from '../../attendance/entities/shift.entity';
 
 @InputType()
@@ -31,6 +31,7 @@ export class UpdateSchedulingSettingsInput {
   defaultShiftId?: string;
 
   @Field(() => WeekDay, { nullable: true })
+  @IsEnum(WeekDay)
   @IsOptional()
   workWeekStartDay?: WeekDay;
 

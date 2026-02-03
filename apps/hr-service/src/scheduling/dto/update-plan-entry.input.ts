@@ -1,5 +1,5 @@
 import { InputType, Field, ID } from '@nestjs/graphql';
-import { IsUUID, IsOptional, IsString, IsBoolean, Matches, MaxLength } from 'class-validator';
+import { IsUUID, IsOptional, IsString, IsBoolean, IsEnum, Matches, MaxLength } from 'class-validator';
 import { WeeklyPlanEntryType } from '../entities/weekly-plan-entry.entity';
 
 @InputType()
@@ -29,6 +29,7 @@ export class UpdatePlanEntryInput {
   plannedEndTime?: string;
 
   @Field(() => WeeklyPlanEntryType, { nullable: true })
+  @IsEnum(WeeklyPlanEntryType)
   @IsOptional()
   entryType?: WeeklyPlanEntryType;
 

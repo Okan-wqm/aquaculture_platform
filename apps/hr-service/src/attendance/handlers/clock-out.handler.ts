@@ -105,8 +105,9 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
       let shiftBreakMinutes = 0;
 
       if (attendanceRecord.shiftId) {
+        // SECURITY: Include tenantId to ensure tenant isolation
         shift = await queryRunner.manager.findOne(Shift, {
-          where: { id: attendanceRecord.shiftId },
+          where: { id: attendanceRecord.shiftId, tenantId },
         });
       }
 
@@ -233,8 +234,9 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
     if (yesterdayRecord && yesterdayRecord.clockIn && !yesterdayRecord.clockOut) {
       // Verify it's actually an overnight shift by checking if shift crosses midnight
       if (yesterdayRecord.shiftId) {
+        // SECURITY: Include tenantId to ensure tenant isolation
         const shift = await queryRunner.manager.findOne(Shift, {
-          where: { id: yesterdayRecord.shiftId },
+          where: { id: yesterdayRecord.shiftId, tenantId },
         });
         if (shift?.crossesMidnight) {
           return yesterdayRecord;

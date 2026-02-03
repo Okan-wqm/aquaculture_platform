@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
-import { UnauthorizedException, UseGuards } from '@nestjs/common';
+import { UnauthorizedException, ForbiddenException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -103,19 +103,19 @@ export class AttendanceResolver {
   ) {}
 
   private getTenantId(context: GraphQLContext): string {
-    const tenantId =
-      context.req.user?.tenantId ||
-      context.req.headers['x-tenant-id'];
+    // SECURITY: Only trust JWT-verified tenantId, never trust headers directly
+    const tenantId = context.req.user?.tenantId;
     if (!tenantId) {
-      throw new UnauthorizedException('Tenant ID is required');
+      throw new UnauthorizedException('Tenant ID is required - authentication required');
     }
     return tenantId;
   }
 
   private getUserId(context: GraphQLContext): string {
-    const userId = context.req.user?.sub || context.req.headers['x-user-id'];
+    // SECURITY: Only trust JWT-verified userId, never trust headers directly
+    const userId = context.req.user?.sub;
     if (!userId || typeof userId !== 'string') {
-      throw new UnauthorizedException('User ID is required');
+      throw new UnauthorizedException('User ID is required - authentication required');
     }
     return userId;
   }
@@ -235,6 +235,8 @@ export class AttendanceResolver {
   // Shift Mutations
   // =====================
   @Mutation(() => Shift)
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.HR_MANAGER)
   async createShift(
     @Args('input') input: CreateShiftInput,
     @Context() context: GraphQLContext,
@@ -275,11 +277,20 @@ export class AttendanceResolver {
   ): Promise<AttendanceRecord> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
+
+    // SECURITY: Users can only clock in for themselves unless they have elevated role
+    // For self-service, employeeId should match userId or be omitted
+    const employeeId = input.employeeId || userId;
+    if (employeeId !== userId) {
+      // Only managers can clock in others - this should be handled by a separate mutation
+      throw new ForbiddenException('You can only clock in for yourself');
+    }
+
     return this.commandBus.execute(
       new ClockInCommand(
         tenantId,
         userId,
-        input.employeeId,
+        employeeId,
         input.method,
         input.location,
         input.remarks,
@@ -295,11 +306,20 @@ export class AttendanceResolver {
   ): Promise<AttendanceRecord> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
+
+    // SECURITY: Users can only clock out for themselves unless they have elevated role
+    // For self-service, employeeId should match userId or be omitted
+    const employeeId = input.employeeId || userId;
+    if (employeeId !== userId) {
+      // Only managers can clock out others - this should be handled by a separate mutation
+      throw new ForbiddenException('You can only clock out for yourself');
+    }
+
     return this.commandBus.execute(
       new ClockOutCommand(
         tenantId,
         userId,
-        input.employeeId,
+        employeeId,
         input.method,
         input.location,
         input.remarks,

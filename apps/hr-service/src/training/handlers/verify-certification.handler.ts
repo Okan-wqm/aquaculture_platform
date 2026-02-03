@@ -1,7 +1,6 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+import { NotFoundException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { VerifyCertificationCommand } from '../commands/verify-certification.command';
 import { EmployeeCertification, CertificationStatus, VerificationStatus } from '../entities/employee-certification.entity';
 
@@ -9,38 +8,66 @@ import { EmployeeCertification, CertificationStatus, VerificationStatus } from '
 export class VerifyCertificationHandler
   implements ICommandHandler<VerifyCertificationCommand>
 {
+  private readonly logger = new Logger(VerifyCertificationHandler.name);
+
   constructor(
-    @InjectRepository(EmployeeCertification)
-    private readonly certificationRepository: Repository<EmployeeCertification>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(command: VerifyCertificationCommand): Promise<EmployeeCertification> {
     const { tenantId, userId, certificationId, notes } = command;
 
-    const certification = await this.certificationRepository.findOne({
-      where: { id: certificationId, tenantId, isDeleted: false },
-    });
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    if (!certification) {
-      throw new NotFoundException(`Certification with ID ${certificationId} not found`);
+    try {
+      const certificationRepo = queryRunner.manager.getRepository(EmployeeCertification);
+
+      const certification = await certificationRepo.findOne({
+        where: { id: certificationId, tenantId, isDeleted: false },
+      });
+
+      if (!certification) {
+        throw new NotFoundException(`Certification with ID ${certificationId} not found`);
+      }
+
+      if (certification.verificationStatus === VerificationStatus.VERIFIED) {
+        throw new BadRequestException('Certification is already verified');
+      }
+
+      certification.verificationStatus = VerificationStatus.VERIFIED;
+      certification.verifiedBy = userId;
+      certification.verifiedAt = new Date();
+
+      if (notes) {
+        certification.notes = certification.notes
+          ? `${certification.notes}; Verification: ${notes}`
+          : `Verification: ${notes}`;
+      }
+
+      certification.updatedBy = userId;
+
+      const savedCertification = await certificationRepo.save(certification);
+
+      await queryRunner.commitTransaction();
+
+      return savedCertification;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Failed to verify certification ${certificationId} for tenant ${tenantId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+
+      throw new InternalServerErrorException('Failed to verify certification');
+    } finally {
+      await queryRunner.release();
     }
-
-    if (certification.verificationStatus === VerificationStatus.VERIFIED) {
-      throw new BadRequestException('Certification is already verified');
-    }
-
-    certification.verificationStatus = VerificationStatus.VERIFIED;
-    certification.verifiedBy = userId;
-    certification.verifiedAt = new Date();
-
-    if (notes) {
-      certification.notes = certification.notes
-        ? `${certification.notes}; Verification: ${notes}`
-        : `Verification: ${notes}`;
-    }
-
-    certification.updatedBy = userId;
-
-    return this.certificationRepository.save(certification);
   }
 }

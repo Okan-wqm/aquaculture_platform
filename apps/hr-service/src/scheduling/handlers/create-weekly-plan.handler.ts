@@ -218,8 +218,9 @@ export class CreateWeeklyPlanHandler implements ICommandHandler<CreateWeeklyPlan
       await queryRunner.commitTransaction();
 
       // Reload with entries
+      // SECURITY: Include tenantId to ensure tenant isolation
       const result = await this.weeklyPlanRepository.findOne({
-        where: { id: savedPlan.id },
+        where: { id: savedPlan.id, tenantId },
         relations: ['entries', 'entries.shift', 'employee'],
       });
 

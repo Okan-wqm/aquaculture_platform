@@ -31,7 +31,7 @@ export class CreateEmployeeHandler implements ICommandHandler<CreateEmployeeComm
       });
 
       if (existingByEmail) {
-        throw new ConflictException(`Employee with email ${input.email} already exists`);
+        throw new ConflictException('An employee with this email already exists');
       }
 
       // Generate employee number with pessimistic lock to prevent race conditions

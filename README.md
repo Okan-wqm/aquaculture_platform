@@ -341,7 +341,46 @@ All services expose health endpoints:
 3. Run `npm run lint` and `npm run test` before committing
 4. Update documentation as needed
 
-## Recent Updates (v1.1.0)
+## Recent Updates (v1.2.0)
+
+### Security Hardening
+
+**Authorization & Access Control**
+- Global `RolesGuard` enforcement across all microservices
+- Role-based access control (RBAC) on all mutations
+- JWT-only tenant/user verification (removed header-based trust)
+- IDOR protection on self-service operations (clock-in/out, leave requests, training enrollment)
+
+**GraphQL Security**
+- Query depth limiting (max 10 levels) to prevent DoS attacks
+- Query complexity limiting (max 1000) to prevent resource exhaustion
+- Introspection disabled in production
+
+**Tenant Isolation**
+- All database queries enforce `tenantId` filtering
+- Cross-tenant data access prevention
+- Defense-in-depth on all data operations
+
+**Input Validation**
+- Comprehensive DTO validation with class-validator
+- Coordinate validation (lat/long bounds)
+- Date format validation (ISO 8601)
+- Numeric bounds on financial and time fields
+- Enum validation on categorical fields
+
+**Transaction Safety**
+- ACID transactions on all state-changing operations
+- Proper rollback handling on errors
+- Race condition prevention on unique constraints
+
+**Error Handling**
+- PII removal from error messages
+- Consistent error logging with stack traces
+- Generic error responses to prevent information leakage
+
+---
+
+## Previous Updates (v1.1.0)
 
 ### Backend Enhancements
 

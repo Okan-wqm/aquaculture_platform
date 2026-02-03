@@ -51,15 +51,31 @@ export class SensorResolver {
 
   /**
    * Federation reference resolver
+   * SECURITY: Includes tenant isolation to prevent cross-tenant data access
    */
   @ResolveReference()
-  async resolveReference(reference: {
-    __typename: string;
-    id: string;
-  }): Promise<Sensor | null> {
+  async resolveReference(
+    reference: {
+      __typename: string;
+      id: string;
+      tenantId?: string;
+    },
+    context: { req?: { user?: { tenantId?: string } } },
+  ): Promise<Sensor | null> {
     try {
+      // SECURITY: Extract tenantId from context or reference
+      const tenantId = context?.req?.user?.tenantId || reference.tenantId;
+
+      if (!tenantId) {
+        this.logger.warn(
+          `Federation reference resolver called without tenantId for sensor ${reference.id}`,
+        );
+        return null;
+      }
+
+      // SECURITY: Always filter by tenantId to ensure tenant isolation
       return await this.sensorRepository.findOne({
-        where: { id: reference.id },
+        where: { id: reference.id, tenantId },
       });
     } catch {
       return null;

@@ -6,6 +6,7 @@ import {
   IsBoolean,
   IsEnum,
   IsString,
+  IsNumber,
   Min,
   MaxLength,
 } from 'class-validator';
@@ -30,6 +31,7 @@ export class CreateLeaveRequestInput {
   endDate!: string;
 
   @Field(() => Float)
+  @IsNumber()
   @Min(0.5)
   totalDays!: number;
 
@@ -78,6 +80,7 @@ export class UpdateLeaveRequestInput {
   endDate?: string;
 
   @Field(() => Float, { nullable: true })
+  @IsNumber()
   @Min(0.5)
   @IsOptional()
   totalDays?: number;

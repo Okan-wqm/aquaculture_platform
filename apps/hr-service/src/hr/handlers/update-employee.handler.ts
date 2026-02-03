@@ -40,7 +40,7 @@ export class UpdateEmployeeHandler implements ICommandHandler<UpdateEmployeeComm
         });
 
         if (existingByEmail) {
-          throw new ConflictException(`Employee with email ${input.email} already exists`);
+          throw new ConflictException('An employee with this email already exists');
         }
       }
 

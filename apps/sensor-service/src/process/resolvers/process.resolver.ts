@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { Tenant, CurrentUser, CurrentUserPayload } from '@platform/backend-common';
+import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role } from '@platform/backend-common';
 
 import {
   CreateProcessInput,
@@ -68,9 +68,15 @@ export class ProcessResolver {
 
   // ============================================================================
   // Mutations
+  // SECURITY: All mutations require elevated permissions
   // ============================================================================
 
+  /**
+   * Create a new process
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => ProcessResultType, { name: 'createProcess' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createProcess(
     @Args('input') input: CreateProcessInput,
     @Tenant() tenantId: string,
@@ -91,7 +97,12 @@ export class ProcessResolver {
     }
   }
 
+  /**
+   * Update an existing process
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => ProcessResultType, { name: 'updateProcess' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateProcess(
     @Args('input') input: UpdateProcessInput,
     @Tenant() tenantId: string,
@@ -112,7 +123,12 @@ export class ProcessResolver {
     }
   }
 
+  /**
+   * Delete (archive) a process
+   * SECURITY: Requires TENANT_ADMIN
+   */
   @Mutation(() => DeleteProcessResultType, { name: 'deleteProcess' })
+  @Roles(Role.TENANT_ADMIN)
   async deleteProcess(
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
@@ -132,7 +148,12 @@ export class ProcessResolver {
     }
   }
 
+  /**
+   * Duplicate a process
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => ProcessResultType, { name: 'duplicateProcess' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async duplicateProcess(
     @Args('id', { type: () => ID }) id: string,
     @Args('newName') newName: string,
@@ -154,7 +175,12 @@ export class ProcessResolver {
     }
   }
 
+  /**
+   * Create process from template
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => ProcessResultType, { name: 'createProcessFromTemplate' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createFromTemplate(
     @Args('templateId', { type: () => ID }) templateId: string,
     @Args('name') name: string,

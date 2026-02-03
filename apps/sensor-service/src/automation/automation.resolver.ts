@@ -195,8 +195,10 @@ export class AutomationResolver {
 
   /**
    * Update an automation program
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => AutomationProgram)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateAutomationProgram(
     @Args('id', { type: () => ID }) id: string,
     @Args('input') input: UpdateProgramInput,
@@ -219,8 +221,10 @@ export class AutomationResolver {
 
   /**
    * Clone an automation program
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => AutomationProgram)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async cloneAutomationProgram(
     @Args('id', { type: () => ID }) id: string,
     @Args('newCode') newCode: string,
@@ -232,12 +236,15 @@ export class AutomationResolver {
 
   // ============================================
   // Step Mutations
+  // SECURITY: Step mutations require elevated permissions
   // ============================================
 
   /**
    * Add a step to a program
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => ProgramStep)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async addProgramStep(
     @Args('input') input: CreateStepInput,
     @Tenant() tenantId: string,
@@ -247,8 +254,10 @@ export class AutomationResolver {
 
   /**
    * Update a step
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => ProgramStep)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateProgramStep(
     @Args('id', { type: () => ID }) id: string,
     @Args('input') input: UpdateStepInput,
@@ -259,8 +268,10 @@ export class AutomationResolver {
 
   /**
    * Remove a step
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => Boolean)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async removeProgramStep(
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
@@ -270,12 +281,15 @@ export class AutomationResolver {
 
   // ============================================
   // Action Mutations
+  // SECURITY: Action mutations require elevated permissions
   // ============================================
 
   /**
    * Add an action to a step
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => StepAction)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async addStepAction(
     @Args('input') input: CreateActionInput,
     @Tenant() tenantId: string,
@@ -285,8 +299,10 @@ export class AutomationResolver {
 
   /**
    * Update an action
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => StepAction)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateStepAction(
     @Args('id', { type: () => ID }) id: string,
     @Args('input') input: UpdateActionInput,
@@ -297,8 +313,10 @@ export class AutomationResolver {
 
   /**
    * Remove an action
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => Boolean)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async removeStepAction(
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
@@ -308,12 +326,15 @@ export class AutomationResolver {
 
   // ============================================
   // Transition Mutations
+  // SECURITY: Transition mutations require elevated permissions
   // ============================================
 
   /**
    * Add a transition between steps
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => ProgramTransition)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async addProgramTransition(
     @Args('input') input: CreateTransitionInput,
     @Tenant() tenantId: string,
@@ -323,8 +344,10 @@ export class AutomationResolver {
 
   /**
    * Update a transition
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => ProgramTransition)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateProgramTransition(
     @Args('id', { type: () => ID }) id: string,
     @Args('input') input: UpdateTransitionInput,
@@ -335,8 +358,10 @@ export class AutomationResolver {
 
   /**
    * Remove a transition
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => Boolean)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async removeProgramTransition(
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
@@ -346,12 +371,15 @@ export class AutomationResolver {
 
   // ============================================
   // Variable Mutations
+  // SECURITY: Variable mutations require elevated permissions
   // ============================================
 
   /**
    * Add a variable to a program
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => ProgramVariable)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async addProgramVariable(
     @Args('input') input: CreateVariableInput,
     @Tenant() tenantId: string,
@@ -361,8 +389,10 @@ export class AutomationResolver {
 
   /**
    * Update a variable
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => ProgramVariable)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateProgramVariable(
     @Args('id', { type: () => ID }) id: string,
     @Args('input') input: UpdateVariableInput,
@@ -373,8 +403,10 @@ export class AutomationResolver {
 
   /**
    * Remove a variable
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => Boolean)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async removeProgramVariable(
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
@@ -384,12 +416,15 @@ export class AutomationResolver {
 
   // ============================================
   // Lifecycle Mutations
+  // SECURITY: Lifecycle mutations require appropriate permissions
   // ============================================
 
   /**
    * Submit program for review
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => AutomationProgram)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async submitProgramForReview(
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
@@ -425,8 +460,10 @@ export class AutomationResolver {
 
   /**
    * Lock program for editing
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => AutomationProgram)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async lockProgram(
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
@@ -437,8 +474,10 @@ export class AutomationResolver {
 
   /**
    * Unlock program
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => AutomationProgram)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async unlockProgram(
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
@@ -448,8 +487,10 @@ export class AutomationResolver {
 
   /**
    * Archive a program
+   * SECURITY: Requires TENANT_ADMIN
    */
   @Mutation(() => AutomationProgram)
+  @Roles(Role.TENANT_ADMIN)
   async archiveProgram(
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,

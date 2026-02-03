@@ -68,19 +68,19 @@ export class AquacultureResolver {
   constructor(private readonly queryBus: QueryBus) {}
 
   private getTenantId(context: GraphQLContext): string {
-    const tenantId =
-      context.req.user?.tenantId ||
-      context.req.headers['x-tenant-id'];
+    // SECURITY: Only trust JWT-verified tenantId, never trust headers directly
+    const tenantId = context.req.user?.tenantId;
     if (!tenantId) {
-      throw new UnauthorizedException('Tenant ID is required');
+      throw new UnauthorizedException('Tenant ID is required - authentication required');
     }
     return tenantId;
   }
 
   private getUserId(context: GraphQLContext): string {
-    const userId = context.req.user?.sub || context.req.headers['x-user-id'];
+    // SECURITY: Only trust JWT-verified userId, never trust headers directly
+    const userId = context.req.user?.sub;
     if (!userId || typeof userId !== 'string') {
-      throw new UnauthorizedException('User ID is required');
+      throw new UnauthorizedException('User ID is required - authentication required');
     }
     return userId;
   }

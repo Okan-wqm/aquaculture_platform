@@ -5,7 +5,10 @@ import {
   IsEnum,
   IsNumber,
   IsString,
+  IsDateString,
   MaxLength,
+  Min,
+  Max,
 } from 'class-validator';
 import { ClockMethod } from '../entities/attendance-record.entity';
 
@@ -13,10 +16,14 @@ import { ClockMethod } from '../entities/attendance-record.entity';
 export class GeoLocationInput {
   @Field(() => Float)
   @IsNumber()
+  @Min(-90)
+  @Max(90)
   latitude!: number;
 
   @Field(() => Float)
   @IsNumber()
+  @Min(-180)
+  @Max(180)
   longitude!: number;
 
   @Field({ nullable: true })
@@ -27,6 +34,7 @@ export class GeoLocationInput {
 
   @Field({ nullable: true })
   @IsNumber()
+  @Min(0)
   @IsOptional()
   accuracy?: number;
 }
@@ -85,16 +93,16 @@ export class ManualAttendanceInput {
   employeeId!: string;
 
   @Field()
-  @IsString()
+  @IsDateString()
   date!: string; // YYYY-MM-DD
 
   @Field({ nullable: true })
-  @IsString()
+  @IsDateString()
   @IsOptional()
   clockIn?: string; // ISO datetime
 
   @Field({ nullable: true })
-  @IsString()
+  @IsDateString()
   @IsOptional()
   clockOut?: string; // ISO datetime
 

@@ -37,9 +37,12 @@ export function convertLocalToUtc(localTime: Date, timezone: string): Date {
 
     // Get local time string in the target timezone
     const localStr = formatter.format(localTime);
-    const [datePart, timePart] = localStr.split(', ');
-    const [month, day, year] = datePart!.split('/');
-    const [hour, minute, second] = timePart!.split(':');
+    const parts = localStr.split(', ');
+    if (parts.length < 2) return localTime;
+    const [datePart, timePart] = parts;
+    if (!datePart || !timePart) return localTime;
+    const [month, day, year] = datePart.split('/');
+    const [hour, minute, second] = timePart.split(':');
 
     // Create a date assuming it's in the local timezone and convert to UTC
     const tzOffset = getTimezoneOffset(timezone, localTime);

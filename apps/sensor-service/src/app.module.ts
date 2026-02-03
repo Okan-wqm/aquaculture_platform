@@ -2,7 +2,7 @@ import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
-import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -13,8 +13,12 @@ import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
   TenantGuard,
+  RolesGuard,
 } from '@platform/backend-common';
 import { EventBusModule } from '@platform/event-bus';
+import depthLimit from 'graphql-depth-limit';
+import { GraphQLError } from 'graphql';
+import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 
 import { AutomationModule } from './automation/automation.module';
 import {
@@ -135,20 +139,63 @@ import { VfdModule } from './vfd/vfd.module';
       driver: ApolloFederationDriver,
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        autoSchemaFile: {
-          federation: 2,
-        },
-        buildSchemaOptions: {
-          // VFD entities and their nested types are registered via @ObjectType decorators
-          // This ensures proper schema composition in Apollo Federation
-          orphanedTypes: [],
-        },
-        playground: configService.get('NODE_ENV') !== 'production',
-        // SECURITY: Disable introspection in production
-        introspection: configService.get('NODE_ENV') !== 'production',
-        context: ({ req }: { req: unknown }) => ({ req }),
-      }),
+      useFactory: (configService: ConfigService) => {
+        const logger = new Logger('GraphQLModule');
+        const maxDepth = configService.get<number>('GRAPHQL_MAX_DEPTH', 10);
+        const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
+
+        return {
+          autoSchemaFile: {
+            federation: 2,
+          },
+          buildSchemaOptions: {
+            // VFD entities and their nested types are registered via @ObjectType decorators
+            // This ensures proper schema composition in Apollo Federation
+            orphanedTypes: [],
+          },
+          playground: configService.get('NODE_ENV') !== 'production',
+          // SECURITY: Disable introspection in production
+          introspection: configService.get('NODE_ENV') !== 'production',
+          context: ({ req }: { req: unknown }) => ({ req }),
+
+          // SECURITY: Query depth limiting to prevent DoS via deeply nested queries
+          validationRules: [depthLimit(maxDepth)],
+
+          // SECURITY: Query complexity limiting to prevent DoS via expensive queries
+          plugins: [
+            {
+              requestDidStart: async () => ({
+                async didResolveOperation({ request, document, schema }) {
+                  const complexity = getComplexity({
+                    schema,
+                    operationName: request.operationName,
+                    query: document,
+                    variables: request.variables,
+                    estimators: [
+                      fieldExtensionsEstimator(),
+                      simpleEstimator({ defaultComplexity: 1 }),
+                    ],
+                  });
+
+                  if (complexity > maxComplexity) {
+                    logger.warn(
+                      `Query complexity ${complexity} exceeds max ${maxComplexity}`,
+                    );
+                    throw new GraphQLError(
+                      `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
+                      {
+                        extensions: { code: 'QUERY_COMPLEXITY_EXCEEDED' },
+                      },
+                    );
+                  }
+
+                  logger.debug(`Query complexity: ${complexity}`);
+                },
+              }),
+            },
+          ],
+        };
+      },
     }),
 
     // Event Bus Module
@@ -207,10 +254,16 @@ import { VfdModule } from './vfd/vfd.module';
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
     },
-    // Tenant guard
+    // Tenant guard - ensures tenant isolation
     {
       provide: APP_GUARD,
       useClass: TenantGuard,
+    },
+    // SECURITY: Roles guard - enforces @Roles() decorator authorization
+    // Without this, @Roles decorators would have no effect!
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
   ],
 })

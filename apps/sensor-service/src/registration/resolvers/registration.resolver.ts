@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Int } from '@nestjs/graphql';
-import { Tenant, CurrentUser } from '@platform/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { Sensor } from '../../database/entities/sensor.entity';
@@ -98,7 +98,14 @@ export class RegistrationResolver {
   }
 
   // Mutations
+  // SECURITY: All mutations require elevated permissions for sensor management
+
+  /**
+   * Register a new sensor
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => SensorRegistrationResultType, { name: 'registerSensor' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async registerSensor(
     @Args('input') input: RegisterSensorInput,
     @Tenant() tenantId: string,
@@ -118,7 +125,12 @@ export class RegistrationResolver {
     };
   }
 
+  /**
+   * Test sensor connection
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER - tests network connectivity
+   */
   @Mutation(() => ConnectionTestResultType, { name: 'testSensorConnection' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async testSensorConnection(
     @Args('sensorId', { type: () => ID }) sensorId: string,
     @Tenant() tenantId: string,
@@ -134,7 +146,12 @@ export class RegistrationResolver {
     };
   }
 
+  /**
+   * Activate a sensor
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => RegisteredSensorType, { name: 'activateSensor' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async activateSensor(
     @Args('sensorId', { type: () => ID }) sensorId: string,
     @Tenant() tenantId: string,
@@ -144,7 +161,12 @@ export class RegistrationResolver {
     return this.mapSensorToType(sensor);
   }
 
+  /**
+   * Suspend a sensor
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => RegisteredSensorType, { name: 'suspendSensor' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async suspendSensor(
     @Args('sensorId', { type: () => ID }) sensorId: string,
     @Args('reason', { nullable: true }) reason?: string,
@@ -156,7 +178,12 @@ export class RegistrationResolver {
     return this.mapSensorToType(sensor);
   }
 
+  /**
+   * Reactivate a suspended sensor
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => RegisteredSensorType, { name: 'reactivateSensor' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async reactivateSensor(
     @Args('sensorId', { type: () => ID }) sensorId: string,
     @Tenant() tenantId: string,
@@ -166,7 +193,12 @@ export class RegistrationResolver {
     return this.mapSensorToType(sensor);
   }
 
+  /**
+   * Update sensor protocol configuration
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => SensorRegistrationResultType, { name: 'updateSensorProtocol' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateSensorProtocol(
     @Args('input') input: UpdateSensorProtocolInput,
     @Tenant() tenantId: string,
@@ -180,7 +212,12 @@ export class RegistrationResolver {
     };
   }
 
+  /**
+   * Update sensor information
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => RegisteredSensorType, { name: 'updateSensorInfo' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateSensorInfo(
     @Args('input') input: UpdateSensorInfoInput,
     @Tenant() tenantId: string,
@@ -190,7 +227,12 @@ export class RegistrationResolver {
     return this.mapSensorToType(sensor);
   }
 
+  /**
+   * Delete a sensor
+   * SECURITY: Requires TENANT_ADMIN - permanent deletion
+   */
   @Mutation(() => Boolean, { name: 'deleteSensor' })
+  @Roles(Role.TENANT_ADMIN)
   async deleteSensor(
     @Args('sensorId', { type: () => ID }) sensorId: string,
     @Tenant() tenantId: string,
@@ -225,8 +267,14 @@ export class RegistrationResolver {
   }
 
   // ==================== Parent-Child Registration ====================
+  // SECURITY: Parent-child operations require elevated permissions
 
+  /**
+   * Register parent device with child sensors
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => ParentWithChildrenResultType, { name: 'registerParentWithChildren' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async registerParentWithChildren(
     @Args('input') input: RegisterParentWithChildrenInput,
     @Tenant() tenantId: string,
@@ -286,7 +334,12 @@ export class RegistrationResolver {
     };
   }
 
+  /**
+   * Test parent device connection
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
   @Mutation(() => ConnectionTestResultType, { name: 'testParentConnection' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async testParentConnection(
     @Args('parentId', { type: () => ID }) parentId: string,
     @Tenant() tenantId: string,
@@ -302,7 +355,12 @@ export class RegistrationResolver {
     };
   }
 
+  /**
+   * Delete parent device with all child sensors
+   * SECURITY: Requires TENANT_ADMIN - permanent deletion
+   */
   @Mutation(() => Boolean, { name: 'deleteParentWithChildren' })
+  @Roles(Role.TENANT_ADMIN)
   async deleteParentWithChildren(
     @Args('parentId', { type: () => ID }) parentId: string,
     @Tenant() tenantId: string,

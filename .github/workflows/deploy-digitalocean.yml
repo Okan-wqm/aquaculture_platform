@@ -314,7 +314,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Send Slack notification
-        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
+        # Note: Can't check secrets in if condition, use continue-on-error instead
+        continue-on-error: true
         uses: 8398a7/action-slack@v3
         with:
           status: ${{ needs.deploy.result }}

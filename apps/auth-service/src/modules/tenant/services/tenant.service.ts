@@ -11,8 +11,10 @@ import { Role, SchemaManagerService } from '@platform/backend-common';
 import { IEventBus } from '@platform/event-bus';
 import { TenantCreatedEvent, TenantUpdatedEvent, UserInvitedEvent } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 
+import { SECURITY_CONSTANTS, TENANT_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.constants';
 import { User } from '../../authentication/entities/user.entity';
 import { Module } from '../../system-module/entities/module.entity';
 import { CreateTenantInput, UpdateTenantInput, AssignModulesToTenantInput } from '../dto/create-tenant.dto';
@@ -125,7 +127,7 @@ export class TenantService {
     let trialEndsAt: Date | null = null;
     if (!input.plan || input.plan === TenantPlan.TRIAL) {
       trialEndsAt = new Date();
-      trialEndsAt.setDate(trialEndsAt.getDate() + 14); // 14 day trial
+      trialEndsAt.setDate(trialEndsAt.getDate() + TENANT_CONSTANTS.TRIAL_PERIOD_DAYS);
     }
 
     const tenant = this.tenantRepository.create({
@@ -221,21 +223,25 @@ export class TenantService {
       }
 
       // Generate password reset token (user will set their own password)
-      const resetToken = crypto.randomUUID();
-      const resetTokenHash = await bcrypt.hash(resetToken, 10);
+      // SECURITY: Use crypto.randomBytes for unpredictable tokens (256 bits of entropy)
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const resetTokenPasswordHash = await bcrypt.hash(resetToken, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS);
+      // SECURITY: Hash reset token with SHA256 before storage to prevent token leakage
+      // Plain token is sent to user, hash is stored in DB for verification
+      const resetTokenStorageHash = crypto.createHash('sha256').update(resetToken).digest('hex');
 
       // Create admin user with pending password reset
       const adminUser = this.userRepository.create({
         email,
-        password: resetTokenHash, // Temporary hash, user must reset
+        password: resetTokenPasswordHash, // Temporary hash, user must reset
         firstName: 'Admin',
         lastName: tenant.name,
         role: Role.TENANT_ADMIN,
         tenantId: tenant.id,
         isActive: true,
         isEmailVerified: false, // Will need to verify
-        passwordResetToken: resetToken,
-        passwordResetExpires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        passwordResetToken: resetTokenStorageHash, // Store hash, not plain token
+        passwordResetExpires: new Date(Date.now() + TOKEN_CONSTANTS.DEFAULT_INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
       });
 
       const savedUser = await this.userRepository.save(adminUser);

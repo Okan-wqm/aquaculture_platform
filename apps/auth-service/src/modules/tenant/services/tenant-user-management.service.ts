@@ -8,6 +8,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 import { SchemaManagerService, Role } from '@platform/backend-common';
 import { IEventBus } from '@platform/event-bus';
@@ -130,8 +131,9 @@ export class TenantUserManagementService {
     }
 
     // Generate invitation token if not providing password
+    // SECURITY: Use crypto.randomBytes for unpredictable tokens (256 bits of entropy)
     const invitationToken = sendInvitation && !input.password
-      ? crypto.randomUUID()
+      ? crypto.randomBytes(32).toString('hex')
       : null;
     const invitationExpiry = invitationToken
       ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days

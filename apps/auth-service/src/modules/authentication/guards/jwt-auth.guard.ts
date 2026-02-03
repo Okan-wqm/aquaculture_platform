@@ -9,11 +9,13 @@ import { JwtService } from '@nestjs/jwt';
 import { IS_PUBLIC_KEY } from '@platform/backend-common';
 import { Request } from 'express';
 
+import { JwtPayload } from '../services/authentication.service';
+
 /**
  * Extended request with user payload
  */
 interface AuthenticatedRequest extends Request {
-  user?: Record<string, unknown>;
+  user?: JwtPayload;
 }
 
 /**
@@ -49,7 +51,7 @@ export class JwtAuthGuard {
     }
 
     try {
-      const payload = await this.jwtService.verifyAsync<Record<string, unknown>>(token);
+      const payload = await this.jwtService.verifyAsync(token) as JwtPayload;
       request.user = payload;
       return true;
     } catch {

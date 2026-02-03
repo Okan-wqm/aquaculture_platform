@@ -1,5 +1,8 @@
 import { InputType, Field, ObjectType, ID } from '@nestjs/graphql';
-import { IsNotEmpty, IsString, IsOptional, IsEnum, IsBoolean, IsDateString } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsEnum, IsBoolean, IsDateString, MaxLength, IsUUID, IsArray, ArrayMaxSize } from 'class-validator';
+import { Transform } from 'class-transformer';
+
+import { escapeHtml } from '../../../utils/sanitize';
 
 import {
   AnnouncementType,
@@ -15,18 +18,41 @@ import {
 @InputType()
 export class AnnouncementTargetInput {
   @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100, { message: 'Maximum 100 tenant IDs allowed' })
+  @IsUUID('4', { each: true, message: 'Each tenantId must be a valid UUID' })
   tenantIds?: string[];
 
   @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100, { message: 'Maximum 100 excluded tenant IDs allowed' })
+  @IsUUID('4', { each: true, message: 'Each excludeTenantId must be a valid UUID' })
   excludeTenantIds?: string[];
 
   @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20, { message: 'Maximum 20 plans allowed' })
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
   plans?: string[];
 
   @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50, { message: 'Maximum 50 modules allowed' })
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
   modules?: string[];
 
   @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50, { message: 'Maximum 50 regions allowed' })
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
   regions?: string[];
 }
 
@@ -38,11 +64,15 @@ export class CreatePlatformAnnouncementInput {
   @Field()
   @IsNotEmpty()
   @IsString()
+  @MaxLength(500, { message: 'Title must be at most 500 characters' })
+  @Transform(({ value }) => typeof value === 'string' ? escapeHtml(value.trim()) : value)
   title!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
+  @MaxLength(50000, { message: 'Content must be at most 50000 characters' })
+  @Transform(({ value }) => typeof value === 'string' ? escapeHtml(value.trim()) : value)
   content!: string;
 
   @Field(() => AnnouncementType, { defaultValue: AnnouncementType.INFO })
@@ -80,11 +110,15 @@ export class CreateTenantAnnouncementInput {
   @Field()
   @IsNotEmpty()
   @IsString()
+  @MaxLength(500, { message: 'Title must be at most 500 characters' })
+  @Transform(({ value }) => typeof value === 'string' ? escapeHtml(value.trim()) : value)
   title!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
+  @MaxLength(50000, { message: 'Content must be at most 50000 characters' })
+  @Transform(({ value }) => typeof value === 'string' ? escapeHtml(value.trim()) : value)
   content!: string;
 
   @Field(() => AnnouncementType, { defaultValue: AnnouncementType.INFO })

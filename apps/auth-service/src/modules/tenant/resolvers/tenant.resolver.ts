@@ -1,6 +1,6 @@
-import { UseGuards } from '@nestjs/common';
+import { UseGuards, ForbiddenException } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context, Int } from '@nestjs/graphql';
-import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher } from '@platform/backend-common';
+import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '@platform/backend-common';
 
 import { User } from '../../authentication/entities/user.entity';
 import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
@@ -34,7 +34,15 @@ export class TenantResolver {
   @UseGuards(JwtAuthGuard)
   @TenantAdminOrHigher()
   @Query(() => Tenant)
-  async tenant(@Args('id', { type: () => ID }) id: string): Promise<Tenant> {
+  async tenant(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentUser('role') role: Role,
+    @CurrentUser('tenantId') userTenantId: string | null,
+  ): Promise<Tenant> {
+    // SECURITY: Tenant isolation - TENANT_ADMIN can only access their own tenant
+    if (role !== Role.SUPER_ADMIN && userTenantId !== id) {
+      throw new ForbiddenException('Access denied: You can only access your own tenant');
+    }
     return this.tenantService.findById(id);
   }
 
@@ -50,7 +58,13 @@ export class TenantResolver {
   async updateTenant(
     @Args('id', { type: () => ID }) id: string,
     @Args('input') input: UpdateTenantInput,
+    @CurrentUser('role') role: Role,
+    @CurrentUser('tenantId') userTenantId: string | null,
   ): Promise<Tenant> {
+    // SECURITY: Tenant isolation - TENANT_ADMIN can only update their own tenant
+    if (role !== Role.SUPER_ADMIN && userTenantId !== id) {
+      throw new ForbiddenException('Access denied: You can only update your own tenant');
+    }
     return this.tenantService.update(id, input);
   }
 

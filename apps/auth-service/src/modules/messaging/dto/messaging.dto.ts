@@ -1,5 +1,8 @@
 import { InputType, Field, ObjectType, ID } from '@nestjs/graphql';
-import { IsNotEmpty, IsString, IsUUID, IsOptional, IsBoolean } from 'class-validator';
+import { IsNotEmpty, IsString, IsUUID, IsOptional, IsBoolean, MaxLength, IsArray, ArrayMaxSize, IsIn } from 'class-validator';
+import { Transform } from 'class-transformer';
+
+import { escapeHtml } from '../../../utils/sanitize';
 
 import { ThreadStatus } from '../entities/message-thread.entity';
 import { SenderType, MessageStatus, MessageAttachment } from '../entities/message.entity';
@@ -12,16 +15,20 @@ export class CreateThreadInput {
   @Field()
   @IsNotEmpty()
   @IsString()
+  @MaxLength(255, { message: 'Subject must be at most 255 characters' })
+  @Transform(({ value }) => typeof value === 'string' ? escapeHtml(value.trim()) : value)
   subject!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
+  @MaxLength(10000, { message: 'Message must be at most 10000 characters' })
+  @Transform(({ value }) => typeof value === 'string' ? escapeHtml(value.trim()) : value)
   initialMessage!: string;
 
   @Field({ nullable: true })
   @IsOptional()
-  @IsUUID()
+  @IsUUID('4', { message: 'Invalid tenant ID format' })
   tenantId?: string; // Required for SuperAdmin, auto-filled for TenantAdmin
 }
 
@@ -31,12 +38,14 @@ export class CreateThreadInput {
 @InputType()
 export class SendMessageInput {
   @Field()
-  @IsUUID()
+  @IsUUID('4', { message: 'Invalid thread ID format' })
   threadId!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
+  @MaxLength(10000, { message: 'Message must be at most 10000 characters' })
+  @Transform(({ value }) => typeof value === 'string' ? escapeHtml(value.trim()) : value)
   content!: string;
 
   @Field({ defaultValue: false })
@@ -52,20 +61,31 @@ export class BulkMessageInput {
   @Field()
   @IsNotEmpty()
   @IsString()
+  @MaxLength(255, { message: 'Subject must be at most 255 characters' })
+  @Transform(({ value }) => typeof value === 'string' ? escapeHtml(value.trim()) : value)
   subject!: string;
 
   @Field()
   @IsNotEmpty()
   @IsString()
+  @MaxLength(10000, { message: 'Message must be at most 10000 characters' })
+  @Transform(({ value }) => typeof value === 'string' ? escapeHtml(value.trim()) : value)
   content!: string;
 
   @Field(() => String)
+  @IsIn(['all', 'plan', 'module', 'region', 'custom'], { message: 'Invalid target type' })
   targetType!: 'all' | 'plan' | 'module' | 'region' | 'custom';
 
   @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100, { message: 'Maximum 100 target values allowed' })
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
   targetValues?: string[]; // Plan names, module IDs, etc.
 
   @Field({ defaultValue: true })
+  @IsBoolean()
   sendEmailNotification!: boolean;
 }
 

@@ -7,6 +7,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { JwtModule } from '@nestjs/jwt';
 import {
   UserContextMiddleware,
   TenantContextMiddleware,
@@ -157,6 +158,17 @@ import { VfdModule } from './vfd/vfd.module';
       useFactory: (configService: ConfigService) => ({
         natsUrl: configService.get<string>('NATS_URL', 'nats://localhost:4222'),
         streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
+      }),
+    }),
+
+    // JWT Module for auth guards (global for all feature modules)
+    JwtModule.registerAsync({
+      global: true,
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.get('JWT_SECRET', 'dev-secret'),
+        signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '1d') },
       }),
     }),
 

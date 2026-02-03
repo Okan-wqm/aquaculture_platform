@@ -38,18 +38,37 @@ export interface ITokenBlacklist {
    * Add token to blacklist
    * @param jti - JWT ID
    * @param expiresAt - Token expiration time (for cleanup)
+   * @param reason - Optional reason for blacklisting
    */
   add(jti: string, expiresAt: Date, reason?: string): Promise<void>;
 
   /**
    * Check if token is blacklisted
+   * @param jti - JWT ID to check
    */
   isBlacklisted(jti: string): Promise<boolean>;
 
   /**
    * Remove expired entries (maintenance)
+   * @returns Number of entries cleaned up
    */
   cleanup(): Promise<number>;
+
+  /**
+   * Blacklist all tokens for a user (logout from all devices)
+   * @param userId - User ID to blacklist tokens for
+   * @param expiresAt - Expiration time for the blacklist entry
+   * @param reason - Optional reason for blacklisting
+   */
+  blacklistUserTokens(userId: string, expiresAt: Date, reason?: string): Promise<void>;
+
+  /**
+   * Check if all user tokens are blacklisted
+   * @param userId - User ID to check
+   * @param tokenIssuedAt - Token issue time to compare against blacklist
+   * @returns true if token was issued before user blacklist entry
+   */
+  isUserBlacklisted(userId: string, tokenIssuedAt: Date): Promise<boolean>;
 }
 
 /**

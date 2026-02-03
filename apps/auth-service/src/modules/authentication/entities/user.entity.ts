@@ -124,8 +124,11 @@ export class User {
   @Column({ type: 'boolean', default: false })
   mfaEnabled!: boolean;
 
+  // TODO: SECURITY - MFA secret should be encrypted at rest using AES-256
+  // When implementing MFA setup/verify, encrypt this field before storage
+  // and decrypt when verifying OTP codes. Use a secure key from env vars.
   @HideField()
-  @Column({ type: 'varchar', length: 64, nullable: true })
+  @Column({ type: 'varchar', length: 128, nullable: true }) // Increased for encrypted value
   mfaSecret?: string | null;
 
   @Field(() => Date, { nullable: true })

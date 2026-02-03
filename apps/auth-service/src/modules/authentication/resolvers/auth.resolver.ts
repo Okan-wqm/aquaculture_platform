@@ -1,4 +1,4 @@
-import { UseGuards } from '@nestjs/common';
+import { UseGuards, UnauthorizedException } from '@nestjs/common';
 import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
 import { CurrentUser, Public } from '@platform/backend-common';
 
@@ -99,7 +99,8 @@ export class AuthResolver {
   async currentUser(@CurrentUser('sub') userId: string): Promise<User> {
     const user = await this.authService.getUserById(userId);
     if (!user) {
-      throw new Error('User not found');
+      // SECURITY: Generic message to prevent information leakage
+      throw new UnauthorizedException('Authentication failed');
     }
     return user;
   }
@@ -111,12 +112,18 @@ export class AuthResolver {
     if (!result.valid || !result.payload) {
       return { valid: false };
     }
+
+    // Calculate expiration from JWT exp claim or default to 15 minutes from now
+    const expiresAt = result.payload.exp
+      ? new Date(result.payload.exp * 1000)
+      : new Date(Date.now() + 15 * 60 * 1000);
+
     return {
       valid: true,
       userId: result.payload.sub,
       tenantId: result.payload.tenantId ?? undefined,
       role: result.payload.role,
-      expiresAt: new Date((result.payload as unknown as { exp: number }).exp * 1000),
+      expiresAt,
     };
   }
 }

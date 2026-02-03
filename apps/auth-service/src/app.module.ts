@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
-import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GraphQLModule } from '@nestjs/graphql';
 import { JwtModule } from '@nestjs/jwt';
@@ -10,6 +10,7 @@ import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware
 import { EventBusModule } from '@platform/event-bus';
 
 import { AuditModule } from './audit/audit.module';
+import { SECURITY_CONSTANTS } from './constants/auth.constants';
 import { HealthModule } from './health/health.module';
 import { AnnouncementModule } from './modules/announcement/announcement.module';
 import { AuthenticationModule } from './modules/authentication/authentication.module';
@@ -115,41 +116,42 @@ import { TenantModule } from './modules/tenant/tenant.module';
           if (allowDevSecret !== 'true') {
             throw new Error(
               'JWT_SECRET is not configured. For development, set ALLOW_DEV_JWT_SECRET=true and provide DEV_JWT_SECRET ' +
-              'with at least 32 characters. NEVER enable this in staging/production!',
+              `with at least ${SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters. NEVER enable this in staging/production!`,
             );
           }
 
-          if (!devSecret || devSecret.length < 32) {
+          if (!devSecret || devSecret.length < SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH) {
             throw new Error(
-              'DEV_JWT_SECRET must be provided and be at least 32 characters when ALLOW_DEV_JWT_SECRET=true.',
+              `DEV_JWT_SECRET must be provided and be at least ${SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters when ALLOW_DEV_JWT_SECRET=true.`,
             );
           }
 
-          console.warn(
-            '\\n⚠️  WARNING: Using DEV_JWT_SECRET for development only.\\n' +
-            '   This is NOT secure for production use.\\n' +
-            '   Set JWT_SECRET environment variable for production.\\n',
+          const logger = new Logger('JwtModule');
+          logger.warn(
+            'Using DEV_JWT_SECRET for development only. ' +
+            'This is NOT secure for production use. ' +
+            'Set JWT_SECRET environment variable for production.',
           );
           return {
             secret: devSecret,
             signOptions: {
-              expiresIn: configService.get('JWT_EXPIRES_IN', '15m'),
+              expiresIn: configService.get('JWT_EXPIRES_IN', SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN),
               issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
             },
           };
         }
 
         // Validate JWT_SECRET minimum length
-        if (secret.length < 32) {
+        if (secret.length < SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH) {
           throw new Error(
-            'JWT_SECRET must be at least 32 characters long for adequate security.',
+            `JWT_SECRET must be at least ${SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters long for adequate security.`,
           );
         }
 
         return {
           secret,
           signOptions: {
-            expiresIn: configService.get('JWT_EXPIRES_IN', '15m'),
+            expiresIn: configService.get('JWT_EXPIRES_IN', SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN),
             issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
           },
         };

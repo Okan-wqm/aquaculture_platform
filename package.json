@@ -62,7 +62,15 @@
     "build:full": "npm run build:backend && npm run build:frontend",
     "watch": "npm run infra:up && concurrently -k -n \"backend,frontend\" -c \"blue,green\" \"npm run watch:backend\" \"npm run watch:frontend\"",
     "watch:backend": "nx run-many --target=serve --projects=gateway-api,auth-service,farm-service,sensor-service,hr-service --parallel=5",
-    "watch:frontend": "nx run-many --target=serve --projects=shell,tenant-admin,farm-module --parallel=3"
+    "watch:frontend": "nx run-many --target=serve --projects=shell,tenant-admin,farm-module --parallel=3",
+    "start:auth": "nx serve auth-service",
+    "start:services": "nx run-many --target=serve --projects=farm-service,sensor-service,hr-service --parallel=3",
+    "start:gateway": "nx serve gateway-api",
+    "start:shell": "nx serve shell",
+    "start:modules": "nx run-many --target=serve --projects=tenant-admin,farm-module --parallel=2",
+    "start:backend": "concurrently -k -n \"auth,services,gateway\" -c \"green,blue,yellow\" \"npm run start:auth\" \"sleep 15 && npm run start:services\" \"sleep 25 && npm run start:gateway\"",
+    "start:frontend": "concurrently -k -n \"shell,modules\" -c \"cyan,magenta\" \"npm run start:shell\" \"sleep 5 && npm run start:modules\"",
+    "start:all": "concurrently -k -n \"backend,frontend\" -c \"blue,green\" \"npm run start:backend\" \"sleep 30 && npm run start:frontend\""
   },
   "dependencies": {
     "@apollo/gateway": "^2.12.1",

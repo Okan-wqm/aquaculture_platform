@@ -2,6 +2,7 @@ import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
+import { JwtModule } from '@nestjs/jwt';
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
@@ -150,6 +151,16 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
       context: ({ req }: { req: Request }) => ({ req }),
     }),
     CqrsModule.forRoot(),
+    // JWT Module for auth guards (global for all feature modules)
+    JwtModule.registerAsync({
+      global: true,
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.get('JWT_SECRET', 'dev-secret'),
+        signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '1d') },
+      }),
+    }),
     HRModule,
     LeaveModule,
     AttendanceModule,

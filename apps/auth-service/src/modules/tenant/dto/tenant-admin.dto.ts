@@ -1,5 +1,5 @@
 import { InputType, Field, ObjectType, ID } from '@nestjs/graphql';
-import { IsEmail, IsNotEmpty, IsString, MinLength, IsUUID, IsInt, Min, Max } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MinLength, IsUUID, IsInt, Min, Max, Matches, MaxLength, IsIn } from 'class-validator';
 
 /**
  * Input for assigning a user to a module
@@ -29,7 +29,7 @@ export class AssignUserToModuleInput {
   moduleId!: string;
 
   @Field({ defaultValue: 'manager' })
-  @IsString()
+  @IsIn(['manager', 'viewer', 'operator'], { message: 'Role must be one of: manager, viewer, operator' })
   role!: string;
 }
 
@@ -154,16 +154,28 @@ export class TableDataResult {
 }
 
 /**
+ * SQL identifier pattern - prevents SQL injection
+ * Must start with letter/underscore, contain only alphanumeric/underscore
+ */
+const SQL_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+const SQL_IDENTIFIER_MSG = 'Must be a valid SQL identifier (letters, numbers, underscores only, must start with letter/underscore)';
+
+/**
  * Input for getting table data
+ * SECURITY: Schema and table names are validated to prevent SQL injection
  */
 @InputType()
 export class GetTableDataInput {
   @Field()
   @IsString()
+  @MaxLength(63, { message: 'Schema name must be at most 63 characters' })
+  @Matches(SQL_IDENTIFIER_PATTERN, { message: `schemaName: ${SQL_IDENTIFIER_MSG}` })
   schemaName!: string;
 
   @Field()
   @IsString()
+  @MaxLength(63, { message: 'Table name must be at most 63 characters' })
+  @Matches(SQL_IDENTIFIER_PATTERN, { message: `tableName: ${SQL_IDENTIFIER_MSG}` })
   tableName!: string;
 
   @Field({ defaultValue: 100 })

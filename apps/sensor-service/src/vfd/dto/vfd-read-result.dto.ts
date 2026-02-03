@@ -1,6 +1,8 @@
 import { ObjectType, Field, Int } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
 
+import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
+
 /**
  * VFD Read Result DTO
  * GraphQL ObjectType for VFD parameter reading results
@@ -8,10 +10,10 @@ import { GraphQLJSON } from 'graphql-scalars';
 @ObjectType({ description: 'Result of reading VFD parameters from device' })
 export class VfdReadResultDto {
   @Field(() => GraphQLJSON, { description: 'VFD parameters read from device' })
-  parameters!: Record<string, number | undefined>;
+  parameters!: VfdParameters;
 
   @Field(() => GraphQLJSON, { nullable: true, description: 'Parsed status bits' })
-  statusBits?: Record<string, boolean | string | undefined>;
+  statusBits?: VfdStatusBits;
 
   @Field(() => GraphQLJSON, { description: 'Raw register values' })
   rawValues!: Record<string, number>;

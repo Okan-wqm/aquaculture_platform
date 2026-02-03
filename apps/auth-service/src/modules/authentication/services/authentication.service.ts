@@ -24,6 +24,9 @@ import {
 import { IEventBus } from '@platform/event-bus';
 import { DataSource, Repository } from 'typeorm';
 
+import { AuditLogService, CreateAuditLogDto } from '../../../audit/audit-log.service';
+import { AuditLogSeverity } from '../../../audit/audit-log.entity';
+import { SECURITY_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.constants';
 import { AuthPayload, MePayload } from '../dto/auth-response.dto';
 import { LoginInput } from '../dto/login.dto';
 import { RegisterInput } from '../dto/register.dto';
@@ -86,17 +89,73 @@ export class AuthenticationService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
+    private readonly auditLogService: AuditLogService,
     @Optional() private readonly timingSafe?: TimingSafeService,
     @Optional() @Inject(SESSION_MANAGER) private readonly sessionManager?: ISessionManager,
     @Optional() @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist?: ITokenBlacklist,
   ) {
-    this.maxFailedAttempts = this.configService.get<number>('MAX_FAILED_ATTEMPTS', 5);
-    this.lockoutDurationMinutes = this.configService.get<number>('LOCKOUT_DURATION_MINUTES', 30);
-    this.refreshTokenExpiryDays = this.configService.get<number>('REFRESH_TOKEN_EXPIRY_DAYS', 7);
-    this.maxSessionsPerUser = this.configService.get<number>('MAX_SESSIONS_PER_USER', 5);
+    this.maxFailedAttempts = this.configService.get<number>(
+      'MAX_FAILED_ATTEMPTS',
+      SECURITY_CONSTANTS.DEFAULT_MAX_FAILED_ATTEMPTS,
+    );
+    this.lockoutDurationMinutes = this.configService.get<number>(
+      'LOCKOUT_DURATION_MINUTES',
+      SECURITY_CONSTANTS.DEFAULT_LOCKOUT_DURATION_MINUTES,
+    );
+    this.refreshTokenExpiryDays = this.configService.get<number>(
+      'REFRESH_TOKEN_EXPIRY_DAYS',
+      SECURITY_CONSTANTS.DEFAULT_REFRESH_TOKEN_EXPIRY_DAYS,
+    );
+    this.maxSessionsPerUser = this.configService.get<number>(
+      'MAX_SESSIONS_PER_USER',
+      SECURITY_CONSTANTS.DEFAULT_MAX_SESSIONS_PER_USER,
+    );
     this.hashRefreshTokens = this.configService.get<boolean>('HASH_REFRESH_TOKENS', true);
-    // Minimum login duration to prevent timing attacks (200ms)
-    this.minLoginDurationMs = this.configService.get<number>('MIN_LOGIN_DURATION_MS', 200);
+    // Minimum login duration to prevent timing attacks
+    this.minLoginDurationMs = this.configService.get<number>(
+      'MIN_LOGIN_DURATION_MS',
+      SECURITY_CONSTANTS.MIN_LOGIN_DURATION_MS,
+    );
+  }
+
+  /**
+   * Log security events for audit trail
+   * @private
+   */
+  private async logSecurityEvent(
+    action: string,
+    details: {
+      userId?: string;
+      email?: string;
+      tenantId?: string | null;
+      ipAddress?: string;
+      userAgent?: string;
+      success: boolean;
+      reason?: string;
+    },
+    severity: AuditLogSeverity = AuditLogSeverity.INFO,
+  ): Promise<void> {
+    try {
+      await this.auditLogService.log({
+        tenantId: details.tenantId || undefined,
+        performedBy: details.userId || 'anonymous',
+        performedByEmail: details.email,
+        action,
+        entityType: 'User',
+        entityId: details.userId,
+        details: {
+          success: details.success,
+          reason: details.reason,
+          timestamp: new Date().toISOString(),
+        },
+        severity,
+        ipAddress: details.ipAddress,
+        userAgent: details.userAgent,
+      });
+    } catch (error) {
+      // Don't fail the main operation if audit logging fails
+      this.logger.error(`Failed to log security event: ${action}`, error);
+    }
   }
 
   /**
@@ -170,6 +229,14 @@ export class AuthenticationService {
         await bcrypt.compare(input.password, '$2a$12$dummy.hash.to.prevent.timing.attacks');
         await this.ensureMinDuration(startTime);
         this.logger.debug(`Login failed: user not found`);
+        // SECURITY AUDIT: Log failed login attempt
+        await this.logSecurityEvent('LOGIN_FAILED', {
+          email: input.email,
+          ipAddress,
+          userAgent,
+          success: false,
+          reason: 'User not found',
+        }, AuditLogSeverity.WARNING);
         throw new UnauthorizedException(INVALID_CREDENTIALS_MSG);
       }
 
@@ -186,6 +253,16 @@ export class AuthenticationService {
       if (user.isLocked()) {
         await this.ensureMinDuration(startTime);
         this.logger.debug(`Login failed: account locked for ${user.email}`);
+        // SECURITY AUDIT: Log locked account access attempt
+        await this.logSecurityEvent('LOGIN_BLOCKED_ACCOUNT_LOCKED', {
+          userId: user.id,
+          email: user.email,
+          tenantId: user.tenantId,
+          ipAddress,
+          userAgent,
+          success: false,
+          reason: 'Account locked due to failed attempts',
+        }, AuditLogSeverity.WARNING);
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
@@ -202,6 +279,16 @@ export class AuthenticationService {
       if (!isPasswordValid) {
         await this.handleFailedLogin(user);
         await this.ensureMinDuration(startTime);
+        // SECURITY AUDIT: Log failed password attempt
+        await this.logSecurityEvent('LOGIN_FAILED_INVALID_PASSWORD', {
+          userId: user.id,
+          email: user.email,
+          tenantId: user.tenantId,
+          ipAddress,
+          userAgent,
+          success: false,
+          reason: `Invalid password (attempt ${user.failedLoginAttempts})`,
+        }, AuditLogSeverity.WARNING);
         throw new UnauthorizedException(INVALID_CREDENTIALS_MSG);
       }
 
@@ -218,6 +305,16 @@ export class AuthenticationService {
       }
 
       this.logger.log(`User logged in: ${user.email} (role: ${user.role})`);
+
+      // SECURITY AUDIT: Log successful login
+      await this.logSecurityEvent('LOGIN_SUCCESS', {
+        userId: user.id,
+        email: user.email,
+        tenantId: user.tenantId,
+        ipAddress,
+        userAgent,
+        success: true,
+      });
 
       // Publish event
       await this.eventBus.publish({
@@ -285,7 +382,8 @@ export class AuthenticationService {
     });
 
     if (!user) {
-      throw new BadRequestException('User not found for this invitation');
+      // SECURITY: Generic message to prevent token enumeration
+      throw new BadRequestException('Invalid or expired invitation');
     }
 
     // Execute updates in a transaction to ensure consistency
@@ -373,97 +471,90 @@ export class AuthenticationService {
       return this.refreshTokenWithHash(token);
     }
 
-    // Non-hashed token path (backward compatibility)
-    const updateResult = await this.refreshTokenRepository
-      .createQueryBuilder()
-      .update(RefreshToken)
-      .set({
-        isRevoked: true,
-        revokedAt: new Date(),
-        revokedReason: 'Token refreshed',
-      })
-      .where('token = :token', { token })
-      .andWhere('isRevoked = :isRevoked', { isRevoked: false })
-      .andWhere('expiresAt > :now', { now: new Date() })
-      .execute();
+    // SECURITY: Use transaction with pessimistic locking to prevent double-spending
+    return this.dataSource.transaction(async (manager) => {
+      // SELECT FOR UPDATE to lock the row and prevent concurrent refresh
+      const refreshToken = await manager
+        .getRepository(RefreshToken)
+        .createQueryBuilder('rt')
+        .setLock('pessimistic_write')
+        .leftJoinAndSelect('rt.user', 'user')
+        .where('rt.token = :token', { token })
+        .andWhere('rt.isRevoked = :isRevoked', { isRevoked: false })
+        .andWhere('rt.expiresAt > :now', { now: new Date() })
+        .getOne();
 
-    if (updateResult.affected === 0) {
-      throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
-    }
+      if (!refreshToken || !refreshToken.user) {
+        throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+      }
 
-    const refreshToken = await this.refreshTokenRepository.findOne({
-      where: { token },
-      relations: ['user'],
+      // Revoke the token within the same transaction
+      refreshToken.isRevoked = true;
+      refreshToken.revokedAt = new Date();
+      refreshToken.revokedReason = 'Token refreshed';
+      await manager.save(refreshToken);
+
+      return this.generateTokens(
+        refreshToken.user,
+        refreshToken.ipAddress ?? undefined,
+        refreshToken.userAgent ?? undefined,
+      );
     });
-
-    if (!refreshToken || !refreshToken.user) {
-      throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
-    }
-
-    return this.generateTokens(
-      refreshToken.user,
-      refreshToken.ipAddress ?? undefined,
-      refreshToken.userAgent ?? undefined,
-    );
   }
 
   /**
    * Refresh token with hashed tokens
    * Since we can't query by hash directly, we need to find valid tokens
    * for the user and compare hashes
+   *
+   * SECURITY: Uses transaction with pessimistic locking to prevent double-spending
    */
   private async refreshTokenWithHash(plainToken: string): Promise<AuthPayload> {
-    // Get all non-revoked, non-expired tokens
-    const validTokens = await this.refreshTokenRepository.find({
-      where: {
-        isRevoked: false,
-      },
-      relations: ['user'],
-      order: { createdAt: 'DESC' },
-      take: 100, // Limit to prevent DoS
-    });
+    return this.dataSource.transaction(async (manager) => {
+      const tokenRepo = manager.getRepository(RefreshToken);
 
-    // Filter expired tokens
-    const now = new Date();
-    const activeTokens = validTokens.filter(t => t.expiresAt > now);
+      // Get all non-revoked, non-expired tokens with pessimistic lock
+      const validTokens = await tokenRepo
+        .createQueryBuilder('rt')
+        .setLock('pessimistic_write')
+        .leftJoinAndSelect('rt.user', 'user')
+        .where('rt.isRevoked = :isRevoked', { isRevoked: false })
+        .andWhere('rt.expiresAt > :now', { now: new Date() })
+        .orderBy('rt.createdAt', 'DESC')
+        .take(TOKEN_CONSTANTS.MAX_REFRESH_TOKEN_CHECK)
+        .getMany();
 
-    // Find matching token by comparing hashes
-    let matchedToken: RefreshToken | null = null;
-    for (const storedToken of activeTokens) {
-      const isMatch = await bcrypt.compare(plainToken, storedToken.token);
-      if (isMatch) {
-        matchedToken = storedToken;
-        break;
+      // Find matching token by comparing hashes
+      let matchedToken: RefreshToken | null = null;
+      for (const storedToken of validTokens) {
+        const isMatch = await bcrypt.compare(plainToken, storedToken.token);
+        if (isMatch) {
+          matchedToken = storedToken;
+          break;
+        }
       }
-    }
 
-    if (!matchedToken || !matchedToken.user) {
-      throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
-    }
+      if (!matchedToken || !matchedToken.user) {
+        throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+      }
 
-    // Atomically revoke the token
-    const updateResult = await this.refreshTokenRepository
-      .createQueryBuilder()
-      .update(RefreshToken)
-      .set({
-        isRevoked: true,
-        revokedAt: new Date(),
-        revokedReason: 'Token refreshed',
-      })
-      .where('id = :id', { id: matchedToken.id })
-      .andWhere('isRevoked = :isRevoked', { isRevoked: false })
-      .execute();
+      // Double-check the token is still not revoked (within locked transaction)
+      if (matchedToken.isRevoked) {
+        throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+      }
 
-    if (updateResult.affected === 0) {
-      // Token was already revoked (race condition)
-      throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
-    }
+      // Revoke the token within the same transaction
+      matchedToken.isRevoked = true;
+      matchedToken.revokedAt = new Date();
+      matchedToken.revokedReason = 'Token refreshed';
+      await tokenRepo.save(matchedToken);
 
-    return this.generateTokens(
-      matchedToken.user,
-      matchedToken.ipAddress ?? undefined,
-      matchedToken.userAgent ?? undefined,
-    );
+      return this.generateTokens(
+        matchedToken.user,
+        matchedToken.ipAddress ?? undefined,
+        matchedToken.userAgent ?? undefined,
+      );
+    });
   }
 
   /**
@@ -509,7 +600,7 @@ export class AuthenticationService {
       const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
       const expiresInSeconds = this.parseExpiresIn(expiresIn);
       const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
-      await (this.tokenBlacklist as any).blacklistUserTokens?.(userId, expiryDate, 'logout_all_devices');
+      await this.tokenBlacklist.blacklistUserTokens(userId, expiryDate, 'logout_all_devices');
     }
 
     // Revoke all sessions
@@ -544,7 +635,7 @@ export class AuthenticationService {
         // Check user-level blacklist
         if (payload.iat) {
           const tokenIssuedAt = new Date(payload.iat * 1000);
-          const isUserBlacklisted = await (this.tokenBlacklist as any).isUserBlacklisted?.(
+          const isUserBlacklisted = await this.tokenBlacklist.isUserBlacklisted(
             payload.sub,
             tokenIssuedAt,
           );
@@ -571,7 +662,8 @@ export class AuthenticationService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      // SECURITY: Generic message to prevent information leakage
+      throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
     }
 
     // Get user's accessible modules
@@ -681,6 +773,14 @@ export class AuthenticationService {
       const lockoutUntil = new Date(Date.now() + this.lockoutDurationMinutes * 60 * 1000);
       await this.userRepository.update(user.id, { lockedUntil: lockoutUntil });
       this.logger.warn(`Account locked for user: ${user.email} until ${lockoutUntil.toISOString()}`);
+      // SECURITY AUDIT: Log account lockout (critical security event)
+      await this.logSecurityEvent('ACCOUNT_LOCKED', {
+        userId: user.id,
+        email: user.email,
+        tenantId: user.tenantId,
+        success: false,
+        reason: `Account locked after ${this.maxFailedAttempts} failed attempts. Locked until ${lockoutUntil.toISOString()}`,
+      }, AuditLogSeverity.CRITICAL);
     }
   }
 
@@ -713,7 +813,7 @@ export class AuthenticationService {
     // The client gets the plain token, we store the hash
     let tokenToStore = refreshTokenValue;
     if (this.hashRefreshTokens) {
-      tokenToStore = await bcrypt.hash(refreshTokenValue, 10);
+      tokenToStore = await bcrypt.hash(refreshTokenValue, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS);
     }
 
     // Create refresh token
@@ -779,7 +879,7 @@ export class AuthenticationService {
 
   private parseExpiresIn(expiresIn: string): number {
     const match = expiresIn.match(/^(\d+)([smhd])$/);
-    if (!match || !match[1] || !match[2]) return 900; // Default 15 minutes
+    if (!match || !match[1] || !match[2]) return SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_SECONDS;
 
     const value = parseInt(match[1], 10);
     const unit = match[2];
@@ -794,7 +894,7 @@ export class AuthenticationService {
       case 'd':
         return value * 24 * 60 * 60;
       default:
-        return 900;
+        return SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_SECONDS;
     }
   }
 }

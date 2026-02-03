@@ -5,6 +5,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
+import { HTTP_SECURITY } from './constants/auth.constants';
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('AuthService');
@@ -42,7 +43,7 @@ async function bootstrap(): Promise<void> {
           }
         : false,
       strictTransportSecurity: isProduction
-        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+        ? { maxAge: HTTP_SECURITY.HSTS_MAX_AGE, includeSubDomains: true, preload: true }
         : false,
       referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
       noSniff: true,

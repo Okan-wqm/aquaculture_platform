@@ -4,6 +4,7 @@ import { Role } from '@platform/backend-common';
 import * as bcrypt from 'bcryptjs';
 import { Repository } from 'typeorm';
 
+import { SECURITY_CONSTANTS } from '../constants/auth.constants';
 import { User } from '../modules/authentication/entities/user.entity';
 import { Module } from '../modules/system-module/entities/module.entity';
 
@@ -218,7 +219,7 @@ export class SeedService implements OnModuleInit {
     this.logger.log(`Creating SUPER_ADMIN user: ${superAdminEmail}`);
 
     // Hash password manually (bypassing entity hook for clarity)
-    const salt = await bcrypt.genSalt(12);
+    const salt = await bcrypt.genSalt(SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS);
     const hashedPassword = await bcrypt.hash(superAdminPassword, salt);
 
     const superAdmin = this.userRepository.create({

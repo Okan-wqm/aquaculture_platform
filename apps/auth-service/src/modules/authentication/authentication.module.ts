@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { AuditModule } from '../../audit/audit.module';
+
 import { Invitation } from './entities/invitation.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { UserModuleAssignment } from './entities/user-module-assignment.entity';
@@ -17,6 +19,7 @@ import { AuthenticationService } from './services/authentication.service';
       Invitation,
       UserModuleAssignment,
     ]),
+    AuditModule,
   ],
   providers: [AuthenticationService, AuthResolver, JwtAuthGuard],
   exports: [AuthenticationService, JwtAuthGuard, TypeOrmModule],

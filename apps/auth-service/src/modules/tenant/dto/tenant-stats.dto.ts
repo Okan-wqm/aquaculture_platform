@@ -1,4 +1,5 @@
 import { ObjectType, Field, Int, Float, InputType } from '@nestjs/graphql';
+import { IsString, MaxLength, Matches } from 'class-validator';
 
 /**
  * Tenant statistics response
@@ -166,13 +167,27 @@ export class TableSchemaInfo {
 }
 
 /**
+ * SQL identifier pattern - prevents SQL injection
+ * Must start with letter/underscore, contain only alphanumeric/underscore
+ */
+const SQL_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+const SQL_IDENTIFIER_MSG = 'Must be a valid SQL identifier (letters, numbers, underscores only, must start with letter/underscore)';
+
+/**
  * Input for table schema query
+ * SECURITY: Schema and table names are validated to prevent SQL injection
  */
 @InputType()
 export class TableSchemaInput {
   @Field()
+  @IsString()
+  @MaxLength(63, { message: 'Schema name must be at most 63 characters' })
+  @Matches(SQL_IDENTIFIER_PATTERN, { message: `schemaName: ${SQL_IDENTIFIER_MSG}` })
   schemaName!: string;
 
   @Field()
+  @IsString()
+  @MaxLength(63, { message: 'Table name must be at most 63 characters' })
+  @Matches(SQL_IDENTIFIER_PATTERN, { message: `tableName: ${SQL_IDENTIFIER_MSG}` })
   tableName!: string;
 }

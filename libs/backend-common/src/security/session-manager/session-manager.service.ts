@@ -261,7 +261,7 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
    * Update session configuration at runtime
    */
   setMaxSessionsPerUser(limit: number): void {
-    (this as { maxSessionsPerUser: number }).maxSessionsPerUser = limit;
+    (this as unknown as { maxSessionsPerUser: number }).maxSessionsPerUser = limit;
     this.logger.log(`Max sessions per user updated to: ${limit}`);
   }
 

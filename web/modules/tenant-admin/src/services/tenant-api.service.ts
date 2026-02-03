@@ -325,3 +325,170 @@ export async function getTableData(input: GetTableDataInput): Promise<TableDataR
   );
   return data.tableData;
 }
+
+// ============================================================================
+// Re-export Permission Types
+// ============================================================================
+
+export type {
+  PermissionCategory,
+  PanelPermissions,
+  TenantRolePermissions,
+  PermissionAction,
+  PermissionResource,
+} from '../types/permissions';
+
+// ============================================================================
+// Tenant Role Types (for future implementation)
+// ============================================================================
+
+import type { TenantRolePermissions } from '../types/permissions';
+
+export interface TenantRole {
+  id: string;
+  name: string;
+  displayName: string;
+  description?: string;
+  isDefault: boolean;
+  isSystemRole: boolean;
+  isSystem: boolean; // Alias for isSystemRole
+  tenantId: string;
+  permissions?: TenantRolePermissions;
+  color?: string;
+  icon?: string;
+  level?: number;
+  userCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateTenantRoleInput {
+  name: string;
+  displayName: string;
+  description?: string;
+  isDefault?: boolean;
+  color?: string;
+  icon?: string;
+  level?: number;
+  panelPermissions?: Record<string, Record<string, Record<string, boolean>>>;
+}
+
+export interface UpdateTenantRoleInput {
+  id?: string; // Optional for create
+  name?: string;
+  displayName?: string;
+  description?: string;
+  isDefault?: boolean;
+  color?: string;
+  icon?: string;
+  level?: number;
+  panelPermissions?: Record<string, Record<string, Record<string, boolean>>>;
+}
+
+// ============================================================================
+// Tenant Role API Functions (Stubs - Backend not implemented yet)
+// ============================================================================
+
+const TENANT_ROLES_QUERY = `
+  query TenantRoles {
+    tenantRoles {
+      id name displayName description isDefault isSystemRole tenantId createdAt updatedAt
+      permissions { id roleId panelPermissions resourcePermissions }
+    }
+  }
+`;
+
+const TENANT_ROLE_QUERY = `
+  query TenantRole($id: ID!) {
+    tenantRole(id: $id) {
+      id name displayName description isDefault isSystemRole tenantId createdAt updatedAt
+      permissions { id roleId panelPermissions resourcePermissions }
+    }
+  }
+`;
+
+const DEFAULT_TENANT_ROLE_QUERY = `
+  query DefaultTenantRole {
+    defaultTenantRole {
+      id name displayName description isDefault isSystemRole tenantId createdAt updatedAt
+      permissions { id roleId panelPermissions resourcePermissions }
+    }
+  }
+`;
+
+const PERMISSION_CATEGORIES_QUERY = `
+  query PermissionCategories {
+    permissionCategories { categoryKey name resources { name actions } }
+  }
+`;
+
+const CREATE_TENANT_ROLE_MUTATION = `
+  mutation CreateTenantRole($input: CreateTenantRoleInput!) {
+    createTenantRole(input: $input) {
+      id name displayName description isDefault isSystemRole tenantId createdAt updatedAt
+    }
+  }
+`;
+
+const UPDATE_TENANT_ROLE_MUTATION = `
+  mutation UpdateTenantRole($input: UpdateTenantRoleInput!) {
+    updateTenantRole(input: $input) {
+      id name displayName description isDefault isSystemRole tenantId createdAt updatedAt
+      permissions { id roleId panelPermissions resourcePermissions }
+    }
+  }
+`;
+
+const DELETE_TENANT_ROLE_MUTATION = `
+  mutation DeleteTenantRole($id: ID!) {
+    deleteTenantRole(id: $id)
+  }
+`;
+
+const SEED_TENANT_ROLES_MUTATION = `
+  mutation SeedTenantRoles {
+    seedTenantRoles { id name displayName }
+  }
+`;
+
+import type { PermissionCategory as PermCat } from '../types/permissions';
+
+export async function getTenantRoles(): Promise<TenantRole[]> {
+  const data = await graphqlRequest<{ tenantRoles: TenantRole[] }>(TENANT_ROLES_QUERY);
+  return data.tenantRoles;
+}
+
+export async function getTenantRole(id: string): Promise<TenantRole> {
+  const data = await graphqlRequest<{ tenantRole: TenantRole }>(TENANT_ROLE_QUERY, { id });
+  return data.tenantRole;
+}
+
+export async function getDefaultTenantRole(): Promise<TenantRole | null> {
+  const data = await graphqlRequest<{ defaultTenantRole: TenantRole | null }>(DEFAULT_TENANT_ROLE_QUERY);
+  return data.defaultTenantRole;
+}
+
+export async function getPermissionCategories(): Promise<PermCat[]> {
+  const data = await graphqlRequest<{ permissionCategories: PermCat[] }>(PERMISSION_CATEGORIES_QUERY);
+  return data.permissionCategories;
+}
+
+export async function createTenantRole(input: CreateTenantRoleInput): Promise<TenantRole> {
+  const data = await graphqlRequest<{ createTenantRole: TenantRole }>(CREATE_TENANT_ROLE_MUTATION, { input });
+  return data.createTenantRole;
+}
+
+export async function updateTenantRole(roleId: string, input: UpdateTenantRoleInput): Promise<TenantRole> {
+  const data = await graphqlRequest<{ updateTenantRole: TenantRole }>(UPDATE_TENANT_ROLE_MUTATION, { id: roleId, input });
+  return data.updateTenantRole;
+}
+
+export async function deleteTenantRole(id: string): Promise<boolean> {
+  const data = await graphqlRequest<{ deleteTenantRole: boolean }>(DELETE_TENANT_ROLE_MUTATION, { id });
+  return data.deleteTenantRole;
+}
+
+export async function seedTenantRoles(): Promise<TenantRole[]> {
+  const data = await graphqlRequest<{ seedTenantRoles: TenantRole[] }>(SEED_TENANT_ROLES_MUTATION);
+  return data.seedTenantRoles;
+}

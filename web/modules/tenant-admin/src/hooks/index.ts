@@ -17,3 +17,17 @@ export type {
   User,
   TenantDatabaseInfo,
 } from './useTenantData';
+
+export { useFocusTrap } from './useFocusTrap';
+
+export {
+  useTenantRoles,
+  useTenantRole,
+  useDefaultTenantRole,
+  usePermissionCategories,
+  useCreateTenantRole,
+  useUpdateTenantRole,
+  useDeleteTenantRole,
+  useSeedTenantRoles,
+  roleKeys as tenantRoleKeys,
+} from './useTenantRoles';

@@ -173,7 +173,7 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
       await queryRunner.commitTransaction();
 
       // Publish event for notification/audit purposes
-      this.eventBus.publish(new EmployeeClockedOutEvent(savedRecord)).catch((err) => {
+      this.eventBus.publish(new EmployeeClockedOutEvent(savedRecord)).catch((err: unknown) => {
         this.logger.warn(`Failed to publish EmployeeClockedOutEvent: ${err instanceof Error ? err.message : String(err)}`);
       });
 

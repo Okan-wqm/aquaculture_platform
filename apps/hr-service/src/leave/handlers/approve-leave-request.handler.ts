@@ -92,7 +92,7 @@ export class ApproveLeaveRequestHandler
       await queryRunner.commitTransaction();
 
       // Publish event for notification/audit purposes
-      this.eventBus.publish(new LeaveApprovedEvent(savedRequest)).catch((err) => {
+      this.eventBus.publish(new LeaveApprovedEvent(savedRequest)).catch((err: unknown) => {
         this.logger.warn(`Failed to publish LeaveApprovedEvent: ${err instanceof Error ? err.message : String(err)}`);
       });
 

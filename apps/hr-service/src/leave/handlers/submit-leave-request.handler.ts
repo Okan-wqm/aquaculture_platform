@@ -86,7 +86,7 @@ export class SubmitLeaveRequestHandler
       await queryRunner.commitTransaction();
 
       // Publish event for notification/audit purposes
-      this.eventBus.publish(new LeaveRequestSubmittedEvent(savedRequest)).catch((err) => {
+      this.eventBus.publish(new LeaveRequestSubmittedEvent(savedRequest)).catch((err: unknown) => {
         this.logger.warn(`Failed to publish LeaveRequestSubmittedEvent: ${err instanceof Error ? err.message : String(err)}`);
       });
 

@@ -180,7 +180,7 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
       await queryRunner.commitTransaction();
 
       // Publish event for notification/audit purposes
-      this.eventBus.publish(new EmployeeClockedInEvent(savedRecord)).catch((err) => {
+      this.eventBus.publish(new EmployeeClockedInEvent(savedRecord)).catch((err: unknown) => {
         this.logger.warn(`Failed to publish EmployeeClockedInEvent: ${err instanceof Error ? err.message : String(err)}`);
       });
 

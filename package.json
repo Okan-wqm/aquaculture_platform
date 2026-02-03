@@ -56,7 +56,13 @@
     "local:hr": "nx serve hr-service",
     "local:gateway": "nx serve gateway-api",
     "dev:local": "npm run infra:up && concurrently -n \"backend,frontend\" -c \"blue,green\" \"npm run dev:backend\" \"sleep 10 && npm run dev:web\"",
-    "dev:fast": "npm run infra:up && npm run dev:backend"
+    "dev:fast": "npm run infra:up && npm run dev:backend",
+    "build:backend": "nx run-many --target=build --projects=auth-service,farm-service,sensor-service,hr-service,billing-service,alert-engine,admin-api-service,gateway-api",
+    "build:frontend": "nx run-many --target=build --projects=shared-ui,shell,tenant-admin,farm-module,sensor-module,hr-module,admin-panel",
+    "build:full": "npm run build:backend && npm run build:frontend",
+    "watch": "npm run infra:up && concurrently -k -n \"backend,frontend\" -c \"blue,green\" \"npm run watch:backend\" \"npm run watch:frontend\"",
+    "watch:backend": "nx run-many --target=serve --projects=gateway-api,auth-service,farm-service,sensor-service,hr-service --parallel=5",
+    "watch:frontend": "nx run-many --target=serve --projects=shell,tenant-admin,farm-module --parallel=3"
   },
   "dependencies": {
     "@apollo/gateway": "^2.12.1",

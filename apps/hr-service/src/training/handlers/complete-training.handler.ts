@@ -96,7 +96,7 @@ export class CompleteTrainingHandler
 
     // Publish event for notification/audit purposes when training is completed
     if (savedEnrollment.status === EnrollmentStatus.PASSED || savedEnrollment.status === EnrollmentStatus.COMPLETED) {
-      this.eventBus.publish(new TrainingCompletedEvent(savedEnrollment)).catch((err) => {
+      this.eventBus.publish(new TrainingCompletedEvent(savedEnrollment)).catch((err: unknown) => {
         this.logger.warn(`Failed to publish TrainingCompletedEvent: ${err instanceof Error ? err.message : String(err)}`);
       });
     }

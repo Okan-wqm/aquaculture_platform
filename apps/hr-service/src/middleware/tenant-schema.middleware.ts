@@ -126,14 +126,14 @@ export class TenantSchemaMiddleware implements NestMiddleware {
     // CRITICAL: Reset search_path when response finishes
     // Prevents connection pool contamination
     res.on('finish', () => {
-      this.resetSearchPath().catch((err) => {
+      this.resetSearchPath().catch((err: unknown) => {
         this.logger.warn(`Failed to reset search path: ${err instanceof Error ? err.message : String(err)}`);
       });
     });
 
     // Also reset on connection close (client disconnect)
     res.on('close', () => {
-      this.resetSearchPath().catch((err) => {
+      this.resetSearchPath().catch((err: unknown) => {
         this.logger.warn(`Failed to reset search path: ${err instanceof Error ? err.message : String(err)}`);
       });
     });

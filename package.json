@@ -15,6 +15,8 @@
   "scripts": {
     "dev": "nx run-many --target=serve --all",
     "dev:backend": "nx run-many --target=serve --projects=gateway-api,farm-service,sensor-service,auth-service,alert-engine,billing-service,hr-service,notification-service",
+    "dev:backend:minimal": "nx run-many --target=serve --projects=gateway-api,auth-service,farm-service --parallel=3",
+    "dev:backend:core": "nx run-many --target=serve --projects=gateway-api,auth-service,farm-service,sensor-service --parallel=4",
     "dev:web": "nx run-many --target=serve --projects=shell,dashboard,farm-module,process-editor,admin-panel",
     "build": "nx affected --target=build",
     "build:all": "nx run-many --target=build --all",

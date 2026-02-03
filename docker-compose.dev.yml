@@ -513,6 +513,19 @@ services:
       - aqua-network
     restart: unless-stopped
 
+  aquamobil:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.aquamobil
+    container_name: aqua-mobile
+    environment:
+      VITE_API_URL: http://localhost:3000/graphql
+    ports:
+      - "8082:80"
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
   # ===========================================================================
   # Development Tools
   # ===========================================================================

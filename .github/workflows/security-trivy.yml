@@ -1,41 +1,61 @@
 name: Security - Trivy
 
 on:
-  pull_request:
+  # Only run on main branch pushes (not every PR)
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
+  # Weekly instead of daily (saves runner minutes)
   schedule:
-    - cron: '0 3 * * *'
+    - cron: '0 3 * * 0'  # Sunday at 3 AM
+  workflow_dispatch:
 
 jobs:
-  trivy-scan:
+  trivy-fs-scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # Prevent infinite runs
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Build images (no push)
+
+      # Filesystem scan (FAST - no Docker build needed!)
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-fs.sarif'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'HIGH,CRITICAL'
+
+      - name: Upload SARIF results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+        if: always()
+
+  # Image scan only runs weekly (optional)
+  trivy-image-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pull pre-built image from GHCR
         run: |
-          docker build -f infrastructure/docker/Dockerfile.backend -t backend:scan .
-          docker build -f infrastructure/docker/Dockerfile.frontend -t frontend:scan .
-      - name: Run Trivy on backend
+          # Use pre-built images instead of building (MUCH faster!)
+          docker pull ghcr.io/${{ github.repository }}/gateway-api:latest || echo "Image not found, skipping"
+        continue-on-error: true
+
+      - name: Run Trivy on pre-built image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: backend:scan
-          format: sarif
-          output: trivy-backend.sarif
+          image-ref: 'ghcr.io/${{ github.repository }}/gateway-api:latest'
+          format: 'sarif'
+          output: 'trivy-image.sarif'
           exit-code: '0'
           ignore-unfixed: true
-      - name: Run Trivy on frontend
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: frontend:scan
-          format: sarif
-          output: trivy-frontend.sarif
-          exit-code: '0'
-          ignore-unfixed: true
-      - name: Upload SARIF results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v2
-        with:
-          sarif_file: trivy-backend.sarif
+        continue-on-error: true

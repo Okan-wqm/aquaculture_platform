@@ -31,6 +31,11 @@ env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
   TAG: ${{ github.sha }}
 
+# Cancel in-progress deploys for the same branch
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ===========================================================================
   # Detect Changes - Only build what changed

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0ea5e9"/>
+      <stop offset="100%" style="stop-color:#0284c7"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="38" fill="url(#bg)"/>
+  <g transform="translate(32, 32)" fill="white">
+    <!-- Fish icon -->
+    <path d="M64 24c-22.09 0-40 17.91-40 40s17.91 40 40 40c8.84 0 17.01-2.87 23.64-7.72l24.36 24.36 11.31-11.31-24.36-24.36C103.13 79.01 106 70.84 106 64c0-22.09-17.91-40-40-40zm0 64c-13.23 0-24-10.77-24-24s10.77-24 24-24 24 10.77 24 24-10.77 24-24 24z"/>
+    <!-- Water waves -->
+    <path d="M16 96c8 8 16-8 24 0s16-8 24 0 16-8 24 0 16-8 24 0" stroke="white" stroke-width="4" fill="none" opacity="0.6"/>
+    <path d="M8 112c8 8 16-8 24 0s16-8 24 0 16-8 24 0 16-8 24 0 16-8 24 0" stroke="white" stroke-width="4" fill="none" opacity="0.4"/>
+  </g>
+  <text x="96" y="168" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="bold" fill="white">AquaMobil</text>
+</svg>

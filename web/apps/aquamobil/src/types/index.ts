@@ -1,0 +1,133 @@
+// ============================================================================
+// AquaMobil Type Definitions
+// ============================================================================
+
+// Auth types
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MANAGER' | 'OPERATOR' | 'VIEWER';
+  tenantId: string | null;
+}
+
+export interface AuthState {
+  user: User | null;
+  accessToken: string | null;
+  refreshToken: string | null;
+  tenantId: string | null;
+  isAuthenticated: boolean;
+}
+
+// Tank/Batch types
+export interface Tank {
+  id: string;
+  name: string;
+  code: string;
+  volumeM3: number;
+  status: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
+  currentBatch: Batch | null;
+}
+
+export interface Batch {
+  id: string;
+  batchNumber: string;
+  speciesName: string;
+  currentQuantity: number;
+  averageWeight: number;
+  currentBiomassKg: number;
+  status: 'ACTIVE' | 'HARVESTED' | 'TERMINATED';
+}
+
+// Data entry types
+export type MortalityReason =
+  | 'DISEASE'
+  | 'WATER_QUALITY'
+  | 'STRESS'
+  | 'HANDLING'
+  | 'TEMPERATURE'
+  | 'OXYGEN'
+  | 'AMMONIA'
+  | 'PREDATION'
+  | 'CANNIBALISM'
+  | 'STARVATION'
+  | 'GENETIC'
+  | 'UNKNOWN'
+  | 'OTHER';
+
+export type CullReason =
+  | 'SMALL_SIZE'
+  | 'DEFORMED'
+  | 'SICK'
+  | 'POOR_GROWTH'
+  | 'GRADING'
+  | 'QUALITY'
+  | 'OTHER';
+
+export type QualityGrade = 'PREMIUM' | 'GRADE_A' | 'GRADE_B' | 'GRADE_C' | 'REJECT';
+
+export interface MortalityInput {
+  batchId: string;
+  tankId: string;
+  quantity: number;
+  reason: MortalityReason;
+  detail?: string;
+  observedAt?: string;
+  avgWeightG?: number;
+  notes?: string;
+}
+
+export interface CullInput {
+  batchId: string;
+  tankId: string;
+  quantity: number;
+  reason: CullReason;
+  detail?: string;
+  culledAt?: string;
+  avgWeightG?: number;
+  notes?: string;
+}
+
+export interface HarvestInput {
+  batchId: string;
+  tankId: string;
+  quantityHarvested: number;
+  averageWeight: number;
+  totalBiomass: number;
+  qualityGrade: QualityGrade;
+  harvestDate: string;
+  pricePerKg?: number;
+  buyerName?: string;
+  lotNumber?: string;
+  notes?: string;
+}
+
+// Offline queue types
+export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord';
+
+export interface QueuedOperation {
+  id: string;
+  type: OperationType;
+  payload: MortalityInput | CullInput | HarvestInput;
+  createdAt: string;
+  retryCount: number;
+  lastError?: string;
+  status: 'pending' | 'syncing' | 'failed';
+}
+
+// UI helper types
+export interface SelectOption<T = string> {
+  value: T;
+  label: string;
+  description?: string;
+}
+
+// GraphQL response types
+export interface GraphQLResponse<T> {
+  data?: T;
+  errors?: Array<{
+    message: string;
+    path?: string[];
+    extensions?: Record<string, unknown>;
+  }>;
+}

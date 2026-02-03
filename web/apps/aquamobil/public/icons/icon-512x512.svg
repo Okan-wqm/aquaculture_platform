@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg512" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0ea5e9"/>
+      <stop offset="100%" style="stop-color:#0284c7"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="102" fill="url(#bg512)"/>
+  <g transform="translate(96, 80)" fill="white">
+    <!-- Fish body -->
+    <ellipse cx="160" cy="120" rx="120" ry="80" fill="white"/>
+    <!-- Fish tail -->
+    <path d="M40 120 L-40 60 L-40 180 Z" fill="white"/>
+    <!-- Fish eye -->
+    <circle cx="220" cy="100" r="20" fill="#0ea5e9"/>
+    <circle cx="225" cy="95" r="8" fill="#0284c7"/>
+    <!-- Fish fins -->
+    <path d="M160 40 Q180 0 200 40" stroke="white" stroke-width="12" fill="none"/>
+    <path d="M140 200 Q160 250 180 200" stroke="white" stroke-width="12" fill="none"/>
+    <!-- Water waves -->
+    <path d="M-20 240 Q40 200 100 240 T220 240 T340 240" stroke="white" stroke-width="8" fill="none" opacity="0.6"/>
+    <path d="M-40 280 Q20 240 80 280 T200 280 T320 280" stroke="white" stroke-width="8" fill="none" opacity="0.4"/>
+  </g>
+  <text x="256" y="460" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="bold" fill="white">AquaMobil</text>
+</svg>

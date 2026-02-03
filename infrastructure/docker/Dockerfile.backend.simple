@@ -9,7 +9,7 @@
 # - Use with: DOCKER_BUILDKIT=1 docker build ...
 # =============================================================================
 
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 
 # Install curl for health checks and other utilities
 RUN apk add --no-cache curl dumb-init

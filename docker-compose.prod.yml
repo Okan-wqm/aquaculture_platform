@@ -1,364 +1,409 @@
 # =============================================================================
-# Aquaculture Platform - Docker Compose (Production)
-# Production-ready configuration with replicas and resource limits
+# Aquaculture Platform - Production Docker Compose
+# DigitalOcean Droplet Deployment
+# =============================================================================
+# Usage:
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
 # =============================================================================
 
 version: '3.8'
-
-services:
-  # ===========================================================================
-  # Backend Microservices - Production Configuration
-  # ===========================================================================
-
-  gateway-api:
-    image: ${REGISTRY:-ghcr.io}/aquaculture/gateway-api:${VERSION:-latest}
-    deploy:
-      replicas: 3
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-      update_config:
-        parallelism: 1
-        delay: 10s
-        failure_action: rollback
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      NATS_URL: ${NATS_URL}
-      JWT_SECRET: ${JWT_SECRET}
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - aqua-network
-
-  auth-service:
-    image: ${REGISTRY:-ghcr.io}/aquaculture/auth-service:${VERSION:-latest}
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-      update_config:
-        parallelism: 1
-        delay: 10s
-      restart_policy:
-        condition: on-failure
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      NATS_URL: ${NATS_URL}
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - aqua-network
-
-  farm-service:
-    image: ${REGISTRY:-ghcr.io}/aquaculture/farm-service:${VERSION:-latest}
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-      update_config:
-        parallelism: 1
-        delay: 10s
-      restart_policy:
-        condition: on-failure
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      NATS_URL: ${NATS_URL}
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - aqua-network
-
-  sensor-service:
-    image: ${REGISTRY:-ghcr.io}/aquaculture/sensor-service:${VERSION:-latest}
-    deploy:
-      replicas: 3
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-      update_config:
-        parallelism: 1
-        delay: 10s
-      restart_policy:
-        condition: on-failure
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      NATS_URL: ${NATS_URL}
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - aqua-network
-
-  alert-engine:
-    image: ${REGISTRY:-ghcr.io}/aquaculture/alert-engine:${VERSION:-latest}
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-      restart_policy:
-        condition: on-failure
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      NATS_URL: ${NATS_URL}
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - aqua-network
-
-  billing-service:
-    image: ${REGISTRY:-ghcr.io}/aquaculture/billing-service:${VERSION:-latest}
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-      restart_policy:
-        condition: on-failure
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      NATS_URL: ${NATS_URL}
-    networks:
-      - aqua-network
-
-  hr-service:
-    image: ${REGISTRY:-ghcr.io}/aquaculture/hr-service:${VERSION:-latest}
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-      restart_policy:
-        condition: on-failure
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      NATS_URL: ${NATS_URL}
-    networks:
-      - aqua-network
-
-  notification-service:
-    image: ${REGISTRY:-ghcr.io}/aquaculture/notification-service:${VERSION:-latest}
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-      restart_policy:
-        condition: on-failure
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      NATS_URL: ${NATS_URL}
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASS: ${SMTP_PASS}
-    networks:
-      - aqua-network
-
-  admin-api-service:
-    image: ${REGISTRY:-ghcr.io}/aquaculture/admin-api-service:${VERSION:-latest}
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-      restart_policy:
-        condition: on-failure
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      NATS_URL: ${NATS_URL}
-    networks:
-      - aqua-network
-
-  # ===========================================================================
-  # Frontend Services
-  # ===========================================================================
-
-  shell:
-    image: ${REGISTRY:-ghcr.io}/aquaculture/shell:${VERSION:-latest}
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
-      restart_policy:
-        condition: on-failure
-    environment:
-      DASHBOARD_URL: http://dashboard
-      FARM_MODULE_URL: http://farm-module
-      PROCESS_EDITOR_URL: http://process-editor
-      ADMIN_PANEL_URL: http://admin-panel
-    networks:
-      - aqua-network
-
-  dashboard:
-    image: ${REGISTRY:-ghcr.io}/aquaculture/dashboard:${VERSION:-latest}
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
-      restart_policy:
-        condition: on-failure
-    networks:
-      - aqua-network
-
-  farm-module:
-    image: ${REGISTRY:-ghcr.io}/aquaculture/farm-module:${VERSION:-latest}
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
-      restart_policy:
-        condition: on-failure
-    networks:
-      - aqua-network
-
-  process-editor:
-    image: ${REGISTRY:-ghcr.io}/aquaculture/process-editor:${VERSION:-latest}
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
-      restart_policy:
-        condition: on-failure
-    networks:
-      - aqua-network
-
-  admin-panel:
-    image: ${REGISTRY:-ghcr.io}/aquaculture/admin-panel:${VERSION:-latest}
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
-      restart_policy:
-        condition: on-failure
-    networks:
-      - aqua-network
 
 # =============================================================================
 # Networks
 # =============================================================================
 networks:
   aqua-network:
-    driver: overlay
-    attachable: true
+    driver: bridge
+  aqua-internal:
+    driver: bridge
+    internal: true
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres_data:
+  redis_data:
+  nats_data:
+
+# =============================================================================
+# Services
+# =============================================================================
+services:
+  # ===========================================================================
+  # Infrastructure Services
+  # ===========================================================================
+
+  # PostgreSQL with TimescaleDB
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: aqua-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aquaculture}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: ${POSTGRES_DB:-aquaculture}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - aqua-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aquaculture}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: aqua-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required}
+    volumes:
+      - redis_data:/data
+    networks:
+      - aqua-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # NATS Message Broker
+  nats:
+    image: nats:2.10-alpine
+    container_name: aqua-nats
+    restart: unless-stopped
+    command: ["--jetstream", "--store_dir=/data"]
+    volumes:
+      - nats_data:/data
+    networks:
+      - aqua-internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # Backend Services (from GHCR)
+  # ===========================================================================
+
+  gateway-api:
+    image: ghcr.io/okan-wqm/aquaculture_platform/gateway-api:latest
+    container_name: aqua-gateway
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      # Service URLs for federation
+      AUTH_SERVICE_URL: http://auth-service:3000/graphql
+      FARM_SERVICE_URL: http://farm-service:3000/graphql
+      SENSOR_SERVICE_URL: http://sensor-service:3000/graphql
+      HR_SERVICE_URL: http://hr-service:3000/graphql
+      BILLING_SERVICE_URL: http://billing-service:3000/graphql
+      ALERT_SERVICE_URL: http://alert-engine:3000/graphql
+      ADMIN_SERVICE_URL: http://admin-api-service:3000/graphql
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aqua-network
+      - aqua-internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  auth-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/auth-service:latest
+    container_name: aqua-auth
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aqua-internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  farm-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/farm-service:latest
+    container_name: aqua-farm
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aqua-internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  sensor-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-service:latest
+    container_name: aqua-sensor
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aqua-internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  hr-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/hr-service:latest
+    container_name: aqua-hr
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aqua-internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  billing-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/billing-service:latest
+    container_name: aqua-billing
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aqua-internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  alert-engine:
+    image: ghcr.io/okan-wqm/aquaculture_platform/alert-engine:latest
+    container_name: aqua-alert
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+      - nats
+    networks:
+      - aqua-internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  notification-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/notification-service:latest
+    container_name: aqua-notification
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+      # Email config (optional)
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+    depends_on:
+      - postgres
+      - redis
+      - nats
+    networks:
+      - aqua-internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  admin-api-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/admin-api-service:latest
+    container_name: aqua-admin-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aqua-internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # Frontend Services (from GHCR)
+  # ===========================================================================
+
+  shell:
+    image: ghcr.io/okan-wqm/aquaculture_platform/shell:latest
+    container_name: aqua-shell
+    restart: unless-stopped
+    networks:
+      - aqua-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  dashboard:
+    image: ghcr.io/okan-wqm/aquaculture_platform/dashboard:latest
+    container_name: aqua-dashboard
+    restart: unless-stopped
+    networks:
+      - aqua-network
+
+  farm-module:
+    image: ghcr.io/okan-wqm/aquaculture_platform/farm-module:latest
+    container_name: aqua-farm-module
+    restart: unless-stopped
+    networks:
+      - aqua-network
+
+  hr-module:
+    image: ghcr.io/okan-wqm/aquaculture_platform/hr-module:latest
+    container_name: aqua-hr-module
+    restart: unless-stopped
+    networks:
+      - aqua-network
+
+  sensor-module:
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-module:latest
+    container_name: aqua-sensor-module
+    restart: unless-stopped
+    networks:
+      - aqua-network
+
+  admin-panel:
+    image: ghcr.io/okan-wqm/aquaculture_platform/admin-panel:latest
+    container_name: aqua-admin-panel
+    restart: unless-stopped
+    networks:
+      - aqua-network
+
+  tenant-admin:
+    image: ghcr.io/okan-wqm/aquaculture_platform/tenant-admin:latest
+    container_name: aqua-tenant-admin
+    restart: unless-stopped
+    networks:
+      - aqua-network
+
+  aquamobil:
+    image: ghcr.io/okan-wqm/aquaculture_platform/aquamobil:latest
+    container_name: aqua-mobile
+    restart: unless-stopped
+    networks:
+      - aqua-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================================================
+  # Reverse Proxy (Nginx)
+  # ===========================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: aqua-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/certbot:/var/www/certbot:ro
+    depends_on:
+      - gateway-api
+      - shell
+      - aquamobil
+    networks:
+      - aqua-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

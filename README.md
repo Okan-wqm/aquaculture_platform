@@ -341,7 +341,81 @@ All services expose health endpoints:
 3. Run `npm run lint` and `npm run test` before committing
 4. Update documentation as needed
 
-## Recent Updates (v1.2.0)
+## Recent Updates (v1.3.0)
+
+### Major Platform Enhancements
+
+**Farm Service - Sub-Equipment Management**
+- Full CQRS implementation for sub-equipment (pumps, filters, valves, etc.)
+- Hierarchical equipment structure (parent-child relationships)
+- Sub-equipment types with customizable attributes
+- Commands: `CreateSubEquipment`, `UpdateSubEquipment`, `DeleteSubEquipment`
+- Queries: `GetSubEquipment`, `ListSubEquipment`, `GetSubEquipmentTypes`
+
+**Farm Service - Feeding Protocol System**
+- Complete feeding protocol management with scheduling support
+- Multi-species feeding configurations
+- Time-based and condition-based feeding triggers
+- Protocol templates for common feeding patterns
+- Integration with batch and tank assignments
+
+**Farm Service - Fish Health Events**
+- Health event tracking and management
+- Disease outbreak monitoring
+- Treatment recording and tracking
+- Mortality event logging with cause analysis
+- Health status dashboard integration
+
+**Farm Service - Harvest Planning**
+- Harvest plan creation with multi-batch support
+- Planned vs actual harvest tracking
+- Quality grading integration
+- Logistics coordination features
+- Regulatory compliance documentation
+
+**Sensor Service - PLC Control Module**
+- Complete PLC integration layer with DTOs, resolvers, and services
+- PLC connection management (Siemens S7, Modbus, OPC-UA ready)
+- PLC alarm monitoring and alerting
+- PLC telemetry data collection
+- Feeding parameter control via PLC
+
+**Sensor Service - Automation Programs**
+- Visual automation program editor (workflow builder)
+- Step-based program execution
+- Conditional transitions between steps
+- Variable management within programs
+- Action configuration (sensor triggers, PLC commands, notifications)
+
+**Sensor Service - VFD Improvements**
+- Enhanced VFD filtering with multiple criteria
+- Better validation and error handling
+- Improved command execution feedback
+- Reading history with aggregation support
+
+**Auth Service - GDPR Compliance Module**
+- User consent management (tracking, versioning, withdrawal)
+- Data export functionality (user data portability)
+- Data anonymization for deleted accounts
+- Consent audit logging
+- Right to be forgotten implementation
+
+**Frontend - New Pages**
+- Automation Programs page with visual workflow editor
+- Automation Program Editor with drag-and-drop steps
+- Health Events management interface
+- Harvest Planning page with calendar view
+- Enhanced Tenant Database explorer
+
+**Infrastructure**
+- Pagination utilities in backend-common library
+- Schema manager improvements for tenant isolation
+- Enhanced resolver security across all services
+- Improved tenant-schema middleware
+
+---
+
+## Previous Updates (v1.2.0)
 
 ### Security Hardening
 

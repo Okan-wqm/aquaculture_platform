@@ -70,7 +70,7 @@ export const QualityCodes = {
  * Schema comes from search_path (tenant-specific)
  */
 @ObjectType()
-@Entity('sensor_metrics')
+@Entity('sensor_metrics', { schema: 'sensor' })
 @Index(['sensorId', 'time'])
 @Index(['channelId', 'time'])
 @Index(['tenantId', 'time'])
@@ -96,7 +96,7 @@ export class SensorMetric {
   // === Tenant Identification ===
 
   @Field(() => ID)
-  @Column('uuid', { name: 'tenant_id' })
+  @Column('uuid')
   tenantId!: string;
 
   // === Location Context (Denormalized for Query Performance) ===

@@ -17,12 +17,77 @@ import {
   BadRequestException,
   Logger,
   UseGuards,
+  Res,
+  Req,
+  StreamableFile,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
-import { IsOptional, IsNumber, IsString, IsIn, IsObject } from 'class-validator';
+import { IsOptional, IsNumber, IsString, IsIn, IsObject, IsBoolean } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
+import { Response, Request } from 'express';
+
+// ============================================================================
+// Sensitive Column Masking Configuration
+// ============================================================================
+
+const SENSITIVE_COLUMNS = [
+  'password',
+  'password_hash',
+  'hashed_password',
+  'secret',
+  'api_key',
+  'api_secret',
+  'access_token',
+  'refresh_token',
+  'token',
+  'mfa_secret',
+  'totp_secret',
+  'private_key',
+  'encryption_key',
+  'salt',
+  'hash',
+  'credential',
+  'credentials',
+  'oauth_token',
+  'bearer_token',
+  'jwt_secret',
+  'stripe_secret',
+  'webhook_secret',
+];
+
+const MASKED_VALUE = '********';
+
+/**
+ * Check if column name indicates sensitive data
+ */
+function isSensitiveColumn(columnName: string): boolean {
+  const lowerName = columnName.toLowerCase();
+  return SENSITIVE_COLUMNS.some(
+    (sensitive) =>
+      lowerName === sensitive ||
+      lowerName.includes(sensitive) ||
+      lowerName.endsWith('_' + sensitive) ||
+      lowerName.startsWith(sensitive + '_'),
+  );
+}
+
+/**
+ * Mask sensitive data in a row
+ */
+function maskSensitiveData(
+  row: Record<string, unknown>,
+  columns: { columnName: string }[],
+): Record<string, unknown> {
+  const maskedRow = { ...row };
+  for (const col of columns) {
+    if (isSensitiveColumn(col.columnName) && maskedRow[col.columnName] !== null) {
+      maskedRow[col.columnName] = MASKED_VALUE;
+    }
+  }
+  return maskedRow;
+}
 
 // ============================================================================
 // DTOs
@@ -50,6 +115,30 @@ class TableQueryDto {
   @IsOptional()
   @IsString()
   filter?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  includeSensitive?: boolean;
+}
+
+class ExportQueryDto {
+  @IsOptional()
+  @IsIn(['csv', 'json'])
+  format?: 'csv' | 'json';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  limit?: number;
+
+  @IsOptional()
+  @IsString()
+  orderBy?: string;
+
+  @IsOptional()
+  @IsIn(['ASC', 'DESC'])
+  orderDirection?: 'ASC' | 'DESC';
 }
 
 class InsertRowDto {
@@ -96,6 +185,7 @@ interface ColumnInfo {
   isForeignKey: boolean;
   foreignKeyTable?: string;
   foreignKeyColumn?: string;
+  isSensitive?: boolean;
 }
 
 interface TableData {
@@ -161,9 +251,9 @@ export class DatabaseExplorerController {
     await queryRunner.connect();
 
     try {
-      // Tablo bilgilerini al
+      // Tablo bilgilerini al (DISTINCT ile duplicate önleme)
       const tables = await queryRunner.query(`
-        SELECT
+        SELECT DISTINCT ON (t.tablename)
           t.tablename as table_name,
           t.schemaname as schema_name,
           COALESCE(s.n_live_tup, 0) as row_count,
@@ -224,6 +314,7 @@ export class DatabaseExplorerController {
     const offset = (page - 1) * limit;
     const orderBy = query.orderBy && this.isValidIdentifier(query.orderBy) ? query.orderBy : null;
     const orderDirection = query.orderDirection === 'DESC' ? 'DESC' : 'ASC';
+    const includeSensitive = query.includeSensitive === true;
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -231,6 +322,12 @@ export class DatabaseExplorerController {
     try {
       // Sütun bilgilerini al
       const columns = await this.getColumnInfo(queryRunner, schema, table);
+
+      // Add sensitive flag to columns
+      const columnsWithSensitive = columns.map((col) => ({
+        ...col,
+        isSensitive: isSensitiveColumn(col.columnName),
+      }));
 
       // Toplam satır sayısı
       const countResult = await queryRunner.query(
@@ -252,17 +349,127 @@ export class DatabaseExplorerController {
       dataQuery += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
       queryParams.push(limit, offset);
 
-      const rows = await queryRunner.query(dataQuery, queryParams);
+      const rawRows = await queryRunner.query(dataQuery, queryParams);
+
+      // SECURITY: Mask sensitive data unless explicitly requested
+      const rows = includeSensitive
+        ? rawRows
+        : rawRows.map((row: Record<string, unknown>) =>
+            maskSensitiveData(row, columnsWithSensitive),
+          );
+
+      // Audit log for data access
+      this.logger.log(
+        `[AUDIT] Data access: ${schema}.${table} (page=${page}, rows=${rows.length}, sensitive=${includeSensitive})`,
+      );
 
       return {
         tableName: table,
-        columns,
+        columns: columnsWithSensitive,
         rows,
         totalRows,
         page,
         limit,
         totalPages,
       };
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * Export table data to CSV or JSON
+   */
+  @Get('schemas/:schema/tables/:table/export')
+  async exportTableData(
+    @Param('schema') schema: string,
+    @Param('table') table: string,
+    @Query() query: ExportQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile | Record<string, unknown>[]> {
+    if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
+      throw new BadRequestException('Invalid schema or table name');
+    }
+
+    const format = query.format || 'csv';
+    const limit = Math.min(10000, Math.max(1, query.limit || 1000)); // Max 10K rows for export
+    const orderBy = query.orderBy && this.isValidIdentifier(query.orderBy) ? query.orderBy : null;
+    const orderDirection = query.orderDirection === 'DESC' ? 'DESC' : 'ASC';
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+
+    try {
+      // Get column info
+      const columns = await this.getColumnInfo(queryRunner, schema, table);
+      const columnsWithSensitive = columns.map((col) => ({
+        ...col,
+        isSensitive: isSensitiveColumn(col.columnName),
+      }));
+
+      // Build query
+      let dataQuery = `SELECT * FROM "${schema}"."${table}"`;
+      const queryParams: number[] = [];
+      let paramIndex = 1;
+
+      if (orderBy) {
+        dataQuery += ` ORDER BY "${orderBy}" ${orderDirection}`;
+      }
+
+      dataQuery += ` LIMIT $${paramIndex++}`;
+      queryParams.push(limit);
+
+      const rawRows = await queryRunner.query(dataQuery, queryParams);
+
+      // Always mask sensitive data for exports
+      const rows = rawRows.map((row: Record<string, unknown>) =>
+        maskSensitiveData(row, columnsWithSensitive),
+      );
+
+      // Audit log for export
+      this.logger.warn(
+        `[AUDIT] Data export: ${schema}.${table} (format=${format}, rows=${rows.length})`,
+      );
+
+      if (format === 'json') {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="${table}_export.json"`,
+        );
+        return rows;
+      }
+
+      // CSV format
+      const columnNames = columns.map((c) => c.columnName);
+      const csvHeader = columnNames.join(',');
+      const csvRows = rows.map((row: Record<string, unknown>) =>
+        columnNames
+          .map((col) => {
+            const value = row[col];
+            if (value === null || value === undefined) return '';
+            if (typeof value === 'string') {
+              // Escape quotes and wrap in quotes
+              return `"${value.replace(/"/g, '""')}"`;
+            }
+            if (typeof value === 'object') {
+              return `"${JSON.stringify(value).replace(/"/g, '""')}"`;
+            }
+            return String(value);
+          })
+          .join(','),
+      );
+
+      const csvContent = [csvHeader, ...csvRows].join('\n');
+      const buffer = Buffer.from(csvContent, 'utf-8');
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${table}_export.csv"`,
+      );
+
+      return new StreamableFile(buffer);
     } finally {
       await queryRunner.release();
     }
@@ -621,24 +828,25 @@ export class DatabaseExplorerController {
         fk.foreign_column_name
       FROM information_schema.columns c
       LEFT JOIN (
-        SELECT kcu.column_name
+        SELECT DISTINCT kcu.column_name
         FROM information_schema.table_constraints tc
         JOIN information_schema.key_column_usage kcu
-          ON tc.constraint_name = kcu.constraint_name
+          ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
         WHERE tc.table_schema = $1 AND tc.table_name = $2 AND tc.constraint_type = 'PRIMARY KEY'
       ) pk ON pk.column_name = c.column_name
       LEFT JOIN (
-        SELECT
+        SELECT DISTINCT ON (kcu.column_name)
           kcu.column_name,
           ccu.table_schema as foreign_table_schema,
           ccu.table_name as foreign_table_name,
           ccu.column_name as foreign_column_name
         FROM information_schema.table_constraints tc
         JOIN information_schema.key_column_usage kcu
-          ON tc.constraint_name = kcu.constraint_name
+          ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
         JOIN information_schema.constraint_column_usage ccu
           ON tc.constraint_name = ccu.constraint_name
         WHERE tc.table_schema = $1 AND tc.table_name = $2 AND tc.constraint_type = 'FOREIGN KEY'
+        ORDER BY kcu.column_name, kcu.ordinal_position
       ) fk ON fk.column_name = c.column_name
       WHERE c.table_schema = $1 AND c.table_name = $2
       ORDER BY c.ordinal_position

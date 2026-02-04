@@ -523,7 +523,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
         device_model,
         COUNT(*) AS count
       FROM edge_devices
-      WHERE tenant_id = $1
+      WHERE "tenantId" = $1
       GROUP BY lifecycle_state, device_model
     `;
 

@@ -105,6 +105,7 @@ services:
       ALERT_SERVICE_URL: http://alert-engine:3000/graphql
       HR_SERVICE_URL: http://hr-service:3000/graphql
       BILLING_SERVICE_URL: http://billing-service:3000/graphql
+      NOTIFICATION_SERVICE_URL: http://notification-service:3000/graphql
       # MinIO Storage Configuration
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
@@ -150,6 +151,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3000
+      AUTH_SERVICE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: aquaculture
@@ -190,6 +192,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3000
+      FARM_SERVICE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: aquaculture
@@ -227,6 +230,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3000
+      SENSOR_SERVICE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: aquaculture
@@ -264,6 +268,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3000
+      ALERT_ENGINE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: aquaculture
@@ -299,6 +304,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3000
+      BILLING_SERVICE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: aquaculture
@@ -332,6 +338,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3000
+      HR_SERVICE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: aquaculture
@@ -365,6 +372,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3000
+      NOTIFICATION_SERVICE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: aquaculture

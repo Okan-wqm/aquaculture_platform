@@ -998,7 +998,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
     await this.dataSource.query(`
       INSERT INTO sensor_metrics (
-        time, sensor_id, channel_id, tenant_id,
+        time, sensor_id, channel_id, "tenantId",
         site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
         raw_value, value, quality_code, quality_bits,
         source_protocol, source_timestamp, ingestion_latency_ms, batch_id

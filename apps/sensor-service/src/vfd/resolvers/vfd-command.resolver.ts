@@ -1,17 +1,29 @@
-import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Context, Float, ObjectType, Field } from '@nestjs/graphql';
 import { Roles, Role } from '@platform/backend-common';
+import { GraphQLJSON } from 'graphql-scalars';
 
 import { VFD_BRAND_COMMANDS } from '../brand-configs';
+import { VfdCommandDto, VfdCommandResultDto } from '../dto/vfd-command.dto';
 import { VfdRegisterMapping } from '../entities/vfd-register-mapping.entity';
 import { VfdBrand, VfdProtocol, VfdParameterCategory, VfdCommandType } from '../entities/vfd.enums';
-import { VfdCommandService, VfdCommandInput } from '../services/vfd-command.service';
+import { VfdCommandService } from '../services/vfd-command.service';
 import { VfdConnectionTesterService } from '../services/vfd-connection-tester.service';
 import { VfdRegisterMappingService } from '../services/vfd-register-mapping.service';
+
+// GraphQL Response Types for Code-First
+@ObjectType()
+class VfdValidationResult {
+  @Field()
+  valid!: boolean;
+
+  @Field(() => [String], { nullable: true })
+  errors?: string[];
+}
 
 /**
  * VFD Command and Configuration GraphQL Resolver
  */
-@Resolver('VfdCommand')
+@Resolver()
 export class VfdCommandResolver {
   constructor(
     private readonly commandService: VfdCommandService,
@@ -27,13 +39,13 @@ export class VfdCommandResolver {
    * Send a command to a VFD device
    * SECURITY: Requires elevated permissions for industrial equipment control
    */
-  @Mutation('sendVfdCommand')
+  @Mutation(() => VfdCommandResultDto, { name: 'sendVfdCommand' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async sendCommand(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Args('command') command: VfdCommandInput,
+    @Args('command') command: VfdCommandDto,
     @Context() context: { tenantId: string }
-  ) {
+  ): Promise<VfdCommandResultDto> {
     return this.commandService.executeCommand(vfdDeviceId, context.tenantId, command);
   }
 
@@ -41,12 +53,12 @@ export class VfdCommandResolver {
    * Start VFD (shorthand)
    * SECURITY: Requires elevated permissions - can start industrial motors
    */
-  @Mutation('startVfd')
+  @Mutation(() => VfdCommandResultDto, { name: 'startVfd' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async startVfd(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
     @Context() context: { tenantId: string }
-  ) {
+  ): Promise<VfdCommandResultDto> {
     return this.commandService.executeCommand(vfdDeviceId, context.tenantId, {
       command: VfdCommandType.START,
     });
@@ -56,12 +68,12 @@ export class VfdCommandResolver {
    * Stop VFD (shorthand)
    * SECURITY: Requires elevated permissions - can stop industrial motors
    */
-  @Mutation('stopVfd')
+  @Mutation(() => VfdCommandResultDto, { name: 'stopVfd' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async stopVfd(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
     @Context() context: { tenantId: string }
-  ) {
+  ): Promise<VfdCommandResultDto> {
     return this.commandService.executeCommand(vfdDeviceId, context.tenantId, {
       command: VfdCommandType.STOP,
     });
@@ -71,13 +83,13 @@ export class VfdCommandResolver {
    * Set VFD frequency (shorthand)
    * SECURITY: Requires elevated permissions - controls motor speed
    */
-  @Mutation('setVfdFrequency')
+  @Mutation(() => VfdCommandResultDto, { name: 'setVfdFrequency' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async setFrequency(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Args('frequencyHz') frequencyHz: number,
+    @Args('frequencyHz', { type: () => Float }) frequencyHz: number,
     @Context() context: { tenantId: string }
-  ) {
+  ): Promise<VfdCommandResultDto> {
     return this.commandService.executeCommand(vfdDeviceId, context.tenantId, {
       command: VfdCommandType.SET_FREQUENCY,
       value: frequencyHz,
@@ -88,13 +100,13 @@ export class VfdCommandResolver {
    * Set VFD speed percentage (shorthand)
    * SECURITY: Requires elevated permissions - controls motor speed
    */
-  @Mutation('setVfdSpeed')
+  @Mutation(() => VfdCommandResultDto, { name: 'setVfdSpeed' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async setSpeed(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Args('speedPercent') speedPercent: number,
+    @Args('speedPercent', { type: () => Float }) speedPercent: number,
     @Context() context: { tenantId: string }
-  ) {
+  ): Promise<VfdCommandResultDto> {
     return this.commandService.executeCommand(vfdDeviceId, context.tenantId, {
       command: VfdCommandType.SET_SPEED,
       value: speedPercent,
@@ -105,12 +117,12 @@ export class VfdCommandResolver {
    * Reset VFD fault (shorthand)
    * SECURITY: Requires elevated permissions - clears equipment fault states
    */
-  @Mutation('resetVfdFault')
+  @Mutation(() => VfdCommandResultDto, { name: 'resetVfdFault' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async resetFault(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
     @Context() context: { tenantId: string }
-  ) {
+  ): Promise<VfdCommandResultDto> {
     return this.commandService.executeCommand(vfdDeviceId, context.tenantId, {
       command: VfdCommandType.FAULT_RESET,
     });
@@ -121,11 +133,11 @@ export class VfdCommandResolver {
    * SECURITY: Emergency stop is allowed for ALL authenticated users for safety
    * Any user should be able to perform an emergency stop
    */
-  @Mutation('emergencyStopVfd')
+  @Mutation(() => VfdCommandResultDto, { name: 'emergencyStopVfd' })
   async emergencyStop(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
     @Context() context: { tenantId: string }
-  ) {
+  ): Promise<VfdCommandResultDto> {
     return this.commandService.executeCommand(vfdDeviceId, context.tenantId, {
       command: VfdCommandType.EMERGENCY_STOP,
     });
@@ -136,48 +148,45 @@ export class VfdCommandResolver {
   /**
    * Get all supported VFD brands
    */
-  @Query('vfdBrands')
-  async getVfdBrands() {
+  @Query(() => GraphQLJSON, { name: 'vfdBrands', nullable: true })
+  async getVfdBrands(): Promise<unknown> {
     return this.registerMappingService.getBrandsSummary();
   }
 
   /**
    * Get supported protocols for a brand
    */
-  // eslint-disable-next-line @typescript-eslint/require-await
-  @Query('vfdProtocols')
-  async getVfdProtocols() {
+  @Query(() => GraphQLJSON, { name: 'vfdProtocols', nullable: true })
+  async getVfdProtocols(): Promise<unknown> {
     return this.connectionTesterService.getSupportedProtocols();
   }
 
   /**
    * Get protocol configuration schema
    */
-  // eslint-disable-next-line @typescript-eslint/require-await
-  @Query('vfdProtocolSchema')
+  @Query(() => GraphQLJSON, { name: 'vfdProtocolSchema', nullable: true })
   async getProtocolSchema(
-    @Args('protocol') protocol: VfdProtocol
-  ) {
+    @Args('protocol', { type: () => VfdProtocol }) protocol: VfdProtocol
+  ): Promise<unknown> {
     return this.connectionTesterService.getProtocolSchema(protocol);
   }
 
   /**
    * Get default configuration for a protocol
    */
-  // eslint-disable-next-line @typescript-eslint/require-await
-  @Query('vfdProtocolDefaultConfig')
+  @Query(() => GraphQLJSON, { name: 'vfdProtocolDefaultConfig', nullable: true })
   async getProtocolDefaultConfig(
-    @Args('protocol') protocol: VfdProtocol
-  ) {
+    @Args('protocol', { type: () => VfdProtocol }) protocol: VfdProtocol
+  ): Promise<unknown> {
     return this.connectionTesterService.getDefaultConfiguration(protocol);
   }
 
   /**
    * Get register mappings for a brand
    */
-  @Query('vfdRegisterMappings')
+  @Query(() => [VfdRegisterMapping], { name: 'vfdRegisterMappings' })
   async getRegisterMappings(
-    @Args('brand') brand: VfdBrand,
+    @Args('brand', { type: () => VfdBrand }) brand: VfdBrand,
     @Args('modelSeries') modelSeries: string
   ): Promise<VfdRegisterMapping[]> {
     return this.registerMappingService.getMappingsForBrand(brand, modelSeries);
@@ -186,10 +195,10 @@ export class VfdCommandResolver {
   /**
    * Get register mappings by category
    */
-  @Query('vfdRegisterMappingsByCategory')
+  @Query(() => [VfdRegisterMapping], { name: 'vfdRegisterMappingsByCategory' })
   async getRegisterMappingsByCategory(
-    @Args('brand') brand: VfdBrand,
-    @Args('category') category: VfdParameterCategory
+    @Args('brand', { type: () => VfdBrand }) brand: VfdBrand,
+    @Args('category', { type: () => VfdParameterCategory }) category: VfdParameterCategory
   ): Promise<VfdRegisterMapping[]> {
     return this.registerMappingService.getMappingsByCategory(brand, category);
   }
@@ -197,10 +206,9 @@ export class VfdCommandResolver {
   /**
    * Get control commands for a brand
    */
-  // eslint-disable-next-line @typescript-eslint/require-await
-  @Query('vfdBrandCommands')
+  @Query(() => GraphQLJSON, { name: 'vfdBrandCommands', nullable: true })
   async getBrandCommands(
-    @Args('brand') brand: VfdBrand
+    @Args('brand', { type: () => VfdBrand }) brand: VfdBrand
   ): Promise<Record<string, number>> {
     return VFD_BRAND_COMMANDS[brand] || {};
   }
@@ -208,12 +216,11 @@ export class VfdCommandResolver {
   /**
    * Validate protocol configuration
    */
-  // eslint-disable-next-line @typescript-eslint/require-await
-  @Query('validateVfdConfig')
+  @Query(() => VfdValidationResult, { name: 'validateVfdConfig' })
   async validateConfig(
-    @Args('protocol') protocol: VfdProtocol,
-    @Args('configuration') configuration: Record<string, unknown>
-  ) {
+    @Args('protocol', { type: () => VfdProtocol }) protocol: VfdProtocol,
+    @Args('configuration', { type: () => GraphQLJSON }) configuration: Record<string, unknown>
+  ): Promise<VfdValidationResult> {
     return this.connectionTesterService.validateConfiguration(protocol, configuration);
   }
 }

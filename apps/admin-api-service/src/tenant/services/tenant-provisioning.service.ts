@@ -405,7 +405,7 @@ export class TenantProvisioningService {
     const tenantModulesResult = await this.dataSource.query(
       `SELECT m.code FROM tenant_modules tm
        JOIN modules m ON tm.module_id = m.id
-       WHERE tm.tenant_id = $1 AND tm.is_active = true`,
+       WHERE tm."tenantId" = $1 AND tm.is_active = true`,
       [tenant.id],
     );
 
@@ -450,7 +450,7 @@ export class TenantProvisioningService {
       try {
         // Check if role already exists for this tenant
         const existingRole = await this.dataSource.query(
-          `SELECT id FROM tenant_roles WHERE tenant_id = $1 AND code = $2`,
+          `SELECT id FROM tenant_roles WHERE "tenantId" = $1 AND code = $2`,
           [tenant.id, role.code],
         );
 
@@ -465,7 +465,7 @@ export class TenantProvisioningService {
         await this.dataSource.query(
           `
           INSERT INTO tenant_roles (
-            id, tenant_id, code, name, description, permissions,
+            id, "tenantId", code, name, description, permissions,
             is_default, is_editable, display_order, created_at, updated_at
           ) VALUES (
             gen_random_uuid(), $1, $2, $3, $4, $5,
@@ -506,7 +506,7 @@ export class TenantProvisioningService {
       await this.dataSource.query(`
         CREATE TABLE IF NOT EXISTS tenant_roles (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          tenant_id UUID NOT NULL,
+          "tenantId" UUID NOT NULL,
           code VARCHAR(50) NOT NULL,
           name VARCHAR(100) NOT NULL,
           description TEXT,
@@ -516,8 +516,8 @@ export class TenantProvisioningService {
           display_order INTEGER NOT NULL DEFAULT 0,
           created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-          CONSTRAINT uk_tenant_roles_tenant_code UNIQUE (tenant_id, code),
-          CONSTRAINT fk_tenant_roles_tenant FOREIGN KEY (tenant_id)
+          CONSTRAINT uk_tenant_roles_tenant_code UNIQUE ("tenantId", code),
+          CONSTRAINT fk_tenant_roles_tenant FOREIGN KEY ("tenantId")
             REFERENCES tenants(id) ON DELETE CASCADE
         )
       `);
@@ -525,7 +525,7 @@ export class TenantProvisioningService {
       // Create indexes for better query performance
       await this.dataSource.query(`
         CREATE INDEX IF NOT EXISTS idx_tenant_roles_tenant_id
-        ON tenant_roles(tenant_id)
+        ON tenant_roles("tenantId")
       `);
 
       await this.dataSource.query(`
@@ -548,10 +548,10 @@ export class TenantProvisioningService {
   ): Promise<Array<DefaultTenantRole & { id: string; createdAt: Date; updatedAt: Date }>> {
     const roles = await this.dataSource.query(
       `
-      SELECT id, tenant_id, code, name, description, permissions,
+      SELECT id, "tenantId", code, name, description, permissions,
              is_default, is_editable, display_order, created_at, updated_at
       FROM tenant_roles
-      WHERE tenant_id = $1
+      WHERE "tenantId" = $1
       ORDER BY display_order ASC
     `,
       [tenantId],
@@ -599,7 +599,7 @@ export class TenantProvisioningService {
       SELECT id, code, name, description, permissions,
              is_default, is_editable, display_order
       FROM tenant_roles
-      WHERE tenant_id = $1 AND code = $2
+      WHERE "tenantId" = $1 AND code = $2
     `,
       [tenantId, roleCode],
     );
@@ -728,7 +728,7 @@ export class TenantProvisioningService {
         const userResult = await manager.query(
           `
           INSERT INTO users (
-            id, email, first_name, last_name, role, tenant_id,
+            id, email, first_name, last_name, role, "tenantId",
             is_active, is_email_verified, invitation_token, invitation_expires_at,
             created_at, updated_at
           ) VALUES (
@@ -747,7 +747,7 @@ export class TenantProvisioningService {
         await manager.query(
           `
           INSERT INTO invitations (
-            id, token, email, first_name, last_name, role, tenant_id,
+            id, token, email, first_name, last_name, role, "tenantId",
             status, expires_at, invited_by, send_count, last_sent_at, created_at, updated_at
           ) VALUES (
             gen_random_uuid(), $1, $2, $3, $4, 'TENANT_ADMIN', $5,
@@ -808,11 +808,11 @@ export class TenantProvisioningService {
         await this.dataSource.query(
           `
           INSERT INTO tenant_modules (
-            id, tenant_id, module_id, is_active, assigned_at, created_at, updated_at
+            id, "tenantId", module_id, is_active, assigned_at, created_at, updated_at
           ) VALUES (
             gen_random_uuid(), $1, $2, true, NOW(), NOW(), NOW()
           )
-          ON CONFLICT (tenant_id, module_id) DO NOTHING
+          ON CONFLICT ("tenantId", module_id) DO NOTHING
         `,
           [tenantId, moduleId],
         );

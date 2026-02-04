@@ -460,8 +460,8 @@ const TableRow = memo<TableRowProps>(
   ({ row, columns, rowKey, onSelect, onEdit, onDelete, hasActions }) => {
     return (
       <tr key={rowKey} className="hover:bg-gray-50 transition-colors">
-        {columns.map((col) => (
-          <Cell key={col.columnName} value={row[col.columnName]} dataType={col.dataType} />
+        {columns.map((col, colIdx) => (
+          <Cell key={`${rowKey}-${colIdx}`} value={row[col.columnName]} dataType={col.dataType} />
         ))}
         {hasActions && (
           <RowActions row={row} onSelect={onSelect} onEdit={onEdit} onDelete={onDelete} />

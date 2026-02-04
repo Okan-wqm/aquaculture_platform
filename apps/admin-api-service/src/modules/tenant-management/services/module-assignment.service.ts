@@ -167,7 +167,7 @@ export class ModuleAssignmentService {
           const existingResult = await manager.query(
             `SELECT EXISTS(
               SELECT 1 FROM tenant_modules
-              WHERE tenant_id = $1 AND module_id = $2 AND is_active = true
+              WHERE "tenantId" = $1 AND module_id = $2 AND is_active = true
             ) as exists`,
             [tenantId, moduleId],
           );
@@ -180,7 +180,7 @@ export class ModuleAssignmentService {
             await manager.query(
               `UPDATE tenant_modules
                SET quantities = $3, updated_at = NOW(), assigned_by = $4
-               WHERE tenant_id = $1 AND module_id = $2`,
+               WHERE "tenantId" = $1 AND module_id = $2`,
               [tenantId, moduleId, JSON.stringify(quantities), assignedBy],
             );
             assignedModules.push(moduleId);
@@ -189,12 +189,12 @@ export class ModuleAssignmentService {
             // Insert new assignment
             await manager.query(
               `INSERT INTO tenant_modules (
-                id, tenant_id, module_id, is_active, assigned_at,
+                id, "tenantId", module_id, is_active, assigned_at,
                 assigned_by, quantities, created_at, updated_at
               ) VALUES (
                 gen_random_uuid(), $1, $2, true, NOW(), $3, $4, NOW(), NOW()
               )
-              ON CONFLICT (tenant_id, module_id)
+              ON CONFLICT ("tenantId", module_id)
               DO UPDATE SET
                 is_active = true,
                 assigned_at = NOW(),
@@ -305,7 +305,7 @@ export class ModuleAssignmentService {
           deactivated_at = NOW(),
           deactivated_by = $3,
           updated_at = NOW()
-      WHERE tenant_id = $1 AND module_id = $2
+      WHERE "tenantId" = $1 AND module_id = $2
       `,
       [tenantId, moduleId, removedBy],
     );
@@ -340,7 +340,7 @@ export class ModuleAssignmentService {
       `
       SELECT
         tm.id,
-        tm.tenant_id as "tenantId",
+        tm."tenantId",
         tm.module_id as "moduleId",
         m.code as "moduleCode",
         m.name as "moduleName",
@@ -354,7 +354,7 @@ export class ModuleAssignmentService {
         COALESCE(tm.configuration, '{}')::jsonb as configuration
       FROM tenant_modules tm
       JOIN modules m ON m.id = tm.module_id
-      WHERE tm.tenant_id = $1 AND tm.is_active = true
+      WHERE tm."tenantId" = $1 AND tm.is_active = true
       ORDER BY m.name ASC
       `,
       [tenantId],
@@ -385,7 +385,7 @@ export class ModuleAssignmentService {
       `
       SELECT EXISTS(
         SELECT 1 FROM tenant_modules
-        WHERE tenant_id = $1 AND module_id = $2 AND is_active = true
+        WHERE "tenantId" = $1 AND module_id = $2 AND is_active = true
       ) as exists
       `,
       [tenantId, moduleId],
@@ -403,7 +403,7 @@ export class ModuleAssignmentService {
       `
       SELECT COALESCE(SUM(monthly_price), 0) as total
       FROM tenant_modules
-      WHERE tenant_id = $1 AND is_active = true
+      WHERE "tenantId" = $1 AND is_active = true
       `,
       [tenantId],
     );
@@ -490,12 +490,12 @@ export class ModuleAssignmentService {
     await this.dataSource.query(
       `
       INSERT INTO tenant_modules (
-        id, tenant_id, module_id, is_active, assigned_at,
+        id, "tenantId", module_id, is_active, assigned_at,
         assigned_by, quantities, created_at, updated_at
       ) VALUES (
         gen_random_uuid(), $1, $2, true, NOW(), $3, $4, NOW(), NOW()
       )
-      ON CONFLICT (tenant_id, module_id)
+      ON CONFLICT ("tenantId", module_id)
       DO UPDATE SET
         is_active = true,
         assigned_at = NOW(),
@@ -519,7 +519,7 @@ export class ModuleAssignmentService {
       SET quantities = $3,
           updated_at = NOW(),
           assigned_by = $4
-      WHERE tenant_id = $1 AND module_id = $2
+      WHERE "tenantId" = $1 AND module_id = $2
       `,
       [tenantId, moduleId, JSON.stringify(quantities), updatedBy],
     );
@@ -534,7 +534,7 @@ export class ModuleAssignmentService {
         `
         UPDATE tenant_modules
         SET monthly_price = $3, updated_at = NOW()
-        WHERE tenant_id = $1 AND module_id = $2
+        WHERE "tenantId" = $1 AND module_id = $2
         `,
         [tenantId, moduleBreakdown.moduleId, moduleBreakdown.total],
       );
@@ -574,7 +574,7 @@ export class ModuleAssignmentService {
       await this.dataSource.query(
         `
         INSERT INTO audit_logs (
-          id, tenant_id, action, entity_type, entity_id,
+          id, "tenantId", action, entity_type, entity_id,
           details, performed_by, performed_at, created_at
         ) VALUES (
           gen_random_uuid(), $1, $2, 'tenant_modules', $1,

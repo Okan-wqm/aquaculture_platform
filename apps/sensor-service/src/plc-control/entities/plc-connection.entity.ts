@@ -32,7 +32,7 @@ registerEnumType(PlcSecurityMode, { name: 'PlcSecurityMode' });
 registerEnumType(PlcAuthMode, { name: 'PlcAuthMode' });
 
 @ObjectType()
-@Entity('plc_connections')
+@Entity('plc_connections', { schema: 'sensor' })
 @Index(['tenantId', 'siteId'])
 export class PlcConnection {
   @Field(() => ID)

@@ -7,7 +7,7 @@ import {
   Index,
 } from 'typeorm';
 import { ObjectType, Field, ID } from '@nestjs/graphql';
-import GraphQLJSON from 'graphql-type-json';
+import { GraphQLJSON } from 'graphql-scalars';
 
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from './vfd.enums';
 

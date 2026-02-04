@@ -26,7 +26,7 @@ export class VfdCommandDto {
   @Max(500)
   value?: number;
 
-  @Field({ nullable: true })
+  @Field(() => Boolean, { nullable: true })
   @IsOptional()
   @IsBoolean()
   waitForAck?: boolean;
@@ -85,22 +85,22 @@ export class VfdCommandResultDto {
   @Field()
   success!: boolean;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   error?: string;
 
-  @Field({ nullable: true })
+  @Field(() => Date, { nullable: true })
   acknowledgedAt?: Date;
 
   @Field(() => Int, { nullable: true })
   latencyMs?: number;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   commandSent?: string;
 
-  @Field({ nullable: true })
+  @Field(() => Float, { nullable: true })
   previousValue?: number;
 
-  @Field({ nullable: true })
+  @Field(() => Float, { nullable: true })
   newValue?: number;
 }
 
@@ -109,22 +109,22 @@ export class VfdCommandResultDto {
  */
 @ObjectType('VfdCommandStatus')
 export class VfdCommandStatusDto {
-  @Field()
+  @Field(() => String)
   deviceId!: string;
 
-  @Field()
+  @Field(() => String)
   command!: VfdCommandType;
 
-  @Field()
+  @Field(() => String)
   status!: 'pending' | 'sent' | 'acknowledged' | 'completed' | 'failed';
 
-  @Field({ nullable: true })
+  @Field(() => Date, { nullable: true })
   sentAt?: Date;
 
-  @Field({ nullable: true })
+  @Field(() => Date, { nullable: true })
   completedAt?: Date;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   error?: string;
 }
 
@@ -145,7 +145,7 @@ export class BatchVfdCommandDto {
   @IsNumber()
   value?: number;
 
-  @Field({ nullable: true, defaultValue: false })
+  @Field(() => Boolean, { nullable: true, defaultValue: false })
   @IsOptional()
   @IsBoolean()
   sequential?: boolean;
@@ -178,7 +178,7 @@ export class EmergencyStopDto {
   @IsOptional()
   deviceIds?: string[];
 
-  @Field({ nullable: true, defaultValue: false })
+  @Field(() => Boolean, { nullable: true, defaultValue: false })
   @IsOptional()
   @IsBoolean()
   allDevices?: boolean;

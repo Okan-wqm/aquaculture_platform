@@ -414,38 +414,38 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       // Push parameters in order
       params.push(
         m.time.toISOString(),                                    // time
-        m.sensorId,                                              // sensor_id
-        m.channelId,                                             // channel_id
-        m.tenantId,                                              // tenant_id
-        m.siteId || null,                                        // site_id
-        m.departmentId || null,                                  // department_id
-        m.systemId || null,                                      // system_id
-        m.equipmentId || null,                                   // equipment_id
-        m.tankId || null,                                        // tank_id
-        m.pondId || null,                                        // pond_id
-        m.farmId || null,                                        // farm_id
-        Number.isFinite(m.rawValue) ? m.rawValue : 0,           // raw_value
+        m.sensorId,                                              // "sensorId"
+        m.channelId,                                             // "channelId"
+        m.tenantId,                                              // "tenantId"
+        m.siteId || null,                                        // "siteId"
+        m.departmentId || null,                                  // "departmentId"
+        m.systemId || null,                                      // "systemId"
+        m.equipmentId || null,                                   // "equipmentId"
+        m.tankId || null,                                        // "tankId"
+        m.pondId || null,                                        // "pondId"
+        m.farmId || null,                                        // "farmId"
+        Number.isFinite(m.rawValue) ? m.rawValue : 0,           // "rawValue"
         Number.isFinite(m.value) ? m.value : 0,                 // value
-        Number.isInteger(m.qualityCode) ? m.qualityCode : 192,  // quality_code
-        Number.isInteger(m.qualityBits) ? m.qualityBits : 0,    // quality_bits
-        m.sourceProtocol ? m.sourceProtocol.replace(/[^a-zA-Z0-9_-]/g, '') : null, // source_protocol
-        m.sourceTimestamp?.toISOString() || null,               // source_timestamp
-        m.sourceTimestamp ? new Date().getTime() - m.sourceTimestamp.getTime() : null, // ingestion_latency_ms
-        m.batchId || null,                                      // batch_id
+        Number.isInteger(m.qualityCode) ? m.qualityCode : 192,  // "qualityCode"
+        Number.isInteger(m.qualityBits) ? m.qualityBits : 0,    // "qualityBits"
+        m.sourceProtocol ? m.sourceProtocol.replace(/[^a-zA-Z0-9_-]/g, '') : null, // "sourceProtocol"
+        m.sourceTimestamp?.toISOString() || null,               // "sourceTimestamp"
+        m.sourceTimestamp ? new Date().getTime() - m.sourceTimestamp.getTime() : null, // "ingestionLatencyMs"
+        m.batchId || null,                                      // "batchId"
       );
     }
 
     const sql = `
       INSERT INTO sensor_metrics (
-        time, sensor_id, channel_id, tenant_id,
-        site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
-        raw_value, value, quality_code, quality_bits,
-        source_protocol, source_timestamp, ingestion_latency_ms, batch_id
+        time, "sensorId", "channelId", "tenantId",
+        "siteId", "departmentId", "systemId", "equipmentId", "tankId", "pondId", "farmId",
+        "rawValue", value, "qualityCode", "qualityBits",
+        "sourceProtocol", "sourceTimestamp", "ingestionLatencyMs", "batchId"
       ) VALUES ${valuePlaceholders.join(',\n')}
-      ON CONFLICT (time, sensor_id, channel_id) DO UPDATE SET
+      ON CONFLICT (time, "sensorId", "channelId") DO UPDATE SET
         value = EXCLUDED.value,
-        raw_value = EXCLUDED.raw_value,
-        quality_code = EXCLUDED.quality_code
+        "rawValue" = EXCLUDED."rawValue",
+        "qualityCode" = EXCLUDED."qualityCode"
     `;
 
     await this.dataSource.query(sql, params);

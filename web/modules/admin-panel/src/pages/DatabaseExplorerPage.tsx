@@ -21,7 +21,21 @@ interface ColumnInfo {
   isForeignKey: boolean;
   foreignKeyTable?: string;
   foreignKeyColumn?: string;
+  isSensitive?: boolean;
 }
+
+// Sensitive columns that should be visually marked
+const SENSITIVE_COLUMN_PATTERNS = [
+  'password', 'secret', 'token', 'api_key', 'hash', 'salt',
+  'mfa_secret', 'credential', 'private_key', 'encryption_key',
+];
+
+const isSensitiveColumnName = (name: string): boolean => {
+  const lowerName = name.toLowerCase();
+  return SENSITIVE_COLUMN_PATTERNS.some(
+    (pattern) => lowerName.includes(pattern),
+  );
+};
 
 interface TableInfo {
   tableName: string;
@@ -155,6 +169,40 @@ async function deleteRow(
   }
 }
 
+async function exportTableData(
+  schema: string,
+  table: string,
+  format: 'csv' | 'json',
+  orderBy?: string,
+  orderDirection?: 'ASC' | 'DESC'
+): Promise<void> {
+  const params = new URLSearchParams({ format });
+  if (orderBy) {
+    params.set('orderBy', orderBy);
+    params.set('orderDirection', orderDirection || 'ASC');
+  }
+
+  const response = await fetch(
+    `${API_BASE}/schemas/${schema}/tables/${table}/export?${params}`,
+    { headers: { ...getAuthHeader() } }
+  );
+
+  if (!response.ok) {
+    throw new Error('Failed to export data');
+  }
+
+  // Trigger file download
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${table}_export.${format}`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+}
+
 // ============================================================================
 // Utilities
 // ============================================================================
@@ -175,6 +223,12 @@ const formatValue = (value: unknown): string => {
     return JSON.stringify(value);
   }
   return String(value);
+};
+
+const MASKED_VALUE = '********';
+
+const isMaskedValue = (value: unknown): boolean => {
+  return value === MASKED_VALUE;
 };
 
 const getDataTypeBadgeColor = (dataType: string): 'info' | 'success' | 'warning' | 'error' | 'default' => {
@@ -380,6 +434,10 @@ const DatabaseExplorerPage: React.FC = () => {
     id: string;
   }>({ show: false, id: '' });
 
+  // Export state
+  const [exporting, setExporting] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
   // Load schemas
   useEffect(() => {
     fetchSchemas()
@@ -499,6 +557,21 @@ const DatabaseExplorerPage: React.FC = () => {
     }
   };
 
+  const handleExport = async (format: 'csv' | 'json') => {
+    if (!selectedTable) return;
+
+    setExporting(true);
+    setShowExportMenu(false);
+
+    try {
+      await exportTableData(selectedSchema, selectedTable, format, orderBy, orderDirection);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   // Find selected table info
   const selectedTableInfo = tables.find((t) => t.tableName === selectedTable);
 
@@ -525,12 +598,56 @@ const DatabaseExplorerPage: React.FC = () => {
             ))}
           </select>
           {selectedTable && (
-            <Button onClick={handleCreateRow}>
-              <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Yeni Satır
-            </Button>
+            <>
+              {/* Export Dropdown */}
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  disabled={exporting}
+                >
+                  {exporting ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
+                  ) : (
+                    <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  )}
+                  Export
+                  <svg className="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </Button>
+                {showExportMenu && (
+                  <div className="absolute right-0 mt-1 w-36 bg-white rounded-lg shadow-lg border z-50">
+                    <button
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 rounded-t-lg"
+                      onClick={() => handleExport('csv')}
+                    >
+                      <svg className="w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      CSV
+                    </button>
+                    <button
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 rounded-b-lg"
+                      onClick={() => handleExport('json')}
+                    >
+                      <svg className="w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                      </svg>
+                      JSON
+                    </button>
+                  </div>
+                )}
+              </div>
+              <Button onClick={handleCreateRow}>
+                <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Yeni Satır
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -608,28 +725,39 @@ const DatabaseExplorerPage: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      {tableData.columns.map((col) => (
-                        <th
-                          key={col.columnName}
-                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                          onClick={() => handleSort(col.columnName)}
-                        >
-                          <div className="flex items-center gap-1">
-                            {col.columnName}
-                            {col.isPrimaryKey && (
-                              <svg className="w-3 h-3 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
-                                <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
-                              </svg>
-                            )}
-                            {orderBy === col.columnName && (
-                              <svg className={`w-3 h-3 ${orderDirection === 'DESC' ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                              </svg>
-                            )}
-                          </div>
-                        </th>
-                      ))}
+                      {tableData.columns.map((col) => {
+                        const isSensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
+                        return (
+                          <th
+                            key={col.columnName}
+                            className={`px-4 py-3 text-left text-xs font-medium uppercase tracking-wider cursor-pointer hover:bg-gray-100 ${
+                              isSensitive ? 'text-orange-600 bg-orange-50' : 'text-gray-500'
+                            }`}
+                            onClick={() => handleSort(col.columnName)}
+                            title={isSensitive ? 'Bu kolon hassas veri içeriyor (maskeli)' : undefined}
+                          >
+                            <div className="flex items-center gap-1">
+                              {col.columnName}
+                              {col.isPrimaryKey && (
+                                <svg className="w-3 h-3 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                                  <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                                  <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+                                </svg>
+                              )}
+                              {isSensitive && (
+                                <svg className="w-3 h-3 text-orange-500" fill="currentColor" viewBox="0 0 20 20" title="Hassas veri - Maskeli">
+                                  <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                </svg>
+                              )}
+                              {orderBy === col.columnName && (
+                                <svg className={`w-3 h-3 ${orderDirection === 'DESC' ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                </svg>
+                              )}
+                            </div>
+                          </th>
+                        );
+                      })}
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
                         İşlemler
                       </th>
@@ -644,23 +772,37 @@ const DatabaseExplorerPage: React.FC = () => {
 
                       return (
                         <tr key={rowKey} className="hover:bg-gray-50">
-                          {tableData.columns.map((col) => (
-                            <td
-                              key={col.columnName}
-                              className="px-4 py-2 text-sm text-gray-900 max-w-xs truncate"
-                              title={formatValue(row[col.columnName])}
-                            >
-                              {row[col.columnName] === null ? (
-                                <span className="text-gray-400 italic">NULL</span>
-                              ) : col.dataType.includes('json') ? (
-                                <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
-                                  {formatValue(row[col.columnName]).substring(0, 50)}...
-                                </code>
-                              ) : (
-                                formatValue(row[col.columnName])
-                              )}
-                            </td>
-                          ))}
+                          {tableData.columns.map((col, colIdx) => {
+                            const isSensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
+                            const valueIsMasked = isMaskedValue(row[col.columnName]);
+
+                            return (
+                              <td
+                                key={`${rowKey}-${colIdx}`}
+                                className={`px-4 py-2 text-sm max-w-xs truncate ${
+                                  valueIsMasked ? 'bg-orange-50' : ''
+                                } ${isSensitive ? 'text-orange-600' : 'text-gray-900'}`}
+                                title={valueIsMasked ? 'Hassas veri (maskeli)' : formatValue(row[col.columnName])}
+                              >
+                                {row[col.columnName] === null ? (
+                                  <span className="text-gray-400 italic">NULL</span>
+                                ) : valueIsMasked ? (
+                                  <span className="flex items-center gap-1 text-orange-600 font-mono">
+                                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                    </svg>
+                                    {MASKED_VALUE}
+                                  </span>
+                                ) : col.dataType.includes('json') ? (
+                                  <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
+                                    {formatValue(row[col.columnName]).substring(0, 50)}...
+                                  </code>
+                                ) : (
+                                  formatValue(row[col.columnName])
+                                )}
+                              </td>
+                            );
+                          })}
                           <td className="px-4 py-2 text-right whitespace-nowrap">
                             <Button
                               variant="ghost"

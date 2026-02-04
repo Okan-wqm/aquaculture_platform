@@ -128,7 +128,7 @@ export class VfdStatusBitsDto {
 /**
  * VFD Reading Output DTO
  */
-@ObjectType('VfdReading')
+@ObjectType('VfdReadingOutput')
 export class VfdReadingDto {
   @Field(() => ID)
   id!: string;

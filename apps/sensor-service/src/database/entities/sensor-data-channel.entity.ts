@@ -170,7 +170,7 @@ export class DisplaySettings {
  * and display settings.
  */
 @ObjectType()
-@Entity('sensor_data_channels') // Schema comes from search_path (tenant-specific)
+@Entity('sensor_data_channels', { schema: 'sensor' })
 @Index(['sensorId', 'isEnabled'])
 @Index(['tenantId', 'channelKey'])
 @Unique(['sensorId', 'channelKey'])

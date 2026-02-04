@@ -138,7 +138,7 @@ export interface ProtocolConfigurationSchema {
  * SensorProtocol entity - defines available communication protocols
  */
 @ObjectType()
-@Entity('sensor_protocols') // Schema comes from search_path (tenant-specific)
+@Entity('sensor_protocols', { schema: 'sensor' })
 @Index(['code'], { unique: true })
 @Index(['category'])
 @Index(['isActive'])

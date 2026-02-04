@@ -99,7 +99,7 @@ export class PlcStatus {
 }
 
 @ObjectType()
-@Entity('plc_telemetry')
+@Entity('plc_telemetry', { schema: 'sensor' })
 @Index(['tenantId', 'plcConnectionId', 'timestamp'])
 export class PlcTelemetry {
   @Field(() => ID)

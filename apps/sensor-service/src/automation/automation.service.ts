@@ -210,26 +210,26 @@ export class AutomationService {
     if (filter?.isLocked !== undefined) where.isLocked = filter.isLocked;
 
     const queryBuilder = this.programRepo.createQueryBuilder('p')
-      .where('p.tenant_id = :tenantId', { tenantId });
+      .where('p."tenantId" = :tenantId', { tenantId });
 
     if (filter?.status) {
       queryBuilder.andWhere('p.status = :status', { status: filter.status });
     }
     if (filter?.programType) {
-      queryBuilder.andWhere('p.program_type = :programType', { programType: filter.programType });
+      queryBuilder.andWhere('p."programType" = :programType', { programType: filter.programType });
     }
     if (filter?.deviceId) {
-      queryBuilder.andWhere('p.device_id = :deviceId', { deviceId: filter.deviceId });
+      queryBuilder.andWhere('p."deviceId" = :deviceId', { deviceId: filter.deviceId });
     }
     if (filter?.search) {
       queryBuilder.andWhere(
-        '(p.program_name ILIKE :search OR p.program_code ILIKE :search)',
+        '(p."programName" ILIKE :search OR p."programCode" ILIKE :search)',
         { search: `%${filter.search}%` },
       );
     }
 
     const [items, total] = await queryBuilder
-      .orderBy('p.updated_at', 'DESC')
+      .orderBy('p."updatedAt"', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
@@ -1289,7 +1289,7 @@ export class AutomationService {
       .createQueryBuilder('p')
       .select('p.status', 'status')
       .addSelect('COUNT(*)', 'count')
-      .where('p.tenant_id = :tenantId', { tenantId })
+      .where('p."tenantId" = :tenantId', { tenantId })
       .groupBy('p.status')
       .getRawMany();
 
@@ -1301,10 +1301,10 @@ export class AutomationService {
     // By type
     const typeResult: Array<{ type: ProgramType; count: string }> = await this.programRepo
       .createQueryBuilder('p')
-      .select('p.program_type', 'type')
+      .select('p."programType"', 'type')
       .addSelect('COUNT(*)', 'count')
-      .where('p.tenant_id = :tenantId', { tenantId })
-      .groupBy('p.program_type')
+      .where('p."tenantId" = :tenantId', { tenantId })
+      .groupBy('p."programType"')
       .getRawMany();
 
     const byType = typeResult.map((r) => ({

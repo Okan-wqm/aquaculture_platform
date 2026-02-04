@@ -219,7 +219,7 @@ export class SensorTopicCacheService implements OnModuleInit {
           // Get all sensors with MQTT topics
           // Schema name is validated above, safe to interpolate with quoting
           const sensors: Sensor[] = await this.dataSource.query(`
-            SELECT id, name, type, tenant_id, protocol_configuration, metadata
+            SELECT id, name, type, "tenantId", protocol_configuration, metadata
             FROM ${quoteIdentifier(schema_name)}.sensors
             WHERE protocol_configuration->>'topic' IS NOT NULL
           `);
@@ -288,11 +288,11 @@ export class SensorTopicCacheService implements OnModuleInit {
             id: string;
             name: string;
             type: string;
-            tenant_id: string;
+            tenantId: string;
             protocol_configuration: Record<string, unknown>;
             metadata: Record<string, unknown>;
           }> = await this.dataSource.query(`
-            SELECT id, name, type, tenant_id, protocol_configuration, metadata
+            SELECT id, name, type, "tenantId", protocol_configuration, metadata
             FROM ${quoteIdentifier(schema_name)}.sensors
             WHERE protocol_configuration->>'topic' = $1
             LIMIT 1
@@ -304,7 +304,7 @@ export class SensorTopicCacheService implements OnModuleInit {
               id: sensor.id,
               name: sensor.name,
               type: sensor.type,
-              tenantId: sensor.tenant_id,
+              tenantId: sensor.tenantId,
               schemaName: schema_name,
               protocolConfiguration: sensor.protocol_configuration || {},
               metadata: sensor.metadata,
@@ -314,7 +314,7 @@ export class SensorTopicCacheService implements OnModuleInit {
           // Try wildcard match
           // Schema name is validated above, safe to interpolate with quoting
           const wildcardSensors = await this.dataSource.query(`
-            SELECT id, name, type, tenant_id, protocol_configuration, metadata
+            SELECT id, name, type, "tenantId", protocol_configuration, metadata
             FROM ${quoteIdentifier(schema_name)}.sensors
             WHERE protocol_configuration->>'topic' LIKE '%#%'
                OR protocol_configuration->>'topic' LIKE '%+%'
@@ -327,7 +327,7 @@ export class SensorTopicCacheService implements OnModuleInit {
                 id: sensor.id,
                 name: sensor.name,
                 type: sensor.type,
-                tenantId: sensor.tenant_id,
+                tenantId: sensor.tenantId,
                 schemaName: schema_name,
                 protocolConfiguration: sensor.protocol_configuration || {},
                 metadata: sensor.metadata,

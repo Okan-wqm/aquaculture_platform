@@ -8,7 +8,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
-import GraphQLJSON from 'graphql-type-json';
+import { GraphQLJSON } from 'graphql-scalars';
 
 import { VfdDevice } from './vfd-device.entity';
 

@@ -86,12 +86,12 @@ export interface DeviceHealthMetrics {
  * (Revolution Pi, Raspberry Pi, Industrial PC)
  */
 @ObjectType()
-@Entity('edge_devices')
+@Entity('edge_devices', { schema: 'sensor' })
 @Index(['tenantId', 'lifecycleState'])
 @Index(['tenantId', 'siteId'])
 @Index(['deviceCode'], { unique: true })
 @Index(['mqttClientId'], { unique: true, where: 'mqtt_client_id IS NOT NULL' })
-@Index(['serialNumber'], { unique: true, where: 'serial_number IS NOT NULL' })
+@Index('IDX_edge_devices_serial_number', ['serialNumber'], { unique: true, where: 'serial_number IS NOT NULL' })
 export class EdgeDevice {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -99,7 +99,7 @@ export class EdgeDevice {
 
   // Tenant & Site Relations
   @Field()
-  @Column({ name: 'tenant_id' })
+  @Column('uuid')
   @Index()
   tenantId!: string;
 

@@ -37,7 +37,7 @@ registerEnumType(ConditionType, {
  * one step to another.
  */
 @ObjectType()
-@Entity('program_transitions')
+@Entity('program_transitions', { schema: 'sensor' })
 @Index(['programId', 'transitionCode'], { unique: true })
 @Index(['programId', 'fromStepId'])
 @Index(['programId', 'toStepId'])

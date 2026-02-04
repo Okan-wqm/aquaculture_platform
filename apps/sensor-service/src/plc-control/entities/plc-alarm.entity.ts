@@ -30,7 +30,7 @@ registerEnumType(AlarmSeverity, { name: 'AlarmSeverity' });
 registerEnumType(AlarmSource, { name: 'AlarmSource' });
 
 @ObjectType()
-@Entity('plc_alarms')
+@Entity('plc_alarms', { schema: 'sensor' })
 @Index(['tenantId', 'plcConnectionId', 'timestamp'])
 @Index(['tenantId', 'acknowledged'])
 export class PlcAlarm {

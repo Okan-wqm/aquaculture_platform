@@ -8,7 +8,7 @@ import {
   Unique,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, Float } from '@nestjs/graphql';
-import GraphQLJSON from 'graphql-type-json';
+import { GraphQLJSON } from 'graphql-scalars';
 
 import { VfdBrand, VfdParameterCategory, VfdDataType, ByteOrder } from './vfd.enums';
 
@@ -41,7 +41,7 @@ export class VfdRegisterMapping {
   @Column({ type: 'varchar', length: 50 })
   brand!: VfdBrand;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 100, nullable: true })
   modelSeries?: string | null;
 
@@ -53,7 +53,7 @@ export class VfdRegisterMapping {
   @Column({ type: 'varchar', length: 255 })
   displayName!: string;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
   description?: string | null;
 
@@ -85,7 +85,7 @@ export class VfdRegisterMapping {
   @Column({ type: 'float', default: 0 })
   offset!: number;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 20, nullable: true })
   unit?: string | null;
 

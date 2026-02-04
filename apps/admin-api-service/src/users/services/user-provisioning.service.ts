@@ -101,7 +101,7 @@ export class UserProvisioningService {
         const userResult = await manager.query(
           `
           INSERT INTO users (
-            id, email, first_name, last_name, role, tenant_id,
+            id, email, first_name, last_name, role, "tenantId",
             is_active, is_email_verified, invitation_token, invitation_expires_at,
             invited_by, created_at, updated_at
           ) VALUES (
@@ -120,7 +120,7 @@ export class UserProvisioningService {
         await manager.query(
           `
           INSERT INTO invitations (
-            id, token, email, first_name, last_name, role, tenant_id,
+            id, token, email, first_name, last_name, role, "tenantId",
             status, expires_at, invited_by, send_count, last_sent_at, created_at, updated_at
           ) VALUES (
             gen_random_uuid(), $1, $2, $3, $4, 'TENANT_ADMIN', $5,
@@ -289,7 +289,7 @@ export class UserProvisioningService {
         const userResult = await manager.query(
           `
           INSERT INTO users (
-            id, email, first_name, last_name, role, tenant_id,
+            id, email, first_name, last_name, role, "tenantId",
             is_active, is_email_verified, invitation_token, invitation_expires_at,
             invited_by, created_at, updated_at
           ) VALUES (
@@ -317,7 +317,7 @@ export class UserProvisioningService {
         const invitationResult = await manager.query(
           `
           INSERT INTO invitations (
-            id, token, email, first_name, last_name, role, tenant_id,
+            id, token, email, first_name, last_name, role, "tenantId",
             module_ids, primary_module_id, status, expires_at,
             invited_by, message, send_count, last_sent_at, created_at, updated_at
           ) VALUES (
@@ -348,7 +348,7 @@ export class UserProvisioningService {
             await manager.query(
               `
               INSERT INTO user_module_assignments (
-                id, user_id, module_id, tenant_id, is_active,
+                id, user_id, module_id, "tenantId", is_active,
                 can_read, can_write, can_delete, can_manage,
                 assigned_by, created_at, updated_at
               ) VALUES (
@@ -407,7 +407,7 @@ export class UserProvisioningService {
     try {
       // Get inviter's role
       const inviterResult = await this.dataSource.query(
-        `SELECT role, tenant_id FROM users WHERE id = $1`,
+        `SELECT role, "tenantId" FROM users WHERE id = $1`,
         [inviterId],
       );
 
@@ -436,7 +436,7 @@ export class UserProvisioningService {
 
       // TENANT_ADMIN can only create roles within their tenant
       if (inviterRole === 'TENANT_ADMIN') {
-        if (inviter.tenant_id !== tenantId) {
+        if (inviter.tenantId !== tenantId) {
           return {
             valid: false,
             message: 'Cannot invite users to a different tenant',
@@ -454,7 +454,7 @@ export class UserProvisioningService {
 
       // MODULE_MANAGER can only create MODULE_USER
       if (inviterRole === 'MODULE_MANAGER') {
-        if (inviter.tenant_id !== tenantId) {
+        if (inviter.tenantId !== tenantId) {
           return {
             valid: false,
             message: 'Cannot invite users to a different tenant',
@@ -480,7 +480,7 @@ export class UserProvisioningService {
 
   private async getTenantUserCount(tenantId: string): Promise<number> {
     const result = await this.dataSource.query(
-      `SELECT COUNT(*) as count FROM users WHERE tenant_id = $1`,
+      `SELECT COUNT(*) as count FROM users WHERE "tenantId" = $1`,
       [tenantId],
     );
     return parseInt(result[0]?.count || '0', 10);

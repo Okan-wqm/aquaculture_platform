@@ -24,6 +24,7 @@ import { StorageModule } from '@platform/storage';
 
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { AuthGuard, JwtPayload } from './guards/auth.guard';
+import { JwtMiddleware } from './middleware/jwt.middleware';
 import { RateLimitGuard, RATE_LIMIT_STORE } from './guards/rate-limit.guard';
 import { RedisRateLimitStore } from './guards/redis-rate-limit.store';
 import {
@@ -259,10 +260,11 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
                 name: 'billing',
                 url: configService.get('BILLING_SERVICE_URL', 'http://localhost:3006/graphql'),
               },
-              {
-                name: 'notification',
-                url: configService.get('NOTIFICATION_SERVICE_URL', 'http://localhost:3007/graphql'),
-              },
+              // NOTE: notification-service doesn't expose GraphQL - it's event-driven only
+              // {
+              //   name: 'notification',
+              //   url: configService.get('NOTIFICATION_SERVICE_URL', 'http://localhost:3007/graphql'),
+              // },
             ],
             pollIntervalInMs: 30000, // Poll for schema changes every 30 seconds
           }),
@@ -322,16 +324,12 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
             },
           ],
           context: ({ req }: { req: RequestWithUser }): GatewayContext => {
-            // SECURITY: Pass through original request reference (not a copy!)
-            // The guard will verify JWT and set req.user with validated payload
-            // willSendRequest uses the guard-verified user data from the same object
+            // SECURITY: req.user is set by JwtMiddleware which runs before context creation.
+            // JwtMiddleware verifies the JWT signature and decodes the payload.
+            // This ensures req.user is available when willSendRequest forwards headers.
             //
-            // IMPORTANT: We return a reference to the original req object.
-            // The guard runs AFTER context is created but BEFORE willSendRequest.
-            // By the time willSendRequest runs, req.user is populated by the guard.
-            //
-            // DO NOT decode JWT here - guard handles verification
-            // Unverified decode creates security risks if guard is bypassed
+            // AuthGuard still runs as an additional validation layer and handles
+            // token blacklist checks, but JwtMiddleware ensures headers are forwarded.
 
             return { req };
           },
@@ -426,8 +424,14 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer
       .apply(
-        // Order matters: set correlation id, hydrate user, then tenant, then log
+        // Order matters:
+        // 1. Set correlation id for tracing
+        // 2. Decode JWT and set req.user (needed for willSendRequest to forward headers)
+        // 3. Hydrate user from x-user-payload header (for inter-service calls)
+        // 4. Set tenant context
+        // 5. Log request
         CorrelationIdMiddleware,
+        JwtMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
         RequestLoggingMiddleware,

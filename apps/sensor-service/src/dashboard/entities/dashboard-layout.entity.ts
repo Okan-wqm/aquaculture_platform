@@ -64,7 +64,7 @@ export interface WidgetConfig {
  * Each tenant can have system default and users can have personal layouts
  */
 @ObjectType()
-@Entity('dashboard_layouts')
+@Entity('dashboard_layouts', { schema: 'sensor' })
 @Index(['tenantId'])
 @Index(['tenantId', 'userId'])
 @Index(['tenantId', 'isSystemDefault'])
@@ -74,7 +74,7 @@ export class DashboardLayout {
   id!: string;
 
   @Field()
-  @Column({ name: 'tenant_id' })
+  @Column('uuid')
   tenantId!: string;
 
   @Field({ nullable: true })

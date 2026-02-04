@@ -121,7 +121,7 @@ export class MetricQueryService {
         CASE WHEN quality_code >= 192 THEN 1 ELSE 0 END AS "goodCount",
         CASE WHEN quality_code >= 192 THEN 100.0 ELSE 0.0 END AS "qualityPct"
       FROM sensor_metrics
-      WHERE tenant_id = $1
+      WHERE "tenantId" = $1
         AND time >= $2
         AND time <= $3
     `;
@@ -177,7 +177,7 @@ export class MetricQueryService {
         good_count AS "goodCount",
         quality_pct AS "qualityPct"
       FROM ${dataSource}
-      WHERE tenant_id = $1
+      WHERE "tenantId" = $1
         AND bucket >= $2
         AND bucket <= $3
     `;
@@ -235,7 +235,7 @@ export class MetricQueryService {
       FROM sensor_metrics m
       JOIN sensor_data_channels c ON c.id = m.channel_id
       WHERE m.sensor_id = $1
-        AND m.tenant_id = $2
+        AND m."tenantId" = $2
         AND m.time > NOW() - INTERVAL '10 minutes'
       ORDER BY m.channel_id, m.time DESC
     `;
@@ -270,7 +270,7 @@ export class MetricQueryService {
       FROM sensor_metrics m
       JOIN sensor_data_channels c ON c.id = m.channel_id
       WHERE m.tank_id = $1
-        AND m.tenant_id = $2
+        AND m."tenantId" = $2
         AND m.time > NOW() - INTERVAL '10 minutes'
       ORDER BY m.sensor_id, m.channel_id, m.time DESC
     `;
@@ -294,7 +294,7 @@ export class MetricQueryService {
         quality_code AS "qualityCode"
       FROM sensor_metrics
       WHERE channel_id = $1
-        AND tenant_id = $2
+        AND "tenantId" = $2
       ORDER BY time DESC
       LIMIT $3
     `;
@@ -334,7 +334,7 @@ export class MetricQueryService {
           (COUNT(*) FILTER (WHERE quality_code >= 192)::FLOAT / NULLIF(COUNT(*), 0) * 100) AS "qualityPct"
         FROM sensor_metrics
         WHERE channel_id = $1
-          AND tenant_id = $2
+          AND "tenantId" = $2
           AND time >= $3
           AND time <= $4
       `;
@@ -349,7 +349,7 @@ export class MetricQueryService {
           AVG(quality_pct) AS "qualityPct"
         FROM ${dataSource}
         WHERE channel_id = $1
-          AND tenant_id = $2
+          AND "tenantId" = $2
           AND bucket >= $3
           AND bucket <= $4
       `;
@@ -414,7 +414,7 @@ export class MetricQueryService {
         quality_pct AS "qualityPct"
       FROM ${dataSource}
       WHERE channel_id = $1
-        AND tenant_id = $2
+        AND "tenantId" = $2
         AND bucket >= $3
         AND bucket <= $4
       ORDER BY bucket ASC

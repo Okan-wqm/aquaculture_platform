@@ -44,7 +44,7 @@ export interface TenantSettings {
 }
 
 // Read from public schema - read-only reference to auth-service's tenants table
-@Entity('tenants', { schema: 'public', synchronize: false })
+@Entity('tenants', { schema: 'auth', synchronize: false })
 @Index(['status'])
 @Index(['slug'])
 export class Tenant {
@@ -193,7 +193,7 @@ export class Tenant {
 }
 
 // Tenant Invitation entity
-@Entity('tenant_invitations', { schema: 'public', synchronize: false })
+@Entity('tenant_invitations', { schema: 'auth', synchronize: false })
 @Index(['email', 'tenantId'])
 @Index(['token'])
 @Index(['expiresAt'])

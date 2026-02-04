@@ -17,24 +17,43 @@ export interface ModuleSchema {
 export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'sensor',
-    sourceSchema: 'sensor',
+    sourceSchema: 'sensor', // Tables are in sensor schema, will be copied to tenant schema
     tables: [
+      // Core sensor entities
       'sensors',
       'sensor_readings',
-      'sensor_metrics',       // New narrow table for time-series data
+      'sensor_metrics',
       'sensor_data_channels',
       'sensor_protocols',
       'processes',
+
+      // VFD (Variable Frequency Drive) entities
       'vfd_devices',
       'vfd_readings',
       'vfd_register_mappings',
-      'dashboard_layouts',    // User dashboard layout persistence
-      'edge_devices',         // Edge controllers (Revolution Pi, Raspberry Pi, etc.)
+
+      // Dashboard & Edge devices
+      'dashboard_layouts',
+      'edge_devices',
+      'device_io_configs',
+
+      // PLC control entities
+      'plc_connections',
+      'plc_alarms',
+      'plc_telemetry',
+      'feeding_parameters',
+
+      // Automation (IEC 61131-3) entities
+      'automation_programs',
+      'program_steps',
+      'program_transitions',
+      'program_variables',
+      'step_actions',
     ],
   },
   {
     moduleName: 'farm',
-    sourceSchema: 'farm',
+    sourceSchema: 'public', // Tables are in public schema, will be copied to tenant schema
     tables: [
       // Core entities
       'farms',
@@ -76,6 +95,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'feeding_protocols',
       'feeding_records',
       'feeding_tables',
+      'feeding_programs',
+      'feeding_program_tanks',
+      'daily_feeding_executions',
 
       // Chemical management
       'chemical_types',
@@ -104,16 +126,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   },
   {
     moduleName: 'hr',
-    sourceSchema: 'hr',
+    sourceSchema: 'hr', // Tables are in hr schema, will be copied to tenant schema
     tables: [
       // Core Employee & Payroll
       'employees',
       'payrolls',
-
-      // Organizational Structure
-      'departments_hr',
-      'positions',
-      'salary_structures',
 
       // Leave Management
       'leave_types',
@@ -124,16 +141,15 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'shifts',
       'schedules',
       'schedule_entries',
+      'scheduling_settings',
       'attendance_records',
 
-      // Performance Management
-      'performance_reviews',
-      'performance_goals',
-      'employee_kpis',
+      // Weekly Planning
+      'weekly_plans',
+      'weekly_plan_entries',
 
       // Training
       'training_courses',
-      'training_sessions',
       'training_enrollments',
 
       // Certifications (Aquaculture-specific)
@@ -151,6 +167,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
 /**
  * Reference data tables to copy for each module
  * These tables contain lookup/configuration data that should be available in each tenant schema
+ *
+ * NOTE: Reference data is copied from the same sourceSchema defined in MODULE_SCHEMAS
+ * Currently all tables are in 'public' schema, so reference data is copied from public.
  */
 export const REFERENCE_DATA_TABLES: Record<string, string[]> = {
   farm: [
@@ -819,7 +838,7 @@ export class SchemaManagerService {
           SELECT
             time_bucket('1 hour', timestamp) AS bucket,
             sensor_id,
-            tenant_id,
+            "tenantId",
             AVG((readings->>'temperature')::numeric) as avg_temperature,
             AVG((readings->>'ph')::numeric) as avg_ph,
             AVG((readings->>'dissolvedOxygen')::numeric) as avg_dissolved_oxygen,
@@ -828,7 +847,7 @@ export class SchemaManagerService {
             MAX((readings->>'temperature')::numeric) as max_temperature,
             COUNT(*) as reading_count
           FROM "${schemaName}"."sensor_readings"
-          GROUP BY bucket, sensor_id, tenant_id
+          GROUP BY bucket, sensor_id, "tenantId"
           WITH NO DATA
         `);
 
@@ -860,7 +879,7 @@ export class SchemaManagerService {
           SELECT
             time_bucket('1 day', timestamp) AS bucket,
             sensor_id,
-            tenant_id,
+            "tenantId",
             AVG((readings->>'temperature')::numeric) as avg_temperature,
             AVG((readings->>'ph')::numeric) as avg_ph,
             AVG((readings->>'dissolvedOxygen')::numeric) as avg_dissolved_oxygen,
@@ -869,7 +888,7 @@ export class SchemaManagerService {
             MAX((readings->>'temperature')::numeric) as max_temperature,
             COUNT(*) as reading_count
           FROM "${schemaName}"."sensor_readings"
-          GROUP BY bucket, sensor_id, tenant_id
+          GROUP BY bucket, sensor_id, "tenantId"
           WITH NO DATA
         `);
 
@@ -1158,7 +1177,7 @@ export class SchemaManagerService {
           WITH (timescaledb.continuous) AS
           SELECT
             time_bucket('1 minute', time) AS bucket,
-            tenant_id,
+            "tenantId",
             sensor_id,
             channel_id,
             tank_id,
@@ -1174,7 +1193,7 @@ export class SchemaManagerService {
             AVG(ingestion_latency_ms) AS avg_latency_ms,
             MAX(ingestion_latency_ms) AS max_latency_ms
           FROM "${schemaName}"."sensor_metrics"
-          GROUP BY bucket, tenant_id, sensor_id, channel_id, tank_id
+          GROUP BY bucket, "tenantId", sensor_id, channel_id, tank_id
           WITH NO DATA
         `);
 
@@ -1211,7 +1230,7 @@ export class SchemaManagerService {
           WITH (timescaledb.continuous) AS
           SELECT
             time_bucket('1 hour', bucket) AS bucket,
-            tenant_id,
+            "tenantId",
             sensor_id,
             channel_id,
             tank_id,
@@ -1226,7 +1245,7 @@ export class SchemaManagerService {
             SUM(bad_count) AS bad_count,
             (SUM(good_count)::FLOAT / NULLIF(SUM(sample_count), 0) * 100) AS quality_pct
           FROM "${schemaName}"."metrics_1min"
-          GROUP BY time_bucket('1 hour', bucket), tenant_id, sensor_id, channel_id, tank_id
+          GROUP BY time_bucket('1 hour', bucket), "tenantId", sensor_id, channel_id, tank_id
           WITH NO DATA
         `);
 
@@ -1263,7 +1282,7 @@ export class SchemaManagerService {
           WITH (timescaledb.continuous) AS
           SELECT
             time_bucket('1 day', bucket) AS bucket,
-            tenant_id,
+            "tenantId",
             sensor_id,
             channel_id,
             tank_id,
@@ -1278,7 +1297,7 @@ export class SchemaManagerService {
             SUM(bad_count) AS bad_count,
             (SUM(good_count)::FLOAT / NULLIF(SUM(sample_count), 0) * 100) AS quality_pct
           FROM "${schemaName}"."metrics_1hour"
-          GROUP BY time_bucket('1 day', bucket), tenant_id, sensor_id, channel_id, tank_id
+          GROUP BY time_bucket('1 day', bucket), "tenantId", sensor_id, channel_id, tank_id
           WITH NO DATA
         `);
 

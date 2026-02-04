@@ -12,6 +12,7 @@ import {
   Args,
   ID,
   ObjectType,
+  InputType,
   Field,
   Int,
   Float,
@@ -131,7 +132,7 @@ export class DeleteSparePartResponse {
   message?: string;
 }
 
-@ObjectType()
+@InputType('BulkStockInItemInput')
 export class BulkStockInItemInput {
   @Field(() => ID)
   sparePartId: string;

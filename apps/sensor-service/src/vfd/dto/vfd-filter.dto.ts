@@ -114,7 +114,7 @@ export class VfdConnectionStatusDto {
 /**
  * VFD Device output DTO
  */
-@ObjectType('VfdDevice')
+@ObjectType('VfdDeviceOutput')
 export class VfdDeviceDto {
   @Field(() => ID)
   id!: string;

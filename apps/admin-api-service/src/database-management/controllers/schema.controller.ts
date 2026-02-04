@@ -17,6 +17,7 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
+import { IsNotEmpty, IsString, IsUUID, IsEnum } from 'class-validator';
 import { SchemaManagementService } from '../services/schema-management.service';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { SchemaStatus } from '../entities/database-management.entity';
@@ -26,10 +27,15 @@ import { SchemaStatus } from '../entities/database-management.entity';
 // ============================================================================
 
 class CreateSchemaDto {
+  @IsNotEmpty()
+  @IsString()
+  @IsUUID()
   tenantId!: string;
 }
 
 class UpdateSchemaStatusDto {
+  @IsNotEmpty()
+  @IsEnum(['creating', 'active', 'suspended', 'deleted', 'migrating'])
   status!: SchemaStatus;
 }
 

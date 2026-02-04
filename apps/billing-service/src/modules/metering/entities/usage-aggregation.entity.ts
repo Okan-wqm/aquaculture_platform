@@ -30,7 +30,7 @@ export class UsageAggregation {
   @Index()
   tenantId!: string;
 
-  @Column({ type: 'enum', enum: AggregationPeriod })
+  @Column({ type: 'varchar', length: 20 })
   period!: AggregationPeriod;
 
   @Column({ type: 'timestamptz' })
@@ -39,10 +39,10 @@ export class UsageAggregation {
   @Column({ type: 'timestamptz' })
   periodEnd!: Date;
 
-  @Column({ type: 'enum', enum: MeterType })
+  @Column({ type: 'varchar', length: 50 })
   meterType!: MeterType;
 
-  @Column({ type: 'enum', enum: AggregationDimension, nullable: true })
+  @Column({ type: 'varchar', length: 20, nullable: true })
   dimension?: AggregationDimension;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -91,7 +91,7 @@ export class UsageHourlyData {
   @Column('uuid')
   tenantId!: string;
 
-  @Column({ type: 'enum', enum: MeterType })
+  @Column({ type: 'varchar', length: 50 })
   meterType!: MeterType;
 
   /**

@@ -48,7 +48,7 @@ export class RegulatorySettings {
   id: string;
 
   @Field()
-  @Column({ name: 'tenant_id', type: 'uuid' })
+  @Column('uuid')
   tenantId: string;
 
   // ==========================================================================

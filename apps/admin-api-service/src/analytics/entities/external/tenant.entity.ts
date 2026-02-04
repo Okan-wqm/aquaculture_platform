@@ -23,7 +23,7 @@ export enum TenantStatus {
 }
 
 // Read from public schema (shared database) - read-only reference
-@Entity('tenants', { schema: 'public', synchronize: false })
+@Entity('tenants', { schema: 'auth', synchronize: false })
 export class TenantReadOnly {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

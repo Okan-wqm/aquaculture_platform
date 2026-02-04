@@ -23,13 +23,17 @@ export function sanitizeSchemaName(schemaName: string): string {
 
 /**
  * Creates a sanitized schema name from tenant ID.
+ * Uses 16 characters (without hyphens) for collision safety.
+ * Must match SchemaManagerService.getTenantSchemaName
  */
 export function getTenantSchemaName(tenantId: string): string {
   if (!tenantId || typeof tenantId !== 'string') {
     throw new Error('Invalid tenant ID');
   }
 
-  // Use first 8 characters of tenant ID for schema name
-  const schemaName = `tenant_${tenantId.substring(0, 8).toLowerCase()}`;
+  // Use first 16 characters of tenant ID (without hyphens) for schema name
+  // Format: tenant_{first16chars} e.g., tenant_4b529829ea7948da
+  const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
+  const schemaName = `tenant_${cleanId}`;
   return sanitizeSchemaName(schemaName);
 }

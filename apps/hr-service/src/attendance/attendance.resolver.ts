@@ -1,9 +1,8 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
 import { UnauthorizedException, ForbiddenException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles } from '../common/decorators/roles.decorator';
+import { Roles, Role } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { Role } from '../common/enums/role.enum';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Shift, ShiftType } from './entities/shift.entity';
 import { AttendanceRecord, AttendanceStatus, ApprovalStatus } from './entities/attendance-record.entity';
@@ -236,7 +235,7 @@ export class AttendanceResolver {
   // =====================
   @Mutation(() => Shift)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createShift(
     @Args('input') input: CreateShiftInput,
     @Context() context: GraphQLContext,
@@ -329,7 +328,7 @@ export class AttendanceResolver {
 
   @Mutation(() => AttendanceRecord)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async createManualAttendance(
     @Args('input') input: ManualAttendanceInput,
     @Context() context: GraphQLContext,
@@ -352,7 +351,7 @@ export class AttendanceResolver {
 
   @Mutation(() => AttendanceRecord)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async approveAttendance(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,

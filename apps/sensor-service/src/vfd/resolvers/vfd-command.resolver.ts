@@ -1,5 +1,6 @@
-import { Resolver, Query, Mutation, Args, ID, Context, Float, ObjectType, Field } from '@nestjs/graphql';
-import { Roles, Role } from '@platform/backend-common';
+import { UseGuards } from '@nestjs/common';
+import { Resolver, Query, Mutation, Args, ID, Float, ObjectType, Field } from '@nestjs/graphql';
+import { Roles, Role, TenantGuard, Tenant } from '@platform/backend-common';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { VFD_BRAND_COMMANDS } from '../brand-configs';
@@ -24,6 +25,7 @@ class VfdValidationResult {
  * VFD Command and Configuration GraphQL Resolver
  */
 @Resolver()
+@UseGuards(TenantGuard)
 export class VfdCommandResolver {
   constructor(
     private readonly commandService: VfdCommandService,
@@ -44,9 +46,9 @@ export class VfdCommandResolver {
   async sendCommand(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
     @Args('command') command: VfdCommandDto,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdCommandResultDto> {
-    return this.commandService.executeCommand(vfdDeviceId, context.tenantId, command);
+    return this.commandService.executeCommand(vfdDeviceId, tenantId, command);
   }
 
   /**
@@ -57,9 +59,9 @@ export class VfdCommandResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async startVfd(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdCommandResultDto> {
-    return this.commandService.executeCommand(vfdDeviceId, context.tenantId, {
+    return this.commandService.executeCommand(vfdDeviceId, tenantId, {
       command: VfdCommandType.START,
     });
   }
@@ -72,9 +74,9 @@ export class VfdCommandResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async stopVfd(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdCommandResultDto> {
-    return this.commandService.executeCommand(vfdDeviceId, context.tenantId, {
+    return this.commandService.executeCommand(vfdDeviceId, tenantId, {
       command: VfdCommandType.STOP,
     });
   }
@@ -88,9 +90,9 @@ export class VfdCommandResolver {
   async setFrequency(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
     @Args('frequencyHz', { type: () => Float }) frequencyHz: number,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdCommandResultDto> {
-    return this.commandService.executeCommand(vfdDeviceId, context.tenantId, {
+    return this.commandService.executeCommand(vfdDeviceId, tenantId, {
       command: VfdCommandType.SET_FREQUENCY,
       value: frequencyHz,
     });
@@ -105,9 +107,9 @@ export class VfdCommandResolver {
   async setSpeed(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
     @Args('speedPercent', { type: () => Float }) speedPercent: number,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdCommandResultDto> {
-    return this.commandService.executeCommand(vfdDeviceId, context.tenantId, {
+    return this.commandService.executeCommand(vfdDeviceId, tenantId, {
       command: VfdCommandType.SET_SPEED,
       value: speedPercent,
     });
@@ -121,9 +123,9 @@ export class VfdCommandResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async resetFault(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdCommandResultDto> {
-    return this.commandService.executeCommand(vfdDeviceId, context.tenantId, {
+    return this.commandService.executeCommand(vfdDeviceId, tenantId, {
       command: VfdCommandType.FAULT_RESET,
     });
   }
@@ -136,9 +138,9 @@ export class VfdCommandResolver {
   @Mutation(() => VfdCommandResultDto, { name: 'emergencyStopVfd' })
   async emergencyStop(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdCommandResultDto> {
-    return this.commandService.executeCommand(vfdDeviceId, context.tenantId, {
+    return this.commandService.executeCommand(vfdDeviceId, tenantId, {
       command: VfdCommandType.EMERGENCY_STOP,
     });
   }

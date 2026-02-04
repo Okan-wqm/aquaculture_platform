@@ -1079,7 +1079,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Sanitize tenant ID to prevent SQL injection - only allow alphanumeric and underscore
-    const cleanId = tenantId.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8);
+    // Use 16 characters for collision safety - must match SchemaManagerService.getTenantSchemaName
+    const cleanId = tenantId.replace(/[^a-zA-Z0-9]/g, '').substring(0, 16).toLowerCase();
     const schemaName = `tenant_${cleanId}`;
 
     // Additional validation: ensure schema name is safe

@@ -1,9 +1,8 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles } from '../common/decorators/roles.decorator';
+import { Roles, Role } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { Role } from '../common/enums/role.enum';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Employee, EmployeeStatus, Department } from './entities/employee.entity';
 import { Payroll, PayrollStatus } from './entities/payroll.entity';
@@ -99,7 +98,7 @@ export class HRResolver {
   // Employee Queries
   @Query(() => Employee, { name: 'employee' })
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async getEmployee(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -110,7 +109,7 @@ export class HRResolver {
 
   @Query(() => EmployeeConnection, { name: 'employees' })
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async getEmployees(
     @Args('filter', { nullable: true }) filter: EmployeeFilterInput,
     @Context() context: GraphQLContext,
@@ -149,7 +148,7 @@ export class HRResolver {
   // Employee Mutations
   @Mutation(() => Employee)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createEmployee(
     @Args('input') input: CreateEmployeeInput,
     @Context() context: GraphQLContext,
@@ -163,7 +162,7 @@ export class HRResolver {
 
   @Mutation(() => Employee)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateEmployee(
     @Args('input') input: UpdateEmployeeInput,
     @Context() context: GraphQLContext,
@@ -177,7 +176,7 @@ export class HRResolver {
 
   @Mutation(() => Employee)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async terminateEmployee(
     @Args('id', { type: () => ID }) id: string,
     @Args('terminationDate') terminationDate: string,
@@ -201,7 +200,7 @@ export class HRResolver {
   // Payroll Queries
   @Query(() => PayrollConnection, { name: 'payrolls' })
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getPayrolls(
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId: string,
     @Args('status', { type: () => PayrollStatus, nullable: true }) status: PayrollStatus,
@@ -218,7 +217,7 @@ export class HRResolver {
 
   @Query(() => [Payroll], { name: 'pendingPayrolls' })
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getPendingPayrolls(
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
     @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset: number,
@@ -234,7 +233,7 @@ export class HRResolver {
   // Payroll Mutations
   @Mutation(() => Payroll)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createPayroll(
     @Args('input') input: CreatePayrollInput,
     @Context() context: GraphQLContext,
@@ -248,7 +247,7 @@ export class HRResolver {
 
   @Mutation(() => Payroll)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.TENANT_ADMIN)
   async approvePayroll(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,

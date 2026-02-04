@@ -1,7 +1,6 @@
-import { Logger } from '@nestjs/common';
-import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
-import { Tenant, Roles, Role } from '@platform/backend-common';
-import { Request } from 'express';
+import { Logger, UseGuards } from '@nestjs/common';
+import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
+import { Tenant, Roles, Role, TenantGuard } from '@platform/backend-common';
 
 import { SensorDataChannel, ChannelDataType } from '../../database/entities/sensor-data-channel.entity';
 import {
@@ -16,17 +15,11 @@ import {
 import { ChannelDiscoveryService } from '../services/channel-discovery.service';
 import { ChannelManagementService, CreateChannelInput } from '../services/channel-management.service';
 
-interface GqlContext {
-  req?: Request & {
-    user?: { tenantId?: string };
-    headers?: Record<string, string | undefined>;
-  };
-}
-
 /**
  * GraphQL resolver for data channel operations
  */
 @Resolver(() => DataChannelType)
+@UseGuards(TenantGuard)
 export class ChannelResolver {
   private readonly logger = new Logger(ChannelResolver.name);
 
@@ -39,32 +32,8 @@ export class ChannelResolver {
 
   @Query(() => [DataChannelType], { name: 'allDataChannels' })
   async getAllDataChannels(
-    @Context() context: GqlContext,
+    @Tenant() tenantId: string,
   ): Promise<SensorDataChannel[]> {
-    // Try multiple sources for tenantId:
-    // 1. User context (set by middleware)
-    // 2. x-tenant-id header (forwarded by gateway)
-    // 3. Parse x-user-payload header directly (backup)
-    let tenantId = context.req?.user?.tenantId;
-
-    if (!tenantId) {
-      tenantId = context.req?.headers?.['x-tenant-id'];
-    }
-
-    if (!tenantId && context.req?.headers?.['x-user-payload']) {
-      try {
-        const payload = JSON.parse(context.req.headers['x-user-payload']) as { tenantId?: string };
-        tenantId = payload.tenantId;
-      } catch {
-        // Ignore parse errors
-      }
-    }
-
-    if (!tenantId) {
-      this.logger.warn('No tenantId found in request context');
-      return [];
-    }
-
     return this.managementService.getChannelsByTenant(tenantId);
   }
 

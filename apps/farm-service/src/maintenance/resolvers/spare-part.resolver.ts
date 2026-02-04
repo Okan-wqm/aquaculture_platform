@@ -20,7 +20,7 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { Tenant, CurrentUser } from '@platform/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
 import { SparePart, SparePartStatus } from '../entities/spare-part.entity';
 import {
   SparePartService,
@@ -269,6 +269,7 @@ export class SparePartResolver {
   // -------------------------------------------------------------------------
 
   @Mutation(() => SparePart)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createSparePart(
     @Args('input') input: CreateSparePartInput,
     @Tenant() tenantId: string,
@@ -279,6 +280,7 @@ export class SparePartResolver {
   }
 
   @Mutation(() => SparePart)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateSparePart(
     @Args('input') input: UpdateSparePartInput,
     @Tenant() tenantId: string,
@@ -289,6 +291,7 @@ export class SparePartResolver {
   }
 
   @Mutation(() => DeleteSparePartResponse)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async deleteSparePart(
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
@@ -303,6 +306,7 @@ export class SparePartResolver {
   }
 
   @Mutation(() => SparePart)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async recordStockMovement(
     @Args('input') input: StockMovementInput,
     @Tenant() tenantId: string,
@@ -315,6 +319,7 @@ export class SparePartResolver {
   }
 
   @Mutation(() => [SparePart])
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async bulkStockIn(
     @Args('items', { type: () => [BulkStockInItemInput] })
     items: { sparePartId: string; quantity: number; notes?: string }[],

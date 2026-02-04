@@ -25,6 +25,7 @@ import { LeaveModule } from './leave/leave.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { TrainingModule } from './training/training.module';
 import { AquacultureModule } from './aquaculture/aquaculture.module';
+import { SchedulingModule } from './scheduling/scheduling.module';
 
 // Explicit entity imports (required for webpack bundle - glob patterns don't work)
 // Core HR entities
@@ -48,6 +49,11 @@ import { TrainingEnrollment } from './training/entities/training-enrollment.enti
 import { WorkArea } from './aquaculture/entities/work-area.entity';
 import { WorkRotation } from './aquaculture/entities/work-rotation.entity';
 import { SafetyTrainingRecord } from './aquaculture/entities/safety-training-record.entity';
+// Scheduling entities
+import { SchedulingSettings } from './scheduling/entities/scheduling-settings.entity';
+import { WeeklyPlan } from './scheduling/entities/weekly-plan.entity';
+import { WeeklyPlanEntry } from './scheduling/entities/weekly-plan-entry.entity';
+import { Holiday } from './scheduling/entities/holiday.entity';
 
 // Nested ObjectTypes for orphanedTypes registration
 import { ContactInfo, Address, BankDetails, NextOfKin, EmergencyInfo } from './hr/entities/employee.entity';
@@ -104,6 +110,11 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
           WorkArea,
           WorkRotation,
           SafetyTrainingRecord,
+          // Scheduling
+          SchedulingSettings,
+          WeeklyPlan,
+          WeeklyPlanEntry,
+          Holiday,
         ],
         synchronize: configService.get('NODE_ENV') !== 'production',
         logging: configService.get('NODE_ENV') === 'development',
@@ -191,6 +202,7 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
     AttendanceModule,
     TrainingModule,
     AquacultureModule,
+    SchedulingModule,
     HealthModule,
   ],
   providers: [

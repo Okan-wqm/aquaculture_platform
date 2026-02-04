@@ -14,6 +14,7 @@ import { SECURITY_CONSTANTS } from './constants/auth.constants';
 import { HealthModule } from './health/health.module';
 import { AnnouncementModule } from './modules/announcement/announcement.module';
 import { AuthenticationModule } from './modules/authentication/authentication.module';
+import { GdprModule } from './modules/gdpr/gdpr.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
 import { SupportModule } from './modules/support/support.module';
 import { SystemModule } from './modules/system-module/system-module.module';
@@ -168,6 +169,7 @@ import { TenantModule } from './modules/tenant/tenant.module';
     MessagingModule,
     SupportModule,
     AnnouncementModule,
+    GdprModule,
     AuditModule,
     HealthModule,
   ],

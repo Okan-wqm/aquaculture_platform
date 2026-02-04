@@ -11,6 +11,7 @@ import {
 } from 'class-validator';
 
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../entities/vfd.enums';
+import { PaginationInput, PaginatedResponse } from '@platform/backend-common';
 
 /**
  * Filter input for querying VFD devices
@@ -59,32 +60,17 @@ export class VfdDeviceFilterDto {
 
 /**
  * Pagination input for VFD queries
+ *
+ * Uses standard offset/limit pattern from @platform/backend-common.
+ * Extends PaginationInput with VFD-specific sortBy validation.
  */
 @InputType('VfdPaginationInput')
-export class VfdPaginationDto {
-  @Field(() => Int, { nullable: true, defaultValue: 1 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @Field(() => Int, { nullable: true, defaultValue: 20 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @Field({ nullable: true, defaultValue: 'createdAt' })
+export class VfdPaginationDto extends PaginationInput {
+  @Field({ nullable: true, defaultValue: 'createdAt', description: 'Field to sort by (name, brand, status, createdAt, updatedAt)' })
   @IsOptional()
   @IsString()
   @IsEnum(['name', 'brand', 'status', 'createdAt', 'updatedAt'])
-  sortBy?: string;
-
-  @Field({ nullable: true, defaultValue: 'DESC' })
-  @IsOptional()
-  @IsEnum(['ASC', 'DESC'])
-  sortOrder?: 'ASC' | 'DESC';
+  override sortBy?: string;
 }
 
 /**
@@ -167,24 +153,11 @@ export class VfdDeviceDto {
 
 /**
  * Paginated VFD devices response
+ *
+ * Uses standard pagination response pattern (items, total, hasMore).
  */
 @ObjectType('PaginatedVfdDevices')
-export class PaginatedVfdDevicesDto {
-  @Field(() => [VfdDeviceDto])
-  items!: VfdDeviceDto[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedVfdDevicesDto extends PaginatedResponse(VfdDeviceDto) {}
 
 /**
  * VFD device count by status

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Table,
   HardDrive,
@@ -7,12 +7,17 @@ import {
   RefreshCw,
   Download,
   ChevronRight,
+  ChevronDown,
   CheckCircle,
   AlertCircle,
   Info,
   Server,
   Layers,
   Loader2,
+  Warehouse,
+  Users,
+  Cpu,
+  Database,
 } from 'lucide-react';
 import {
   getTenantDatabase,
@@ -25,6 +30,85 @@ import {
 } from '../services/tenant-api.service';
 import { TableSchemaModal } from '../components/TableSchemaModal';
 import { TableDataModal } from '../components/TableDataModal';
+
+/**
+ * Module table mappings - matches MODULE_SCHEMAS from schema-manager.service.ts
+ */
+const MODULE_TABLES: Record<string, string[]> = {
+  sensor: [
+    'sensors', 'sensor_readings', 'sensor_metrics', 'sensor_data_channels', 'sensor_protocols',
+    'processes', 'vfd_devices', 'vfd_readings', 'vfd_register_mappings',
+    'dashboard_layouts', 'edge_devices', 'device_io_configs',
+    'plc_connections', 'plc_alarms', 'plc_telemetry', 'feeding_parameters',
+    'automation_programs', 'program_steps', 'program_transitions', 'program_variables', 'step_actions',
+  ],
+  farm: [
+    'farms', 'sites', 'departments', 'ponds', 'tanks', 'tank_allocations', 'tank_batches', 'tank_operations',
+    'batches', 'batches_v2', 'batch_documents', 'batch_feed_assignments', 'batch_locations', 'species',
+    'systems', 'sub_systems', 'equipment_types', 'equipment', 'equipment_systems', 'sub_equipment_types', 'sub_equipment',
+    'maintenance_schedules', 'work_orders', 'spare_parts',
+    'feed_types', 'feed_type_species', 'feeds', 'feed_inventory', 'feed_sites', 'feeding_protocols', 'feeding_records', 'feeding_tables', 'feeding_programs', 'feeding_program_tanks', 'daily_feeding_executions',
+    'chemical_types', 'chemicals', 'chemical_sites',
+    'growth_measurements', 'mortality_records', 'water_quality_measurements', 'health_events', 'harvest_plans', 'harvest_records',
+    'supplier_types', 'suppliers',
+    'code_sequences', 'farm_audit_logs', 'regulatory_settings', 'sentinel_hub_settings',
+  ],
+  hr: [
+    'employees', 'payrolls',
+    'leave_types', 'leave_balances', 'leave_requests',
+    'shifts', 'schedules', 'schedule_entries', 'scheduling_settings', 'attendance_records',
+    'weekly_plans', 'weekly_plan_entries',
+    'training_courses', 'training_enrollments',
+    'certification_types', 'employee_certifications',
+    'work_areas', 'work_rotations', 'safety_training_records',
+  ],
+};
+
+/**
+ * Module configuration with display info
+ */
+const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string; bgColor: string }> = {
+  farm: {
+    label: 'Farm Module',
+    icon: <Warehouse className="w-5 h-5" />,
+    color: 'text-green-600',
+    bgColor: 'bg-green-50',
+  },
+  sensor: {
+    label: 'Sensor Module',
+    icon: <Cpu className="w-5 h-5" />,
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-50',
+  },
+  hr: {
+    label: 'HR Module',
+    icon: <Users className="w-5 h-5" />,
+    color: 'text-purple-600',
+    bgColor: 'bg-purple-50',
+  },
+  other: {
+    label: 'Other Tables',
+    icon: <Database className="w-5 h-5" />,
+    color: 'text-gray-600',
+    bgColor: 'bg-gray-50',
+  },
+};
+
+/**
+ * Get module name from table name
+ */
+const getModuleFromTableName = (fullTableName: string): string => {
+  // Extract just the table name from "schema.table_name" format
+  const parts = fullTableName.split('.');
+  const tableName = parts[parts.length - 1];
+
+  for (const [module, tables] of Object.entries(MODULE_TABLES)) {
+    if (tables.includes(tableName)) {
+      return module;
+    }
+  }
+  return 'other';
+};
 
 /**
  * Status badge component
@@ -117,6 +201,14 @@ const TenantDatabase: React.FC = () => {
   const [databaseInfo, setDatabaseInfo] = useState<TenantDatabaseInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Module grouping state - all modules expanded by default
+  const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({
+    farm: true,
+    sensor: true,
+    hr: true,
+    other: true,
+  });
 
   // Schema modal state
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
@@ -253,6 +345,46 @@ const TenantDatabase: React.FC = () => {
       if (sortBy === 'rows') return b.rowCount - a.rowCount;
       return 0;
     });
+
+  // Group tables by module
+  const groupedTables = useMemo(() => {
+    const groups: Record<string, typeof filteredTables> = {
+      farm: [],
+      sensor: [],
+      hr: [],
+      other: [],
+    };
+
+    filteredTables.forEach((table) => {
+      const module = getModuleFromTableName(table.name);
+      groups[module].push(table);
+    });
+
+    // Sort tables within each group by name
+    Object.keys(groups).forEach((module) => {
+      groups[module].sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+    return groups;
+  }, [filteredTables]);
+
+  // Toggle module expansion
+  const toggleModule = (module: string) => {
+    setExpandedModules((prev) => ({
+      ...prev,
+      [module]: !prev[module],
+    }));
+  };
+
+  // Get module stats
+  const getModuleStats = (module: string) => {
+    const moduleTables = groupedTables[module] || [];
+    const totalRows = moduleTables.reduce((sum, t) => sum + t.rowCount, 0);
+    return {
+      tableCount: moduleTables.length,
+      totalRows,
+    };
+  };
 
   // Loading state
   if (loading) {
@@ -410,13 +542,16 @@ const TenantDatabase: React.FC = () => {
         </div>
       </div>
 
-      {/* Tables List */}
+      {/* Tables List - Grouped by Module */}
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
         <div className="p-6 border-b border-gray-100">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3">
               <Layers className="w-5 h-5 text-gray-400" />
               <h2 className="text-lg font-semibold text-gray-900">Tables</h2>
+              <span className="text-sm text-gray-500">
+                ({filteredTables.length} tables)
+              </span>
             </div>
             <div className="flex items-center gap-3">
               <input
@@ -439,83 +574,128 @@ const TenantDatabase: React.FC = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-100">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Table Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Rows
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Size
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Indexes
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Last Modified
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filteredTables.map((table) => (
-                <tr
-                  key={table.name}
-                  className="hover:bg-gray-50 transition-colors"
+        {/* Module Groups */}
+        <div className="divide-y divide-gray-100">
+          {['farm', 'sensor', 'hr', 'other'].map((module) => {
+            const config = MODULE_CONFIG[module];
+            const moduleTables = groupedTables[module] || [];
+            const stats = getModuleStats(module);
+
+            // Skip empty modules
+            if (moduleTables.length === 0) return null;
+
+            return (
+              <div key={module} className="overflow-hidden">
+                {/* Module Header - Collapsible */}
+                <button
+                  onClick={() => toggleModule(module)}
+                  className={`w-full px-6 py-4 flex items-center justify-between ${config.bgColor} hover:opacity-90 transition-opacity`}
                 >
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
-                        <Table className="w-4 h-4 text-gray-500" />
-                      </div>
-                      <span className="text-sm font-medium text-gray-900">
-                        {table.name}
-                      </span>
+                  <div className="flex items-center gap-3">
+                    <div className={`${config.color}`}>
+                      {config.icon}
                     </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="text-sm text-gray-600">
-                      {formatNumber(table.rowCount)}
+                    <span className={`text-sm font-semibold ${config.color}`}>
+                      {config.label}
                     </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="text-sm text-gray-600">{table.size}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="text-sm text-gray-600">{table.indexCount}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="text-sm text-gray-500">
-                      {formatDate(table.lastModified)}
+                    <span className="text-xs text-gray-500 bg-white/60 px-2 py-0.5 rounded-full">
+                      {stats.tableCount} tables
                     </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-3">
-                      <button
-                        onClick={() => handleViewData(table.name)}
-                        className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
-                      >
-                        View Data
-                      </button>
-                      <button
-                        onClick={() => handleViewSchema(table.name)}
-                        className="inline-flex items-center gap-1 text-sm text-tenant-600 hover:text-tenant-700 font-medium transition-colors"
-                      >
-                        View Schema
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <span className="text-xs text-gray-500 bg-white/60 px-2 py-0.5 rounded-full">
+                      {formatNumber(stats.totalRows)} rows
+                    </span>
+                  </div>
+                  <ChevronDown
+                    className={`w-5 h-5 text-gray-500 transition-transform ${
+                      expandedModules[module] ? 'rotate-0' : '-rotate-90'
+                    }`}
+                  />
+                </button>
+
+                {/* Module Tables */}
+                {expandedModules[module] && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-100">
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Table Name
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Rows
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Size
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Indexes
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Last Modified
+                          </th>
+                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {moduleTables.map((table) => (
+                          <tr
+                            key={table.name}
+                            className="hover:bg-gray-50 transition-colors"
+                          >
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-lg ${config.bgColor} flex items-center justify-center`}>
+                                  <Table className={`w-4 h-4 ${config.color}`} />
+                                </div>
+                                <span className="text-sm font-medium text-gray-900">
+                                  {table.name}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="text-sm text-gray-600">
+                                {formatNumber(table.rowCount)}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="text-sm text-gray-600">{table.size}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="text-sm text-gray-600">{table.indexCount}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="text-sm text-gray-500">
+                                {formatDate(table.lastModified)}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex items-center justify-end gap-3">
+                                <button
+                                  onClick={() => handleViewData(table.name)}
+                                  className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
+                                >
+                                  View Data
+                                </button>
+                                <button
+                                  onClick={() => handleViewSchema(table.name)}
+                                  className="inline-flex items-center gap-1 text-sm text-tenant-600 hover:text-tenant-700 font-medium transition-colors"
+                                >
+                                  View Schema
+                                  <ChevronRight className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Empty State */}

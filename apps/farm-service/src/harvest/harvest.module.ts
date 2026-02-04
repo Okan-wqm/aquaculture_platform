@@ -28,6 +28,9 @@ import { Tank } from '../tank/entities/tank.entity';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { TankOperation } from '../batch/entities/tank-operation.entity';
 
+// Services
+import { HarvestPlanService } from './services/harvest-plan.service';
+
 // Command Handlers
 import { CreateHarvestRecordHandler } from './handlers/create-harvest-record.handler';
 import { UpdateHarvestRecordHandler } from './handlers/update-harvest-record.handler';
@@ -40,6 +43,7 @@ import { GetHarvestStatisticsHandler } from './handlers/get-harvest-statistics.h
 
 // Resolvers
 import { HarvestResolver } from './resolvers/harvest.resolver';
+import { HarvestPlanResolver } from './resolvers/harvest-plan.resolver';
 
 @Module({
   imports: [
@@ -54,6 +58,8 @@ import { HarvestResolver } from './resolvers/harvest.resolver';
     CqrsModule,
   ],
   providers: [
+    // Services
+    HarvestPlanService,
     // Command Handlers
     CreateHarvestRecordHandler,
     UpdateHarvestRecordHandler,
@@ -64,9 +70,11 @@ import { HarvestResolver } from './resolvers/harvest.resolver';
     GetHarvestStatisticsHandler,
     // Resolvers
     HarvestResolver,
+    HarvestPlanResolver,
   ],
   exports: [
     TypeOrmModule,
+    HarvestPlanService,
   ],
 })
 export class HarvestModule {}

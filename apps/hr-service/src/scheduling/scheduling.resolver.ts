@@ -2,9 +2,8 @@ import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } 
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles } from '../common/decorators/roles.decorator';
+import { Roles, Role } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { Role } from '../common/enums/role.enum';
 
 // Entities
 import { WeeklyPlan, WeeklyPlanStatus } from './entities/weekly-plan.entity';
@@ -200,7 +199,7 @@ export class SchedulingResolver {
 
   @Mutation(() => WeeklyPlan)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async createWeeklyPlan(
     @Args('input') input: CreateWeeklyPlanInput,
     @Context() context: GraphQLContext,
@@ -222,7 +221,7 @@ export class SchedulingResolver {
 
   @Mutation(() => WeeklyPlanEntry)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async updatePlanEntry(
     @Args('input') input: UpdatePlanEntryInput,
     @Context() context: GraphQLContext,
@@ -246,7 +245,7 @@ export class SchedulingResolver {
 
   @Mutation(() => BulkAssignResultType)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async bulkAssignShifts(
     @Args('input') input: BulkAssignShiftsInput,
     @Context() context: GraphQLContext,
@@ -269,7 +268,7 @@ export class SchedulingResolver {
 
   @Mutation(() => WeeklyPlan)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async copyWeeklyPlan(
     @Args('sourceId', { type: () => ID }) sourceId: string,
     @Args('targetWeekStartDate') targetWeekStartDate: string,
@@ -284,7 +283,7 @@ export class SchedulingResolver {
 
   @Mutation(() => WeeklyPlan)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async publishWeeklyPlan(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -296,7 +295,7 @@ export class SchedulingResolver {
 
   @Mutation(() => Boolean)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER, Role.MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async deleteWeeklyPlan(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -308,7 +307,7 @@ export class SchedulingResolver {
 
   @Mutation(() => SchedulingSettings)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.TENANT_ADMIN)
   async updateSchedulingSettings(
     @Args('input') input: UpdateSchedulingSettingsInput,
     @Context() context: GraphQLContext,

@@ -18,6 +18,8 @@ import TanksPage from './pages/tanks/TanksPage';
 import CleanerFishPage from './pages/cleaner-fish/CleanerFishPage';
 import SentinelHubSettingsPage from './pages/settings/SentinelHubSettingsPage';
 import FeedingPage from './pages/feeding/FeedingPage';
+import HealthEventsPage from './pages/health/HealthEventsPage';
+import HarvestPlansPage from './pages/harvest/HarvestPlansPage';
 
 // ============================================================================
 // Sites Module
@@ -62,6 +64,12 @@ const FarmModule: React.FC = () => {
 
       {/* Regulatory Reports - Norwegian compliance reports */}
       <Route path="reports/*" element={<ReportsPage />} />
+
+      {/* Fish Health Events - Disease tracking, treatment, quarantine */}
+      <Route path="health/*" element={<HealthEventsPage />} />
+
+      {/* Harvest Plans - Planning, scheduling, workflow management */}
+      <Route path="harvest/*" element={<HarvestPlansPage />} />
 
       {/* Ayarlar - Sentinel Hub */}
       <Route path="settings/sentinel-hub" element={<SentinelHubSettingsPage />} />

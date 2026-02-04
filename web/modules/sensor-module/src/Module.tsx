@@ -6,7 +6,7 @@
  * Main page is SCADA view with live sensor data.
  */
 
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import SensorScadaPage from './pages/SensorScadaPage';
 import SensorDashboardPage from './pages/SensorDashboardPage';
@@ -24,51 +24,71 @@ import ProcessListPage from './pages/process/ProcessListPage';
 import ProcessEditorPage from './pages/process/ProcessEditorPage';
 import ProcessTemplatesPage from './pages/process/ProcessTemplatesPage';
 
+// Automation Pages (lazy loaded)
+const AutomationProgramsPage = lazy(() => import('./pages/automation/AutomationProgramsPage'));
+const AutomationProgramEditorPage = lazy(() => import('./pages/automation/AutomationProgramEditorPage'));
+
+// Loading fallback
+function PageLoader() {
+  return (
+    <div className="flex h-64 items-center justify-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
+    </div>
+  );
+}
+
 // ============================================================================
 // Sensor Module
 // ============================================================================
 
 const SensorModule: React.FC = () => {
   return (
-    <Routes>
-      {/* SCADA View - Main Page */}
-      <Route index element={<SensorScadaPage />} />
-      <Route path="scada" element={<SensorScadaPage />} />
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        {/* SCADA View - Main Page */}
+        <Route index element={<SensorScadaPage />} />
+        <Route path="scada" element={<SensorScadaPage />} />
 
-      {/* Dashboard (legacy, optional access) */}
-      <Route path="dashboard" element={<SensorDashboardPage />} />
+        {/* Dashboard (legacy, optional access) */}
+        <Route path="dashboard" element={<SensorDashboardPage />} />
 
-      {/* Widget Dashboard - Customizable widgets */}
-      <Route path="widgets" element={<WidgetDashboardPage />} />
+        {/* Widget Dashboard - Customizable widgets */}
+        <Route path="widgets" element={<WidgetDashboardPage />} />
 
-      {/* Devices */}
-      <Route path="devices" element={<DevicesPage />} />
-      <Route path="devices/:deviceId" element={<DeviceDetailPage />} />
+        {/* Devices */}
+        <Route path="devices" element={<DevicesPage />} />
+        <Route path="devices/:deviceId" element={<DeviceDetailPage />} />
 
-      {/* Readings */}
-      <Route path="readings" element={<ReadingsPage />} />
+        {/* Readings */}
+        <Route path="readings" element={<ReadingsPage />} />
 
-      {/* Alerts */}
-      <Route path="alerts" element={<AlertsPage />} />
+        {/* Alerts */}
+        <Route path="alerts" element={<AlertsPage />} />
 
-      {/* Thresholds */}
-      <Route path="thresholds" element={<ThresholdsPage />} />
+        {/* Thresholds */}
+        <Route path="thresholds" element={<ThresholdsPage />} />
 
-      {/* Calibration */}
-      <Route path="calibration" element={<CalibrationPage />} />
+        {/* Calibration */}
+        <Route path="calibration" element={<CalibrationPage />} />
 
-      {/* Analytics */}
-      <Route path="analytics" element={<SensorAnalyticsPage />} />
+        {/* Analytics */}
+        <Route path="analytics" element={<SensorAnalyticsPage />} />
 
-      {/* Process Editor */}
-      <Route path="processes" element={<ProcessListPage />} />
-      <Route path="process/new" element={<ProcessEditorPage />} />
-      <Route path="process/:processId" element={<ProcessEditorPage />} />
-      <Route path="processes/templates" element={<ProcessTemplatesPage />} />
+        {/* Process Editor */}
+        <Route path="processes" element={<ProcessListPage />} />
+        <Route path="process/new" element={<ProcessEditorPage />} />
+        <Route path="process/:processId" element={<ProcessEditorPage />} />
+        <Route path="processes/templates" element={<ProcessTemplatesPage />} />
 
-      {/* Unknown routes */}
-      <Route path="*" element={<Navigate to="/sensor" replace />} />
-    </Routes>
+        {/* Automation Programs */}
+        <Route path="automation" element={<AutomationProgramsPage />} />
+        <Route path="automation/new" element={<AutomationProgramEditorPage />} />
+        <Route path="automation/:programId" element={<AutomationProgramEditorPage />} />
+
+        {/* Unknown routes */}
+        <Route path="*" element={<Navigate to="/sensor" replace />} />
+      </Routes>
+    </Suspense>
   );
 };
 

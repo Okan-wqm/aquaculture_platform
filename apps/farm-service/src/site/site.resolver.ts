@@ -4,7 +4,7 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { UseGuards, Logger } from '@nestjs/common';
-import { TenantGuard, CurrentTenant, CurrentUser } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@platform/backend-common';
 import { SiteResponse, PaginatedSitesResponse } from './dto/site.response';
 import { SiteDeletePreviewResponse } from './dto/site-delete-preview.response';
 import { CreateSiteInput } from './dto/create-site.input';
@@ -30,6 +30,7 @@ export class SiteResolver {
    * Create a new site
    */
   @Mutation(() => SiteResponse)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createSite(
     @Args('input') input: CreateSiteInput,
     @CurrentTenant() tenantId: string,
@@ -44,6 +45,7 @@ export class SiteResolver {
    * Update an existing site
    */
   @Mutation(() => SiteResponse)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateSite(
     @Args('input') input: UpdateSiteInput,
     @CurrentTenant() tenantId: string,
@@ -73,6 +75,7 @@ export class SiteResolver {
    * @param cascade If true, cascade soft delete all related items (departments, systems, equipment, tanks)
    */
   @Mutation(() => Boolean)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async deleteSite(
     @Args('id', { type: () => ID }) id: string,
     @Args('cascade', { type: () => Boolean, defaultValue: false }) cascade: boolean,

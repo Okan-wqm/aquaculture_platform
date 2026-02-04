@@ -57,24 +57,22 @@ export interface VfdDeviceFilterInput {
 }
 
 /**
- * Pagination input
+ * Pagination input (standard offset/limit pattern)
  */
 export interface PaginationInput {
-  page?: number;
+  offset?: number;
   limit?: number;
   sortBy?: string;
   sortOrder?: 'ASC' | 'DESC';
 }
 
 /**
- * Paginated result
+ * Paginated result (standard hasMore pattern)
  */
 export interface PaginatedVfdDevices {
   items: VfdDevice[];
   total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
+  hasMore: boolean;
 }
 
 /**
@@ -141,9 +139,8 @@ export class VfdDeviceService {
     filter?: VfdDeviceFilterInput,
     pagination?: PaginationInput
   ): Promise<PaginatedVfdDevices> {
-    const page = pagination?.page || 1;
-    const limit = pagination?.limit || 20;
-    const skip = (page - 1) * limit;
+    const offset = pagination?.offset ?? 0;
+    const limit = pagination?.limit ?? 20;
 
     const queryBuilder = this.vfdDeviceRepository
       .createQueryBuilder('vfd')
@@ -184,16 +181,14 @@ export class VfdDeviceService {
 
     // Get total count and items
     const [items, total] = await queryBuilder
-      .skip(skip)
+      .skip(offset)
       .take(limit)
       .getManyAndCount();
 
     return {
       items,
       total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+      hasMore: offset + limit < total,
     };
   }
 

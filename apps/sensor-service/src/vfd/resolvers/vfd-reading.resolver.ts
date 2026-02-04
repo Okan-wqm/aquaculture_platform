@@ -1,4 +1,6 @@
-import { Resolver, Query, Mutation, Args, ID, Context, Int } from '@nestjs/graphql';
+import { UseGuards } from '@nestjs/common';
+import { Resolver, Query, Mutation, Args, ID, Int } from '@nestjs/graphql';
+import { TenantGuard, Tenant } from '@platform/backend-common';
 
 import { VfdReading } from '../entities/vfd-reading.entity';
 import { VfdReadingStats } from '../dto/vfd-stats.dto';
@@ -9,6 +11,7 @@ import { VfdDataReaderService, TimeRange } from '../services/vfd-data-reader.ser
  * VFD Reading GraphQL Resolver
  */
 @Resolver(() => VfdReading)
+@UseGuards(TenantGuard)
 export class VfdReadingResolver {
   constructor(
     private readonly dataReaderService: VfdDataReaderService
@@ -20,9 +23,9 @@ export class VfdReadingResolver {
   @Query(() => VfdReading, { name: 'vfdLatestReading', nullable: true })
   async getLatestReading(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdReading | null> {
-    return this.dataReaderService.getLatestReading(vfdDeviceId, context.tenantId);
+    return this.dataReaderService.getLatestReading(vfdDeviceId, tenantId);
   }
 
   /**
@@ -31,15 +34,15 @@ export class VfdReadingResolver {
   @Query(() => [VfdReading], { name: 'vfdReadings' })
   async getReadings(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Args('from', { nullable: true }) from?: Date,
-    @Args('to', { nullable: true }) to?: Date,
-    @Args('limit', { type: () => Int, nullable: true, defaultValue: 100 }) limit?: number,
-    @Context() context?: { tenantId: string }
+    @Args('from', { nullable: true }) from: Date | undefined,
+    @Args('to', { nullable: true }) to: Date | undefined,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 100 }) limit: number | undefined,
+    @Tenant() tenantId: string
   ): Promise<VfdReading[]> {
     const timeRange: TimeRange | undefined = from && to ? { from, to } : undefined;
     return this.dataReaderService.getReadings(
       vfdDeviceId,
-      context?.tenantId || '',
+      tenantId,
       timeRange,
       limit
     );
@@ -53,11 +56,11 @@ export class VfdReadingResolver {
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
     @Args('from') from: Date,
     @Args('to') to: Date,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdReadingStats | null> {
     return this.dataReaderService.getReadingStats(
       vfdDeviceId,
-      context.tenantId,
+      tenantId,
       { from, to }
     );
   }
@@ -68,9 +71,9 @@ export class VfdReadingResolver {
   @Mutation(() => VfdReadResultDto, { name: 'readVfdParameters', nullable: true })
   async readParameters(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdReadResultDto | null> {
-    return this.dataReaderService.readParameters(vfdDeviceId, context.tenantId);
+    return this.dataReaderService.readParameters(vfdDeviceId, tenantId);
   }
 
   /**
@@ -79,9 +82,9 @@ export class VfdReadingResolver {
   @Mutation(() => VfdReadResultDto, { name: 'readVfdCriticalParameters', nullable: true })
   async readCriticalParameters(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdReadResultDto | null> {
-    return this.dataReaderService.readCriticalParameters(vfdDeviceId, context.tenantId);
+    return this.dataReaderService.readCriticalParameters(vfdDeviceId, tenantId);
   }
 
   /**
@@ -90,8 +93,8 @@ export class VfdReadingResolver {
   @Mutation(() => Int, { name: 'deleteOldVfdReadings' })
   async deleteOldReadings(
     @Args('olderThan') olderThan: Date,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<number> {
-    return this.dataReaderService.deleteOldReadings(context.tenantId, olderThan);
+    return this.dataReaderService.deleteOldReadings(tenantId, olderThan);
   }
 }

@@ -19,7 +19,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommandBus, QueryBus } from '@platform/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@platform/backend-common';
 import { Tank } from '../entities/tank.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Department } from '../../department/entities/department.entity';
@@ -256,6 +256,7 @@ export class TankResolver {
    * Create a new tank
    */
   @Mutation(() => Tank)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createTank(
     @Args('input') input: CreateTankInput,
     @CurrentTenant() tenantId: string,
@@ -271,6 +272,7 @@ export class TankResolver {
    * Update an existing tank
    */
   @Mutation(() => Tank)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateTank(
     @Args('input') input: UpdateTankInput,
     @CurrentTenant() tenantId: string,
@@ -286,6 +288,7 @@ export class TankResolver {
    * Update tank status
    */
   @Mutation(() => Tank)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateTankStatus(
     @Args('input') input: UpdateTankStatusInput,
     @CurrentTenant() tenantId: string,
@@ -301,6 +304,7 @@ export class TankResolver {
    * Delete a tank (soft delete)
    */
   @Mutation(() => DeleteTankResponse)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async deleteTank(
     @Args('id', { type: () => ID }) id: string,
     @CurrentTenant() tenantId: string,

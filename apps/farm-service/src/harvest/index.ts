@@ -12,6 +12,9 @@ export * from './entities';
 // DTOs
 export * from './dto';
 
+// Services
+export * from './services';
+
 // Resolver Response Types
 export {
   PaginatedHarvestsResponse,
@@ -22,3 +25,9 @@ export {
   HarvestTrends,
   HarvestStatisticsResponse,
 } from './resolvers/harvest.resolver';
+
+export {
+  PaginatedHarvestPlansResponse,
+  HarvestPlanStatsResponse,
+  HarvestVarianceResponse,
+} from './resolvers/harvest-plan.resolver';

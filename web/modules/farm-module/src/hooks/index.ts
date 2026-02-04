@@ -15,3 +15,4 @@ export * from './useFileUpload';
 export * from './useSentinelHub';
 export * from './useMapPointQuery';
 export * from './useMaintenance';
+export * from './useHealthEvents';

@@ -28,6 +28,9 @@ const LeavesListPage = lazy(() => import('./pages/leaves/LeavesPage'));
 const CrewAssignmentsPage = lazy(() => import('./pages/crew/CrewAssignmentsPage'));
 const OffshoreRotationsPage = lazy(() => import('./pages/crew/OffshoreRotationsPage'));
 const CertificationDashboardPage = lazy(() => import('./pages/training/CertificationDashboardPage'));
+const WeeklySchedulePage = lazy(() => import('./pages/scheduling/WeeklySchedulePage'));
+const TeamOverviewPage = lazy(() => import('./pages/scheduling/TeamOverviewPage'));
+const SchedulingSettingsPage = lazy(() => import('./pages/scheduling/SchedulingSettingsPage'));
 
 // Create a dedicated query client for the HR module
 const queryClient = new QueryClient({
@@ -85,7 +88,13 @@ const HRModule: React.FC = () => {
           {/* Attendance */}
           <Route path="attendance" element={<AttendancePage />} />
           <Route path="attendance/shifts" element={<PlaceholderPage title="Shift Management" />} />
-          <Route path="attendance/schedules" element={<PlaceholderPage title="Schedules" />} />
+          <Route path="attendance/schedules" element={<WeeklySchedulePage />} />
+
+          {/* Scheduling */}
+          <Route path="scheduling" element={<WeeklySchedulePage />} />
+          <Route path="scheduling/weekly" element={<WeeklySchedulePage />} />
+          <Route path="scheduling/team-overview" element={<TeamOverviewPage />} />
+          <Route path="scheduling/settings" element={<SchedulingSettingsPage />} />
 
           {/* Leaves - Use modernized page */}
           <Route path="leaves" element={<LeavesListPage />} />

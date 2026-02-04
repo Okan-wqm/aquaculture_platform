@@ -53,7 +53,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   },
   {
     moduleName: 'farm',
-    sourceSchema: 'public', // Tables are in public schema, will be copied to tenant schema
+    sourceSchema: 'farm', // Tables are in farm schema, will be copied to tenant schema
     tables: [
       // Core entities
       'farms',
@@ -85,6 +85,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // Maintenance
       'maintenance_schedules',
       'work_orders',
+      'spare_parts',
 
       // Feed management
       'feed_types',
@@ -122,6 +123,22 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
 
       // Regulatory settings (Maskinporten credentials, company info)
       'regulatory_settings',
+      'sentinel_hub_settings',
+
+      // Security & Compliance tables (tenant-specific audit trail)
+      'activity_logs',
+      'api_usage_logs',
+      'login_attempts',
+      'user_sessions',
+      'user_permissions',
+      'user_consents',
+      'compliance_reports',
+      'gdpr_data_requests',
+      'data_requests',
+      'retention_policies',
+      'security_events',
+      'security_incidents',
+      'threat_intelligence',
     ],
   },
   {

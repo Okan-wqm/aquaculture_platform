@@ -1,30 +1,16 @@
-import { Logger, ForbiddenException } from '@nestjs/common';
-import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
-import { Roles, Role } from '@platform/backend-common';
+import { Logger, ForbiddenException, UseGuards } from '@nestjs/common';
+import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
+import { Roles, Role, TenantGuard, Tenant, CurrentUser, CurrentUserPayload } from '@platform/backend-common';
 
 import { DashboardService } from './dashboard.service';
 import { SaveDashboardLayoutInput, CreateSystemDefaultLayoutInput } from './dto/dashboard-layout.dto';
 import { DashboardLayout } from './entities/dashboard-layout.entity';
 
 /**
- * GraphQL context type for dashboard resolver
- */
-interface GraphQLContext {
-  req: {
-    tenantId?: string;
-    headers?: Record<string, string | undefined>;
-    user?: {
-      sub?: string;
-      id?: string;
-      roles?: string[];
-    };
-  };
-}
-
-/**
  * GraphQL Resolver for Dashboard Layout operations
  */
 @Resolver(() => DashboardLayout)
+@UseGuards(TenantGuard)
 export class DashboardResolver {
   private readonly logger = new Logger(DashboardResolver.name);
 
@@ -34,8 +20,10 @@ export class DashboardResolver {
    * Get all layouts for the current user
    */
   @Query(() => [DashboardLayout], { name: 'dashboardLayouts' })
-  async getDashboardLayouts(@Context() ctx: GraphQLContext): Promise<DashboardLayout[]> {
-    const { tenantId, userId } = this.extractContext(ctx);
+  async getDashboardLayouts(
+    @Tenant() tenantId: string,
+    @CurrentUser('sub') userId: string,
+  ): Promise<DashboardLayout[]> {
     this.logger.debug(`Getting layouts for user ${userId} in tenant ${tenantId}`);
     return this.dashboardService.getUserLayouts(tenantId, userId);
   }
@@ -46,9 +34,9 @@ export class DashboardResolver {
   @Query(() => DashboardLayout, { name: 'dashboardLayout', nullable: true })
   async getDashboardLayout(
     @Args('id', { type: () => ID }) id: string,
-    @Context() ctx: GraphQLContext,
+    @Tenant() tenantId: string,
+    @CurrentUser('sub') userId: string,
   ): Promise<DashboardLayout> {
-    const { tenantId, userId } = this.extractContext(ctx);
     return this.dashboardService.getLayoutById(id, tenantId, userId);
   }
 
@@ -56,8 +44,10 @@ export class DashboardResolver {
    * Get user's default layout (or system default if none)
    */
   @Query(() => DashboardLayout, { name: 'myDefaultLayout', nullable: true })
-  async getMyDefaultLayout(@Context() ctx: GraphQLContext): Promise<DashboardLayout | null> {
-    const { tenantId, userId } = this.extractContext(ctx);
+  async getMyDefaultLayout(
+    @Tenant() tenantId: string,
+    @CurrentUser('sub') userId: string,
+  ): Promise<DashboardLayout | null> {
     this.logger.debug(`Getting default layout for user ${userId}`);
     return this.dashboardService.getMyDefaultLayout(tenantId, userId);
   }
@@ -66,8 +56,9 @@ export class DashboardResolver {
    * Get system default layout for tenant
    */
   @Query(() => DashboardLayout, { name: 'systemDefaultLayout', nullable: true })
-  async getSystemDefaultLayout(@Context() ctx: GraphQLContext): Promise<DashboardLayout | null> {
-    const { tenantId } = this.extractContext(ctx);
+  async getSystemDefaultLayout(
+    @Tenant() tenantId: string,
+  ): Promise<DashboardLayout | null> {
     return this.dashboardService.getSystemDefaultLayout(tenantId);
   }
 
@@ -77,9 +68,9 @@ export class DashboardResolver {
   @Mutation(() => DashboardLayout, { name: 'saveDashboardLayout' })
   async saveDashboardLayout(
     @Args('input') input: SaveDashboardLayoutInput,
-    @Context() ctx: GraphQLContext,
+    @Tenant() tenantId: string,
+    @CurrentUser('sub') userId: string,
   ): Promise<DashboardLayout> {
-    const { tenantId, userId } = this.extractContext(ctx);
     this.logger.log(`Saving layout "${input.name}" for user ${userId}`);
     return this.dashboardService.saveLayout(input, tenantId, userId);
   }
@@ -92,12 +83,13 @@ export class DashboardResolver {
   @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
   async saveSystemDefaultLayout(
     @Args('input') input: CreateSystemDefaultLayoutInput,
-    @Context() ctx: GraphQLContext,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload,
   ): Promise<DashboardLayout> {
-    const { tenantId, userId } = this.extractContext(ctx);
+    const userId = user.sub;
 
-    // Additional role verification from context
-    const userRoles = ctx.req?.user?.roles || [];
+    // Additional role verification from user payload
+    const userRoles = user.roles || [];
     const hasAdminRole = userRoles.some(
       role => role === Role.SUPER_ADMIN || role === Role.TENANT_ADMIN
     );
@@ -117,9 +109,9 @@ export class DashboardResolver {
   @Mutation(() => DashboardLayout, { name: 'setLayoutAsDefault' })
   async setLayoutAsDefault(
     @Args('id', { type: () => ID }) id: string,
-    @Context() ctx: GraphQLContext,
+    @Tenant() tenantId: string,
+    @CurrentUser('sub') userId: string,
   ): Promise<DashboardLayout> {
-    const { tenantId, userId } = this.extractContext(ctx);
     this.logger.log(`Setting layout ${id} as default for user ${userId}`);
     return this.dashboardService.setAsDefault(id, tenantId, userId);
   }
@@ -130,28 +122,10 @@ export class DashboardResolver {
   @Mutation(() => Boolean, { name: 'deleteDashboardLayout' })
   async deleteDashboardLayout(
     @Args('id', { type: () => ID }) id: string,
-    @Context() ctx: GraphQLContext,
+    @Tenant() tenantId: string,
+    @CurrentUser('sub') userId: string,
   ): Promise<boolean> {
-    const { tenantId, userId } = this.extractContext(ctx);
     this.logger.log(`Deleting layout ${id}`);
     return this.dashboardService.deleteLayout(id, tenantId, userId);
-  }
-
-  /**
-   * Extract tenant and user context from request
-   */
-  private extractContext(ctx: GraphQLContext): { tenantId: string; userId: string } {
-    const req = ctx.req;
-    const tenantId = req?.tenantId || req?.headers?.['x-tenant-id'];
-    const userId = req?.user?.sub || req?.user?.id;
-
-    if (!tenantId) {
-      throw new Error('Tenant ID not found in request context');
-    }
-    if (!userId) {
-      throw new Error('User ID not found in request context');
-    }
-
-    return { tenantId, userId };
   }
 }

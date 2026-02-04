@@ -1,5 +1,6 @@
-import { Resolver, Query, Mutation, Args, ID, Context, ResolveField, Parent } from '@nestjs/graphql';
-import { Roles, Role } from '@platform/backend-common';
+import { UseGuards } from '@nestjs/common';
+import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
+import { Roles, Role, TenantGuard, Tenant } from '@platform/backend-common';
 
 import {
   VfdDeviceFilterDto,
@@ -17,6 +18,7 @@ import { VfdDeviceService, CreateVfdDeviceInput, UpdateVfdDeviceInput } from '..
  * VFD Device GraphQL Resolver
  */
 @Resolver(() => VfdDevice)
+@UseGuards(TenantGuard)
 export class VfdDeviceResolver {
   constructor(
     private readonly vfdDeviceService: VfdDeviceService,
@@ -30,9 +32,9 @@ export class VfdDeviceResolver {
   @Query(() => VfdDevice, { name: 'vfdDevice', nullable: true })
   async getVfdDevice(
     @Args('id', { type: () => ID }) id: string,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdDevice> {
-    return this.vfdDeviceService.findById(id, context.tenantId);
+    return this.vfdDeviceService.findById(id, tenantId);
   }
 
   /**
@@ -42,9 +44,9 @@ export class VfdDeviceResolver {
   async getVfdDevices(
     @Args('filter', { type: () => VfdDeviceFilterDto, nullable: true }) filter: VfdDeviceFilterDto,
     @Args('pagination', { type: () => VfdPaginationDto, nullable: true }) pagination: VfdPaginationDto,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ) {
-    return this.vfdDeviceService.findAll(context.tenantId, filter, pagination);
+    return this.vfdDeviceService.findAll(tenantId, filter, pagination);
   }
 
   /**
@@ -53,9 +55,9 @@ export class VfdDeviceResolver {
   @Query(() => [VfdDevice], { name: 'vfdDevicesByFarm' })
   async getVfdDevicesByFarm(
     @Args('farmId', { type: () => ID }) farmId: string,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdDevice[]> {
-    return this.vfdDeviceService.findByFarm(farmId, context.tenantId);
+    return this.vfdDeviceService.findByFarm(farmId, tenantId);
   }
 
   /**
@@ -64,9 +66,9 @@ export class VfdDeviceResolver {
   @Query(() => [VfdDevice], { name: 'vfdDevicesByTank' })
   async getVfdDevicesByTank(
     @Args('tankId', { type: () => ID }) tankId: string,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdDevice[]> {
-    return this.vfdDeviceService.findByTank(tankId, context.tenantId);
+    return this.vfdDeviceService.findByTank(tankId, tenantId);
   }
 
   /**
@@ -74,9 +76,9 @@ export class VfdDeviceResolver {
    */
   @Query(() => String, { name: 'vfdDeviceCountByStatus', description: 'Returns JSON object with status counts' })
   async getVfdDeviceCountByStatus(
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<string> {
-    const counts = await this.vfdDeviceService.getCountByStatus(context.tenantId);
+    const counts = await this.vfdDeviceService.getCountByStatus(tenantId);
     return JSON.stringify(counts);
   }
 
@@ -88,9 +90,9 @@ export class VfdDeviceResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async registerVfdDevice(
     @Args('input', { type: () => RegisterVfdDto }) input: RegisterVfdDto,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdDevice> {
-    return this.vfdDeviceService.create(input as CreateVfdDeviceInput, context.tenantId);
+    return this.vfdDeviceService.create(input as CreateVfdDeviceInput, tenantId);
   }
 
   /**
@@ -102,9 +104,9 @@ export class VfdDeviceResolver {
   async updateVfdDevice(
     @Args('id', { type: () => ID }) id: string,
     @Args('input', { type: () => UpdateVfdDto }) input: UpdateVfdDto,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdDevice> {
-    return this.vfdDeviceService.update(id, context.tenantId, input as UpdateVfdDeviceInput);
+    return this.vfdDeviceService.update(id, tenantId, input as UpdateVfdDeviceInput);
   }
 
   /**
@@ -115,9 +117,9 @@ export class VfdDeviceResolver {
   @Roles(Role.TENANT_ADMIN)
   async deleteVfdDevice(
     @Args('id', { type: () => ID }) id: string,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<boolean> {
-    return this.vfdDeviceService.delete(id, context.tenantId);
+    return this.vfdDeviceService.delete(id, tenantId);
   }
 
   /**
@@ -128,9 +130,9 @@ export class VfdDeviceResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async testVfdConnection(
     @Args('id', { type: () => ID }) id: string,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<boolean> {
-    const result = await this.connectionTesterService.testDeviceConnection(id, context.tenantId);
+    const result = await this.connectionTesterService.testDeviceConnection(id, tenantId);
     return result.success;
   }
 
@@ -142,9 +144,9 @@ export class VfdDeviceResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async activateVfdDevice(
     @Args('id', { type: () => ID }) id: string,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdDevice> {
-    return this.vfdDeviceService.activate(id, context.tenantId);
+    return this.vfdDeviceService.activate(id, tenantId);
   }
 
   /**
@@ -155,9 +157,9 @@ export class VfdDeviceResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async deactivateVfdDevice(
     @Args('id', { type: () => ID }) id: string,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdDevice> {
-    return this.vfdDeviceService.deactivate(id, context.tenantId);
+    return this.vfdDeviceService.deactivate(id, tenantId);
   }
 
   /**
@@ -166,8 +168,8 @@ export class VfdDeviceResolver {
   @ResolveField(() => VfdReading, { name: 'latestReading', nullable: true })
   async getLatestReading(
     @Parent() device: VfdDevice,
-    @Context() context: { tenantId: string }
+    @Tenant() tenantId: string
   ): Promise<VfdReading | null> {
-    return this.dataReaderService.getLatestReading(device.id, context.tenantId);
+    return this.dataReaderService.getLatestReading(device.id, tenantId);
   }
 }

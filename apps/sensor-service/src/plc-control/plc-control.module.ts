@@ -6,12 +6,21 @@ import { FeedingParameter } from './entities/feeding-parameter.entity';
 import { PlcAlarm } from './entities/plc-alarm.entity';
 import { PlcConnection } from './entities/plc-connection.entity';
 import { PlcTelemetry } from './entities/plc-telemetry.entity';
-// TODO: Implement these services in future sprints
-// import { OpcUaClientService } from './services/opc-ua-client.service';
-// import { ParameterPublisherService } from './services/parameter-publisher.service';
-// import { TelemetryCollectorService } from './services/telemetry-collector.service';
-// import { PlcConnectionService } from './services/plc-connection.service';
-// import { PlcControlResolver } from './resolvers/plc-control.resolver';
+
+// Services
+import {
+  PlcConnectionService,
+  FeedingParameterService,
+  PlcAlarmService,
+  PlcTelemetryService,
+} from './services';
+
+// Resolvers
+import {
+  PlcControlResolver,
+  PlcConnectionResolver,
+  FeedingParameterResolver,
+} from './resolvers';
 
 /**
  * PLC Control Module
@@ -26,8 +35,12 @@ import { PlcTelemetry } from './entities/plc-telemetry.entity';
  * - PLC is AUTONOMOUS - makes all real-time decisions locally
  * - PLC sends TELEMETRY and REPORTS back to cloud
  *
- * Note: Services are not yet implemented. This module currently only
- * provides entity definitions for future development.
+ * Features:
+ * - PLC connection management with OPC UA support
+ * - Feeding parameter configuration and versioning
+ * - Alarm monitoring and acknowledgment
+ * - Telemetry data collection and statistics
+ * - Full tenant isolation for multi-tenancy support
  */
 @Module({
   imports: [
@@ -40,19 +53,23 @@ import { PlcTelemetry } from './entities/plc-telemetry.entity';
     ]),
   ],
   providers: [
-    // TODO: Add services when implemented
-    // OpcUaClientService,
-    // ParameterPublisherService,
-    // TelemetryCollectorService,
-    // PlcConnectionService,
-    // PlcControlResolver,
+    // Services
+    PlcConnectionService,
+    FeedingParameterService,
+    PlcAlarmService,
+    PlcTelemetryService,
+
+    // Resolvers
+    PlcControlResolver,
+    PlcConnectionResolver,
+    FeedingParameterResolver,
   ],
   exports: [
-    // TODO: Export services when implemented
-    // OpcUaClientService,
-    // ParameterPublisherService,
-    // TelemetryCollectorService,
-    // PlcConnectionService,
+    // Export services for use in other modules
+    PlcConnectionService,
+    FeedingParameterService,
+    PlcAlarmService,
+    PlcTelemetryService,
   ],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class

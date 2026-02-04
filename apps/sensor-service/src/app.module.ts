@@ -51,6 +51,11 @@ import { VfdDevice } from './vfd/entities/vfd-device.entity';
 import { VfdReading } from './vfd/entities/vfd-reading.entity';
 import { VfdRegisterMapping } from './vfd/entities/vfd-register-mapping.entity';
 import { VfdModule } from './vfd/vfd.module';
+import { PlcControlModule } from './plc-control/plc-control.module';
+import { PlcConnection } from './plc-control/entities/plc-connection.entity';
+import { FeedingParameter } from './plc-control/entities/feeding-parameter.entity';
+import { PlcAlarm } from './plc-control/entities/plc-alarm.entity';
+import { PlcTelemetry } from './plc-control/entities/plc-telemetry.entity';
 
 @Module({
   imports: [
@@ -100,6 +105,11 @@ import { VfdModule } from './vfd/vfd.module';
           StepAction,
           ProgramTransition,
           ProgramVariable,
+          // PLC Control entities (OPC UA)
+          PlcConnection,
+          FeedingParameter,
+          PlcAlarm,
+          PlcTelemetry,
         ],
         synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
@@ -247,6 +257,9 @@ import { VfdModule } from './vfd/vfd.module';
 
     // Automation module for IEC 61131-3 SFC programs
     AutomationModule,
+
+    // PLC Control module for OPC UA based PLC communication
+    PlcControlModule,
   ],
   providers: [
     // Global exception filter

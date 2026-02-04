@@ -61,10 +61,11 @@ export class TenantSchemaMiddleware implements NestMiddleware {
 
   /**
    * Generate tenant schema name from tenant ID
-   * Format: tenant_{first8chars_of_uuid}
+   * Format: tenant_{first16chars_of_uuid_without_hyphens}
+   * Must match SchemaManagerService.getTenantSchemaName
    */
   private getTenantSchemaName(tenantId: string): string {
-    const cleanId = tenantId.replace(/-/g, '').substring(0, 8);
+    const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
     return `tenant_${cleanId}`;
   }
 }

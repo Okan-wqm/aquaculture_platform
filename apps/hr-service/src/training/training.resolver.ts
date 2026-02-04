@@ -1,9 +1,8 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, Float, ObjectType, Field } from '@nestjs/graphql';
 import { UnauthorizedException, ForbiddenException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles } from '../common/decorators/roles.decorator';
+import { Roles, Role } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { Role } from '../common/enums/role.enum';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { CertificationType, CertificationCategory } from './entities/certification-type.entity';
 import { EmployeeCertification, CertificationStatus } from './entities/employee-certification.entity';
@@ -211,7 +210,7 @@ export class TrainingResolver {
   // =====================
   @Mutation(() => EmployeeCertification)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async addEmployeeCertification(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Args('certificationTypeId', { type: () => ID }) certificationTypeId: string,
@@ -241,7 +240,7 @@ export class TrainingResolver {
 
   @Mutation(() => EmployeeCertification)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async verifyCertification(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -256,7 +255,7 @@ export class TrainingResolver {
 
   @Mutation(() => EmployeeCertification)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async revokeCertification(
     @Args('id', { type: () => ID }) id: string,
     @Args('reason') reason: string,
@@ -274,7 +273,7 @@ export class TrainingResolver {
   // =====================
   @Mutation(() => TrainingEnrollment)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async enrollInTraining(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Args('trainingCourseId', { type: () => ID }) trainingCourseId: string,
@@ -310,7 +309,7 @@ export class TrainingResolver {
 
   @Mutation(() => TrainingEnrollment)
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.HR_MANAGER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async completeTraining(
     @Args('enrollmentId', { type: () => ID }) enrollmentId: string,
     @Context() context: GraphQLContext,

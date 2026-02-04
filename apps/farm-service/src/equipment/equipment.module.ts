@@ -22,24 +22,38 @@ import { Feed } from '../feed/entities/feed.entity';
 // Modules
 import { FeedingModule } from '../feeding/feeding.module';
 
-// Resolver
+// Resolvers
 import { EquipmentResolver } from './equipment.resolver';
+import { SubEquipmentResolver } from './sub-equipment.resolver';
 
-// Command Handlers
+// Equipment Command Handlers
 import { CreateEquipmentHandler } from './handlers/create-equipment.handler';
 import { UpdateEquipmentHandler } from './handlers/update-equipment.handler';
 import { DeleteEquipmentHandler } from './handlers/delete-equipment.handler';
 
-// Query Handlers
+// Equipment Query Handlers
 import { GetEquipmentHandler } from './handlers/get-equipment.handler';
 import { ListEquipmentHandler } from './handlers/list-equipment.handler';
 import { GetEquipmentTypesHandler } from './handlers/get-equipment-types.handler';
 import { GetEquipmentDeletePreviewHandler } from './handlers/get-equipment-delete-preview.handler';
 
+// SubEquipment Command Handlers
+import { CreateSubEquipmentHandler } from './handlers/create-sub-equipment.handler';
+import { UpdateSubEquipmentHandler } from './handlers/update-sub-equipment.handler';
+import { DeleteSubEquipmentHandler } from './handlers/delete-sub-equipment.handler';
+
+// SubEquipment Query Handlers
+import { GetSubEquipmentHandler } from './handlers/get-sub-equipment.handler';
+import { ListSubEquipmentHandler } from './handlers/list-sub-equipment.handler';
+import { GetSubEquipmentTypesHandler } from './handlers/get-sub-equipment-types.handler';
+
 const CommandHandlers = [
   CreateEquipmentHandler,
   UpdateEquipmentHandler,
   DeleteEquipmentHandler,
+  CreateSubEquipmentHandler,
+  UpdateSubEquipmentHandler,
+  DeleteSubEquipmentHandler,
 ];
 
 const QueryHandlers = [
@@ -47,6 +61,9 @@ const QueryHandlers = [
   ListEquipmentHandler,
   GetEquipmentTypesHandler,
   GetEquipmentDeletePreviewHandler,
+  GetSubEquipmentHandler,
+  ListSubEquipmentHandler,
+  GetSubEquipmentTypesHandler,
 ];
 
 @Module({
@@ -70,6 +87,7 @@ const QueryHandlers = [
   ],
   providers: [
     EquipmentResolver,
+    SubEquipmentResolver,
     ...CommandHandlers,
     ...QueryHandlers,
   ],

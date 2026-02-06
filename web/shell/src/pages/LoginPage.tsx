@@ -186,18 +186,48 @@ const AcceptInvitationForm: React.FC = () => {
       }
 
       try {
-        // TODO: Call validateInvitation query
-        // For now, simulate validation
+        const response = await fetch('/graphql', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: `query ValidateInvitation($token: String!) {
+              validateInvitation(token: $token) {
+                valid
+                email
+                role
+                firstName
+                lastName
+                expired
+              }
+            }`,
+            variables: { token },
+          }),
+        });
+
+        const result = await response.json();
+
+        if (result.errors) {
+          throw new Error(result.errors[0]?.message || 'Validation failed');
+        }
+
+        const data = result.data.validateInvitation;
+
+        if (!data.valid) {
+          setValidationError(data.expired ? 'Invitation has expired' : 'Invitation link is invalid or expired');
+          setIsValidating(false);
+          return;
+        }
+
         setInvitationData({
-          email: 'invited@example.com',
-          firstName: 'Invited',
-          lastName: 'User',
-          role: 'MODULE_MANAGER',
+          email: data.email,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          role: data.role,
         });
         setFormData((prev) => ({
           ...prev,
-          firstName: 'Invited',
-          lastName: 'User',
+          firstName: data.firstName || '',
+          lastName: data.lastName || '',
         }));
       } catch {
         setValidationError('Invitation link is invalid or expired');
@@ -239,7 +269,32 @@ const AcceptInvitationForm: React.FC = () => {
       setIsSubmitting(true);
 
       try {
-        // TODO: Call acceptInvitation mutation
+        const response = await fetch('/graphql', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: `mutation AcceptInvitation($input: AcceptInvitationInput!) {
+              acceptInvitation(input: $input) {
+                accessToken
+              }
+            }`,
+            variables: {
+              input: {
+                token,
+                password: formData.password,
+                firstName: formData.firstName,
+                lastName: formData.lastName,
+              },
+            },
+          }),
+        });
+
+        const result = await response.json();
+
+        if (result.errors) {
+          throw new Error(result.errors[0]?.message || 'Failed to accept invitation');
+        }
+
         navigate('/login');
       } catch (err) {
         setErrors({
@@ -367,7 +422,18 @@ const ForgotPasswordForm: React.FC = () => {
       setError('');
 
       try {
-        // TODO: Call requestPasswordReset mutation
+        const response = await fetch('/api/auth/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || 'Failed to send reset email');
+        }
+
         setSuccess(true);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred');
@@ -485,7 +551,18 @@ const ResetPasswordForm: React.FC = () => {
       setIsSubmitting(true);
 
       try {
-        // TODO: Call resetPassword mutation
+        const response = await fetch('/api/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, newPassword: formData.password }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || 'Failed to reset password');
+        }
+
         setSuccess(true);
         setTimeout(() => navigate('/login'), 3000);
       } catch (err) {

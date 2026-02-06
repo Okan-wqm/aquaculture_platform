@@ -34,8 +34,8 @@ export class VfdReadingResolver {
   @Query(() => [VfdReading], { name: 'vfdReadings' })
   async getReadings(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Args('from', { nullable: true }) from: Date | undefined,
-    @Args('to', { nullable: true }) to: Date | undefined,
+    @Args('from', { type: () => Date, nullable: true }) from: Date | undefined,
+    @Args('to', { type: () => Date, nullable: true }) to: Date | undefined,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 100 }) limit: number | undefined,
     @Tenant() tenantId: string
   ): Promise<VfdReading[]> {
@@ -54,8 +54,8 @@ export class VfdReadingResolver {
   @Query(() => VfdReadingStats, { name: 'vfdReadingStats', nullable: true })
   async getReadingStats(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Args('from') from: Date,
-    @Args('to') to: Date,
+    @Args('from', { type: () => Date }) from: Date,
+    @Args('to', { type: () => Date }) to: Date,
     @Tenant() tenantId: string
   ): Promise<VfdReadingStats | null> {
     return this.dataReaderService.getReadingStats(
@@ -92,7 +92,7 @@ export class VfdReadingResolver {
    */
   @Mutation(() => Int, { name: 'deleteOldVfdReadings' })
   async deleteOldReadings(
-    @Args('olderThan') olderThan: Date,
+    @Args('olderThan', { type: () => Date }) olderThan: Date,
     @Tenant() tenantId: string
   ): Promise<number> {
     return this.dataReaderService.deleteOldReadings(tenantId, olderThan);

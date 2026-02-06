@@ -13,6 +13,8 @@ import { EquipmentTab } from './tabs/EquipmentTab';
 import { SpeciesTab } from './tabs/SpeciesTab';
 import { SuppliersTab } from './tabs/SuppliersTab';
 import { ChemicalsTab } from './tabs/ChemicalsTab';
+import { ConsumablesTab } from './tabs/ConsumablesTab';
+import { FishHealthChemicalsTab } from './tabs/FishHealthChemicalsTab';
 import { FeedsTab } from './tabs/FeedsTab';
 import { CompanyRegulatoryTab } from './tabs/CompanyRegulatoryTab';
 
@@ -102,6 +104,28 @@ const setupTabs: SetupTab[] = [
       </svg>
     ),
     description: 'Configure chemicals and treatments',
+  },
+  {
+    id: 'consumables',
+    label: 'Consumables',
+    path: 'consumables',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+      </svg>
+    ),
+    description: 'Manage consumable materials and supplies',
+  },
+  {
+    id: 'fish-health',
+    label: 'Fish Health',
+    path: 'fish-health',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+      </svg>
+    ),
+    description: 'Fish health chemicals and treatments',
   },
   {
     id: 'feeds',
@@ -211,6 +235,8 @@ export const SetupPage: React.FC = () => {
           <Route path="species" element={<SpeciesTab />} />
           <Route path="suppliers" element={<SuppliersTab />} />
           <Route path="chemicals" element={<ChemicalsTab />} />
+          <Route path="consumables" element={<ConsumablesTab />} />
+          <Route path="fish-health" element={<FishHealthChemicalsTab />} />
           <Route path="feeds" element={<FeedsTab />} />
           <Route path="regulatory" element={<CompanyRegulatoryTab />} />
           <Route path="*" element={<SitesTab />} />

@@ -28,7 +28,7 @@ registerEnumType(TrainingType, { name: 'TrainingType' });
 registerEnumType(TrainingLevel, { name: 'TrainingLevel' });
 
 @ObjectType()
-@Entity('training_courses', { schema: 'hr' })
+@Entity('training_courses')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'isMandatory'])
 @Index(['tenantId', 'isActive'])

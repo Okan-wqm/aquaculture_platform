@@ -19,10 +19,11 @@ import { Type } from 'class-transformer';
 import { ParameterStatus } from '../entities/feeding-parameter.entity';
 
 /**
- * Feeding schedule entry input
+ * PLC Feeding schedule entry input
+ * NOTE: Renamed from FeedingScheduleEntryInput to avoid GraphQL Federation conflict with farm-service
  */
-@InputType('FeedingScheduleEntryInput')
-export class FeedingScheduleEntryInput {
+@InputType('PlcFeedingScheduleEntryInput')
+export class PlcFeedingScheduleEntryInput {
   @Field()
   @IsString()
   @IsNotEmpty()
@@ -187,11 +188,11 @@ export class CreateFeedingParameterDto {
   @Max(100000)
   targetDailyFeedKg!: number;
 
-  @Field(() => [FeedingScheduleEntryInput])
+  @Field(() => [PlcFeedingScheduleEntryInput])
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => FeedingScheduleEntryInput)
-  schedule!: FeedingScheduleEntryInput[];
+  @Type(() => PlcFeedingScheduleEntryInput)
+  schedule!: PlcFeedingScheduleEntryInput[];
 
   @Field(() => ThresholdConfigInput)
   @ValidateNested()
@@ -254,12 +255,12 @@ export class UpdateFeedingParameterDto {
   @Max(100000)
   targetDailyFeedKg?: number;
 
-  @Field(() => [FeedingScheduleEntryInput], { nullable: true })
+  @Field(() => [PlcFeedingScheduleEntryInput], { nullable: true })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => FeedingScheduleEntryInput)
-  schedule?: FeedingScheduleEntryInput[];
+  @Type(() => PlcFeedingScheduleEntryInput)
+  schedule?: PlcFeedingScheduleEntryInput[];
 
   @Field(() => ThresholdConfigInput, { nullable: true })
   @IsOptional()

@@ -173,7 +173,7 @@ export interface CreateFeedInput {
   name: string;
   code: string;
   type: FeedType;
-  siteId: string;
+  siteId?: string;
   description?: string;
   brand?: string;
   manufacturer?: string;

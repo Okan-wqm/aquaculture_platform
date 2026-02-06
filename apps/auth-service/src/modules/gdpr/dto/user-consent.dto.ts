@@ -98,16 +98,16 @@ export class UserConsentRecord {
   @Field()
   version!: string;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   ipAddress?: string | null;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   userAgent?: string | null;
 
-  @Field()
+  @Field(() => Date)
   createdAt!: Date;
 
-  @Field({ nullable: true })
+  @Field(() => Date, { nullable: true })
   expiresAt?: Date | null;
 
   @Field()
@@ -122,7 +122,7 @@ export class UserConsentStatus {
   @Field(() => ID)
   userId!: string;
 
-  @Field()
+  @Field(() => Date)
   lastUpdated!: Date;
 
   @Field()

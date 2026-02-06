@@ -23,7 +23,7 @@ import {
 } from '../entities/feeding-table.entity';
 import {
   FeedingTableParametersInput,
-  FeedingScheduleEntryInput,
+  FeedingTableScheduleEntryInput,
   FeedingTableSummaryInput,
 } from './create-feeding-table.input';
 
@@ -47,12 +47,12 @@ export class UpdateFeedingTableInput {
   @Type(() => FeedingTableParametersInput)
   parameters?: FeedingTableParametersInput;
 
-  @Field(() => [FeedingScheduleEntryInput], { nullable: true })
+  @Field(() => [FeedingTableScheduleEntryInput], { nullable: true })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => FeedingScheduleEntryInput)
-  schedule?: FeedingScheduleEntryInput[];
+  @Type(() => FeedingTableScheduleEntryInput)
+  schedule?: FeedingTableScheduleEntryInput[];
 
   @Field(() => FeedingTableSummaryInput, { nullable: true })
   @IsOptional()

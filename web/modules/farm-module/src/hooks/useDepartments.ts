@@ -33,7 +33,7 @@ export interface CreateDepartmentInput {
   name: string;
   code: string;
   type: string;
-  siteId: string;
+  siteId?: string;
   status?: string;
   description?: string;
   capacity?: number;

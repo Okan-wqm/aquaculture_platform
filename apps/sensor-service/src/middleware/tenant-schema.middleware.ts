@@ -1,4 +1,4 @@
-import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
+import { Injectable, NestMiddleware, Logger, BadRequestException } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { DataSource } from 'typeorm';
 
@@ -15,17 +15,65 @@ interface TenantRequest extends Request {
 }
 
 /**
- * Tenant Schema Middleware
+ * Simple LRU Cache for schema existence checks
+ */
+class SchemaLRUCache {
+  private cache = new Map<string, { value: boolean; expiry: number }>();
+  private readonly maxSize: number;
+  private readonly ttlMs: number;
+
+  constructor(maxSize = 1000, ttlMs = 5 * 60 * 1000) {
+    this.maxSize = maxSize;
+    this.ttlMs = ttlMs;
+  }
+
+  get(key: string): boolean | undefined {
+    const entry = this.cache.get(key);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expiry) {
+      this.cache.delete(key);
+      return undefined;
+    }
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+    return entry.value;
+  }
+
+  set(key: string, value: boolean): void {
+    if (this.cache.size >= this.maxSize) {
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey) this.cache.delete(firstKey);
+    }
+    this.cache.set(key, { value, expiry: Date.now() + this.ttlMs });
+  }
+
+  delete(key: string): void {
+    this.cache.delete(key);
+  }
+}
+
+/**
+ * Tenant Schema Middleware for Sensor Service
  *
  * Sets PostgreSQL search_path to tenant-specific schema at the start of each request.
  * This ensures all database operations target the correct tenant's tables.
  *
- * Schema naming convention: tenant_{first8chars_of_uuid}
- * Example: tenant_4b529829 for tenantId 4b529829-ea79-48da-982c-cd6fbec8ffb7
+ * Features:
+ * - SQL injection prevention via UUID validation
+ * - LRU caching for schema existence checks
+ * - Connection pool safety with search_path reset on response finish
+ * - Fallback to shared 'sensor' schema for tenants without dedicated schema
+ *
+ * Schema naming convention: tenant_{first16chars_of_uuid_without_hyphens}
+ * Example: tenant_4b529829ea7948da for tenantId 4b529829-ea79-48da-982c-cd6fbec8ffb7
  */
 @Injectable()
 export class TenantSchemaMiddleware implements NestMiddleware {
   private readonly logger = new Logger(TenantSchemaMiddleware.name);
+  private readonly DEFAULT_SCHEMA = 'sensor';
+
+  /** LRU cache for schema existence (max 1000 entries, 5 min TTL) */
+  private readonly schemaCache = new SchemaLRUCache(1000, 5 * 60 * 1000);
 
   constructor(private readonly dataSource: DataSource) {}
 
@@ -35,28 +83,61 @@ export class TenantSchemaMiddleware implements NestMiddleware {
       const tenantId = req.tenantId || req.user?.tenantId;
 
       if (tenantId && tenantId !== 'default-tenant') {
+        // Validate UUID format (SQL injection prevention)
+        if (!this.isValidUUID(tenantId)) {
+          throw new BadRequestException('Invalid tenant ID format');
+        }
+
         const schemaName = this.getTenantSchemaName(tenantId);
+        const schemaExists = await this.checkSchemaExists(schemaName);
 
-        // Set search_path for this connection
-        await this.dataSource.query(`SET search_path TO "${schemaName}", public`);
-
-        this.logger.debug(`Schema search_path set to: ${schemaName}`);
+        if (schemaExists) {
+          // Set search_path to tenant schema with public fallback
+          await this.setSearchPathSafe(schemaName);
+          this.logger.debug(`Schema search_path set to: ${schemaName}`);
+        } else {
+          // Fallback to sensor schema for unauthenticated or default requests
+          await this.setSearchPathSafe(this.DEFAULT_SCHEMA);
+          this.logger.debug(`Tenant ${tenantId}: using fallback schema ${this.DEFAULT_SCHEMA}`);
+        }
       } else {
         // Fallback to sensor schema for unauthenticated or default requests
-        await this.dataSource.query(`SET search_path TO "sensor", public`);
+        await this.setSearchPathSafe(this.DEFAULT_SCHEMA);
         this.logger.debug('Schema search_path set to: sensor (default)');
       }
     } catch (error) {
       this.logger.error(`Failed to set tenant schema: ${error instanceof Error ? error.message : String(error)}`);
       // Don't block the request, fallback to default schema
       try {
-        await this.dataSource.query(`SET search_path TO "sensor", public`);
+        await this.setSearchPathSafe(this.DEFAULT_SCHEMA);
       } catch {
         // Ignore if this also fails
       }
     }
 
+    // CRITICAL: Reset search_path when response finishes
+    // Prevents connection pool contamination
+    res.on('finish', () => {
+      this.resetSearchPath().catch((err) => {
+        this.logger.debug(`Failed to reset search_path on finish: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    });
+
+    // Also reset on connection close (client disconnect)
+    res.on('close', () => {
+      this.resetSearchPath().catch((err) => {
+        this.logger.debug(`Failed to reset search_path on close: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    });
+
     next();
+  }
+
+  /**
+   * Validate UUID format
+   */
+  private isValidUUID(id: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
   }
 
   /**
@@ -67,5 +148,52 @@ export class TenantSchemaMiddleware implements NestMiddleware {
   private getTenantSchemaName(tenantId: string): string {
     const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
     return `tenant_${cleanId}`;
+  }
+
+  /**
+   * Set search_path with SQL injection prevention
+   */
+  private async setSearchPathSafe(schemaName: string): Promise<void> {
+    // Validate schema name format as additional safety
+    if (!/^[a-z0-9_]+$/.test(schemaName)) {
+      throw new BadRequestException('Invalid schema name');
+    }
+    await this.dataSource.query(`SET search_path TO "${schemaName}", public`);
+  }
+
+  /**
+   * Reset search_path to default
+   * Called when response finishes to prevent connection pool contamination
+   */
+  private async resetSearchPath(): Promise<void> {
+    await this.dataSource.query('RESET search_path');
+  }
+
+  /**
+   * Check schema existence with LRU caching
+   */
+  private async checkSchemaExists(schemaName: string): Promise<boolean> {
+    const cached = this.schemaCache.get(schemaName);
+    if (cached !== undefined) return cached;
+
+    try {
+      const result = await this.dataSource.query(
+        `SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`,
+        [schemaName],
+      );
+      const exists = result.length > 0;
+      this.schemaCache.set(schemaName, exists);
+      return exists;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Invalidate cache for a schema
+   * Call this after schema creation
+   */
+  invalidateCache(schemaName: string): void {
+    this.schemaCache.delete(schemaName);
   }
 }

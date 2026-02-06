@@ -98,7 +98,7 @@ export type VfdProtocolConfiguration =
  * Stores VFD device configuration and status
  */
 @ObjectType({ description: 'VFD (Variable Frequency Drive) device' })
-@Entity('vfd_devices', { schema: 'sensor' })
+@Entity('vfd_devices')
 @Index(['tenantId'])
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'brand'])
@@ -145,7 +145,7 @@ export class VfdDevice {
   status!: VfdDeviceStatus;
 
   @Field()
-  @Column({ type: 'uuid' })
+  @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
   tenantId!: string;
 

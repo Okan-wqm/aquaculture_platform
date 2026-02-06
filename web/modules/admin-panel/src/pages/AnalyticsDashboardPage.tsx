@@ -288,7 +288,7 @@ interface BarChartProps {
 }
 
 const BarChart: React.FC<BarChartProps> = ({ data, maxHeight = 120 }) => {
-  const maxValue = Math.max(...data.map(d => d.value));
+  const maxValue = Math.max(...data.map(d => d.value)) || 1;
 
   return (
     <div className="flex items-end justify-around gap-2 h-full">
@@ -336,7 +336,16 @@ const DonutChart: React.FC<DonutChartProps> = ({
   return (
     <div className="relative" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="transform -rotate-90">
-        {data.map((item, index) => {
+        {total === 0 ? (
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke="#E5E7EB"
+            strokeWidth={strokeWidth}
+          />
+        ) : data.map((item, index) => {
           const percentage = item.value / total;
           const strokeLength = circumference * percentage;
           const offset = currentOffset;
@@ -423,16 +432,25 @@ const AnalyticsDashboardPage: React.FC = () => {
 
       // Process tenant growth trend
       if (tenantTrendResponse.status === 'fulfilled' && tenantTrendResponse.value) {
-        const trendData = tenantTrendResponse.value.map(item => ({
-          date: item.period,
-          value: item.tenants,
-        }));
-        setTenantTrend(trendData);
-        // Use the same data for user trend (as they're correlated)
-        setUserTrend(trendData.map(d => ({
-          date: d.date,
-          value: Math.round(d.value * (dashboardData.users.avgUsersPerTenant || 1)),
-        })));
+        const responseData = tenantTrendResponse.value;
+        // Backend returns { label, data: [{date, value}], color } or array of GrowthTrend
+        const items = Array.isArray(responseData)
+          ? responseData
+          : (responseData as { data?: unknown[] }).data;
+        if (Array.isArray(items)) {
+          const trendData = items.map((item: Record<string, unknown>) => ({
+            date: (item.period || item.date || '') as string,
+            value: (item.tenants ?? item.value ?? 0) as number,
+          }));
+          setTenantTrend(trendData);
+          setUserTrend(trendData.map(d => ({
+            date: d.date,
+            value: Math.round(d.value * (dashboardData.users.avgUsersPerTenant || 1)),
+          })));
+        } else {
+          setTenantTrend([]);
+          setUserTrend([]);
+        }
       } else {
         setTenantTrend([]);
         setUserTrend([]);
@@ -440,11 +458,20 @@ const AnalyticsDashboardPage: React.FC = () => {
 
       // Process revenue trend
       if (revenueTrendResponse.status === 'fulfilled' && revenueTrendResponse.value) {
-        const revenueData = revenueTrendResponse.value.map(item => ({
-          date: item.period,
-          value: item.revenue,
-        }));
-        setRevenueTrend(revenueData);
+        const responseData = revenueTrendResponse.value;
+        // Backend returns { period, data: [{date, revenue, growth}], summary } or array
+        const items = Array.isArray(responseData)
+          ? responseData
+          : (responseData as { data?: unknown[] }).data;
+        if (Array.isArray(items)) {
+          const revenueData = items.map((item: Record<string, unknown>) => ({
+            date: (item.period || item.date || '') as string,
+            value: (item.revenue ?? item.value ?? 0) as number,
+          }));
+          setRevenueTrend(revenueData);
+        } else {
+          setRevenueTrend([]);
+        }
       } else {
         setRevenueTrend([]);
       }
@@ -753,7 +780,7 @@ const AnalyticsDashboardPage: React.FC = () => {
         <Card title="Modul Kullanimi">
           <div className="space-y-4">
             {Object.entries(data.usage.moduleUsage).map(([module, stats]) => {
-              const percentage = Math.round((stats.activeUsers / data.users.active) * 100);
+              const percentage = data.users.active > 0 ? Math.round((stats.activeUsers / data.users.active) * 100) : 0;
               return (
                 <div key={module}>
                   <div className="flex justify-between mb-1">
@@ -832,7 +859,7 @@ const AnalyticsDashboardPage: React.FC = () => {
             <div key={region} className="text-center p-4 bg-gray-50 rounded-lg">
               <p className="text-3xl font-bold text-gray-900">{count}</p>
               <p className="text-sm text-gray-500 mt-1">{region}</p>
-              <p className="text-xs text-gray-400">{((count / data.tenants.total) * 100).toFixed(1)}%</p>
+              <p className="text-xs text-gray-400">{data.tenants.total > 0 ? ((count / data.tenants.total) * 100).toFixed(1) : '0.0'}%</p>
             </div>
           ))}
         </div>

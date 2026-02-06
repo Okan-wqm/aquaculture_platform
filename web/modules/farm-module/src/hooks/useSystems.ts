@@ -38,7 +38,7 @@ export interface CreateSystemInput {
   name: string;
   code: string;
   type: string;
-  siteId: string;
+  siteId?: string;
   departmentId?: string;
   parentSystemId?: string;
   status?: string;

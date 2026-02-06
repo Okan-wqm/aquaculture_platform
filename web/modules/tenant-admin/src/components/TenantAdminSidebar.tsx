@@ -20,6 +20,9 @@ import {
   FileText,
   Factory,
   Droplets,
+  Warehouse,
+  ClipboardList,
+  Cpu,
 } from 'lucide-react';
 
 // GraphQL Configuration - Gateway API
@@ -180,6 +183,18 @@ const staticNavigationSections: NavSection[] = [
         icon: <Droplets className="w-5 h-5" />,
         path: '/sites/tanks',
       },
+      {
+        id: 'storage',
+        label: 'Depo & Stok',
+        icon: <Warehouse className="w-5 h-5" />,
+        path: '/sites/storage',
+      },
+      {
+        id: 'tasks',
+        label: 'Görevler',
+        icon: <ClipboardList className="w-5 h-5" />,
+        path: '/sites/tasks',
+      },
     ],
   },
   {
@@ -212,6 +227,12 @@ const staticNavigationSections: NavSection[] = [
     id: 'system',
     label: 'System',
     items: [
+      {
+        id: 'edge-devices',
+        label: 'Edge Devices',
+        icon: <Cpu className="w-5 h-5" />,
+        path: '/tenant/devices',
+      },
       {
         id: 'database',
         label: 'Database',

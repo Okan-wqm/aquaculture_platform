@@ -111,7 +111,7 @@ export interface SensorConnectionStatus {
  * Sensor entity - represents an IoT sensor device
  */
 @ObjectType()
-@Entity('sensors', { schema: 'sensor' })
+@Entity('sensors')
 @Index(['tenantId', 'status'])
 @Index(['pondId'])
 @Index('IDX_sensors_serial_number', ['serialNumber'], { unique: true })
@@ -153,7 +153,7 @@ export class Sensor {
   status!: SensorStatus;
 
   @Field()
-  @Column('uuid')
+  @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
   tenantId!: string;
 

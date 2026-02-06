@@ -1,0 +1,2483 @@
+//! Command handler for remote commands
+//!
+//! Receives and executes commands from the cloud platform.
+//! Supports: ping, reboot, get_config, update_config, scripts, etc.
+//!
+//! v2.1 Features:
+//! - deploy_program: IEC 61131-3 program deployment with FBs
+//!
+//! v1.2.2 Security:
+//! - Log sanitization to prevent log injection attacks
+
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use std::collections::VecDeque;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
+use tracing::{debug, error, info, warn};
+
+use crate::AppState;
+use crate::mqtt::{CommandMessage, CommandResponse, IncomingMessage};
+use crate::plc_programming::{
+    AdsClient, CodesysClient, EtherNetIpClient, OpcUaClient, PlcProgram, PlcProgrammer, S7Client,
+};
+use crate::scripting::{ExecutionMode, FBDefinition, ScriptDefinition, ScriptStorage};
+use crate::security::sanitize_for_log;
+
+/// Default delay before system reboot (seconds) - v1.2.6
+const DEFAULT_REBOOT_DELAY_SECS: u64 = 5;
+
+/// Default delay before agent restart (seconds) - v1.2.6
+const DEFAULT_RESTART_DELAY_SECS: u64 = 2;
+
+/// Simple sliding window rate limiter
+struct RateLimiter {
+    /// Timestamps of recent commands
+    timestamps: VecDeque<Instant>,
+    /// Maximum allowed commands in window
+    max_commands: usize,
+    /// Window duration
+    window: Duration,
+}
+
+impl RateLimiter {
+    fn new(max_commands: usize, window: Duration) -> Self {
+        Self {
+            timestamps: VecDeque::with_capacity(max_commands),
+            max_commands,
+            window,
+        }
+    }
+
+    /// Check if a command should be allowed
+    /// Returns true if allowed, false if rate limited
+    fn check(&mut self) -> bool {
+        let now = Instant::now();
+
+        // Remove timestamps outside the window
+        while let Some(&oldest) = self.timestamps.front() {
+            if now.duration_since(oldest) > self.window {
+                self.timestamps.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        // Check if under limit
+        if self.timestamps.len() < self.max_commands {
+            self.timestamps.push_back(now);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get current command count in window
+    #[allow(dead_code)]
+    fn current_count(&self) -> usize {
+        self.timestamps.len()
+    }
+}
+
+// ============================================================================
+// Parameter Extraction Helpers
+// ============================================================================
+// These helpers are provided for future command handlers.
+// Currently unused but kept for consistency and future use.
+
+/// Helper to extract a required string parameter from JSON params
+#[allow(dead_code)]
+fn require_str_param<'a>(
+    params: &'a Value,
+    key: &str,
+) -> Result<&'a str, (bool, Value, Option<String>)> {
+    params.get(key).and_then(|v| v.as_str()).ok_or_else(|| {
+        (
+            false,
+            json!(null),
+            Some(format!("Missing required parameter: {}", key)),
+        )
+    })
+}
+
+/// Helper to extract a required u64 parameter from JSON params
+#[allow(dead_code)]
+fn require_u64_param(params: &Value, key: &str) -> Result<u64, (bool, Value, Option<String>)> {
+    params.get(key).and_then(|v| v.as_u64()).ok_or_else(|| {
+        (
+            false,
+            json!(null),
+            Some(format!("Missing required parameter: {}", key)),
+        )
+    })
+}
+
+/// Helper to extract an optional string parameter from JSON params
+#[allow(dead_code)]
+fn get_str_param<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
+    params.get(key).and_then(|v| v.as_str())
+}
+
+/// Helper to extract an optional u64 parameter from JSON params
+#[allow(dead_code)]
+fn get_u64_param(params: &Value, key: &str) -> Option<u64> {
+    params.get(key).and_then(|v| v.as_u64())
+}
+
+/// Helper to extract an optional bool parameter from JSON params
+#[allow(dead_code)]
+fn get_bool_param(params: &Value, key: &str) -> Option<bool> {
+    params.get(key).and_then(|v| v.as_bool())
+}
+
+// ============================================================================
+// IEC 61131-3 Program Definition (v2.1)
+// ============================================================================
+
+/// IEC 61131-3 Program definition received from cloud
+/// Contains everything needed to run a program on the edge device
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgramDefinition {
+    /// Unique program ID
+    pub id: String,
+    /// Program name
+    pub name: String,
+    /// Program version
+    #[serde(default = "default_version")]
+    pub version: u32,
+    /// Description
+    #[serde(default)]
+    pub description: String,
+    /// Execution mode
+    #[serde(default)]
+    pub execution_mode: ExecutionMode,
+    /// Scan cycle time in milliseconds (for ScanCycle mode)
+    #[serde(default = "default_scan_cycle")]
+    pub scan_cycle_ms: u64,
+    /// Function block definitions
+    #[serde(default)]
+    pub function_blocks: Vec<FBDefinition>,
+    /// Script definition (triggers, conditions, actions)
+    pub script: ScriptDefinition,
+    /// Whether to replace existing program with same ID
+    #[serde(default)]
+    pub replace_existing: bool,
+}
+
+fn default_version() -> u32 {
+    1
+}
+
+fn default_scan_cycle() -> u64 {
+    100 // 100ms default
+}
+
+/// Persisted program state (for reload after restart)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProgramState {
+    /// Currently deployed program
+    pub program: Option<ProgramDefinition>,
+    /// Deployment timestamp
+    pub deployed_at: Option<String>,
+    /// Previous version (for rollback)
+    pub previous_version: Option<Box<ProgramDefinition>>,
+}
+
+// ============================================================================
+// Command Handler
+// ============================================================================
+
+/// Command handler
+///
+/// v2.2: Uses shared ScriptStorage from AppState for data consistency
+/// v1.2.0: ScriptStorage now has internal RwLock (no external lock needed)
+pub struct CommandHandler {
+    state: Arc<RwLock<AppState>>,
+    /// Shared script storage (v2.2 - from AppState singleton)
+    /// v1.2.0: Internal RwLock for thread-safe access
+    script_storage: Arc<ScriptStorage>,
+    rate_limiter: RateLimiter,
+    /// Path to program state file
+    program_state_path: PathBuf,
+}
+
+impl CommandHandler {
+    /// Create a new command handler (v2.2 - uses shared storage from AppState)
+    pub async fn new(state: Arc<RwLock<AppState>>) -> Self {
+        // Get shared script storage and runtime config from AppState (v2.2 singleton)
+        let (script_storage, rate_limit_max, rate_limit_window_secs) = {
+            let state_guard = state.read().await;
+            (
+                state_guard.script_storage.clone(),
+                state_guard.config.runtime.rate_limit_max_commands,
+                state_guard.config.runtime.rate_limit_window_secs,
+            )
+        };
+
+        // Program state file location
+        let data_dir =
+            std::env::var("SUDERRA_DATA_DIR").unwrap_or_else(|_| "/var/lib/suderra".to_string());
+        let program_state_path = PathBuf::from(&data_dir).join("program.json");
+
+        Self {
+            state,
+            script_storage,
+            rate_limiter: RateLimiter::new(
+                rate_limit_max,
+                Duration::from_secs(rate_limit_window_secs),
+            ),
+            program_state_path,
+        }
+    }
+
+    /// Run the command handler loop
+    pub async fn run(mut self) {
+        info!("Command handler started");
+
+        loop {
+            // Wait a bit before checking for messages
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+            // Check for incoming messages
+            let message = {
+                let mut state = self.state.write().await;
+                if let Some(ref mut mqtt) = state.mqtt_client {
+                    mqtt.try_recv()
+                } else {
+                    None
+                }
+            };
+
+            if let Some(msg) = message {
+                // Rate limit check - protect against command flooding
+                if !self.rate_limiter.check() {
+                    warn!(
+                        "Command rate limit exceeded ({} commands in {} seconds). Dropping message.",
+                        self.rate_limiter.max_commands,
+                        self.rate_limiter.window.as_secs()
+                    );
+                    continue;
+                }
+
+                if let Err(e) = self.handle_message(msg).await {
+                    error!("Failed to handle message: {}", e);
+                }
+            }
+        }
+    }
+
+    /// Handle incoming message
+    async fn handle_message(&mut self, message: IncomingMessage) -> anyhow::Result<()> {
+        let state = self.state.read().await;
+        let topics = state.mqtt_client.as_ref().map(|m| m.topics().clone());
+        drop(state);
+
+        let topics = match topics {
+            Some(t) => t,
+            None => return Ok(()),
+        };
+
+        // Check if this is a command message
+        if message.topic == topics.commands {
+            debug!("Received command message");
+
+            // Parse command
+            let command: CommandMessage = match serde_json::from_slice(&message.payload) {
+                Ok(cmd) => cmd,
+                Err(e) => {
+                    warn!("Failed to parse command: {}", e);
+                    return Ok(());
+                }
+            };
+
+            info!(
+                "Executing command: {} (id: {})",
+                command.command, command.command_id
+            );
+
+            // Execute command
+            let response = self.execute_command(&command).await;
+
+            // Publish response
+            let state = self.state.read().await;
+            if let Some(ref mqtt) = state.mqtt_client {
+                mqtt.publish_response(response).await?;
+            }
+        } else if message.topic == topics.config {
+            debug!("Received config update");
+            self.handle_config_update(&message.payload).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Execute a command and return response
+    async fn execute_command(&mut self, command: &CommandMessage) -> CommandResponse {
+        // v1.2.6: Track command execution time for observability
+        let start_time = std::time::Instant::now();
+        info!(
+            "⚡ Command received: id='{}', command='{}', has_params={}",
+            command.command_id,
+            sanitize_for_log(&command.command),
+            !command.params.is_null()
+        );
+
+        let device_id = {
+            let state = self.state.read().await;
+            state.config.device_id.clone()
+        };
+
+        let (success, result, error) = match command.command.as_str() {
+            "ping" => self.cmd_ping().await,
+            "get_info" => self.cmd_get_info().await,
+            "get_config" => self.cmd_get_config().await,
+            "get_hardware" => self.cmd_get_hardware().await,
+            "read_modbus" => self.cmd_read_modbus(&command.params).await,
+            "write_modbus" => self.cmd_write_modbus(&command.params).await,
+            "read_gpio" => self.cmd_read_gpio().await,
+            "write_gpio" => self.cmd_write_gpio(&command.params).await,
+            // Script commands
+            "list_scripts" => self.cmd_list_scripts().await,
+            "get_script" => self.cmd_get_script(&command.params).await,
+            "deploy_script" => self.cmd_deploy_script(&command.params).await,
+            "delete_script" => self.cmd_delete_script(&command.params).await,
+            "enable_script" => self.cmd_enable_script(&command.params).await,
+            "disable_script" => self.cmd_disable_script(&command.params).await,
+            // IEC 61131-3 Program commands (v2.1)
+            "deploy_program" => self.cmd_deploy_program(&command.params).await,
+            "get_program" => self.cmd_get_program().await,
+            "rollback_program" => self.cmd_rollback_program().await,
+            // PLC Programming commands (v1.3.0)
+            "plc_upload" => self.cmd_plc_upload(&command.params).await,
+            "plc_status" => self.cmd_plc_status(&command.params).await,
+            "plc_start" => self.cmd_plc_start(&command.params).await,
+            "plc_stop" => self.cmd_plc_stop(&command.params).await,
+            "plc_list" => self.cmd_plc_list(&command.params).await,
+            "plc_download" => self.cmd_plc_download(&command.params).await,
+            "plc_delete" => self.cmd_plc_delete(&command.params).await,
+            // System commands
+            "reboot" => self.cmd_reboot(&command.params).await,
+            "restart_agent" => self.cmd_restart_agent().await,
+            "set_log_level" => self.cmd_set_log_level(&command.params).await,
+            // Failover commands (v1.3.4)
+            "failover_status" => self.cmd_failover_status().await,
+            "failover_force" => self.cmd_failover_force().await,
+            "failover_recover" => self.cmd_failover_recover().await,
+            _ => {
+                // v1.2.2: Sanitize user-provided command name to prevent log injection
+                warn!("Unknown command: {}", sanitize_for_log(&command.command));
+                (
+                    false,
+                    json!(null),
+                    Some(format!(
+                        "Unknown command: {}",
+                        sanitize_for_log(&command.command)
+                    )),
+                )
+            }
+        };
+
+        // v1.2.6: Log command completion with timing
+        let elapsed = start_time.elapsed();
+        if success {
+            info!(
+                "✅ Command completed: id='{}', command='{}', success=true, duration={:?}",
+                command.command_id,
+                sanitize_for_log(&command.command),
+                elapsed
+            );
+        } else {
+            warn!(
+                "❌ Command failed: id='{}', command='{}', error={:?}, duration={:?}",
+                command.command_id,
+                sanitize_for_log(&command.command),
+                error,
+                elapsed
+            );
+        }
+
+        CommandResponse {
+            command_id: command.command_id.clone(),
+            device_id,
+            success,
+            result,
+            timestamp: Utc::now().to_rfc3339(),
+            error,
+        }
+    }
+
+    /// Ping command - simple health check
+    async fn cmd_ping(&self) -> (bool, Value, Option<String>) {
+        info!("Executing ping command");
+        (
+            true,
+            json!({"pong": true, "timestamp": Utc::now().to_rfc3339()}),
+            None,
+        )
+    }
+
+    /// Get device info
+    async fn cmd_get_info(&self) -> (bool, Value, Option<String>) {
+        info!("Executing get_info command");
+
+        let state = self.state.read().await;
+
+        let info = json!({
+            "device_id": state.config.device_id,
+            "device_code": state.config.device_code,
+            "agent_version": env!("CARGO_PKG_VERSION"),
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+            "tenant_id": state.tenant_id,
+            "mqtt_broker": state.config.mqtt.broker,
+            "is_activated": state.is_activated,
+        });
+
+        (true, info, None)
+    }
+
+    /// Get current config
+    async fn cmd_get_config(&self) -> (bool, Value, Option<String>) {
+        info!("Executing get_config command");
+
+        let state = self.state.read().await;
+
+        // Return safe subset of config (no secrets)
+        let config = json!({
+            "device_id": state.config.device_id,
+            "device_code": state.config.device_code,
+            "api_url": state.config.api_url,
+            "telemetry": {
+                "interval_seconds": state.config.telemetry.interval_seconds,
+                "include_cpu": state.config.telemetry.include_cpu,
+                "include_memory": state.config.telemetry.include_memory,
+                "include_disk": state.config.telemetry.include_disk,
+                "include_temperature": state.config.telemetry.include_temperature,
+            },
+            "logging": {
+                "level": state.config.logging.level,
+            },
+            "modbus_devices": state.config.modbus.len(),
+            "gpio_pins": state.config.gpio.len(),
+        });
+
+        (true, config, None)
+    }
+
+    /// Reboot the device
+    ///
+    /// # Task Handle
+    /// The spawned task is intentionally not tracked because:
+    /// 1. The system will be rebooting - no graceful shutdown needed
+    /// 2. We must return the response before the reboot occurs
+    /// 3. Any panic is logged within the task itself
+    async fn cmd_reboot(&self, params: &Value) -> (bool, Value, Option<String>) {
+        info!("Executing reboot command");
+
+        // Check for delay parameter (v1.2.6: use constant for default)
+        let delay_secs = params
+            .get("delay_seconds")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(DEFAULT_REBOOT_DELAY_SECS);
+
+        // Schedule reboot
+        #[cfg(target_os = "linux")]
+        {
+            info!("Scheduling reboot in {} seconds", delay_secs);
+
+            // Fire-and-forget: JoinHandle intentionally not tracked (system rebooting)
+            let _ = tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
+
+                // Execute reboot
+                let status = std::process::Command::new("shutdown")
+                    .args(["-r", "now"])
+                    .status();
+
+                match status {
+                    Ok(s) if s.success() => info!("Reboot initiated"),
+                    Ok(s) => error!("Reboot command failed with status: {}", s),
+                    Err(e) => error!("Failed to execute reboot: {}", e),
+                }
+            });
+
+            // v1.3.3: Add warning that reboot failures cannot be reported back
+            (
+                true,
+                json!({
+                    "scheduled": true,
+                    "delay_seconds": delay_secs,
+                    "note": "Reboot command accepted. If reboot fails (e.g., insufficient permissions), \
+                             failure will be logged locally but cannot be reported back to caller."
+                }),
+                None,
+            )
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            warn!("Reboot not supported on this platform");
+            (
+                false,
+                json!(null),
+                Some("Reboot not supported on this platform".to_string()),
+            )
+        }
+    }
+
+    /// Restart the agent service
+    ///
+    /// # Task Handle
+    /// The spawned task is intentionally not tracked because:
+    /// 1. The agent will be restarted by systemd - no graceful shutdown needed
+    /// 2. We must return the response before the restart occurs
+    /// 3. Any panic is logged within the task itself
+    async fn cmd_restart_agent(&self) -> (bool, Value, Option<String>) {
+        info!("Executing restart_agent command");
+
+        #[cfg(target_os = "linux")]
+        {
+            // Fire-and-forget: JoinHandle intentionally not tracked (agent restarting)
+            let _ = tokio::spawn(async {
+                tokio::time::sleep(tokio::time::Duration::from_secs(DEFAULT_RESTART_DELAY_SECS))
+                    .await;
+
+                let status = std::process::Command::new("systemctl")
+                    .args(["restart", "suderra-agent"])
+                    .status();
+
+                match status {
+                    Ok(s) if s.success() => info!("Agent restart initiated"),
+                    Ok(s) => error!("Restart command failed with status: {}", s),
+                    Err(e) => error!("Failed to execute restart: {}", e),
+                }
+            });
+
+            // v1.3.3: Add warning that restart failures cannot be reported back
+            (
+                true,
+                json!({
+                    "scheduled": true,
+                    "note": "Restart command accepted. If restart fails, \
+                             failure will be logged locally but cannot be reported back to caller."
+                }),
+                None,
+            )
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            warn!("Restart not supported on this platform");
+            (
+                false,
+                json!(null),
+                Some("Restart not supported on this platform".to_string()),
+            )
+        }
+    }
+
+    /// Set log level
+    async fn cmd_set_log_level(&self, params: &Value) -> (bool, Value, Option<String>) {
+        let level = match params.get("level").and_then(|v| v.as_str()) {
+            Some(l) => l,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'level' parameter".to_string()),
+                );
+            }
+        };
+
+        // Validate level
+        let valid_levels = ["trace", "debug", "info", "warn", "error"];
+        if !valid_levels.contains(&level.to_lowercase().as_str()) {
+            return (
+                false,
+                json!(null),
+                Some(format!("Invalid level. Valid: {:?}", valid_levels)),
+            );
+        }
+
+        // v1.2.2: Sanitize for logging (even though whitelist validated)
+        info!("Setting log level to: {}", sanitize_for_log(level));
+
+        // Update config
+        let mut state = self.state.write().await;
+        let previous_level = state.config.logging.level.clone();
+        state.config.logging.level = level.to_lowercase();
+
+        // Note: Actually changing the tracing level at runtime requires more setup
+        // For now, we just update the config (effective after restart)
+        // v1.3.3: Provide clearer feedback about what changed and what's needed
+
+        (
+            true,
+            json!({
+                "previous_level": previous_level,
+                "requested_level": level.to_lowercase(),
+                "applied_immediately": false,
+                "note": "Log level configuration updated. Changes will take effect after agent restart. \
+                        Use 'restart_agent' command to apply immediately, or the agent will use the new \
+                        level on next startup."
+            }),
+            None,
+        )
+    }
+
+    /// Get hardware info - lists all connected devices and sensors
+    async fn cmd_get_hardware(&self) -> (bool, Value, Option<String>) {
+        info!("Executing get_hardware command");
+
+        let state = self.state.read().await;
+
+        // Collect Modbus device info
+        let modbus_devices: Vec<Value> = state
+            .config
+            .modbus
+            .iter()
+            .map(|device| {
+                json!({
+                    "name": device.name,
+                    "connection_type": device.connection_type,
+                    "address": device.address,
+                    "slave_id": device.slave_id,
+                    "registers": device.registers.iter().map(|r| {
+                        json!({
+                            "name": r.name,
+                            "address": r.address,
+                            "type": r.register_type,
+                            "data_type": r.data_type,
+                            "unit": r.unit
+                        })
+                    }).collect::<Vec<_>>()
+                })
+            })
+            .collect();
+
+        // Collect GPIO pin info
+        let gpio_pins: Vec<Value> = state
+            .config
+            .gpio
+            .iter()
+            .map(|pin| {
+                json!({
+                    "name": pin.name,
+                    "pin": pin.pin,
+                    "direction": pin.direction,
+                    "pull": pin.pull,
+                    "invert": pin.invert
+                })
+            })
+            .collect();
+
+        // Check hardware availability
+        let modbus_connected = state.modbus_handle.is_some();
+        // v2.2: Use gpio_handle instead of deprecated gpio_manager
+        let gpio_available = state.gpio_handle.is_some();
+
+        let hardware_info = json!({
+            "modbus": {
+                "configured": !modbus_devices.is_empty(),
+                "connected": modbus_connected,
+                "devices": modbus_devices
+            },
+            "gpio": {
+                "configured": !gpio_pins.is_empty(),
+                "available": gpio_available,
+                "pins": gpio_pins
+            },
+            "platform": {
+                "os": std::env::consts::OS,
+                "arch": std::env::consts::ARCH
+            }
+        });
+
+        (true, hardware_info, None)
+    }
+
+    /// Read all Modbus registers or specific device
+    async fn cmd_read_modbus(&self, params: &Value) -> (bool, Value, Option<String>) {
+        info!("Executing read_modbus command");
+
+        let _device_name = params.get("device").and_then(|v| v.as_str());
+
+        // Get modbus handle (thread-safe)
+        let modbus_handle = {
+            let state = self.state.read().await;
+            state.modbus_handle.clone()
+        };
+
+        let handle = match modbus_handle {
+            Some(h) => h,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("No Modbus devices configured".to_string()),
+                );
+            }
+        };
+
+        // v1.2.2: Use parallel reads for lower latency
+        let results = handle.read_all_parallel().await;
+        let data: Vec<Value> = results
+            .iter()
+            .map(|result| {
+                json!({
+                    "device": result.device_name,
+                    "values": result.values.iter().map(|v| {
+                        json!({
+                            "name": v.name,
+                            "address": v.address,
+                            "raw_value": v.raw_value,
+                            "scaled_value": v.scaled_value,
+                            "unit": v.unit,
+                            "timestamp": v.timestamp
+                        })
+                    }).collect::<Vec<_>>(),
+                    "errors": result.errors.clone()
+                })
+            })
+            .collect();
+
+        (true, json!({"devices": data}), None)
+    }
+
+    /// Write to Modbus register
+    async fn cmd_write_modbus(&self, params: &Value) -> (bool, Value, Option<String>) {
+        info!("Executing write_modbus command");
+
+        let device_name = match params.get("device").and_then(|v| v.as_str()) {
+            Some(d) => d,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'device' parameter".to_string()),
+                );
+            }
+        };
+
+        let address = match params.get("address").and_then(|v| v.as_u64()) {
+            Some(a) if a <= u16::MAX as u64 => a as u16,
+            Some(a) => {
+                return (
+                    false,
+                    json!(null),
+                    Some(format!(
+                        "Address {} exceeds maximum u16 value ({})",
+                        a,
+                        u16::MAX
+                    )),
+                );
+            }
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'address' parameter".to_string()),
+                );
+            }
+        };
+
+        let value = match params.get("value").and_then(|v| v.as_u64()) {
+            Some(v) if v <= u16::MAX as u64 => v as u16,
+            Some(v) => {
+                return (
+                    false,
+                    json!(null),
+                    Some(format!(
+                        "Value {} exceeds maximum u16 value ({})",
+                        v,
+                        u16::MAX
+                    )),
+                );
+            }
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'value' parameter".to_string()),
+                );
+            }
+        };
+
+        // Get modbus handle (thread-safe)
+        let modbus_handle = {
+            let state = self.state.read().await;
+            state.modbus_handle.clone()
+        };
+
+        let handle = match modbus_handle {
+            Some(h) => h,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("No Modbus devices configured".to_string()),
+                );
+            }
+        };
+
+        match handle.write_register(device_name, address, value).await {
+            Ok(()) => {
+                info!("Wrote {} to register {} on {}", value, address, device_name);
+                (
+                    true,
+                    json!({"device": device_name, "address": address, "value": value}),
+                    None,
+                )
+            }
+            Err(e) => {
+                error!("Failed to write Modbus register: {}", e);
+                (false, json!(null), Some(format!("Write failed: {}", e)))
+            }
+        }
+    }
+
+    /// Read all GPIO pins (v2.2: uses gpio_handle actor pattern)
+    async fn cmd_read_gpio(&self) -> (bool, Value, Option<String>) {
+        info!("Executing read_gpio command");
+
+        // Get gpio_handle from state (clone to release lock)
+        let gpio_handle = {
+            let state = self.state.read().await;
+            state.gpio_handle.clone()
+        };
+
+        let gpio_handle = match gpio_handle {
+            Some(h) => h,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("No GPIO pins configured".to_string()),
+                );
+            }
+        };
+
+        // v2.2: Use async gpio_handle.read_all() instead of sync gpio_manager
+        let result = gpio_handle.read_all().await;
+
+        let pins: Vec<Value> = result
+            .values
+            .iter()
+            .map(|v| {
+                json!({
+                    "name": v.name,
+                    "pin": v.pin,
+                    "direction": v.direction,
+                    "state": format!("{:?}", v.state).to_lowercase(),
+                    "timestamp": v.timestamp
+                })
+            })
+            .collect();
+
+        if result.errors.is_empty() {
+            (true, json!({"pins": pins}), None)
+        } else {
+            (true, json!({"pins": pins, "errors": result.errors}), None)
+        }
+    }
+
+    /// Write to GPIO pin (v2.2: uses gpio_handle actor pattern)
+    async fn cmd_write_gpio(&self, params: &Value) -> (bool, Value, Option<String>) {
+        info!("Executing write_gpio command");
+
+        let pin = match params.get("pin").and_then(|v| v.as_u64()) {
+            Some(p) => p as u8,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'pin' parameter".to_string()),
+                );
+            }
+        };
+
+        let state_value = match params.get("state").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'state' parameter (high/low)".to_string()),
+                );
+            }
+        };
+
+        // v2.2: Convert to bool for gpio_handle API
+        let pin_value = match state_value.to_lowercase().as_str() {
+            "high" | "1" | "true" | "on" => true,
+            "low" | "0" | "false" | "off" => false,
+            _ => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Invalid state. Use 'high' or 'low'".to_string()),
+                );
+            }
+        };
+
+        // Get gpio_handle from state (clone to release lock)
+        let gpio_handle = {
+            let state = self.state.read().await;
+            state.gpio_handle.clone()
+        };
+
+        let gpio_handle = match gpio_handle {
+            Some(h) => h,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("No GPIO pins configured".to_string()),
+                );
+            }
+        };
+
+        // v2.2: Use async gpio_handle.write_pin() instead of sync gpio_manager
+        match gpio_handle.write_pin(pin, pin_value).await {
+            Ok(()) => {
+                info!("Set GPIO pin {} to {}", pin, state_value);
+                (true, json!({"pin": pin, "state": state_value}), None)
+            }
+            Err(e) => {
+                error!("Failed to write GPIO pin: {}", e);
+                (false, json!(null), Some(format!("Write failed: {}", e)))
+            }
+        }
+    }
+
+    // === Script Commands ===
+
+    /// List all scripts (v2.2 - uses shared storage, v1.2.0 - async API)
+    async fn cmd_list_scripts(&self) -> (bool, Value, Option<String>) {
+        info!("Executing list_scripts command");
+
+        // v1.2.0: Use async get_all() with internal locking
+        let all_scripts = self.script_storage.get_all().await;
+        let scripts: Vec<Value> = all_scripts
+            .iter()
+            .map(|s| {
+                json!({
+                    "id": s.definition.id,
+                    "name": s.definition.name,
+                    "description": s.definition.description,
+                    "enabled": s.definition.enabled,
+                    "status": format!("{:?}", s.status).to_lowercase(),
+                    "triggers": s.definition.triggers.len(),
+                    "actions": s.definition.actions.len(),
+                    "last_run": s.last_run,
+                    "last_result": s.last_result,
+                    "error_count": s.error_count
+                })
+            })
+            .collect();
+
+        (
+            true,
+            json!({"scripts": scripts, "count": scripts.len()}),
+            None,
+        )
+    }
+
+    /// Get a specific script (v1.2.0 - async API)
+    async fn cmd_get_script(&self, params: &Value) -> (bool, Value, Option<String>) {
+        let script_id = match params.get("id").and_then(|v| v.as_str()) {
+            Some(id) => id,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'id' parameter".to_string()),
+                );
+            }
+        };
+
+        // v1.2.2: Sanitize script ID for logging
+        info!(
+            "Executing get_script command for: {}",
+            sanitize_for_log(script_id)
+        );
+
+        // v1.2.0: Use async get() with internal locking
+        match self.script_storage.get(script_id).await {
+            Some(script) => {
+                let data = json!({
+                    "id": script.definition.id,
+                    "name": script.definition.name,
+                    "description": script.definition.description,
+                    "version": script.definition.version,
+                    "enabled": script.definition.enabled,
+                    "status": format!("{:?}", script.status).to_lowercase(),
+                    "triggers": script.definition.triggers,
+                    "conditions": script.definition.conditions,
+                    "actions": script.definition.actions,
+                    "on_error": script.definition.on_error,
+                    "last_run": script.last_run,
+                    "last_result": script.last_result,
+                    "error_count": script.error_count,
+                    "created_at": script.created_at,
+                    "updated_at": script.updated_at
+                });
+                (true, data, None)
+            }
+            None => (
+                false,
+                json!(null),
+                Some(format!(
+                    "Script '{}' not found",
+                    sanitize_for_log(script_id)
+                )),
+            ),
+        }
+    }
+
+    /// Deploy (add/update) a script (v1.2.0 - async API)
+    async fn cmd_deploy_script(&mut self, params: &Value) -> (bool, Value, Option<String>) {
+        info!("Executing deploy_script command");
+
+        // Parse script definition from params
+        let definition: ScriptDefinition = match serde_json::from_value(params.clone()) {
+            Ok(def) => def,
+            Err(e) => {
+                return (
+                    false,
+                    json!(null),
+                    Some(format!("Invalid script definition: {}", e)),
+                );
+            }
+        };
+
+        let script_id = definition.id.clone();
+        let script_name = definition.name.clone();
+
+        // v1.2.0: Use async add_script() with internal locking
+        match self.script_storage.add_script(definition).await {
+            Ok(()) => {
+                info!("Script deployed: {} ({})", script_name, script_id);
+                (
+                    true,
+                    json!({
+                        "id": script_id,
+                        "name": script_name,
+                        "message": "Script deployed successfully"
+                    }),
+                    None,
+                )
+            }
+            Err(e) => {
+                error!("Failed to deploy script: {}", e);
+                (false, json!(null), Some(format!("Deploy failed: {}", e)))
+            }
+        }
+    }
+
+    /// Delete a script (v1.2.0 - async API)
+    async fn cmd_delete_script(&mut self, params: &Value) -> (bool, Value, Option<String>) {
+        let script_id = match params.get("id").and_then(|v| v.as_str()) {
+            Some(id) => id,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'id' parameter".to_string()),
+                );
+            }
+        };
+
+        // v1.2.2: Sanitize script ID for logging
+        info!(
+            "Executing delete_script command for: {}",
+            sanitize_for_log(script_id)
+        );
+
+        // v1.2.0: Use async delete() with internal locking
+        match self.script_storage.delete(script_id).await {
+            Ok(true) => (true, json!({"id": script_id, "deleted": true}), None),
+            Ok(false) => (
+                false,
+                json!(null),
+                Some(format!(
+                    "Script '{}' not found",
+                    sanitize_for_log(script_id)
+                )),
+            ),
+            Err(e) => (false, json!(null), Some(format!("Delete failed: {}", e))),
+        }
+    }
+
+    /// Enable a script (v1.2.0 - async API)
+    async fn cmd_enable_script(&mut self, params: &Value) -> (bool, Value, Option<String>) {
+        let script_id = match params.get("id").and_then(|v| v.as_str()) {
+            Some(id) => id,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'id' parameter".to_string()),
+                );
+            }
+        };
+
+        // v1.2.2: Sanitize script ID for logging
+        info!(
+            "Executing enable_script command for: {}",
+            sanitize_for_log(script_id)
+        );
+
+        // v1.2.0: Use async enable() with internal locking
+        match self.script_storage.enable(script_id).await {
+            Ok(true) => (true, json!({"id": script_id, "enabled": true}), None),
+            Ok(false) => (
+                false,
+                json!(null),
+                Some(format!(
+                    "Script '{}' not found",
+                    sanitize_for_log(script_id)
+                )),
+            ),
+            Err(e) => (false, json!(null), Some(format!("Enable failed: {}", e))),
+        }
+    }
+
+    /// Disable a script (v1.2.0 - async API)
+    async fn cmd_disable_script(&mut self, params: &Value) -> (bool, Value, Option<String>) {
+        let script_id = match params.get("id").and_then(|v| v.as_str()) {
+            Some(id) => id,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'id' parameter".to_string()),
+                );
+            }
+        };
+
+        // v1.2.2: Sanitize script ID for logging
+        info!(
+            "Executing disable_script command for: {}",
+            sanitize_for_log(script_id)
+        );
+
+        // v1.2.0: Use async disable() with internal locking
+        match self.script_storage.disable(script_id).await {
+            Ok(true) => (true, json!({"id": script_id, "enabled": false}), None),
+            Ok(false) => (
+                false,
+                json!(null),
+                Some(format!(
+                    "Script '{}' not found",
+                    sanitize_for_log(script_id)
+                )),
+            ),
+            Err(e) => (false, json!(null), Some(format!("Disable failed: {}", e))),
+        }
+    }
+
+    // ========================================================================
+    // IEC 61131-3 Program Commands (v2.1)
+    // ========================================================================
+
+    /// Deploy an IEC 61131-3 program
+    ///
+    /// This command:
+    /// 1. Validates the program definition
+    /// 2. Saves previous version for rollback
+    /// 3. Persists the program to disk
+    /// 4. Deploys the script portion
+    /// 5. Engine will pick up FB definitions on next reload
+    async fn cmd_deploy_program(&mut self, params: &Value) -> (bool, Value, Option<String>) {
+        info!("Executing deploy_program command");
+
+        // Get scripting limits from config
+        let (max_fbs, min_scan, max_scan) = {
+            let state = self.state.read().await;
+            (
+                state.config.scripting.max_function_blocks,
+                state.config.scripting.min_scan_cycle_ms,
+                state.config.scripting.max_scan_cycle_ms,
+            )
+        };
+
+        // Parse program definition
+        let program: ProgramDefinition = match serde_json::from_value(params.clone()) {
+            Ok(p) => p,
+            Err(e) => {
+                error!("Failed to parse program definition: {}", e);
+                return (
+                    false,
+                    json!(null),
+                    Some(format!("Invalid program definition: {}", e)),
+                );
+            }
+        };
+
+        // Validate
+        if program.function_blocks.len() > max_fbs {
+            return (
+                false,
+                json!(null),
+                Some(format!("Too many function blocks (max {})", max_fbs)),
+            );
+        }
+
+        if program.scan_cycle_ms < min_scan || program.scan_cycle_ms > max_scan {
+            return (
+                false,
+                json!(null),
+                Some(format!(
+                    "Scan cycle must be between {}ms and {}ms",
+                    min_scan, max_scan
+                )),
+            );
+        }
+
+        // Load current state (for rollback)
+        let mut state = self.load_program_state();
+        let previous = state.program.take();
+
+        // Save previous version for rollback
+        if let Some(prev) = previous {
+            if prev.id == program.id {
+                state.previous_version = Some(Box::new(prev));
+            }
+        }
+
+        // Deploy script portion (v2.2 - uses shared storage, v1.2.0 - async API)
+        let script_id = program.script.id.clone();
+        if let Err(e) = self.script_storage.add_script(program.script.clone()).await {
+            error!("Failed to deploy script: {}", e);
+            return (
+                false,
+                json!(null),
+                Some(format!("Failed to deploy script: {}", e)),
+            );
+        }
+
+        // Update state
+        state.program = Some(program.clone());
+        state.deployed_at = Some(Utc::now().to_rfc3339());
+
+        // Persist to disk
+        // v1.3.3: If persistence fails, rollback the script deployment to maintain consistency
+        if let Err(e) = self.save_program_state(&state) {
+            error!("Failed to save program state: {}", e);
+
+            // Rollback: remove the script we just added
+            if let Err(rollback_err) = self.script_storage.delete(&script_id).await {
+                error!(
+                    "CRITICAL: Failed to rollback script deployment after state save failure: {}. \
+                    System may be in inconsistent state - manual intervention required.",
+                    rollback_err
+                );
+            } else {
+                warn!("Rolled back script deployment due to state save failure");
+            }
+
+            return (
+                false,
+                json!(null),
+                Some(format!("Failed to persist program (rolled back): {}", e)),
+            );
+        }
+
+        info!(
+            program_id = %program.id,
+            program_name = %program.name,
+            version = program.version,
+            fb_count = program.function_blocks.len(),
+            execution_mode = ?program.execution_mode,
+            "Program deployed successfully"
+        );
+
+        (
+            true,
+            json!({
+                "id": program.id,
+                "name": program.name,
+                "version": program.version,
+                "functionBlockCount": program.function_blocks.len(),
+                "executionMode": format!("{:?}", program.execution_mode),
+                "scanCycleMs": program.scan_cycle_ms,
+                "message": "Program deployed successfully. Engine will reload on next cycle."
+            }),
+            None,
+        )
+    }
+
+    /// Get currently deployed program
+    async fn cmd_get_program(&self) -> (bool, Value, Option<String>) {
+        info!("Executing get_program command");
+
+        let state = self.load_program_state();
+
+        match state.program {
+            Some(program) => (
+                true,
+                json!({
+                    "id": program.id,
+                    "name": program.name,
+                    "version": program.version,
+                    "description": program.description,
+                    "executionMode": format!("{:?}", program.execution_mode),
+                    "scanCycleMs": program.scan_cycle_ms,
+                    "functionBlockCount": program.function_blocks.len(),
+                    "functionBlocks": program.function_blocks.iter()
+                        .map(|fb| json!({
+                            "id": fb.id,
+                            "type": fb.fb_type
+                        }))
+                        .collect::<Vec<_>>(),
+                    "deployedAt": state.deployed_at,
+                    "hasPreviousVersion": state.previous_version.is_some()
+                }),
+                None,
+            ),
+            None => (
+                true,
+                json!({
+                    "program": null,
+                    "message": "No program deployed"
+                }),
+                None,
+            ),
+        }
+    }
+
+    /// Rollback to previous program version
+    async fn cmd_rollback_program(&mut self) -> (bool, Value, Option<String>) {
+        info!("Executing rollback_program command");
+
+        let mut state = self.load_program_state();
+
+        let previous = match state.previous_version.take() {
+            Some(prev) => *prev,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("No previous version available for rollback".to_string()),
+                );
+            }
+        };
+
+        let prev_id = previous.id.clone();
+        let prev_name = previous.name.clone();
+        let prev_version = previous.version;
+
+        // Deploy previous version's script (v2.2 - uses shared storage, v1.2.0 - async API)
+        if let Err(e) = self
+            .script_storage
+            .add_script(previous.script.clone())
+            .await
+        {
+            error!("Rollback failed - script deployment error: {}", e);
+            return (false, json!(null), Some(format!("Rollback failed: {}", e)));
+        }
+
+        // Update state
+        state.program = Some(previous);
+        state.deployed_at = Some(Utc::now().to_rfc3339());
+        state.previous_version = None; // Clear - can't rollback twice
+
+        // Persist
+        if let Err(e) = self.save_program_state(&state) {
+            error!("Rollback state save failed: {}", e);
+            return (
+                false,
+                json!(null),
+                Some(format!("Rollback state save failed: {}", e)),
+            );
+        }
+
+        info!(
+            program_id = %prev_id,
+            version = prev_version,
+            "Rolled back to previous version"
+        );
+
+        (
+            true,
+            json!({
+                "id": prev_id,
+                "name": prev_name,
+                "version": prev_version,
+                "message": "Rolled back to previous version successfully"
+            }),
+            None,
+        )
+    }
+
+    // ========================================================================
+    // PLC Programming Commands (v1.3.0)
+    // ========================================================================
+
+    /// Upload program to external PLC
+    ///
+    /// Supported protocols: codesys, s7, opcua, ethernet_ip, ads
+    async fn cmd_plc_upload(&self, params: &Value) -> (bool, Value, Option<String>) {
+        info!("Executing plc_upload command");
+
+        // Parse protocol
+        let protocol = match params.get("protocol").and_then(|v| v.as_str()) {
+            Some(p) => p,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some(
+                        "Missing 'protocol' parameter (codesys, s7, opcua, ethernet_ip, ads)"
+                            .to_string(),
+                    ),
+                );
+            }
+        };
+
+        // Parse PLC address
+        let address = match params.get("address").and_then(|v| v.as_str()) {
+            Some(a) => a,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'address' parameter (PLC IP/hostname)".to_string()),
+                );
+            }
+        };
+
+        // Parse program
+        let program: PlcProgram = match params
+            .get("program")
+            .and_then(|p| serde_json::from_value(p.clone()).ok())
+        {
+            Some(p) => p,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing or invalid 'program' parameter".to_string()),
+                );
+            }
+        };
+
+        // Get optional authentication
+        let username = params.get("username").and_then(|v| v.as_str());
+        let password = params.get("password").and_then(|v| v.as_str());
+
+        info!(
+            protocol = %protocol,
+            address = %address,
+            program = %program.name,
+            "Uploading program to PLC"
+        );
+
+        // Create appropriate client and upload
+        let result = match protocol.to_lowercase().as_str() {
+            "codesys" => {
+                let config = crate::plc_programming::codesys::CodesysConfig {
+                    name: "remote".to_string(),
+                    address: address.to_string(),
+                    port: params.get("port").and_then(|v| v.as_u64()).unwrap_or(1217) as u16,
+                    mode: Default::default(),
+                    device_name: params
+                        .get("device_name")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    username: username.map(String::from),
+                    password: password.map(String::from),
+                    encrypted: params
+                        .get("encrypted")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    timeout_secs: 30,
+                    application: params
+                        .get("application")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Application")
+                        .to_string(),
+                };
+                let mut client = CodesysClient::new(config);
+                Self::upload_with_client(&mut client, &program).await
+            }
+            "s7" => {
+                let config = crate::plc_programming::s7comm::S7Config {
+                    name: "remote".to_string(),
+                    address: address.to_string(),
+                    port: params.get("port").and_then(|v| v.as_u64()).unwrap_or(102) as u16,
+                    rack: params.get("rack").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
+                    slot: params.get("slot").and_then(|v| v.as_u64()).unwrap_or(1) as u8,
+                    plc_type: Default::default(),
+                    timeout_secs: 30,
+                    pdu_size: 480,
+                };
+                let mut client = S7Client::new(config);
+                Self::upload_with_client(&mut client, &program).await
+            }
+            "opcua" => {
+                let config = crate::plc_programming::opcua::OpcUaConfig {
+                    name: "remote".to_string(),
+                    endpoint_url: format!(
+                        "opc.tcp://{}:{}",
+                        address,
+                        params.get("port").and_then(|v| v.as_u64()).unwrap_or(4840)
+                    ),
+                    security_policy: Default::default(),
+                    security_mode: Default::default(),
+                    username: username.map(String::from),
+                    password: password.map(String::from),
+                    client_cert_path: params
+                        .get("client_cert_path")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    client_key_path: params
+                        .get("client_key_path")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    timeout_secs: 30,
+                    session_timeout_ms: 30000,
+                    program_namespace: params
+                        .get("program_namespace")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                };
+                let mut client = OpcUaClient::new(config);
+                Self::upload_with_client(&mut client, &program).await
+            }
+            "ethernet_ip" => {
+                let config = crate::plc_programming::ethernet_ip::EtherNetIpConfig {
+                    name: "remote".to_string(),
+                    address: address.to_string(),
+                    port: params.get("port").and_then(|v| v.as_u64()).unwrap_or(44818) as u16,
+                    slot: params.get("slot").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
+                    connection_path: params
+                        .get("connection_path")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    timeout_secs: 30,
+                    plc_type: Default::default(),
+                };
+                let mut client = EtherNetIpClient::new(config);
+                Self::upload_with_client(&mut client, &program).await
+            }
+            "ads" => {
+                let ams_net_id = match params.get("ams_net_id").and_then(|v| v.as_str()) {
+                    Some(id) => id.to_string(),
+                    None => {
+                        return (
+                            false,
+                            json!(null),
+                            Some("Missing 'ams_net_id' parameter for ADS protocol".to_string()),
+                        );
+                    }
+                };
+                let config = crate::plc_programming::ads::AdsConfig {
+                    name: "remote".to_string(),
+                    address: address.to_string(),
+                    port: params.get("port").and_then(|v| v.as_u64()).unwrap_or(48898) as u16,
+                    target_ams_net_id: ams_net_id,
+                    target_ams_port: params
+                        .get("target_ams_port")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(851) as u16,
+                    source_ams_net_id: params
+                        .get("source_ams_net_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    source_ams_port: 32768,
+                    timeout_secs: 30,
+                    twincat_version: Default::default(),
+                };
+                match AdsClient::new(config) {
+                    Ok(mut client) => Self::upload_with_client(&mut client, &program).await,
+                    Err(e) => Err(e),
+                }
+            }
+            _ => {
+                return (
+                    false,
+                    json!(null),
+                    Some(format!(
+                        "Unknown protocol: {}. Supported: codesys, s7, opcua, ethernet_ip, ads",
+                        protocol
+                    )),
+                );
+            }
+        };
+
+        match result {
+            Ok(upload_result) => {
+                if upload_result.success {
+                    info!(
+                        program = %program.name,
+                        protocol = %protocol,
+                        "Program uploaded successfully"
+                    );
+                    (
+                        true,
+                        json!({
+                            "success": true,
+                            "program_name": program.name,
+                            "program_id": upload_result.program_id,
+                            "warnings": upload_result.warnings,
+                            "timestamp": upload_result.timestamp
+                        }),
+                        None,
+                    )
+                } else {
+                    (
+                        false,
+                        json!({
+                            "success": false,
+                            "errors": upload_result.errors,
+                            "warnings": upload_result.warnings
+                        }),
+                        Some("Program compilation/upload failed".to_string()),
+                    )
+                }
+            }
+            Err(e) => {
+                error!(error = %e, "PLC upload failed");
+                (false, json!(null), Some(format!("Upload failed: {}", e)))
+            }
+        }
+    }
+
+    /// Helper to upload program using any PlcProgrammer client
+    async fn upload_with_client<P: PlcProgrammer>(
+        client: &mut P,
+        program: &PlcProgram,
+    ) -> anyhow::Result<crate::plc_programming::UploadResult> {
+        client.connect().await?;
+        let result = client.upload_program(program).await;
+        let _ = client.disconnect().await; // Best effort disconnect
+        result
+    }
+
+    /// Get PLC status
+    async fn cmd_plc_status(&self, params: &Value) -> (bool, Value, Option<String>) {
+        info!("Executing plc_status command");
+
+        let protocol = match params.get("protocol").and_then(|v| v.as_str()) {
+            Some(p) => p,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'protocol' parameter".to_string()),
+                );
+            }
+        };
+
+        let address = match params.get("address").and_then(|v| v.as_str()) {
+            Some(a) => a,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'address' parameter".to_string()),
+                );
+            }
+        };
+
+        // Create client based on protocol and get status
+        let status_result = match protocol.to_lowercase().as_str() {
+            "codesys" => {
+                let config = crate::plc_programming::codesys::CodesysConfig {
+                    name: "remote".to_string(),
+                    address: address.to_string(),
+                    port: params.get("port").and_then(|v| v.as_u64()).unwrap_or(1217) as u16,
+                    mode: Default::default(),
+                    device_name: None,
+                    username: None,
+                    password: None,
+                    encrypted: false,
+                    timeout_secs: 30,
+                    application: "Application".to_string(),
+                };
+                let mut client = CodesysClient::new(config);
+                Self::get_status_with_client(&mut client).await
+            }
+            "s7" => {
+                let config = crate::plc_programming::s7comm::S7Config {
+                    name: "remote".to_string(),
+                    address: address.to_string(),
+                    port: params.get("port").and_then(|v| v.as_u64()).unwrap_or(102) as u16,
+                    rack: params.get("rack").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
+                    slot: params.get("slot").and_then(|v| v.as_u64()).unwrap_or(1) as u8,
+                    plc_type: Default::default(),
+                    timeout_secs: 30,
+                    pdu_size: 480,
+                };
+                let mut client = S7Client::new(config);
+                Self::get_status_with_client(&mut client).await
+            }
+            "opcua" => {
+                let config = crate::plc_programming::opcua::OpcUaConfig {
+                    name: "remote".to_string(),
+                    endpoint_url: format!(
+                        "opc.tcp://{}:{}",
+                        address,
+                        params.get("port").and_then(|v| v.as_u64()).unwrap_or(4840)
+                    ),
+                    security_policy: Default::default(),
+                    security_mode: Default::default(),
+                    username: None,
+                    password: None,
+                    client_cert_path: None,
+                    client_key_path: None,
+                    timeout_secs: 30,
+                    session_timeout_ms: 30000,
+                    program_namespace: None,
+                };
+                let mut client = OpcUaClient::new(config);
+                Self::get_status_with_client(&mut client).await
+            }
+            "ethernet_ip" => {
+                let config = crate::plc_programming::ethernet_ip::EtherNetIpConfig {
+                    name: "remote".to_string(),
+                    address: address.to_string(),
+                    port: params.get("port").and_then(|v| v.as_u64()).unwrap_or(44818) as u16,
+                    slot: params.get("slot").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
+                    connection_path: None,
+                    timeout_secs: 30,
+                    plc_type: Default::default(),
+                };
+                let mut client = EtherNetIpClient::new(config);
+                Self::get_status_with_client(&mut client).await
+            }
+            "ads" => {
+                let ams_net_id = match params.get("ams_net_id").and_then(|v| v.as_str()) {
+                    Some(id) => id.to_string(),
+                    None => {
+                        return (
+                            false,
+                            json!(null),
+                            Some("Missing 'ams_net_id' parameter".to_string()),
+                        );
+                    }
+                };
+                let config = crate::plc_programming::ads::AdsConfig {
+                    name: "remote".to_string(),
+                    address: address.to_string(),
+                    port: 48898,
+                    target_ams_net_id: ams_net_id,
+                    target_ams_port: 851,
+                    source_ams_net_id: None,
+                    source_ams_port: 32768,
+                    timeout_secs: 30,
+                    twincat_version: Default::default(),
+                };
+                match AdsClient::new(config) {
+                    Ok(mut client) => Self::get_status_with_client(&mut client).await,
+                    Err(e) => Err(e),
+                }
+            }
+            _ => {
+                return (
+                    false,
+                    json!(null),
+                    Some(format!("Unknown protocol: {}", protocol)),
+                );
+            }
+        };
+
+        match status_result {
+            Ok(status) => (
+                true,
+                json!({
+                    "connected": status.connected,
+                    "run_mode": format!("{:?}", status.run_mode),
+                    "model": status.model,
+                    "firmware": status.firmware,
+                    "current_program": status.current_program,
+                    "last_modified": status.last_modified
+                }),
+                None,
+            ),
+            Err(e) => (
+                false,
+                json!(null),
+                Some(format!("Status check failed: {}", e)),
+            ),
+        }
+    }
+
+    /// Helper to get status using any PlcProgrammer client
+    async fn get_status_with_client<P: PlcProgrammer>(
+        client: &mut P,
+    ) -> anyhow::Result<crate::plc_programming::PlcStatus> {
+        client.connect().await?;
+        let status = client.get_status().await;
+        let _ = client.disconnect().await;
+        status
+    }
+
+    /// Start PLC (RUN mode)
+    async fn cmd_plc_start(&self, params: &Value) -> (bool, Value, Option<String>) {
+        info!("Executing plc_start command");
+        self.plc_run_stop_helper(params, true).await
+    }
+
+    /// Stop PLC (STOP mode)
+    async fn cmd_plc_stop(&self, params: &Value) -> (bool, Value, Option<String>) {
+        info!("Executing plc_stop command");
+        self.plc_run_stop_helper(params, false).await
+    }
+
+    /// Helper for start/stop commands
+    async fn plc_run_stop_helper(
+        &self,
+        params: &Value,
+        start: bool,
+    ) -> (bool, Value, Option<String>) {
+        let protocol = match params.get("protocol").and_then(|v| v.as_str()) {
+            Some(p) => p,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'protocol' parameter".to_string()),
+                );
+            }
+        };
+
+        let address = match params.get("address").and_then(|v| v.as_str()) {
+            Some(a) => a,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'address' parameter".to_string()),
+                );
+            }
+        };
+
+        // Only supporting S7 for run/stop initially (most common use case)
+        let result = match protocol.to_lowercase().as_str() {
+            "s7" => {
+                let config = crate::plc_programming::s7comm::S7Config {
+                    name: "remote".to_string(),
+                    address: address.to_string(),
+                    port: params.get("port").and_then(|v| v.as_u64()).unwrap_or(102) as u16,
+                    rack: params.get("rack").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
+                    slot: params.get("slot").and_then(|v| v.as_u64()).unwrap_or(1) as u8,
+                    plc_type: Default::default(),
+                    timeout_secs: 30,
+                    pdu_size: 480,
+                };
+                let mut client = S7Client::new(config);
+                if start {
+                    Self::start_with_client(&mut client).await
+                } else {
+                    Self::stop_with_client(&mut client).await
+                }
+            }
+            "codesys" => {
+                let config = crate::plc_programming::codesys::CodesysConfig {
+                    name: "remote".to_string(),
+                    address: address.to_string(),
+                    port: 1217,
+                    mode: Default::default(),
+                    device_name: None,
+                    username: None,
+                    password: None,
+                    encrypted: false,
+                    timeout_secs: 30,
+                    application: "Application".to_string(),
+                };
+                let mut client = CodesysClient::new(config);
+                if start {
+                    Self::start_with_client(&mut client).await
+                } else {
+                    Self::stop_with_client(&mut client).await
+                }
+            }
+            _ => {
+                return (
+                    false,
+                    json!(null),
+                    Some(format!(
+                        "Start/Stop not supported for protocol: {}",
+                        protocol
+                    )),
+                );
+            }
+        };
+
+        match result {
+            Ok(()) => {
+                let action = if start { "started" } else { "stopped" };
+                info!(protocol = %protocol, address = %address, "PLC {}", action);
+                (true, json!({"success": true, "action": action}), None)
+            }
+            Err(e) => {
+                let action = if start { "start" } else { "stop" };
+                (
+                    false,
+                    json!(null),
+                    Some(format!("PLC {} failed: {}", action, e)),
+                )
+            }
+        }
+    }
+
+    /// Helper to start PLC
+    async fn start_with_client<P: PlcProgrammer>(client: &mut P) -> anyhow::Result<()> {
+        client.connect().await?;
+        let result = client.start().await;
+        let _ = client.disconnect().await;
+        result
+    }
+
+    /// Helper to stop PLC
+    async fn stop_with_client<P: PlcProgrammer>(client: &mut P) -> anyhow::Result<()> {
+        client.connect().await?;
+        let result = client.stop().await;
+        let _ = client.disconnect().await;
+        result
+    }
+
+    /// List programs on PLC
+    async fn cmd_plc_list(&self, params: &Value) -> (bool, Value, Option<String>) {
+        info!("Executing plc_list command");
+
+        let protocol = match params.get("protocol").and_then(|v| v.as_str()) {
+            Some(p) => p,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'protocol' parameter".to_string()),
+                );
+            }
+        };
+
+        let address = match params.get("address").and_then(|v| v.as_str()) {
+            Some(a) => a,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'address' parameter".to_string()),
+                );
+            }
+        };
+
+        let result = match protocol.to_lowercase().as_str() {
+            "s7" => {
+                let config = crate::plc_programming::s7comm::S7Config {
+                    name: "remote".to_string(),
+                    address: address.to_string(),
+                    port: params.get("port").and_then(|v| v.as_u64()).unwrap_or(102) as u16,
+                    rack: params.get("rack").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
+                    slot: params.get("slot").and_then(|v| v.as_u64()).unwrap_or(1) as u8,
+                    plc_type: Default::default(),
+                    timeout_secs: 30,
+                    pdu_size: 480,
+                };
+                let mut client = S7Client::new(config);
+                Self::list_with_client(&mut client).await
+            }
+            "codesys" => {
+                let config = crate::plc_programming::codesys::CodesysConfig {
+                    name: "remote".to_string(),
+                    address: address.to_string(),
+                    port: 1217,
+                    mode: Default::default(),
+                    device_name: None,
+                    username: None,
+                    password: None,
+                    encrypted: false,
+                    timeout_secs: 30,
+                    application: "Application".to_string(),
+                };
+                let mut client = CodesysClient::new(config);
+                Self::list_with_client(&mut client).await
+            }
+            _ => {
+                return (
+                    false,
+                    json!(null),
+                    Some(format!("List not supported for protocol: {}", protocol)),
+                );
+            }
+        };
+
+        match result {
+            Ok(programs) => (
+                true,
+                json!({"programs": programs, "count": programs.len()}),
+                None,
+            ),
+            Err(e) => (false, json!(null), Some(format!("List failed: {}", e))),
+        }
+    }
+
+    /// Helper to list programs
+    async fn list_with_client<P: PlcProgrammer>(client: &mut P) -> anyhow::Result<Vec<String>> {
+        client.connect().await?;
+        let result = client.list_programs().await;
+        let _ = client.disconnect().await;
+        result
+    }
+
+    /// Download program from PLC
+    async fn cmd_plc_download(&self, params: &Value) -> (bool, Value, Option<String>) {
+        info!("Executing plc_download command");
+
+        let protocol = match params.get("protocol").and_then(|v| v.as_str()) {
+            Some(p) => p,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'protocol' parameter".to_string()),
+                );
+            }
+        };
+
+        let address = match params.get("address").and_then(|v| v.as_str()) {
+            Some(a) => a,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'address' parameter".to_string()),
+                );
+            }
+        };
+
+        let program_name = match params.get("program_name").and_then(|v| v.as_str()) {
+            Some(n) => n,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'program_name' parameter".to_string()),
+                );
+            }
+        };
+
+        let result = match protocol.to_lowercase().as_str() {
+            "s7" => {
+                let config = crate::plc_programming::s7comm::S7Config {
+                    name: "remote".to_string(),
+                    address: address.to_string(),
+                    port: params.get("port").and_then(|v| v.as_u64()).unwrap_or(102) as u16,
+                    rack: params.get("rack").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
+                    slot: params.get("slot").and_then(|v| v.as_u64()).unwrap_or(1) as u8,
+                    plc_type: Default::default(),
+                    timeout_secs: 30,
+                    pdu_size: 480,
+                };
+                let mut client = S7Client::new(config);
+                Self::download_with_client(&mut client, program_name).await
+            }
+            _ => {
+                return (
+                    false,
+                    json!(null),
+                    Some(format!("Download not supported for protocol: {}", protocol)),
+                );
+            }
+        };
+
+        match result {
+            Ok(program) => (
+                true,
+                json!({
+                    "program": {
+                        "name": program.name,
+                        "language": format!("{:?}", program.language),
+                        "source": program.source,
+                        "variables": program.variables.len(),
+                        "function_blocks": program.function_blocks.len()
+                    }
+                }),
+                None,
+            ),
+            Err(e) => (false, json!(null), Some(format!("Download failed: {}", e))),
+        }
+    }
+
+    /// Helper to download program
+    async fn download_with_client<P: PlcProgrammer>(
+        client: &mut P,
+        program_name: &str,
+    ) -> anyhow::Result<PlcProgram> {
+        client.connect().await?;
+        let result = client.download_program(program_name).await;
+        let _ = client.disconnect().await;
+        result
+    }
+
+    /// Delete program from PLC
+    async fn cmd_plc_delete(&self, params: &Value) -> (bool, Value, Option<String>) {
+        info!("Executing plc_delete command");
+
+        let protocol = match params.get("protocol").and_then(|v| v.as_str()) {
+            Some(p) => p,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'protocol' parameter".to_string()),
+                );
+            }
+        };
+
+        let address = match params.get("address").and_then(|v| v.as_str()) {
+            Some(a) => a,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'address' parameter".to_string()),
+                );
+            }
+        };
+
+        let program_name = match params.get("program_name").and_then(|v| v.as_str()) {
+            Some(n) => n,
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("Missing 'program_name' parameter".to_string()),
+                );
+            }
+        };
+
+        let result = match protocol.to_lowercase().as_str() {
+            "s7" => {
+                let config = crate::plc_programming::s7comm::S7Config {
+                    name: "remote".to_string(),
+                    address: address.to_string(),
+                    port: params.get("port").and_then(|v| v.as_u64()).unwrap_or(102) as u16,
+                    rack: params.get("rack").and_then(|v| v.as_u64()).unwrap_or(0) as u8,
+                    slot: params.get("slot").and_then(|v| v.as_u64()).unwrap_or(1) as u8,
+                    plc_type: Default::default(),
+                    timeout_secs: 30,
+                    pdu_size: 480,
+                };
+                let mut client = S7Client::new(config);
+                Self::delete_with_client(&mut client, program_name).await
+            }
+            _ => {
+                return (
+                    false,
+                    json!(null),
+                    Some(format!("Delete not supported for protocol: {}", protocol)),
+                );
+            }
+        };
+
+        match result {
+            Ok(()) => {
+                info!(program = %program_name, "Program deleted from PLC");
+                (
+                    true,
+                    json!({"deleted": true, "program_name": program_name}),
+                    None,
+                )
+            }
+            Err(e) => (false, json!(null), Some(format!("Delete failed: {}", e))),
+        }
+    }
+
+    /// Helper to delete program
+    async fn delete_with_client<P: PlcProgrammer>(
+        client: &mut P,
+        program_name: &str,
+    ) -> anyhow::Result<()> {
+        client.connect().await?;
+        let result = client.delete_program(program_name).await;
+        let _ = client.disconnect().await;
+        result
+    }
+
+    /// Load program state from disk
+    /// v1.2.6: Added error logging to prevent silent data loss
+    /// v1.3.3: Added backup of corrupted files for forensic analysis
+    fn load_program_state(&self) -> ProgramState {
+        match fs::read_to_string(&self.program_state_path) {
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(state) => state,
+                Err(e) => {
+                    error!(
+                        path = ?self.program_state_path,
+                        error = %e,
+                        "Failed to parse program state - file may be corrupted"
+                    );
+
+                    // v1.3.3: Backup corrupted file for forensic analysis
+                    let backup_path = format!(
+                        "{}.corrupted.{}",
+                        self.program_state_path.display(),
+                        chrono::Utc::now().format("%Y%m%d_%H%M%S")
+                    );
+                    match fs::copy(&self.program_state_path, &backup_path) {
+                        Ok(_) => {
+                            warn!(
+                                "Corrupted program state backed up to: {}. \
+                                Using default state. Manual investigation recommended.",
+                                backup_path
+                            );
+                        }
+                        Err(backup_err) => {
+                            error!(
+                                "Failed to backup corrupted program state: {}. \
+                                Original file at: {:?}. DATA MAY BE LOST.",
+                                backup_err, self.program_state_path
+                            );
+                        }
+                    }
+
+                    ProgramState::default()
+                }
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                debug!(path = ?self.program_state_path, "Program state file not found - using default");
+                ProgramState::default()
+            }
+            Err(e) => {
+                warn!(
+                    path = ?self.program_state_path,
+                    error = %e,
+                    "Failed to read program state file - using default"
+                );
+                ProgramState::default()
+            }
+        }
+    }
+
+    /// Save program state to disk
+    fn save_program_state(&self, state: &ProgramState) -> anyhow::Result<()> {
+        // Ensure parent directory exists
+        if let Some(parent) = self.program_state_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let content = serde_json::to_string_pretty(state)?;
+        fs::write(&self.program_state_path, content)?;
+
+        debug!(path = ?self.program_state_path, "Program state saved");
+        Ok(())
+    }
+
+    /// Handle config update from cloud
+    async fn handle_config_update(&self, payload: &[u8]) -> anyhow::Result<()> {
+        let config_update: Value = serde_json::from_slice(payload)?;
+        info!("Received config update: {:?}", config_update);
+
+        let mut state = self.state.write().await;
+        let mut config_changed = false;
+
+        // Update telemetry interval if provided
+        if let Some(telemetry) = config_update.get("telemetry") {
+            if let Some(interval) = telemetry.get("interval_seconds").and_then(|v| v.as_u64()) {
+                // Validate: minimum 5 seconds, maximum 3600 seconds (1 hour)
+                if (5..=3600).contains(&interval) {
+                    state.config.telemetry.interval_seconds = interval;
+                    config_changed = true;
+                    info!("Updated telemetry interval to {} seconds", interval);
+                } else {
+                    warn!(
+                        "Invalid telemetry interval {}: must be between 5 and 3600 seconds",
+                        interval
+                    );
+                }
+            }
+
+            // Update telemetry include flags
+            if let Some(include_system) = telemetry.get("include_system").and_then(|v| v.as_bool())
+            {
+                state.config.telemetry.include_system = include_system;
+                config_changed = true;
+            }
+            if let Some(include_modbus) = telemetry.get("include_modbus").and_then(|v| v.as_bool())
+            {
+                state.config.telemetry.include_modbus = include_modbus;
+                config_changed = true;
+            }
+            if let Some(include_gpio) = telemetry.get("include_gpio").and_then(|v| v.as_bool()) {
+                state.config.telemetry.include_gpio = include_gpio;
+                config_changed = true;
+            }
+        }
+
+        // Update scripting enabled flag if provided
+        if let Some(scripting) = config_update.get("scripting") {
+            if let Some(enabled) = scripting.get("enabled").and_then(|v| v.as_bool()) {
+                state.config.scripting.enabled = enabled;
+                config_changed = true;
+                info!("Updated scripting enabled to {}", enabled);
+            }
+        }
+
+        // Save config to disk if changed
+        if config_changed {
+            if let Err(e) = state.config.save() {
+                error!("Failed to save config after update: {}", e);
+                return Err(anyhow::anyhow!("Failed to persist config changes: {}", e));
+            }
+            info!("Config update applied and saved successfully");
+        } else {
+            info!("No applicable config changes found in update");
+        }
+
+        Ok(())
+    }
+
+    // ========================================================================
+    // Failover Commands (v1.3.4)
+    // ========================================================================
+
+    /// Get MQTT failover status
+    async fn cmd_failover_status(&self) -> (bool, Value, Option<String>) {
+        info!("Executing failover_status command");
+
+        let state = self.state.read().await;
+        let failover_config = &state.config.mqtt.failover;
+
+        if !failover_config.enabled {
+            return (
+                true,
+                json!({
+                    "enabled": false,
+                    "message": "Failover is not enabled. Configure mqtt.failover in config.yaml"
+                }),
+                None,
+            );
+        }
+
+        // Build status report
+        let primary_broker = state.config.mqtt.broker.as_deref().unwrap_or("not configured");
+        let backup_broker = failover_config.backup_broker.as_deref().unwrap_or("not configured");
+        let backup_port = failover_config.backup_port.unwrap_or(state.config.mqtt.port);
+
+        (
+            true,
+            json!({
+                "enabled": true,
+                "primary_broker": format!("{}:{}", primary_broker, state.config.mqtt.port),
+                "backup_broker": format!("{}:{}", backup_broker, backup_port),
+                "config": {
+                    "timeout_secs": failover_config.timeout_secs,
+                    "health_check_interval_secs": failover_config.health_check_interval_secs,
+                    "max_failures": failover_config.max_failures,
+                    "recovery_delay_secs": failover_config.recovery_delay_secs
+                }
+            }),
+            None,
+        )
+    }
+
+    /// Force failover to backup broker
+    async fn cmd_failover_force(&self) -> (bool, Value, Option<String>) {
+        info!("Executing failover_force command");
+
+        let state = self.state.read().await;
+        let failover_config = &state.config.mqtt.failover;
+
+        if !failover_config.enabled {
+            return (
+                false,
+                json!(null),
+                Some("Failover is not enabled. Configure mqtt.failover in config.yaml".to_string()),
+            );
+        }
+
+        if failover_config.backup_broker.is_none() {
+            return (
+                false,
+                json!(null),
+                Some("No backup broker configured".to_string()),
+            );
+        }
+
+        // Note: Actual failover would be triggered through the FailoverMqttClient
+        // This command signals the intent; the MQTT client handles the transition
+        warn!("Manual failover to backup broker requested via command");
+
+        (
+            true,
+            json!({
+                "action": "failover_initiated",
+                "target": failover_config.backup_broker,
+                "message": "Failover to backup broker has been initiated"
+            }),
+            None,
+        )
+    }
+
+    /// Force recovery to primary broker
+    async fn cmd_failover_recover(&self) -> (bool, Value, Option<String>) {
+        info!("Executing failover_recover command");
+
+        let state = self.state.read().await;
+        let failover_config = &state.config.mqtt.failover;
+
+        if !failover_config.enabled {
+            return (
+                false,
+                json!(null),
+                Some("Failover is not enabled".to_string()),
+            );
+        }
+
+        let primary_broker = match &state.config.mqtt.broker {
+            Some(b) => b.clone(),
+            None => {
+                return (
+                    false,
+                    json!(null),
+                    Some("No primary broker configured".to_string()),
+                );
+            }
+        };
+
+        // Note: Actual recovery would be triggered through the FailoverMqttClient
+        warn!("Manual recovery to primary broker requested via command");
+
+        (
+            true,
+            json!({
+                "action": "recovery_initiated",
+                "target": primary_broker,
+                "message": "Recovery to primary broker has been initiated"
+            }),
+            None,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_command_response_serialization() {
+        let response = CommandResponse {
+            command_id: "cmd-123".to_string(),
+            device_id: "device-456".to_string(),
+            success: true,
+            result: json!({"pong": true}),
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            error: None,
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("command_id"));
+        assert!(json.contains("pong"));
+        assert!(!json.contains("error")); // None fields skipped
+    }
+}

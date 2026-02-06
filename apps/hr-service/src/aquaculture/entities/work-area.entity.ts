@@ -33,7 +33,7 @@ export class GeoCoordinates {
 }
 
 @ObjectType()
-@Entity('work_areas', { schema: 'hr' })
+@Entity('work_areas')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'workAreaType'])
 @Index(['tenantId', 'siteId'])

@@ -23,9 +23,8 @@ import {
 export class SchemaManagementService {
   private readonly logger = new Logger(SchemaManagementService.name);
 
-  // Schema naming convention
+  // Schema naming convention - MUST match farm-service TenantSchemaMiddleware
   private readonly SCHEMA_PREFIX = 'tenant_';
-  private readonly SCHEMA_SUFFIX = '_schema';
 
   constructor(
     @InjectRepository(TenantSchema)
@@ -40,11 +39,14 @@ export class SchemaManagementService {
 
   /**
    * Generate schema name from tenant ID
+   * Uses 16 characters (without hyphens) for collision safety.
+   * MUST match farm-service TenantSchemaMiddleware.getTenantSchemaName()
    */
   generateSchemaName(tenantId: string): string {
     // Remove dashes from UUID for cleaner schema name
-    const cleanId = tenantId.replace(/-/g, '').substring(0, 12);
-    return `${this.SCHEMA_PREFIX}${cleanId}${this.SCHEMA_SUFFIX}`;
+    // Use 16 chars to match farm-service convention
+    const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
+    return `${this.SCHEMA_PREFIX}${cleanId}`;
   }
 
   /**

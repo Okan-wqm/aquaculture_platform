@@ -149,8 +149,8 @@ export class UsersService {
         u."lastLoginAt",
         u."createdAt",
         u."updatedAt"
-      FROM users u
-      LEFT JOIN tenants t ON u."tenantId" = t.id
+      FROM auth.users u
+      LEFT JOIN auth.tenants t ON u."tenantId" = t.id
       ${whereClause}
       ORDER BY u.${sortColumn} ${sortOrder}
       LIMIT $${paramIndex++} OFFSET $${paramIndex}
@@ -158,7 +158,7 @@ export class UsersService {
 
     const countQuery = `
       SELECT COUNT(*) as total
-      FROM users u
+      FROM auth.users u
       ${whereClause}
     `;
 
@@ -196,20 +196,20 @@ export class UsersService {
         newUsersResult,
         loginsResult,
       ] = await Promise.all([
-        this.dataSource.query(`SELECT COUNT(*) as count FROM users`),
+        this.dataSource.query(`SELECT COUNT(*) as count FROM auth.users`),
         this.dataSource.query(
-          `SELECT COUNT(*) as count FROM users WHERE "isActive" = true`,
+          `SELECT COUNT(*) as count FROM auth.users WHERE "isActive" = true`,
         ),
         this.dataSource.query(`
           SELECT role, COUNT(*) as count
-          FROM users
+          FROM auth.users
           GROUP BY role
           ORDER BY count DESC
         `),
         this.dataSource.query(`
           SELECT u."tenantId", t.name as "tenantName", COUNT(*) as count
-          FROM users u
-          LEFT JOIN tenants t ON u."tenantId" = t.id
+          FROM auth.users u
+          LEFT JOIN auth.tenants t ON u."tenantId" = t.id
           WHERE u."tenantId" IS NOT NULL
           GROUP BY u."tenantId", t.name
           ORDER BY count DESC
@@ -217,12 +217,12 @@ export class UsersService {
         `),
         this.dataSource.query(`
           SELECT COUNT(*) as count
-          FROM users
+          FROM auth.users
           WHERE "createdAt" >= NOW() - INTERVAL '30 days'
         `),
         this.dataSource.query(`
           SELECT COUNT(*) as count
-          FROM users
+          FROM auth.users
           WHERE "lastLoginAt" >= NOW() - INTERVAL '24 hours'
         `),
       ]);
@@ -272,8 +272,8 @@ export class UsersService {
           u."isActive",
           u."lastLoginAt",
           u."createdAt"
-        FROM users u
-        LEFT JOIN tenants t ON u."tenantId" = t.id
+        FROM auth.users u
+        LEFT JOIN auth.tenants t ON u."tenantId" = t.id
         WHERE u."lastLoginAt" IS NOT NULL
         ORDER BY u."lastLoginAt" DESC
         LIMIT $1
@@ -307,8 +307,8 @@ export class UsersService {
           u."lastLoginAt",
           u."createdAt",
           u."updatedAt"
-        FROM users u
-        LEFT JOIN tenants t ON u."tenantId" = t.id
+        FROM auth.users u
+        LEFT JOIN auth.tenants t ON u."tenantId" = t.id
         WHERE u.id = $1
       `,
         [id],
@@ -345,7 +345,7 @@ export class UsersService {
           "ipAddress",
           "userAgent",
           "createdAt"
-        FROM audit_logs
+        FROM auth.audit_logs
         WHERE "performedBy" = $1
         ORDER BY "createdAt" DESC
         LIMIT $2
@@ -375,7 +375,7 @@ export class UsersService {
           "createdAt",
           "expiresAt",
           ("expiresAt" > NOW()) as "isActive"
-        FROM refresh_tokens
+        FROM auth.refresh_tokens
         WHERE "userId" = $1
         ORDER BY "createdAt" DESC
       `,
@@ -405,7 +405,7 @@ export class UsersService {
 
       const result = await this.dataSource.query(
         `
-        INSERT INTO users (email, "firstName", "lastName", "passwordHash", role, "tenantId", "isActive")
+        INSERT INTO auth.users (email, "firstName", "lastName", "passwordHash", role, "tenantId", "isActive")
         VALUES ($1, $2, $3, $4, $5, $6, true)
         RETURNING id, email, "firstName", "lastName", role,
                   "tenantId", "isActive", "createdAt"
@@ -476,7 +476,7 @@ export class UsersService {
     try {
       const result = await this.dataSource.query(
         `
-        UPDATE users
+        UPDATE auth.users
         SET ${updates.join(', ')}
         WHERE id = $${paramIndex}
         RETURNING id, email, "firstName", "lastName", role,
@@ -518,7 +518,7 @@ export class UsersService {
 
       const result = await this.dataSource.query(
         `
-        UPDATE users
+        UPDATE auth.users
         SET "passwordHash" = $1, "updatedAt" = NOW()
         WHERE id = $2
         RETURNING id
@@ -545,7 +545,7 @@ export class UsersService {
   async forceLogout(id: string): Promise<{ success: boolean; count: number }> {
     try {
       const result = await this.dataSource.query(
-        `DELETE FROM refresh_tokens WHERE "userId" = $1`,
+        `DELETE FROM auth.refresh_tokens WHERE "userId" = $1`,
         [id],
       );
 
@@ -569,7 +569,7 @@ export class UsersService {
       // Soft delete by deactivating
       const result = await this.dataSource.query(
         `
-        UPDATE users
+        UPDATE auth.users
         SET "isActive" = false, "updatedAt" = NOW()
         WHERE id = $1
         RETURNING id
@@ -586,6 +586,22 @@ export class UsersService {
       if (error instanceof NotFoundException) throw error;
       this.logger.error(`Failed to delete user: ${(error as Error).message}`);
       throw error;
+    }
+  }
+
+  /**
+   * Get tenant name by ID
+   */
+  async getTenantName(tenantId: string): Promise<string | null> {
+    try {
+      const result = await this.dataSource.query(
+        `SELECT name FROM tenants WHERE id = $1`,
+        [tenantId],
+      );
+      return result?.[0]?.name || null;
+    } catch (error) {
+      this.logger.error(`Failed to get tenant name: ${(error as Error).message}`);
+      return null;
     }
   }
 

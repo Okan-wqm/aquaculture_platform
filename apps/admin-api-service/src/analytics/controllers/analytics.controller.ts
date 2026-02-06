@@ -36,7 +36,44 @@ function validateDataPoints(value: unknown): number {
 }
 
 /**
- * Validate period parameter
+ * Parse period parameter - supports both standard formats and shorthand
+ * Standard: 'day', 'week', 'month', 'year'
+ * Shorthand: '30d' (30 days), '12m' (12 months), '1y' (1 year), '4w' (4 weeks)
+ * Returns { period, dataPoints } where period is the base unit and dataPoints is extracted from shorthand
+ */
+function parsePeriodParameter(value: string, defaultDataPoints: number): { period: 'day' | 'week' | 'month' | 'year'; dataPoints: number } {
+  // Check if it's a standard period format
+  if (VALID_PERIODS.includes(value as typeof VALID_PERIODS[number])) {
+    return { period: value as 'day' | 'week' | 'month' | 'year', dataPoints: defaultDataPoints };
+  }
+
+  // Try to parse shorthand format (e.g., '30d', '12m', '1y', '4w')
+  const match = value.match(/^(\d+)([dwmy])$/i);
+  if (match) {
+    const num = parseInt(match[1] || '0', 10);
+    const unit = (match[2] || 'd').toLowerCase();
+
+    if (num > 0 && num <= MAX_DATA_POINTS) {
+      switch (unit) {
+        case 'd':
+          return { period: 'day', dataPoints: num };
+        case 'w':
+          return { period: 'week', dataPoints: num };
+        case 'm':
+          return { period: 'month', dataPoints: num };
+        case 'y':
+          return { period: 'year', dataPoints: num };
+      }
+    }
+  }
+
+  throw new BadRequestException(
+    `period must be one of: ${VALID_PERIODS.join(', ')}, or a shorthand like '30d', '12m', '1y', '4w'`,
+  );
+}
+
+/**
+ * Validate period parameter (strict mode - only accepts standard formats)
  */
 function validatePeriod(value: string): 'day' | 'week' | 'month' | 'year' {
   if (!VALID_PERIODS.includes(value as typeof VALID_PERIODS[number])) {
@@ -84,13 +121,16 @@ export class AnalyticsController {
     @Query('period') period: string = 'month',
     @Query('dataPoints') dataPoints: unknown = 12,
   ) {
-    // INPUT VALIDATION: Sanitize and validate query parameters
-    const validatedPeriod = validatePeriod(period);
-    const validatedDataPoints = validateDataPoints(dataPoints);
+    // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
+    // If dataPoints is provided explicitly, use it; otherwise extract from period shorthand
+    const parsedPeriod = parsePeriodParameter(period, 12);
+
+    // If explicit dataPoints provided, validate and use it; otherwise use parsed value
+    const explicitDataPoints = dataPoints !== 12 ? validateDataPoints(dataPoints) : parsedPeriod.dataPoints;
 
     return this.analyticsService.getTenantGrowthTrend({
-      period: validatedPeriod,
-      dataPoints: validatedDataPoints,
+      period: parsedPeriod.period,
+      dataPoints: explicitDataPoints,
     });
   }
 
@@ -99,13 +139,13 @@ export class AnalyticsController {
     @Query('period') period: string = 'month',
     @Query('dataPoints') dataPoints: unknown = 12,
   ) {
-    // INPUT VALIDATION: Sanitize and validate query parameters
-    const validatedPeriod = validatePeriod(period);
-    const validatedDataPoints = validateDataPoints(dataPoints);
+    // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
+    const parsedPeriod = parsePeriodParameter(period, 12);
+    const explicitDataPoints = dataPoints !== 12 ? validateDataPoints(dataPoints) : parsedPeriod.dataPoints;
 
     return this.analyticsService.getChurnRateTrend({
-      period: validatedPeriod,
-      dataPoints: validatedDataPoints,
+      period: parsedPeriod.period,
+      dataPoints: explicitDataPoints,
     });
   }
 
@@ -123,13 +163,13 @@ export class AnalyticsController {
     @Query('period') period: string = 'day',
     @Query('dataPoints') dataPoints: unknown = 30,
   ) {
-    // INPUT VALIDATION: Sanitize and validate query parameters
-    const validatedPeriod = validatePeriod(period);
-    const validatedDataPoints = validateDataPoints(dataPoints);
+    // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
+    const parsedPeriod = parsePeriodParameter(period, 30);
+    const explicitDataPoints = dataPoints !== 30 ? validateDataPoints(dataPoints) : parsedPeriod.dataPoints;
 
     return this.analyticsService.getUserActivityTrend({
-      period: validatedPeriod,
-      dataPoints: validatedDataPoints,
+      period: parsedPeriod.period,
+      dataPoints: explicitDataPoints,
     });
   }
 
@@ -152,13 +192,13 @@ export class AnalyticsController {
     @Query('period') period: string = 'month',
     @Query('dataPoints') dataPoints: unknown = 12,
   ) {
-    // INPUT VALIDATION: Sanitize and validate query parameters
-    const validatedPeriod = validatePeriod(period);
-    const validatedDataPoints = validateDataPoints(dataPoints);
+    // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
+    const parsedPeriod = parsePeriodParameter(period, 12);
+    const explicitDataPoints = dataPoints !== 12 ? validateDataPoints(dataPoints) : parsedPeriod.dataPoints;
 
     return this.analyticsService.getRevenueTrend({
-      period: validatedPeriod,
-      dataPoints: validatedDataPoints,
+      period: parsedPeriod.period,
+      dataPoints: explicitDataPoints,
     });
   }
 

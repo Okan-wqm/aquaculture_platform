@@ -18,9 +18,13 @@ import { Supplier } from '../supplier/entities/supplier.entity';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { BatchFeedAssignment } from '../batch/entities/batch-feed-assignment.entity';
 import { Feed } from '../feed/entities/feed.entity';
+import { Tank } from '../tank/entities/tank.entity';
 
 // Modules
 import { FeedingModule } from '../feeding/feeding.module';
+
+// Services
+import { EquipmentTypeLookupService } from './services/equipment-type-lookup.service';
 
 // Resolvers
 import { EquipmentResolver } from './equipment.resolver';
@@ -81,6 +85,7 @@ const QueryHandlers = [
       TankBatch,
       BatchFeedAssignment,
       Feed,
+      Tank, // Added for unified equipmentList query
     ]),
     CqrsModule,
     FeedingModule,
@@ -88,11 +93,13 @@ const QueryHandlers = [
   providers: [
     EquipmentResolver,
     SubEquipmentResolver,
+    EquipmentTypeLookupService,
     ...CommandHandlers,
     ...QueryHandlers,
   ],
   exports: [
     TypeOrmModule,
+    EquipmentTypeLookupService,
   ],
 })
 export class EquipmentModule {}

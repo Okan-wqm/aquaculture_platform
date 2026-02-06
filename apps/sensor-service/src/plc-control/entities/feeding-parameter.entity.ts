@@ -92,7 +92,7 @@ export class VfdSettings {
 }
 
 @ObjectType()
-@Entity('feeding_parameters', { schema: 'sensor' })
+@Entity('feeding_parameters')
 @Index(['tenantId', 'plcConnectionId'])
 @Index(['tenantId', 'status'])
 export class FeedingParameter {
@@ -101,7 +101,7 @@ export class FeedingParameter {
   id!: string;
 
   @Field()
-  @Column()
+  @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
   tenantId!: string;
 

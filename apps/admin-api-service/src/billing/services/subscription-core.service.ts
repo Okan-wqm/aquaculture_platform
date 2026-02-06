@@ -58,7 +58,7 @@ export class SubscriptionCoreService {
         s."cancelledAt" as "cancelledAt",
         s."createdAt" as "createdAt"
       FROM public.subscriptions s
-      LEFT JOIN public.tenants t ON t.id::text = s."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
       WHERE 1=1
     `;
 
@@ -149,7 +149,7 @@ export class SubscriptionCoreService {
         s."cancelledAt" as "cancelledAt",
         s."createdAt" as "createdAt"
       FROM public.subscriptions s
-      LEFT JOIN public.tenants t ON t.id::text = s."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
       WHERE s."tenantId" = $1
     `,
       [tenantId],
@@ -355,7 +355,7 @@ export class SubscriptionCoreService {
 
     // Validate tenant exists
     const tenantResult = await this.dataSource.query(
-      `SELECT id, name FROM public.tenants WHERE id = $1`,
+      `SELECT id, name FROM auth.tenants WHERE id = $1`,
       [tenantId],
     );
 
@@ -503,7 +503,7 @@ export class SubscriptionCoreService {
       // Update tenant with subscription info
       await manager.query(
         `
-        UPDATE public.tenants SET
+        UPDATE auth.tenants SET
           tier = $1,
           limits = $2,
           "updatedAt" = NOW()

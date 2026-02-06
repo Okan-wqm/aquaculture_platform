@@ -22,7 +22,12 @@ const GET_REGULATORY_SETTINGS = gql`
       id
       companyName
       organisationNumber
-      companyAddress
+      companyAddress {
+        street
+        postalCode
+        city
+        country
+      }
       maskinportenConfigured
       maskinportenEnvironment
       maskinportenClientIdMasked

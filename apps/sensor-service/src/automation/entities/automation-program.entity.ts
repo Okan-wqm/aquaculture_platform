@@ -107,7 +107,7 @@ export interface TriggerConfig {
  * AutomationProgram entity - IEC 61131-3 compliant automation program
  */
 @ObjectType()
-@Entity('automation_programs', { schema: 'sensor' })
+@Entity('automation_programs')
 @Index(['tenantId', 'deviceId'])
 @Index(['tenantId', 'programCode'], { unique: true })
 @Index(['tenantId', 'status'])
@@ -118,7 +118,7 @@ export class AutomationProgram {
 
   // Tenant & Device Relations
   @Field()
-  @Column('uuid')
+  @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
   tenantId!: string;
 

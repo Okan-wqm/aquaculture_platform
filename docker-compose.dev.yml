@@ -247,6 +247,7 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-devpassword}
       NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
       MQTT_ENABLED: "true"
       MQTT_BROKER_URL: mqtt://host.docker.internal:1883
     healthcheck:

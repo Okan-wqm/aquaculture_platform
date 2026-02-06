@@ -14,6 +14,8 @@ import {
   RefreshCw,
   AlertCircle,
 } from 'lucide-react';
+import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
+import { useTenantRoles } from '../hooks/useTenantRoles';
 
 // GraphQL Configuration - Gateway API
 const GRAPHQL_URL = '/graphql';
@@ -239,6 +241,14 @@ const TenantUsers: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Add User Modal state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Roles for the modal
+  const { data: roles = [], isLoading: rolesLoading } = useTenantRoles();
+
   useEffect(() => {
     loadUsers();
   }, []);
@@ -281,6 +291,43 @@ const TenantUsers: React.FC = () => {
       setError((err as Error).message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Handle save from AddEditUserModal
+  const handleSaveUser = async (data: UserFormData) => {
+    setIsSaving(true);
+    setSaveError(null);
+
+    try {
+      const token = getAuthToken();
+      const response = await fetch('/api/users/tenant/invite', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          email: data.email,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          sendInvitationEmail: data.sendInvitation,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to invite user');
+      }
+
+      setIsModalOpen(false);
+      loadUsers();
+    } catch (err) {
+      setSaveError((err as Error).message);
+      throw err;
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -342,7 +389,10 @@ const TenantUsers: React.FC = () => {
             <Download className="w-4 h-4" />
             Export
           </button>
-          <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors">
+          <button
+            onClick={() => { setSaveError(null); setIsModalOpen(true); }}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+          >
             <UserPlus className="w-4 h-4" />
             Add User
           </button>
@@ -550,6 +600,17 @@ const TenantUsers: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Add User Modal */}
+      <AddEditUserModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        roles={roles}
+        rolesLoading={rolesLoading}
+        onSave={handleSaveUser}
+        isLoading={isSaving}
+        error={saveError}
+      />
     </div>
   );
 };

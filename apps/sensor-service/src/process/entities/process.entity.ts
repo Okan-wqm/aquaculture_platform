@@ -79,7 +79,7 @@ export interface SensorMapping {
  * Process entity - represents an equipment connection diagram
  */
 @ObjectType()
-@Entity('processes', { schema: 'sensor' })
+@Entity('processes')
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'siteId'])
 export class Process {
@@ -108,7 +108,7 @@ export class Process {
   edges!: ProcessEdge[];
 
   @Field()
-  @Column('uuid')
+  @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
   tenantId!: string;
 

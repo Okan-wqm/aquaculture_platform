@@ -8,6 +8,7 @@ import { WelfareEventReport, WelfareEventStatus } from '../types/reports.types';
 import { REGULATORY_CONTACTS, MORTALITY_THRESHOLDS } from '../utils/thresholds';
 import { ReportStatusBadge, ReportCard, DeadlineIndicator } from '../components/common';
 import { WelfareEventModal } from '../components/modals';
+import { useTanksList } from '../../../hooks/useTanks';
 
 // ============================================================================
 // Types
@@ -52,6 +53,54 @@ function getSeverityBadge(severity: string): React.ReactNode {
     </span>
   );
 }
+
+// ============================================================================
+// Mortality Warning Banner Component
+// ============================================================================
+
+interface MortalityWarningBannerProps {
+  tankNames: string[];
+  onCreateReport: () => void;
+}
+
+const MortalityWarningBanner: React.FC<MortalityWarningBannerProps> = ({ tankNames, onCreateReport }) => {
+  if (tankNames.length === 0) return null;
+
+  const displayNames = tankNames.slice(0, 5).join(', ');
+  const remaining = tankNames.length - 5;
+
+  return (
+    <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 mb-6">
+      <div className="flex items-start">
+        <div className="flex-shrink-0">
+          <svg className="h-5 w-5 text-amber-500 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              fillRule="evenodd"
+              d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </div>
+        <div className="ml-3 flex-1">
+          <p className="text-sm font-medium text-amber-800">
+            Elevated mortality detected in {displayNames}
+            {remaining > 0 && ` and ${remaining} more`}
+            . Review and report if threshold exceeded.
+          </p>
+          <div className="mt-2">
+            <button
+              type="button"
+              onClick={onCreateReport}
+              className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-amber-700 bg-amber-100 hover:bg-amber-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500"
+            >
+              Report Welfare Event
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ============================================================================
 // Event Detail Card Component
@@ -277,6 +326,21 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
   const [selectedEvent, setSelectedEvent] = useState<WelfareEventReport | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'resolved'>('all');
 
+  // Fetch tank data for mortality warning banner
+  const { data: tanksData } = useTanksList({ siteId, isActive: true });
+  const tanks = tanksData?.items || [];
+
+  // Tanks with high mortality rates
+  const highMortalityTankNames = useMemo(() => {
+    return tanks
+      .filter(
+        (t) =>
+          t.batchMetrics?.mortalityRate != null &&
+          t.batchMetrics.mortalityRate >= MORTALITY_THRESHOLDS.DAILY.ELEVATED
+      )
+      .map((t) => t.name);
+  }, [tanks]);
+
   // Get welfare events
   const allEvents = useMemo(() => {
     return getMockReports<WelfareEventReport>('welfare', siteId ? { siteId } : undefined);
@@ -337,6 +401,12 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
           Report Event
         </button>
       </div>
+
+      {/* Mortality Warning Banner */}
+      <MortalityWarningBanner
+        tankNames={highMortalityTankNames}
+        onCreateReport={handleCreateReport}
+      />
 
       {/* Threshold Information */}
       <ThresholdAlert onCreateReport={handleCreateReport} />

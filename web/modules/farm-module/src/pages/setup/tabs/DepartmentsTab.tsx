@@ -148,6 +148,13 @@ export const DepartmentsTab: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!editingId) {
+      if (!formData.name) { alert('Please enter a name.'); return; }
+      if (!formData.code) { alert('Please enter a code.'); return; }
+      if (!formData.siteId) { alert('Please select a site.'); return; }
+    }
+
     try {
       if (editingId) {
         // Update existing - siteId is not updatable in backend
@@ -165,7 +172,7 @@ export const DepartmentsTab: React.FC = () => {
           name: formData.name,
           code: formData.code,
           type: formData.type.toUpperCase(),
-          siteId: formData.siteId,
+          siteId: formData.siteId || undefined,
           capacity: formData.capacity,
           notes: formData.notes || undefined,
         } as CreateDepartmentInput);

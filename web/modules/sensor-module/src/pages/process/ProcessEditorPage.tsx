@@ -26,7 +26,6 @@ import {
   Maximize2,
   Trash2,
   Loader2,
-  Activity,
   Settings,
   Paperclip,
   X,
@@ -37,7 +36,6 @@ import {
 import { useProcessStore, EquipmentNodeData } from '../../store/processStore';
 import { EquipmentPanel } from '../../components/process-editor/panels/EquipmentPanel';
 import { PropertiesPanel } from '../../components/process-editor/panels/PropertiesPanel';
-import { SensorSelectionPanel } from '../../components/process-editor/panels/SensorSelectionPanel';
 import { AttachmentsPanel } from '../../components/process-editor/panels/AttachmentsPanel';
 import { NodeTemplate } from '../../components/process-editor/panels/EquipmentPanel';
 import { useProcess } from '../../hooks/useProcess';
@@ -75,7 +73,7 @@ interface CanvasEdge {
 }
 
 // Right panel mode type
-type RightPanelMode = 'properties' | 'sensors' | 'attachments';
+type RightPanelMode = 'properties' | 'attachments';
 
 // Widget types suitable for process editor (single data channel visualizations)
 const PROCESS_WIDGET_TYPES = WIDGET_TYPES.filter(
@@ -486,8 +484,8 @@ const ProcessEditorPage: React.FC = () => {
   const [canvasEdges, setCanvasEdges] = useState<CanvasEdge[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  // Right panel mode - sensors by default, properties when node selected
-  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('sensors');
+  // Right panel mode - properties by default
+  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('properties');
 
   // Widget config modal state
   const [widgetConfigModal, setWidgetConfigModal] = useState<{
@@ -685,7 +683,7 @@ const ProcessEditorPage: React.FC = () => {
           name: processName,
           nodes: currentState.nodes,
           edges: currentState.edges,
-          status: 'DRAFT',
+          status: 'draft',
         });
 
         if (result.success && result.process) {
@@ -883,21 +881,10 @@ const ProcessEditorPage: React.FC = () => {
           />
         </div>
 
-        {/* Right Panel - Properties / Sensors */}
+        {/* Right Panel - Properties / Equipment */}
         <div className="w-80 flex flex-col border-l border-gray-200 bg-white">
           {/* Panel Tabs */}
           <div className="flex border-b border-gray-200">
-            <button
-              onClick={() => setRightPanelMode('sensors')}
-              className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
-                rightPanelMode === 'sensors'
-                  ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              <Activity className="w-4 h-4" />
-              Sensors
-            </button>
             <button
               onClick={() => setRightPanelMode('properties')}
               className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
@@ -927,9 +914,7 @@ const ProcessEditorPage: React.FC = () => {
 
           {/* Panel Content */}
           <div className="flex-1 overflow-hidden">
-            {rightPanelMode === 'sensors' ? (
-              <SensorSelectionPanel className="h-full" />
-            ) : rightPanelMode === 'attachments' ? (
+            {rightPanelMode === 'attachments' ? (
               <AttachmentsPanel className="h-full" />
             ) : (
               <PropertiesPanel />

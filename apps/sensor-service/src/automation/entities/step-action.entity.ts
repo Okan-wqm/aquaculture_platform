@@ -61,7 +61,7 @@ registerEnumType(ActionType, {
  * Actions are associated with steps and execute based on their qualifier.
  */
 @ObjectType()
-@Entity('step_actions', { schema: 'sensor' })
+@Entity('step_actions')
 @Index(['stepId', 'actionOrder'])
 export class StepAction {
   @Field(() => ID)

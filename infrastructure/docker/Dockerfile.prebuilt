@@ -1,12 +1,25 @@
+# syntax=docker/dockerfile:1.4
 # =============================================================================
 # Dockerfile.prebuilt - Uses pre-built dist from local machine
-# For fast development iterations - skips npm ci and nx build
+# For fast development iterations - skips nx build (still needs npm ci)
+#
+# Usage: docker build -f infrastructure/docker/Dockerfile.prebuilt \
+#        --build-arg SERVICE_NAME=sensor-service -t sensor-service:dev .
 # =============================================================================
 
-# syntax=docker/dockerfile:1.4
+# Stage 1: Install production dependencies
+FROM node:22-alpine AS deps
+
+WORKDIR /app
+COPY package*.json ./
+
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm ci --legacy-peer-deps --omit=dev --ignore-scripts --no-audit
+
+# Stage 2: Production image
 FROM node:22-alpine AS production
 
-# Install runtime dependencies only
+# Install runtime dependencies
 RUN apk add --no-cache curl dumb-init
 
 # Create non-root user
@@ -15,14 +28,13 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /app
 
-# Copy pre-built dist and production dependencies
-ARG SERVICE_NAME
-COPY dist/apps/${SERVICE_NAME}/ ./dist/
-COPY node_modules/ ./node_modules/
-COPY package.json ./
+# Copy production dependencies with correct ownership
+COPY --from=deps --chown=nestjs:nodejs /app/node_modules ./node_modules
 
-# Set ownership
-RUN chown -R nestjs:nodejs /app
+# Copy pre-built dist from local machine
+ARG SERVICE_NAME
+COPY --chown=nestjs:nodejs dist/apps/${SERVICE_NAME}/ ./dist/
+COPY --chown=nestjs:nodejs package.json ./
 
 USER nestjs
 

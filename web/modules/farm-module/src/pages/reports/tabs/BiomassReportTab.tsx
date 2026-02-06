@@ -16,6 +16,7 @@ import {
 } from '../types/reports.types';
 import { ReportStatusBadge, DeadlineIndicator } from '../components/common';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
+import { useTanksList, Tank } from '../../../hooks/useTanks';
 
 // ============================================================================
 // Types
@@ -25,6 +26,28 @@ interface BiomassReportTabProps {
   siteId?: string;
 }
 
+interface StockingFormRecord {
+  id: string;
+  date: string;
+  speciesName: string;
+  quantity: number;
+  avgWeightG: number;
+  supplier: string;
+  batchNumber: string;
+}
+
+interface TransferFormRecord {
+  id: string;
+  direction: 'incoming' | 'outgoing';
+  date: string;
+  speciesName: string;
+  quantity: number;
+  biomassKg: number;
+  fromToSite: string;
+  batchNumber: string;
+  reason: string;
+}
+
 interface BiomassFormData {
   month: number;
   year: number;
@@ -32,7 +55,7 @@ interface BiomassFormData {
     totalKg: number;
     bySpecies: BiomassSpeciesBreakdown[];
   };
-  stockings: StockingRecord[];
+  stockings: StockingFormRecord[];
   mortality: {
     totalCount: number;
     byCause: { cause: string; count: number }[];
@@ -43,15 +66,34 @@ interface BiomassFormData {
     totalBiomassKg: number;
     records: SlaughterRecord[];
   };
-  transfers: {
-    incoming: TransferRecord[];
-    outgoing: TransferRecord[];
-  };
+  transfers: TransferFormRecord[];
   feedConsumption: {
     totalKg: number;
     byFeedType: { feedName: string; brandName?: string; quantityKg: number }[];
   };
+  biomassLoadedFromSystem: boolean;
+  feedLoadedFromSystem: boolean;
 }
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const MORTALITY_CAUSES = [
+  'Disease',
+  'Water Quality',
+  'Stress',
+  'Handling',
+  'Predation',
+  'Cannibalism',
+  'Starvation',
+  'Temperature',
+  'Oxygen',
+  'Ammonia',
+  'Genetic',
+  'Unknown',
+  'Other',
+];
 
 // ============================================================================
 // Helper Functions
@@ -82,6 +124,87 @@ function formatWeight(kg: number): string {
   return `${formatNumber(kg)}kg`;
 }
 
+/**
+ * Aggregate biomass data by species from tank batch metrics
+ */
+function aggregateBiomassFromTanks(tanks: Tank[]): {
+  bySpecies: BiomassSpeciesBreakdown[];
+  totalKg: number;
+  totalMortality: number;
+} {
+  const speciesMap = new Map<string, {
+    fishCount: number;
+    biomassKg: number;
+    totalMortality: number;
+  }>();
+
+  for (const tank of tanks) {
+    const metrics = tank.batchMetrics;
+    if (!metrics || !metrics.speciesCode) continue;
+
+    const code = metrics.speciesCode;
+    const existing = speciesMap.get(code) || { fishCount: 0, biomassKg: 0, totalMortality: 0 };
+    existing.fishCount += metrics.pieces || 0;
+    existing.biomassKg += metrics.biomass || 0;
+    existing.totalMortality += metrics.totalMortality || 0;
+    speciesMap.set(code, existing);
+  }
+
+  const bySpecies: BiomassSpeciesBreakdown[] = [];
+  let totalKg = 0;
+  let totalMortality = 0;
+
+  for (const [code, data] of speciesMap.entries()) {
+    const avgWeightG = data.fishCount > 0 ? (data.biomassKg * 1000) / data.fishCount : 0;
+    bySpecies.push({
+      speciesId: code,
+      speciesName: code,
+      fishCount: data.fishCount,
+      biomassKg: data.biomassKg,
+      avgWeightG,
+    });
+    totalKg += data.biomassKg;
+    totalMortality += data.totalMortality;
+  }
+
+  return { bySpecies, totalKg, totalMortality };
+}
+
+/**
+ * Aggregate feed data from tank batch metrics
+ */
+function aggregateFeedFromTanks(tanks: Tank[]): {
+  byFeedType: { feedName: string; brandName?: string; quantityKg: number }[];
+  totalKg: number;
+} {
+  const feedMap = new Map<string, { feedName: string; dailyKg: number }>();
+
+  for (const tank of tanks) {
+    const metrics = tank.batchMetrics;
+    if (!metrics || !metrics.feedCode) continue;
+
+    const key = metrics.feedCode;
+    const existing = feedMap.get(key) || { feedName: metrics.feedName || metrics.feedCode, dailyKg: 0 };
+    existing.dailyKg += metrics.dailyFeedKg || 0;
+    feedMap.set(key, existing);
+  }
+
+  const byFeedType: { feedName: string; brandName?: string; quantityKg: number }[] = [];
+  let totalKg = 0;
+
+  for (const [_code, data] of feedMap.entries()) {
+    // Estimate monthly consumption from daily feed rate (30 days)
+    const monthlyKg = Math.round(data.dailyKg * 30);
+    byFeedType.push({
+      feedName: data.feedName,
+      quantityKg: monthlyKg,
+    });
+    totalKg += monthlyKg;
+  }
+
+  return { byFeedType, totalKg };
+}
+
 function getInitialFormData(): BiomassFormData {
   const now = new Date();
   const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
@@ -93,8 +216,10 @@ function getInitialFormData(): BiomassFormData {
     stockings: [],
     mortality: { totalCount: 0, byCause: [], details: [] },
     slaughter: { totalQuantity: 0, totalBiomassKg: 0, records: [] },
-    transfers: { incoming: [], outgoing: [] },
+    transfers: [],
     feedConsumption: { totalKg: 0, byFeedType: [] },
+    biomassLoadedFromSystem: false,
+    feedLoadedFromSystem: false,
   };
 }
 
@@ -235,7 +360,7 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
       <h4 className="text-sm font-medium text-blue-800">Report Contents</h4>
       <p className="text-sm text-blue-600 mt-1">
-        This report includes biomass, mortality, harvests, transfers, and feed consumption for the reporting period.
+        This report includes biomass, stocking records, mortality, harvests, transfers, and feed consumption for the reporting period.
       </p>
       <ul className="mt-3 space-y-1 text-sm text-blue-700">
         <li className="flex items-center">
@@ -248,7 +373,7 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
           <svg className="w-4 h-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
-          Stocking records
+          Stocking records (fish arrivals)
         </li>
         <li className="flex items-center">
           <svg className="w-4 h-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -268,17 +393,40 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
           </svg>
           Feed consumption
         </li>
+        <li className="flex items-center">
+          <svg className="w-4 h-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          Transfers in/out
+        </li>
       </ul>
     </div>
   </div>
 );
 
+// ---------- Biomass Step ----------
+
 interface BiomassStepProps {
   formData: BiomassFormData;
   onChange: (data: Partial<BiomassFormData>) => void;
+  tanks: Tank[];
 }
 
-const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange }) => {
+const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, tanks }) => {
+  const handleLoadFromSystem = () => {
+    if (!tanks || tanks.length === 0) return;
+    const aggregated = aggregateBiomassFromTanks(tanks);
+    if (aggregated.bySpecies.length === 0) return;
+
+    onChange({
+      currentBiomass: {
+        bySpecies: aggregated.bySpecies,
+        totalKg: aggregated.totalKg,
+      },
+      biomassLoadedFromSystem: true,
+    });
+  };
+
   const addSpecies = () => {
     const newSpecies: BiomassSpeciesBreakdown = {
       speciesId: `sp-${Date.now()}`,
@@ -332,14 +480,38 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange }) => {
           <h4 className="text-sm font-medium text-gray-700">Current Biomass by Species</h4>
           <p className="text-xs text-gray-500">End of month standing stock</p>
         </div>
-        <button
-          type="button"
-          onClick={addSpecies}
-          className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-        >
-          + Add Species
-        </button>
+        <div className="flex items-center gap-2">
+          {tanks.length > 0 && (
+            <button
+              type="button"
+              onClick={handleLoadFromSystem}
+              className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Load from System
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={addSpecies}
+            className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+          >
+            + Add Species
+          </button>
+        </div>
       </div>
+
+      {/* Auto-populated notice */}
+      {formData.biomassLoadedFromSystem && formData.currentBiomass.bySpecies.length > 0 && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
+          <svg className="w-4 h-4 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          <span className="text-sm text-green-700">Auto-populated from current tank data. You can adjust values manually.</span>
+        </div>
+      )}
 
       {/* Total Summary */}
       <div className="bg-green-50 border border-green-200 rounded-lg p-4">
@@ -357,7 +529,11 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange }) => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
           </svg>
           <p className="mt-2 text-sm text-gray-500">No species added</p>
-          <p className="text-xs text-gray-400">Click "Add Species" to enter biomass data</p>
+          <p className="text-xs text-gray-400">
+            {tanks.length > 0
+              ? 'Click "Load from System" to auto-populate from tank data, or "Add Species" to enter manually'
+              : 'Click "Add Species" to enter biomass data'}
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -378,19 +554,13 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange }) => {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="col-span-2 md:col-span-1">
                   <label className="block text-xs text-gray-500 mb-1">Species Name</label>
-                  <select
+                  <input
+                    type="text"
                     value={species.speciesName}
                     onChange={(e) => updateSpecies(index, { speciesName: e.target.value })}
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                  >
-                    <option value="">Select species</option>
-                    <option value="Atlantic Salmon">Atlantic Salmon</option>
-                    <option value="Rainbow Trout">Rainbow Trout</option>
-                    <option value="Sea Trout">Sea Trout</option>
-                    <option value="Arctic Char">Arctic Char</option>
-                    <option value="Atlantic Cod">Atlantic Cod</option>
-                    <option value="Atlantic Halibut">Atlantic Halibut</option>
-                  </select>
+                    placeholder="e.g., Atlantic Salmon"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Fish Count</label>
@@ -432,16 +602,184 @@ const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange }) => {
   );
 };
 
-interface MortalityStepProps {
+// ---------- Stocking Records Step ----------
+
+interface StockingStepProps {
   formData: BiomassFormData;
   onChange: (data: Partial<BiomassFormData>) => void;
 }
 
-const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => {
-  const causes = [
-    'Disease', 'Predation', 'Handling', 'Environmental', 'Unknown',
-    'Equipment Failure', 'Escaped', 'Other'
-  ];
+const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange }) => {
+  const addStockingRecord = () => {
+    const newRecord: StockingFormRecord = {
+      id: `stk-${Date.now()}`,
+      date: '',
+      speciesName: '',
+      quantity: 0,
+      avgWeightG: 0,
+      supplier: '',
+      batchNumber: '',
+    };
+    onChange({ stockings: [...formData.stockings, newRecord] });
+  };
+
+  const updateStockingRecord = (index: number, updates: Partial<StockingFormRecord>) => {
+    const stockings = formData.stockings.map((r, i) =>
+      i === index ? { ...r, ...updates } : r
+    );
+    onChange({ stockings });
+  };
+
+  const removeStockingRecord = (index: number) => {
+    onChange({ stockings: formData.stockings.filter((_, i) => i !== index) });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h4 className="text-sm font-medium text-gray-700">Stocking Records</h4>
+          <p className="text-xs text-gray-500">Fish arrivals during the reporting period (required by Fiskeridirektoratet)</p>
+        </div>
+        <button
+          type="button"
+          onClick={addStockingRecord}
+          className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+        >
+          + Add Stocking Record
+        </button>
+      </div>
+
+      {/* Summary */}
+      <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-indigo-800">Total Stocked</span>
+          <span className="text-2xl font-bold text-indigo-700">
+            {formatNumber(formData.stockings.reduce((sum, s) => sum + s.quantity, 0))} fish
+          </span>
+        </div>
+      </div>
+
+      {formData.stockings.length === 0 ? (
+        <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+          <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+          </svg>
+          <p className="mt-2 text-sm text-gray-500">No stocking records</p>
+          <p className="text-xs text-gray-400">Click "+ Add Stocking Record" if fish were received this period</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {formData.stockings.map((record, index) => (
+            <div key={record.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <div className="flex items-start justify-between mb-3">
+                <span className="text-sm font-medium text-gray-700">Stocking #{index + 1}</span>
+                <button
+                  type="button"
+                  onClick={() => removeStockingRecord(index)}
+                  className="text-red-500 hover:text-red-700"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={record.date}
+                    onChange={(e) => updateStockingRecord(index, { date: e.target.value })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Species</label>
+                  <input
+                    type="text"
+                    value={record.speciesName}
+                    onChange={(e) => updateStockingRecord(index, { speciesName: e.target.value })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    placeholder="e.g., Atlantic Salmon"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Quantity</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={record.quantity || ''}
+                    onChange={(e) => updateStockingRecord(index, { quantity: parseInt(e.target.value) || 0 })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Avg Weight (g)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={record.avgWeightG || ''}
+                    onChange={(e) => updateStockingRecord(index, { avgWeightG: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Supplier</label>
+                  <input
+                    type="text"
+                    value={record.supplier}
+                    onChange={(e) => updateStockingRecord(index, { supplier: e.target.value })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    placeholder="e.g., SalmoBreed"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Batch Number</label>
+                  <input
+                    type="text"
+                    value={record.batchNumber}
+                    onChange={(e) => updateStockingRecord(index, { batchNumber: e.target.value })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    placeholder="e.g., B-2024-001"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ---------- Mortality Step ----------
+
+interface MortalityStepProps {
+  formData: BiomassFormData;
+  onChange: (data: Partial<BiomassFormData>) => void;
+  tanks: Tank[];
+}
+
+const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange, tanks }) => {
+  const handleLoadMortalityFromSystem = () => {
+    if (!tanks || tanks.length === 0) return;
+    const aggregated = aggregateBiomassFromTanks(tanks);
+    if (aggregated.totalMortality > 0) {
+      // Put total mortality under "Unknown" cause since we don't have per-cause breakdown from tanks
+      const byCause = [{ cause: 'Unknown', count: aggregated.totalMortality }];
+      onChange({
+        mortality: {
+          ...formData.mortality,
+          byCause,
+          totalCount: aggregated.totalMortality,
+        },
+      });
+    }
+  };
 
   const updateByCause = (cause: string, count: number) => {
     const byCause = [...formData.mortality.byCause];
@@ -472,9 +810,23 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
 
   return (
     <div className="space-y-4">
-      <div>
-        <h4 className="text-sm font-medium text-gray-700">Mortality by Cause</h4>
-        <p className="text-xs text-gray-500">Record fish losses during the reporting period</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h4 className="text-sm font-medium text-gray-700">Mortality by Cause</h4>
+          <p className="text-xs text-gray-500">Record fish losses during the reporting period</p>
+        </div>
+        {tanks.length > 0 && (
+          <button
+            type="button"
+            onClick={handleLoadMortalityFromSystem}
+            className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1.5"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Load from System
+          </button>
+        )}
       </div>
 
       {/* Total Summary */}
@@ -489,7 +841,7 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
 
       {/* Cause Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {causes.map((cause) => (
+        {MORTALITY_CAUSES.map((cause) => (
           <div key={cause} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
             <label className="block text-xs font-medium text-gray-600 mb-2">{cause}</label>
             <input
@@ -507,12 +859,29 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
   );
 };
 
+// ---------- Feed Step ----------
+
 interface FeedStepProps {
   formData: BiomassFormData;
   onChange: (data: Partial<BiomassFormData>) => void;
+  tanks: Tank[];
 }
 
-const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange }) => {
+const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, tanks }) => {
+  const handleLoadFeedFromSystem = () => {
+    if (!tanks || tanks.length === 0) return;
+    const aggregated = aggregateFeedFromTanks(tanks);
+    if (aggregated.byFeedType.length === 0) return;
+
+    onChange({
+      feedConsumption: {
+        byFeedType: aggregated.byFeedType,
+        totalKg: aggregated.totalKg,
+      },
+      feedLoadedFromSystem: true,
+    });
+  };
+
   const addFeedType = () => {
     const newFeed = { feedName: '', brandName: '', quantityKg: 0 };
     const byFeedType = [...formData.feedConsumption.byFeedType, newFeed];
@@ -553,14 +922,38 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange }) => {
           <h4 className="text-sm font-medium text-gray-700">Feed Consumption</h4>
           <p className="text-xs text-gray-500">Total feed used during the reporting period</p>
         </div>
-        <button
-          type="button"
-          onClick={addFeedType}
-          className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-        >
-          + Add Feed Type
-        </button>
+        <div className="flex items-center gap-2">
+          {tanks.length > 0 && (
+            <button
+              type="button"
+              onClick={handleLoadFeedFromSystem}
+              className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Load from System
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={addFeedType}
+            className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+          >
+            + Add Feed Type
+          </button>
+        </div>
       </div>
+
+      {/* Auto-populated notice */}
+      {formData.feedLoadedFromSystem && formData.feedConsumption.byFeedType.length > 0 && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
+          <svg className="w-4 h-4 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          <span className="text-sm text-green-700">Auto-populated from current tank data (estimated from daily feed rates x 30 days). Adjust as needed.</span>
+        </div>
+      )}
 
       {/* Total Summary */}
       <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
@@ -578,6 +971,11 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange }) => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
           </svg>
           <p className="mt-2 text-sm text-gray-500">No feed records added</p>
+          <p className="text-xs text-gray-400">
+            {tanks.length > 0
+              ? 'Click "Load from System" to auto-populate, or "Add Feed Type" to enter manually'
+              : 'Click "Add Feed Type" to enter feed data'}
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -636,16 +1034,222 @@ const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange }) => {
   );
 };
 
+// ---------- Transfers Step ----------
+
+interface TransfersStepProps {
+  formData: BiomassFormData;
+  onChange: (data: Partial<BiomassFormData>) => void;
+}
+
+const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange }) => {
+  const addTransfer = () => {
+    const newTransfer: TransferFormRecord = {
+      id: `tr-${Date.now()}`,
+      direction: 'incoming',
+      date: '',
+      speciesName: '',
+      quantity: 0,
+      biomassKg: 0,
+      fromToSite: '',
+      batchNumber: '',
+      reason: '',
+    };
+    onChange({ transfers: [...formData.transfers, newTransfer] });
+  };
+
+  const updateTransfer = (index: number, updates: Partial<TransferFormRecord>) => {
+    const transfers = formData.transfers.map((t, i) =>
+      i === index ? { ...t, ...updates } : t
+    );
+    onChange({ transfers });
+  };
+
+  const removeTransfer = (index: number) => {
+    onChange({ transfers: formData.transfers.filter((_, i) => i !== index) });
+  };
+
+  const incomingCount = formData.transfers.filter((t) => t.direction === 'incoming').length;
+  const outgoingCount = formData.transfers.filter((t) => t.direction === 'outgoing').length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h4 className="text-sm font-medium text-gray-700">Transfers</h4>
+          <p className="text-xs text-gray-500">Record fish transfers in and out during the reporting period</p>
+        </div>
+        <button
+          type="button"
+          onClick={addTransfer}
+          className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+        >
+          + Add Transfer
+        </button>
+      </div>
+
+      {/* Summary */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-blue-800">Incoming</span>
+            <span className="text-xl font-bold text-blue-700">{incomingCount}</span>
+          </div>
+        </div>
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-purple-800">Outgoing</span>
+            <span className="text-xl font-bold text-purple-700">{outgoingCount}</span>
+          </div>
+        </div>
+      </div>
+
+      {formData.transfers.length === 0 ? (
+        <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+          <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+          </svg>
+          <p className="mt-2 text-sm text-gray-500">No transfers recorded</p>
+          <p className="text-xs text-gray-400">Click "+ Add Transfer" if fish were transferred this period</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {formData.transfers.map((transfer, index) => (
+            <div key={transfer.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-700">Transfer #{index + 1}</span>
+                  <span className={`px-2 py-0.5 text-xs rounded-full ${
+                    transfer.direction === 'incoming'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-purple-100 text-purple-700'
+                  }`}>
+                    {transfer.direction === 'incoming' ? 'IN' : 'OUT'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeTransfer(index)}
+                  className="text-red-500 hover:text-red-700"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Direction</label>
+                  <select
+                    value={transfer.direction}
+                    onChange={(e) => updateTransfer(index, { direction: e.target.value as 'incoming' | 'outgoing' })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                  >
+                    <option value="incoming">Incoming</option>
+                    <option value="outgoing">Outgoing</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={transfer.date}
+                    onChange={(e) => updateTransfer(index, { date: e.target.value })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Species</label>
+                  <input
+                    type="text"
+                    value={transfer.speciesName}
+                    onChange={(e) => updateTransfer(index, { speciesName: e.target.value })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    placeholder="e.g., Atlantic Salmon"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Quantity</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={transfer.quantity || ''}
+                    onChange={(e) => updateTransfer(index, { quantity: parseInt(e.target.value) || 0 })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Biomass (kg)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={transfer.biomassKg || ''}
+                    onChange={(e) => updateTransfer(index, { biomassKg: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    {transfer.direction === 'incoming' ? 'From Site' : 'To Site'}
+                  </label>
+                  <input
+                    type="text"
+                    value={transfer.fromToSite}
+                    onChange={(e) => updateTransfer(index, { fromToSite: e.target.value })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    placeholder="Site name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Batch Number</label>
+                  <input
+                    type="text"
+                    value={transfer.batchNumber}
+                    onChange={(e) => updateTransfer(index, { batchNumber: e.target.value })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    placeholder="e.g., B-2024-001"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Reason</label>
+                  <input
+                    type="text"
+                    value={transfer.reason}
+                    onChange={(e) => updateTransfer(index, { reason: e.target.value })}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    placeholder="e.g., Production move"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ---------- Review Step ----------
+
 interface ReviewStepProps {
   formData: BiomassFormData;
   siteName: string;
 }
 
 const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
-  // Calculate FCR if possible
-  const fcr = formData.feedConsumption.totalKg > 0 && formData.currentBiomass.totalKg > 0
+  // Estimated FCR - show raw ratio only, label as estimated
+  const estimatedFcr = formData.feedConsumption.totalKg > 0 && formData.currentBiomass.totalKg > 0
+    ? 'N/A (insufficient data for accurate calculation)'
+    : 'N/A';
+
+  // Simple display FCR if we have both feed and biomass
+  const fcrDisplay = formData.feedConsumption.totalKg > 0 && formData.currentBiomass.totalKg > 0
     ? (formData.feedConsumption.totalKg / formData.currentBiomass.totalKg).toFixed(2)
     : 'N/A';
+
+  const incomingTransfers = formData.transfers.filter((t) => t.direction === 'incoming');
+  const outgoingTransfers = formData.transfers.filter((t) => t.direction === 'outgoing');
 
   return (
     <div className="space-y-6">
@@ -672,8 +1276,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           <div className="text-xs text-gray-500">Feed Used</div>
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">{fcr}</div>
-          <div className="text-xs text-gray-500">Est. FCR</div>
+          <div className="text-2xl font-bold text-blue-600">{fcrDisplay}</div>
+          <div className="text-xs text-gray-500">Estimated FCR</div>
         </div>
       </div>
 
@@ -695,6 +1299,27 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
         </div>
       )}
 
+      {/* Stocking Records */}
+      {formData.stockings.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Stocking Records</h5>
+          <div className="space-y-2">
+            {formData.stockings.map((s, i) => (
+              <div key={i} className="flex items-center justify-between text-sm bg-indigo-50 rounded p-2">
+                <div>
+                  <span className="text-gray-700">{s.speciesName || 'Unknown'}</span>
+                  {s.date && <span className="text-gray-400 ml-2 text-xs">{s.date}</span>}
+                </div>
+                <div className="text-right">
+                  <span className="font-medium text-indigo-700">{formatNumber(s.quantity)} fish</span>
+                  {s.avgWeightG > 0 && <span className="text-gray-500 ml-2">({s.avgWeightG.toFixed(0)}g avg)</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Mortality Breakdown */}
       {formData.mortality.byCause.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
@@ -709,6 +1334,78 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           </div>
         </div>
       )}
+
+      {/* Feed Breakdown */}
+      {formData.feedConsumption.byFeedType.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Feed Consumption</h5>
+          <div className="space-y-2">
+            {formData.feedConsumption.byFeedType.map((f, i) => (
+              <div key={i} className="flex items-center justify-between text-sm bg-orange-50 rounded p-2">
+                <div>
+                  <span className="text-gray-700">{f.feedName || 'Unknown'}</span>
+                  {f.brandName && <span className="text-gray-400 ml-2 text-xs">({f.brandName})</span>}
+                </div>
+                <span className="font-medium text-orange-700">{formatWeight(f.quantityKg)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Transfers */}
+      {formData.transfers.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Transfers</h5>
+          {incomingTransfers.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs font-medium text-blue-600 mb-1">Incoming</p>
+              <div className="space-y-1">
+                {incomingTransfers.map((t, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm bg-blue-50 rounded p-2">
+                    <div>
+                      <span className="text-gray-700">{t.speciesName || 'Unknown'}</span>
+                      {t.fromToSite && <span className="text-gray-400 ml-2 text-xs">from {t.fromToSite}</span>}
+                    </div>
+                    <div className="text-right">
+                      <span className="font-medium text-blue-700">{formatNumber(t.quantity)} fish</span>
+                      <span className="text-gray-500 ml-2">({formatWeight(t.biomassKg)})</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {outgoingTransfers.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-purple-600 mb-1">Outgoing</p>
+              <div className="space-y-1">
+                {outgoingTransfers.map((t, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm bg-purple-50 rounded p-2">
+                    <div>
+                      <span className="text-gray-700">{t.speciesName || 'Unknown'}</span>
+                      {t.fromToSite && <span className="text-gray-400 ml-2 text-xs">to {t.fromToSite}</span>}
+                    </div>
+                    <div className="text-right">
+                      <span className="font-medium text-purple-700">{formatNumber(t.quantity)} fish</span>
+                      <span className="text-gray-500 ml-2">({formatWeight(t.biomassKg)})</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* FCR Note */}
+      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+        <p className="text-xs text-yellow-700">
+          <span className="font-medium">Note on Estimated FCR:</span> The displayed FCR is a simplified ratio
+          (total feed / current biomass). Accurate FCR requires: total feed consumed / (current biomass - initial biomass + harvested biomass + mortality biomass).
+          Please verify with your production records.
+        </p>
+      </div>
 
       {/* Submission Notice */}
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
@@ -732,6 +1429,10 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<ReportStatus | 'all'>('all');
+
+  // Fetch active tanks for auto-populate
+  const { data: tanksData } = useTanksList({ isActive: true });
+  const tanks = tanksData?.items || [];
 
   // Filter reports
   const reports = useMemo(() => {
@@ -768,17 +1469,51 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         month: report.month,
         year: report.year,
         currentBiomass: { ...report.currentBiomass },
-        stockings: [...report.stockings],
+        stockings: [],
         mortality: { ...report.mortality },
         slaughter: { ...report.slaughter },
-        transfers: { ...report.transfers },
+        transfers: [],
         feedConsumption: { ...report.feedConsumption },
+        biomassLoadedFromSystem: false,
+        feedLoadedFromSystem: false,
       });
     } else {
-      setFormData(getInitialFormData());
+      const initialData = getInitialFormData();
+
+      // Auto-populate from tanks if available
+      if (tanks.length > 0) {
+        const biomassAggregated = aggregateBiomassFromTanks(tanks);
+        if (biomassAggregated.bySpecies.length > 0) {
+          initialData.currentBiomass = {
+            bySpecies: biomassAggregated.bySpecies,
+            totalKg: biomassAggregated.totalKg,
+          };
+          initialData.biomassLoadedFromSystem = true;
+
+          // Pre-populate mortality total if available
+          if (biomassAggregated.totalMortality > 0) {
+            initialData.mortality = {
+              totalCount: biomassAggregated.totalMortality,
+              byCause: [{ cause: 'Unknown', count: biomassAggregated.totalMortality }],
+              details: [],
+            };
+          }
+        }
+
+        const feedAggregated = aggregateFeedFromTanks(tanks);
+        if (feedAggregated.byFeedType.length > 0) {
+          initialData.feedConsumption = {
+            byFeedType: feedAggregated.byFeedType,
+            totalKg: feedAggregated.totalKg,
+          };
+          initialData.feedLoadedFromSystem = true;
+        }
+      }
+
+      setFormData(initialData);
     }
     setIsWizardOpen(true);
-  }, []);
+  }, [tanks]);
 
   const handleSubmit = useCallback(async () => {
     setIsSubmitting(true);
@@ -813,21 +1548,33 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         id: 'biomass',
         title: 'Biomass',
         description: 'Current stock levels',
-        content: <BiomassStep formData={formData} onChange={handleFormChange} />,
+        content: <BiomassStep formData={formData} onChange={handleFormChange} tanks={tanks} />,
         isValid: () => formData.currentBiomass.bySpecies.length > 0,
+      },
+      {
+        id: 'stockings',
+        title: 'Stockings',
+        description: 'Fish arrivals',
+        content: <StockingStep formData={formData} onChange={handleFormChange} />,
       },
       {
         id: 'mortality',
         title: 'Mortality',
         description: 'Fish losses by cause',
-        content: <MortalityStep formData={formData} onChange={handleFormChange} />,
+        content: <MortalityStep formData={formData} onChange={handleFormChange} tanks={tanks} />,
       },
       {
         id: 'feed',
         title: 'Feed',
         description: 'Feed consumption data',
-        content: <FeedStep formData={formData} onChange={handleFormChange} />,
+        content: <FeedStep formData={formData} onChange={handleFormChange} tanks={tanks} />,
         isValid: () => formData.feedConsumption.totalKg > 0,
+      },
+      {
+        id: 'transfers',
+        title: 'Transfers',
+        description: 'Fish movements in/out',
+        content: <TransfersStep formData={formData} onChange={handleFormChange} />,
       },
       {
         id: 'review',
@@ -836,7 +1583,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         content: <ReviewStep formData={formData} siteName={selectedReport?.siteName || 'Default Site'} />,
       },
     ],
-    [formData, handleFormChange, selectedReport]
+    [formData, handleFormChange, selectedReport, tanks]
   );
 
   return (

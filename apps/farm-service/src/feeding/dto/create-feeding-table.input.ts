@@ -135,9 +135,10 @@ export class FeedingTableParametersInput {
 
 /**
  * Schedule entry input for manual feeding tables
+ * NOTE: Renamed from FeedingScheduleEntryInput to avoid GraphQL Federation conflict
  */
-@InputType()
-export class FeedingScheduleEntryInput {
+@InputType('FeedingTableScheduleEntryInput')
+export class FeedingTableScheduleEntryInput {
   @Field(() => Int)
   @IsNotEmpty()
   @IsNumber()
@@ -305,12 +306,12 @@ export class CreateFeedingTableInput {
   @Type(() => FeedingTableParametersInput)
   parameters: FeedingTableParametersInput;
 
-  @Field(() => [FeedingScheduleEntryInput], { nullable: true })
+  @Field(() => [FeedingTableScheduleEntryInput], { nullable: true })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => FeedingScheduleEntryInput)
-  schedule?: FeedingScheduleEntryInput[];
+  @Type(() => FeedingTableScheduleEntryInput)
+  schedule?: FeedingTableScheduleEntryInput[];
 
   @Field(() => FeedingTableSummaryInput, { nullable: true })
   @IsOptional()

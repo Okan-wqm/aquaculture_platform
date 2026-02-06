@@ -52,7 +52,7 @@ export interface TierMultipliers {
  *   tierMultipliers: { starter: 1.0, professional: 0.9, enterprise: 0.7 }
  * }
  */
-@Entity('module_pricing', { schema: 'public', synchronize: false })
+@Entity('module_pricing', { schema: 'admin', synchronize: false })
 @Index(['moduleId'])
 @Index(['isActive'])
 @Index(['effectiveFrom'])

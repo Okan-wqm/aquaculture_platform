@@ -453,13 +453,17 @@ export const ChemicalsTab: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!formData.name) { alert('Please enter a name.'); return; }
+    if (!formData.code) { alert('Please enter a code.'); return; }
+    if (!formData.siteId) { alert('Please select a site.'); return; }
+
     setIsSaving(true);
     try {
       const input: any = {
         name: formData.name,
         code: formData.code,
         type: formData.type || undefined,
-        siteId: formData.siteId,
         unit: formData.unit || 'liter',
         supplierId: formData.supplierId || undefined,
         description: formData.description || undefined,
@@ -470,19 +474,30 @@ export const ChemicalsTab: React.FC = () => {
         withdrawalPeriodDays: formData.withdrawalPeriodDays || undefined,
         status: formData.status,
         notes: formData.notes || undefined,
-        safetyInfo: {
-          hazardClass: formData.hazardClass || undefined,
-          signalWord: formData.signalWord || undefined,
-          msdsUrl: formData.msdsUrl || undefined,
-        },
-        usageProtocol: {
-          notes: formData.usageGuideUrl ? `Usage Guide: ${formData.usageGuideUrl}` : undefined,
-        },
       };
 
+      // Only include safetyInfo if it has actual values
+      const safetyInfo: Record<string, string> = {};
+      if (formData.hazardClass) safetyInfo.hazardClass = formData.hazardClass;
+      if (formData.signalWord) safetyInfo.signalWord = formData.signalWord;
+      if (formData.msdsUrl) safetyInfo.msdsUrl = formData.msdsUrl;
+      if (Object.keys(safetyInfo).length > 0) {
+        input.safetyInfo = safetyInfo;
+      }
+
+      // Only include usageProtocol if it has actual values (dosage and applicationMethod are required)
+      if (formData.usageGuideUrl) {
+        input.usageProtocol = {
+          notes: `Usage Guide: ${formData.usageGuideUrl}`,
+        };
+      }
+
       if (editingId) {
+        // siteId is not accepted by UpdateChemicalInput - strip it
         await updateChemical.mutateAsync({ id: editingId, ...input });
       } else {
+        // siteId only valid for create
+        input.siteId = formData.siteId || undefined;
         await createChemical.mutateAsync(input as CreateChemicalInput);
       }
       setIsModalOpen(false);

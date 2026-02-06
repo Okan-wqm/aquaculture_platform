@@ -2,6 +2,12 @@
  * Cleaner Fish Report Tab
  * Monthly rensefisk reports
  * Due 7th of each month
+ *
+ * Full Mattilsynet compliance:
+ * - Per-cage (produksjonsenheter) breakdown
+ * - Detailed mortality/removal categories (RensefiskUttak)
+ * - Feed consumption (torrforKg / vatforKg)
+ * - Species code mapping (USB, BER, GRO, BNB)
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import { mockCleanerFishReports } from '../mock/cleanerFishData';
@@ -11,10 +17,12 @@ import {
   CleanerFishSpeciesCount,
   CleanerFishMortality,
   CleanerFishDeployment,
+  CleanerFishArtskode,
   ReportStatus,
 } from '../types/reports.types';
 import { ReportStatusBadge, DeadlineIndicator } from '../components/common';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
+import { useTanksList, Tank } from '../../../hooks/useTanks';
 
 // ============================================================================
 // Types
@@ -22,6 +30,29 @@ import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizar
 
 interface CleanerFishReportTabProps {
   siteId?: string;
+}
+
+/** Detailed mortality/removal breakdown per species (Mattilsynet RensefiskUttak) */
+interface DetailedMortalityEntry {
+  disease: number;              // avlivetSykdom
+  injuries: number;             // avlivetSkader
+  emaciation: number;           // avlivetAvmagret
+  preHandling: number;          // avlivetForestaendeHaandtering
+  unfavorableEnvironment: number; // avlivetUgunstigLevemiljo
+  naturalDeaths: number;        // selvdod
+  transferredOut: number;       // flyttetUt
+  unaccounted: number;          // kanIkkeGjoresRedeFor
+}
+
+/** Per-cage breakdown row */
+interface PerCageEntry {
+  tankId: string;
+  tankName: string;
+  tankCode: string;
+  species: CleanerFishSpecies;
+  openingStock: number;   // beholdningVedForrigeMaanedsslutt
+  added: number;          // utsett.antallNy
+  closingStock: number;   // current quantity from system
 }
 
 interface CleanerFishFormData {
@@ -35,18 +66,62 @@ interface CleanerFishFormData {
     overallRate: number;
   };
   deployments: CleanerFishDeployment[];
+  perCageData: PerCageEntry[];
+  detailedMortality: Record<CleanerFishSpecies, DetailedMortalityEntry>;
+  feedConsumption: {
+    dryFeedKg: number;
+    wetFeedKg: number;
+  };
 }
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const CLEANER_FISH_SPECIES: { value: CleanerFishSpecies; label: string; norwegian: string }[] = [
-  { value: 'lumpfish', label: 'Lumpfish', norwegian: 'Rognkjeks' },
-  { value: 'ballan_wrasse', label: 'Ballan Wrasse', norwegian: 'Berggylt' },
-  { value: 'corkwing_wrasse', label: 'Corkwing Wrasse', norwegian: 'Grønngylt' },
-  { value: 'goldsinny_wrasse', label: 'Goldsinny Wrasse', norwegian: 'Bergnebb' },
+const CLEANER_FISH_SPECIES: { value: CleanerFishSpecies; label: string; norwegian: string; mattilsynetCode: CleanerFishArtskode }[] = [
+  { value: 'lumpfish', label: 'Lumpfish', norwegian: 'Rognkjeks', mattilsynetCode: 'USB' },
+  { value: 'ballan_wrasse', label: 'Ballan Wrasse', norwegian: 'Berggylt', mattilsynetCode: 'BER' },
+  { value: 'corkwing_wrasse', label: 'Corkwing Wrasse', norwegian: 'Gronngylt', mattilsynetCode: 'GRO' },
+  { value: 'goldsinny_wrasse', label: 'Goldsinny Wrasse', norwegian: 'Bergnebb', mattilsynetCode: 'BNB' },
 ];
+
+const MORTALITY_CATEGORIES: { key: keyof DetailedMortalityEntry; label: string; norwegian: string }[] = [
+  { key: 'disease', label: 'Euthanized - Disease', norwegian: 'avlivetSykdom' },
+  { key: 'injuries', label: 'Euthanized - Injuries', norwegian: 'avlivetSkader' },
+  { key: 'emaciation', label: 'Euthanized - Emaciation', norwegian: 'avlivetAvmagret' },
+  { key: 'preHandling', label: 'Euthanized - Pre-handling', norwegian: 'avlivetForestaendeHaandtering' },
+  { key: 'unfavorableEnvironment', label: 'Euthanized - Unfavorable env.', norwegian: 'avlivetUgunstigLevemiljo' },
+  { key: 'naturalDeaths', label: 'Natural Deaths', norwegian: 'selvdod' },
+  { key: 'transferredOut', label: 'Transferred Out', norwegian: 'flyttetUt' },
+  { key: 'unaccounted', label: 'Unaccounted', norwegian: 'kanIkkeGjoresRedeFor' },
+];
+
+function emptyDetailedMortality(): DetailedMortalityEntry {
+  return {
+    disease: 0,
+    injuries: 0,
+    emaciation: 0,
+    preHandling: 0,
+    unfavorableEnvironment: 0,
+    naturalDeaths: 0,
+    transferredOut: 0,
+    unaccounted: 0,
+  };
+}
+
+function getDefaultDetailedMortality(): Record<CleanerFishSpecies, DetailedMortalityEntry> {
+  return {
+    lumpfish: emptyDetailedMortality(),
+    ballan_wrasse: emptyDetailedMortality(),
+    corkwing_wrasse: emptyDetailedMortality(),
+    goldsinny_wrasse: emptyDetailedMortality(),
+  };
+}
+
+function sumDetailedMortality(entry: DetailedMortalityEntry): number {
+  return entry.disease + entry.injuries + entry.emaciation + entry.preHandling
+    + entry.unfavorableEnvironment + entry.naturalDeaths + entry.transferredOut + entry.unaccounted;
+}
 
 // ============================================================================
 // Helper Functions
@@ -78,6 +153,125 @@ function getSpeciesNorwegian(species: CleanerFishSpecies): string {
   return CLEANER_FISH_SPECIES.find((s) => s.value === species)?.norwegian || '';
 }
 
+function getSpeciesMattilsynetCode(species: CleanerFishSpecies): CleanerFishArtskode {
+  return CLEANER_FISH_SPECIES.find((s) => s.value === species)?.mattilsynetCode || 'USB';
+}
+
+interface TankOption {
+  id: string;
+  name: string;
+  code: string;
+}
+
+/**
+ * Map cleaner fish species names from tank data to report species codes
+ */
+function mapSpeciesNameToCode(name: string): CleanerFishSpecies | null {
+  const lower = name.toLowerCase();
+  if (lower.includes('lumpfish') || lower.includes('rognkjeks')) return 'lumpfish';
+  if (lower.includes('ballan') || lower.includes('berggylt')) return 'ballan_wrasse';
+  if (lower.includes('corkwing') || lower.includes('gronngylt') || lower.includes('grønngylt')) return 'corkwing_wrasse';
+  if (lower.includes('goldsinny') || lower.includes('bergnebb')) return 'goldsinny_wrasse';
+  // Fallback for generic wrasse
+  if (lower.includes('wrasse') || lower.includes('leppefisk')) return 'ballan_wrasse';
+  return null;
+}
+
+/**
+ * Aggregate cleaner fish inventory from all tanks
+ */
+function aggregateCleanerFishFromTanks(tanks: Tank[]): {
+  fishBySpecies: CleanerFishSpeciesCount[];
+  totalCount: number;
+  mortalityBySpecies: { species: CleanerFishSpecies; count: number; rate: number }[];
+  totalMortality: number;
+} {
+  const speciesMap = new Map<CleanerFishSpecies, {
+    count: number;
+    source: 'farmed' | 'wild_caught';
+    mortality: number;
+    initialQuantity: number;
+  }>();
+
+  for (const tank of tanks) {
+    const details = tank.batchMetrics?.cleanerFishDetails;
+    if (!details || details.length === 0) continue;
+
+    for (const detail of details) {
+      const speciesCode = mapSpeciesNameToCode(detail.speciesName || '');
+      if (!speciesCode) continue;
+
+      const existing = speciesMap.get(speciesCode) || {
+        count: 0,
+        source: (detail.sourceType as 'farmed' | 'wild_caught') || 'farmed',
+        mortality: 0,
+        initialQuantity: 0,
+      };
+
+      existing.count += detail.quantity || 0;
+      existing.mortality += detail.totalMortality || 0;
+      existing.initialQuantity += detail.initialQuantity || 0;
+      // Use sourceType from the first batch encountered
+      if (detail.sourceType) {
+        existing.source = detail.sourceType as 'farmed' | 'wild_caught';
+      }
+      speciesMap.set(speciesCode, existing);
+    }
+  }
+
+  const fishBySpecies: CleanerFishSpeciesCount[] = [];
+  const mortalityBySpecies: { species: CleanerFishSpecies; count: number; rate: number }[] = [];
+  let totalCount = 0;
+  let totalMortality = 0;
+
+  for (const [species, data] of speciesMap.entries()) {
+    fishBySpecies.push({
+      species,
+      norwegianName: getSpeciesNorwegian(species),
+      count: data.count,
+      source: data.source,
+    });
+    totalCount += data.count;
+
+    if (data.mortality > 0) {
+      const rate = data.count > 0 ? (data.mortality / (data.count + data.mortality)) * 100 : 0;
+      mortalityBySpecies.push({ species, count: data.mortality, rate });
+      totalMortality += data.mortality;
+    }
+  }
+
+  return { fishBySpecies, totalCount, mortalityBySpecies, totalMortality };
+}
+
+/**
+ * Build per-cage data from tanks that have cleaner fish
+ */
+function buildPerCageDataFromTanks(tanks: Tank[]): PerCageEntry[] {
+  const entries: PerCageEntry[] = [];
+
+  for (const tank of tanks) {
+    const details = tank.batchMetrics?.cleanerFishDetails;
+    if (!details || details.length === 0) continue;
+
+    for (const detail of details) {
+      const speciesCode = mapSpeciesNameToCode(detail.speciesName || '');
+      if (!speciesCode) continue;
+
+      entries.push({
+        tankId: tank.id,
+        tankName: tank.name,
+        tankCode: tank.code,
+        species: speciesCode,
+        openingStock: 0, // Default 0 for first report; user can edit
+        added: 0,
+        closingStock: detail.quantity || 0,
+      });
+    }
+  }
+
+  return entries;
+}
+
 function getInitialFormData(): CleanerFishFormData {
   const now = new Date();
   const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
@@ -89,6 +283,9 @@ function getInitialFormData(): CleanerFishFormData {
     totalCount: 0,
     mortality: { bySpecies: [], totalCount: 0, overallRate: 0 },
     deployments: [],
+    perCageData: [],
+    detailedMortality: getDefaultDetailedMortality(),
+    feedConsumption: { dryFeedKg: 0, wetFeedKg: 0 },
   };
 }
 
@@ -190,9 +387,34 @@ const CleanerFishReportCard: React.FC<CleanerFishReportCardProps> = ({ report, o
 interface InventoryStepProps {
   formData: CleanerFishFormData;
   onChange: (data: Partial<CleanerFishFormData>) => void;
+  tanks?: Tank[];
 }
 
-const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange }) => {
+const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange, tanks }) => {
+  const handleLoadFromSystem = () => {
+    if (!tanks || tanks.length === 0) return;
+    const aggregated = aggregateCleanerFishFromTanks(tanks);
+
+    // Also set mortality data from system
+    const overallRate = aggregated.totalCount > 0
+      ? (aggregated.totalMortality / (aggregated.totalCount + aggregated.totalMortality)) * 100
+      : 0;
+
+    // Build per-cage data
+    const perCageData = buildPerCageDataFromTanks(tanks);
+
+    onChange({
+      fishBySpecies: aggregated.fishBySpecies,
+      totalCount: aggregated.totalCount,
+      mortality: {
+        bySpecies: aggregated.mortalityBySpecies,
+        totalCount: aggregated.totalMortality,
+        overallRate,
+      },
+      perCageData,
+    });
+  };
+
   const addSpecies = (species: CleanerFishSpecies) => {
     if (formData.fishBySpecies.some((f) => f.species === species)) return;
 
@@ -238,8 +460,20 @@ const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange }) => 
           <h4 className="text-sm font-medium text-gray-700">Cleaner Fish Inventory</h4>
           <p className="text-xs text-gray-500">Current stock by species</p>
         </div>
-        {availableSpecies.length > 0 && (
-          <div className="relative">
+        <div className="flex items-center gap-2">
+          {tanks && tanks.some(t => (t.batchMetrics?.cleanerFishQuantity || 0) > 0) && (
+            <button
+              type="button"
+              onClick={handleLoadFromSystem}
+              className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Load from Tanks
+            </button>
+          )}
+          {availableSpecies.length > 0 && (
             <select
               onChange={(e) => addSpecies(e.target.value as CleanerFishSpecies)}
               value=""
@@ -252,8 +486,8 @@ const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange }) => 
                 </option>
               ))}
             </select>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Total Summary */}
@@ -337,46 +571,57 @@ const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange }) => 
   );
 };
 
-interface MortalityStepProps {
+// ============================================================================
+// Detailed Mortality Step
+// ============================================================================
+
+interface DetailedMortalityStepProps {
   formData: CleanerFishFormData;
   onChange: (data: Partial<CleanerFishFormData>) => void;
 }
 
-const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => {
-  const updateMortality = (species: CleanerFishSpecies, count: number) => {
-    const fishCount = formData.fishBySpecies.find((f) => f.species === species)?.count || 0;
-    const rate = fishCount > 0 ? (count / fishCount) * 100 : 0;
+const DetailedMortalityStep: React.FC<DetailedMortalityStepProps> = ({ formData, onChange }) => {
+  const updateDetailedMortality = (
+    species: CleanerFishSpecies,
+    key: keyof DetailedMortalityEntry,
+    value: number,
+  ) => {
+    const updated = { ...formData.detailedMortality };
+    updated[species] = { ...updated[species], [key]: value };
 
-    let bySpecies = [...formData.mortality.bySpecies];
-    const existingIndex = bySpecies.findIndex((m) => m.species === species);
+    // Also recalculate the legacy mortality summary from detailed data
+    const bySpecies: { species: CleanerFishSpecies; count: number; rate: number }[] = [];
+    let totalCount = 0;
 
-    if (existingIndex >= 0) {
-      bySpecies[existingIndex] = { species, count, rate };
-    } else {
-      bySpecies.push({ species, count, rate });
+    for (const fish of formData.fishBySpecies) {
+      const entry = updated[fish.species];
+      if (!entry) continue;
+      const speciesTotal = sumDetailedMortality(entry);
+      const rate = fish.count > 0 ? (speciesTotal / fish.count) * 100 : 0;
+      bySpecies.push({ species: fish.species, count: speciesTotal, rate });
+      totalCount += speciesTotal;
     }
 
-    const totalCount = bySpecies.reduce((sum, m) => sum + m.count, 0);
     const overallRate = formData.totalCount > 0 ? (totalCount / formData.totalCount) * 100 : 0;
 
     onChange({
+      detailedMortality: updated,
       mortality: { bySpecies, totalCount, overallRate },
     });
   };
 
-  const getMortalityCount = (species: CleanerFishSpecies): number => {
-    return formData.mortality.bySpecies.find((m) => m.species === species)?.count || 0;
-  };
-
-  const getMortalityRate = (species: CleanerFishSpecies): number => {
-    return formData.mortality.bySpecies.find((m) => m.species === species)?.rate || 0;
+  const getSpeciesTotal = (species: CleanerFishSpecies): number => {
+    const entry = formData.detailedMortality[species];
+    return entry ? sumDetailedMortality(entry) : 0;
   };
 
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-sm font-medium text-gray-700">Mortality by Species</h4>
-        <p className="text-xs text-gray-500">Record cleaner fish deaths during the reporting period</p>
+        <h4 className="text-sm font-medium text-gray-700">Detailed Mortality / Removal</h4>
+        <p className="text-xs text-gray-500">
+          Mattilsynet requires categorized removal reasons per species (RensefiskUttak)
+        </p>
       </div>
 
       {/* Overall Summary */}
@@ -385,7 +630,7 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
           <div>
             <span className="text-sm font-medium text-red-800">Overall Mortality</span>
             <div className="text-xs text-red-600 mt-1">
-              {formatNumber(formData.mortality.totalCount)} deaths
+              {formatNumber(formData.mortality.totalCount)} removals / deaths
             </div>
           </div>
           <span className="text-2xl font-bold text-red-700">
@@ -399,44 +644,219 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
           <p className="text-sm text-gray-500">Add species inventory first to record mortality</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {formData.fishBySpecies.map((fish) => (
-            <div key={fish.species} className="flex items-center gap-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-              <div className="flex-1">
-                <div className="text-sm font-medium text-gray-700">{getSpeciesLabel(fish.species)}</div>
-                <div className="text-xs text-gray-500">Inventory: {formatNumber(fish.count)}</div>
+        <div className="space-y-4">
+          {formData.fishBySpecies.map((fish) => {
+            const entry = formData.detailedMortality[fish.species] || emptyDetailedMortality();
+            const speciesTotal = getSpeciesTotal(fish.species);
+            const rate = fish.count > 0 ? (speciesTotal / fish.count) * 100 : 0;
+
+            return (
+              <div key={fish.species} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <span className="text-sm font-medium text-gray-700">
+                      {getSpeciesLabel(fish.species)}
+                    </span>
+                    <span className="text-xs text-gray-400 ml-2">
+                      ({getSpeciesMattilsynetCode(fish.species)})
+                    </span>
+                    <span className="text-xs text-gray-500 ml-2">
+                      Inventory: {formatNumber(fish.count)}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-sm font-medium text-red-600">
+                      {formatNumber(speciesTotal)} total
+                    </span>
+                    <span className="text-xs text-gray-500 ml-2">
+                      ({rate.toFixed(1)}%)
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {MORTALITY_CATEGORIES.map((cat) => (
+                    <div key={cat.key}>
+                      <label className="block text-xs text-gray-500 mb-1 truncate" title={cat.label}>
+                        {cat.label}
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={entry[cat.key] || ''}
+                        onChange={(e) =>
+                          updateDetailedMortality(fish.species, cat.key, parseInt(e.target.value) || 0)
+                        }
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
+                        placeholder="0"
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="w-32">
-                <label className="block text-xs text-gray-500 mb-1">Deaths</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={getMortalityCount(fish.species) || ''}
-                  onChange={(e) => updateMortality(fish.species, parseInt(e.target.value) || 0)}
-                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                  placeholder="0"
-                />
-              </div>
-              <div className="w-24 text-right">
-                <span className="text-sm text-gray-500">Rate:</span>
-                <span className="ml-1 font-medium text-red-600">
-                  {getMortalityRate(fish.species).toFixed(1)}%
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
   );
 };
 
-interface DeploymentsStepProps {
+// ============================================================================
+// Per-Cage Breakdown Step
+// ============================================================================
+
+interface PerCageStepProps {
   formData: CleanerFishFormData;
   onChange: (data: Partial<CleanerFishFormData>) => void;
 }
 
-const DeploymentsStep: React.FC<DeploymentsStepProps> = ({ formData, onChange }) => {
+const PerCageStep: React.FC<PerCageStepProps> = ({ formData, onChange }) => {
+  const updatePerCageEntry = (index: number, updates: Partial<PerCageEntry>) => {
+    const perCageData = formData.perCageData.map((entry, i) =>
+      i === index ? { ...entry, ...updates } : entry
+    );
+    onChange({ perCageData });
+  };
+
+  const updateFeedConsumption = (field: 'dryFeedKg' | 'wetFeedKg', value: number) => {
+    onChange({
+      feedConsumption: { ...formData.feedConsumption, [field]: value },
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h4 className="text-sm font-medium text-gray-700">Per-Cage Breakdown</h4>
+        <p className="text-xs text-gray-500">
+          Mattilsynet produksjonsenheter - per-cage stock data and feed consumption
+        </p>
+      </div>
+
+      {/* Feed Consumption */}
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+        <h5 className="text-xs font-medium text-amber-800 uppercase mb-3">Feed Consumption (for period)</h5>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">Dry feed - torrforKg</label>
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={formData.feedConsumption.dryFeedKg || ''}
+                onChange={(e) => updateFeedConsumption('dryFeedKg', parseFloat(e.target.value) || 0)}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md pr-10"
+                placeholder="0"
+              />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">kg</span>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">Wet feed - vatforKg</label>
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={formData.feedConsumption.wetFeedKg || ''}
+                onChange={(e) => updateFeedConsumption('wetFeedKg', parseFloat(e.target.value) || 0)}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md pr-10"
+                placeholder="0"
+              />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">kg</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Per-Cage Table */}
+      {formData.perCageData.length === 0 ? (
+        <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+          <svg className="w-10 h-10 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+          <p className="mt-2 text-sm text-gray-500">No per-cage data available</p>
+          <p className="text-xs text-gray-400">
+            Use "Load from Tanks" in the Inventory step to populate cage data
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-100 text-left">
+                <th className="px-3 py-2 text-xs font-medium text-gray-500">Cage (merdId)</th>
+                <th className="px-3 py-2 text-xs font-medium text-gray-500">Species</th>
+                <th className="px-3 py-2 text-xs font-medium text-gray-500 text-right">Opening Stock</th>
+                <th className="px-3 py-2 text-xs font-medium text-gray-500 text-right">Added</th>
+                <th className="px-3 py-2 text-xs font-medium text-gray-500 text-right">Closing Stock</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {formData.perCageData.map((entry, index) => (
+                <tr key={`${entry.tankId}-${entry.species}-${index}`} className="hover:bg-gray-50">
+                  <td className="px-3 py-2">
+                    <div className="text-sm font-medium text-gray-700">{entry.tankName}</div>
+                    <div className="text-xs text-gray-400">{entry.tankCode}</div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <span className="text-sm text-gray-700">{getSpeciesLabel(entry.species)}</span>
+                    <span className="text-xs text-gray-400 ml-1">
+                      ({getSpeciesMattilsynetCode(entry.species)})
+                    </span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="number"
+                      min="0"
+                      value={entry.openingStock || ''}
+                      onChange={(e) =>
+                        updatePerCageEntry(index, { openingStock: parseInt(e.target.value) || 0 })
+                      }
+                      className="w-24 ml-auto block px-2 py-1 text-sm text-right border border-gray-300 rounded-md"
+                      placeholder="0"
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="number"
+                      min="0"
+                      value={entry.added || ''}
+                      onChange={(e) =>
+                        updatePerCageEntry(index, { added: parseInt(e.target.value) || 0 })
+                      }
+                      className="w-24 ml-auto block px-2 py-1 text-sm text-right border border-gray-300 rounded-md"
+                      placeholder="0"
+                    />
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <span className="text-sm font-medium text-gray-900">
+                      {formatNumber(entry.closingStock)}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// Deployments Step
+// ============================================================================
+
+interface DeploymentsStepProps {
+  formData: CleanerFishFormData;
+  onChange: (data: Partial<CleanerFishFormData>) => void;
+  tankOptions?: TankOption[];
+}
+
+const DeploymentsStep: React.FC<DeploymentsStepProps> = ({ formData, onChange, tankOptions }) => {
   const addDeployment = () => {
     const newDeployment: CleanerFishDeployment = {
       id: `dep-${Date.now()}`,
@@ -534,14 +954,33 @@ const DeploymentsStep: React.FC<DeploymentsStepProps> = ({ formData, onChange })
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Target Cage</label>
-                  <input
-                    type="text"
-                    value={deployment.targetCageName}
-                    onChange={(e) => updateDeployment(index, { targetCageName: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                    placeholder="Cage 1"
-                  />
+                  <label className="block text-xs text-gray-500 mb-1">Target Cage/Tank</label>
+                  {tankOptions && tankOptions.length > 0 ? (
+                    <select
+                      value={deployment.targetCageId || ''}
+                      onChange={(e) => {
+                        const tank = tankOptions.find(t => t.id === e.target.value);
+                        updateDeployment(index, {
+                          targetCageId: e.target.value,
+                          targetCageName: tank ? `${tank.name} (${tank.code})` : '',
+                        });
+                      }}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    >
+                      <option value="">Select tank...</option>
+                      {tankOptions.map((t) => (
+                        <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={deployment.targetCageName}
+                      onChange={(e) => updateDeployment(index, { targetCageName: e.target.value })}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                      placeholder="Cage 1"
+                    />
+                  )}
                 </div>
               </div>
             </div>
@@ -551,6 +990,10 @@ const DeploymentsStep: React.FC<DeploymentsStepProps> = ({ formData, onChange })
     </div>
   );
 };
+
+// ============================================================================
+// Review Step
+// ============================================================================
 
 interface ReviewStepProps {
   formData: CleanerFishFormData;
@@ -571,22 +1014,26 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-teal-600">{formatNumber(formData.totalCount)}</div>
+      <div className="grid grid-cols-4 gap-3">
+        <div className="bg-white border border-gray-200 rounded-lg p-3 text-center">
+          <div className="text-xl font-bold text-teal-600">{formatNumber(formData.totalCount)}</div>
           <div className="text-xs text-gray-500">Total Inventory</div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">{formData.mortality.overallRate.toFixed(1)}%</div>
+        <div className="bg-white border border-gray-200 rounded-lg p-3 text-center">
+          <div className="text-xl font-bold text-red-600">{formData.mortality.overallRate.toFixed(1)}%</div>
           <div className="text-xs text-gray-500">Mortality Rate</div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">{formatNumber(totalDeployed)}</div>
+        <div className="bg-white border border-gray-200 rounded-lg p-3 text-center">
+          <div className="text-xl font-bold text-blue-600">{formatNumber(totalDeployed)}</div>
           <div className="text-xs text-gray-500">Deployed</div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-lg p-3 text-center">
+          <div className="text-xl font-bold text-purple-600">{formData.perCageData.length}</div>
+          <div className="text-xs text-gray-500">Cages</div>
         </div>
       </div>
 
-      {/* Species Breakdown */}
+      {/* Species Breakdown with Mattilsynet codes */}
       {formData.fishBySpecies.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Inventory by Species</h5>
@@ -594,7 +1041,11 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             {formData.fishBySpecies.map((fish) => (
               <div key={fish.species} className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
+                  <span className="px-1.5 py-0.5 text-xs font-mono bg-gray-100 text-gray-600 rounded">
+                    {getSpeciesMattilsynetCode(fish.species)}
+                  </span>
                   <span className="text-gray-700">{getSpeciesLabel(fish.species)}</span>
+                  <span className="text-xs text-gray-400">({getSpeciesNorwegian(fish.species)})</span>
                   <span className={`px-1.5 py-0.5 text-xs rounded ${
                     fish.source === 'farmed' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
                   }`}>
@@ -604,6 +1055,99 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                 <span className="font-medium text-gray-900">{formatNumber(fish.count)}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Detailed Mortality Breakdown */}
+      {formData.fishBySpecies.length > 0 && formData.mortality.totalCount > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">
+            Detailed Mortality / Removal ({formatNumber(formData.mortality.totalCount)} total)
+          </h5>
+          <div className="space-y-3">
+            {formData.fishBySpecies.map((fish) => {
+              const entry = formData.detailedMortality[fish.species];
+              if (!entry) return null;
+              const speciesTotal = sumDetailedMortality(entry);
+              if (speciesTotal === 0) return null;
+
+              return (
+                <div key={fish.species} className="text-sm">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium text-gray-700">{getSpeciesLabel(fish.species)}</span>
+                    <span className="text-xs font-mono text-gray-400">
+                      ({getSpeciesMattilsynetCode(fish.species)})
+                    </span>
+                    <span className="text-xs text-red-600">- {formatNumber(speciesTotal)} removals</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-x-4 gap-y-1 pl-4 text-xs text-gray-600">
+                    {MORTALITY_CATEGORIES.map((cat) => {
+                      const val = entry[cat.key];
+                      if (val === 0) return null;
+                      return (
+                        <div key={cat.key} className="flex justify-between">
+                          <span className="truncate">{cat.label}:</span>
+                          <span className="font-medium ml-1">{val}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Per-Cage Breakdown Summary */}
+      {formData.perCageData.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">
+            Per-Cage Breakdown ({formData.perCageData.length} entries)
+          </h5>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left border-b border-gray-100">
+                  <th className="pb-1 text-gray-500 font-medium">Cage</th>
+                  <th className="pb-1 text-gray-500 font-medium">Species</th>
+                  <th className="pb-1 text-gray-500 font-medium text-right">Opening</th>
+                  <th className="pb-1 text-gray-500 font-medium text-right">Added</th>
+                  <th className="pb-1 text-gray-500 font-medium text-right">Closing</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {formData.perCageData.map((entry, i) => (
+                  <tr key={i}>
+                    <td className="py-1 text-gray-700">{entry.tankCode}</td>
+                    <td className="py-1 text-gray-600">
+                      {getSpeciesMattilsynetCode(entry.species)}
+                    </td>
+                    <td className="py-1 text-right text-gray-700">{formatNumber(entry.openingStock)}</td>
+                    <td className="py-1 text-right text-gray-700">{formatNumber(entry.added)}</td>
+                    <td className="py-1 text-right font-medium text-gray-900">{formatNumber(entry.closingStock)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Feed Consumption */}
+      {(formData.feedConsumption.dryFeedKg > 0 || formData.feedConsumption.wetFeedKg > 0) && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Feed Consumption</h5>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-600">Dry feed (torrforKg)</span>
+              <span className="font-medium text-gray-900">{formData.feedConsumption.dryFeedKg.toFixed(1)} kg</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Wet feed (vatforKg)</span>
+              <span className="font-medium text-gray-900">{formData.feedConsumption.wetFeedKg.toFixed(1)} kg</span>
+            </div>
           </div>
         </div>
       )}
@@ -631,7 +1175,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
         <p className="text-sm text-gray-600">
           By submitting this report, you confirm that the data is accurate and complete.
-          This report will be submitted to the Norwegian Food Safety Authority.
+          This report will be submitted to the Norwegian Food Safety Authority (Mattilsynet)
+          via the rensefisk API endpoint.
         </p>
       </div>
     </div>
@@ -649,6 +1194,14 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<ReportStatus | 'all'>('all');
+
+  // Fetch tanks with cleaner fish data for auto-population
+  const { data: tanksData } = useTanksList({ isActive: true });
+  const tanks = tanksData?.items || [];
+  const tankOptions: TankOption[] = useMemo(
+    () => tanks.map((t) => ({ id: t.id, name: t.name, code: t.code })),
+    [tanks]
+  );
 
   // Filter reports
   const reports = useMemo(() => {
@@ -688,12 +1241,40 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
         totalCount: report.totalCount,
         mortality: { ...report.mortality },
         deployments: [...report.deployments],
+        perCageData: [],
+        detailedMortality: getDefaultDetailedMortality(),
+        feedConsumption: {
+          dryFeedKg: report.torrforKg || 0,
+          wetFeedKg: report.vatforKg || 0,
+        },
       });
     } else {
-      setFormData(getInitialFormData());
+      // Auto-populate from system data when creating new report
+      const initialData = getInitialFormData();
+
+      if (tanks.length > 0) {
+        const aggregated = aggregateCleanerFishFromTanks(tanks);
+        if (aggregated.totalCount > 0) {
+          initialData.fishBySpecies = aggregated.fishBySpecies;
+          initialData.totalCount = aggregated.totalCount;
+          const overallRate = aggregated.totalCount > 0
+            ? (aggregated.totalMortality / (aggregated.totalCount + aggregated.totalMortality)) * 100
+            : 0;
+          initialData.mortality = {
+            bySpecies: aggregated.mortalityBySpecies,
+            totalCount: aggregated.totalMortality,
+            overallRate,
+          };
+        }
+
+        // Auto-populate per-cage data
+        initialData.perCageData = buildPerCageDataFromTanks(tanks);
+      }
+
+      setFormData(initialData);
     }
     setIsWizardOpen(true);
-  }, []);
+  }, [tanks]);
 
   const handleSubmit = useCallback(async () => {
     setIsSubmitting(true);
@@ -716,20 +1297,26 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
         id: 'inventory',
         title: 'Inventory',
         description: 'Current stock by species',
-        content: <InventoryStep formData={formData} onChange={handleFormChange} />,
+        content: <InventoryStep formData={formData} onChange={handleFormChange} tanks={tanks} />,
         isValid: () => formData.fishBySpecies.length > 0 && formData.totalCount > 0,
       },
       {
         id: 'mortality',
         title: 'Mortality',
-        description: 'Deaths by species',
-        content: <MortalityStep formData={formData} onChange={handleFormChange} />,
+        description: 'Detailed removal reasons',
+        content: <DetailedMortalityStep formData={formData} onChange={handleFormChange} />,
+      },
+      {
+        id: 'per-cage',
+        title: 'Per-Cage',
+        description: 'Cage breakdown & feed',
+        content: <PerCageStep formData={formData} onChange={handleFormChange} />,
       },
       {
         id: 'deployments',
         title: 'Deployments',
         description: 'Transfers to salmon cages',
-        content: <DeploymentsStep formData={formData} onChange={handleFormChange} />,
+        content: <DeploymentsStep formData={formData} onChange={handleFormChange} tankOptions={tankOptions} />,
         optional: true,
       },
       {
@@ -739,7 +1326,7 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
         content: <ReviewStep formData={formData} siteName={selectedReport?.siteName || 'Default Site'} />,
       },
     ],
-    [formData, handleFormChange, selectedReport]
+    [formData, handleFormChange, selectedReport, tanks, tankOptions]
   );
 
   return (

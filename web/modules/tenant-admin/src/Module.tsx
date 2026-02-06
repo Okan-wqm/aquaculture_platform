@@ -17,6 +17,8 @@ import TenantDatabase from './pages/TenantDatabase';
 import TenantMessagesPage from './pages/TenantMessagesPage';
 import TenantSupportPage from './pages/TenantSupportPage';
 import TenantAnnouncementsPage from './pages/TenantAnnouncementsPage';
+import EdgeDevicesPage from './pages/EdgeDevicesPage';
+import EdgeDeviceDetailPage from './pages/EdgeDeviceDetailPage';
 
 /**
  * Tenant Admin Module
@@ -50,6 +52,10 @@ const TenantAdminModule: React.FC = () => {
 
       {/* Tenant Settings */}
       <Route path="settings" element={<TenantSettings />} />
+
+      {/* Edge Devices */}
+      <Route path="devices" element={<EdgeDevicesPage />} />
+      <Route path="devices/:deviceId" element={<EdgeDeviceDetailPage />} />
 
       {/* Database View */}
       <Route path="database" element={<TenantDatabase />} />

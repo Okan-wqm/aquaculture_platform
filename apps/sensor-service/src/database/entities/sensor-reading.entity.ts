@@ -46,7 +46,7 @@ export class SensorReadings {
  * Optimized for ingestion rates of 10K+ readings per second across all tenants
  */
 @ObjectType()
-@Entity('sensor_readings', { schema: 'sensor' })
+@Entity('sensor_readings')
 @Index(['sensorId', 'timestamp'])
 @Index(['tenantId', 'timestamp'])
 @Index(['pondId', 'timestamp'])
@@ -56,12 +56,12 @@ export class SensorReading {
   id!: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'sensor_id' })
   @Index()
   sensorId!: string;
 
   @Field()
-  @Column()
+  @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
   tenantId!: string;
 
@@ -75,11 +75,11 @@ export class SensorReading {
   readings!: SensorReadings;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'pond_id', nullable: true })
   pondId?: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'farm_id', nullable: true })
   farmId?: string;
 
   @Field(() => Float, { nullable: true })

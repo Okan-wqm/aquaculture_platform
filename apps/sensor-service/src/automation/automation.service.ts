@@ -15,6 +15,7 @@ import { Repository, DataSource, FindOptionsWhere, In } from 'typeorm';
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
+import { DeploymentLogService } from './services/deployment-log.service';
 import {
   CreateProgramInput,
   UpdateProgramInput,
@@ -69,6 +70,8 @@ export class AutomationService {
     private readonly edgeDeviceService: EdgeDeviceService,
     @Optional()
     private readonly mqttClient: MqttClientService,
+    @Optional()
+    private readonly deploymentLogService: DeploymentLogService,
   ) {}
 
   // ============================================
@@ -1035,7 +1038,20 @@ export class AutomationService {
       params: edgeScript,
     };
 
-    // 5. Publish via MQTT
+    // 5. Create deployment log entry
+    if (this.deploymentLogService) {
+      await this.deploymentLogService.createLog({
+        tenantId,
+        programId,
+        deviceId,
+        commandId,
+        version: program.version,
+        edgeScript: edgeScript as Record<string, unknown>,
+        deployedBy,
+      });
+    }
+
+    // 6. Publish via MQTT
     const commandTopic = `tenants/${tenantId}/devices/${device.id}/commands`;
 
     try {
@@ -1044,7 +1060,12 @@ export class AutomationService {
         `Deploy command sent to ${device.deviceCode}: ${commandId}`,
       );
 
-      // 6. Update program status
+      // Mark deployment as deploying
+      if (this.deploymentLogService) {
+        await this.deploymentLogService.markDeploying(commandId);
+      }
+
+      // 7. Update program status
       program.status = ProgramStatus.DEPLOYED;
       program.deployedVersion = program.version;
       program.deployedAt = new Date();

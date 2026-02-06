@@ -17,16 +17,16 @@ import { settingsApi } from '../services/adminApi';
 interface EmailConfig {
   smtpHost: string;
   smtpPort: number;
-  smtpUser: string;
+  smtpUsername: string;
   smtpPassword: string;
-  fromEmail: string;
+  fromAddress: string;
   fromName: string;
 }
 
 interface SecurityConfig {
-  sessionTimeout: number;
+  sessionTimeoutMinutes: number;
   maxLoginAttempts: number;
-  lockoutDuration: number;
+  lockoutDurationMinutes: number;
   passwordMinLength: number;
   passwordRequireUppercase: boolean;
   passwordRequireNumbers: boolean;
@@ -38,15 +38,15 @@ interface BillingConfig {
   stripeEnabled: boolean;
   stripePublicKey: string;
   stripeSecretKey: string;
-  currency: string;
+  defaultCurrency: string;
   taxRate: number;
 }
 
 interface RateLimitsConfig {
-  globalRateLimit: number;
-  perUserRateLimit: number;
-  perTenantRateLimit: number;
-  windowMs: number;
+  globalRpm: number;
+  perUserRpm: number;
+  perTenantRpm: number;
+  apiKeyRpm: number;
 }
 
 interface SystemInfo {
@@ -73,16 +73,16 @@ const TABS: Array<{ id: TabId; label: string; icon: string }> = [
 const DEFAULT_EMAIL_CONFIG: EmailConfig = {
   smtpHost: '',
   smtpPort: 587,
-  smtpUser: '',
+  smtpUsername: '',
   smtpPassword: '',
-  fromEmail: '',
+  fromAddress: '',
   fromName: '',
 };
 
 const DEFAULT_SECURITY_CONFIG: SecurityConfig = {
-  sessionTimeout: 3600,
+  sessionTimeoutMinutes: 480,
   maxLoginAttempts: 5,
-  lockoutDuration: 900,
+  lockoutDurationMinutes: 30,
   passwordMinLength: 8,
   passwordRequireUppercase: true,
   passwordRequireNumbers: true,
@@ -94,15 +94,15 @@ const DEFAULT_BILLING_CONFIG: BillingConfig = {
   stripeEnabled: false,
   stripePublicKey: '',
   stripeSecretKey: '',
-  currency: 'USD',
+  defaultCurrency: 'USD',
   taxRate: 0,
 };
 
 const DEFAULT_RATE_LIMITS: RateLimitsConfig = {
-  globalRateLimit: 1000,
-  perUserRateLimit: 100,
-  perTenantRateLimit: 500,
-  windowMs: 60000,
+  globalRpm: 1000,
+  perUserRpm: 100,
+  perTenantRpm: 500,
+  apiKeyRpm: 60,
 };
 
 const CURRENCY_OPTIONS = [
@@ -261,8 +261,8 @@ const EmailTab: React.FC<EmailTabProps> = ({ config, onChange, onSave, saving })
       />
       <Input
         label="SMTP Username"
-        value={config.smtpUser}
-        onChange={(e) => onChange({ ...config, smtpUser: e.target.value })}
+        value={config.smtpUsername}
+        onChange={(e) => onChange({ ...config, smtpUsername: e.target.value })}
       />
       <Input
         label="SMTP Password"
@@ -273,8 +273,8 @@ const EmailTab: React.FC<EmailTabProps> = ({ config, onChange, onSave, saving })
       <Input
         label="From Email"
         type="email"
-        value={config.fromEmail}
-        onChange={(e) => onChange({ ...config, fromEmail: e.target.value })}
+        value={config.fromAddress}
+        onChange={(e) => onChange({ ...config, fromAddress: e.target.value })}
         placeholder="noreply@example.com"
       />
       <Input
@@ -298,10 +298,10 @@ const SecurityTab: React.FC<SecurityTabProps> = ({ config, onChange, onSave, sav
   <FormSection title="Security Settings" onSave={onSave} saving={saving}>
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <Input
-        label="Session Timeout (seconds)"
+        label="Session Timeout (minutes)"
         type="number"
-        value={config.sessionTimeout}
-        onChange={(e) => onChange({ ...config, sessionTimeout: parseInt(e.target.value) || 3600 })}
+        value={config.sessionTimeoutMinutes}
+        onChange={(e) => onChange({ ...config, sessionTimeoutMinutes: parseInt(e.target.value) || 480 })}
       />
       <Input
         label="Max Login Attempts"
@@ -310,10 +310,10 @@ const SecurityTab: React.FC<SecurityTabProps> = ({ config, onChange, onSave, sav
         onChange={(e) => onChange({ ...config, maxLoginAttempts: parseInt(e.target.value) || 5 })}
       />
       <Input
-        label="Lockout Duration (seconds)"
+        label="Lockout Duration (minutes)"
         type="number"
-        value={config.lockoutDuration}
-        onChange={(e) => onChange({ ...config, lockoutDuration: parseInt(e.target.value) || 900 })}
+        value={config.lockoutDurationMinutes}
+        onChange={(e) => onChange({ ...config, lockoutDurationMinutes: parseInt(e.target.value) || 30 })}
       />
       <Input
         label="Min Password Length"
@@ -384,8 +384,8 @@ const BillingTab: React.FC<BillingTabProps> = ({ config, onChange, onSave, savin
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <Select
         label="Currency"
-        value={config.currency}
-        onChange={(e) => onChange({ ...config, currency: e.target.value })}
+        value={config.defaultCurrency}
+        onChange={(e) => onChange({ ...config, defaultCurrency: e.target.value })}
         options={CURRENCY_OPTIONS}
       />
       <Input
@@ -411,26 +411,26 @@ const RateLimitTab: React.FC<RateLimitTabProps> = ({ config, onChange, onSave, s
       <Input
         label="Global Limit (requests/minute)"
         type="number"
-        value={config.globalRateLimit}
-        onChange={(e) => onChange({ ...config, globalRateLimit: parseInt(e.target.value) || 1000 })}
+        value={config.globalRpm}
+        onChange={(e) => onChange({ ...config, globalRpm: parseInt(e.target.value) || 1000 })}
       />
       <Input
-        label="Per User Limit"
+        label="Per User Limit (requests/minute)"
         type="number"
-        value={config.perUserRateLimit}
-        onChange={(e) => onChange({ ...config, perUserRateLimit: parseInt(e.target.value) || 100 })}
+        value={config.perUserRpm}
+        onChange={(e) => onChange({ ...config, perUserRpm: parseInt(e.target.value) || 100 })}
       />
       <Input
-        label="Per Tenant Limit"
+        label="Per Tenant Limit (requests/minute)"
         type="number"
-        value={config.perTenantRateLimit}
-        onChange={(e) => onChange({ ...config, perTenantRateLimit: parseInt(e.target.value) || 500 })}
+        value={config.perTenantRpm}
+        onChange={(e) => onChange({ ...config, perTenantRpm: parseInt(e.target.value) || 500 })}
       />
       <Input
-        label="Window Duration (ms)"
+        label="API Key Limit (requests/minute)"
         type="number"
-        value={config.windowMs}
-        onChange={(e) => onChange({ ...config, windowMs: parseInt(e.target.value) || 60000 })}
+        value={config.apiKeyRpm}
+        onChange={(e) => onChange({ ...config, apiKeyRpm: parseInt(e.target.value) || 60 })}
       />
     </div>
   </FormSection>

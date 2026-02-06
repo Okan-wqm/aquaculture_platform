@@ -119,7 +119,7 @@ export class InvoiceManagementService {
         i."periodEnd" as "periodEnd",
         i."createdAt" as "createdAt"
       FROM public.invoices i
-      LEFT JOIN public.tenants t ON t.id::text = i."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = i."tenantId"
       WHERE 1=1
     `;
 
@@ -224,7 +224,7 @@ export class InvoiceManagementService {
         i."periodEnd" as "periodEnd",
         i."createdAt" as "createdAt"
       FROM public.invoices i
-      LEFT JOIN public.tenants t ON t.id::text = i."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = i."tenantId"
       WHERE i.id = $1
     `,
       [invoiceId],

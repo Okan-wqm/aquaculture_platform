@@ -1,4 +1,4 @@
-import { VfdRegisterMappingInput } from '../entities/vfd-register-mapping.entity';
+import { VfdRegisterMappingInput } from '../entities/vfd.types';
 import { VfdBrand, VfdParameterCategory, VfdDataType } from '../entities/vfd.enums';
 
 /**
@@ -47,7 +47,7 @@ export const YASKAWA_REGISTERS: VfdRegisterMappingInput[] = [
     displayName: 'Fault Status',
     description: 'Fault status register',
     category: VfdParameterCategory.STATUS,
-    registerAddress: 0x2101, // Fault status
+    registerAddress: 0x0021, // MEMOBUS status register 2 (extended drive status)
     dataType: VfdDataType.UINT16,
     displayOrder: 2,
     isCritical: true,

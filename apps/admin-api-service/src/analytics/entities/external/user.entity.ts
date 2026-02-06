@@ -15,8 +15,8 @@ export enum UserRole {
   MODULE_USER = 'MODULE_USER',
 }
 
-// Read from public schema (shared database) - read-only reference
-@Entity('users', { schema: 'public', synchronize: false })
+// Read from auth schema (shared database) - read-only reference
+@Entity('users', { schema: 'auth', synchronize: false })
 export class UserReadOnly {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

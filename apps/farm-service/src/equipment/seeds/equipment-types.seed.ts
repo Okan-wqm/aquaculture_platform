@@ -124,6 +124,282 @@ export const EQUIPMENT_TYPES_SEED: EquipmentTypeSeed[] = [
       ],
     },
   },
+  {
+    name: 'D-End Raceway',
+    code: 'tank-d-end',
+    description: 'D-uçlu raceway tank (yarı dairesel uçlar)',
+    category: EquipmentCategory.TANK,
+    icon: 'raceway',
+    sortOrder: 4,
+    allowedSubEquipmentTypes: ['inlet', 'outlet', 'drain', 'feeder', 'fish-trap', 'aerator', 'screen'],
+    specificationSchema: {
+      groups: [
+        { name: 'dimensions', label: 'Dimensions', description: 'Tank dimensions' },
+        { name: 'material', label: 'Material & Shape', description: 'Tank material properties' },
+      ],
+      fields: [
+        { name: 'volume', label: 'Volume', type: 'number', unit: 'm³', required: true, group: 'dimensions', min: 0.1 },
+        { name: 'depth', label: 'Depth', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'length', label: 'Length', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'width', label: 'Width', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'material', label: 'Material', type: 'select', required: true, group: 'material', options: [
+          { value: 'fiberglass', label: 'Fiberglass' },
+          { value: 'concrete', label: 'Concrete' },
+          { value: 'steel', label: 'Steel' },
+          { value: 'hdpe', label: 'HDPE' },
+        ]},
+      ],
+    },
+  },
+  {
+    name: 'Oval Tank',
+    code: 'tank-oval',
+    description: 'Oval balık yetiştirme tankı',
+    category: EquipmentCategory.TANK,
+    icon: 'tank',
+    sortOrder: 5,
+    allowedSubEquipmentTypes: ['inlet', 'outlet', 'drain', 'feeder', 'fish-trap', 'aerator', 'sensor-probe'],
+    specificationSchema: {
+      groups: [
+        { name: 'dimensions', label: 'Dimensions', description: 'Tank dimensions' },
+        { name: 'material', label: 'Material', description: 'Tank material properties' },
+      ],
+      fields: [
+        { name: 'volume', label: 'Volume', type: 'number', unit: 'm³', required: true, group: 'dimensions', min: 0.1 },
+        { name: 'depth', label: 'Depth', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'diameter', label: 'Diameter (major axis)', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'material', label: 'Material', type: 'select', required: true, group: 'material', options: [
+          { value: 'fiberglass', label: 'Fiberglass' },
+          { value: 'concrete', label: 'Concrete' },
+          { value: 'steel', label: 'Steel' },
+          { value: 'hdpe', label: 'HDPE' },
+        ]},
+      ],
+    },
+  },
+  {
+    name: 'Square Tank',
+    code: 'tank-square',
+    description: 'Kare balık yetiştirme tankı',
+    category: EquipmentCategory.TANK,
+    icon: 'tank',
+    sortOrder: 6,
+    allowedSubEquipmentTypes: ['inlet', 'outlet', 'drain', 'feeder', 'fish-trap', 'aerator', 'sensor-probe'],
+    specificationSchema: {
+      groups: [
+        { name: 'dimensions', label: 'Dimensions', description: 'Tank dimensions' },
+        { name: 'material', label: 'Material', description: 'Tank material properties' },
+      ],
+      fields: [
+        { name: 'volume', label: 'Volume', type: 'number', unit: 'm³', required: true, group: 'dimensions', min: 0.1 },
+        { name: 'depth', label: 'Depth', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'length', label: 'Side Length', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'width', label: 'Side Width', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'material', label: 'Material', type: 'select', required: true, group: 'material', options: [
+          { value: 'fiberglass', label: 'Fiberglass' },
+          { value: 'concrete', label: 'Concrete' },
+          { value: 'steel', label: 'Steel' },
+          { value: 'hdpe', label: 'HDPE' },
+        ]},
+      ],
+    },
+  },
+  {
+    name: 'Tank (Generic)',
+    code: 'tank-generic',
+    description: 'Genel amaçlı balık yetiştirme tankı - diğer kategorilere uymayan tipler için',
+    category: EquipmentCategory.TANK,
+    icon: 'tank',
+    sortOrder: 7,
+    allowedSubEquipmentTypes: ['inlet', 'outlet', 'drain', 'feeder', 'fish-trap', 'aerator', 'sensor-probe'],
+    specificationSchema: {
+      groups: [
+        { name: 'dimensions', label: 'Dimensions', description: 'Tank dimensions' },
+        { name: 'material', label: 'Material', description: 'Tank material properties' },
+      ],
+      fields: [
+        { name: 'volume', label: 'Volume', type: 'number', unit: 'm³', required: true, group: 'dimensions', min: 0.1 },
+        { name: 'depth', label: 'Depth', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'customShape', label: 'Custom Shape Description', type: 'text', group: 'dimensions' },
+        { name: 'material', label: 'Material', type: 'select', required: true, group: 'material', options: [
+          { value: 'fiberglass', label: 'Fiberglass' },
+          { value: 'concrete', label: 'Concrete' },
+          { value: 'steel', label: 'Steel' },
+          { value: 'hdpe', label: 'HDPE' },
+          { value: 'other', label: 'Other' },
+        ]},
+      ],
+    },
+  },
+
+  // ============================================
+  // POND Category - Havuz tipleri
+  // ============================================
+  {
+    name: 'Earthen Pond',
+    code: 'pond-earthen',
+    description: 'Toprak havuz - geleneksel balık yetiştirme havuzu',
+    category: EquipmentCategory.POND,
+    icon: 'pond',
+    sortOrder: 8,
+    allowedSubEquipmentTypes: ['inlet', 'outlet', 'drain', 'feeder', 'aerator', 'screen'],
+    specificationSchema: {
+      groups: [
+        { name: 'dimensions', label: 'Dimensions', description: 'Pond dimensions' },
+        { name: 'features', label: 'Features', description: 'Pond features' },
+      ],
+      fields: [
+        { name: 'surfaceArea', label: 'Surface Area', type: 'number', unit: 'm²', required: true, group: 'dimensions', min: 1 },
+        { name: 'volume', label: 'Volume', type: 'number', unit: 'm³', required: true, group: 'dimensions', min: 0.1 },
+        { name: 'depth', label: 'Average Depth', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'maxDepth', label: 'Maximum Depth', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'linerType', label: 'Liner Type', type: 'select', group: 'features', options: [
+          { value: 'none', label: 'None (Natural)' },
+          { value: 'clay', label: 'Clay Lining' },
+          { value: 'hdpe', label: 'HDPE Liner' },
+          { value: 'pvc', label: 'PVC Liner' },
+          { value: 'concrete', label: 'Concrete Lining' },
+        ]},
+        { name: 'waterSource', label: 'Water Source', type: 'select', group: 'features', options: [
+          { value: 'well', label: 'Well' },
+          { value: 'river', label: 'River' },
+          { value: 'reservoir', label: 'Reservoir' },
+          { value: 'rain', label: 'Rainwater' },
+          { value: 'mixed', label: 'Mixed' },
+        ]},
+      ],
+    },
+  },
+  {
+    name: 'Lined Pond',
+    code: 'pond-lined',
+    description: 'Kaplama havuz - liner veya beton kaplı',
+    category: EquipmentCategory.POND,
+    icon: 'pond',
+    sortOrder: 9,
+    allowedSubEquipmentTypes: ['inlet', 'outlet', 'drain', 'feeder', 'aerator', 'screen'],
+    specificationSchema: {
+      groups: [
+        { name: 'dimensions', label: 'Dimensions', description: 'Pond dimensions' },
+        { name: 'features', label: 'Features', description: 'Pond features' },
+      ],
+      fields: [
+        { name: 'surfaceArea', label: 'Surface Area', type: 'number', unit: 'm²', required: true, group: 'dimensions', min: 1 },
+        { name: 'volume', label: 'Volume', type: 'number', unit: 'm³', required: true, group: 'dimensions', min: 0.1 },
+        { name: 'depth', label: 'Average Depth', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'linerType', label: 'Liner Type', type: 'select', required: true, group: 'features', options: [
+          { value: 'hdpe', label: 'HDPE Liner' },
+          { value: 'pvc', label: 'PVC Liner' },
+          { value: 'epdm', label: 'EPDM Liner' },
+          { value: 'concrete', label: 'Concrete' },
+        ]},
+        { name: 'linerThickness', label: 'Liner Thickness', type: 'number', unit: 'mm', group: 'features' },
+      ],
+    },
+  },
+  {
+    name: 'Pond (Generic)',
+    code: 'pond-generic',
+    description: 'Genel havuz - diğer kategorilere uymayan havuzlar için',
+    category: EquipmentCategory.POND,
+    icon: 'pond',
+    sortOrder: 10,
+    allowedSubEquipmentTypes: ['inlet', 'outlet', 'drain', 'feeder', 'aerator', 'screen'],
+    specificationSchema: {
+      groups: [
+        { name: 'dimensions', label: 'Dimensions', description: 'Pond dimensions' },
+      ],
+      fields: [
+        { name: 'surfaceArea', label: 'Surface Area', type: 'number', unit: 'm²', required: true, group: 'dimensions', min: 1 },
+        { name: 'volume', label: 'Volume', type: 'number', unit: 'm³', required: true, group: 'dimensions', min: 0.1 },
+        { name: 'depth', label: 'Average Depth', type: 'number', unit: 'm', group: 'dimensions' },
+      ],
+    },
+  },
+
+  // ============================================
+  // CAGE Category - Kafes tipleri
+  // ============================================
+  {
+    name: 'Floating Cage',
+    code: 'cage-floating',
+    description: 'Yüzer kafes - deniz balıkçılığı için',
+    category: EquipmentCategory.CAGE,
+    icon: 'cage',
+    sortOrder: 11,
+    allowedSubEquipmentTypes: ['net', 'mooring', 'feeder', 'sensor-probe', 'camera'],
+    specificationSchema: {
+      groups: [
+        { name: 'dimensions', label: 'Dimensions', description: 'Cage dimensions' },
+        { name: 'structure', label: 'Structure', description: 'Cage structure' },
+      ],
+      fields: [
+        { name: 'volume', label: 'Volume', type: 'number', unit: 'm³', required: true, group: 'dimensions', min: 1 },
+        { name: 'diameter', label: 'Diameter', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'circumference', label: 'Circumference', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'depth', label: 'Net Depth', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'frameType', label: 'Frame Type', type: 'select', group: 'structure', options: [
+          { value: 'hdpe', label: 'HDPE' },
+          { value: 'steel', label: 'Steel' },
+          { value: 'galvanized', label: 'Galvanized Steel' },
+        ]},
+        { name: 'netMaterial', label: 'Net Material', type: 'select', group: 'structure', options: [
+          { value: 'nylon', label: 'Nylon' },
+          { value: 'polyethylene', label: 'Polyethylene' },
+          { value: 'copper_alloy', label: 'Copper Alloy' },
+        ]},
+        { name: 'meshSize', label: 'Mesh Size', type: 'number', unit: 'mm', group: 'structure' },
+      ],
+    },
+  },
+  {
+    name: 'Submersible Cage',
+    code: 'cage-submersible',
+    description: 'Batırılabilir kafes - derin su balıkçılığı için',
+    category: EquipmentCategory.CAGE,
+    icon: 'cage',
+    sortOrder: 12,
+    allowedSubEquipmentTypes: ['net', 'mooring', 'feeder', 'sensor-probe', 'camera', 'ballast-system'],
+    specificationSchema: {
+      groups: [
+        { name: 'dimensions', label: 'Dimensions', description: 'Cage dimensions' },
+        { name: 'structure', label: 'Structure', description: 'Cage structure' },
+      ],
+      fields: [
+        { name: 'volume', label: 'Volume', type: 'number', unit: 'm³', required: true, group: 'dimensions', min: 1 },
+        { name: 'diameter', label: 'Diameter', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'depth', label: 'Net Depth', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'maxSubmersionDepth', label: 'Max Submersion Depth', type: 'number', unit: 'm', group: 'dimensions' },
+        { name: 'frameType', label: 'Frame Type', type: 'select', group: 'structure', options: [
+          { value: 'hdpe', label: 'HDPE' },
+          { value: 'steel', label: 'Steel' },
+        ]},
+        { name: 'netMaterial', label: 'Net Material', type: 'select', group: 'structure', options: [
+          { value: 'nylon', label: 'Nylon' },
+          { value: 'polyethylene', label: 'Polyethylene' },
+          { value: 'copper_alloy', label: 'Copper Alloy' },
+        ]},
+      ],
+    },
+  },
+  {
+    name: 'Cage (Generic)',
+    code: 'cage-generic',
+    description: 'Genel kafes - diğer kategorilere uymayan kafesler için',
+    category: EquipmentCategory.CAGE,
+    icon: 'cage',
+    sortOrder: 13,
+    allowedSubEquipmentTypes: ['net', 'mooring', 'feeder', 'sensor-probe'],
+    specificationSchema: {
+      groups: [
+        { name: 'dimensions', label: 'Dimensions', description: 'Cage dimensions' },
+      ],
+      fields: [
+        { name: 'volume', label: 'Volume', type: 'number', unit: 'm³', required: true, group: 'dimensions', min: 1 },
+        { name: 'depth', label: 'Net Depth', type: 'number', unit: 'm', group: 'dimensions' },
+      ],
+    },
+  },
 
   // ============================================
   // PUMP Category - Pompa tipleri

@@ -91,12 +91,18 @@ export class PlatformAdminGuard implements CanActivate {
     const authHeader = request.headers.authorization;
 
     if (!authHeader) {
+      this.logger.debug(
+        `401 Unauthorized: No authorization header provided for ${request.method} ${request.url}`,
+      );
       throw new UnauthorizedException('No authorization header provided');
     }
 
     const [type, token] = authHeader.split(' ');
 
     if (type !== 'Bearer' || !token) {
+      this.logger.debug(
+        `401 Unauthorized: Invalid authorization header format for ${request.method} ${request.url}`,
+      );
       throw new UnauthorizedException('Invalid authorization header format');
     }
 
@@ -146,15 +152,21 @@ export class PlatformAdminGuard implements CanActivate {
       }
 
       if (error instanceof jwt.TokenExpiredError) {
+        this.logger.debug(
+          `401 Unauthorized: Token expired for ${request.method} ${request.url}`,
+        );
         throw new UnauthorizedException('Token has expired');
       }
 
       if (error instanceof jwt.JsonWebTokenError) {
+        this.logger.debug(
+          `401 Unauthorized: Invalid JWT token for ${request.method} ${request.url} - ${(error as Error).message}`,
+        );
         throw new UnauthorizedException('Invalid token');
       }
 
       this.logger.error(
-        `Authentication error: ${(error as Error).message}`,
+        `Authentication error for ${request.method} ${request.url}: ${(error as Error).message}`,
         (error as Error).stack,
       );
       throw new UnauthorizedException('Authentication failed');

@@ -11,6 +11,8 @@ import { EdgeDeviceResolver } from './edge-device.resolver';
 import { EdgeDeviceService } from './edge-device.service';
 import { DeviceIoConfig } from './entities/device-io-config.entity';
 import { EdgeDevice } from './entities/edge-device.entity';
+import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
+import { DeviceEvent } from './entities/device-event.entity';
 import { MqttAuthService } from './mqtt-auth.service';
 import { ProvisioningController } from './provisioning.controller';
 import { ProvisioningService } from './provisioning.service';
@@ -21,6 +23,8 @@ import { ProvisioningService } from './provisioning.service';
     TypeOrmModule.forFeature([
       EdgeDevice,
       DeviceIoConfig,
+      TenantProvisioningKey,
+      DeviceEvent,
       // Additional entities for field resolver counts
       AutomationProgram,
       Sensor,

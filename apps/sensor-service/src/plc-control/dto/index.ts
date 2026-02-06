@@ -18,7 +18,7 @@ export {
 
 // Feeding Parameter DTOs
 export {
-  FeedingScheduleEntryInput,
+  PlcFeedingScheduleEntryInput,
   ThresholdConfigInput,
   VfdSettingsInput,
   CreateFeedingParameterDto,

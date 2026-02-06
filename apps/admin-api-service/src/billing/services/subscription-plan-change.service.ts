@@ -118,7 +118,7 @@ export class SubscriptionPlanChangeService {
       // Update tenant limits
       await manager.query(
         `
-        UPDATE public.tenants SET
+        UPDATE auth.tenants SET
           tier = $1,
           limits = $2,
           "updatedAt" = NOW()

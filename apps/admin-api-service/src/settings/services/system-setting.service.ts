@@ -474,12 +474,27 @@ export class SystemSettingService {
       return setting ? this.parseValue(setting) : defaultValue;
     };
 
+    // Password needs raw value - parseValue masks encrypted type with '********'
+    const getRawValue = (key: string, defaultValue: string): string => {
+      const setting = settings.find(s => s.key === key);
+      if (!setting) return defaultValue;
+      if (setting.valueType === SettingValueType.ENCRYPTED) {
+        try {
+          return this.decryptValue(setting.value);
+        } catch {
+          // Value may be stored as plain text, return as-is
+          return setting.value || defaultValue;
+        }
+      }
+      return setting.value || defaultValue;
+    };
+
     return {
       smtpHost: getValue('email.smtp_host', '') as string,
       smtpPort: getValue('email.smtp_port', 587) as number,
-      smtpSecure: getValue('email.smtp_secure', true) as boolean,
+      smtpSecure: getValue('email.smtp_secure', false) as boolean,
       smtpUsername: getValue('email.smtp_username', '') as string,
-      smtpPassword: getValue('email.smtp_password', '') as string,
+      smtpPassword: getRawValue('email.smtp_password', ''),
       fromAddress: getValue('email.from_address', 'noreply@aquaculture.io') as string,
       fromName: getValue('email.from_name', 'Aquaculture Platform') as string,
     };

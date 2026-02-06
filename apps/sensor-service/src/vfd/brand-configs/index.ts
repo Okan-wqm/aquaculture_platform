@@ -15,6 +15,7 @@ export {
   ABB_ACS_REGISTERS,
   ABB_CONTROL_COMMANDS,
   ABB_DEFAULT_CONFIG,
+  ABB_FAULT_CODES,
 } from './abb.config';
 
 // Siemens SINAMICS
@@ -22,6 +23,7 @@ export {
   SIEMENS_SINAMICS_REGISTERS,
   SIEMENS_CONTROL_COMMANDS,
   SIEMENS_DEFAULT_CONFIG,
+  SIEMENS_FAULT_CODES,
 } from './siemens.config';
 
 // Schneider Electric Altivar
@@ -63,7 +65,7 @@ export {
   ROCKWELL_MODELS,
 } from './rockwell.config';
 
-import { VfdRegisterMappingInput } from '../entities/vfd-register-mapping.entity';
+import { VfdRegisterMappingInput } from '../entities/vfd.types';
 import { VfdBrand, VfdParameterCategory } from '../entities/vfd.enums';
 
 import { ABB_ACS_REGISTERS, ABB_CONTROL_COMMANDS, ABB_DEFAULT_CONFIG } from './abb.config';

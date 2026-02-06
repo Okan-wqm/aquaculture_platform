@@ -256,12 +256,16 @@ export const FeedsTab: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!formData.name) { alert('Please enter a name.'); return; }
+    if (!formData.code) { alert('Please enter a code.'); return; }
+    if (!formData.type) { alert('Please select a feed type.'); return; }
+    if (!formData.siteId) { alert('Please select a site.'); return; }
+
     // Build input object
-    const input: CreateFeedInput = {
+    const input: any = {
       name: formData.name,
       code: formData.code,
       type: formData.type.toUpperCase() as FeedType,
-      siteId: formData.siteId,
       brand: formData.brand || undefined,
       manufacturer: formData.manufacturer || undefined,
       supplierId: formData.supplierId || undefined,
@@ -275,30 +279,43 @@ export const FeedsTab: React.FC = () => {
       pricePerKg: formData.pricePerKg ? Number(formData.pricePerKg) : undefined,
       notes: formData.notes || undefined,
       status: formData.status as FeedStatus,
-      nutritionalContent: {
-        crudeProtein: formData.nutritionalContent.crudeProtein ? Number(formData.nutritionalContent.crudeProtein) : undefined,
-        crudeFat: formData.nutritionalContent.crudeFat ? Number(formData.nutritionalContent.crudeFat) : undefined,
-        nfe: formData.nutritionalContent.nfe ? Number(formData.nutritionalContent.nfe) : undefined,
-        crudeAsh: formData.nutritionalContent.crudeAsh ? Number(formData.nutritionalContent.crudeAsh) : undefined,
-        crudeFiber: formData.nutritionalContent.crudeFiber ? Number(formData.nutritionalContent.crudeFiber) : undefined,
-        phosphorus: formData.nutritionalContent.phosphorus ? Number(formData.nutritionalContent.phosphorus) : undefined,
-        grossEnergy: formData.nutritionalContent.grossEnergy ? Number(formData.nutritionalContent.grossEnergy) : undefined,
-        digestibleEnergy: formData.nutritionalContent.digestibleEnergy ? Number(formData.nutritionalContent.digestibleEnergy) : undefined,
-      },
-      environmentalImpact: {
-        co2EqWithLuc: formData.environmentalImpact.co2EqWithLuc ? Number(formData.environmentalImpact.co2EqWithLuc) : undefined,
-        co2EqWithoutLuc: formData.environmentalImpact.co2EqWithoutLuc ? Number(formData.environmentalImpact.co2EqWithoutLuc) : undefined,
-      },
       feedingCurve: formData.curveType === '1d' && formData.feedingCurve.length > 0 ? formData.feedingCurve : undefined,
       feedingMatrix2D: formData.curveType === '2d' && formData.feedingMatrix2D ? formData.feedingMatrix2D : undefined,
       documents: formData.documents.length > 0 ? formData.documents : undefined,
     };
 
+    // Only include nutritionalContent if it has actual values
+    const nc = formData.nutritionalContent;
+    const nutritionalContent: Record<string, number> = {};
+    if (nc.crudeProtein) nutritionalContent.crudeProtein = Number(nc.crudeProtein);
+    if (nc.crudeFat) nutritionalContent.crudeFat = Number(nc.crudeFat);
+    if (nc.nfe) nutritionalContent.nfe = Number(nc.nfe);
+    if (nc.crudeAsh) nutritionalContent.crudeAsh = Number(nc.crudeAsh);
+    if (nc.crudeFiber) nutritionalContent.crudeFiber = Number(nc.crudeFiber);
+    if (nc.phosphorus) nutritionalContent.phosphorus = Number(nc.phosphorus);
+    if (nc.grossEnergy) nutritionalContent.grossEnergy = Number(nc.grossEnergy);
+    if (nc.digestibleEnergy) nutritionalContent.digestibleEnergy = Number(nc.digestibleEnergy);
+    if (Object.keys(nutritionalContent).length > 0) {
+      input.nutritionalContent = nutritionalContent;
+    }
+
+    // Only include environmentalImpact if it has actual values
+    const ei = formData.environmentalImpact;
+    const environmentalImpact: Record<string, number> = {};
+    if (ei.co2EqWithLuc) environmentalImpact.co2EqWithLuc = Number(ei.co2EqWithLuc);
+    if (ei.co2EqWithoutLuc) environmentalImpact.co2EqWithoutLuc = Number(ei.co2EqWithoutLuc);
+    if (Object.keys(environmentalImpact).length > 0) {
+      input.environmentalImpact = environmentalImpact;
+    }
+
     try {
       if (editingId) {
+        // siteId is not accepted by UpdateFeedInput - don't include it
         await updateFeed.mutateAsync({ id: editingId, ...input });
       } else {
-        await createFeed.mutateAsync(input);
+        // siteId only valid for create
+        input.siteId = formData.siteId || undefined;
+        await createFeed.mutateAsync(input as CreateFeedInput);
       }
       setIsModalOpen(false);
       setFormData(initialFormData);

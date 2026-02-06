@@ -20,12 +20,19 @@ import {
   DeviceActivationResponse,
   ActivationErrorCode,
   InstallerScriptVariables,
+  CreateTenantKeyInput,
+  TenantKeyResponse,
+  SelfRegisterRequest,
+  SelfRegisterResponse,
+  TenantInstallerScriptVariables,
 } from './dto/provisioning.dto';
 import {
   EdgeDevice,
   DeviceLifecycleState,
   DeviceModel,
 } from './entities/edge-device.entity';
+import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
+import { DeviceEvent, DeviceEventType, DeviceEventSeverity } from './entities/device-event.entity';
 import { MqttAuthService } from './mqtt-auth.service';
 
 /**
@@ -44,6 +51,10 @@ export class ProvisioningService {
   constructor(
     @InjectRepository(EdgeDevice)
     private readonly deviceRepository: Repository<EdgeDevice>,
+    @InjectRepository(TenantProvisioningKey)
+    private readonly tenantKeyRepository: Repository<TenantProvisioningKey>,
+    @InjectRepository(DeviceEvent)
+    private readonly deviceEventRepository: Repository<DeviceEvent>,
     private readonly configService: ConfigService,
     private readonly mqttAuthService: MqttAuthService,
   ) {
@@ -604,5 +615,491 @@ log ""
     }
 
     return { ready: true };
+  }
+
+  // ============================================
+  // Tenant-Level Provisioning (v2.0)
+  // ============================================
+
+  /**
+   * Create a tenant-level provisioning key
+   * Allows multiple devices to self-register with a single installer link
+   */
+  async createTenantKey(
+    tenantId: string,
+    input: CreateTenantKeyInput,
+    createdBy: string,
+  ): Promise<TenantKeyResponse> {
+    const keyToken = randomBytes(32).toString('hex');
+
+    let expiresAt: Date | undefined;
+    if (input.expiresInDays) {
+      expiresAt = new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000);
+    }
+
+    const key = this.tenantKeyRepository.create({
+      tenantId,
+      keyToken,
+      name: input.name,
+      isActive: true,
+      maxDevices: input.maxDevices,
+      usedCount: 0,
+      autoApprove: input.autoApprove ?? false,
+      defaultSiteId: input.defaultSiteId,
+      expiresAt,
+      createdBy,
+    });
+
+    const saved = await this.tenantKeyRepository.save(key);
+    this.logger.log(`Created tenant provisioning key ${saved.id} for tenant ${tenantId}`);
+
+    return {
+      id: saved.id,
+      keyToken: saved.keyToken,
+      installerUrl: this.buildTenantInstallerUrl(saved.keyToken),
+      installerCommand: this.buildTenantInstallerCommand(saved.keyToken),
+      expiresAt: saved.expiresAt,
+      maxDevices: saved.maxDevices,
+      autoApprove: saved.autoApprove,
+    };
+  }
+
+  /**
+   * Revoke a tenant provisioning key
+   */
+  async revokeTenantKey(keyId: string, tenantId: string): Promise<boolean> {
+    const key = await this.tenantKeyRepository.findOne({
+      where: { id: keyId, tenantId },
+    });
+
+    if (!key) {
+      throw new NotFoundException(`Provisioning key ${keyId} not found`);
+    }
+
+    key.isActive = false;
+    await this.tenantKeyRepository.save(key);
+    this.logger.log(`Revoked tenant provisioning key ${keyId}`);
+    return true;
+  }
+
+  /**
+   * List all provisioning keys for a tenant
+   */
+  async listTenantKeys(tenantId: string): Promise<TenantProvisioningKey[]> {
+    return this.tenantKeyRepository.find({
+      where: { tenantId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /**
+   * Generate tenant-level installer script
+   */
+  async generateTenantInstallerScript(tenantToken: string): Promise<string> {
+    const key = await this.tenantKeyRepository.findOne({
+      where: { keyToken: tenantToken },
+    });
+
+    if (!key) {
+      throw new NotFoundException('Invalid installer token');
+    }
+
+    if (!key.isActive) {
+      throw new BadRequestException('This installer key has been revoked');
+    }
+
+    if (key.expiresAt && key.expiresAt < new Date()) {
+      throw new UnauthorizedException('This installer key has expired');
+    }
+
+    if (key.maxDevices && key.usedCount >= key.maxDevices) {
+      throw new ConflictException('Maximum device limit reached for this key');
+    }
+
+    const variables: TenantInstallerScriptVariables = {
+      tenantToken: key.keyToken,
+      apiUrl: this.API_BASE_URL,
+      agentVersion: this.AGENT_VERSION,
+      mqttPort: this.MQTT_PORT,
+    };
+
+    return this.renderTenantInstallerScript(variables);
+  }
+
+  /**
+   * Self-register a device using a tenant provisioning key
+   * Called by the edge agent after installation via tenant installer
+   */
+  async selfRegisterDevice(request: SelfRegisterRequest): Promise<SelfRegisterResponse> {
+    // Lookup the tenant key
+    const key = await this.tenantKeyRepository.findOne({
+      where: { keyToken: request.tenant_token },
+    });
+
+    if (!key) {
+      throw new NotFoundException('Invalid tenant token');
+    }
+
+    if (!key.isActive) {
+      throw new BadRequestException('This installer key has been revoked');
+    }
+
+    if (key.expiresAt && key.expiresAt < new Date()) {
+      throw new UnauthorizedException('This installer key has expired');
+    }
+
+    if (key.maxDevices && key.usedCount >= key.maxDevices) {
+      throw new ConflictException('Maximum device limit reached for this key');
+    }
+
+    // Fingerprint duplicate check
+    if (request.fingerprint.machineId) {
+      const existing = await this.deviceRepository
+        .createQueryBuilder('d')
+        .where('d.tenant_id = :tenantId', { tenantId: key.tenantId })
+        .andWhere("d.fingerprint->>'machineId' = :machineId", {
+          machineId: request.fingerprint.machineId,
+        })
+        .getOne();
+
+      if (existing) {
+        throw new ConflictException(
+          `Device with this machine ID is already registered as ${existing.deviceCode}`,
+        );
+      }
+    }
+
+    // Generate device code and MQTT credentials
+    const deviceCode = this.generateDeviceCode();
+    const mqttClientId = `edge-${key.tenantId.substring(0, 8)}-${deviceCode}`.toLowerCase();
+    const { password: mqttPassword, hash: mqttPasswordHash } = this.generateMqttCredentials();
+
+    // Determine lifecycle state based on autoApprove
+    const lifecycleState = key.autoApprove
+      ? DeviceLifecycleState.ACTIVE
+      : DeviceLifecycleState.PENDING_APPROVAL;
+
+    // Create the device record
+    const device = this.deviceRepository.create({
+      tenantId: key.tenantId,
+      deviceCode,
+      deviceName: request.fingerprint.hostname || deviceCode,
+      deviceModel: DeviceModel.CUSTOM,
+      siteId: key.defaultSiteId,
+      lifecycleState,
+      mqttClientId,
+      mqttPasswordHash,
+      fingerprint: request.fingerprint,
+      agentVersion: request.agent_version,
+      isOnline: false,
+      securityLevel: 2,
+    });
+
+    const saved = await this.deviceRepository.save(device);
+
+    // Atomically increment used count on the key (prevents race condition)
+    await this.tenantKeyRepository
+      .createQueryBuilder()
+      .update()
+      .set({ usedCount: () => '"used_count" + 1' })
+      .where('id = :id', { id: key.id })
+      .execute();
+
+    // Add MQTT credentials to auth
+    await this.mqttAuthService.addDeviceCredentials(mqttClientId, mqttPasswordHash);
+
+    // Log the event
+    await this.logDeviceEvent(
+      key.tenantId,
+      saved.id,
+      DeviceEventType.SELF_REGISTERED,
+      DeviceEventSeverity.INFO,
+      `Device ${deviceCode} self-registered via tenant key "${key.name || key.id}"`,
+      {
+        keyId: key.id,
+        keyName: key.name,
+        autoApprove: key.autoApprove,
+        agentVersion: request.agent_version,
+      },
+    );
+
+    this.logger.log(
+      `Device ${deviceCode} self-registered for tenant ${key.tenantId} (state: ${lifecycleState})`,
+    );
+
+    return {
+      success: true,
+      device_id: saved.id,
+      device_code: saved.deviceCode,
+      mqtt_broker: this.MQTT_BROKER,
+      mqtt_port: this.MQTT_PORT,
+      mqtt_username: mqttClientId,
+      mqtt_password: mqttPassword,
+      tenant_id: key.tenantId,
+    };
+  }
+
+  /**
+   * Log a device event
+   */
+  async logDeviceEvent(
+    tenantId: string,
+    deviceId: string | undefined,
+    eventType: DeviceEventType,
+    severity: DeviceEventSeverity,
+    message: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<DeviceEvent> {
+    const event = this.deviceEventRepository.create({
+      tenantId,
+      deviceId,
+      eventType,
+      severity,
+      message,
+      metadata,
+    });
+    return this.deviceEventRepository.save(event);
+  }
+
+  /**
+   * Get device events with pagination
+   */
+  async getDeviceEvents(
+    tenantId: string,
+    deviceId?: string,
+    eventType?: string,
+    page = 1,
+    limit = 20,
+  ): Promise<{ items: DeviceEvent[]; total: number }> {
+    const where: Record<string, unknown> = { tenantId };
+    if (deviceId) where.deviceId = deviceId;
+    if (eventType) where.eventType = eventType;
+
+    const [items, total] = await this.deviceEventRepository.findAndCount({
+      where,
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return { items, total };
+  }
+
+  /**
+   * Build tenant installer URL
+   */
+  private buildTenantInstallerUrl(tenantToken: string): string {
+    return `${this.API_BASE_URL}/install/t/${tenantToken}`;
+  }
+
+  /**
+   * Build tenant installer command
+   */
+  private buildTenantInstallerCommand(tenantToken: string): string {
+    return `curl -sSL ${this.buildTenantInstallerUrl(tenantToken)} | sudo bash`;
+  }
+
+  /**
+   * Render tenant-level installer script
+   * Downloads edge-agent from GitHub Releases, config has tenant_token instead of device_id
+   */
+  private renderTenantInstallerScript(variables: TenantInstallerScriptVariables): string {
+    const GITHUB_REPO = this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/sens');
+    const now = new Date().toISOString();
+
+    return `#!/bin/bash
+set -e
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Suderra Edge Agent Installer v2.0 (Tenant Self-Registration)
+#  Generated: ${now}
+# ══════════════════════════════════════════════════════════════════════════════
+
+GITHUB_REPO="${GITHUB_REPO}"
+INSTALL_DIR="/opt/suderra"
+CONFIG_DIR="/etc/suderra"
+DATA_DIR="/var/lib/suderra"
+LOG_FILE="/var/log/suderra-install.log"
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"; }
+
+log "╔══════════════════════════════════════════════════════════════╗"
+log "║     Suderra Edge Agent Installer v2.0 (Self-Registration)   ║"
+log "╚══════════════════════════════════════════════════════════════╝"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 1: Prerequisites
+# ─────────────────────────────────────────────────────────────────────────────
+log "[1/7] Checking prerequisites..."
+if [ "$(id -u)" -ne 0 ]; then
+    log "ERROR: This script must be run as root"
+    exit 1
+fi
+
+if ! command -v curl &> /dev/null; then
+    log "Installing curl..."
+    apt-get update && apt-get install -y curl
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 2: Detect Architecture
+# ─────────────────────────────────────────────────────────────────────────────
+log "[2/7] Detecting architecture..."
+ARCH=$(uname -m)
+case $ARCH in
+    x86_64)   BINARY_NAME="edge-agent-x86_64-unknown-linux-gnu"  ;;
+    aarch64)  BINARY_NAME="edge-agent-aarch64-unknown-linux-gnu" ;;
+    armv7l)   BINARY_NAME="edge-agent-armv7-unknown-linux-gnueabihf" ;;
+    *)
+        log "ERROR: Unsupported architecture: $ARCH"
+        exit 1
+        ;;
+esac
+log "Architecture: $ARCH -> $BINARY_NAME"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 3: Download from GitHub Releases
+# ─────────────────────────────────────────────────────────────────────────────
+log "[3/7] Downloading edge-agent from GitHub..."
+
+LATEST_TAG=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep '"tag_name"' | cut -d '"' -f 4)
+
+if [ -z "$LATEST_TAG" ]; then
+    log "WARNING: Could not get latest release, using 'latest'"
+    LATEST_TAG="latest"
+fi
+
+log "Latest version: $LATEST_TAG"
+
+DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/$LATEST_TAG/$BINARY_NAME"
+log "Download URL: $DOWNLOAD_URL"
+
+mkdir -p "$INSTALL_DIR"
+curl -L --progress-bar -o "$INSTALL_DIR/edge-agent" "$DOWNLOAD_URL"
+chmod +x "$INSTALL_DIR/edge-agent"
+
+# Verify binary
+if ! "$INSTALL_DIR/edge-agent" --version &> /dev/null; then
+    log "WARNING: Could not verify binary version"
+else
+    VERSION=$("$INSTALL_DIR/edge-agent" --version 2>/dev/null || echo "unknown")
+    log "Installed version: $VERSION"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 4: Create Configuration (Tenant Self-Registration Mode)
+# ─────────────────────────────────────────────────────────────────────────────
+log "[4/7] Creating configuration (self-registration mode)..."
+mkdir -p "$CONFIG_DIR"
+mkdir -p "$DATA_DIR"
+
+cat > "$CONFIG_DIR/config.yaml" << 'CONFIGEOF'
+# Suderra Edge Agent Configuration
+# Mode: Tenant Self-Registration (device_id assigned on first connect)
+# Generated: ${now}
+
+device_id: ""
+device_code: ""
+api_url: "${variables.apiUrl}"
+tenant_token: "${variables.tenantToken}"
+
+mqtt:
+  port: ${variables.mqttPort}
+  keepalive_secs: 60
+  clean_session: false
+
+telemetry:
+  interval_seconds: 30
+  include_cpu: true
+  include_memory: true
+  include_disk: true
+  include_temperature: true
+
+modbus: []
+
+gpio: []
+CONFIGEOF
+
+# Set restrictive permissions on config
+chmod 600 "$CONFIG_DIR/config.yaml"
+log "Configuration created at $CONFIG_DIR/config.yaml"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 5: Create Systemd Service
+# ─────────────────────────────────────────────────────────────────────────────
+log "[5/7] Installing systemd service..."
+
+cat > /etc/systemd/system/suderra-agent.service << 'SERVICEEOF'
+[Unit]
+Description=Suderra Edge Agent
+Documentation=https://docs.suderra.com/edge-agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/opt/suderra/edge-agent
+Restart=always
+RestartSec=10
+WatchdogSec=120
+
+# Environment
+Environment="RUST_LOG=info"
+Environment="SUDERRA_DATA_DIR=/var/lib/suderra"
+
+# Security hardening
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/suderra /etc/suderra /var/log
+NoNewPrivileges=true
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=256M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target
+SERVICEEOF
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 6: Start Service
+# ─────────────────────────────────────────────────────────────────────────────
+log "[6/7] Starting edge-agent service..."
+systemctl daemon-reload
+systemctl enable suderra-agent
+systemctl start suderra-agent
+
+# Wait for self-registration
+sleep 5
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 7: Verify Installation
+# ─────────────────────────────────────────────────────────────────────────────
+log "[7/7] Verifying installation..."
+
+STATUS=$(systemctl is-active suderra-agent)
+if [ "$STATUS" = "active" ]; then
+    log "✅ Edge agent is running (self-registration in progress)"
+else
+    log "❌ Edge agent failed to start"
+    log "Check logs: journalctl -u suderra-agent -n 50"
+    exit 1
+fi
+
+log ""
+log "══════════════════════════════════════════════════════════════════════════════"
+log "                    INSTALLATION COMPLETE!"
+log "══════════════════════════════════════════════════════════════════════════════"
+log ""
+log "  Mode:           Self-Registration (tenant-first)"
+log "  Service Status: $STATUS"
+log "  Config File:    $CONFIG_DIR/config.yaml"
+log "  Log Command:    journalctl -u suderra-agent -f"
+log ""
+log "  The device will self-register and appear in the dashboard within 30 seconds."
+log ""
+`;
   }
 }

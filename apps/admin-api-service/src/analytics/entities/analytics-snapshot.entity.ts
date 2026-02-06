@@ -96,7 +96,7 @@ export interface UsageMetrics {
 // Entity
 // ============================================================================
 
-@Entity('analytics_snapshots', { schema: 'public', synchronize: false })
+@Entity('analytics_snapshots', { schema: 'admin', synchronize: false })
 @Index(['snapshotType', 'snapshotDate'])
 @Index(['category', 'snapshotDate'])
 export class AnalyticsSnapshot {
@@ -202,7 +202,7 @@ export interface ReportResult {
 export type ReportDefinitionStatus = 'active' | 'inactive' | 'draft';
 export type ReportSchedule = 'manual' | 'daily' | 'weekly' | 'monthly';
 
-@Entity('report_definitions', { schema: 'public', synchronize: false })
+@Entity('report_definitions', { schema: 'admin', synchronize: false })
 @Index(['createdBy'])
 @Index(['status'])
 export class ReportDefinition {
@@ -261,7 +261,7 @@ export class ReportDefinition {
 
 export type ReportExecutionStatus = 'pending' | 'running' | 'completed' | 'failed';
 
-@Entity('report_executions', { schema: 'public', synchronize: false })
+@Entity('report_executions', { schema: 'admin', synchronize: false })
 @Index(['definitionId'])
 @Index(['status'])
 @Index(['createdAt'])

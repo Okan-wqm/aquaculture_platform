@@ -37,11 +37,24 @@ interface SiteFormModalProps {
     name: string;
     code: string;
     status: string;
+    description?: string;
     country?: string;
     region?: string;
+    timezone?: string;
     totalArea?: number;
     siteManager?: string;
     contactEmail?: string;
+    contactPhone?: string;
+    address?: {
+      street?: string;
+      city?: string;
+      state?: string;
+      postalCode?: string;
+    };
+    location?: {
+      latitude?: number;
+      longitude?: number;
+    };
   } | null;
 }
 
@@ -98,17 +111,25 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
       setFormData({
         name: site.name || '',
         code: site.code || '',
-        description: '',
+        description: site.description || '',
         status: site.status || 'ACTIVE',
         country: site.country || '',
         region: site.region || '',
-        timezone: 'UTC',
+        timezone: site.timezone || 'UTC',
         totalArea: site.totalArea || '',
         siteManager: site.siteManager || '',
         contactEmail: site.contactEmail || '',
-        contactPhone: '',
-        address: { street: '', city: '', state: '', postalCode: '' },
-        location: { latitude: '', longitude: '' },
+        contactPhone: site.contactPhone || '',
+        address: {
+          street: site.address?.street || '',
+          city: site.address?.city || '',
+          state: site.address?.state || '',
+          postalCode: site.address?.postalCode || '',
+        },
+        location: {
+          latitude: site.location?.latitude ?? '',
+          longitude: site.location?.longitude ?? '',
+        },
       });
     } else {
       setFormData({

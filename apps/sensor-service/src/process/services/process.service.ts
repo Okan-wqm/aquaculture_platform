@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere } from 'typeorm';
+import { Repository, FindOptionsWhere, ILike } from 'typeorm';
 
 import {
   CreateProcessInput,
@@ -137,24 +137,26 @@ export class ProcessService {
       where.isTemplate = filter.isTemplate;
     }
 
-    // Build query
-    const queryBuilder = this.processRepository.createQueryBuilder('process');
-    queryBuilder.where(where);
+    // Use findAndCount which properly resolves column name mappings
+    // (createQueryBuilder.where(object) does NOT resolve name: mappings)
+    let whereConditions: FindOptionsWhere<Process> | FindOptionsWhere<Process>[];
 
-    // Search term filter
     if (filter?.searchTerm) {
-      queryBuilder.andWhere(
-        '(process.name ILIKE :search OR process.description ILIKE :search)',
-        { search: `%${filter.searchTerm}%` },
-      );
+      const search = `%${filter.searchTerm}%`;
+      whereConditions = [
+        { ...where, name: ILike(search) },
+        { ...where, description: ILike(search) },
+      ];
+    } else {
+      whereConditions = where;
     }
 
-    // Order and pagination
-    queryBuilder.orderBy('process.updatedAt', 'DESC');
-    queryBuilder.skip(offset);
-    queryBuilder.take(limit);
-
-    const [items, total] = await queryBuilder.getManyAndCount();
+    const [items, total] = await this.processRepository.findAndCount({
+      where: whereConditions,
+      order: { updatedAt: 'DESC' },
+      skip: offset,
+      take: limit,
+    });
 
     return {
       items,

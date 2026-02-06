@@ -1,6 +1,10 @@
 /**
  * Delete Equipment Command Handler
  * Supports cascade soft delete of all related items
+ *
+ * Handles deletion for both Equipment and Tank entities.
+ * When an equipment ID is found in the tanks table, the delete is delegated
+ * to delete the Tank entity instead.
  */
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -10,6 +14,8 @@ import { NatsEventBus } from '@platform/event-bus';
 import { DeleteEquipmentCommand } from '../commands/delete-equipment.command';
 import { Equipment } from '../entities/equipment.entity';
 import { SubEquipment } from '../entities/sub-equipment.entity';
+import { Tank } from '../../tank/entities/tank.entity';
+import { TankBatch } from '../../batch/entities/tank-batch.entity';
 
 @CommandHandler(DeleteEquipmentCommand)
 export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCommand> {
@@ -20,6 +26,10 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
     private readonly equipmentRepository: Repository<Equipment>,
     @InjectRepository(SubEquipment)
     private readonly subEquipmentRepository: Repository<SubEquipment>,
+    @InjectRepository(Tank)
+    private readonly tankRepository: Repository<Tank>,
+    @InjectRepository(TankBatch)
+    private readonly tankBatchRepository: Repository<TankBatch>,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -28,6 +38,17 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
     const { equipmentId, tenantId, userId, cascade } = command;
 
     this.logger.log(`Deleting equipment ${equipmentId} for tenant ${tenantId} (cascade: ${cascade})`);
+
+    // Check if this ID exists in the tanks table first
+    const tank = await this.tankRepository.findOne({
+      where: { id: equipmentId, tenantId },
+    });
+
+    if (tank) {
+      // This is a tank - delegate to tank delete logic
+      this.logger.log(`Equipment ${equipmentId} is a tank, deleting Tank entity`);
+      return this.deleteTank(tank, tenantId, userId);
+    }
 
     // Find existing equipment
     const equipment = await this.equipmentRepository.findOne({
@@ -163,5 +184,63 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
     }
 
     return allChildren;
+  }
+
+  /**
+   * Delete Tank entity when accessed via equipment resolver
+   * Handles cascade requirements for tank batches and related data
+   */
+  private async deleteTank(
+    tank: Tank,
+    tenantId: string,
+    userId: string,
+  ): Promise<boolean> {
+    // Cannot delete tank with active biomass
+    if (tank.currentBiomass > 0) {
+      throw new BadRequestException(
+        `Cannot delete tank "${tank.name}": it has ${tank.currentBiomass}kg of active biomass. ` +
+          'Please transfer or harvest first.',
+      );
+    }
+
+    // Check for active tank batches
+    const activeBatches = await this.tankBatchRepository.find({
+      where: { tankId: tank.id, tenantId },
+    });
+
+    if (activeBatches.length > 0) {
+      // Check if any batch has fish
+      const batchesWithFish = activeBatches.filter(
+        b => (b.totalQuantity && b.totalQuantity > 0) || (b.cleanerFishQuantity && b.cleanerFishQuantity > 0)
+      );
+
+      if (batchesWithFish.length > 0) {
+        throw new BadRequestException(
+          `Cannot delete tank "${tank.name}": it has ${batchesWithFish.length} active batch(es) with fish. ` +
+            'Please transfer or harvest first.',
+        );
+      }
+
+      // Remove empty tank batches (they will be recreated if needed)
+      await this.tankBatchRepository
+        .createQueryBuilder()
+        .delete()
+        .from(TankBatch)
+        .where('tankId = :tankId', { tankId: tank.id })
+        .andWhere('tenantId = :tenantId', { tenantId })
+        .execute();
+
+      this.logger.log(`Removed ${activeBatches.length} empty tank batch records for tank ${tank.id}`);
+    }
+
+    // Soft delete - set isActive to false
+    tank.isActive = false;
+    tank.updatedBy = userId;
+
+    await this.tankRepository.save(tank);
+
+    this.logger.log(`Tank ${tank.id} (${tank.name}) soft-deleted via equipment resolver`);
+
+    return true;
   }
 }

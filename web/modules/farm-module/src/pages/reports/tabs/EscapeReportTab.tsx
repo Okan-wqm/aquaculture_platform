@@ -1,6 +1,7 @@
 /**
  * Escape Report Tab
  * Lists fish escape incidents and provides quick-entry modal for immediate reporting
+ * Shows urgency indicator for large-scale escapes per Norwegian regulatory requirements
  */
 import React, { useState, useMemo } from 'react';
 import { getMockReports } from '../mock/helpers';
@@ -8,6 +9,7 @@ import { EscapeReport, EscapeStatus, EscapeCause } from '../types/reports.types'
 import { REGULATORY_CONTACTS } from '../utils/thresholds';
 import { ReportStatusBadge } from '../components/common';
 import { EscapeReportModal } from '../components/modals';
+import { useTanksList } from '../../../hooks/useTanks';
 
 // ============================================================================
 // Types
@@ -47,7 +49,7 @@ function getStatusBadge(status: EscapeStatus): React.ReactNode {
     detected: { bg: 'bg-red-100', text: 'text-red-800', icon: '!' },
     reported: { bg: 'bg-blue-100', text: 'text-blue-800', icon: '>' },
     investigation: { bg: 'bg-purple-100', text: 'text-purple-800', icon: '?' },
-    closed: { bg: 'bg-green-100', text: 'text-green-800', icon: '✓' },
+    closed: { bg: 'bg-green-100', text: 'text-green-800', icon: '\u2713' },
   };
   const style = config[status];
   return (
@@ -268,6 +270,43 @@ const EscapeInfoPanel: React.FC<{ onCreateReport: () => void }> = ({ onCreateRep
 );
 
 // ============================================================================
+// Large-Scale Escape Urgency Banner
+// ============================================================================
+
+interface UrgencyBannerProps {
+  totalEscapedActive: number;
+  totalStockInTanks: number;
+}
+
+const UrgencyBanner: React.FC<UrgencyBannerProps> = ({ totalEscapedActive, totalStockInTanks }) => {
+  if (totalEscapedActive <= 1000) return null;
+
+  return (
+    <div className="bg-red-600 text-white rounded-lg p-4 mb-6 shadow-md">
+      <div className="flex items-center">
+        <div className="flex-shrink-0">
+          <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <div className="ml-3 flex-1">
+          <h3 className="text-sm font-bold uppercase tracking-wide">
+            IMMEDIATE REPORTING REQUIRED to Fiskeridirektoratet
+          </h3>
+          <p className="mt-1 text-sm text-red-100">
+            Large-scale escape detected: {formatNumber(totalEscapedActive)} fish across active incidents.
+            {totalStockInTanks > 0 && (
+              <> Current site stock: {formatNumber(totalStockInTanks)} fish.</>
+            )}
+            {' '}Contact {REGULATORY_CONTACTS.FISKERIDIREKTORATET_EMAIL} immediately.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
 // Summary Stats Component
 // ============================================================================
 
@@ -365,6 +404,13 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
   const [selectedEscape, setSelectedEscape] = useState<EscapeReport | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'closed'>('all');
 
+  // Fetch tank data for stock context
+  const { data: tanksData } = useTanksList({ isActive: true });
+  const totalStockInTanks = useMemo(() => {
+    const tanks = tanksData?.items || [];
+    return tanks.reduce((sum, t) => sum + (t.batchMetrics?.pieces || 0), 0);
+  }, [tanksData]);
+
   // Get escape reports
   const allEscapes = useMemo(() => {
     return getMockReports<EscapeReport>('escape', siteId ? { siteId } : undefined);
@@ -382,9 +428,15 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
     }
   }, [allEscapes, filter]);
 
-  // Active count
+  // Active count and total escaped in active incidents
   const activeCount = useMemo(() => {
     return allEscapes.filter((e) => e.escapeStatus !== 'closed').length;
+  }, [allEscapes]);
+
+  const totalEscapedActive = useMemo(() => {
+    return allEscapes
+      .filter((e) => e.escapeStatus !== 'closed')
+      .reduce((sum, e) => sum + e.escape.estimatedCount, 0);
   }, [allEscapes]);
 
   const handleCreateReport = () => {
@@ -424,6 +476,9 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
           Report Escape
         </button>
       </div>
+
+      {/* Large-Scale Escape Urgency Banner */}
+      <UrgencyBanner totalEscapedActive={totalEscapedActive} totalStockInTanks={totalStockInTanks} />
 
       {/* Escape Info */}
       <EscapeInfoPanel onCreateReport={handleCreateReport} />

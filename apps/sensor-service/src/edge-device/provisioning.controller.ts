@@ -17,6 +17,8 @@ import {
   DeviceActivationResponse,
   ActivationErrorResponse,
   ActivationErrorCode,
+  SelfRegisterRequest,
+  SelfRegisterResponse,
 } from './dto/provisioning.dto';
 import { ProvisioningService } from './provisioning.service';
 import { SimpleRateLimitGuard, RateLimit } from '../guards/rate-limit.guard';
@@ -186,6 +188,89 @@ export class ProvisioningController {
       status: device.lifecycleState,
       reason: readyCheck.reason,
     };
+  }
+
+  /**
+   * GET /install/t/:tenantToken
+   *
+   * Public endpoint that returns the tenant-level installer script.
+   * This is called by: curl -sSL http://localhost:3000/install/t/{tenantToken} | sudo bash
+   *
+   * Returns: Shell script (text/x-shellscript)
+   *
+   * SECURITY: Limited to 5 requests per minute per IP
+   */
+  @Get('install/t/:tenantToken')
+  @RateLimit({ limit: 5, windowMs: 60000 })
+  async getTenantInstallerScript(
+    @Param('tenantToken') tenantToken: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    this.logger.log(`Tenant installer script requested for token: ${tenantToken.substring(0, 8)}...`);
+
+    try {
+      const script = await this.provisioningService.generateTenantInstallerScript(tenantToken);
+
+      this.logger.log('Tenant installer script generated successfully');
+
+      res
+        .status(HttpStatus.OK)
+        .contentType('text/x-shellscript')
+        .set('Content-Disposition', 'attachment; filename="install-suderra.sh"')
+        .send(script);
+    } catch (error) {
+      this.logger.error('Failed to generate tenant installer script:', error);
+
+      const errorScript = this.generateErrorScript(
+        'TENANT',
+        error instanceof Error ? error.message : 'Internal server error',
+        ActivationErrorCode.INTERNAL_ERROR,
+      );
+
+      res
+        .status(HttpStatus.OK)
+        .contentType('text/x-shellscript')
+        .send(errorScript);
+    }
+  }
+
+  /**
+   * POST /api/devices/self-register
+   *
+   * Public endpoint for device self-registration (v2.0 - tenant-first).
+   * Called by the edge agent when installed via tenant installer link.
+   *
+   * Request: SelfRegisterRequest
+   * Response: SelfRegisterResponse
+   *
+   * SECURITY: Limited to 3 requests per minute per IP
+   */
+  @Post('api/devices/self-register')
+  @RateLimit({ limit: 3, windowMs: 60000 })
+  async selfRegisterDevice(
+    @Body() request: SelfRegisterRequest,
+  ): Promise<SelfRegisterResponse | ActivationErrorResponse> {
+    this.logger.log('Self-register request received');
+
+    try {
+      const response = await this.provisioningService.selfRegisterDevice(request);
+      this.logger.log(`Device ${response.device_code} self-registered successfully`);
+      return response;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      this.logger.error('Unexpected error during self-registration:', error);
+      throw new HttpException(
+        {
+          success: false,
+          error: 'Internal server error',
+          errorCode: ActivationErrorCode.INTERNAL_ERROR,
+        } as ActivationErrorResponse,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   /**

@@ -661,7 +661,7 @@
 
         if (!reactFlowInstance) return;
 
-        const equipmentData = event.dataTransfer.getData('application/reactflow');
+        const equipmentData = event.dataTransfer.getData('application/equipment') || event.dataTransfer.getData('application/reactflow');
         if (!equipmentData) return;
 
         const equipment = JSON.parse(equipmentData);
@@ -676,8 +676,8 @@
           .toLowerCase()
           .replace(/-/g, '_');
 
-        // Map equipment type to node type
-        const nodeType = equipmentTypeToNodeType[normalizedCode] || 'equipment';
+        // Map equipment type to node type - prefer explicit nodeType from template
+        const nodeType = equipment.equipmentType?.nodeType || equipmentTypeToNodeType[normalizedCode] || 'equipment';
 
         // Build node data from equipment
         let nodeData = {

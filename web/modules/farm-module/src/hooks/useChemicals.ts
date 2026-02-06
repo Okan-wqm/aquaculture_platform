@@ -131,7 +131,7 @@ export interface CreateChemicalInput {
   name: string;
   code: string;
   type: ChemicalType;
-  siteId: string;
+  siteId?: string;
   unit: string;
   description?: string;
   brand?: string;

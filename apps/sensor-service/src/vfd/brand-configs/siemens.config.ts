@@ -1,4 +1,4 @@
-import { VfdRegisterMappingInput } from '../entities/vfd-register-mapping.entity';
+import { VfdRegisterMappingInput } from '../entities/vfd.types';
 import { VfdBrand, VfdParameterCategory, VfdDataType } from '../entities/vfd.enums';
 
 /**
@@ -145,7 +145,7 @@ export const SIEMENS_SINAMICS_REGISTERS: VfdRegisterMappingInput[] = [
     displayName: 'DC Bus Voltage',
     description: 'DC link voltage',
     category: VfdParameterCategory.MOTOR,
-    registerAddress: 26, // r0026 (different register for DC bus)
+    registerAddress: 25, // r0025
     dataType: VfdDataType.UINT16,
     scalingFactor: 0.1,
     unit: 'V',
@@ -418,4 +418,33 @@ export const SIEMENS_DEFAULT_CONFIG = {
   stopBits: 1,
   timeout: 1000,
   retryCount: 3,
+};
+
+/**
+ * Siemens SINAMICS fault code definitions (common Fxxxx codes)
+ */
+export const SIEMENS_FAULT_CODES: Record<number, string> = {
+  0: 'No Fault',
+  1: 'Overcurrent',
+  2: 'DC Bus Overvoltage',
+  3: 'Inverter I2t',
+  4: 'Motor I2t',
+  5: 'DC Bus Undervoltage',
+  7: 'Motor Overtemperature',
+  8: 'Heatsink Overtemperature',
+  11: 'Motor Stall',
+  12: 'Phase Failure',
+  13: 'Internal Fault',
+  14: 'Ground Fault',
+  15: 'External Fault 1',
+  18: 'Power Stack',
+  25: 'EEPROM Fault',
+  30: 'Fieldbus Fault',
+  35: 'Input Phase Loss',
+  40: 'Motor Overtemperature Sensor',
+  51: 'Parameter Checksum Error',
+  52: 'Safe Torque Off',
+  60: 'Technology Controller Fault',
+  72: 'Motor Phase Loss',
+  80: 'Missing Motor Parameter',
 };

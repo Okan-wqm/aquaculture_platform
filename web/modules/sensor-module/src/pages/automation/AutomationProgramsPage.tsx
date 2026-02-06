@@ -134,8 +134,14 @@ const PROGRAMS_QUERY = `
     }
     automationProgramStats {
       total
-      byStatus
-      byType
+      byStatus {
+        status
+        count
+      }
+      byType {
+        type
+        count
+      }
     }
   }
 `;
@@ -472,7 +478,16 @@ const AutomationProgramsPage: React.FC = () => {
     );
   }, [data?.automationPrograms, searchTerm]);
 
-  const stats = data?.automationProgramStats;
+  const rawStats = data?.automationProgramStats;
+  const stats = rawStats ? {
+    total: rawStats.total,
+    byStatus: Array.isArray(rawStats.byStatus)
+      ? Object.fromEntries((rawStats.byStatus as Array<{ status: string; count: number }>).map(s => [s.status, s.count]))
+      : rawStats.byStatus,
+    byType: Array.isArray(rawStats.byType)
+      ? Object.fromEntries((rawStats.byType as Array<{ type: string; count: number }>).map(t => [t.type, t.count]))
+      : rawStats.byType,
+  } as ProgramStats : undefined;
 
   // Handlers
   const handleClone = (program: AutomationProgram) => {

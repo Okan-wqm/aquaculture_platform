@@ -303,7 +303,7 @@ export class PricingCalculatorService {
   ): Promise<{ amount: number; percent: number; description: string } | null> {
     try {
       // Use validateCode method - pass empty tenantId since we're just checking the code
-      const validation = await this.discountCodeService.validateCode(code, '', undefined, subtotal);
+      const validation = await this.discountCodeService.validateCode(code, 'system-quote', undefined, subtotal);
 
       if (!validation.valid) {
         this.logger.warn(`Invalid discount code: ${code} - ${validation.message}`);

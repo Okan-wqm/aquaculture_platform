@@ -3,6 +3,7 @@
  * Lists all tanks with their batch metrics
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTanksList, Tank, tankStatusColors, tankTypeLabels, waterTypeLabels } from '../../hooks/useTanks';
 import { TankWithBatch, TankFilterState, initialFilterState } from './types';
 import { tankColumns, cleanerFishColumns } from './columns';
@@ -29,10 +30,17 @@ import { CullModal } from '../production/components/CullModal';
 // Cleaner Fish Modals
 import { MortalityModal as CleanerMortalityModal } from '../cleaner-fish/components/MortalityModal';
 import { TransferModal as CleanerTransferModal } from '../cleaner-fish/components/TransferModal';
+import { CreateBatchModal } from '../cleaner-fish/components/CreateBatchModal';
+import { DeployModal } from '../cleaner-fish/components/DeployModal';
+import { RemoveModal } from '../cleaner-fish/components/RemoveModal';
 
 // Types
 import { TankBatch } from '../production/types/batch.types';
-import { CleanerFishBatch } from '../../hooks/useCleanerFish';
+import {
+  CleanerFishBatch,
+  useCleanerFishBatches,
+  useCleanerFishSpecies,
+} from '../../hooks/useCleanerFish';
 
 // ============================================================================
 // STATUS COLORS
@@ -191,8 +199,14 @@ function formatNumber(value: number | undefined, decimals = 1): string {
 // ============================================================================
 
 export const TanksPage: React.FC = () => {
+  // URL params for tab selection (supports redirect from /sites/cleaner-fish)
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab');
+
   // Tab state
-  const [activeTab, setActiveTab] = useState<'production' | 'cleanerFish'>('production');
+  const [activeTab, setActiveTab] = useState<'production' | 'cleanerFish'>(
+    tabFromUrl === 'cleanerFish' ? 'cleanerFish' : 'production'
+  );
 
   // Filter state
   const [filters, setFilters] = useState<TankFilterState>(initialFilterState);
@@ -217,9 +231,27 @@ export const TanksPage: React.FC = () => {
     isColumnVisible: cfIsColumnVisible,
   } = useColumnVisibility('tanks-page-cf-column-visibility', cleanerFishColumns);
 
+  // Cleaner Fish Batch Management State
+  const [showCreateBatchModal, setShowCreateBatchModal] = useState(false);
+  const [showDeployModal, setShowDeployModal] = useState(false);
+  const [showRemoveModal, setShowRemoveModal] = useState(false);
+  const [selectedDeployBatch, setSelectedDeployBatch] = useState<CleanerFishBatch | null>(null);
+  const [removeBatchInfo, setRemoveBatchInfo] = useState<{ batch: CleanerFishBatch; tankId: string } | null>(null);
+
+  // Cleaner Fish Data Hooks
+  const { data: cfBatches, isLoading: cfBatchesLoading, refetch: refetchCfBatches } = useCleanerFishBatches();
+  const { data: cfSpecies, isLoading: cfSpeciesLoading } = useCleanerFishSpecies();
+
+  // Active cleaner fish batches (for deploy modal)
+  const activeCfBatches = useMemo(() => {
+    if (!cfBatches) return [];
+    return cfBatches.filter((b) => b.currentQuantity > 0 && b.status === 'ACTIVE');
+  }, [cfBatches]);
+
   // Fetch all tanks with batch metrics
   // Backend defaults to 200 items when no pagination is provided
-  const { data, isLoading, error, refetch } = useTanksList({ isActive: true });
+  const { data, isLoading: tanksLoading, error, refetch } = useTanksList({ isActive: true });
+  const isLoading = tanksLoading || (activeTab === 'cleanerFish' && (cfBatchesLoading || cfSpeciesLoading));
 
   // ============================================================================
   // QUICK ACTIONS STATE
@@ -530,6 +562,38 @@ export const TanksPage: React.FC = () => {
     setPendingOperation(null);
     setSelectedCleanerBatch(null);
   }, []);
+
+  // ============================================================================
+  // CLEANER FISH BATCH MANAGEMENT HANDLERS
+  // ============================================================================
+
+  const handleCreateBatchSuccess = useCallback(() => {
+    setShowCreateBatchModal(false);
+    refetchCfBatches();
+    refetch();
+  }, [refetchCfBatches, refetch]);
+
+  const handleDeploySuccess = useCallback(() => {
+    setShowDeployModal(false);
+    setSelectedDeployBatch(null);
+    refetchCfBatches();
+    refetch();
+  }, [refetchCfBatches, refetch]);
+
+  const handleRemoveFromTank = useCallback((tankId: string, batchId: string) => {
+    const batch = cfBatches?.find((b) => b.id === batchId) || null;
+    if (batch) {
+      setRemoveBatchInfo({ batch, tankId });
+      setShowRemoveModal(true);
+    }
+  }, [cfBatches]);
+
+  const handleRemoveSuccess = useCallback(() => {
+    setShowRemoveModal(false);
+    setRemoveBatchInfo(null);
+    refetchCfBatches();
+    refetch();
+  }, [refetchCfBatches, refetch]);
 
   // ============================================================================
   // FILTERING
@@ -1226,6 +1290,38 @@ export const TanksPage: React.FC = () => {
 
       {/* Data Table - Cleaner Fish Tab with Rowspan */}
       {activeTab === 'cleanerFish' && (
+        <>
+        {/* Cleaner Fish Action Bar */}
+        <div className="flex items-center justify-between mb-4 bg-green-50 border border-green-200 rounded-lg p-3">
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-medium text-green-800">
+              {activeCfBatches.length} active batch{activeCfBatches.length !== 1 ? 'es' : ''}
+              {' · '}
+              {filteredData.filter(t => t.hasCleanerFish).length} tanks with cleaner fish
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowCreateBatchModal(true)}
+              className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Create Batch
+            </button>
+            <button
+              onClick={() => setShowDeployModal(true)}
+              disabled={activeCfBatches.length === 0}
+              className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+              </svg>
+              Deploy to Tank
+            </button>
+          </div>
+        </div>
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
@@ -1328,6 +1424,7 @@ export const TanksPage: React.FC = () => {
             </table>
           </div>
         </div>
+        </>
       )}
 
       {/* Footer Info */}
@@ -1418,6 +1515,43 @@ export const TanksPage: React.FC = () => {
             code: t.code,
           }))}
           onSuccess={handleOperationSuccess}
+        />
+      )}
+
+      {/* Cleaner Fish Batch Management Modals */}
+      <CreateBatchModal
+        isOpen={showCreateBatchModal}
+        onClose={() => setShowCreateBatchModal(false)}
+        species={cfSpecies || []}
+        onSuccess={handleCreateBatchSuccess}
+      />
+
+      <DeployModal
+        isOpen={showDeployModal}
+        onClose={() => {
+          setShowDeployModal(false);
+          setSelectedDeployBatch(null);
+        }}
+        batch={selectedDeployBatch}
+        batches={activeCfBatches}
+        tanks={tableData.map((t) => ({
+          id: t.id,
+          name: t.name,
+          code: t.code,
+        }))}
+        onSuccess={handleDeploySuccess}
+      />
+
+      {removeBatchInfo && (
+        <RemoveModal
+          isOpen={showRemoveModal}
+          onClose={() => {
+            setShowRemoveModal(false);
+            setRemoveBatchInfo(null);
+          }}
+          batch={removeBatchInfo.batch}
+          tankId={removeBatchInfo.tankId}
+          onSuccess={handleRemoveSuccess}
         />
       )}
 

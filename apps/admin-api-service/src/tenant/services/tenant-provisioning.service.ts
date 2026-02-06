@@ -104,14 +104,14 @@ export class TenantProvisioningService {
 
     const steps: ProvisioningStep[] = [
       { name: 'validate_tenant', status: 'pending' },
+      ...(assignModules.length > 0
+        ? [{ name: 'assign_modules', status: 'pending' as const }]
+        : []),
       { name: 'create_schema', status: 'pending' },
       { name: 'setup_default_roles', status: 'pending' },
       { name: 'create_default_config', status: 'pending' },
       ...(createFirstAdmin && adminEmail
         ? [{ name: 'create_first_admin', status: 'pending' as const }]
-        : []),
-      ...(assignModules.length > 0
-        ? [{ name: 'assign_modules', status: 'pending' as const }]
         : []),
       { name: 'activate_tenant', status: 'pending' },
     ];
@@ -160,33 +160,49 @@ export class TenantProvisioningService {
 
       updateStep(0, 'completed', Date.now() - startValidate);
 
-      // Step 2: Create schema (unless skipped)
-      updateStep(1, 'in_progress');
+      let stepIndex = 1;
+
+      // Step 2 (Optional): Assign modules BEFORE schema creation
+      // This ensures createTenantSchema() can query tenant_modules to determine
+      // which module tables to create (sensor, farm, hr)
+      if (assignModules.length > 0) {
+        updateStep(stepIndex, 'in_progress');
+        const startModules = Date.now();
+        await this.assignModulesToTenant(tenant.id, assignModules);
+        updateStep(stepIndex, 'completed', Date.now() - startModules);
+        stepIndex++;
+      }
+
+      // Step 3: Create schema (unless skipped)
+      // Queries tenant_modules to determine which module tables to create
+      updateStep(stepIndex, 'in_progress');
       const startSchema = Date.now();
       if (skipSchemaCreation) {
         this.logger.log(`Skipping schema creation for tenant ${tenantId} (skipSchemaCreation=true)`);
-        updateStep(1, 'completed', Date.now() - startSchema);
+        updateStep(stepIndex, 'completed', Date.now() - startSchema);
       } else {
         await this.createTenantSchema(tenant);
-        updateStep(1, 'completed', Date.now() - startSchema);
+        updateStep(stepIndex, 'completed', Date.now() - startSchema);
       }
+      stepIndex++;
 
-      // Step 3: Setup default roles
-      updateStep(2, 'in_progress');
+      // Step 4: Setup default roles
+      updateStep(stepIndex, 'in_progress');
       const startRoles = Date.now();
       await this.setupDefaultRoles(tenant);
-      updateStep(2, 'completed', Date.now() - startRoles);
+      updateStep(stepIndex, 'completed', Date.now() - startRoles);
+      stepIndex++;
 
-      // Step 4: Create default configuration
-      updateStep(3, 'in_progress');
+      // Step 5: Create default configuration
+      updateStep(stepIndex, 'in_progress');
       const startConfig = Date.now();
       await this.createDefaultConfiguration(tenant);
-      updateStep(3, 'completed', Date.now() - startConfig);
+      updateStep(stepIndex, 'completed', Date.now() - startConfig);
+      stepIndex++;
 
-      let stepIndex = 4;
       let adminUser: ProvisioningResult['adminUser'] | undefined;
 
-      // Step 5 (Optional): Create first admin user
+      // Step 6 (Optional): Create first admin user
       if (createFirstAdmin && adminEmail) {
         updateStep(stepIndex, 'in_progress');
         const startAdmin = Date.now();
@@ -239,15 +255,6 @@ export class TenantProvisioningService {
             this.logger.warn('EmailSenderService not available, invitation email not sent');
           }
         }
-        stepIndex++;
-      }
-
-      // Step 6 (Optional): Assign modules to tenant
-      if (assignModules.length > 0) {
-        updateStep(stepIndex, 'in_progress');
-        const startModules = Date.now();
-        await this.assignModulesToTenant(tenant.id, assignModules);
-        updateStep(stepIndex, 'completed', Date.now() - startModules);
         stepIndex++;
       }
 

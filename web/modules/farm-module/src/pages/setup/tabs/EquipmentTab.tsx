@@ -34,6 +34,7 @@ import {
 const EQUIPMENT_CATEGORIES = [
   { value: 'TANK', label: 'Tank' },
   { value: 'POND', label: 'Pond' },
+  { value: 'CAGE', label: 'Cage' },
   { value: 'PUMP', label: 'Pump' },
   { value: 'FILTRATION', label: 'Filter' },
   { value: 'HEATING_COOLING', label: 'Heater/Chiller' },
@@ -55,6 +56,8 @@ const statusColors: Record<string, string> = {
 const typeIcons: Record<string, string> = {
   'fish-tank': 'M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
   'tank': 'M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
+  'pond': 'M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
+  'cage': 'M4 4h16v16H4V4zm2 2v12h12V6H6zm2 2h8v8H8V8z',
   'water-pump': 'M13 10V3L4 14h7v7l9-11h-7z',
   'pump': 'M13 10V3L4 14h7v7l9-11h-7z',
   'drum-filter': 'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z',
@@ -119,11 +122,6 @@ export const EquipmentTab: React.FC = () => {
   const [formData, setFormData] = useState<EquipmentFormData>(initialFormData);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [equipmentToDelete, setEquipmentToDelete] = useState<Equipment | null>(null);
-
-  // DEBUG: Auth durumunu kontrol et
-  const debugToken = localStorage.getItem('access_token');
-  const debugTenantId = localStorage.getItem('tenant_id');
-  console.log('[EquipmentTab] DEBUG - token:', debugToken ? 'EXISTS' : 'NULL', 'tenantId:', debugTenantId);
 
   // API hooks
   const { data: equipmentData, isLoading, error, refetch } = useEquipmentList();
@@ -323,7 +321,9 @@ export const EquipmentTab: React.FC = () => {
           id: editingId,
           name: formData.name,
           code: formData.code,
-          systemIds: formData.systemIds,
+          equipmentTypeId: formData.equipmentTypeId || undefined,
+          departmentId: formData.departmentId || undefined,
+          systemIds: formData.systemIds.length > 0 ? formData.systemIds : undefined,
           status: formData.status,
           manufacturer: formData.manufacturer || undefined,
           model: formData.model || undefined,
@@ -340,9 +340,9 @@ export const EquipmentTab: React.FC = () => {
         await createEquipment.mutateAsync({
           name: formData.name,
           code: formData.code,
-          equipmentTypeId: formData.equipmentTypeId,
-          departmentId: formData.departmentId,
-          systemIds: formData.systemIds,
+          equipmentTypeId: formData.equipmentTypeId || undefined,
+          departmentId: formData.departmentId || undefined,
+          systemIds: formData.systemIds.length > 0 ? formData.systemIds : undefined,
           status: formData.status,
           manufacturer: formData.manufacturer || undefined,
           model: formData.model || undefined,

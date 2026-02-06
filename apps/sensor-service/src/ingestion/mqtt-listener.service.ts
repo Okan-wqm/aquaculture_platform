@@ -6,6 +6,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
 import { Repository, DataSource } from 'typeorm';
 
+import { DeploymentLogService } from '../automation/services/deployment-log.service';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { SensorReading } from '../database/entities/sensor-reading.entity';
@@ -115,6 +116,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     private readonly sensorTopicCache: SensorTopicCacheService | null,
     @Optional()
     private readonly mqttClient: MqttClientService | null,
+    @Optional()
+    private readonly deploymentLogService: DeploymentLogService | null,
   ) {
     // Bind message handler to this instance
     this.messageHandler = (topic: string, message: Buffer) => {
@@ -395,6 +398,28 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     // Route ping responses to EdgeDeviceService for promise resolution
     if (payload.command === 'ping' && this.edgeDeviceService) {
       this.edgeDeviceService.handlePingResponse(deviceCode, payload as Record<string, unknown>);
+    }
+
+    // Route deployment responses to DeploymentLogService
+    if (
+      (payload.command === 'deploy_program' || payload.command === 'rollback_program') &&
+      payload.commandId &&
+      this.deploymentLogService
+    ) {
+      try {
+        if (payload.command === 'deploy_program') {
+          await this.deploymentLogService.handleResponse(
+            payload.commandId,
+            payload.success ?? false,
+            payload.error,
+          );
+        } else if (payload.command === 'rollback_program') {
+          await this.deploymentLogService.markRolledBack(payload.commandId);
+        }
+        this.logger.log(`Deployment response processed for command ${payload.commandId}: success=${payload.success}`);
+      } catch (error) {
+        this.logger.error(`Failed to process deployment response: ${(error as Error).message}`);
+      }
     }
 
     // Publish response event for command tracking

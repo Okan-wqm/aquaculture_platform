@@ -1,0 +1,128 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+
+import { DeploymentLog, DeploymentStatus } from '../entities/deployment-log.entity';
+
+/**
+ * DeploymentLog Service
+ * Tracks program deployments to edge devices
+ */
+@Injectable()
+export class DeploymentLogService {
+  private readonly logger = new Logger(DeploymentLogService.name);
+
+  constructor(
+    @InjectRepository(DeploymentLog)
+    private readonly deploymentLogRepo: Repository<DeploymentLog>,
+  ) {}
+
+  /**
+   * Create a new deployment log entry
+   * Called before sending MQTT deploy command
+   */
+  async createLog(params: {
+    tenantId: string;
+    programId: string;
+    deviceId: string;
+    commandId: string;
+    version: number;
+    edgeScript?: Record<string, unknown>;
+    deployedBy?: string;
+  }): Promise<DeploymentLog> {
+    const log = this.deploymentLogRepo.create({
+      tenantId: params.tenantId,
+      programId: params.programId,
+      deviceId: params.deviceId,
+      commandId: params.commandId,
+      version: params.version,
+      status: DeploymentStatus.PENDING,
+      edgeScript: params.edgeScript,
+      deployedBy: params.deployedBy,
+      deployedAt: new Date(),
+    });
+
+    const saved = await this.deploymentLogRepo.save(log);
+    this.logger.log(
+      `Created deployment log ${saved.id} for program ${params.programId} -> device ${params.deviceId}`,
+    );
+    return saved;
+  }
+
+  /**
+   * Update deployment status to DEPLOYING
+   * Called when MQTT message is sent
+   */
+  async markDeploying(commandId: string): Promise<void> {
+    await this.deploymentLogRepo.update(
+      { commandId },
+      { status: DeploymentStatus.DEPLOYING },
+    );
+  }
+
+  /**
+   * Handle deployment response from edge device
+   * Called when MQTT response arrives
+   */
+  async handleResponse(
+    commandId: string,
+    success: boolean,
+    errorMessage?: string,
+  ): Promise<void> {
+    const log = await this.deploymentLogRepo.findOne({
+      where: { commandId },
+    });
+
+    if (!log) {
+      this.logger.warn(`Deployment log not found for command ${commandId}`);
+      return;
+    }
+
+    log.status = success ? DeploymentStatus.SUCCESS : DeploymentStatus.FAILED;
+    log.completedAt = new Date();
+    log.edgeAckAt = new Date();
+    if (errorMessage) {
+      log.errorMessage = errorMessage;
+    }
+
+    await this.deploymentLogRepo.save(log);
+    this.logger.log(
+      `Deployment ${log.id} ${success ? 'succeeded' : 'failed'} for command ${commandId}`,
+    );
+  }
+
+  /**
+   * Get deployment history for a device
+   */
+  async getHistory(
+    tenantId: string,
+    deviceId?: string,
+    page = 1,
+    limit = 20,
+  ): Promise<{ items: DeploymentLog[]; total: number }> {
+    const where: Record<string, unknown> = { tenantId };
+    if (deviceId) where.deviceId = deviceId;
+
+    const [items, total] = await this.deploymentLogRepo.findAndCount({
+      where,
+      order: { deployedAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return { items, total };
+  }
+
+  /**
+   * Mark a deployment as rolled back
+   */
+  async markRolledBack(commandId: string): Promise<void> {
+    await this.deploymentLogRepo.update(
+      { commandId },
+      {
+        status: DeploymentStatus.ROLLED_BACK,
+        completedAt: new Date(),
+      },
+    );
+  }
+}

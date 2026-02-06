@@ -143,8 +143,8 @@ export class ModulesService {
         COUNT(tm.id)::int as "tenantsCount",
         m."createdAt" as "createdAt",
         m."updatedAt" as "updatedAt"
-      FROM public.modules m
-      LEFT JOIN public.tenant_modules tm ON m.id = tm."moduleId"
+      FROM auth.modules m
+      LEFT JOIN auth.tenant_modules tm ON m.id = tm."moduleId"
       ${whereClause}
       GROUP BY m.id
       ORDER BY m.name ASC
@@ -153,7 +153,7 @@ export class ModulesService {
 
     const countQuery = `
       SELECT COUNT(*) as total
-      FROM public.modules m
+      FROM auth.modules m
       ${whereClause}
     `;
 
@@ -190,21 +190,21 @@ export class ModulesService {
         assignmentsResult,
         usageResult,
       ] = await Promise.all([
-        this.dataSource.query(`SELECT COUNT(*) as count FROM public.modules`),
+        this.dataSource.query(`SELECT COUNT(*) as count FROM auth.modules`),
         this.dataSource.query(
-          `SELECT COUNT(*) as count FROM public.modules WHERE "isActive" = true`,
+          `SELECT COUNT(*) as count FROM auth.modules WHERE "isActive" = true`,
         ),
         this.dataSource.query(
-          `SELECT COUNT(*) as count FROM public.modules WHERE COALESCE(is_core, false) = true`,
+          `SELECT COUNT(*) as count FROM auth.modules WHERE COALESCE(is_core, false) = true`,
         ),
-        this.dataSource.query(`SELECT COUNT(*) as count FROM public.tenant_modules`),
+        this.dataSource.query(`SELECT COUNT(*) as count FROM auth.tenant_modules`),
         this.dataSource.query(`
           SELECT
             m.id as "moduleId",
             m.name as "moduleName",
             COUNT(tm.id)::int as "tenantsCount"
-          FROM public.modules m
-          LEFT JOIN public.tenant_modules tm ON m.id = tm."moduleId"
+          FROM auth.modules m
+          LEFT JOIN auth.tenant_modules tm ON m.id = tm."moduleId"
           GROUP BY m.id, m.name
           ORDER BY "tenantsCount" DESC
         `),
@@ -245,8 +245,8 @@ export class ModulesService {
           COUNT(tm.id)::int as "tenantsCount",
           m."createdAt" as "createdAt",
           m."updatedAt" as "updatedAt"
-        FROM public.modules m
-        LEFT JOIN public.tenant_modules tm ON m.id = tm."moduleId"
+        FROM auth.modules m
+        LEFT JOIN auth.tenant_modules tm ON m.id = tm."moduleId"
         WHERE m.id = $1
         GROUP BY m.id
       `,
@@ -285,8 +285,8 @@ export class ModulesService {
           COUNT(tm.id)::int as "tenantsCount",
           m."createdAt" as "createdAt",
           m."updatedAt" as "updatedAt"
-        FROM public.modules m
-        LEFT JOIN public.tenant_modules tm ON m.id = tm."moduleId"
+        FROM auth.modules m
+        LEFT JOIN auth.tenant_modules tm ON m.id = tm."moduleId"
         WHERE m.code = $1
         GROUP BY m.id
       `,
@@ -320,7 +320,7 @@ export class ModulesService {
     try {
       const result = await this.dataSource.query(
         `
-        INSERT INTO public.modules (code, name, description, "defaultRoute", icon, is_core, "isActive", price)
+        INSERT INTO auth.modules (code, name, description, "defaultRoute", icon, is_core, "isActive", price)
         VALUES ($1, $2, $3, $4, $5, $6, true, $7)
         RETURNING id, code, name, description, "defaultRoute" as "defaultRoute", icon,
                   COALESCE(is_core, false) as "isCore", "isActive" as "isActive", price, "createdAt" as "createdAt"
@@ -400,7 +400,7 @@ export class ModulesService {
     try {
       await this.dataSource.query(
         `
-        UPDATE public.modules
+        UPDATE auth.modules
         SET ${updates.join(', ')}
         WHERE id = $${paramIndex}
       `,
@@ -429,7 +429,7 @@ export class ModulesService {
     try {
       // Check if module is assigned to any tenants
       const assignments = await this.dataSource.query(
-        `SELECT COUNT(*) as count FROM public.tenant_modules WHERE "moduleId" = $1`,
+        `SELECT COUNT(*) as count FROM auth.tenant_modules WHERE "moduleId" = $1`,
         [id],
       );
 
@@ -440,7 +440,7 @@ export class ModulesService {
       }
 
       const result = await this.dataSource.query(
-        `DELETE FROM public.modules WHERE id = $1 RETURNING id`,
+        `DELETE FROM auth.modules WHERE id = $1 RETURNING id`,
         [id],
       );
 
@@ -482,8 +482,8 @@ export class ModulesService {
             t.status,
             tm."activatedAt" as "assignedAt",
             tm."expiresAt" as "expiresAt"
-          FROM public.tenants t
-          JOIN public.tenant_modules tm ON t.id = tm."tenantId"
+          FROM auth.tenants t
+          JOIN auth.tenant_modules tm ON t.id = tm."tenantId"
           WHERE tm."moduleId" = $1
           ORDER BY tm."activatedAt" DESC
           LIMIT $2 OFFSET $3
@@ -491,7 +491,7 @@ export class ModulesService {
           [moduleId, limit, offset],
         ),
         this.dataSource.query(
-          `SELECT COUNT(*) as total FROM public.tenant_modules WHERE "moduleId" = $1`,
+          `SELECT COUNT(*) as total FROM auth.tenant_modules WHERE "moduleId" = $1`,
           [moduleId],
         ),
       ]);
@@ -551,9 +551,9 @@ export class ModulesService {
             m.name as "moduleName",
             tm."activatedAt" as "assignedAt",
             tm."expiresAt" as "expiresAt"
-          FROM public.tenant_modules tm
-          JOIN public.tenants t ON tm."tenantId" = t.id
-          JOIN public.modules m ON tm."moduleId" = m.id
+          FROM auth.tenant_modules tm
+          JOIN auth.tenants t ON tm."tenantId" = t.id
+          JOIN auth.modules m ON tm."moduleId" = m.id
           ${whereClause}
           ORDER BY tm."activatedAt" DESC
           LIMIT $${paramIndex++} OFFSET $${paramIndex}
@@ -561,7 +561,7 @@ export class ModulesService {
           [...params, limit, offset],
         ),
         this.dataSource.query(
-          `SELECT COUNT(*) as total FROM public.tenant_modules tm ${whereClause}`,
+          `SELECT COUNT(*) as total FROM auth.tenant_modules tm ${whereClause}`,
           params,
         ),
       ]);
@@ -596,7 +596,7 @@ export class ModulesService {
       if (hasExtendedColumns && (dto.quantities || dto.configuration)) {
         result = await this.dataSource.query(
           `
-          INSERT INTO public.tenant_modules (
+          INSERT INTO auth.tenant_modules (
             "tenantId", "moduleId", "expiresAt", "assignedBy",
             "quantities", "configuration"
           )
@@ -621,7 +621,7 @@ export class ModulesService {
       } else {
         result = await this.dataSource.query(
           `
-          INSERT INTO public.tenant_modules ("tenantId", "moduleId", "expiresAt", "assignedBy")
+          INSERT INTO auth.tenant_modules ("tenantId", "moduleId", "expiresAt", "assignedBy")
           VALUES ($1, $2, $3, $4)
           ON CONFLICT ("tenantId", "moduleId") DO UPDATE SET "expiresAt" = $3
           RETURNING id, "tenantId" as "tenantId", "moduleId" as "moduleId",
@@ -645,9 +645,9 @@ export class ModulesService {
             tm."expiresAt" as "expiresAt",
             tm."quantities" as "quantities",
             tm."configuration" as "configuration"
-          FROM public.tenant_modules tm
-          JOIN public.tenants t ON tm."tenantId" = t.id
-          JOIN public.modules m ON tm."moduleId" = m.id
+          FROM auth.tenant_modules tm
+          JOIN auth.tenants t ON tm."tenantId" = t.id
+          JOIN auth.modules m ON tm."moduleId" = m.id
           WHERE tm.id = $1
         `
         : `
@@ -660,9 +660,9 @@ export class ModulesService {
             m.name as "moduleName",
             tm."activatedAt" as "assignedAt",
             tm."expiresAt" as "expiresAt"
-          FROM public.tenant_modules tm
-          JOIN public.tenants t ON tm."tenantId" = t.id
-          JOIN public.modules m ON tm."moduleId" = m.id
+          FROM auth.tenant_modules tm
+          JOIN auth.tenants t ON tm."tenantId" = t.id
+          JOIN auth.modules m ON tm."moduleId" = m.id
           WHERE tm.id = $1
         `;
 
@@ -689,7 +689,7 @@ export class ModulesService {
         SELECT column_name
         FROM information_schema.columns
         WHERE table_name = 'tenant_modules'
-        AND table_schema = 'public'
+        AND table_schema = 'auth'
         AND column_name IN ('quantities', 'configuration')
       `);
       return result.length >= 2;
@@ -707,7 +707,7 @@ export class ModulesService {
   ): Promise<void> {
     try {
       const result = await this.dataSource.query(
-        `DELETE FROM public.tenant_modules WHERE "tenantId" = $1 AND "moduleId" = $2 RETURNING id`,
+        `DELETE FROM auth.tenant_modules WHERE "tenantId" = $1 AND "moduleId" = $2 RETURNING id`,
         [tenantId, moduleId],
       );
 

@@ -2,6 +2,7 @@
  * Smolt Report Tab
  * Monthly settefisk reports for smolt facilities
  * Due 7th of each month
+ * Aligned with Norwegian Mattilsynet "settefisk" requirements
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import { mockSmoltReports } from '../mock/smoltData';
@@ -15,6 +16,8 @@ import {
 } from '../types/reports.types';
 import { ReportStatusBadge, DeadlineIndicator } from '../components/common';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
+import { useTanksList } from '../../../hooks/useTanks';
+import type { Tank } from '../../../hooks/useTanks';
 
 // ============================================================================
 // Types
@@ -24,12 +27,32 @@ interface SmoltReportTabProps {
   siteId?: string;
 }
 
+/** Species codes for Mattilsynet artskode field */
+const SPECIES_CODES = [
+  { code: 'SAL', label: 'Atlantic Salmon (Atlantisk laks)' },
+  { code: 'ORR', label: 'Rainbow Trout (Regnbueørret)' },
+  { code: 'ORB', label: 'Brown Trout (Ørret/Brunørret)' },
+  { code: 'ROY', label: 'Arctic Char (Røye)' },
+] as const;
+
+/** Extended mortality unit with euthanized/natural death split */
+interface SmoltMortalityUnitExtended extends SmoltMortalityUnit {
+  euthanized: number;    // antallAvlivet
+  naturalDeaths: number; // antallSelvdød
+  externalTransfers: number; // antallFlyttetEksternt
+}
+
+/** Extended unit count with species code */
+interface SmoltUnitCountExtended extends SmoltUnitCount {
+  speciesCode: string; // artskode
+}
+
 interface SmoltFormData {
   month: number;
   year: number;
   facilityType: 'freshwater' | 'land_based';
   fishCounts: {
-    byUnit: SmoltUnitCount[];
+    byUnit: SmoltUnitCountExtended[];
     total: number;
   };
   averageWeights: {
@@ -38,7 +61,7 @@ interface SmoltFormData {
   };
   mortalityRates: {
     overall: number;
-    byUnit: SmoltMortalityUnit[];
+    byUnit: SmoltMortalityUnitExtended[];
   };
   transfers: {
     outgoing: TransferRecord[];
@@ -80,6 +103,32 @@ function getInitialFormData(): SmoltFormData {
     mortalityRates: { overall: 0, byUnit: [] },
     transfers: { outgoing: [] },
   };
+}
+
+/** Derive stage from batch data or tank name heuristics */
+function deriveStage(tank: Tank): 'fry' | 'parr' | 'smolt' {
+  const name = (tank.name || '').toLowerCase();
+  if (name.includes('smolt')) return 'smolt';
+  if (name.includes('parr')) return 'parr';
+  // Default based on weight if available
+  const avgWeight = tank.batchMetrics?.avgWeight || 0;
+  if (avgWeight >= 60) return 'smolt';
+  if (avgWeight >= 5) return 'parr';
+  return 'fry';
+}
+
+/** Map tank type to unit type */
+function mapTankType(tank: Tank): 'tank' | 'raceway' | 'pond' {
+  const typeCode = tank.equipmentType?.code?.toLowerCase() || '';
+  const typeName = tank.equipmentType?.name?.toLowerCase() || '';
+  if (typeCode.includes('raceway') || typeName.includes('raceway')) return 'raceway';
+  if (typeCode.includes('pond') || typeName.includes('pond')) return 'pond';
+  return 'tank';
+}
+
+function getSpeciesLabel(code: string): string {
+  const found = SPECIES_CODES.find((s) => s.code === code);
+  return found ? found.label : code;
 }
 
 const STAGES = ['fry', 'parr', 'smolt'] as const;
@@ -261,17 +310,19 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
 interface FishCountsStepProps {
   formData: SmoltFormData;
   onChange: (data: Partial<SmoltFormData>) => void;
+  tanks: Tank[];
 }
 
-const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange }) => {
+const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange, tanks }) => {
   const addUnit = () => {
-    const newUnit: SmoltUnitCount = {
+    const newUnit: SmoltUnitCountExtended = {
       unitId: `unit-${Date.now()}`,
       unitName: '',
       unitType: 'tank',
       quantity: 0,
       avgWeightG: 0,
       stage: 'fry',
+      speciesCode: 'SAL',
     };
     const byUnit = [...formData.fishCounts.byUnit, newUnit];
     onChange({
@@ -282,7 +333,50 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange }) =
     });
   };
 
-  const updateUnit = (index: number, updates: Partial<SmoltUnitCount>) => {
+  const loadFromSystem = () => {
+    if (tanks.length === 0) return;
+
+    const byUnit: SmoltUnitCountExtended[] = tanks
+      .filter((t) => t.batchMetrics?.pieces && t.batchMetrics.pieces > 0)
+      .map((tank) => ({
+        unitId: tank.id,
+        unitName: tank.name,
+        unitType: mapTankType(tank),
+        quantity: tank.batchMetrics?.pieces || 0,
+        avgWeightG: tank.batchMetrics?.avgWeight || 0,
+        stage: deriveStage(tank),
+        speciesCode: tank.batchMetrics?.speciesCode || 'SAL',
+      }));
+
+    if (byUnit.length === 0) {
+      // If no tanks have batch data, load all tanks with zero counts
+      const allUnits: SmoltUnitCountExtended[] = tanks.map((tank) => ({
+        unitId: tank.id,
+        unitName: tank.name,
+        unitType: mapTankType(tank),
+        quantity: 0,
+        avgWeightG: 0,
+        stage: deriveStage(tank),
+        speciesCode: tank.batchMetrics?.speciesCode || 'SAL',
+      }));
+      onChange({
+        fishCounts: {
+          byUnit: allUnits,
+          total: 0,
+        },
+      });
+      return;
+    }
+
+    onChange({
+      fishCounts: {
+        byUnit,
+        total: byUnit.reduce((sum, u) => sum + u.quantity, 0),
+      },
+    });
+  };
+
+  const updateUnit = (index: number, updates: Partial<SmoltUnitCountExtended>) => {
     const byUnit = formData.fishCounts.byUnit.map((u, i) =>
       i === index ? { ...u, ...updates } : u
     );
@@ -304,20 +398,38 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange }) =
     });
   };
 
+  // Build tank options for dropdown (tanks not already used)
+  const usedTankIds = new Set(formData.fishCounts.byUnit.map((u) => u.unitId));
+  const availableTanks = tanks.filter((t) => !usedTankIds.has(t.id));
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h4 className="text-sm font-medium text-gray-700">Fish Counts by Unit</h4>
-          <p className="text-xs text-gray-500">Record fish in each production unit</p>
+          <p className="text-xs text-gray-500">Record fish in each production unit (Mattilsynet: produksjonsenhet)</p>
         </div>
-        <button
-          type="button"
-          onClick={addUnit}
-          className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-        >
-          + Add Unit
-        </button>
+        <div className="flex items-center gap-2">
+          {tanks.length > 0 && (
+            <button
+              type="button"
+              onClick={loadFromSystem}
+              className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Load from System
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={addUnit}
+            className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+          >
+            + Add Unit
+          </button>
+        </div>
       </div>
 
       {/* Total Summary */}
@@ -336,85 +448,152 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({ formData, onChange }) =
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
           </svg>
           <p className="mt-2 text-sm text-gray-500">No units added</p>
-          <p className="text-xs text-gray-400">Click "Add Unit" to record fish in tanks/raceways</p>
+          <p className="text-xs text-gray-400">
+            {tanks.length > 0
+              ? 'Click "Load from System" to auto-populate from tanks, or "Add Unit" manually'
+              : 'Click "Add Unit" to record fish in tanks/raceways'}
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {formData.fishCounts.byUnit.map((unit, index) => (
-            <div key={unit.unitId} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
-              <div className="flex items-start justify-between mb-3">
-                <span className="text-sm font-medium text-gray-700">Unit #{index + 1}</span>
-                <button
-                  type="button"
-                  onClick={() => removeUnit(index)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Unit Name</label>
-                  <input
-                    type="text"
-                    value={unit.unitName}
-                    onChange={(e) => updateUnit(index, { unitName: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                    placeholder="Tank A1"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Type</label>
-                  <select
-                    value={unit.unitType}
-                    onChange={(e) => updateUnit(index, { unitType: e.target.value as 'tank' | 'raceway' | 'pond' })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+          {formData.fishCounts.byUnit.map((unit, index) => {
+            // Check if this unit matches a known tank
+            const matchedTank = tanks.find((t) => t.id === unit.unitId);
+            const isFromSystem = !!matchedTank;
+
+            return (
+              <div key={unit.unitId} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <div className="flex items-start justify-between mb-3">
+                  <span className="text-sm font-medium text-gray-700">Unit #{index + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeUnit(index)}
+                    className="text-red-500 hover:text-red-700"
                   >
-                    <option value="tank">Tank</option>
-                    <option value="raceway">Raceway</option>
-                    <option value="pond">Pond</option>
-                  </select>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Stage</label>
-                  <select
-                    value={unit.stage}
-                    onChange={(e) => updateUnit(index, { stage: e.target.value as 'fry' | 'parr' | 'smolt' })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                  >
-                    <option value="fry">Fry</option>
-                    <option value="parr">Parr</option>
-                    <option value="smolt">Smolt</option>
-                  </select>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Unit Name / Tank</label>
+                    {tanks.length > 0 ? (
+                      <select
+                        value={isFromSystem ? unit.unitId : '__manual__'}
+                        onChange={(e) => {
+                          if (e.target.value === '__manual__') {
+                            updateUnit(index, { unitId: `unit-${Date.now()}`, unitName: '' });
+                          } else {
+                            const tank = tanks.find((t) => t.id === e.target.value);
+                            if (tank) {
+                              updateUnit(index, {
+                                unitId: tank.id,
+                                unitName: tank.name,
+                                unitType: mapTankType(tank),
+                                quantity: tank.batchMetrics?.pieces || unit.quantity,
+                                avgWeightG: tank.batchMetrics?.avgWeight || unit.avgWeightG,
+                                stage: deriveStage(tank),
+                                speciesCode: tank.batchMetrics?.speciesCode || (unit as SmoltUnitCountExtended).speciesCode || 'SAL',
+                              });
+                            }
+                          }
+                        }}
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                      >
+                        <option value="__manual__">-- Manual entry --</option>
+                        {tanks.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} {t.batchMetrics?.pieces ? `(${formatNumber(t.batchMetrics.pieces)} fish)` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={unit.unitName}
+                        onChange={(e) => updateUnit(index, { unitName: e.target.value })}
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                        placeholder="Tank A1"
+                      />
+                    )}
+                    {!isFromSystem && tanks.length > 0 && (
+                      <input
+                        type="text"
+                        value={unit.unitName}
+                        onChange={(e) => updateUnit(index, { unitName: e.target.value })}
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md mt-1"
+                        placeholder="Enter unit name"
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Type</label>
+                    <select
+                      value={unit.unitType}
+                      onChange={(e) => updateUnit(index, { unitType: e.target.value as 'tank' | 'raceway' | 'pond' })}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    >
+                      <option value="tank">Tank</option>
+                      <option value="raceway">Raceway</option>
+                      <option value="pond">Pond</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Species Code (artskode)</label>
+                    <select
+                      value={(unit as SmoltUnitCountExtended).speciesCode || 'SAL'}
+                      onChange={(e) => updateUnit(index, { speciesCode: e.target.value })}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    >
+                      {SPECIES_CODES.map((sp) => (
+                        <option key={sp.code} value={sp.code}>
+                          {sp.code} - {sp.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Fish Count</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={unit.quantity || ''}
-                    onChange={(e) => updateUnit(index, { quantity: parseInt(e.target.value) || 0 })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Avg Weight (g)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={unit.avgWeightG || ''}
-                    onChange={(e) => updateUnit(index, { avgWeightG: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                    placeholder="0"
-                  />
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Stage</label>
+                    <select
+                      value={unit.stage}
+                      onChange={(e) => updateUnit(index, { stage: e.target.value as 'fry' | 'parr' | 'smolt' })}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    >
+                      <option value="fry">Fry</option>
+                      <option value="parr">Parr</option>
+                      <option value="smolt">Smolt</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Fish Count</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={unit.quantity || ''}
+                      onChange={(e) => updateUnit(index, { quantity: parseInt(e.target.value) || 0 })}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Avg Weight (g)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={unit.avgWeightG || ''}
+                      onChange={(e) => updateUnit(index, { avgWeightG: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                      placeholder="0"
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -431,11 +610,14 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
   const calculateMortality = () => {
     if (formData.fishCounts.byUnit.length === 0) return;
 
-    const byUnit: SmoltMortalityUnit[] = formData.fishCounts.byUnit.map((unit) => ({
+    const byUnit: SmoltMortalityUnitExtended[] = formData.fishCounts.byUnit.map((unit) => ({
       unitId: unit.unitId,
       unitName: unit.unitName,
       rate: 0,
       count: 0,
+      euthanized: 0,
+      naturalDeaths: 0,
+      externalTransfers: 0,
     }));
 
     onChange({
@@ -446,10 +628,22 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
     });
   };
 
-  const updateMortality = (index: number, updates: Partial<SmoltMortalityUnit>) => {
-    const byUnit = formData.mortalityRates.byUnit.map((m, i) =>
-      i === index ? { ...m, ...updates } : m
-    );
+  const updateMortality = (index: number, updates: Partial<SmoltMortalityUnitExtended>) => {
+    const byUnit = formData.mortalityRates.byUnit.map((m, i) => {
+      if (i !== index) return m;
+      const updated = { ...m, ...updates } as SmoltMortalityUnitExtended;
+      // Auto-calculate total count from euthanized + natural deaths
+      updated.count = (updated.euthanized || 0) + (updated.naturalDeaths || 0);
+      // FIX: Calculate per-unit rate
+      const unitData = formData.fishCounts.byUnit[i];
+      if (unitData && unitData.quantity > 0) {
+        updated.rate = (updated.count / unitData.quantity) * 100;
+      } else {
+        updated.rate = 0;
+      }
+      return updated;
+    });
+
     const totalCount = byUnit.reduce((sum, m) => sum + m.count, 0);
     const totalFish = formData.fishCounts.total;
     const overall = totalFish > 0 ? (totalCount / totalFish) * 100 : 0;
@@ -469,20 +663,42 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
     }
   }, [formData.fishCounts.byUnit.length]);
 
+  const totalEuthanized = formData.mortalityRates.byUnit.reduce(
+    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).euthanized || 0), 0
+  );
+  const totalNaturalDeaths = formData.mortalityRates.byUnit.reduce(
+    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).naturalDeaths || 0), 0
+  );
+  const totalExternalTransfers = formData.mortalityRates.byUnit.reduce(
+    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).externalTransfers || 0), 0
+  );
+
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-sm font-medium text-gray-700">Mortality Rates by Unit</h4>
-        <p className="text-xs text-gray-500">Record mortality for each production unit</p>
+        <h4 className="text-sm font-medium text-gray-700">Mortality and Transfers by Unit</h4>
+        <p className="text-xs text-gray-500">
+          Mattilsynet requires separate counts for euthanized (avlivet) and natural deaths (selvdod), plus external transfers
+        </p>
       </div>
 
       {/* Overall Summary */}
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-red-800">Overall Mortality Rate</span>
-          <span className="text-2xl font-bold text-red-700">
-            {formData.mortalityRates.overall.toFixed(2)}%
-          </span>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+          <div className="text-xs text-red-600 font-medium">Overall Mortality</div>
+          <div className="text-xl font-bold text-red-700">{formData.mortalityRates.overall.toFixed(2)}%</div>
+        </div>
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+          <div className="text-xs text-orange-600 font-medium">Euthanized (avlivet)</div>
+          <div className="text-xl font-bold text-orange-700">{formatNumber(totalEuthanized)}</div>
+        </div>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+          <div className="text-xs text-red-600 font-medium">Natural Deaths (selvdod)</div>
+          <div className="text-xl font-bold text-red-700">{formatNumber(totalNaturalDeaths)}</div>
+        </div>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <div className="text-xs text-blue-600 font-medium">External Transfers</div>
+          <div className="text-xl font-bold text-blue-700">{formatNumber(totalExternalTransfers)}</div>
         </div>
       </div>
 
@@ -491,31 +707,80 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
           <p className="text-sm text-gray-500">Add fish counts first to record mortality by unit</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {formData.mortalityRates.byUnit.map((mort, index) => (
-            <div key={mort.unitId} className="flex items-center gap-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-              <div className="flex-1">
-                <span className="text-sm font-medium text-gray-700">
-                  {mort.unitName || `Unit ${index + 1}`}
-                </span>
+        <div className="space-y-3">
+          {formData.mortalityRates.byUnit.map((mort, index) => {
+            const ext = mort as SmoltMortalityUnitExtended;
+            const unitData = formData.fishCounts.byUnit[index];
+            return (
+              <div key={mort.unitId} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <span className="text-sm font-medium text-gray-700">
+                      {mort.unitName || `Unit ${index + 1}`}
+                    </span>
+                    {unitData && (
+                      <span className="ml-2 text-xs text-gray-400">
+                        ({formatNumber(unitData.quantity)} fish)
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs text-gray-500">Rate: </span>
+                    <span className={`font-medium text-sm ${mort.rate > 1 ? 'text-red-600' : 'text-gray-700'}`}>
+                      {mort.rate.toFixed(2)}%
+                    </span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Euthanized (avlivet)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={ext.euthanized || ''}
+                      onChange={(e) => updateMortality(index, { euthanized: parseInt(e.target.value) || 0 })}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Natural Deaths (selvdod)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={ext.naturalDeaths || ''}
+                      onChange={(e) => updateMortality(index, { naturalDeaths: parseInt(e.target.value) || 0 })}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Total Dead</label>
+                    <div className="w-full px-2 py-1.5 text-sm bg-gray-100 border border-gray-200 rounded-md text-gray-700 font-medium">
+                      {formatNumber(mort.count)}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      External Transfers
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={ext.externalTransfers || ''}
+                      onChange={(e) => updateMortality(index, { externalTransfers: parseInt(e.target.value) || 0 })}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="w-32">
-                <label className="block text-xs text-gray-500 mb-1">Dead Fish</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={mort.count || ''}
-                  onChange={(e) => updateMortality(index, { count: parseInt(e.target.value) || 0 })}
-                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
-                  placeholder="0"
-                />
-              </div>
-              <div className="w-24 text-right">
-                <span className="text-sm text-gray-500">Rate:</span>
-                <span className="ml-1 font-medium text-red-600">{mort.rate.toFixed(2)}%</span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -535,6 +800,17 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       .filter((u) => u.stage === stage)
       .reduce((sum, u) => sum + u.quantity, 0),
   })).filter((s) => s.quantity > 0);
+
+  // Totals for mortality breakdown
+  const totalEuthanized = formData.mortalityRates.byUnit.reduce(
+    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).euthanized || 0), 0
+  );
+  const totalNaturalDeaths = formData.mortalityRates.byUnit.reduce(
+    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).naturalDeaths || 0), 0
+  );
+  const totalExternalTransfers = formData.mortalityRates.byUnit.reduce(
+    (sum, m) => sum + ((m as SmoltMortalityUnitExtended).externalTransfers || 0), 0
+  );
 
   return (
     <div className="space-y-6">
@@ -569,6 +845,25 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
         </div>
       </div>
 
+      {/* Mortality Breakdown (Mattilsynet) */}
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Mortality Breakdown (Mattilsynet)</h5>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="text-center p-2 bg-orange-50 rounded">
+            <div className="text-lg font-bold text-orange-700">{formatNumber(totalEuthanized)}</div>
+            <div className="text-xs text-gray-500">Euthanized (avlivet)</div>
+          </div>
+          <div className="text-center p-2 bg-red-50 rounded">
+            <div className="text-lg font-bold text-red-700">{formatNumber(totalNaturalDeaths)}</div>
+            <div className="text-xs text-gray-500">Natural Deaths (selvdod)</div>
+          </div>
+          <div className="text-center p-2 bg-blue-50 rounded">
+            <div className="text-lg font-bold text-blue-700">{formatNumber(totalExternalTransfers)}</div>
+            <div className="text-xs text-gray-500">External Transfers</div>
+          </div>
+        </div>
+      </div>
+
       {/* Stage Breakdown */}
       {stageTotals.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
@@ -584,22 +879,47 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
         </div>
       )}
 
-      {/* Unit Summary */}
+      {/* Unit Summary with species codes, mortality rates, and transfers */}
       {formData.fishCounts.byUnit.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">
             Production Units ({formData.fishCounts.byUnit.length})
           </h5>
-          <div className="space-y-2 max-h-40 overflow-y-auto">
-            {formData.fishCounts.byUnit.map((unit, i) => (
-              <div key={i} className="flex items-center justify-between text-sm">
-                <span className="text-gray-700">{unit.unitName || `Unit ${i + 1}`}</span>
-                <div className="text-right">
-                  <span className="font-medium text-gray-900">{formatNumber(unit.quantity)}</span>
-                  <span className="text-gray-500 ml-2">({unit.avgWeightG.toFixed(1)}g)</span>
+          <div className="space-y-2 max-h-60 overflow-y-auto">
+            <div className="grid grid-cols-12 gap-2 text-xs text-gray-500 font-medium pb-1 border-b border-gray-100">
+              <div className="col-span-3">Unit</div>
+              <div className="col-span-1">Species</div>
+              <div className="col-span-2 text-right">Fish Count</div>
+              <div className="col-span-1 text-right">Wt (g)</div>
+              <div className="col-span-1 text-right">Euth.</div>
+              <div className="col-span-1 text-right">Nat.D</div>
+              <div className="col-span-1 text-right">Transf.</div>
+              <div className="col-span-2 text-right">Mort %</div>
+            </div>
+            {formData.fishCounts.byUnit.map((unit, i) => {
+              const mort = formData.mortalityRates.byUnit[i] as SmoltMortalityUnitExtended | undefined;
+              const ext = unit as SmoltUnitCountExtended;
+              return (
+                <div key={i} className="grid grid-cols-12 gap-2 text-sm items-center">
+                  <div className="col-span-3 text-gray-700 truncate">{unit.unitName || `Unit ${i + 1}`}</div>
+                  <div className="col-span-1">
+                    <span className="px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">
+                      {ext.speciesCode || 'SAL'}
+                    </span>
+                  </div>
+                  <div className="col-span-2 text-right font-medium text-gray-900">{formatNumber(unit.quantity)}</div>
+                  <div className="col-span-1 text-right text-gray-500">{unit.avgWeightG.toFixed(1)}</div>
+                  <div className="col-span-1 text-right text-orange-600">{mort?.euthanized || 0}</div>
+                  <div className="col-span-1 text-right text-red-600">{mort?.naturalDeaths || 0}</div>
+                  <div className="col-span-1 text-right text-blue-600">{mort?.externalTransfers || 0}</div>
+                  <div className="col-span-2 text-right">
+                    <span className={`font-medium ${(mort?.rate || 0) > 1 ? 'text-red-600' : 'text-gray-700'}`}>
+                      {(mort?.rate || 0).toFixed(2)}%
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -608,7 +928,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
         <p className="text-sm text-gray-600">
           By submitting this report, you confirm that the data is accurate and complete.
-          This report will be submitted to the Norwegian Food Safety Authority.
+          This report will be submitted to the Norwegian Food Safety Authority (Mattilsynet)
+          via the settefisk API endpoint.
         </p>
       </div>
     </div>
@@ -626,6 +947,10 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<ReportStatus | 'all'>('all');
+
+  // Fetch tanks for auto-populate
+  const { data: tanksData } = useTanksList({ isActive: true });
+  const tanks = tanksData?.items || [];
 
   // Filter reports
   const reports = useMemo(() => {
@@ -662,9 +987,23 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
         month: report.month,
         year: report.year,
         facilityType: report.facilityType,
-        fishCounts: { ...report.fishCounts },
+        fishCounts: {
+          total: report.fishCounts.total,
+          byUnit: report.fishCounts.byUnit.map((u) => ({
+            ...u,
+            speciesCode: (u as SmoltUnitCountExtended).speciesCode || 'SAL',
+          })),
+        },
         averageWeights: { ...report.averageWeights },
-        mortalityRates: { ...report.mortalityRates },
+        mortalityRates: {
+          overall: report.mortalityRates.overall,
+          byUnit: report.mortalityRates.byUnit.map((m) => ({
+            ...m,
+            euthanized: (m as SmoltMortalityUnitExtended).euthanized || 0,
+            naturalDeaths: (m as SmoltMortalityUnitExtended).naturalDeaths || 0,
+            externalTransfers: (m as SmoltMortalityUnitExtended).externalTransfers || 0,
+          })),
+        },
         transfers: { outgoing: report.transfers?.outgoing || [] },
       });
     } else {
@@ -706,13 +1045,13 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
         id: 'fish-counts',
         title: 'Fish Counts',
         description: 'Fish by production unit',
-        content: <FishCountsStep formData={formData} onChange={handleFormChange} />,
+        content: <FishCountsStep formData={formData} onChange={handleFormChange} tanks={tanks} />,
         isValid: () => formData.fishCounts.byUnit.length > 0 && formData.fishCounts.total > 0,
       },
       {
         id: 'mortality',
         title: 'Mortality',
-        description: 'Mortality rates',
+        description: 'Mortality & transfers',
         content: <MortalityStep formData={formData} onChange={handleFormChange} />,
       },
       {
@@ -722,7 +1061,7 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
         content: <ReviewStep formData={formData} siteName={selectedReport?.siteName || 'Default Smolt Facility'} />,
       },
     ],
-    [formData, handleFormChange, selectedReport]
+    [formData, handleFormChange, selectedReport, tanks]
   );
 
   return (

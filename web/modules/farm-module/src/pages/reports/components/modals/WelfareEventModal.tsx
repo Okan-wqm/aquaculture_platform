@@ -3,9 +3,11 @@
  * Quick report modal for immediate welfare event reporting
  * Contact: varsling.akva@mattilsynet.no
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { WelfareEventReport, WelfareEventType, WelfareEventSeverity } from '../../types/reports.types';
 import { REGULATORY_CONTACTS, MORTALITY_THRESHOLDS } from '../../utils/thresholds';
+import { useTanksList, Tank } from '../../../../hooks/useTanks';
+import { useBatchList, Batch } from '../../../../hooks/useBatches';
 
 interface WelfareEventModalProps {
   isOpen: boolean;
@@ -26,10 +28,12 @@ interface FormData {
   mortalityPeriod: '1_day' | '3_day' | '7_day';
   equipmentId: string;
   equipmentName: string;
+  equipmentType: string;
   failureType: string;
   injuredFishCount: string;
   immediateActions: string[];
   newAction: string;
+  affectedBatchIds: string[];
 }
 
 const initialFormData: FormData = {
@@ -43,10 +47,12 @@ const initialFormData: FormData = {
   mortalityPeriod: '3_day',
   equipmentId: '',
   equipmentName: '',
+  equipmentType: '',
   failureType: '',
   injuredFishCount: '',
   immediateActions: [],
   newAction: '',
+  affectedBatchIds: [],
 };
 
 const eventTypeOptions: { value: WelfareEventType; label: string; description: string }[] = [
@@ -72,6 +78,43 @@ const severityOptions: { value: WelfareEventSeverity; label: string; color: stri
   { value: 'critical', label: 'Critical', color: 'text-red-600' },
 ];
 
+const EQUIPMENT_TYPE_OPTIONS = [
+  'Pump',
+  'Generator',
+  'Net',
+  'Feeder',
+  'Oxygen System',
+  'Camera',
+  'Other',
+];
+
+const FAILURE_TYPE_OPTIONS = [
+  { value: 'Mechanical Failure', label: 'Mechanical Failure' },
+  { value: 'Electrical Failure', label: 'Electrical Failure' },
+  { value: 'Structural Damage', label: 'Structural Damage' },
+  { value: 'Software/Control', label: 'Software/Control' },
+  { value: 'Other', label: 'Other' },
+];
+
+const SUGGESTED_ACTIONS: Record<WelfareEventType, string[]> = {
+  mortality_threshold: [
+    'Veterinarian consultation scheduled',
+    'Increased monitoring',
+    'Fish samples sent to lab',
+    'Water quality testing',
+  ],
+  equipment_failure: [
+    'Backup system activated',
+    'Emergency repair initiated',
+    'Manual operation started',
+  ],
+  welfare_impact: [
+    'Reduced feeding',
+    'Increased aeration',
+    'Staff alert issued',
+  ],
+};
+
 export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
   isOpen,
   onClose,
@@ -82,6 +125,53 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [equipmentSearch, setEquipmentSearch] = useState('');
+
+  // Fetch tank data for context
+  const { data: tanksData } = useTanksList({ siteId, isActive: true });
+  const tanks = tanksData?.items || [];
+
+  // Fetch active batches
+  const { data: batchesData } = useBatchList(
+    { isActive: true, siteId },
+    { limit: 100 }
+  );
+  const batches = batchesData?.items || [];
+
+  // Tanks with high mortality (rate > threshold)
+  const highMortalityTanks = useMemo(() => {
+    return tanks.filter(
+      (t) =>
+        t.batchMetrics?.mortalityRate != null &&
+        t.batchMetrics.mortalityRate >= MORTALITY_THRESHOLDS.DAILY.ELEVATED
+    );
+  }, [tanks]);
+
+  // Threshold comparison for the entered mortality rate
+  const thresholdComparison = useMemo(() => {
+    const rate = parseFloat(formData.mortalityRate);
+    if (isNaN(rate) || rate <= 0) return null;
+    const period = formData.mortalityPeriod;
+    let threshold: number;
+    let label: string;
+    if (period === '1_day') {
+      threshold = MORTALITY_THRESHOLDS.DAILY.ELEVATED;
+      label = 'Daily threshold';
+    } else if (period === '3_day') {
+      threshold = MORTALITY_THRESHOLDS.MULTI_DAY.THREE_DAY_HIGH;
+      label = '3-day threshold';
+    } else {
+      threshold = MORTALITY_THRESHOLDS.MULTI_DAY.SEVEN_DAY_CRITICAL;
+      label = '7-day threshold';
+    }
+    return {
+      rate,
+      threshold,
+      label,
+      exceeded: rate >= threshold,
+      ratio: ((rate / threshold) * 100).toFixed(0),
+    };
+  }, [formData.mortalityRate, formData.mortalityPeriod]);
 
   const handleChange = useCallback(
     (field: keyof FormData, value: string | string[]) => {
@@ -107,11 +197,30 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
     }
   }, [formData.newAction]);
 
+  const addSuggestedAction = useCallback((action: string) => {
+    setFormData((prev) => {
+      if (prev.immediateActions.includes(action)) return prev;
+      return {
+        ...prev,
+        immediateActions: [...prev.immediateActions, action],
+      };
+    });
+  }, []);
+
   const removeAction = useCallback((index: number) => {
     setFormData((prev) => ({
       ...prev,
       immediateActions: prev.immediateActions.filter((_, i) => i !== index),
     }));
+  }, []);
+
+  const toggleBatch = useCallback((batchId: string) => {
+    setFormData((prev) => {
+      const ids = prev.affectedBatchIds.includes(batchId)
+        ? prev.affectedBatchIds.filter((id) => id !== batchId)
+        : [...prev.affectedBatchIds, batchId];
+      return { ...prev, affectedBatchIds: ids };
+    });
   }, []);
 
   const validateForm = useCallback((): boolean => {
@@ -182,17 +291,27 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
 
       // Add type-specific data
       if (formData.eventType === 'mortality_threshold') {
+        const selectedBatches = batches
+          .filter((b) => formData.affectedBatchIds.includes(b.id))
+          .map((b) => ({
+            batchId: b.id,
+            batchNumber: b.batchNumber,
+            speciesName: b.speciesId,
+            mortalityCount: b.totalMortality || 0,
+            mortalityRate: b.mortalityRate,
+          }));
+
         report.mortalityData = {
           period: formData.mortalityPeriod,
           threshold: MORTALITY_THRESHOLDS.DAILY.HIGH,
           actualRate: parseFloat(formData.mortalityRate),
-          affectedBatches: [],
+          affectedBatches: selectedBatches,
         };
       } else if (formData.eventType === 'equipment_failure') {
         report.equipmentData = {
           equipmentId: formData.equipmentId,
           equipmentName: formData.equipmentName,
-          equipmentType: formData.failureType,
+          equipmentType: formData.equipmentType || 'Unknown',
           failureType: formData.failureType,
           injuredFishCount: formData.injuredFishCount
             ? parseInt(formData.injuredFishCount)
@@ -216,15 +335,18 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
 
       await onSubmit(report);
       setFormData(initialFormData);
+      setEquipmentSearch('');
       onClose();
     } catch (error) {
       console.error('Failed to submit welfare event:', error);
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData, siteId, siteName, onSubmit, onClose, validateForm]);
+  }, [formData, batches, siteId, siteName, onSubmit, onClose, validateForm]);
 
   if (!isOpen) return null;
+
+  const suggestedActions = SUGGESTED_ACTIONS[formData.eventType] || [];
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -369,6 +491,31 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
               {formData.eventType === 'mortality_threshold' && (
                 <div className="space-y-4 p-4 bg-orange-50 rounded-md border border-orange-200">
                   <h4 className="text-sm font-medium text-gray-900">Mortality Data</h4>
+
+                  {/* Tip note */}
+                  <div className="bg-white rounded-md p-3 border border-orange-100">
+                    <p className="text-xs text-orange-700">
+                      Tip: Check Tanks page for current mortality rates
+                    </p>
+                    {highMortalityTanks.length > 0 && (
+                      <div className="mt-2">
+                        <p className="text-xs font-medium text-orange-800 mb-1">
+                          Tanks with elevated mortality:
+                        </p>
+                        <div className="space-y-1">
+                          {highMortalityTanks.slice(0, 5).map((tank) => (
+                            <div key={tank.id} className="flex items-center justify-between text-xs">
+                              <span className="text-gray-700">{tank.name} ({tank.code})</span>
+                              <span className="font-medium text-red-600">
+                                {tank.batchMetrics?.mortalityRate?.toFixed(1)}% mortality
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm text-gray-700 mb-1">
@@ -424,12 +571,130 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                       <option value="7_day">7 Days</option>
                     </select>
                   </div>
+
+                  {/* Threshold comparison */}
+                  {thresholdComparison && (
+                    <div
+                      className={`rounded-md p-3 text-sm ${
+                        thresholdComparison.exceeded
+                          ? 'bg-red-100 border border-red-200 text-red-800'
+                          : 'bg-green-100 border border-green-200 text-green-800'
+                      }`}
+                    >
+                      {thresholdComparison.exceeded ? (
+                        <span>
+                          Rate {thresholdComparison.rate}% exceeds {thresholdComparison.label} of{' '}
+                          {thresholdComparison.threshold}% ({thresholdComparison.ratio}% of threshold) - Reporting required
+                        </span>
+                      ) : (
+                        <span>
+                          Rate {thresholdComparison.rate}% is below {thresholdComparison.label} of{' '}
+                          {thresholdComparison.threshold}%
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Affected Batches */}
+                  {batches.length > 0 && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Select Affected Batches
+                      </label>
+                      <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-md bg-white">
+                        {batches.map((batch) => {
+                          // Try to find the tank for this batch
+                          const tank = tanks.find(
+                            (t) => t.batchMetrics?.batchId === batch.id
+                          );
+                          return (
+                            <label
+                              key={batch.id}
+                              className={`flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0 ${
+                                formData.affectedBatchIds.includes(batch.id) ? 'bg-blue-50' : ''
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={formData.affectedBatchIds.includes(batch.id)}
+                                onChange={() => toggleBatch(batch.id)}
+                                className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                              />
+                              <div className="ml-3 flex-1 min-w-0">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm font-medium text-gray-900 truncate">
+                                    {batch.batchNumber}
+                                    {batch.name ? ` - ${batch.name}` : ''}
+                                  </span>
+                                  <span className="text-xs text-gray-500 ml-2 flex-shrink-0">
+                                    {batch.currentQuantity?.toLocaleString()} fish
+                                  </span>
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {tank ? `Tank: ${tank.name}` : ''}
+                                  {batch.mortalityRate != null && (
+                                    <span
+                                      className={`ml-2 ${
+                                        batch.mortalityRate >= MORTALITY_THRESHOLDS.DAILY.ELEVATED
+                                          ? 'text-red-600 font-medium'
+                                          : ''
+                                      }`}
+                                    >
+                                      Mortality: {batch.mortalityRate.toFixed(1)}%
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Water Quality Context */}
+                  <div className="bg-blue-50 border border-blue-100 rounded-md p-3">
+                    <p className="text-xs text-blue-700">
+                      Water quality data will be attached from the most recent measurements when submitting to Mattilsynet.
+                    </p>
+                  </div>
                 </div>
               )}
 
               {formData.eventType === 'equipment_failure' && (
                 <div className="space-y-4 p-4 bg-yellow-50 rounded-md border border-yellow-200">
                   <h4 className="text-sm font-medium text-gray-900">Equipment Details</h4>
+
+                  {/* Equipment Type Quick Select */}
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">
+                      Equipment Type
+                    </label>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {EQUIPMENT_TYPE_OPTIONS.map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => {
+                            handleChange('equipmentType', type);
+                            if (type !== 'Other') {
+                              setEquipmentSearch(type);
+                            } else {
+                              setEquipmentSearch('');
+                            }
+                          }}
+                          className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                            formData.equipmentType === type
+                              ? 'bg-blue-100 border-blue-400 text-blue-800'
+                              : 'bg-white border-gray-300 text-gray-600 hover:border-gray-400'
+                          }`}
+                        >
+                          {type}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm text-gray-700 mb-1">
@@ -438,13 +703,20 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                       <input
                         type="text"
                         value={formData.equipmentName}
-                        onChange={(e) => handleChange('equipmentName', e.target.value)}
+                        onChange={(e) => {
+                          handleChange('equipmentName', e.target.value);
+                          setEquipmentSearch(e.target.value);
+                        }}
                         className={`
                           block w-full rounded-md shadow-sm text-sm
                           ${errors.equipmentName ? 'border-red-300' : 'border-gray-300'}
                           focus:ring-blue-500 focus:border-blue-500
                         `}
-                        placeholder="e.g., Main Circulation Pump"
+                        placeholder={
+                          formData.equipmentType === 'Other'
+                            ? 'Enter custom equipment name'
+                            : 'e.g., Main Circulation Pump'
+                        }
                       />
                       {errors.equipmentName && (
                         <p className="mt-1 text-xs text-red-600">{errors.equipmentName}</p>
@@ -454,8 +726,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                       <label className="block text-sm text-gray-700 mb-1">
                         Failure Type <span className="text-red-500">*</span>
                       </label>
-                      <input
-                        type="text"
+                      <select
                         value={formData.failureType}
                         onChange={(e) => handleChange('failureType', e.target.value)}
                         className={`
@@ -463,8 +734,14 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                           ${errors.failureType ? 'border-red-300' : 'border-gray-300'}
                           focus:ring-blue-500 focus:border-blue-500
                         `}
-                        placeholder="e.g., Mechanical failure"
-                      />
+                      >
+                        <option value="">Select failure type...</option>
+                        {FAILURE_TYPE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
                       {errors.failureType && (
                         <p className="mt-1 text-xs text-red-600">{errors.failureType}</p>
                       )}
@@ -560,6 +837,56 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                         placeholder="e.g., 15"
                       />
                     </div>
+                  </div>
+
+                  {/* Water Quality Context */}
+                  <div className="bg-blue-100 border border-blue-200 rounded-md p-3">
+                    <p className="text-xs text-blue-700">
+                      Water quality data will be attached from the most recent measurements when submitting to Mattilsynet.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Suggested Immediate Actions */}
+              {suggestedActions.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Suggested Actions
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {suggestedActions.map((action) => {
+                      const isAdded = formData.immediateActions.includes(action);
+                      return (
+                        <button
+                          key={action}
+                          type="button"
+                          onClick={() => addSuggestedAction(action)}
+                          disabled={isAdded}
+                          className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+                            isAdded
+                              ? 'bg-green-100 border-green-300 text-green-700 cursor-default'
+                              : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400'
+                          }`}
+                        >
+                          {isAdded ? (
+                            <span className="flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                              {action}
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                              </svg>
+                              {action}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}

@@ -30,8 +30,25 @@ export class IpAccessController {
    * Get all IP access rules
    */
   @Get()
-  async getAllRules(@Query('tenantId') tenantId?: string) {
-    return this.ipAccessService.getAllRules(tenantId);
+  async getAllRules(
+    @Query('tenantId') tenantId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const rules = await this.ipAccessService.getAllRules(tenantId);
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : rules.length;
+    const startIndex = (pageNum - 1) * limitNum;
+    const endIndex = startIndex + limitNum;
+    const paginatedRules = rules.slice(startIndex, endIndex);
+
+    return {
+      data: paginatedRules,
+      total: rules.length,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(rules.length / limitNum) || 1,
+    };
   }
 
   /**

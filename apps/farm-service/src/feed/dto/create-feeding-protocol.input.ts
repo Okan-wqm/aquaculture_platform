@@ -19,10 +19,10 @@ import { Type } from 'class-transformer';
 import { FeedType } from '../entities/feed.entity';
 
 /**
- * Temperature Range Input
+ * Feeding Temperature Range Input - for feeding protocol temperature adjustments
  */
-@InputType()
-export class TemperatureRangeInput {
+@InputType('FeedingTemperatureRangeInput')
+export class FeedingTemperatureRangeInput {
   @Field(() => Float)
   @IsNumber()
   min: number;
@@ -42,10 +42,11 @@ export class TemperatureRangeInput {
 }
 
 /**
- * Feeding Schedule Entry Input
+ * Feeding Protocol Schedule Entry Input
+ * NOTE: Renamed from FeedingScheduleEntryInput to avoid GraphQL Federation conflict
  */
-@InputType()
-export class FeedingScheduleEntryInput {
+@InputType('FeedingProtocolScheduleEntryInput')
+export class FeedingProtocolScheduleEntryInput {
   @Field({ description: 'Feeding time (e.g., "08:00", "12:00")' })
   @IsNotEmpty()
   @IsString()
@@ -93,11 +94,11 @@ export class FeedingScheduleInput {
   @IsNumber()
   totalMealsPerDay: number;
 
-  @Field(() => [FeedingScheduleEntryInput])
+  @Field(() => [FeedingProtocolScheduleEntryInput])
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => FeedingScheduleEntryInput)
-  schedule: FeedingScheduleEntryInput[];
+  @Type(() => FeedingProtocolScheduleEntryInput)
+  schedule: FeedingProtocolScheduleEntryInput[];
 
   @Field(() => FeedingScheduleAdjustmentsInput, { nullable: true })
   @IsOptional()
@@ -223,12 +224,12 @@ export class CreateFeedingProtocolInput {
   @IsEnum(FeedType)
   stage?: FeedType;
 
-  @Field(() => [TemperatureRangeInput], { nullable: true })
+  @Field(() => [FeedingTemperatureRangeInput], { nullable: true })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => TemperatureRangeInput)
-  temperatureRanges?: TemperatureRangeInput[];
+  @Type(() => FeedingTemperatureRangeInput)
+  temperatureRanges?: FeedingTemperatureRangeInput[];
 
   @Field(() => [GrowthStageProtocolInput], { nullable: true })
   @IsOptional()

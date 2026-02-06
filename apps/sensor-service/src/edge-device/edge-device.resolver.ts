@@ -30,7 +30,12 @@ import {
   CreateProvisionedDeviceInput,
   ProvisionedDeviceResponse,
   RegenerateTokenResponse,
+  CreateTenantKeyInput,
+  TenantKeyResponse,
+  DeviceEventConnection,
+  DeviceEventItem,
 } from './dto/provisioning.dto';
+import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
 import { EdgeDeviceService } from './edge-device.service';
 import { DeviceIoConfig } from './entities/device-io-config.entity';
 import { EdgeDevice, DeviceLifecycleState } from './entities/edge-device.entity';
@@ -252,6 +257,82 @@ export class EdgeDeviceResolver {
   ): Promise<RegenerateTokenResponse> {
     this.logger.log(`Regenerating token for device: ${deviceId}`);
     return await this.provisioningService.regenerateToken(deviceId, tenantId);
+  }
+
+  // ==================== Tenant Provisioning Key Mutations ====================
+
+  /**
+   * Create a tenant-level provisioning key for self-registration
+   * Returns installer URL and command that works on any device
+   */
+  @Mutation(() => TenantKeyResponse, { name: 'createTenantProvisioningKey' })
+  @Roles(Role.TENANT_ADMIN)
+  async createTenantProvisioningKey(
+    @Args('input') input: CreateTenantKeyInput,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<TenantKeyResponse> {
+    this.logger.log(`Creating tenant provisioning key for tenant: ${tenantId}`);
+    return await this.provisioningService.createTenantKey(tenantId, input, user.sub);
+  }
+
+  /**
+   * Revoke a tenant provisioning key
+   */
+  @Mutation(() => Boolean, { name: 'revokeTenantProvisioningKey' })
+  @Roles(Role.TENANT_ADMIN)
+  async revokeTenantProvisioningKey(
+    @Args('keyId', { type: () => ID }) keyId: string,
+    @Tenant() tenantId: string,
+  ): Promise<boolean> {
+    this.logger.log(`Revoking tenant provisioning key: ${keyId}`);
+    return await this.provisioningService.revokeTenantKey(keyId, tenantId);
+  }
+
+  /**
+   * List all tenant provisioning keys
+   */
+  @Query(() => [TenantProvisioningKey], { name: 'tenantProvisioningKeys' })
+  @Roles(Role.TENANT_ADMIN)
+  async listTenantProvisioningKeys(
+    @Tenant() tenantId: string,
+  ): Promise<TenantProvisioningKey[]> {
+    return await this.provisioningService.listTenantKeys(tenantId);
+  }
+
+  /**
+   * Get device events with pagination
+   */
+  @Query(() => DeviceEventConnection, { name: 'deviceEvents' })
+  async getDeviceEvents(
+    @Tenant() tenantId: string,
+    @Args('deviceId', { type: () => ID, nullable: true }) deviceId?: string,
+    @Args('eventType', { type: () => String, nullable: true }) eventType?: string,
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
+  ): Promise<DeviceEventConnection> {
+    const result = await this.provisioningService.getDeviceEvents(
+      tenantId,
+      deviceId,
+      eventType,
+      page,
+      limit,
+    );
+
+    return {
+      items: result.items.map(e => ({
+        id: e.id,
+        deviceId: e.deviceId,
+        eventType: e.eventType,
+        severity: e.severity,
+        message: e.message,
+        metadata: e.metadata,
+        createdAt: e.createdAt,
+      })),
+      total: result.total,
+      page: page || 1,
+      limit: limit || 20,
+    };
   }
 
   // ==================== I/O Configuration Mutations ====================

@@ -1,6 +1,6 @@
 /**
  * ValveNode Component
- * Generic valve (ball, gate, butterfly) for flow control
+ * Professional valve (ball, gate, butterfly, check) for flow control
  */
 
 import React, { useState, useEffect } from 'react';
@@ -19,13 +19,8 @@ interface ValveNodeData {
   isScadaMode?: boolean;
 }
 
-const WIDTH = 80;
-const HEIGHT = 60;
-
-const valveColors = {
-  open: { body: '#4CAF50', indicator: '#81C784' },
-  closed: { body: '#F44336', indicator: '#E57373' },
-};
+const WIDTH = 120;
+const HEIGHT = 90;
 
 const ValveNode: React.FC<NodeProps<ValveNodeData>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
@@ -34,7 +29,6 @@ const ValveNode: React.FC<NodeProps<ValveNodeData>> = ({ id, data, selected }) =
 
   const valveType = data?.valveType || 'ball';
   const isOpen = data?.isOpen !== false;
-  const colors = isOpen ? valveColors.open : valveColors.closed;
 
   const [leftType, setLeftType] = useState<HandleType>(data?.leftType || 'target');
   const [rightType, setRightType] = useState<HandleType>(data?.rightType || 'source');
@@ -62,52 +56,79 @@ const ValveNode: React.FC<NodeProps<ValveNodeData>> = ({ id, data, selected }) =
     updateNodeInternals(id);
   }, [id, leftType, rightType, updateNodeInternals]);
 
+  const openColor = '#388E3C';
+  const closedColor = '#C62828';
+  const bodyColor = isOpen ? openColor : closedColor;
+  const lightColor = isOpen ? '#81C784' : '#E57373';
+
   const renderValveBody = () => {
     switch (valveType) {
       case 'butterfly':
         return (
           <>
-            <circle cx={40} cy={25} r={15} fill="none" stroke={colors.body} strokeWidth={3} />
+            {/* Butterfly body ring */}
+            <circle cx={60} cy={40} r={18} fill="none" stroke={bodyColor} strokeWidth={3} />
+            {/* Disc */}
             <line
-              x1={40}
-              y1={10}
-              x2={40}
-              y2={40}
-              stroke={colors.indicator}
-              strokeWidth={3}
-              transform={isOpen ? 'rotate(0 40 25)' : 'rotate(90 40 25)'}
+              x1={60} y1={22} x2={60} y2={58}
+              stroke={lightColor} strokeWidth={4} strokeLinecap="round"
+              transform={isOpen ? 'rotate(0 60 40)' : 'rotate(90 60 40)'}
             />
+            {/* Shaft */}
+            <circle cx={60} cy={40} r={3} fill={bodyColor} stroke="#333" strokeWidth={1} />
           </>
         );
       case 'gate':
         return (
           <>
-            <rect x={30} y={15} width={20} height={20} fill={colors.body} stroke="#333" strokeWidth={1} />
+            {/* Gate body */}
+            <rect x={48} y={26} width={24} height={28} rx={2} fill={bodyColor} stroke="#333" strokeWidth={1.5} />
+            {/* Gate plate */}
             <rect
-              x={35}
-              y={isOpen ? 5 : 18}
-              width={10}
-              height={12}
-              fill={colors.indicator}
-              stroke="#333"
-              strokeWidth={1}
+              x={53} y={isOpen ? 14 : 30} width={14} height={16}
+              rx={1} fill={lightColor} stroke="#333" strokeWidth={1}
             />
+            {/* Stem */}
+            <rect x={57} y={8} width={6} height={20} fill="#78909C" stroke="#546E7A" strokeWidth={1} />
+            {/* Handwheel */}
+            <circle cx={60} cy={8} r={6} fill="none" stroke="#455A64" strokeWidth={2} />
+            <circle cx={60} cy={8} r={2} fill="#455A64" />
           </>
         );
       case 'check':
         return (
           <>
-            <polygon points="25,15 55,25 25,35" fill={colors.body} stroke="#333" strokeWidth={1} />
-            <circle cx={35} cy={25} r={3} fill={colors.indicator} />
+            {/* Check body */}
+            <polygon points="42,26 78,40 42,54" fill={bodyColor} stroke="#333" strokeWidth={1.5} />
+            {/* Disc/flap */}
+            <line x1={55} y1={28} x2={55} y2={52} stroke={lightColor} strokeWidth={3} strokeLinecap="round" />
+            {/* Hinge */}
+            <circle cx={55} cy={40} r={4} fill={lightColor} stroke="#333" strokeWidth={1} />
+            {/* Direction arrow */}
+            <path d="M 68 40 L 76 40 L 73 36 M 76 40 L 73 44" fill="none" stroke="#666" strokeWidth={1.5} />
           </>
         );
       case 'ball':
       default:
         return (
           <>
-            <polygon points="25,15 40,25 25,35" fill={colors.body} stroke="#333" strokeWidth={1} />
-            <polygon points="55,15 40,25 55,35" fill={colors.body} stroke="#333" strokeWidth={1} />
-            <circle cx={40} cy={25} r={8} fill={colors.indicator} stroke="#333" strokeWidth={1} />
+            {/* Body - two triangles (bowtie) */}
+            <polygon points="38,24 60,40 38,56" fill={bodyColor} stroke="#333" strokeWidth={1.5} />
+            <polygon points="82,24 60,40 82,56" fill={bodyColor} stroke="#333" strokeWidth={1.5} />
+            {/* Ball */}
+            <circle cx={60} cy={40} r={10} fill={lightColor} stroke="#333" strokeWidth={1.5} />
+            {/* Port through ball */}
+            {isOpen && (
+              <rect x={50} y={37} width={20} height={6} rx={2} fill={bodyColor} opacity={0.6} />
+            )}
+            {/* Stem */}
+            <rect x={57} y={14} width={6} height={16} fill="#78909C" stroke="#546E7A" strokeWidth={1} />
+            {/* Handle */}
+            <rect
+              x={isOpen ? 48 : 56} y={isOpen ? 10 : 2}
+              width={isOpen ? 24 : 8} height={isOpen ? 6 : 14}
+              rx={2} fill="#455A64" stroke="#37474F" strokeWidth={1}
+            />
           </>
         );
     }
@@ -123,26 +144,38 @@ const ValveNode: React.FC<NodeProps<ValveNodeData>> = ({ id, data, selected }) =
         borderRadius: 8,
       }}
     >
-      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 80 60">
+      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 120 90">
+        <defs>
+          <linearGradient id={`valve-pipe-${id}`} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#90A4AE" />
+            <stop offset="50%" stopColor="#B0BEC5" />
+            <stop offset="100%" stopColor="#78909C" />
+          </linearGradient>
+        </defs>
+
         {/* Inlet pipe */}
-        <rect x={5} y={20} width={20} height={10} fill="#78909C" stroke="#546E7A" strokeWidth={1} />
+        <rect x={5} y={34} width={35} height={12} fill={`url(#valve-pipe-${id})`} stroke="#546E7A" strokeWidth={1.5} />
+        {/* Inlet flange */}
+        <rect x={5} y={31} width={6} height={18} rx={1} fill="#607D8B" stroke="#455A64" strokeWidth={1} />
 
         {/* Outlet pipe */}
-        <rect x={55} y={20} width={20} height={10} fill="#78909C" stroke="#546E7A" strokeWidth={1} />
+        <rect x={80} y={34} width={35} height={12} fill={`url(#valve-pipe-${id})`} stroke="#546E7A" strokeWidth={1.5} />
+        {/* Outlet flange */}
+        <rect x={109} y={31} width={6} height={18} rx={1} fill="#607D8B" stroke="#455A64" strokeWidth={1} />
 
         {/* Valve body */}
         {renderValveBody()}
 
-        {/* Actuator/handle */}
-        <rect x={35} y={2} width={10} height={8} rx={1} fill="#455A64" stroke="#37474F" strokeWidth={1} />
+        {/* Status indicator */}
+        <circle cx={15} cy={24} r={3} fill={isOpen ? '#4CAF50' : '#F44336'} stroke="#333" strokeWidth={0.5} />
 
         {/* Label */}
-        <text x={40} y={55} fontSize={8} fill="#333" textAnchor="middle">{data?.label || valveType.toUpperCase()}</text>
+        <text x={60} y={80} fontSize={9} fill="#333" textAnchor="middle">{data?.label || valveType.charAt(0).toUpperCase() + valveType.slice(1)}</text>
       </svg>
 
       {/* Left Handle */}
       <div
-        style={{ position: 'absolute', left: 5, top: 25, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 5, top: 40, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(leftType, setLeftType, 'leftType')}
       >
         <Handle
@@ -155,7 +188,7 @@ const ValveNode: React.FC<NodeProps<ValveNodeData>> = ({ id, data, selected }) =
 
       {/* Right Handle */}
       <div
-        style={{ position: 'absolute', left: 75, top: 25, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 115, top: 40, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(rightType, setRightType, 'rightType')}
       >
         <Handle

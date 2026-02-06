@@ -84,26 +84,25 @@ export function useAsyncData<T>(
   });
 
   const mountedRef = useRef(true);
-  const fetchingRef = useRef(false);
+  const fetchIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const fetchData = useCallback(
     async (showLoading = true) => {
-      // Prevent concurrent fetches
-      if (fetchingRef.current) return;
-      fetchingRef.current = true;
-
       // Abort any previous request
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
       abortControllerRef.current = new AbortController();
 
+      // Track this fetch with a unique ID so superseded fetches don't update state
+      const fetchId = ++fetchIdRef.current;
+
       // Check cache
       if (cacheKey) {
         const cached = cache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < cacheTTL) {
-          if (mountedRef.current) {
+          if (mountedRef.current && fetchId === fetchIdRef.current) {
             setState((prev) => ({
               ...prev,
               data: cached.data as T,
@@ -114,7 +113,6 @@ export function useAsyncData<T>(
               errorCode: undefined,
             }));
           }
-          fetchingRef.current = false;
           return;
         }
       }
@@ -134,9 +132,8 @@ export function useAsyncData<T>(
         // Race between fetcher and timeout
         let result = await Promise.race([fetcher(), timeoutPromise]);
 
-        // Check if aborted
-        if (abortControllerRef.current?.signal.aborted) {
-          fetchingRef.current = false;
+        // Check if this fetch was superseded by a newer one
+        if (fetchId !== fetchIdRef.current) {
           return;
         }
 
@@ -162,9 +159,14 @@ export function useAsyncData<T>(
           onSuccess?.(result);
         }
       } catch (err) {
-        // Ignore aborted requests
+        // Ignore superseded or aborted requests
+        if (fetchId !== fetchIdRef.current) {
+          return;
+        }
         if (err instanceof Error && err.name === 'AbortError') {
-          fetchingRef.current = false;
+          if (mountedRef.current) {
+            setState((prev) => ({ ...prev, loading: false }));
+          }
           return;
         }
 
@@ -193,8 +195,6 @@ export function useAsyncData<T>(
           }));
           onError?.(err instanceof Error ? err : new Error(errorMessage));
         }
-      } finally {
-        fetchingRef.current = false;
       }
     },
     [fetcher, cacheKey, cacheTTL, timeout, transform, onSuccess, onError]
@@ -212,11 +212,12 @@ export function useAsyncData<T>(
   }, [fetchData, state.canRetry]);
 
   const abort = useCallback(() => {
+    // Increment fetchId so any in-flight fetch is superseded
+    fetchIdRef.current++;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
-    fetchingRef.current = false;
     setState((prev) => ({ ...prev, loading: false }));
   }, []);
 

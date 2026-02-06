@@ -82,9 +82,9 @@ export interface Equipment {
 export interface CreateEquipmentInput {
   name: string;
   code: string;
-  departmentId: string;
-  systemIds: string[];
-  equipmentTypeId: string;
+  departmentId?: string;
+  systemIds?: string[];
+  equipmentTypeId?: string;
   parentEquipmentId?: string;
   supplierId?: string;
   description?: string;
@@ -247,6 +247,19 @@ const UPDATE_EQUIPMENT_MUTATION = `
       name
       code
       status
+      equipmentTypeId
+      equipmentType {
+        id
+        name
+        code
+        category
+      }
+      departmentId
+      department {
+        id
+        name
+        siteId
+      }
       systemIds
       systems {
         id
@@ -261,6 +274,14 @@ const UPDATE_EQUIPMENT_MUTATION = `
         code
       }
       subEquipmentCount
+      manufacturer
+      model
+      serialNumber
+      specifications
+      supplierId
+      purchaseDate
+      warrantyEndDate
+      isVisibleInSensor
     }
   }
 `;
@@ -318,17 +339,11 @@ export function useEquipmentList(filter?: {
   return useQuery({
     queryKey: ['equipment', 'list', filter],
     queryFn: async () => {
-      try {
-        const data = await graphqlClient.request<{ equipmentList: PaginatedResponse }>(
-          EQUIPMENT_LIST_QUERY,
-          { filter }
-        );
-        console.log('[useEquipmentList] DEBUG - response:', data);
-        return data.equipmentList;
-      } catch (error) {
-        console.error('[useEquipmentList] DEBUG - ERROR:', error);
-        throw error;
-      }
+      const data = await graphqlClient.request<{ equipmentList: PaginatedResponse }>(
+        EQUIPMENT_LIST_QUERY,
+        { filter }
+      );
+      return data.equipmentList;
     },
     staleTime: 30000,
     enabled: !!token && !!tenantId,

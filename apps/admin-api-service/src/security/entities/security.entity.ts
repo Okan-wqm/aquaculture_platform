@@ -141,7 +141,7 @@ export interface RetentionPolicy {
 // Activity Log Entity
 // ============================================================================
 
-@Entity('activity_logs', { schema: 'public' })
+@Entity('activity_logs', { schema: 'admin' })
 @Index(['tenantId', 'createdAt'])
 @Index(['userId', 'createdAt'])
 @Index(['category', 'createdAt'])
@@ -258,7 +258,7 @@ export class ActivityLog {
 // Security Event Entity
 // ============================================================================
 
-@Entity('security_events', { schema: 'public' })
+@Entity('security_events', { schema: 'admin' })
 @Index(['tenantId', 'createdAt'])
 @Index(['eventType', 'createdAt'])
 @Index(['status', 'createdAt'])
@@ -378,7 +378,7 @@ export class SecurityEvent {
 // Security Incident Entity
 // ============================================================================
 
-@Entity('security_incidents', { schema: 'public' })
+@Entity('security_incidents', { schema: 'admin' })
 @Index(['status', 'createdAt'])
 @Index(['severity', 'createdAt'])
 export class SecurityIncident {
@@ -497,7 +497,7 @@ export class SecurityIncident {
 // Threat Intelligence Entity
 // ============================================================================
 
-@Entity('threat_intelligence', { schema: 'public' })
+@Entity('threat_intelligence', { schema: 'admin' })
 @Index(['indicatorType'])
 @Index(['value'])
 @Index(['threatLevel'])
@@ -572,7 +572,7 @@ export class ThreatIntelligence {
 // Data Request Entity (GDPR, CCPA compliance)
 // ============================================================================
 
-@Entity('data_requests', { schema: 'public' })
+@Entity('data_requests', { schema: 'admin' })
 @Index(['tenantId', 'createdAt'])
 @Index(['requestType', 'status'])
 @Index(['dueDate'])
@@ -689,7 +689,7 @@ export class DataRequest {
 // Compliance Report Entity
 // ============================================================================
 
-@Entity('compliance_reports', { schema: 'public' })
+@Entity('compliance_reports', { schema: 'admin' })
 @Index(['complianceType', 'createdAt'])
 @Index(['reportPeriodStart', 'reportPeriodEnd'])
 export class ComplianceReport {
@@ -782,7 +782,7 @@ export class ComplianceReport {
 // Retention Policy Entity
 // ============================================================================
 
-@Entity('retention_policies', { schema: 'public' })
+@Entity('retention_policies', { schema: 'admin' })
 @Index(['name'], { unique: true })
 export class RetentionPolicyEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -839,7 +839,7 @@ export class RetentionPolicyEntity {
 // Login Attempt Entity (for brute force detection)
 // ============================================================================
 
-@Entity('login_attempts', { schema: 'public' })
+@Entity('login_attempts', { schema: 'admin' })
 @Index(['ipAddress', 'createdAt'])
 @Index(['email', 'createdAt'])
 @Index(['success', 'createdAt'])
@@ -882,7 +882,7 @@ export class LoginAttempt {
 // API Usage Log Entity
 // ============================================================================
 
-@Entity('api_usage_logs', { schema: 'public' })
+@Entity('api_usage_logs', { schema: 'admin' })
 @Index(['tenantId', 'createdAt'])
 @Index(['endpoint', 'createdAt'])
 @Index(['statusCode', 'createdAt'])
@@ -965,7 +965,7 @@ export class ApiUsageLog {
 // Session Entity (for session tracking)
 // ============================================================================
 
-@Entity('user_sessions', { schema: 'public' })
+@Entity('user_sessions', { schema: 'admin' })
 @Index(['userId', 'isActive'])
 @Index(['tenantId', 'isActive'])
 @Index(['sessionToken'], { unique: true })

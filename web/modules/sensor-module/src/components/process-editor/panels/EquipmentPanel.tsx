@@ -2,14 +2,34 @@
  * SCADA Nodes Panel Component
  * Left sidebar for dragging equipment type templates onto the process editor canvas
  * These are generic node templates, not actual equipment from database
+ *
+ * SCADA templates and farm-service equipment types are merged into unified
+ * category groups so each category (Tanks, Pumps, Filtration, etc.) appears once.
  */
 
 import React, { useState, useMemo } from 'react';
-import { Search, ChevronDown, ChevronRight, GripVertical, Activity, LineChart, BarChart2, Gauge, Hash } from 'lucide-react';
+import { Search, ChevronDown, ChevronRight, GripVertical, Activity, BarChart2 } from 'lucide-react';
 import { useEquipmentTypes, EquipmentType, CATEGORY_LABELS } from '../../../hooks/useEquipment';
 import { getEquipmentIcon } from '../../equipment-icons';
 
-// Generic Sensor node template (not from farm-service)
+// ---------------------------------------------------------------------------
+// Template definitions
+// ---------------------------------------------------------------------------
+
+interface ScadaTemplate {
+  id: string;
+  name: string;
+  code: string;
+  /** Must match a farm-service category key (tank, pump, filtration, etc.) */
+  category: string;
+  nodeType?: string;
+  description: string;
+  color?: string;
+  badge: string;       // 2-letter abbreviation for the icon badge
+  badgeColor: string;  // tailwind color key (e.g. 'blue', 'amber')
+}
+
+// Generic Sensor node template
 const SENSOR_NODE_TEMPLATE = {
   id: 'sensor-node-template',
   name: 'Sensor',
@@ -18,7 +38,7 @@ const SENSOR_NODE_TEMPLATE = {
   description: 'Generic sensor node - link to real sensors via Properties panel',
 };
 
-// Connection Point node template (not from farm-service)
+// Connection Point node template
 const CONNECTION_POINT_TEMPLATE = {
   id: 'connection-point-template',
   name: 'Connection Point',
@@ -28,211 +48,110 @@ const CONNECTION_POINT_TEMPLATE = {
   description: '4-way pipe junction for connecting equipment',
 };
 
-// Algae Bag node templates (not from farm-service)
+// Algae Bag node templates
 const ALGAE_BAG_TEMPLATES = [
-  {
-    id: 'algae-bag-red',
-    name: 'Rhodomonas Bag',
-    code: 'ALGAE_BAG_RED',
-    category: 'algae',
-    nodeType: 'algaeBagRed',
-    color: '#FFB6C1',
-    description: 'Pink algae cultivation bag (Rhodomonas)',
-  },
-  {
-    id: 'algae-bag-green',
-    name: 'Chlorella Bag',
-    code: 'ALGAE_BAG_GREEN',
-    category: 'algae',
-    nodeType: 'algaeBagGreen',
-    color: '#90EE90',
-    description: 'Green algae cultivation bag (Chlorella)',
-  },
-  {
-    id: 'algae-bag-yellow',
-    name: 'Dunaliella Bag',
-    code: 'ALGAE_BAG_YELLOW',
-    category: 'algae',
-    nodeType: 'algaeBagYellow',
-    color: '#FFD700',
-    description: 'Yellow algae cultivation bag (Dunaliella)',
-  },
+  { id: 'algae-bag-red', name: 'Rhodomonas Bag', code: 'ALGAE_BAG_RED', category: 'algae', nodeType: 'algaeBagRed', color: '#FFB6C1', description: 'Pink algae cultivation bag (Rhodomonas)' },
+  { id: 'algae-bag-green', name: 'Chlorella Bag', code: 'ALGAE_BAG_GREEN', category: 'algae', nodeType: 'algaeBagGreen', color: '#90EE90', description: 'Green algae cultivation bag (Chlorella)' },
+  { id: 'algae-bag-yellow', name: 'Dunaliella Bag', code: 'ALGAE_BAG_YELLOW', category: 'algae', nodeType: 'algaeBagYellow', color: '#FFD700', description: 'Yellow algae cultivation bag (Dunaliella)' },
 ];
 
-// Chart Widget template - single widget, type selected in config modal
+// Chart Widget template
 const CHART_WIDGET_TEMPLATE = {
   id: 'widget-chart',
   name: 'Chart Widget',
   code: 'CHART_WIDGET',
   category: 'widgets',
   nodeType: 'chartWidget',
-  icon: 'BarChart2',
   description: 'Add chart to visualize sensor data',
   defaultWidth: 320,
   defaultHeight: 200,
 };
 
-// Ultrafiltration node template (membrane filtration unit)
-const ULTRAFILTRATION_TEMPLATE = {
-  id: 'ultrafiltration-template',
-  name: 'Ultrafiltration',
-  code: 'ULTRAFILTRATION',
-  category: 'filtration',
-  nodeType: 'ultrafiltration',
-  description: 'Membrane filtration unit with 9 connection points',
+// ---------------------------------------------------------------------------
+// SCADA node templates – category keys match farm-service categories
+// ---------------------------------------------------------------------------
+
+const SCADA_TEMPLATES: ScadaTemplate[] = [
+  // Tanks → category "tank"
+  { id: 'dual-drain-tank-template', name: 'Dual Drain Tank', code: 'DUAL_DRAIN_TANK', category: 'tank', nodeType: 'dualDrainTank', description: 'Polypropylene tank with dual bottom drains', badge: 'DD', badgeColor: 'amber' },
+  { id: 'clean-water-tank-template', name: 'Clean Water Tank', code: 'CLEAN_WATER_TANK', category: 'tank', nodeType: 'cleanWaterTank', description: 'Storage tank for clean/treated water', badge: 'CW', badgeColor: 'cyan' },
+  { id: 'dirty-water-tank-template', name: 'Dirty Water Tank', code: 'DIRTY_WATER_TANK', category: 'tank', nodeType: 'dirtyWaterTank', description: 'Storage tank for dirty/waste water', badge: 'DW', badgeColor: 'stone' },
+
+  // Filtration → category "filtration"
+  { id: 'ultrafiltration-template', name: 'Ultrafiltration', code: 'ULTRAFILTRATION', category: 'filtration', nodeType: 'ultrafiltration', description: 'Membrane filtration unit with 9 connections', badge: 'UF', badgeColor: 'blue' },
+  { id: 'radial-filter-template', name: 'Radial Filter', code: 'RADIAL_FILTER', category: 'filtration', nodeType: 'radialSettler', description: 'Conical settling tank with sludge drain', badge: 'RF', badgeColor: 'teal' },
+  { id: 'mbbr-template', name: 'MBBR', code: 'MBBR', category: 'filtration', nodeType: 'mbbr', description: 'Moving Bed Biofilm Reactor', badge: 'MB', badgeColor: 'emerald' },
+  { id: 'hepa-filter-template', name: 'HEPA Filter', code: 'HEPA_FILTER', category: 'filtration', nodeType: 'hepaFilter', description: 'High Efficiency Particulate Air filter', badge: 'HF', badgeColor: 'indigo' },
+
+  // Pumps → category "pump"
+  { id: 'dosing-pump-template', name: 'Dosing Pump', code: 'DOSING_PUMP', category: 'pump', nodeType: 'dosingPump', description: 'Peristaltic pump for chemical dosing', badge: 'DP', badgeColor: 'purple' },
+
+  // Heating / Cooling → category "heating_cooling"
+  { id: 'heater-template', name: 'Heater', code: 'HEATER', category: 'heating_cooling', nodeType: 'heater', description: 'Water heater with heating elements', badge: 'HT', badgeColor: 'red' },
+  { id: 'shell-and-tube-hx-template', name: 'Shell & Tube HX', code: 'SHELL_TUBE_HX', category: 'heating_cooling', nodeType: 'shellAndTubeHeatExchanger', description: 'Industrial shell and tube heat exchanger', badge: 'ST', badgeColor: 'orange' },
+  { id: 'plate-hx-template', name: 'Plate Heat Exchanger', code: 'PLATE_HX', category: 'heating_cooling', nodeType: 'plateHeatExchanger', description: 'Compact plate heat exchanger', badge: 'PH', badgeColor: 'amber' },
+  { id: 'chiller-template', name: 'Chiller', code: 'CHILLER', category: 'heating_cooling', nodeType: 'chiller', description: 'Water chiller with cooling fan', badge: 'CH', badgeColor: 'sky' },
+
+  // Electrical / Power → category "electrical"
+  { id: 'gas-generator-template', name: 'Gas Generator', code: 'GAS_GENERATOR', category: 'electrical', nodeType: 'gasGenerator', description: 'Gas-powered generator with ATS panel', badge: 'GG', badgeColor: 'yellow' },
+  { id: 'diesel-generator-template', name: 'Diesel Generator', code: 'DIESEL_GENERATOR', category: 'electrical', nodeType: 'dieselGenerator', description: 'Diesel-powered generator with ATS panel', badge: 'DG', badgeColor: 'gray' },
+
+  // Plumbing / Water I/O → category "plumbing"
+  { id: 'water-supply-template', name: 'Water Supply', code: 'WATER_SUPPLY', category: 'plumbing', nodeType: 'waterSupply', description: 'Water source inlet connection', badge: 'WS', badgeColor: 'sky' },
+  { id: 'water-discharge-template', name: 'Water Discharge', code: 'WATER_DISCHARGE', category: 'plumbing', nodeType: 'waterDischarge', description: 'Water discharge outlet connection', badge: 'WD', badgeColor: 'slate' },
+];
+
+// Group SCADA templates by category for quick lookup
+function groupScadaByCategory(): Record<string, ScadaTemplate[]> {
+  return SCADA_TEMPLATES.reduce((acc, tpl) => {
+    if (!acc[tpl.category]) acc[tpl.category] = [];
+    acc[tpl.category].push(tpl);
+    return acc;
+  }, {} as Record<string, ScadaTemplate[]>);
+}
+
+const SCADA_BY_CATEGORY = groupScadaByCategory();
+
+// Badge color mapping
+const BADGE_COLORS: Record<string, { bg: string; hover: string; border: string; badgeBg: string }> = {
+  blue:    { bg: 'bg-blue-50',    hover: 'hover:bg-blue-100',    border: 'hover:border-blue-200',    badgeBg: 'bg-blue-500' },
+  amber:   { bg: 'bg-amber-50',   hover: 'hover:bg-amber-100',   border: 'hover:border-amber-200',   badgeBg: 'bg-amber-500' },
+  teal:    { bg: 'bg-teal-50',    hover: 'hover:bg-teal-100',    border: 'hover:border-teal-200',    badgeBg: 'bg-teal-500' },
+  cyan:    { bg: 'bg-cyan-50',    hover: 'hover:bg-cyan-100',    border: 'hover:border-cyan-200',    badgeBg: 'bg-cyan-500' },
+  stone:   { bg: 'bg-stone-50',   hover: 'hover:bg-stone-100',   border: 'hover:border-stone-300',   badgeBg: 'bg-stone-500' },
+  sky:     { bg: 'bg-sky-50',     hover: 'hover:bg-sky-100',     border: 'hover:border-sky-200',     badgeBg: 'bg-sky-500' },
+  slate:   { bg: 'bg-slate-50',   hover: 'hover:bg-slate-100',   border: 'hover:border-slate-300',   badgeBg: 'bg-slate-500' },
+  emerald: { bg: 'bg-emerald-50', hover: 'hover:bg-emerald-100', border: 'hover:border-emerald-200', badgeBg: 'bg-emerald-500' },
+  indigo:  { bg: 'bg-indigo-50',  hover: 'hover:bg-indigo-100',  border: 'hover:border-indigo-200',  badgeBg: 'bg-indigo-500' },
+  purple:  { bg: 'bg-purple-50',  hover: 'hover:bg-purple-100',  border: 'hover:border-purple-200',  badgeBg: 'bg-purple-500' },
+  red:     { bg: 'bg-red-50',     hover: 'hover:bg-red-100',     border: 'hover:border-red-200',     badgeBg: 'bg-red-500' },
+  orange:  { bg: 'bg-orange-50',  hover: 'hover:bg-orange-100',  border: 'hover:border-orange-200',  badgeBg: 'bg-orange-500' },
+  yellow:  { bg: 'bg-yellow-50',  hover: 'hover:bg-yellow-100',  border: 'hover:border-yellow-200',  badgeBg: 'bg-yellow-500' },
+  gray:    { bg: 'bg-gray-100',   hover: 'hover:bg-gray-200',    border: 'hover:border-gray-300',    badgeBg: 'bg-gray-600' },
 };
 
-// Dual Drain Tank node template (polypropylene tank)
-const DUAL_DRAIN_TANK_TEMPLATE = {
-  id: 'dual-drain-tank-template',
-  name: 'Dual Drain Tank',
-  code: 'DUAL_DRAIN_TANK',
-  category: 'tank',
-  nodeType: 'dualDrainTank',
-  description: 'Polypropylene tank with side box and dual bottom drains',
-};
+// Farm-service codes to hide (covered by SCADA templates or duplicates of other entries)
+const HIDDEN_FARM_CODES = new Set([
+  'heater',             // SCADA Heater template covers this
+  'chiller',            // SCADA Chiller template covers this
+  'heat-exchanger',     // Shell & Tube HX + Plate HX SCADA templates cover this
+  'aerator',            // same canvas node as Blower
+  'filter-uv',          // same as UV Sterilizer (in water_treatment)
+  'filter-mechanical',  // same as Drum Filter
+  'filter-biological',  // same as MBBR
+]);
 
-// Radial Filter node template (conical settling tank)
-const RADIAL_FILTER_TEMPLATE = {
-  id: 'radial-filter-template',
-  name: 'Radial Filter',
-  code: 'RADIAL_FILTER',
-  category: 'filtration',
-  nodeType: 'radialSettler',
-  description: 'Conical settling tank with stilling well and sludge drain',
-};
+// Preferred display order for categories
+const CATEGORY_ORDER = [
+  'tank', 'pump', 'filtration', 'aeration', 'heating_cooling',
+  'feeding', 'water_treatment', 'plumbing', 'electrical',
+  'harvesting', 'transport', 'safety', 'other',
+];
 
-// Clean Water Tank node template
-const CLEAN_WATER_TANK_TEMPLATE = {
-  id: 'clean-water-tank-template',
-  name: 'Clean Water Tank',
-  code: 'CLEAN_WATER_TANK',
-  category: 'tank',
-  nodeType: 'cleanWaterTank',
-  description: 'Storage tank for clean/treated water',
-};
+// ---------------------------------------------------------------------------
+// Exports
+// ---------------------------------------------------------------------------
 
-// Dirty Water Tank node template
-const DIRTY_WATER_TANK_TEMPLATE = {
-  id: 'dirty-water-tank-template',
-  name: 'Dirty Water Tank',
-  code: 'DIRTY_WATER_TANK',
-  category: 'tank',
-  nodeType: 'dirtyWaterTank',
-  description: 'Storage tank for dirty/waste water with sediment',
-};
-
-// Water Supply node template (water source inlet)
-const WATER_SUPPLY_TEMPLATE = {
-  id: 'water-supply-template',
-  name: 'Water Supply',
-  code: 'WATER_SUPPLY',
-  category: 'utility',
-  nodeType: 'waterSupply',
-  description: 'Water source inlet with single outlet connection',
-};
-
-// Water Discharge node template (water outlet/drain)
-const WATER_DISCHARGE_TEMPLATE = {
-  id: 'water-discharge-template',
-  name: 'Water Discharge',
-  code: 'WATER_DISCHARGE',
-  category: 'utility',
-  nodeType: 'waterDischarge',
-  description: 'Water discharge outlet with single inlet connection',
-};
-
-// MBBR node template (Moving Bed Biofilm Reactor)
-const MBBR_TEMPLATE = {
-  id: 'mbbr-template',
-  name: 'MBBR',
-  code: 'MBBR',
-  category: 'filtration',
-  nodeType: 'mbbr',
-  description: 'Moving Bed Biofilm Reactor with carrier media and aeration',
-};
-
-// HEPA Filter node template (High Efficiency Particulate Air filter)
-const HEPA_FILTER_TEMPLATE = {
-  id: 'hepa-filter-template',
-  name: 'HEPA Filter',
-  code: 'HEPA_FILTER',
-  category: 'filtration',
-  nodeType: 'hepaFilter',
-  description: 'High Efficiency Particulate Air filter with pleated media',
-};
-
-// Dosing Pump node template (peristaltic chemical dosing pump)
-const DOSING_PUMP_TEMPLATE = {
-  id: 'dosing-pump-template',
-  name: 'Dosing Pump',
-  code: 'DOSING_PUMP',
-  category: 'pump',
-  nodeType: 'dosingPump',
-  description: 'Peristaltic pump for precise chemical dosing with flow control',
-};
-
-// Heater node template (water heater with heating elements)
-const HEATER_TEMPLATE = {
-  id: 'heater-template',
-  name: 'Heater',
-  code: 'HEATER',
-  category: 'heating',
-  nodeType: 'heater',
-  description: 'Water heater with heating elements and control panel',
-};
-
-// Shell and Tube Heat Exchanger node template
-const SHELL_AND_TUBE_HX_TEMPLATE = {
-  id: 'shell-and-tube-hx-template',
-  name: 'Shell & Tube HX',
-  code: 'SHELL_TUBE_HX',
-  category: 'heating',
-  nodeType: 'shellAndTubeHeatExchanger',
-  description: 'Industrial shell and tube heat exchanger with 4 ports',
-};
-
-// Plate Heat Exchanger node template
-const PLATE_HX_TEMPLATE = {
-  id: 'plate-hx-template',
-  name: 'Plate Heat Exchanger',
-  code: 'PLATE_HX',
-  category: 'heating',
-  nodeType: 'plateHeatExchanger',
-  description: 'Compact plate heat exchanger with hot/cold channels',
-};
-
-// Chiller node template (water chiller with cooling)
-const CHILLER_TEMPLATE = {
-  id: 'chiller-template',
-  name: 'Chiller',
-  code: 'CHILLER',
-  category: 'cooling',
-  nodeType: 'chiller',
-  description: 'Water chiller with cooling fan and compressor',
-};
-
-// Gas Generator node template (with ATS panel)
-const GAS_GENERATOR_TEMPLATE = {
-  id: 'gas-generator-template',
-  name: 'Gas Generator',
-  code: 'GAS_GENERATOR',
-  category: 'power',
-  nodeType: 'gasGenerator',
-  description: 'Gas-powered generator with ATS panel and 7 connection points',
-};
-
-// Diesel Generator node template (with ATS panel)
-const DIESEL_GENERATOR_TEMPLATE = {
-  id: 'diesel-generator-template',
-  name: 'Diesel Generator',
-  code: 'DIESEL_GENERATOR',
-  category: 'power',
-  nodeType: 'dieselGenerator',
-  description: 'Diesel-powered generator with ATS panel and fuel tank',
-};
-
-// Node template data structure for drag-and-drop
 export interface NodeTemplate {
   id: string;
   name: string;
@@ -246,75 +165,156 @@ interface EquipmentPanelProps {
   onDragStart: (event: React.DragEvent, template: NodeTemplate) => void;
 }
 
-// Group equipment types by category
-function groupTypesByCategory(types: EquipmentType[]): Record<string, EquipmentType[]> {
-  return types.reduce((acc, type) => {
-    const category = type.category?.toLowerCase() || 'other';
-    if (!acc[category]) {
-      acc[category] = [];
-    }
-    acc[category].push(type);
-    return acc;
-  }, {} as Record<string, EquipmentType[]>);
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function startScadaDrag(
+  e: React.DragEvent,
+  tpl: ScadaTemplate,
+  onDragStart: EquipmentPanelProps['onDragStart'],
+) {
+  const template: NodeTemplate = {
+    id: tpl.id,
+    name: tpl.name,
+    code: tpl.code,
+    category: tpl.category,
+    equipmentType: {
+      id: tpl.id,
+      name: tpl.name,
+      code: tpl.code,
+      category: tpl.category,
+      nodeType: tpl.nodeType,
+      isActive: true,
+      sortOrder: 0,
+    } as EquipmentType,
+  };
+  e.dataTransfer.setData('application/equipment', JSON.stringify(template));
+  e.dataTransfer.effectAllowed = 'move';
+  onDragStart(e, template);
 }
+
+function ScadaNodeItem({ tpl, onDragStart }: { tpl: ScadaTemplate; onDragStart: EquipmentPanelProps['onDragStart'] }) {
+  const c = BADGE_COLORS[tpl.badgeColor] || BADGE_COLORS.gray;
+  return (
+    <div
+      draggable
+      onDragStart={(e) => startScadaDrag(e, tpl, onDragStart)}
+      className={`flex items-center gap-2 px-3 py-2 ${c.bg} ${c.hover} rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent ${c.border}`}
+    >
+      <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
+      <div className={`w-5 h-5 ${c.badgeBg} rounded text-white text-xs flex items-center justify-center font-bold`}>
+        {tpl.badge}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-gray-900 truncate">{tpl.name}</div>
+        <div className="text-xs text-gray-500 truncate">{tpl.description}</div>
+      </div>
+    </div>
+  );
+}
+
+function FarmEquipmentItem({ type, onDragStart }: { type: EquipmentType; onDragStart: (e: React.DragEvent, t: EquipmentType) => void }) {
+  const Icon = getEquipmentIcon(type.code);
+  return (
+    <div
+      draggable
+      onDragStart={(e) => onDragStart(e, type)}
+      className="flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-blue-50 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-blue-200"
+    >
+      <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
+      <div className="text-gray-600 group-hover:text-blue-600">
+        <Icon size={20} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-gray-900 truncate">{type.name}</div>
+        <div className="text-xs text-gray-500 truncate">{type.code}</div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(['monitoring', 'utility', 'algae', 'widgets', 'scada-nodes', 'tank', 'pump', 'filtration', 'aeration'])
+    new Set([
+      'monitoring', 'utility', 'algae', 'widgets',
+      ...CATEGORY_ORDER,
+    ])
   );
 
-  // Fetch equipment TYPES (templates) from farm-service
   const { data: equipmentTypes, isLoading, error } = useEquipmentTypes({ isActive: true });
 
-  // Filter and group equipment types
-  // Note: Filter out monitoring/sensor categories as we use a single generic Sensor node instead
-  const groupedTypes = useMemo(() => {
-    if (!equipmentTypes) return {};
-
-    // Categories to exclude (we use generic Sensor node for these)
+  // Build unified category list: SCADA templates + farm-service equipment merged
+  const unifiedCategories = useMemo(() => {
     const excludedCategories = ['monitoring', 'sensor', 'sensors'];
+    const term = searchTerm.toLowerCase();
 
-    const filtered = equipmentTypes.filter((type) => {
-      const category = type.category?.toLowerCase() || '';
+    // Filter farm-service equipment types
+    const farmTypes = (equipmentTypes || []).filter((type) => {
+      const cat = type.category?.toLowerCase() || '';
       const code = type.code?.toLowerCase() || '';
-
-      // Exclude monitoring category, sensor category, and sensor-* codes
-      const isExcludedCategory = excludedCategories.includes(category) ||
-        category.includes('monitor') ||
-        category.includes('sensor');
-      const isSensorCode = code.startsWith('sensor-') || code.startsWith('sensor_');
-
-      if (isExcludedCategory || isSensorCode) {
-        return false;
+      if (excludedCategories.includes(cat) || cat.includes('monitor') || cat.includes('sensor')) return false;
+      if (code.startsWith('sensor-') || code.startsWith('sensor_')) return false;
+      if (HIDDEN_FARM_CODES.has(code)) return false;
+      if (term) {
+        return type.name.toLowerCase().includes(term) || code.includes(term);
       }
-
-      // Apply search filter if present
-      if (searchTerm) {
-        return type.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-               type.code.toLowerCase().includes(searchTerm.toLowerCase());
-      }
-
       return true;
     });
 
-    return groupTypesByCategory(filtered);
+    // Group farm types by category
+    const farmByCategory: Record<string, EquipmentType[]> = {};
+    farmTypes.forEach((type) => {
+      const cat = type.category?.toLowerCase() || 'other';
+      if (!farmByCategory[cat]) farmByCategory[cat] = [];
+      farmByCategory[cat].push(type);
+    });
+
+    // Filter SCADA templates by search
+    const filteredScada: Record<string, ScadaTemplate[]> = {};
+    for (const [cat, templates] of Object.entries(SCADA_BY_CATEGORY)) {
+      const matched = term
+        ? templates.filter((t) => t.name.toLowerCase().includes(term) || t.code.toLowerCase().includes(term) || t.description.toLowerCase().includes(term))
+        : templates;
+      if (matched.length > 0) filteredScada[cat] = matched;
+    }
+
+    // Merge all category keys
+    const allCategoryKeys = new Set([...Object.keys(farmByCategory), ...Object.keys(filteredScada)]);
+
+    // Build sorted result
+    const result: { key: string; label: string; scada: ScadaTemplate[]; farm: EquipmentType[] }[] = [];
+    const orderedKeys = CATEGORY_ORDER.filter((k) => allCategoryKeys.has(k));
+    // Add any remaining keys not in CATEGORY_ORDER
+    allCategoryKeys.forEach((k) => { if (!orderedKeys.includes(k)) orderedKeys.push(k); });
+
+    for (const key of orderedKeys) {
+      result.push({
+        key,
+        label: CATEGORY_LABELS[key] || key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' '),
+        scada: filteredScada[key] || [],
+        farm: farmByCategory[key] || [],
+      });
+    }
+
+    return result;
   }, [equipmentTypes, searchTerm]);
 
   const toggleCategory = (category: string) => {
     setExpandedCategories((prev) => {
       const next = new Set(prev);
-      if (next.has(category)) {
-        next.delete(category);
-      } else {
-        next.add(category);
-      }
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
       return next;
     });
   };
 
-  const handleDragStart = (event: React.DragEvent, type: EquipmentType) => {
-    // Create a node template from the equipment type
+  const handleFarmDragStart = (event: React.DragEvent, type: EquipmentType) => {
     const template: NodeTemplate = {
       id: `template-${type.id}`,
       name: type.name,
@@ -323,19 +323,27 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
       icon: type.icon,
       equipmentType: type,
     };
-
     event.dataTransfer.setData('application/equipment', JSON.stringify(template));
     event.dataTransfer.effectAllowed = 'move';
     onDragStart(event, template);
   };
+
+  const CategoryHeader = ({ categoryKey, label, count }: { categoryKey: string; label: string; count: number }) => (
+    <button
+      onClick={() => toggleCategory(categoryKey)}
+      className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+    >
+      {expandedCategories.has(categoryKey) ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+      <span>{label}</span>
+      <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{count}</span>
+    </button>
+  );
 
   return (
     <div className="equipment-panel w-72 bg-white border-r border-gray-200 flex flex-col h-full">
       {/* Header */}
       <div className="p-4 border-b border-gray-200">
         <h3 className="text-lg font-semibold text-gray-900 mb-3">SCADA Nodes</h3>
-
-        {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
@@ -348,7 +356,7 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
         </div>
       </div>
 
-      {/* Equipment Types List */}
+      {/* Node List */}
       <div className="flex-1 overflow-y-auto p-2">
         {isLoading && (
           <div className="flex items-center justify-center py-8">
@@ -357,37 +365,13 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
         )}
 
         {error && (
-          <div className="p-4 text-center text-red-600 text-sm">
-            Failed to load node types. Please try again.
-          </div>
+          <div className="p-4 text-center text-red-600 text-sm">Failed to load node types.</div>
         )}
 
-        {!isLoading && !error && Object.keys(groupedTypes).length === 0 && !searchTerm && (
-          <div className="p-4 text-center text-gray-500 text-sm">
-            No equipment types available.
-          </div>
-        )}
-
-        {/* Monitoring Section - Single generic Sensor node */}
+        {/* Monitoring - Sensor */}
         {(!searchTerm || 'sensor'.includes(searchTerm.toLowerCase())) && (
           <div className="mb-2">
-            {/* Category Header */}
-            <button
-              onClick={() => toggleCategory('monitoring')}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              {expandedCategories.has('monitoring') ? (
-                <ChevronDown className="w-4 h-4" />
-              ) : (
-                <ChevronRight className="w-4 h-4" />
-              )}
-              <span>Monitoring</span>
-              <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                1
-              </span>
-            </button>
-
-            {/* Sensor Node Template */}
+            <CategoryHeader categoryKey="monitoring" label="Monitoring" count={1} />
             {expandedCategories.has('monitoring') && (
               <div className="ml-2 space-y-1">
                 <div
@@ -398,12 +382,7 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                       name: SENSOR_NODE_TEMPLATE.name,
                       code: SENSOR_NODE_TEMPLATE.code,
                       category: SENSOR_NODE_TEMPLATE.category,
-                      equipmentType: {
-                        id: SENSOR_NODE_TEMPLATE.id,
-                        name: SENSOR_NODE_TEMPLATE.name,
-                        code: SENSOR_NODE_TEMPLATE.code,
-                        category: SENSOR_NODE_TEMPLATE.category,
-                      } as EquipmentType,
+                      equipmentType: { id: SENSOR_NODE_TEMPLATE.id, name: SENSOR_NODE_TEMPLATE.name, code: SENSOR_NODE_TEMPLATE.code, category: SENSOR_NODE_TEMPLATE.category } as EquipmentType,
                     };
                     e.dataTransfer.setData('application/equipment', JSON.stringify(template));
                     e.dataTransfer.effectAllowed = 'move';
@@ -411,22 +390,11 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                   }}
                   className="flex items-center gap-2 px-3 py-2 bg-green-50 hover:bg-green-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-green-200"
                 >
-                  {/* Drag Handle */}
                   <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-
-                  {/* Icon */}
-                  <div className="text-green-600 group-hover:text-green-700">
-                    <Activity size={20} />
-                  </div>
-
-                  {/* Info */}
+                  <div className="text-green-600 group-hover:text-green-700"><Activity size={20} /></div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">
-                      {SENSOR_NODE_TEMPLATE.name}
-                    </div>
-                    <div className="text-xs text-gray-500 truncate">
-                      Link real sensors via Properties
-                    </div>
+                    <div className="text-sm font-medium text-gray-900 truncate">{SENSOR_NODE_TEMPLATE.name}</div>
+                    <div className="text-xs text-gray-500 truncate">Link real sensors via Properties</div>
                   </div>
                 </div>
               </div>
@@ -434,26 +402,10 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
           </div>
         )}
 
-        {/* Utility Section - Connection Point */}
+        {/* Utility - Connection Point */}
         {(!searchTerm || 'connection point utility'.includes(searchTerm.toLowerCase())) && (
           <div className="mb-2">
-            {/* Category Header */}
-            <button
-              onClick={() => toggleCategory('utility')}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              {expandedCategories.has('utility') ? (
-                <ChevronDown className="w-4 h-4" />
-              ) : (
-                <ChevronRight className="w-4 h-4" />
-              )}
-              <span>Utility</span>
-              <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                1
-              </span>
-            </button>
-
-            {/* Connection Point Template */}
+            <CategoryHeader categoryKey="utility" label="Utility" count={1} />
             {expandedCategories.has('utility') && (
               <div className="ml-2 space-y-1">
                 <div
@@ -464,13 +416,7 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                       name: CONNECTION_POINT_TEMPLATE.name,
                       code: CONNECTION_POINT_TEMPLATE.code,
                       category: CONNECTION_POINT_TEMPLATE.category,
-                      equipmentType: {
-                        id: CONNECTION_POINT_TEMPLATE.id,
-                        name: CONNECTION_POINT_TEMPLATE.name,
-                        code: CONNECTION_POINT_TEMPLATE.code,
-                        category: CONNECTION_POINT_TEMPLATE.category,
-                        nodeType: CONNECTION_POINT_TEMPLATE.nodeType,
-                      } as EquipmentType,
+                      equipmentType: { id: CONNECTION_POINT_TEMPLATE.id, name: CONNECTION_POINT_TEMPLATE.name, code: CONNECTION_POINT_TEMPLATE.code, category: CONNECTION_POINT_TEMPLATE.category, nodeType: CONNECTION_POINT_TEMPLATE.nodeType, isActive: true, sortOrder: 0 } as EquipmentType,
                     };
                     e.dataTransfer.setData('application/equipment', JSON.stringify(template));
                     e.dataTransfer.effectAllowed = 'move';
@@ -478,20 +424,11 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                   }}
                   className="flex items-center gap-2 px-3 py-2 bg-yellow-50 hover:bg-yellow-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-yellow-200"
                 >
-                  {/* Drag Handle */}
                   <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-
-                  {/* Icon - Circle representing connection point */}
                   <div className="w-5 h-5 rounded-full bg-yellow-400 border-2 border-yellow-600" />
-
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">
-                      {CONNECTION_POINT_TEMPLATE.name}
-                    </div>
-                    <div className="text-xs text-gray-500 truncate">
-                      {CONNECTION_POINT_TEMPLATE.description}
-                    </div>
+                    <div className="text-sm font-medium text-gray-900 truncate">{CONNECTION_POINT_TEMPLATE.name}</div>
+                    <div className="text-xs text-gray-500 truncate">{CONNECTION_POINT_TEMPLATE.description}</div>
                   </div>
                 </div>
               </div>
@@ -499,27 +436,11 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
           </div>
         )}
 
-        {/* Algae Cultivation Section */}
+        {/* Algae Cultivation */}
         {(!searchTerm || 'algae'.includes(searchTerm.toLowerCase()) ||
           ALGAE_BAG_TEMPLATES.some(t => t.name.toLowerCase().includes(searchTerm.toLowerCase()))) && (
           <div className="mb-2">
-            {/* Category Header */}
-            <button
-              onClick={() => toggleCategory('algae')}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              {expandedCategories.has('algae') ? (
-                <ChevronDown className="w-4 h-4" />
-              ) : (
-                <ChevronRight className="w-4 h-4" />
-              )}
-              <span>Algae Cultivation</span>
-              <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                {ALGAE_BAG_TEMPLATES.length}
-              </span>
-            </button>
-
-            {/* Algae Bag Templates */}
+            <CategoryHeader categoryKey="algae" label="Algae Cultivation" count={ALGAE_BAG_TEMPLATES.length} />
             {expandedCategories.has('algae') && (
               <div className="ml-2 space-y-1">
                 {ALGAE_BAG_TEMPLATES.map((bag) => (
@@ -528,17 +449,8 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                     draggable
                     onDragStart={(e) => {
                       const template: NodeTemplate = {
-                        id: bag.id,
-                        name: bag.name,
-                        code: bag.code,
-                        category: bag.category,
-                        equipmentType: {
-                          id: bag.id,
-                          name: bag.name,
-                          code: bag.code,
-                          category: bag.category,
-                          nodeType: bag.nodeType,
-                        } as EquipmentType,
+                        id: bag.id, name: bag.name, code: bag.code, category: bag.category,
+                        equipmentType: { id: bag.id, name: bag.name, code: bag.code, category: bag.category, nodeType: bag.nodeType, isActive: true, sortOrder: 0 } as EquipmentType,
                       };
                       e.dataTransfer.setData('application/equipment', JSON.stringify(template));
                       e.dataTransfer.effectAllowed = 'move';
@@ -546,23 +458,11 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                     }}
                     className="flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-emerald-50 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-emerald-200"
                   >
-                    {/* Drag Handle */}
                     <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-
-                    {/* Color indicator */}
-                    <div
-                      className="w-5 h-5 rounded-full border-2 border-white shadow-sm"
-                      style={{ backgroundColor: bag.color }}
-                    />
-
-                    {/* Info */}
+                    <div className="w-5 h-5 rounded-full border-2 border-white shadow-sm" style={{ backgroundColor: bag.color }} />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-900 truncate">
-                        {bag.name}
-                      </div>
-                      <div className="text-xs text-gray-500 truncate">
-                        {bag.description}
-                      </div>
+                      <div className="text-sm font-medium text-gray-900 truncate">{bag.name}</div>
+                      <div className="text-xs text-gray-500 truncate">{bag.description}</div>
                     </div>
                   </div>
                 ))}
@@ -571,233 +471,19 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
           </div>
         )}
 
-        {/* Widgets Section - Single Chart Widget */}
-        {(!searchTerm || 'widget chart graph gauge line area stat'.includes(searchTerm.toLowerCase()) ||
+        {/* Widgets */}
+        {(!searchTerm || 'widget chart graph gauge'.includes(searchTerm.toLowerCase()) ||
           CHART_WIDGET_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase())) && (
           <div className="mb-2">
-            {/* Category Header */}
-            <button
-              onClick={() => toggleCategory('widgets')}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              {expandedCategories.has('widgets') ? (
-                <ChevronDown className="w-4 h-4" />
-              ) : (
-                <ChevronRight className="w-4 h-4" />
-              )}
-              <span>Widgets</span>
-              <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                1
-              </span>
-            </button>
-
-            {/* Single Widget Template */}
+            <CategoryHeader categoryKey="widgets" label="Widgets" count={1} />
             {expandedCategories.has('widgets') && (
               <div className="ml-2 space-y-1">
                 <div
                   draggable
                   onDragStart={(e) => {
                     const template: NodeTemplate = {
-                      id: CHART_WIDGET_TEMPLATE.id,
-                      name: CHART_WIDGET_TEMPLATE.name,
-                      code: CHART_WIDGET_TEMPLATE.code,
-                      category: CHART_WIDGET_TEMPLATE.category,
-                      equipmentType: {
-                        id: CHART_WIDGET_TEMPLATE.id,
-                        name: CHART_WIDGET_TEMPLATE.name,
-                        code: CHART_WIDGET_TEMPLATE.code,
-                        category: CHART_WIDGET_TEMPLATE.category,
-                        nodeType: CHART_WIDGET_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                        defaultWidth: CHART_WIDGET_TEMPLATE.defaultWidth,
-                        defaultHeight: CHART_WIDGET_TEMPLATE.defaultHeight,
-                      } as EquipmentType & { defaultWidth: number; defaultHeight: number },
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-cyan-50 hover:bg-cyan-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-cyan-200"
-                >
-                  {/* Drag Handle */}
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-
-                  {/* Icon */}
-                  <div className="text-cyan-600 group-hover:text-cyan-700">
-                    <BarChart2 size={20} />
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">
-                      {CHART_WIDGET_TEMPLATE.name}
-                    </div>
-                    <div className="text-xs text-gray-500 truncate">
-                      {CHART_WIDGET_TEMPLATE.description}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* SCADA Specialized Nodes Section */}
-        {(!searchTerm || 'ultrafiltration dual drain tank filtration scada radial filter settler clean dirty water heater heat exchanger chiller cooling generator gas diesel power ats'.includes(searchTerm.toLowerCase()) ||
-          ULTRAFILTRATION_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          DUAL_DRAIN_TANK_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          RADIAL_FILTER_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          CLEAN_WATER_TANK_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          DIRTY_WATER_TANK_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          WATER_SUPPLY_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          WATER_DISCHARGE_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          MBBR_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          HEPA_FILTER_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          DOSING_PUMP_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          HEATER_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          SHELL_AND_TUBE_HX_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          PLATE_HX_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          CHILLER_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          GAS_GENERATOR_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          DIESEL_GENERATOR_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase())) && (
-          <div className="mb-2">
-            {/* Category Header */}
-            <button
-              onClick={() => toggleCategory('scada-nodes')}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              {expandedCategories.has('scada-nodes') ? (
-                <ChevronDown className="w-4 h-4" />
-              ) : (
-                <ChevronRight className="w-4 h-4" />
-              )}
-              <span>SCADA Nodes</span>
-              <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                16
-              </span>
-            </button>
-
-            {/* SCADA Node Templates */}
-            {expandedCategories.has('scada-nodes') && (
-              <div className="ml-2 space-y-1">
-                {/* Ultrafiltration */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: ULTRAFILTRATION_TEMPLATE.id,
-                      name: ULTRAFILTRATION_TEMPLATE.name,
-                      code: ULTRAFILTRATION_TEMPLATE.code,
-                      category: ULTRAFILTRATION_TEMPLATE.category,
-                      equipmentType: {
-                        id: ULTRAFILTRATION_TEMPLATE.id,
-                        name: ULTRAFILTRATION_TEMPLATE.name,
-                        code: ULTRAFILTRATION_TEMPLATE.code,
-                        category: ULTRAFILTRATION_TEMPLATE.category,
-                        nodeType: ULTRAFILTRATION_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-blue-50 hover:bg-blue-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-blue-200"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-blue-500 rounded text-white text-xs flex items-center justify-center font-bold">UF</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{ULTRAFILTRATION_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{ULTRAFILTRATION_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* Dual Drain Tank */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: DUAL_DRAIN_TANK_TEMPLATE.id,
-                      name: DUAL_DRAIN_TANK_TEMPLATE.name,
-                      code: DUAL_DRAIN_TANK_TEMPLATE.code,
-                      category: DUAL_DRAIN_TANK_TEMPLATE.category,
-                      equipmentType: {
-                        id: DUAL_DRAIN_TANK_TEMPLATE.id,
-                        name: DUAL_DRAIN_TANK_TEMPLATE.name,
-                        code: DUAL_DRAIN_TANK_TEMPLATE.code,
-                        category: DUAL_DRAIN_TANK_TEMPLATE.category,
-                        nodeType: DUAL_DRAIN_TANK_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-amber-50 hover:bg-amber-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-amber-200"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-amber-500 rounded text-white text-xs flex items-center justify-center font-bold">DD</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{DUAL_DRAIN_TANK_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{DUAL_DRAIN_TANK_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* Radial Filter */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: RADIAL_FILTER_TEMPLATE.id,
-                      name: RADIAL_FILTER_TEMPLATE.name,
-                      code: RADIAL_FILTER_TEMPLATE.code,
-                      category: RADIAL_FILTER_TEMPLATE.category,
-                      equipmentType: {
-                        id: RADIAL_FILTER_TEMPLATE.id,
-                        name: RADIAL_FILTER_TEMPLATE.name,
-                        code: RADIAL_FILTER_TEMPLATE.code,
-                        category: RADIAL_FILTER_TEMPLATE.category,
-                        nodeType: RADIAL_FILTER_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-teal-50 hover:bg-teal-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-teal-200"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-teal-500 rounded text-white text-xs flex items-center justify-center font-bold">RF</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{RADIAL_FILTER_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{RADIAL_FILTER_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* Clean Water Tank */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: CLEAN_WATER_TANK_TEMPLATE.id,
-                      name: CLEAN_WATER_TANK_TEMPLATE.name,
-                      code: CLEAN_WATER_TANK_TEMPLATE.code,
-                      category: CLEAN_WATER_TANK_TEMPLATE.category,
-                      equipmentType: {
-                        id: CLEAN_WATER_TANK_TEMPLATE.id,
-                        name: CLEAN_WATER_TANK_TEMPLATE.name,
-                        code: CLEAN_WATER_TANK_TEMPLATE.code,
-                        category: CLEAN_WATER_TANK_TEMPLATE.category,
-                        nodeType: CLEAN_WATER_TANK_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
+                      id: CHART_WIDGET_TEMPLATE.id, name: CHART_WIDGET_TEMPLATE.name, code: CHART_WIDGET_TEMPLATE.code, category: CHART_WIDGET_TEMPLATE.category,
+                      equipmentType: { id: CHART_WIDGET_TEMPLATE.id, name: CHART_WIDGET_TEMPLATE.name, code: CHART_WIDGET_TEMPLATE.code, category: CHART_WIDGET_TEMPLATE.category, nodeType: CHART_WIDGET_TEMPLATE.nodeType, isActive: true, sortOrder: 0, defaultWidth: CHART_WIDGET_TEMPLATE.defaultWidth, defaultHeight: CHART_WIDGET_TEMPLATE.defaultHeight } as EquipmentType & { defaultWidth: number; defaultHeight: number },
                     };
                     e.dataTransfer.setData('application/equipment', JSON.stringify(template));
                     e.dataTransfer.effectAllowed = 'move';
@@ -806,406 +492,10 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                   className="flex items-center gap-2 px-3 py-2 bg-cyan-50 hover:bg-cyan-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-cyan-200"
                 >
                   <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-cyan-500 rounded text-white text-xs flex items-center justify-center font-bold">CW</div>
+                  <div className="text-cyan-600 group-hover:text-cyan-700"><BarChart2 size={20} /></div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{CLEAN_WATER_TANK_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{CLEAN_WATER_TANK_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* Dirty Water Tank */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: DIRTY_WATER_TANK_TEMPLATE.id,
-                      name: DIRTY_WATER_TANK_TEMPLATE.name,
-                      code: DIRTY_WATER_TANK_TEMPLATE.code,
-                      category: DIRTY_WATER_TANK_TEMPLATE.category,
-                      equipmentType: {
-                        id: DIRTY_WATER_TANK_TEMPLATE.id,
-                        name: DIRTY_WATER_TANK_TEMPLATE.name,
-                        code: DIRTY_WATER_TANK_TEMPLATE.code,
-                        category: DIRTY_WATER_TANK_TEMPLATE.category,
-                        nodeType: DIRTY_WATER_TANK_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-stone-50 hover:bg-stone-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-stone-300"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-stone-500 rounded text-white text-xs flex items-center justify-center font-bold">DW</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{DIRTY_WATER_TANK_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{DIRTY_WATER_TANK_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* Water Supply */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: WATER_SUPPLY_TEMPLATE.id,
-                      name: WATER_SUPPLY_TEMPLATE.name,
-                      code: WATER_SUPPLY_TEMPLATE.code,
-                      category: WATER_SUPPLY_TEMPLATE.category,
-                      equipmentType: {
-                        id: WATER_SUPPLY_TEMPLATE.id,
-                        name: WATER_SUPPLY_TEMPLATE.name,
-                        code: WATER_SUPPLY_TEMPLATE.code,
-                        category: WATER_SUPPLY_TEMPLATE.category,
-                        nodeType: WATER_SUPPLY_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-sky-50 hover:bg-sky-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-sky-200"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-sky-500 rounded text-white text-xs flex items-center justify-center font-bold">WS</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{WATER_SUPPLY_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{WATER_SUPPLY_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* Water Discharge */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: WATER_DISCHARGE_TEMPLATE.id,
-                      name: WATER_DISCHARGE_TEMPLATE.name,
-                      code: WATER_DISCHARGE_TEMPLATE.code,
-                      category: WATER_DISCHARGE_TEMPLATE.category,
-                      equipmentType: {
-                        id: WATER_DISCHARGE_TEMPLATE.id,
-                        name: WATER_DISCHARGE_TEMPLATE.name,
-                        code: WATER_DISCHARGE_TEMPLATE.code,
-                        category: WATER_DISCHARGE_TEMPLATE.category,
-                        nodeType: WATER_DISCHARGE_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-slate-50 hover:bg-slate-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-slate-300"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-slate-500 rounded text-white text-xs flex items-center justify-center font-bold">WD</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{WATER_DISCHARGE_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{WATER_DISCHARGE_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* MBBR */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: MBBR_TEMPLATE.id,
-                      name: MBBR_TEMPLATE.name,
-                      code: MBBR_TEMPLATE.code,
-                      category: MBBR_TEMPLATE.category,
-                      equipmentType: {
-                        id: MBBR_TEMPLATE.id,
-                        name: MBBR_TEMPLATE.name,
-                        code: MBBR_TEMPLATE.code,
-                        category: MBBR_TEMPLATE.category,
-                        nodeType: MBBR_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-emerald-200"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-emerald-500 rounded text-white text-xs flex items-center justify-center font-bold">MB</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{MBBR_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{MBBR_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* HEPA Filter */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: HEPA_FILTER_TEMPLATE.id,
-                      name: HEPA_FILTER_TEMPLATE.name,
-                      code: HEPA_FILTER_TEMPLATE.code,
-                      category: HEPA_FILTER_TEMPLATE.category,
-                      equipmentType: {
-                        id: HEPA_FILTER_TEMPLATE.id,
-                        name: HEPA_FILTER_TEMPLATE.name,
-                        code: HEPA_FILTER_TEMPLATE.code,
-                        category: HEPA_FILTER_TEMPLATE.category,
-                        nodeType: HEPA_FILTER_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-indigo-200"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-indigo-500 rounded text-white text-xs flex items-center justify-center font-bold">HF</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{HEPA_FILTER_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{HEPA_FILTER_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* Dosing Pump */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: DOSING_PUMP_TEMPLATE.id,
-                      name: DOSING_PUMP_TEMPLATE.name,
-                      code: DOSING_PUMP_TEMPLATE.code,
-                      category: DOSING_PUMP_TEMPLATE.category,
-                      equipmentType: {
-                        id: DOSING_PUMP_TEMPLATE.id,
-                        name: DOSING_PUMP_TEMPLATE.name,
-                        code: DOSING_PUMP_TEMPLATE.code,
-                        category: DOSING_PUMP_TEMPLATE.category,
-                        nodeType: DOSING_PUMP_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-purple-200"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-purple-500 rounded text-white text-xs flex items-center justify-center font-bold">DP</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{DOSING_PUMP_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{DOSING_PUMP_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* Heater */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: HEATER_TEMPLATE.id,
-                      name: HEATER_TEMPLATE.name,
-                      code: HEATER_TEMPLATE.code,
-                      category: HEATER_TEMPLATE.category,
-                      equipmentType: {
-                        id: HEATER_TEMPLATE.id,
-                        name: HEATER_TEMPLATE.name,
-                        code: HEATER_TEMPLATE.code,
-                        category: HEATER_TEMPLATE.category,
-                        nodeType: HEATER_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-red-50 hover:bg-red-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-red-200"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-red-500 rounded text-white text-xs flex items-center justify-center font-bold">HT</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{HEATER_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{HEATER_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* Shell & Tube Heat Exchanger */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: SHELL_AND_TUBE_HX_TEMPLATE.id,
-                      name: SHELL_AND_TUBE_HX_TEMPLATE.name,
-                      code: SHELL_AND_TUBE_HX_TEMPLATE.code,
-                      category: SHELL_AND_TUBE_HX_TEMPLATE.category,
-                      equipmentType: {
-                        id: SHELL_AND_TUBE_HX_TEMPLATE.id,
-                        name: SHELL_AND_TUBE_HX_TEMPLATE.name,
-                        code: SHELL_AND_TUBE_HX_TEMPLATE.code,
-                        category: SHELL_AND_TUBE_HX_TEMPLATE.category,
-                        nodeType: SHELL_AND_TUBE_HX_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-orange-50 hover:bg-orange-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-orange-200"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-orange-500 rounded text-white text-xs flex items-center justify-center font-bold">ST</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{SHELL_AND_TUBE_HX_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{SHELL_AND_TUBE_HX_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* Plate Heat Exchanger */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: PLATE_HX_TEMPLATE.id,
-                      name: PLATE_HX_TEMPLATE.name,
-                      code: PLATE_HX_TEMPLATE.code,
-                      category: PLATE_HX_TEMPLATE.category,
-                      equipmentType: {
-                        id: PLATE_HX_TEMPLATE.id,
-                        name: PLATE_HX_TEMPLATE.name,
-                        code: PLATE_HX_TEMPLATE.code,
-                        category: PLATE_HX_TEMPLATE.category,
-                        nodeType: PLATE_HX_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-amber-50 hover:bg-amber-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-amber-200"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-amber-500 rounded text-white text-xs flex items-center justify-center font-bold">PH</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{PLATE_HX_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{PLATE_HX_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* Chiller */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: CHILLER_TEMPLATE.id,
-                      name: CHILLER_TEMPLATE.name,
-                      code: CHILLER_TEMPLATE.code,
-                      category: CHILLER_TEMPLATE.category,
-                      equipmentType: {
-                        id: CHILLER_TEMPLATE.id,
-                        name: CHILLER_TEMPLATE.name,
-                        code: CHILLER_TEMPLATE.code,
-                        category: CHILLER_TEMPLATE.category,
-                        nodeType: CHILLER_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-sky-50 hover:bg-sky-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-sky-200"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-sky-500 rounded text-white text-xs flex items-center justify-center font-bold">CH</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{CHILLER_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{CHILLER_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* Gas Generator */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: GAS_GENERATOR_TEMPLATE.id,
-                      name: GAS_GENERATOR_TEMPLATE.name,
-                      code: GAS_GENERATOR_TEMPLATE.code,
-                      category: GAS_GENERATOR_TEMPLATE.category,
-                      equipmentType: {
-                        id: GAS_GENERATOR_TEMPLATE.id,
-                        name: GAS_GENERATOR_TEMPLATE.name,
-                        code: GAS_GENERATOR_TEMPLATE.code,
-                        category: GAS_GENERATOR_TEMPLATE.category,
-                        nodeType: GAS_GENERATOR_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-yellow-50 hover:bg-yellow-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-yellow-200"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-yellow-500 rounded text-white text-xs flex items-center justify-center font-bold">GG</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{GAS_GENERATOR_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{GAS_GENERATOR_TEMPLATE.description}</div>
-                  </div>
-                </div>
-
-                {/* Diesel Generator */}
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    const template: NodeTemplate = {
-                      id: DIESEL_GENERATOR_TEMPLATE.id,
-                      name: DIESEL_GENERATOR_TEMPLATE.name,
-                      code: DIESEL_GENERATOR_TEMPLATE.code,
-                      category: DIESEL_GENERATOR_TEMPLATE.category,
-                      equipmentType: {
-                        id: DIESEL_GENERATOR_TEMPLATE.id,
-                        name: DIESEL_GENERATOR_TEMPLATE.name,
-                        code: DIESEL_GENERATOR_TEMPLATE.code,
-                        category: DIESEL_GENERATOR_TEMPLATE.category,
-                        nodeType: DIESEL_GENERATOR_TEMPLATE.nodeType,
-                        isActive: true,
-                        sortOrder: 0,
-                      } as EquipmentType,
-                    };
-                    e.dataTransfer.setData('application/equipment', JSON.stringify(template));
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(e, template);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-gray-300"
-                >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                  <div className="w-5 h-5 bg-gray-600 rounded text-white text-xs flex items-center justify-center font-bold">DG</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">{DIESEL_GENERATOR_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{DIESEL_GENERATOR_TEMPLATE.description}</div>
+                    <div className="text-sm font-medium text-gray-900 truncate">{CHART_WIDGET_TEMPLATE.name}</div>
+                    <div className="text-xs text-gray-500 truncate">{CHART_WIDGET_TEMPLATE.description}</div>
                   </div>
                 </div>
               </div>
@@ -1213,56 +503,22 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
           </div>
         )}
 
-        {/* Equipment Categories */}
-        {Object.entries(groupedTypes).map(([category, types]) => (
-          <div key={category} className="mb-2">
-            {/* Category Header */}
-            <button
-              onClick={() => toggleCategory(category)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              {expandedCategories.has(category) ? (
-                <ChevronDown className="w-4 h-4" />
-              ) : (
-                <ChevronRight className="w-4 h-4" />
-              )}
-              <span>{CATEGORY_LABELS[category] || category}</span>
-              <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                {types.length}
-              </span>
-            </button>
-
-            {/* Equipment Type Items */}
-            {expandedCategories.has(category) && (
+        {/* ---------------------------------------------------------------- */}
+        {/* Unified equipment categories (SCADA + farm-service merged)       */}
+        {/* ---------------------------------------------------------------- */}
+        {unifiedCategories.map(({ key, label, scada, farm }) => (
+          <div key={key} className="mb-2">
+            <CategoryHeader categoryKey={key} label={label} count={scada.length + farm.length} />
+            {expandedCategories.has(key) && (
               <div className="ml-2 space-y-1">
-                {types.map((type) => {
-                  const Icon = getEquipmentIcon(type.code);
-
-                  return (
-                    <div
-                      key={type.id}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, type)}
-                      className="flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-blue-50 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-blue-200"
-                    >
-                      {/* Drag Handle */}
-                      <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-
-                      {/* Icon */}
-                      <div className="text-gray-600 group-hover:text-blue-600">
-                        <Icon size={20} />
-                      </div>
-
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-900 truncate">
-                          {type.name}
-                        </div>
-                        <div className="text-xs text-gray-500 truncate">{type.code}</div>
-                      </div>
-                    </div>
-                  );
-                })}
+                {/* SCADA templates first */}
+                {scada.map((tpl) => (
+                  <ScadaNodeItem key={tpl.id} tpl={tpl} onDragStart={onDragStart} />
+                ))}
+                {/* Farm-service equipment types */}
+                {farm.map((type) => (
+                  <FarmEquipmentItem key={type.id} type={type} onDragStart={handleFarmDragStart} />
+                ))}
               </div>
             )}
           </div>
@@ -1271,9 +527,7 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
 
       {/* Footer */}
       <div className="p-3 border-t border-gray-200 bg-gray-50">
-        <p className="text-xs text-gray-500 text-center">
-          Drag nodes to canvas, then link real equipment
-        </p>
+        <p className="text-xs text-gray-500 text-center">Drag nodes to canvas, then link real equipment</p>
       </div>
     </div>
   );

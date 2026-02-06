@@ -1,4 +1,4 @@
-import { InputType, Field, ObjectType, ID } from '@nestjs/graphql';
+import { InputType, Field, ObjectType, ID, Int } from '@nestjs/graphql';
 import {
   IsString,
   IsOptional,
@@ -7,8 +7,11 @@ import {
   IsArray,
   ValidateNested,
   IsNotEmpty,
+  IsInt,
+  Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { GraphQLJSON } from 'graphql-scalars';
 
 import { DeviceModel } from '../entities/edge-device.entity';
 
@@ -186,4 +189,160 @@ export interface InstallerScriptVariables {
   agentVersion: string;
   mqttBroker: string;
   mqttPort: number;
+}
+
+// ============================================
+// Tenant Provisioning Key Types
+// ============================================
+
+/**
+ * Input for creating a tenant-level provisioning key
+ * Allows multiple devices to register with a single key
+ */
+@InputType()
+export class CreateTenantKeyInput {
+  @Field({ nullable: true, description: 'Human-readable name for this key (e.g., "Production Line Installer")' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  name?: string;
+
+  @Field(() => Int, { nullable: true, description: 'Maximum number of devices that can register with this key (null = unlimited)' })
+  @IsOptional()
+  @IsInt({ message: 'maxDevices must be an integer' })
+  @Min(1, { message: 'maxDevices must be at least 1' })
+  maxDevices?: number;
+
+  @Field({ nullable: true, defaultValue: false, description: 'If true, devices are automatically set to ACTIVE (no manual approval needed)' })
+  @IsOptional()
+  autoApprove?: boolean;
+
+  @Field({ nullable: true, description: 'Default site to assign registered devices to' })
+  @IsOptional()
+  @IsUUID()
+  defaultSiteId?: string;
+
+  @Field(() => Int, { nullable: true, description: 'Expiry in days from now (null = never expires)' })
+  @IsOptional()
+  @IsInt({ message: 'expiresInDays must be an integer' })
+  @Min(1, { message: 'expiresInDays must be at least 1' })
+  expiresInDays?: number;
+}
+
+/**
+ * Response after creating a tenant provisioning key
+ */
+@ObjectType()
+export class TenantKeyResponse {
+  @Field(() => ID)
+  id!: string;
+
+  @Field()
+  keyToken!: string;
+
+  @Field()
+  installerUrl!: string;
+
+  @Field()
+  installerCommand!: string;
+
+  @Field({ nullable: true })
+  expiresAt?: Date;
+
+  @Field(() => Int, { nullable: true })
+  maxDevices?: number;
+
+  @Field()
+  autoApprove!: boolean;
+}
+
+// ============================================
+// Self-Registration Types (REST API)
+// ============================================
+
+/**
+ * Self-register request from agent (REST API)
+ * Agent sends this after being installed via tenant installer
+ */
+export class SelfRegisterRequest {
+  @IsString()
+  @IsNotEmpty({ message: 'Tenant token is required' })
+  @MaxLength(128, { message: 'Tenant token too long' })
+  tenant_token!: string;
+
+  @ValidateNested()
+  @Type(() => DeviceFingerprint)
+  fingerprint!: DeviceFingerprint;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Agent version is required' })
+  @MaxLength(50)
+  agent_version!: string;
+}
+
+/**
+ * Self-register response to agent (REST API)
+ */
+export interface SelfRegisterResponse {
+  success: boolean;
+  device_id: string;
+  device_code: string;
+  mqtt_broker: string;
+  mqtt_port: number;
+  mqtt_username: string;
+  mqtt_password: string;
+  tenant_id: string;
+  config?: Record<string, unknown>;
+}
+
+/**
+ * Installer script variables for tenant-level installer
+ */
+export interface TenantInstallerScriptVariables {
+  tenantToken: string;
+  apiUrl: string;
+  agentVersion: string;
+  mqttPort: number;
+}
+
+/**
+ * DeviceEvent connection for pagination
+ */
+@ObjectType()
+export class DeviceEventConnection {
+  @Field(() => [DeviceEventItem])
+  items!: DeviceEventItem[];
+
+  @Field(() => Int)
+  total!: number;
+
+  @Field(() => Int)
+  page!: number;
+
+  @Field(() => Int)
+  limit!: number;
+}
+
+@ObjectType()
+export class DeviceEventItem {
+  @Field(() => ID)
+  id!: string;
+
+  @Field({ nullable: true })
+  deviceId?: string;
+
+  @Field()
+  eventType!: string;
+
+  @Field()
+  severity!: string;
+
+  @Field()
+  message!: string;
+
+  @Field(() => GraphQLJSON, { nullable: true })
+  metadata?: Record<string, unknown>;
+
+  @Field()
+  createdAt!: Date;
 }

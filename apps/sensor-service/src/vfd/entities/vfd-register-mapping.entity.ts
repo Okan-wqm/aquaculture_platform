@@ -11,22 +11,17 @@ import { ObjectType, Field, ID, Int, Float } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { VfdBrand, VfdParameterCategory, VfdDataType, ByteOrder } from './vfd.enums';
+import { BitDefinition } from './vfd.types';
 
-/**
- * Bit definitions for control/status words
- */
-export interface BitDefinition {
-  bit: number;
-  name: string;
-  description?: string;
-}
+// Re-export types for backwards compatibility
+export { BitDefinition, VfdRegisterMappingInput } from './vfd.types';
 
 /**
  * VFD Register Mapping Entity
  * Stores brand-specific register addresses and configurations
  */
 @ObjectType({ description: 'VFD register mapping configuration' })
-@Entity('vfd_register_mappings', { schema: 'sensor' })
+@Entity('vfd_register_mappings')
 @Index(['brand'])
 @Index(['brand', 'modelSeries'])
 @Index(['brand', 'parameterName'])
@@ -150,32 +145,3 @@ export class VfdRegisterMapping {
   updatedAt!: Date;
 }
 
-/**
- * Input type for creating register mappings (used in brand configs)
- */
-export interface VfdRegisterMappingInput {
-  brand: VfdBrand;
-  modelSeries?: string;
-  parameterName: string;
-  displayName: string;
-  description?: string;
-  category: VfdParameterCategory;
-  registerAddress: number;
-  registerCount?: number;
-  functionCode?: number;
-  dataType?: VfdDataType;
-  scalingFactor?: number;
-  offset?: number;
-  unit?: string;
-  byteOrder?: ByteOrder;
-  wordOrder?: ByteOrder;
-  isBitField?: boolean;
-  bitDefinitions?: BitDefinition[];
-  isReadable?: boolean;
-  isWritable?: boolean;
-  recommendedPollIntervalMs?: number;
-  displayOrder?: number;
-  isCritical?: boolean;
-  minValue?: number;
-  maxValue?: number;
-}

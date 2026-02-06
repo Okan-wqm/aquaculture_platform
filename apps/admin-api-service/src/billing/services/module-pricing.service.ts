@@ -136,10 +136,10 @@ export class ModulePricingService {
     // Get module info separately
     const moduleIds = [...new Set(activePricings.map((p) => p.moduleId))];
 
-    // Query modules from public.modules table
+    // Query modules from auth.modules table
     const modules: Array<{ id: string; name: string; description: string; icon: string; isActive: boolean }> =
       await this.pricingRepo.manager.query(
-        `SELECT id, name, description, icon, "isActive" FROM public.modules WHERE id = ANY($1)`,
+        `SELECT id, name, description, icon, "isActive" FROM auth.modules WHERE id = ANY($1)`,
         [moduleIds],
       );
 

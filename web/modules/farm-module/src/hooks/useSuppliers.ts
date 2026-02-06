@@ -140,37 +140,15 @@ const SUPPLIERS_LIST_QUERY = `
         code
         type
         description
-        categories
         products
         status
         contactPerson
-        primaryContact {
-          name
-          title
-          email
-          phone
-        }
         email
         phone
-        fax
         website
-        address {
-          street
-          city
-          state
-          postalCode
-          country
-        }
         city
         country
-        taxNumber
-        paymentTerms {
-          paymentDays
-          creditLimit
-          currency
-        }
         rating
-        certifications
         notes
         isActive
         createdAt
@@ -193,37 +171,15 @@ const SUPPLIER_QUERY = `
       code
       type
       description
-      categories
       products
       status
       contactPerson
-      primaryContact {
-        name
-        title
-        email
-        phone
-      }
       email
       phone
-      fax
       website
-      address {
-        street
-        city
-        state
-        postalCode
-        country
-      }
       city
       country
-      taxNumber
-      paymentTerms {
-        paymentDays
-        creditLimit
-        currency
-      }
       rating
-      certifications
       notes
       isActive
       createdAt

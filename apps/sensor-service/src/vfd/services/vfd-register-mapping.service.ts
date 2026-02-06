@@ -112,21 +112,21 @@ export class VfdRegisterMappingService {
    */
   async createCustomMapping(input: VfdRegisterMappingInput): Promise<VfdRegisterMapping> {
     const mapping = this.registerMappingRepository.create({
-      brand: input.brand,
+      brand: input.brand as VfdBrand,
       modelSeries: input.modelSeries,
       parameterName: input.parameterName,
       displayName: input.displayName,
       description: input.description,
-      category: input.category,
+      category: input.category as VfdParameterCategory,
       registerAddress: input.registerAddress,
       registerCount: input.registerCount || 1,
       functionCode: input.functionCode || 3,
-      dataType: input.dataType || VfdDataType.UINT16,
+      dataType: (input.dataType as VfdDataType) || VfdDataType.UINT16,
       scalingFactor: input.scalingFactor || 1,
       offset: input.offset || 0,
       unit: input.unit,
-      byteOrder: input.byteOrder || ByteOrder.BIG,
-      wordOrder: input.wordOrder || ByteOrder.BIG,
+      byteOrder: (input.byteOrder as ByteOrder) || ByteOrder.BIG,
+      wordOrder: (input.wordOrder as ByteOrder) || ByteOrder.BIG,
       isBitField: input.isBitField || false,
       bitDefinitions: input.bitDefinitions,
       isReadable: input.isReadable ?? true,
@@ -179,7 +179,7 @@ export class VfdRegisterMappingService {
     for (const input of builtInMappings) {
       const existing = await this.registerMappingRepository.findOne({
         where: {
-          brand: input.brand,
+          brand: input.brand as VfdBrand,
           parameterName: input.parameterName,
           modelSeries: input.modelSeries || undefined,
         },
@@ -210,7 +210,7 @@ export class VfdRegisterMappingService {
 
     for (const brand of Object.values(VfdBrand)) {
       const mappings = VFD_BRAND_REGISTERS[brand] || [];
-      const categories = [...new Set(mappings.map(m => m.category))];
+      const categories = [...new Set(mappings.map(m => m.category))] as VfdParameterCategory[];
 
       result.push({
         brand,
@@ -267,21 +267,21 @@ export class VfdRegisterMappingService {
     return inputs.map(input => {
       const mapping = new VfdRegisterMapping();
       mapping.id = `builtin_${input.brand}_${input.parameterName}`;
-      mapping.brand = input.brand;
+      mapping.brand = input.brand as VfdBrand;
       mapping.modelSeries = input.modelSeries || null;
       mapping.parameterName = input.parameterName;
       mapping.displayName = input.displayName;
       mapping.description = input.description || null;
-      mapping.category = input.category;
+      mapping.category = input.category as VfdParameterCategory;
       mapping.registerAddress = input.registerAddress;
       mapping.registerCount = input.registerCount || 1;
       mapping.functionCode = input.functionCode || 3;
-      mapping.dataType = input.dataType || VfdDataType.UINT16;
+      mapping.dataType = (input.dataType as VfdDataType) || VfdDataType.UINT16;
       mapping.scalingFactor = input.scalingFactor || 1;
       mapping.offset = input.offset || 0;
       mapping.unit = input.unit || null;
-      mapping.byteOrder = input.byteOrder || ByteOrder.BIG;
-      mapping.wordOrder = input.wordOrder || ByteOrder.BIG;
+      mapping.byteOrder = (input.byteOrder as ByteOrder) || ByteOrder.BIG;
+      mapping.wordOrder = (input.wordOrder as ByteOrder) || ByteOrder.BIG;
       mapping.isBitField = input.isBitField || false;
       mapping.bitDefinitions = input.bitDefinitions || null;
       mapping.isReadable = input.isReadable ?? true;

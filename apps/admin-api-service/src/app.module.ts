@@ -17,6 +17,7 @@ import { SupportModule } from './support/support.module';
 import { SecurityModule } from './security/security.module';
 import { SystemManagementModule } from './system-management/system-management.module';
 import { ImpersonationModule } from './impersonation/impersonation.module';
+import { PasswordResetModule } from './auth/password-reset.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { PlatformAdminGuard } from './guards/platform-admin.guard';
 
@@ -90,6 +91,7 @@ import { PlatformAdminGuard } from './guards/platform-admin.guard';
     SecurityModule,
     SystemManagementModule,
     ImpersonationModule,
+    PasswordResetModule,
   ],
   providers: [
     {

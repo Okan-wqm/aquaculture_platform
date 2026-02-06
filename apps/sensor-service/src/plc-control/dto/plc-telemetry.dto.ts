@@ -77,6 +77,28 @@ export class PaginatedPlcTelemetryDto {
 }
 
 /**
+ * Statistics for a sensor value
+ * NOTE: Must be defined before PlcTelemetryStatsDto to avoid circular reference
+ */
+@ObjectType('SensorStats')
+export class SensorStats {
+  @Field(() => Float, { nullable: true })
+  min?: number;
+
+  @Field(() => Float, { nullable: true })
+  max?: number;
+
+  @Field(() => Float, { nullable: true })
+  avg?: number;
+
+  @Field(() => Float, { nullable: true })
+  stdDev?: number;
+
+  @Field(() => Int)
+  count!: number;
+}
+
+/**
  * Telemetry statistics
  */
 @ObjectType('PlcTelemetryStats')
@@ -104,27 +126,6 @@ export class PlcTelemetryStatsDto {
 
   @Field(() => SensorStats, { nullable: true })
   flowRate?: SensorStats;
-}
-
-/**
- * Statistics for a sensor value
- */
-@ObjectType('SensorStats')
-export class SensorStats {
-  @Field(() => Float, { nullable: true })
-  min?: number;
-
-  @Field(() => Float, { nullable: true })
-  max?: number;
-
-  @Field(() => Float, { nullable: true })
-  avg?: number;
-
-  @Field(() => Float, { nullable: true })
-  stdDev?: number;
-
-  @Field(() => Int)
-  count!: number;
 }
 
 /**

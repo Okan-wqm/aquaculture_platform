@@ -1,4 +1,4 @@
-import { VfdRegisterMappingInput } from '../entities/vfd-register-mapping.entity';
+import { VfdRegisterMappingInput } from '../entities/vfd.types';
 import { VfdBrand, VfdParameterCategory, VfdDataType } from '../entities/vfd.enums';
 
 /**
@@ -337,4 +337,33 @@ export const ABB_DEFAULT_CONFIG = {
   stopBits: 1,
   timeout: 1000,
   retryCount: 3,
+};
+
+/**
+ * ABB ACS fault code definitions (common codes)
+ */
+export const ABB_FAULT_CODES: Record<number, string> = {
+  0: 'No Fault',
+  1: 'Overcurrent',
+  2: 'DC Overvoltage',
+  3: 'Device Overtemperature',
+  4: 'Short Circuit',
+  5: 'Motor Overtemperature',
+  6: 'Analog Input Loss',
+  7: 'External Fault',
+  8: 'Output Phase Loss',
+  9: 'Undervoltage',
+  10: 'AI1 Low Fault',
+  11: 'AI2 Low Fault',
+  16: 'Earth Fault',
+  22: 'IGBT Overtemperature',
+  23: 'Charging Fault',
+  25: 'Motor Stall',
+  31: 'PPCC Link Fault',
+  32: 'Supply Phase Loss',
+  34: 'ID Run Fault',
+  51: 'Parameter Restore Fault',
+  52: 'Fieldbus Communication Loss',
+  53: 'Fieldbus Fault',
+  64: 'Encoder Fault',
 };

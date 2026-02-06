@@ -2371,7 +2371,7 @@ export enum DiscountAppliesTo {
   ALL_PLANS = 'all_plans',
   SPECIFIC_PLANS = 'specific_plans',
   UPGRADES_ONLY = 'upgrades_only',
-  NEW_CUSTOMERS_ONLY = 'new_customers_only',
+  NEW_SUBSCRIPTIONS_ONLY = 'new_subscriptions_only',
 }
 
 export enum DiscountDuration {
@@ -2597,15 +2597,15 @@ export const billingApi = {
     }),
   generateUniqueCode: (prefix?: string, length?: number) =>
     apiFetch<{ code: string }>('/billing/discounts/generate-code', { method: 'POST', body: JSON.stringify({ prefix, length }) }),
-  applyDiscount: (tenantId: string, discountCodeId: string, appliedBy: string) =>
-    apiFetch<{ success: boolean; redemptionId: string }>('/billing/discounts/apply', {
+  applyDiscount: (code: string, tenantId: string, originalAmount: number, options?: { subscriptionId?: string; invoiceId?: string; planId?: string; redeemedBy?: string }) =>
+    apiFetch<{ success: boolean; originalAmount: number; discountAmount: number; finalAmount: number; redemptionId?: string }>('/billing/discounts/apply', {
       method: 'POST',
-      body: JSON.stringify({ tenantId, discountCodeId, appliedBy }),
+      body: JSON.stringify({ code, tenantId, originalAmount, ...options }),
     }),
-  bulkCreateDiscounts: (data: { codes: Array<Partial<DiscountCode>>; createdBy: string }) =>
-    apiFetch<{ created: number; codes: DiscountCode[] }>('/billing/discounts/bulk-create', {
+  bulkCreateDiscounts: (count: number, template: Omit<Partial<DiscountCode>, 'code'>, codePrefix?: string) =>
+    apiFetch<{ success: boolean; count: number; codes: DiscountCode[] }>('/billing/discounts/bulk-create', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({ count, template, codePrefix }),
     }),
   getDiscountRedemptions: (discountId: string) =>
     apiFetch<Array<{ id: string; tenantId: string; tenantName: string; redeemedAt: string; amount: number }>>(`/billing/discounts/${discountId}/redemptions`),

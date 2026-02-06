@@ -35,6 +35,7 @@ export interface RegisteredSensor {
   isParentDevice?: boolean;
   dataPath?: string;
   sensorRole?: 'parent' | 'child';
+  unit?: string;
 }
 
 export interface SensorFilter {

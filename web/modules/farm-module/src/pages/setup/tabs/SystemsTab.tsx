@@ -217,6 +217,12 @@ export const SystemsTab: React.FC = () => {
   };
 
   const handleSave = async () => {
+    if (!editingSystem) {
+      if (!formData.name) { alert('Please enter a name.'); return; }
+      if (!formData.code) { alert('Please enter a code.'); return; }
+      if (!formData.siteId) { alert('Please select a site.'); return; }
+    }
+
     try {
       if (editingSystem) {
         const input: UpdateSystemInput = {
@@ -238,7 +244,7 @@ export const SystemsTab: React.FC = () => {
           name: formData.name,
           code: formData.code,
           type: formData.type,
-          siteId: formData.siteId,
+          siteId: formData.siteId || undefined,
           status: formData.status || undefined,
           departmentId: formData.departmentId || undefined,
           parentSystemId: formData.parentSystemId || undefined,

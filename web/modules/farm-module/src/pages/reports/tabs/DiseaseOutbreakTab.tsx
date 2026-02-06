@@ -1,6 +1,7 @@
 /**
  * Disease Outbreak Tab
  * Lists disease outbreaks and provides quick-entry modal for immediate reporting
+ * Connected to Health Events system with tank context and urgency indicators
  */
 import React, { useState, useMemo } from 'react';
 import { getMockReports } from '../mock/helpers';
@@ -8,6 +9,7 @@ import { DiseaseOutbreakReport, DiseaseCategory, DiseaseStatus } from '../types/
 import { REGULATORY_CONTACTS, DISEASE_LISTS } from '../utils/thresholds';
 import { ReportStatusBadge } from '../components/common';
 import { DiseaseOutbreakModal } from '../components/modals';
+import { useTanksList, Tank } from '../../../hooks/useTanks';
 
 // ============================================================================
 // Types
@@ -40,6 +42,20 @@ function getCategoryBadge(category: DiseaseCategory): React.ReactNode {
   const style = config[category];
   return (
     <span className={`px-2 py-0.5 text-xs font-semibold rounded ${style.bg} ${style.text}`}>
+      {style.label}
+    </span>
+  );
+}
+
+function getUrgencyBadge(category: DiseaseCategory): React.ReactNode {
+  const config: Record<DiseaseCategory, { bg: string; text: string; label: string }> = {
+    A: { bg: 'bg-red-600', text: 'text-white', label: 'IMMEDIATE' },
+    C: { bg: 'bg-orange-500', text: 'text-white', label: 'IMMEDIATE' },
+    F: { bg: 'bg-yellow-500', text: 'text-white', label: '24 HOURS' },
+  };
+  const style = config[category];
+  return (
+    <span className={`px-2 py-0.5 text-xs font-bold rounded ${style.bg} ${style.text} animate-pulse`}>
       {style.label}
     </span>
   );
@@ -83,10 +99,25 @@ function getStatusIcon(status: DiseaseStatus): React.ReactNode {
 interface OutbreakDetailCardProps {
   outbreak: DiseaseOutbreakReport;
   onView: () => void;
+  tanksMap: Map<string, Tank>;
 }
 
-const OutbreakDetailCard: React.FC<OutbreakDetailCardProps> = ({ outbreak, onView }) => {
+const OutbreakDetailCard: React.FC<OutbreakDetailCardProps> = ({ outbreak, onView, tanksMap }) => {
   const isActive = outbreak.diseaseStatus !== 'resolved';
+
+  // Find tank context for affected tanks
+  const affectedTankDetails = useMemo(() => {
+    if (!outbreak.affectedPopulation.tanks || outbreak.affectedPopulation.tanks.length === 0) return [];
+    return outbreak.affectedPopulation.tanks
+      .map((tankName) => {
+        // Try to find by name in the map
+        for (const [, tank] of tanksMap) {
+          if (tank.name === tankName) return tank;
+        }
+        return null;
+      })
+      .filter(Boolean) as Tank[];
+  }, [outbreak.affectedPopulation.tanks, tanksMap]);
 
   return (
     <div
@@ -102,15 +133,18 @@ const OutbreakDetailCard: React.FC<OutbreakDetailCardProps> = ({ outbreak, onVie
             <span className="font-medium text-gray-900">{outbreak.disease.name}</span>
             {getCategoryBadge(outbreak.disease.category)}
           </div>
-          <span
-            className={`px-2 py-0.5 text-xs font-medium rounded ${
-              outbreak.disease.suspectedOrConfirmed === 'lab_confirmed'
-                ? 'bg-red-100 text-red-800'
-                : 'bg-yellow-100 text-yellow-800'
-            }`}
-          >
-            {outbreak.disease.suspectedOrConfirmed === 'lab_confirmed' ? 'Confirmed' : 'Suspected'}
-          </span>
+          <div className="flex items-center gap-2">
+            {isActive && getUrgencyBadge(outbreak.disease.category)}
+            <span
+              className={`px-2 py-0.5 text-xs font-medium rounded ${
+                outbreak.disease.suspectedOrConfirmed === 'lab_confirmed'
+                  ? 'bg-red-100 text-red-800'
+                  : 'bg-yellow-100 text-yellow-800'
+              }`}
+            >
+              {outbreak.disease.suspectedOrConfirmed === 'lab_confirmed' ? 'Confirmed' : 'Suspected'}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -138,6 +172,30 @@ const OutbreakDetailCard: React.FC<OutbreakDetailCardProps> = ({ outbreak, onVie
             </div>
           )}
         </div>
+
+        {/* Affected Tanks */}
+        {outbreak.affectedPopulation.tanks && outbreak.affectedPopulation.tanks.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="text-xs font-medium text-gray-500 uppercase mb-2">Affected Tanks</div>
+            <div className="flex flex-wrap gap-1">
+              {outbreak.affectedPopulation.tanks.map((tankName, idx) => {
+                const tankDetail = affectedTankDetails.find((t) => t.name === tankName);
+                return (
+                  <span
+                    key={idx}
+                    className="inline-flex items-center px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded border border-blue-200"
+                    title={tankDetail?.batchMetrics ? `Batch: ${tankDetail.batchMetrics.batchNumber || 'N/A'}, ${tankDetail.batchMetrics.pieces?.toLocaleString() || '?'} fish` : undefined}
+                  >
+                    {tankName}
+                    {tankDetail?.batchMetrics?.batchNumber && (
+                      <span className="ml-1 text-blue-500">({tankDetail.batchMetrics.batchNumber})</span>
+                    )}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Clinical Signs */}
         {outbreak.clinicalSigns && outbreak.clinicalSigns.length > 0 && (
@@ -302,6 +360,17 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
   const [selectedOutbreak, setSelectedOutbreak] = useState<DiseaseOutbreakReport | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'resolved'>('all');
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'A' | 'C' | 'F'>('all');
+  const [showHealthEventLink, setShowHealthEventLink] = useState(false);
+
+  // Fetch tanks for context
+  const { data: tanksData } = useTanksList({ isActive: true });
+  const tanksMap = useMemo(() => {
+    const map = new Map<string, Tank>();
+    if (tanksData?.items) {
+      tanksData.items.forEach((tank: Tank) => map.set(tank.id, tank));
+    }
+    return map;
+  }, [tanksData]);
 
   // Get disease outbreaks
   const allOutbreaks = useMemo(() => {
@@ -337,11 +406,19 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
 
   const handleCreateReport = () => {
     setSelectedOutbreak(null);
+    setShowHealthEventLink(false);
+    setIsModalOpen(true);
+  };
+
+  const handleCreateFromHealthEvent = () => {
+    setSelectedOutbreak(null);
+    setShowHealthEventLink(true);
     setIsModalOpen(true);
   };
 
   const handleViewOutbreak = (outbreak: DiseaseOutbreakReport) => {
     setSelectedOutbreak(outbreak);
+    setShowHealthEventLink(false);
     setIsModalOpen(true);
   };
 
@@ -361,16 +438,28 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
             Immediate reporting required for notifiable diseases to {REGULATORY_CONTACTS.MATTILSYNET_EMAIL}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleCreateReport}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-        >
-          <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Report Outbreak
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleCreateFromHealthEvent}
+            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            <svg className="w-4 h-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+            </svg>
+            Create from Health Event
+          </button>
+          <button
+            type="button"
+            onClick={handleCreateReport}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+          >
+            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            Report Outbreak
+          </button>
+        </div>
       </div>
 
       {/* Disease Info */}
@@ -471,6 +560,7 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
               key={outbreak.id}
               outbreak={outbreak}
               onView={() => handleViewOutbreak(outbreak)}
+              tanksMap={tanksMap}
             />
           ))}
         </div>
@@ -486,6 +576,7 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
         onSubmit={handleModalSubmit}
         siteId={siteId || 'site-001'}
         siteName="Default Site"
+        showHealthEventLink={showHealthEventLink}
       />
     </div>
   );

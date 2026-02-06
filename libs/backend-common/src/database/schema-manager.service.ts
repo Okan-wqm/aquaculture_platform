@@ -49,6 +49,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'program_transitions',
       'program_variables',
       'step_actions',
+
+      // Edge Gateway - Self-Registration & Deployment
+      'tenant_provisioning_keys',
+      'device_events',
+      'deployment_logs',
     ],
   },
   {
@@ -116,6 +121,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // Suppliers
       'supplier_types',
       'suppliers',
+      'supplier_sites',
+
+      // Site contacts
+      'site_contacts',
 
       // Supporting tables
       'code_sequences',
@@ -164,6 +173,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // Weekly Planning
       'weekly_plans',
       'weekly_plan_entries',
+
+      // Holidays
+      'holidays',
 
       // Training
       'training_courses',
@@ -855,7 +867,7 @@ export class SchemaManagerService {
           SELECT
             time_bucket('1 hour', timestamp) AS bucket,
             sensor_id,
-            "tenantId",
+            tenant_id,
             AVG((readings->>'temperature')::numeric) as avg_temperature,
             AVG((readings->>'ph')::numeric) as avg_ph,
             AVG((readings->>'dissolvedOxygen')::numeric) as avg_dissolved_oxygen,
@@ -864,7 +876,7 @@ export class SchemaManagerService {
             MAX((readings->>'temperature')::numeric) as max_temperature,
             COUNT(*) as reading_count
           FROM "${schemaName}"."sensor_readings"
-          GROUP BY bucket, sensor_id, "tenantId"
+          GROUP BY bucket, sensor_id, tenant_id
           WITH NO DATA
         `);
 
@@ -896,7 +908,7 @@ export class SchemaManagerService {
           SELECT
             time_bucket('1 day', timestamp) AS bucket,
             sensor_id,
-            "tenantId",
+            tenant_id,
             AVG((readings->>'temperature')::numeric) as avg_temperature,
             AVG((readings->>'ph')::numeric) as avg_ph,
             AVG((readings->>'dissolvedOxygen')::numeric) as avg_dissolved_oxygen,
@@ -905,7 +917,7 @@ export class SchemaManagerService {
             MAX((readings->>'temperature')::numeric) as max_temperature,
             COUNT(*) as reading_count
           FROM "${schemaName}"."sensor_readings"
-          GROUP BY bucket, sensor_id, "tenantId"
+          GROUP BY bucket, sensor_id, tenant_id
           WITH NO DATA
         `);
 
@@ -959,12 +971,23 @@ export class SchemaManagerService {
       const beforeCount = parseInt(beforeCountResult[0]?.count || '0', 10);
 
       // Insert data with tenant filter
-      await this.dataSource.query(`
-        INSERT INTO "${safeSchemaName}"."${safeTableName}"
-        SELECT * FROM "${safeSourceSchema}"."${safeTableName}"
-        WHERE "tenantId" = $1
-        ON CONFLICT DO NOTHING
-      `, [tenantId]);
+      // Note: tenant column name varies by table (tenant_id for sensor/new tables, tenantId for legacy farm/hr)
+      // Try tenant_id first (snake_case), fall back to "tenantId" (camelCase)
+      try {
+        await this.dataSource.query(`
+          INSERT INTO "${safeSchemaName}"."${safeTableName}"
+          SELECT * FROM "${safeSourceSchema}"."${safeTableName}"
+          WHERE tenant_id = $1
+          ON CONFLICT DO NOTHING
+        `, [tenantId]);
+      } catch {
+        await this.dataSource.query(`
+          INSERT INTO "${safeSchemaName}"."${safeTableName}"
+          SELECT * FROM "${safeSourceSchema}"."${safeTableName}"
+          WHERE "tenantId" = $1
+          ON CONFLICT DO NOTHING
+        `, [tenantId]);
+      }
 
       // Count rows after migration to get actual migrated count
       const afterCountResult = await this.dataSource.query(
@@ -1194,7 +1217,7 @@ export class SchemaManagerService {
           WITH (timescaledb.continuous) AS
           SELECT
             time_bucket('1 minute', time) AS bucket,
-            "tenantId",
+            tenant_id,
             sensor_id,
             channel_id,
             tank_id,
@@ -1210,7 +1233,7 @@ export class SchemaManagerService {
             AVG(ingestion_latency_ms) AS avg_latency_ms,
             MAX(ingestion_latency_ms) AS max_latency_ms
           FROM "${schemaName}"."sensor_metrics"
-          GROUP BY bucket, "tenantId", sensor_id, channel_id, tank_id
+          GROUP BY bucket, tenant_id, sensor_id, channel_id, tank_id
           WITH NO DATA
         `);
 
@@ -1247,7 +1270,7 @@ export class SchemaManagerService {
           WITH (timescaledb.continuous) AS
           SELECT
             time_bucket('1 hour', bucket) AS bucket,
-            "tenantId",
+            tenant_id,
             sensor_id,
             channel_id,
             tank_id,
@@ -1262,7 +1285,7 @@ export class SchemaManagerService {
             SUM(bad_count) AS bad_count,
             (SUM(good_count)::FLOAT / NULLIF(SUM(sample_count), 0) * 100) AS quality_pct
           FROM "${schemaName}"."metrics_1min"
-          GROUP BY time_bucket('1 hour', bucket), "tenantId", sensor_id, channel_id, tank_id
+          GROUP BY time_bucket('1 hour', bucket), tenant_id, sensor_id, channel_id, tank_id
           WITH NO DATA
         `);
 
@@ -1299,7 +1322,7 @@ export class SchemaManagerService {
           WITH (timescaledb.continuous) AS
           SELECT
             time_bucket('1 day', bucket) AS bucket,
-            "tenantId",
+            tenant_id,
             sensor_id,
             channel_id,
             tank_id,
@@ -1314,7 +1337,7 @@ export class SchemaManagerService {
             SUM(bad_count) AS bad_count,
             (SUM(good_count)::FLOAT / NULLIF(SUM(sample_count), 0) * 100) AS quality_pct
           FROM "${schemaName}"."metrics_1hour"
-          GROUP BY time_bucket('1 day', bucket), "tenantId", sensor_id, channel_id, tank_id
+          GROUP BY time_bucket('1 day', bucket), tenant_id, sensor_id, channel_id, tank_id
           WITH NO DATA
         `);
 

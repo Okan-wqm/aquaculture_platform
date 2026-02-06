@@ -84,16 +84,16 @@ export class ListBatchesHandler implements IQueryHandler<ListBatchesQuery, Pagin
       // Site filter - batch'in bu site'taki tank'larda olup olmadığını kontrol et
       if (filter.siteId) {
         queryBuilder.andWhere(`batch.id IN (
-          SELECT tb."primaryBatchId" FROM farm.tank_batches tb
-          INNER JOIN farm.tanks t ON tb."tankId" = t.id
-          INNER JOIN farm.departments d ON t."departmentId" = d.id
+          SELECT tb."primaryBatchId" FROM tank_batches tb
+          INNER JOIN tanks t ON tb."tankId" = t.id
+          INNER JOIN departments d ON t."departmentId" = d.id
           WHERE d."siteId" = :siteId
             AND tb."tenantId" = :siteTenantId
             AND tb."primaryBatchId" IS NOT NULL
           UNION ALL
-          SELECT (bd->>'batchId')::uuid FROM farm.tank_batches tb
-          INNER JOIN farm.tanks t ON tb."tankId" = t.id
-          INNER JOIN farm.departments d ON t."departmentId" = d.id,
+          SELECT (bd->>'batchId')::uuid FROM tank_batches tb
+          INNER JOIN tanks t ON tb."tankId" = t.id
+          INNER JOIN departments d ON t."departmentId" = d.id,
           jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) bd
           WHERE d."siteId" = :siteId
             AND tb."tenantId" = :siteTenantId
@@ -103,14 +103,14 @@ export class ListBatchesHandler implements IQueryHandler<ListBatchesQuery, Pagin
       // Department filter - batch'in bu departmandaki tank'larda olup olmadığını kontrol et
       if (filter.departmentId) {
         queryBuilder.andWhere(`batch.id IN (
-          SELECT tb."primaryBatchId" FROM farm.tank_batches tb
-          INNER JOIN farm.tanks t ON tb."tankId" = t.id
+          SELECT tb."primaryBatchId" FROM tank_batches tb
+          INNER JOIN tanks t ON tb."tankId" = t.id
           WHERE t."departmentId" = :departmentId
             AND tb."tenantId" = :deptTenantId
             AND tb."primaryBatchId" IS NOT NULL
           UNION ALL
-          SELECT (bd->>'batchId')::uuid FROM farm.tank_batches tb
-          INNER JOIN farm.tanks t ON tb."tankId" = t.id,
+          SELECT (bd->>'batchId')::uuid FROM tank_batches tb
+          INNER JOIN tanks t ON tb."tankId" = t.id,
           jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) bd
           WHERE t."departmentId" = :departmentId
             AND tb."tenantId" = :deptTenantId

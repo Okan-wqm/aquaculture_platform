@@ -15,11 +15,12 @@ import SetupPage from './pages/setup/SetupPage';
 import ProductionPage from './pages/production/ProductionPage';
 import ReportsPage from './pages/reports/ReportsPage';
 import TanksPage from './pages/tanks/TanksPage';
-import CleanerFishPage from './pages/cleaner-fish/CleanerFishPage';
 import SentinelHubSettingsPage from './pages/settings/SentinelHubSettingsPage';
 import FeedingPage from './pages/feeding/FeedingPage';
+import StoragePage from './pages/storage/StoragePage';
 import HealthEventsPage from './pages/health/HealthEventsPage';
 import HarvestPlansPage from './pages/harvest/HarvestPlansPage';
+import TasksPage from './pages/tasks/TasksPage';
 
 // ============================================================================
 // Sites Module
@@ -50,11 +51,14 @@ const FarmModule: React.FC = () => {
       {/* Tanks & Ponds Listesi */}
       <Route path="tanks" element={<TanksPage />} />
 
-      {/* Cleaner Fish Management - Lumpfish, Wrasse */}
-      <Route path="cleaner-fish/*" element={<CleanerFishPage />} />
+      {/* Cleaner Fish - redirect to Tanks page Cleaner Fish tab */}
+      <Route path="cleaner-fish/*" element={<Navigate to="/sites/tanks?tab=cleanerFish" replace />} />
 
       {/* Feeding Management - Daily Plan, Growth Forecast, Stock, FCR Analysis */}
       <Route path="feeding/*" element={<FeedingPage />} />
+
+      {/* Storage & Stock Management */}
+      <Route path="storage/*" element={<StoragePage />} />
 
       {/* Kurulum Sayfası - Sites, Departments, Equipment, Suppliers, Chemicals, Feeds */}
       <Route path="setup/*" element={<SetupPage />} />
@@ -70,6 +74,9 @@ const FarmModule: React.FC = () => {
 
       {/* Harvest Plans - Planning, scheduling, workflow management */}
       <Route path="harvest/*" element={<HarvestPlansPage />} />
+
+      {/* Task Management - Daily tasks, recurring, auto rules, calendar */}
+      <Route path="tasks/*" element={<TasksPage />} />
 
       {/* Ayarlar - Sentinel Hub */}
       <Route path="settings/sentinel-hub" element={<SentinelHubSettingsPage />} />

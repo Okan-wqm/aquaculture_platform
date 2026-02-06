@@ -2,10 +2,19 @@
  * Escape Report Modal
  * Quick report modal for immediate escape reporting
  * Contact: varsling.akva@mattilsynet.no
+ *
+ * Features:
+ * - Auto-populate from tank/cage data
+ * - Multi-unit support (storm damage affecting multiple cages)
+ * - Escape count validation with stock percentage
+ * - Total biomass calculation
+ * - GPS coordinates display
+ * - Dynamic species list from tank data
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { EscapeReport, EscapeCause } from '../../types/reports.types';
 import { REGULATORY_CONTACTS, ESCAPE_CAUSES } from '../../utils/thresholds';
+import { useTanksList } from '../../../../hooks/useTanks';
 
 interface EscapeReportModalProps {
   isOpen: boolean;
@@ -17,16 +26,22 @@ interface EscapeReportModalProps {
   gpsCoordinates?: { lat: number; lng: number };
 }
 
-interface FormData {
-  estimatedCount: string;
+interface AffectedUnitEntry {
+  id: string;
+  tankId: string;
+  unitName: string;
+  batchNumber: string;
   species: string;
-  avgWeightG: string;
+  originalCount: number;
+  escapedCount: number;
+  avgWeightG: number;
+}
+
+interface FormData {
+  species: string;
   cause: EscapeCause;
   causeDescription: string;
-  affectedUnitId: string;
-  affectedUnitName: string;
-  batchNumber: string;
-  originalCount: string;
+  affectedUnits: AffectedUnitEntry[];
   recapturedCount: string;
   recaptureMethod: string;
   ongoingEfforts: boolean;
@@ -37,16 +52,24 @@ interface FormData {
   newMeasure: string;
 }
 
+function createEmptyUnit(): AffectedUnitEntry {
+  return {
+    id: crypto.randomUUID ? crypto.randomUUID() : `unit-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    tankId: '',
+    unitName: '',
+    batchNumber: '',
+    species: '',
+    originalCount: 0,
+    escapedCount: 0,
+    avgWeightG: 0,
+  };
+}
+
 const initialFormData: FormData = {
-  estimatedCount: '',
   species: 'Atlantic Salmon',
-  avgWeightG: '',
   cause: 'unknown',
   causeDescription: '',
-  affectedUnitId: '',
-  affectedUnitName: '',
-  batchNumber: '',
-  originalCount: '',
+  affectedUnits: [createEmptyUnit()],
   recapturedCount: '0',
   recaptureMethod: '',
   ongoingEfforts: true,
@@ -56,6 +79,22 @@ const initialFormData: FormData = {
   preventiveMeasures: [],
   newMeasure: '',
 };
+
+const DEFAULT_SPECIES = ['Atlantic Salmon', 'Rainbow Trout', 'Brown Trout'];
+
+function mapSpeciesToDropdown(speciesCode?: string): string {
+  if (!speciesCode) return 'Atlantic Salmon';
+  const codeMap: Record<string, string> = {
+    SAL: 'Atlantic Salmon',
+    SALMON: 'Atlantic Salmon',
+    ATLANTIC_SALMON: 'Atlantic Salmon',
+    RBT: 'Rainbow Trout',
+    RAINBOW_TROUT: 'Rainbow Trout',
+    BRT: 'Brown Trout',
+    BROWN_TROUT: 'Brown Trout',
+  };
+  return codeMap[speciesCode.toUpperCase()] || speciesCode;
+}
 
 const causeOptions = Object.values(ESCAPE_CAUSES);
 
@@ -72,8 +111,45 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Fetch tank data for auto-population
+  const { data: tanksData } = useTanksList({ isActive: true });
+  const tanks = tanksData?.items || [];
+  const tankOptions = useMemo(() => tanks.map(t => ({
+    id: t.id,
+    name: t.name,
+    code: t.code,
+    batchNumber: t.batchMetrics?.batchNumber,
+    speciesCode: t.batchMetrics?.speciesCode,
+    pieces: t.batchMetrics?.pieces,
+    avgWeight: t.batchMetrics?.avgWeight,
+    biomass: t.batchMetrics?.biomass,
+  })), [tanks]);
+
+  // Build dynamic species list from tank data + defaults
+  const speciesOptions = useMemo(() => {
+    const speciesSet = new Set<string>(DEFAULT_SPECIES);
+    tankOptions.forEach(t => {
+      if (t.speciesCode) {
+        const mapped = mapSpeciesToDropdown(t.speciesCode);
+        speciesSet.add(mapped);
+      }
+    });
+    return Array.from(speciesSet);
+  }, [tankOptions]);
+
+  // Calculate totals across all affected units
+  const totalEscaped = useMemo(() => {
+    return formData.affectedUnits.reduce((sum, u) => sum + (u.escapedCount || 0), 0);
+  }, [formData.affectedUnits]);
+
+  const totalBiomassKg = useMemo(() => {
+    return formData.affectedUnits.reduce((sum, u) => {
+      return sum + ((u.escapedCount || 0) * (u.avgWeightG || 0)) / 1000;
+    }, 0);
+  }, [formData.affectedUnits]);
+
   const handleChange = useCallback(
-    (field: keyof FormData, value: string | boolean | string[]) => {
+    (field: keyof FormData, value: string | boolean | string[] | AffectedUnitEntry[]) => {
       setFormData((prev) => ({ ...prev, [field]: value }));
       if (errors[field]) {
         setErrors((prev) => {
@@ -84,6 +160,87 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
       }
     },
     [errors]
+  );
+
+  const handleUnitChange = useCallback(
+    (unitIndex: number, field: keyof AffectedUnitEntry, value: string | number) => {
+      setFormData((prev) => {
+        const units = [...prev.affectedUnits];
+        units[unitIndex] = { ...units[unitIndex], [field]: value };
+        return { ...prev, affectedUnits: units };
+      });
+      // Clear unit-level errors
+      const errorKey = `unit_${unitIndex}_${field}`;
+      if (errors[errorKey]) {
+        setErrors((prev) => {
+          const next = { ...prev };
+          delete next[errorKey];
+          return next;
+        });
+      }
+    },
+    [errors]
+  );
+
+  const handleTankSelect = useCallback(
+    (unitIndex: number, tankId: string) => {
+      const tank = tankOptions.find(t => t.id === tankId);
+      if (tank) {
+        setFormData((prev) => {
+          const units = [...prev.affectedUnits];
+          units[unitIndex] = {
+            ...units[unitIndex],
+            tankId: tank.id,
+            unitName: `${tank.name} (${tank.code})`,
+            batchNumber: tank.batchNumber || '',
+            species: mapSpeciesToDropdown(tank.speciesCode),
+            originalCount: tank.pieces || 0,
+            avgWeightG: tank.avgWeight || 0,
+            escapedCount: 0,
+          };
+          // Auto-set the main species from the first unit
+          const newSpecies = unitIndex === 0
+            ? mapSpeciesToDropdown(tank.speciesCode)
+            : prev.species;
+          return { ...prev, affectedUnits: units, species: newSpecies };
+        });
+      } else {
+        // Clear tank selection
+        setFormData((prev) => {
+          const units = [...prev.affectedUnits];
+          units[unitIndex] = {
+            ...units[unitIndex],
+            tankId: '',
+            unitName: '',
+            batchNumber: '',
+            species: '',
+            originalCount: 0,
+            avgWeightG: 0,
+            escapedCount: 0,
+          };
+          return { ...prev, affectedUnits: units };
+        });
+      }
+    },
+    [tankOptions]
+  );
+
+  const addUnit = useCallback(() => {
+    setFormData((prev) => ({
+      ...prev,
+      affectedUnits: [...prev.affectedUnits, createEmptyUnit()],
+    }));
+  }, []);
+
+  const removeUnit = useCallback(
+    (unitIndex: number) => {
+      if (formData.affectedUnits.length <= 1) return;
+      setFormData((prev) => ({
+        ...prev,
+        affectedUnits: prev.affectedUnits.filter((_, i) => i !== unitIndex),
+      }));
+    },
+    [formData.affectedUnits.length]
   );
 
   const addItem = useCallback(
@@ -113,8 +270,8 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
   const validateForm = useCallback((): boolean => {
     const newErrors: Record<string, string> = {};
 
-    if (!formData.estimatedCount || parseInt(formData.estimatedCount) <= 0) {
-      newErrors.estimatedCount = 'Estimated count is required';
+    if (totalEscaped <= 0) {
+      newErrors.estimatedCount = 'At least one unit must have escaped fish count > 0';
     }
 
     if (!formData.species.trim()) {
@@ -129,9 +286,12 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
       newErrors.causeDescription = 'Cause description is required';
     }
 
-    if (!formData.affectedUnitName.trim()) {
-      newErrors.affectedUnitName = 'Affected unit name is required';
-    }
+    // Validate each affected unit
+    formData.affectedUnits.forEach((unit, idx) => {
+      if (!unit.unitName.trim() && !unit.tankId) {
+        newErrors[`unit_${idx}_unitName`] = 'Unit name or tank selection is required';
+      }
+    });
 
     if (formData.preventiveMeasures.length === 0) {
       newErrors.preventiveMeasures = 'At least one preventive measure is required';
@@ -139,7 +299,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  }, [formData]);
+  }, [formData, totalEscaped]);
 
   const handleSubmit = useCallback(async () => {
     if (!validateForm()) return;
@@ -147,9 +307,12 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
     setIsSubmitting(true);
     try {
       const now = new Date();
-      const estimatedCount = parseInt(formData.estimatedCount);
-      const avgWeightG = formData.avgWeightG ? parseInt(formData.avgWeightG) : 3500;
-      const totalBiomassKg = (estimatedCount * avgWeightG) / 1000;
+      const avgWeightG = formData.affectedUnits.length > 0
+        ? Math.round(
+            formData.affectedUnits.reduce((sum, u) => sum + (u.avgWeightG || 0) * (u.escapedCount || 0), 0)
+            / (totalEscaped || 1)
+          )
+        : 3500;
 
       const report: Partial<EscapeReport> = {
         siteId,
@@ -162,30 +325,28 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
         createdAt: now,
         updatedAt: now,
         escape: {
-          estimatedCount,
+          estimatedCount: totalEscaped,
           species: formData.species,
           speciesId: formData.species === 'Atlantic Salmon' ? 'SALMON' : 'OTHER',
           avgWeightG,
-          totalBiomassKg,
+          totalBiomassKg: Math.round(totalBiomassKg * 100) / 100,
           cause: formData.cause,
           causeDescription: formData.causeDescription,
         },
-        affectedUnits: [
-          {
-            unitId: formData.affectedUnitId || 'unit-temp',
-            unitName: formData.affectedUnitName,
-            unitType: 'cage' as const,
-            batchId: formData.batchNumber ? `batch-${formData.batchNumber}` : 'unknown',
-            batchNumber: formData.batchNumber || 'unknown',
-            originalCount: formData.originalCount ? parseInt(formData.originalCount) : 0,
-            escapedCount: estimatedCount,
-          },
-        ],
+        affectedUnits: formData.affectedUnits.map((unit) => ({
+          unitId: unit.tankId || 'unit-temp',
+          unitName: unit.unitName || 'Unknown unit',
+          unitType: 'cage' as const,
+          batchId: unit.batchNumber ? `batch-${unit.batchNumber}` : 'unknown',
+          batchNumber: unit.batchNumber || 'unknown',
+          originalCount: unit.originalCount || 0,
+          escapedCount: unit.escapedCount || 0,
+        })),
         recovery: {
           recapturedCount: parseInt(formData.recapturedCount) || 0,
           recaptureMethod: formData.recaptureMethod || undefined,
           ongoingEfforts: formData.ongoingEfforts,
-          estimatedRemaining: estimatedCount - (parseInt(formData.recapturedCount) || 0),
+          estimatedRemaining: totalEscaped - (parseInt(formData.recapturedCount) || 0),
         },
         environmentalImpact: {
           nearbyWildPopulations: formData.nearbyWildPopulations,
@@ -203,9 +364,11 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData, siteId, siteName, siteCode, gpsCoordinates, onSubmit, onClose, validateForm]);
+  }, [formData, siteId, siteName, siteCode, gpsCoordinates, onSubmit, onClose, validateForm, totalEscaped, totalBiomassKg]);
 
   if (!isOpen) return null;
+
+  const hasTanks = tankOptions.length > 0;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -259,36 +422,53 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
           {/* Body */}
           <div className="px-6 py-4 max-h-[60vh] overflow-y-auto">
             <div className="space-y-6">
-              {/* Site Info */}
+              {/* Site Info + GPS */}
               <div className="bg-gray-50 rounded-md p-3">
-                <span className="text-sm text-gray-500">Site: </span>
-                <span className="text-sm font-medium text-gray-900">{siteName}</span>
-                {siteCode && <span className="text-sm text-gray-500 ml-2">({siteCode})</span>}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-gray-500">Site: </span>
+                    <span className="text-sm font-medium text-gray-900">{siteName}</span>
+                    {siteCode && <span className="text-sm text-gray-500 ml-2">({siteCode})</span>}
+                  </div>
+                  {gpsCoordinates && (
+                    <div className="text-sm text-gray-500">
+                      {'\uD83D\uDCCD'} {gpsCoordinates.lat.toFixed(5)}, {gpsCoordinates.lng.toFixed(5)}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Escape Details */}
+              {/* Total Summary Banner */}
+              {totalEscaped > 0 && (
+                <div className="bg-red-100 border border-red-300 rounded-md p-4">
+                  <div className="grid grid-cols-3 gap-4 text-center">
+                    <div>
+                      <div className="text-2xl font-bold text-red-700">{totalEscaped.toLocaleString()}</div>
+                      <div className="text-xs text-red-600">Total Escaped Fish</div>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-red-700">{totalBiomassKg.toFixed(1)}</div>
+                      <div className="text-xs text-red-600">Total Biomass (kg)</div>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-red-700">{formData.affectedUnits.length}</div>
+                      <div className="text-xs text-red-600">Affected Units</div>
+                    </div>
+                  </div>
+                  {totalEscaped > 1000 && (
+                    <div className="mt-3 p-2 bg-red-200 rounded text-center">
+                      <span className="text-sm font-bold text-red-800">
+                        IMMEDIATE REPORTING REQUIRED to Fiskeridirektoratet
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Escape Details - Species & Cause */}
               <div className="p-4 bg-red-50 rounded-md border border-red-200">
                 <h4 className="text-sm font-medium text-gray-900 mb-3">Escape Details</h4>
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-1">
-                      Estimated Count <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.estimatedCount}
-                      onChange={(e) => handleChange('estimatedCount', e.target.value)}
-                      className={`
-                        block w-full rounded-md shadow-sm text-sm
-                        ${errors.estimatedCount ? 'border-red-300' : 'border-gray-300'}
-                        focus:ring-blue-500 focus:border-blue-500
-                      `}
-                      placeholder="Number of escaped fish"
-                    />
-                    {errors.estimatedCount && (
-                      <p className="mt-1 text-xs text-red-600">{errors.estimatedCount}</p>
-                    )}
-                  </div>
                   <div>
                     <label className="block text-sm text-gray-700 mb-1">
                       Species <span className="text-red-500">*</span>
@@ -302,116 +482,230 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                         focus:ring-blue-500 focus:border-blue-500
                       `}
                     >
-                      <option value="Atlantic Salmon">Atlantic Salmon</option>
-                      <option value="Rainbow Trout">Rainbow Trout</option>
-                      <option value="Brown Trout">Brown Trout</option>
+                      {speciesOptions.map((sp) => (
+                        <option key={sp} value={sp}>{sp}</option>
+                      ))}
                       <option value="Other">Other</option>
                     </select>
                     {errors.species && (
                       <p className="mt-1 text-xs text-red-600">{errors.species}</p>
                     )}
                   </div>
-                </div>
-                <div className="mt-4">
-                  <label className="block text-sm text-gray-700 mb-1">Average Weight (g)</label>
-                  <input
-                    type="number"
-                    value={formData.avgWeightG}
-                    onChange={(e) => handleChange('avgWeightG', e.target.value)}
-                    className="block w-full rounded-md border-gray-300 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="e.g., 3500"
-                  />
-                </div>
-              </div>
-
-              {/* Cause */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Escape Cause <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={formData.cause}
-                  onChange={(e) => handleChange('cause', e.target.value as EscapeCause)}
-                  className={`
-                    block w-full rounded-md shadow-sm text-sm
-                    ${errors.cause ? 'border-red-300' : 'border-gray-300'}
-                    focus:ring-blue-500 focus:border-blue-500
-                  `}
-                >
-                  {causeOptions.map((option) => (
-                    <option key={option.code} value={option.code}>
-                      {option.label} - {option.description}
-                    </option>
-                  ))}
-                </select>
-                {errors.cause && (
-                  <p className="mt-1 text-sm text-red-600">{errors.cause}</p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Cause Description <span className="text-red-500">*</span>
-                </label>
-                <textarea
-                  value={formData.causeDescription}
-                  onChange={(e) => handleChange('causeDescription', e.target.value)}
-                  rows={2}
-                  className={`
-                    block w-full rounded-md shadow-sm text-sm
-                    ${errors.causeDescription ? 'border-red-300' : 'border-gray-300'}
-                    focus:ring-blue-500 focus:border-blue-500
-                  `}
-                  placeholder="Describe how the escape occurred..."
-                />
-                {errors.causeDescription && (
-                  <p className="mt-1 text-sm text-red-600">{errors.causeDescription}</p>
-                )}
-              </div>
-
-              {/* Affected Unit */}
-              <div className="p-4 bg-yellow-50 rounded-md border border-yellow-200">
-                <h4 className="text-sm font-medium text-gray-900 mb-3">Affected Unit</h4>
-                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-gray-700 mb-1">
-                      Unit Name <span className="text-red-500">*</span>
+                      Escape Cause <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="text"
-                      value={formData.affectedUnitName}
-                      onChange={(e) => handleChange('affectedUnitName', e.target.value)}
+                    <select
+                      value={formData.cause}
+                      onChange={(e) => handleChange('cause', e.target.value as EscapeCause)}
                       className={`
                         block w-full rounded-md shadow-sm text-sm
-                        ${errors.affectedUnitName ? 'border-red-300' : 'border-gray-300'}
+                        ${errors.cause ? 'border-red-300' : 'border-gray-300'}
                         focus:ring-blue-500 focus:border-blue-500
                       `}
-                      placeholder="e.g., Cage 3"
-                    />
-                    {errors.affectedUnitName && (
-                      <p className="mt-1 text-xs text-red-600">{errors.affectedUnitName}</p>
+                    >
+                      {causeOptions.map((option) => (
+                        <option key={option.code} value={option.code}>
+                          {option.label} - {option.description}
+                        </option>
+                      ))}
+                    </select>
+                    {errors.cause && (
+                      <p className="mt-1 text-sm text-red-600">{errors.cause}</p>
                     )}
-                  </div>
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-1">Batch Number</label>
-                    <input
-                      type="text"
-                      value={formData.batchNumber}
-                      onChange={(e) => handleChange('batchNumber', e.target.value)}
-                      className="block w-full rounded-md border-gray-300 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="e.g., NF-2025-001"
-                    />
                   </div>
                 </div>
                 <div className="mt-4">
-                  <label className="block text-sm text-gray-700 mb-1">Original Stock Count</label>
-                  <input
-                    type="number"
-                    value={formData.originalCount}
-                    onChange={(e) => handleChange('originalCount', e.target.value)}
-                    className="block w-full rounded-md border-gray-300 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Number before escape"
+                  <label className="block text-sm text-gray-700 mb-1">
+                    Cause Description <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={formData.causeDescription}
+                    onChange={(e) => handleChange('causeDescription', e.target.value)}
+                    rows={2}
+                    className={`
+                      block w-full rounded-md shadow-sm text-sm
+                      ${errors.causeDescription ? 'border-red-300' : 'border-gray-300'}
+                      focus:ring-blue-500 focus:border-blue-500
+                    `}
+                    placeholder="Describe how the escape occurred..."
                   />
+                  {errors.causeDescription && (
+                    <p className="mt-1 text-sm text-red-600">{errors.causeDescription}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Affected Units - Multi-unit support */}
+              <div className="p-4 bg-yellow-50 rounded-md border border-yellow-200">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-medium text-gray-900">Affected Units</h4>
+                  <button
+                    type="button"
+                    onClick={addUnit}
+                    className="inline-flex items-center px-2 py-1 text-xs font-medium text-yellow-700 bg-yellow-100 border border-yellow-300 rounded hover:bg-yellow-200 focus:outline-none"
+                  >
+                    <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    Add Affected Unit
+                  </button>
+                </div>
+
+                {errors.estimatedCount && (
+                  <p className="mb-3 text-sm text-red-600">{errors.estimatedCount}</p>
+                )}
+
+                <div className="space-y-4">
+                  {formData.affectedUnits.map((unit, idx) => {
+                    const escapePercent = unit.originalCount > 0
+                      ? ((unit.escapedCount / unit.originalCount) * 100).toFixed(1)
+                      : null;
+                    const exceedsStock = unit.originalCount > 0 && unit.escapedCount > unit.originalCount;
+                    const unitBiomass = ((unit.escapedCount || 0) * (unit.avgWeightG || 0)) / 1000;
+
+                    return (
+                      <div key={unit.id} className="p-3 bg-white rounded-md border border-yellow-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium text-gray-500 uppercase">
+                            Unit {idx + 1}
+                          </span>
+                          {formData.affectedUnits.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeUnit(idx)}
+                              className="text-gray-400 hover:text-red-500"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          {/* Tank/Unit Selection */}
+                          <div className="col-span-2">
+                            <label className="block text-sm text-gray-700 mb-1">
+                              Cage/Tank <span className="text-red-500">*</span>
+                            </label>
+                            {hasTanks ? (
+                              <select
+                                value={unit.tankId}
+                                onChange={(e) => handleTankSelect(idx, e.target.value)}
+                                className={`
+                                  block w-full rounded-md shadow-sm text-sm
+                                  ${errors[`unit_${idx}_unitName`] ? 'border-red-300' : 'border-gray-300'}
+                                  focus:ring-blue-500 focus:border-blue-500
+                                `}
+                              >
+                                <option value="">Select cage/tank...</option>
+                                {tankOptions.map(t => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.name} ({t.code}) - {t.batchNumber || 'No batch'}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                value={unit.unitName}
+                                onChange={(e) => handleUnitChange(idx, 'unitName', e.target.value)}
+                                className={`
+                                  block w-full rounded-md shadow-sm text-sm
+                                  ${errors[`unit_${idx}_unitName`] ? 'border-red-300' : 'border-gray-300'}
+                                  focus:ring-blue-500 focus:border-blue-500
+                                `}
+                                placeholder="e.g., Cage 3"
+                              />
+                            )}
+                            {errors[`unit_${idx}_unitName`] && (
+                              <p className="mt-1 text-xs text-red-600">{errors[`unit_${idx}_unitName`]}</p>
+                            )}
+                          </div>
+
+                          {/* Batch Number */}
+                          <div>
+                            <label className="block text-sm text-gray-700 mb-1">Batch Number</label>
+                            <input
+                              type="text"
+                              value={unit.batchNumber}
+                              onChange={(e) => handleUnitChange(idx, 'batchNumber', e.target.value)}
+                              className="block w-full rounded-md border-gray-300 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="e.g., NF-2025-001"
+                              readOnly={!!unit.tankId}
+                            />
+                          </div>
+
+                          {/* Average Weight */}
+                          <div>
+                            <label className="block text-sm text-gray-700 mb-1">Avg Weight (g)</label>
+                            <input
+                              type="number"
+                              value={unit.avgWeightG || ''}
+                              onChange={(e) => handleUnitChange(idx, 'avgWeightG', parseFloat(e.target.value) || 0)}
+                              className="block w-full rounded-md border-gray-300 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="e.g., 3500"
+                            />
+                          </div>
+
+                          {/* Original Stock Count */}
+                          <div>
+                            <label className="block text-sm text-gray-700 mb-1">Original Stock</label>
+                            <input
+                              type="number"
+                              value={unit.originalCount || ''}
+                              onChange={(e) => handleUnitChange(idx, 'originalCount', parseInt(e.target.value) || 0)}
+                              className="block w-full rounded-md border-gray-300 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="Stock before escape"
+                              readOnly={!!unit.tankId}
+                            />
+                          </div>
+
+                          {/* Escaped Count */}
+                          <div>
+                            <label className="block text-sm text-gray-700 mb-1">
+                              Escaped Count <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="number"
+                              value={unit.escapedCount || ''}
+                              onChange={(e) => handleUnitChange(idx, 'escapedCount', parseInt(e.target.value) || 0)}
+                              className={`
+                                block w-full rounded-md shadow-sm text-sm
+                                ${exceedsStock ? 'border-orange-400 ring-1 ring-orange-300' : 'border-gray-300'}
+                                focus:ring-blue-500 focus:border-blue-500
+                              `}
+                              placeholder="Number escaped"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Validation warnings */}
+                        {exceedsStock && (
+                          <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded text-xs text-orange-700">
+                            Warning: Escape count exceeds original stock ({unit.originalCount.toLocaleString()})
+                          </div>
+                        )}
+
+                        {/* Escape percentage & biomass info */}
+                        {unit.escapedCount > 0 && (
+                          <div className="mt-2 flex items-center gap-4 text-xs text-gray-600">
+                            {escapePercent !== null && (
+                              <span>
+                                Estimated escape: <span className="font-semibold text-red-600">{escapePercent}%</span> of stock
+                              </span>
+                            )}
+                            {unitBiomass > 0 && (
+                              <span>
+                                Biomass: <span className="font-semibold">{unitBiomass.toFixed(1)} kg</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

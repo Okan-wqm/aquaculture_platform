@@ -1,11 +1,17 @@
 /**
  * List Equipment Query Handler
+ *
+ * Unified query that returns data from BOTH the `equipment` table AND the `tanks` table.
+ * When filtering by categories TANK, POND, or CAGE (or no category filter),
+ * it also queries the tanks table and transforms Tank entities to Equipment format.
  */
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListEquipmentQuery } from '../queries/list-equipment.query';
-import { Equipment } from '../entities/equipment.entity';
+import { Equipment, EquipmentStatus, TankSpecifications } from '../entities/equipment.entity';
+import { EquipmentType, EquipmentCategory } from '../entities/equipment-type.entity';
+import { Tank, TankStatus, TankType } from '../../tank/entities/tank.entity';
 
 export interface PaginatedResult<T> {
   items: T[];
@@ -15,11 +21,57 @@ export interface PaginatedResult<T> {
   totalPages: number;
 }
 
+/**
+ * Categories that can contain tank-like items from the tanks table
+ */
+const TANK_LIKE_CATEGORIES: EquipmentCategory[] = [
+  EquipmentCategory.TANK,
+  EquipmentCategory.POND,
+  EquipmentCategory.CAGE,
+];
+
+/**
+ * Map TankStatus to EquipmentStatus
+ */
+function mapTankStatusToEquipmentStatus(tankStatus: TankStatus): EquipmentStatus {
+  const statusMap: Record<TankStatus, EquipmentStatus> = {
+    [TankStatus.ACTIVE]: EquipmentStatus.ACTIVE,
+    [TankStatus.PREPARING]: EquipmentStatus.PREPARING,
+    [TankStatus.CLEANING]: EquipmentStatus.CLEANING,
+    [TankStatus.MAINTENANCE]: EquipmentStatus.MAINTENANCE,
+    [TankStatus.HARVESTING]: EquipmentStatus.HARVESTING,
+    [TankStatus.FALLOW]: EquipmentStatus.FALLOW,
+    [TankStatus.QUARANTINE]: EquipmentStatus.QUARANTINE,
+    [TankStatus.INACTIVE]: EquipmentStatus.OUT_OF_SERVICE,
+  };
+  return statusMap[tankStatus] || EquipmentStatus.OPERATIONAL;
+}
+
+/**
+ * Map TankType to equipment type code
+ */
+function mapTankTypeToEquipmentTypeCode(tankType: TankType): string {
+  const typeMap: Record<TankType, string> = {
+    [TankType.CIRCULAR]: 'tank-circular',
+    [TankType.RECTANGULAR]: 'tank-rectangular',
+    [TankType.RACEWAY]: 'tank-raceway',
+    [TankType.D_END]: 'tank-raceway', // D_END is a variant of raceway
+    [TankType.OVAL]: 'tank-circular', // Oval is similar to circular
+    [TankType.SQUARE]: 'tank-rectangular', // Square is similar to rectangular
+    [TankType.OTHER]: 'tank-circular', // Default to circular
+  };
+  return typeMap[tankType] || 'tank-circular';
+}
+
 @QueryHandler(ListEquipmentQuery)
 export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
   constructor(
     @InjectRepository(Equipment)
     private readonly equipmentRepository: Repository<Equipment>,
+    @InjectRepository(Tank)
+    private readonly tankRepository: Repository<Tank>,
+    @InjectRepository(EquipmentType)
+    private readonly equipmentTypeRepository: Repository<EquipmentType>,
   ) {}
 
   async execute(query: ListEquipmentQuery): Promise<PaginatedResult<Equipment>> {
@@ -31,7 +83,75 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     const sortBy = pagination?.sortBy || 'createdAt';
     const sortOrder = pagination?.sortOrder || 'DESC';
 
-    // Build query
+    // Determine if we should also query the tanks table
+    const shouldQueryTanks = this.shouldQueryTanksTable(filter);
+
+    // Query equipment table
+    const equipmentResult = await this.queryEquipmentTable(tenantId, filter, sortBy, sortOrder);
+
+    // Query tanks table if applicable
+    let tanksAsEquipment: Equipment[] = [];
+    if (shouldQueryTanks) {
+      tanksAsEquipment = await this.queryAndTransformTanks(tenantId, filter, sortBy, sortOrder);
+    }
+
+    // Merge results from both tables
+    const allItems = [...equipmentResult.items, ...tanksAsEquipment];
+    const totalCount = equipmentResult.total + tanksAsEquipment.length;
+
+    // Sort merged results
+    const sortedItems = this.sortMergedResults(allItems, sortBy, sortOrder);
+
+    // Apply pagination to merged results
+    const startIndex = (page - 1) * limit;
+    const paginatedItems = sortedItems.slice(startIndex, startIndex + limit);
+
+    return {
+      items: paginatedItems,
+      total: totalCount,
+      page,
+      limit,
+      totalPages: Math.ceil(totalCount / limit),
+    };
+  }
+
+  /**
+   * Determine if we should query the tanks table based on filter
+   */
+  private shouldQueryTanksTable(filter?: ListEquipmentQuery['filter']): boolean {
+    // If isTank is explicitly false, don't query tanks table
+    if (filter?.isTank === false) {
+      return false;
+    }
+
+    // If specific equipment type is requested, don't query tanks table
+    if (filter?.equipmentTypeId) {
+      return false;
+    }
+
+    // If categories filter is present, check if any tank-like categories are included
+    if (filter?.categories && filter.categories.length > 0) {
+      return filter.categories.some(cat => TANK_LIKE_CATEGORIES.includes(cat));
+    }
+
+    // If isTank is explicitly true, query tanks table
+    if (filter?.isTank === true) {
+      return true;
+    }
+
+    // Default: query tanks table (no category filter means all categories)
+    return true;
+  }
+
+  /**
+   * Query the equipment table
+   */
+  private async queryEquipmentTable(
+    tenantId: string,
+    filter: ListEquipmentQuery['filter'],
+    sortBy: string,
+    sortOrder: 'ASC' | 'DESC',
+  ): Promise<{ items: Equipment[]; total: number }> {
     const queryBuilder = this.equipmentRepository.createQueryBuilder('equipment');
     queryBuilder.where('equipment.tenantId = :tenantId', { tenantId });
     // DEFAULT: Only return non-deleted equipment
@@ -110,19 +230,232 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     // Apply sorting
     queryBuilder.orderBy(`equipment.${sortBy}`, sortOrder);
 
-    // Apply pagination
-    queryBuilder.skip((page - 1) * limit);
-    queryBuilder.take(limit);
-
-    // Execute query
+    // Get all results (pagination will be applied after merge)
     const [items, total] = await queryBuilder.getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+    return { items, total };
+  }
+
+  /**
+   * Query tanks table and transform to Equipment format
+   */
+  private async queryAndTransformTanks(
+    tenantId: string,
+    filter: ListEquipmentQuery['filter'],
+    sortBy: string,
+    sortOrder: 'ASC' | 'DESC',
+  ): Promise<Equipment[]> {
+    const tankQueryBuilder = this.tankRepository.createQueryBuilder('tank');
+    tankQueryBuilder.where('tank.tenantId = :tenantId', { tenantId });
+    tankQueryBuilder.andWhere('tank.isActive = :isActive', { isActive: true });
+
+    // Join department for siteId filtering
+    tankQueryBuilder.leftJoinAndSelect('tank.department', 'department');
+
+    // Apply filters compatible with tanks
+    if (filter?.departmentId) {
+      tankQueryBuilder.andWhere('tank.departmentId = :departmentId', { departmentId: filter.departmentId });
+    }
+
+    if (filter?.siteId) {
+      tankQueryBuilder.andWhere('department.siteId = :siteId', { siteId: filter.siteId });
+    }
+
+    if (filter?.isActive !== undefined) {
+      tankQueryBuilder.andWhere('tank.isActive = :isActive', { isActive: filter.isActive });
+    }
+
+    // Map equipment status filter to tank status
+    if (filter?.status) {
+      const tankStatus = this.mapEquipmentStatusToTankStatus(filter.status);
+      if (tankStatus) {
+        tankQueryBuilder.andWhere('tank.status = :status', { status: tankStatus });
+      }
+    }
+
+    if (filter?.search) {
+      tankQueryBuilder.andWhere(
+        '(tank.name ILIKE :search OR tank.code ILIKE :search)',
+        { search: `%${filter.search}%` }
+      );
+    }
+
+    // Apply sorting to tanks query
+    const tankSortBy = this.mapSortFieldToTank(sortBy);
+    tankQueryBuilder.orderBy(`tank.${tankSortBy}`, sortOrder);
+
+    // Get all tanks (pagination applied after merge)
+    const tanks = await tankQueryBuilder.getMany();
+
+    // Load equipment types for transformation
+    const equipmentTypes = await this.loadEquipmentTypesMap();
+
+    // Transform tanks to Equipment format
+    return tanks.map(tank => this.transformTankToEquipment(tank, equipmentTypes));
+  }
+
+  /**
+   * Map EquipmentStatus to TankStatus
+   */
+  private mapEquipmentStatusToTankStatus(equipmentStatus: EquipmentStatus): TankStatus | null {
+    const statusMap: Partial<Record<EquipmentStatus, TankStatus>> = {
+      [EquipmentStatus.ACTIVE]: TankStatus.ACTIVE,
+      [EquipmentStatus.PREPARING]: TankStatus.PREPARING,
+      [EquipmentStatus.CLEANING]: TankStatus.CLEANING,
+      [EquipmentStatus.MAINTENANCE]: TankStatus.MAINTENANCE,
+      [EquipmentStatus.HARVESTING]: TankStatus.HARVESTING,
+      [EquipmentStatus.FALLOW]: TankStatus.FALLOW,
+      [EquipmentStatus.QUARANTINE]: TankStatus.QUARANTINE,
+      [EquipmentStatus.OUT_OF_SERVICE]: TankStatus.INACTIVE,
     };
+    return statusMap[equipmentStatus] || null;
+  }
+
+  /**
+   * Map sort field to tank-compatible field
+   */
+  private mapSortFieldToTank(sortBy: string): string {
+    const fieldMap: Record<string, string> = {
+      'createdAt': 'createdAt',
+      'updatedAt': 'updatedAt',
+      'name': 'name',
+      'code': 'code',
+      'status': 'status',
+      'volume': 'volume',
+    };
+    return fieldMap[sortBy] || 'createdAt';
+  }
+
+  /**
+   * Load equipment types into a map for quick lookup
+   */
+  private async loadEquipmentTypesMap(): Promise<Map<string, EquipmentType>> {
+    const equipmentTypes = await this.equipmentTypeRepository.find({
+      where: { category: EquipmentCategory.TANK },
+    });
+
+    const map = new Map<string, EquipmentType>();
+    for (const type of equipmentTypes) {
+      map.set(type.code, type);
+    }
+    return map;
+  }
+
+  /**
+   * Transform a Tank entity to Equipment format
+   */
+  private transformTankToEquipment(
+    tank: Tank,
+    equipmentTypes: Map<string, EquipmentType>,
+  ): Equipment {
+    const equipmentTypeCode = mapTankTypeToEquipmentTypeCode(tank.tankType);
+    const equipmentType = equipmentTypes.get(equipmentTypeCode);
+
+    // Build specifications JSONB from tank dimensions
+    const specifications: TankSpecifications = {
+      tankType: tank.tankType as TankSpecifications['tankType'],
+      material: tank.material as TankSpecifications['material'],
+      waterType: tank.waterType as TankSpecifications['waterType'],
+      dimensions: {
+        diameter: tank.diameter ? Number(tank.diameter) : undefined,
+        length: tank.length ? Number(tank.length) : undefined,
+        width: tank.width ? Number(tank.width) : undefined,
+        depth: Number(tank.depth),
+        waterDepth: tank.waterDepth ? Number(tank.waterDepth) : undefined,
+        freeboard: tank.freeboard ? Number(tank.freeboard) : undefined,
+      },
+      volume: Number(tank.volume),
+      waterVolume: tank.waterVolume ? Number(tank.waterVolume) : undefined,
+      maxBiomass: Number(tank.maxBiomass),
+      maxDensity: Number(tank.maxDensity),
+      maxCount: tank.currentCount || undefined,
+      waterFlow: tank.waterFlow || undefined,
+      aeration: tank.aeration || undefined,
+    };
+
+    // Create Equipment object from Tank
+    const equipment = new Equipment();
+    equipment.id = tank.id;
+    equipment.tenantId = tank.tenantId;
+    equipment.name = tank.name;
+    equipment.code = tank.code;
+    equipment.description = tank.description;
+    equipment.departmentId = tank.departmentId;
+    equipment.department = tank.department as any; // Type cast for compatibility
+    equipment.status = mapTankStatusToEquipmentStatus(tank.status);
+    equipment.specifications = specifications;
+    equipment.location = tank.location as any;
+    equipment.notes = tank.notes;
+    equipment.installationDate = tank.installationDate;
+    equipment.isTank = true;
+    equipment.isVisibleInSensor = true; // Tanks are typically visible in sensor module
+    equipment.volume = Number(tank.volume);
+    equipment.currentBiomass = Number(tank.currentBiomass);
+    equipment.currentCount = tank.currentCount;
+    equipment.isActive = tank.isActive;
+    equipment.isDeleted = false;
+    equipment.createdAt = tank.createdAt;
+    equipment.updatedAt = tank.updatedAt;
+    equipment.createdBy = tank.createdBy;
+    equipment.updatedBy = tank.updatedBy;
+    equipment.version = tank.version;
+
+    // Set equipment type if found
+    if (equipmentType) {
+      equipment.equipmentTypeId = equipmentType.id;
+      equipment.equipmentType = equipmentType;
+    }
+
+    // Initialize empty arrays/collections for consistency
+    equipment.equipmentSystems = [];
+    equipment.childEquipment = [];
+
+    return equipment;
+  }
+
+  /**
+   * Sort merged results from both tables
+   */
+  private sortMergedResults(
+    items: Equipment[],
+    sortBy: string,
+    sortOrder: 'ASC' | 'DESC',
+  ): Equipment[] {
+    return items.sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+
+      switch (sortBy) {
+        case 'name':
+          aValue = a.name?.toLowerCase() || '';
+          bValue = b.name?.toLowerCase() || '';
+          break;
+        case 'code':
+          aValue = a.code?.toLowerCase() || '';
+          bValue = b.code?.toLowerCase() || '';
+          break;
+        case 'status':
+          aValue = a.status || '';
+          bValue = b.status || '';
+          break;
+        case 'volume':
+          aValue = Number(a.volume) || 0;
+          bValue = Number(b.volume) || 0;
+          break;
+        case 'updatedAt':
+          aValue = a.updatedAt?.getTime() || 0;
+          bValue = b.updatedAt?.getTime() || 0;
+          break;
+        case 'createdAt':
+        default:
+          aValue = a.createdAt?.getTime() || 0;
+          bValue = b.createdAt?.getTime() || 0;
+          break;
+      }
+
+      if (aValue < bValue) return sortOrder === 'ASC' ? -1 : 1;
+      if (aValue > bValue) return sortOrder === 'ASC' ? 1 : -1;
+      return 0;
+    });
   }
 }

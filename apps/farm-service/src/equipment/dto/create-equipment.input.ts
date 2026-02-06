@@ -68,7 +68,7 @@ export class CreateEquipmentInput {
   departmentId: string;
 
   @Field(() => [ID], { description: 'Systems this equipment serves (many-to-many)' })
-  @IsUUID('4', { each: true })
+  @IsUUID(undefined, { each: true })
   systemIds: string[];
 
   @Field(() => ID, { nullable: true, description: 'Parent equipment for nested hierarchy' })

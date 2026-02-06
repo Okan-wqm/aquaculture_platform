@@ -1,5 +1,9 @@
 /**
  * Update Equipment Command Handler
+ *
+ * Handles updates for both Equipment and Tank entities.
+ * When an equipment ID is found in the tanks table, the update is delegated
+ * to update the Tank entity instead.
  */
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -12,6 +16,7 @@ import { EquipmentSystem } from '../entities/equipment-system.entity';
 import { Department } from '../../department/entities/department.entity';
 import { System } from '../../system/entities/system.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
+import { Tank, TankType, TankMaterial, TankStatus, WaterType } from '../../tank/entities/tank.entity';
 
 @CommandHandler(UpdateEquipmentCommand)
 export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCommand> {
@@ -28,6 +33,8 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
     private readonly systemRepository: Repository<System>,
     @InjectRepository(Supplier)
     private readonly supplierRepository: Repository<Supplier>,
+    @InjectRepository(Tank)
+    private readonly tankRepository: Repository<Tank>,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -37,6 +44,17 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
 
     this.logger.log(`Updating equipment ${equipmentId} for tenant ${tenantId}`);
 
+    // Check if this ID exists in the tanks table first
+    const tank = await this.tankRepository.findOne({
+      where: { id: equipmentId, tenantId },
+    });
+
+    if (tank) {
+      // This is a tank - delegate to tank update logic
+      this.logger.log(`Equipment ${equipmentId} is a tank, updating Tank entity`);
+      return this.updateTank(tank, input, tenantId, userId);
+    }
+
     // Find existing equipment with its systems
     const equipment = await this.equipmentRepository.findOne({
       where: { id: equipmentId, tenantId },
@@ -45,6 +63,17 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
 
     if (!equipment) {
       throw new NotFoundException(`Equipment with ID "${equipmentId}" not found`);
+    }
+
+    // Validate departmentId change if provided
+    const hasDepartmentId = Object.prototype.hasOwnProperty.call(input, 'departmentId');
+    if (hasDepartmentId && input.departmentId) {
+      const newDept = await this.departmentRepository.findOne({
+        where: { id: input.departmentId, tenantId },
+      });
+      if (!newDept) {
+        throw new NotFoundException(`Department with ID "${input.departmentId}" not found`);
+      }
     }
 
     // Validate systemIds change (many-to-many relationship)
@@ -67,8 +96,8 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
         throw new NotFoundException(`Systems not found: ${missingIds.join(', ')}`);
       }
 
-      // Get department for validation
-      const departmentId = equipment.departmentId;
+      // Get department for validation (use new departmentId if provided, otherwise current)
+      const departmentId = (hasDepartmentId && input.departmentId) ? input.departmentId : equipment.departmentId;
       let department: Department | null = null;
       if (departmentId) {
         department = await this.departmentRepository.findOne({
@@ -226,5 +255,244 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
     // }));
 
     return updatedEquipment;
+  }
+
+  /**
+   * Update Tank entity when accessed via equipment resolver
+   * Maps UpdateEquipmentInput fields to Tank fields
+   */
+  private async updateTank(
+    tank: Tank,
+    input: UpdateEquipmentCommand['input'],
+    tenantId: string,
+    userId: string,
+  ): Promise<Equipment> {
+    // Cannot update dimensions if tank has active batches
+    const specs = input.specifications as {
+      tankType?: string;
+      dimensions?: { diameter?: number; length?: number; width?: number; depth?: number };
+      material?: string;
+      waterType?: string;
+      maxBiomass?: number;
+      maxDensity?: number;
+      waterDepth?: number;
+      freeboard?: number;
+      waterFlow?: Record<string, unknown>;
+      aeration?: Record<string, unknown>;
+      location?: Record<string, unknown>;
+    } | undefined;
+
+    const hasDimensionChanges = specs?.dimensions && (
+      specs.dimensions.diameter !== undefined ||
+      specs.dimensions.length !== undefined ||
+      specs.dimensions.width !== undefined ||
+      specs.dimensions.depth !== undefined
+    );
+
+    if (tank.currentBiomass > 0 && hasDimensionChanges) {
+      throw new BadRequestException(
+        'Cannot update dimensions while tank has active biomass. Please transfer or harvest first.',
+      );
+    }
+
+    // Check for duplicate code if changing
+    if (input.code) {
+      const normalizedCode = input.code.toUpperCase();
+      if (normalizedCode !== tank.code) {
+        const existingByCode = await this.tankRepository.findOne({
+          where: { tenantId, code: normalizedCode, id: Not(tank.id) },
+        });
+        if (existingByCode) {
+          throw new ConflictException(`Tank with code "${normalizedCode}" already exists`);
+        }
+        tank.code = normalizedCode;
+      }
+    }
+
+    // Map UpdateEquipmentInput fields to Tank fields
+    if (input.name !== undefined) tank.name = input.name;
+    if (input.description !== undefined) tank.description = input.description;
+    if (input.notes !== undefined) tank.notes = input.notes;
+    if (input.installationDate !== undefined) {
+      tank.installationDate = input.installationDate;
+    }
+    if (input.isActive !== undefined) tank.isActive = input.isActive;
+
+    // Map specifications to tank-specific fields
+    if (specs) {
+      // Tank type
+      if (specs.tankType !== undefined) {
+        const tankTypeValue = specs.tankType.toLowerCase();
+        if (Object.values(TankType).includes(tankTypeValue as TankType)) {
+          tank.tankType = tankTypeValue as TankType;
+        }
+      }
+
+      // Material
+      if (specs.material !== undefined) {
+        const materialValue = specs.material.toLowerCase();
+        if (Object.values(TankMaterial).includes(materialValue as TankMaterial)) {
+          tank.material = materialValue as TankMaterial;
+        }
+      }
+
+      // Water type
+      if (specs.waterType !== undefined) {
+        const waterTypeValue = specs.waterType.toLowerCase();
+        if (Object.values(WaterType).includes(waterTypeValue as WaterType)) {
+          tank.waterType = waterTypeValue as WaterType;
+        }
+      }
+
+      // Dimensions
+      if (specs.dimensions) {
+        if (specs.dimensions.diameter !== undefined) tank.diameter = specs.dimensions.diameter;
+        if (specs.dimensions.length !== undefined) tank.length = specs.dimensions.length;
+        if (specs.dimensions.width !== undefined) tank.width = specs.dimensions.width;
+        if (specs.dimensions.depth !== undefined) tank.depth = specs.dimensions.depth;
+      }
+
+      // Capacity settings
+      if (specs.maxBiomass !== undefined) tank.maxBiomass = specs.maxBiomass;
+      if (specs.maxDensity !== undefined) tank.maxDensity = specs.maxDensity;
+      if (specs.waterDepth !== undefined) tank.waterDepth = specs.waterDepth;
+      if (specs.freeboard !== undefined) tank.freeboard = specs.freeboard;
+
+      // JSONB fields
+      if (specs.waterFlow !== undefined) {
+        tank.waterFlow = specs.waterFlow as unknown as Tank['waterFlow'];
+      }
+      if (specs.aeration !== undefined) {
+        tank.aeration = specs.aeration as unknown as Tank['aeration'];
+      }
+      if (specs.location !== undefined) {
+        tank.location = specs.location as unknown as Tank['location'];
+      }
+    }
+
+    // Map equipment status to tank status if provided
+    if (input.status !== undefined) {
+      const statusMapping: Record<string, TankStatus> = {
+        'operational': TankStatus.ACTIVE,
+        'maintenance': TankStatus.MAINTENANCE,
+        'inactive': TankStatus.INACTIVE,
+        'decommissioned': TankStatus.INACTIVE,
+      };
+      const mappedStatus = statusMapping[input.status.toLowerCase()];
+      if (mappedStatus) {
+        tank.status = mappedStatus;
+        tank.statusChangedAt = new Date();
+      }
+    }
+
+    // Handle location from equipment input
+    if (input.location) {
+      const equipmentLocation = input.location as {
+        building?: string;
+        floor?: string;
+        room?: string;
+        coordinates?: { x: number; y: number; z?: number };
+        notes?: string;
+      };
+      tank.location = {
+        ...tank.location,
+        building: equipmentLocation.building ?? tank.location?.building,
+        section: equipmentLocation.room ?? tank.location?.section,
+        floor: equipmentLocation.floor ?? tank.location?.floor,
+        coordinates: equipmentLocation.coordinates ?? tank.location?.coordinates,
+        notes: equipmentLocation.notes ?? tank.location?.notes,
+      };
+    }
+
+    tank.updatedBy = userId;
+
+    // Recalculate volume if dimensions changed
+    tank.calculateVolume();
+
+    // Validate volume
+    if (tank.volume <= 0) {
+      throw new BadRequestException(
+        'Invalid dimensions: calculated volume must be greater than 0',
+      );
+    }
+
+    // Save the tank
+    const savedTank = await this.tankRepository.save(tank);
+
+    this.logger.log(`Tank ${savedTank.id} updated successfully via equipment resolver`);
+
+    // Convert Tank to Equipment response format
+    return this.tankToEquipmentResponse(savedTank);
+  }
+
+  /**
+   * Convert Tank entity to Equipment response format
+   * This allows the equipment resolver to return a consistent response
+   */
+  private tankToEquipmentResponse(tank: Tank): Equipment {
+    const equipment = new Equipment();
+    equipment.id = tank.id;
+    equipment.tenantId = tank.tenantId;
+    equipment.departmentId = tank.departmentId;
+    equipment.name = tank.name;
+    equipment.code = tank.code;
+    equipment.description = tank.description;
+    equipment.isActive = tank.isActive;
+    equipment.isTank = true;
+    equipment.volume = Number(tank.volume);
+    equipment.notes = tank.notes;
+    equipment.createdAt = tank.createdAt;
+    equipment.updatedAt = tank.updatedAt;
+    equipment.createdBy = tank.createdBy;
+    equipment.updatedBy = tank.updatedBy;
+
+    // Map tank status to equipment status
+    const statusMapping: Record<TankStatus, string> = {
+      [TankStatus.ACTIVE]: 'operational',
+      [TankStatus.PREPARING]: 'operational',
+      [TankStatus.CLEANING]: 'maintenance',
+      [TankStatus.MAINTENANCE]: 'maintenance',
+      [TankStatus.HARVESTING]: 'operational',
+      [TankStatus.FALLOW]: 'inactive',
+      [TankStatus.QUARANTINE]: 'operational',
+      [TankStatus.INACTIVE]: 'inactive',
+    };
+    equipment.status = statusMapping[tank.status] as Equipment['status'];
+
+    // Build specifications from tank fields
+    equipment.specifications = {
+      tankType: tank.tankType,
+      material: tank.material,
+      waterType: tank.waterType,
+      dimensions: {
+        diameter: tank.diameter,
+        length: tank.length,
+        width: tank.width,
+        depth: tank.depth,
+      },
+      volume: tank.volume,
+      waterVolume: tank.waterVolume,
+      maxBiomass: tank.maxBiomass,
+      currentBiomass: tank.currentBiomass,
+      maxDensity: tank.maxDensity,
+      currentCount: tank.currentCount,
+      waterDepth: tank.waterDepth,
+      freeboard: tank.freeboard,
+      waterFlow: tank.waterFlow,
+      aeration: tank.aeration,
+    };
+
+    // Map location
+    if (tank.location) {
+      equipment.location = {
+        building: tank.location.building,
+        floor: tank.location.floor,
+        room: tank.location.section,
+        coordinates: tank.location.coordinates,
+        notes: tank.location.notes,
+      };
+    }
+
+    return equipment;
   }
 }

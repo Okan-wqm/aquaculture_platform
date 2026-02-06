@@ -52,9 +52,9 @@ interface ContextMenuState {
 }
 
 export const EquipmentNode = memo(({ id, data, selected }: NodeProps<EquipmentNodeData>) => {
-  const Icon = getEquipmentIcon(data.equipmentType);
-  const statusStyle = getStatusStyle(data.status);
-  const size = getEquipmentSize(data.equipmentType);
+  const Icon = getEquipmentIcon(data.equipmentType || 'equipment');
+  const statusStyle = getStatusStyle(data.status || 'standby');
+  const size = getEquipmentSize(data.equipmentType || 'equipment');
   const updateConnectionPointType = useProcessStore((state) => state.updateConnectionPointType);
 
   // Context menu state
@@ -208,7 +208,7 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<EquipmentNo
                     : statusStyle.text.replace('text-', 'bg-')
                 }`}
               />
-              {data.status.charAt(0).toUpperCase() + data.status.slice(1).replace('_', ' ')}
+              {(data.status || 'standby').charAt(0).toUpperCase() + (data.status || 'standby').slice(1).replace('_', ' ')}
             </span>
           </div>
         </div>

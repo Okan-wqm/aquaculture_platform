@@ -341,7 +341,64 @@ All services expose health endpoints:
 3. Run `npm run lint` and `npm run test` before committing
 4. Update documentation as needed
 
-## Recent Updates (v1.3.0)
+## Recent Updates (v1.4.0)
+
+### Platform-Wide Enhancements
+
+**Admin API Service - Auth & Billing Improvements**
+- Password reset module with dedicated controller and service
+- Enhanced billing services: invoice management, pricing calculator, subscription plan changes
+- Improved subscription renewal and module pricing logic
+- Strengthened platform admin guard and IP access controls
+- Schema management service improvements for multi-tenant databases
+- Enhanced user management with updated controller, module, and service layer
+
+**Sensor Service - Edge Device & Automation Expansion**
+- Edge device self-registration with tenant provisioning keys
+- Device event tracking entity for comprehensive audit trails
+- Automation deployment log service for program lifecycle management
+- Enhanced MQTT listener and ingestion pipeline
+- Improved tenant-schema middleware for sensor data isolation
+- VFD brand configuration refinements (ABB, Danfoss, Delta, Mitsubishi, Rockwell, Schneider, Siemens, Yaskawa)
+- VFD types and enums consolidation
+- PLC control DTO and telemetry improvements
+
+**Farm Service - Equipment & Feeding Enhancements**
+- Equipment service layer with dedicated business logic
+- Enhanced equipment CQRS handlers (create, update, delete, list)
+- Improved feeding table DTOs with better validation
+- Equipment type seed data updates
+- Regulatory settings entity refinements
+
+**HR Service - Entity Standardization**
+- Standardized column naming across all HR entities (explicit snake_case mappings)
+- Updated entities: employee, payroll, attendance, schedule, shift, leave, training
+- Aquaculture-specific entities: safety training records, work areas, work rotations
+- Scheduling entities: holidays, weekly plans, scheduling settings
+
+**Frontend - New Pages & UI Improvements**
+- **Storage Management Page** - Inventory tracking with warehouse management
+- **Task Management Page** - Task creation, assignment, and tracking
+- **Edge Device Management** - Device listing, detail view, and installer key provisioning
+- **Consumables Tab** - Consumable inventory management in farm setup
+- **Fish Health Chemicals Tab** - Chemical tracking for fish health treatments
+- Enhanced login page with improved UX
+- Updated setup page with additional configuration tabs (Chemicals, Departments, Equipment, Feeds, Systems)
+- Improved report tabs: Biomass, Cleaner Fish, Disease Outbreak, Escape, Sea Lice, Slaughter, Smolt, Welfare Events
+- Enhanced admin panel: analytics dashboard, billing dashboard, system settings
+- Tenant admin sidebar improvements with device management navigation
+
+**Infrastructure & Common Libraries**
+- Schema manager service updates for new entity tables
+- Billing tables SQL migration scripts
+- Module pricing seed data
+- Docker Compose dev configuration updates
+- Prebuilt Dockerfile optimizations
+- Edge gateway self-registration flow documentation
+
+---
+
+## Previous Updates (v1.3.0)
 
 ### Major Platform Enhancements
 

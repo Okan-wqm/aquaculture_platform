@@ -1,4 +1,4 @@
-import { VfdRegisterMappingInput } from '../entities/vfd-register-mapping.entity';
+import { VfdRegisterMappingInput } from '../entities/vfd.types';
 import { VfdBrand, VfdParameterCategory, VfdDataType } from '../entities/vfd.enums';
 
 /**

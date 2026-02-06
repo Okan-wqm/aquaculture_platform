@@ -49,6 +49,7 @@ import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 import { AllowTenantAdmin, Roles } from '../decorators/roles.decorator';
 import { InviteUserDto, UpdateUserPermissionsDto, UserWithPermissionsDto } from './dto/invite-user.dto';
 import { PanelPermissions, DEFAULT_USER_PERMISSIONS } from './entities/user-permissions.entity';
+import { EmailSenderService, InvitationEmailData } from '../settings/services/email-sender.service';
 
 // Allowed sort fields whitelist for security
 const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'email', 'firstName', 'lastName', 'role'] as const;
@@ -215,6 +216,7 @@ export class UsersController {
     private readonly userProvisioningService: UserProvisioningService,
     private readonly roleTemplateService: RoleTemplateService,
     private readonly userPermissionsService: UserPermissionsService,
+    private readonly emailSenderService: EmailSenderService,
   ) {}
 
   /**
@@ -490,7 +492,7 @@ export class UsersController {
   async inviteUserWithPermissions(
     @Body() dto: InviteUserDto,
     @Req() req: { user: { id: string; tenantId?: string } },
-  ): Promise<{ success: boolean; userId?: string; message: string }> {
+  ): Promise<{ success: boolean; userId?: string; emailSent?: boolean; message: string }> {
     const tenantId = req.user.tenantId;
     if (!tenantId) {
       throw new BadRequestException('Tenant context required for this operation');
@@ -552,12 +554,47 @@ export class UsersController {
       );
     }
 
+    // Send invitation email if requested
+    let emailSent = false;
+    if (dto.sendInvitationEmail !== false && result.invitationToken) {
+      try {
+        // Get tenant name for the email
+        const tenantResult = await this.usersService.getTenantName(tenantId);
+        const tenantName = tenantResult || 'Your Organization';
+
+        const emailData: InvitationEmailData = {
+          email: dto.email,
+          firstName: dto.firstName || 'User',
+          lastName: dto.lastName || '',
+          tenantName,
+          invitationToken: result.invitationToken,
+          role: 'MODULE_USER',
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        };
+
+        const emailResult = await this.emailSenderService.sendInvitationEmail(emailData);
+        emailSent = emailResult.success;
+
+        if (!emailResult.success) {
+          this.logger.warn(`Invitation email failed for ${dto.email}: ${emailResult.error}`);
+        }
+      } catch (emailError) {
+        this.logger.error(
+          `Failed to send invitation email to ${dto.email}`,
+          emailError instanceof Error ? emailError.stack : emailError,
+        );
+      }
+    }
+
     return {
       success: true,
       userId: result.userId,
-      message: dto.sendInvitationEmail !== false
-        ? 'User invited successfully. Invitation email will be sent.'
-        : 'User invited successfully.',
+      emailSent,
+      message: emailSent
+        ? 'User invited successfully. Invitation email sent.'
+        : dto.sendInvitationEmail !== false
+          ? 'User invited successfully. Email could not be sent.'
+          : 'User invited successfully.',
     };
   }
 

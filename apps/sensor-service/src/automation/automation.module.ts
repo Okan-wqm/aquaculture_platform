@@ -13,6 +13,8 @@ import {
   ProgramTransition,
   ProgramVariable,
 } from './entities';
+import { DeploymentLog } from './entities/deployment-log.entity';
+import { DeploymentLogService } from './services/deployment-log.service';
 
 /**
  * Automation Module
@@ -42,16 +44,18 @@ import {
       StepAction,
       ProgramTransition,
       ProgramVariable,
+      DeploymentLog,
     ]),
     EdgeDeviceModule, // For edge device service (no longer circular)
     // MqttClientService is available via @Global SharedMqttModule
   ],
   providers: [
     AutomationService,
+    DeploymentLogService,
     AutomationResolver,
     ProgramStepResolver,
   ],
-  exports: [AutomationService],
+  exports: [AutomationService, DeploymentLogService],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class AutomationModule {}

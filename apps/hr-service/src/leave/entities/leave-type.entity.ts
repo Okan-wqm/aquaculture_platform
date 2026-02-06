@@ -28,7 +28,7 @@ export enum LeaveCategory {
 registerEnumType(LeaveCategory, { name: 'LeaveCategory' });
 
 @ObjectType()
-@Entity('leave_types', { schema: 'hr' })
+@Entity('leave_types')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'category'])
 @Index(['tenantId', 'isActive'])

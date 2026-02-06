@@ -86,7 +86,7 @@ export interface DeviceHealthMetrics {
  * (Revolution Pi, Raspberry Pi, Industrial PC)
  */
 @ObjectType()
-@Entity('edge_devices', { schema: 'sensor' })
+@Entity('edge_devices')
 @Index(['tenantId', 'lifecycleState'])
 @Index(['tenantId', 'siteId'])
 @Index(['deviceCode'], { unique: true })
@@ -99,7 +99,7 @@ export class EdgeDevice {
 
   // Tenant & Site Relations
   @Field()
-  @Column('uuid')
+  @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
   tenantId!: string;
 

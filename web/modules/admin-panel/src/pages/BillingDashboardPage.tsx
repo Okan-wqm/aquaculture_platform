@@ -64,7 +64,9 @@ const formatPercentage = (value: number): string => {
 const transformRevenueData = (data: RevenueAnalytics): BillingMetrics => ({
   mrr: data.mrr,
   arr: data.arr,
-  activeSubscriptions: Math.floor(data.totalRevenue / data.averageRevenuePerTenant),
+  activeSubscriptions: data.averageRevenuePerTenant > 0
+    ? Math.floor(data.totalRevenue / data.averageRevenuePerTenant)
+    : 0,
   churnRate: 2.3, // Would come from separate API
   avgRevenuePerUser: data.averageRevenuePerTenant,
   outstandingInvoices: 12, // Would come from invoices API
@@ -326,7 +328,7 @@ const BillingDashboardPage: React.FC = () => {
         `${import.meta.env.VITE_ADMIN_API_URL || '/api'}/billing/invoices?limit=5`,
         {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
             'Content-Type': 'application/json',
           },
         }

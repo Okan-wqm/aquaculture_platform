@@ -32,7 +32,7 @@ registerEnumType(CertificationCategory, { name: 'CertificationCategory' });
 registerEnumType(CertificationRequirement, { name: 'CertificationRequirement' });
 
 @ObjectType()
-@Entity('certification_types', { schema: 'hr' })
+@Entity('certification_types')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'category'])
 @Index(['tenantId', 'isActive'])

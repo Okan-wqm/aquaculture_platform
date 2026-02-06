@@ -49,7 +49,7 @@ export class CertificationDocument {
 }
 
 @ObjectType()
-@Entity('employee_certifications', { schema: 'hr' })
+@Entity('employee_certifications')
 @Index(['tenantId', 'certificationNumber'], { unique: true })
 @Index(['tenantId', 'employeeId', 'certificationTypeId'])
 @Index(['tenantId', 'status', 'expiryDate'])

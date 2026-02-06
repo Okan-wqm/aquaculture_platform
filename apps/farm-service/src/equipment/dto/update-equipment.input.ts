@@ -1,15 +1,13 @@
 /**
  * Update Equipment Input DTO
  */
-import { InputType, Field, ID, PartialType, OmitType } from '@nestjs/graphql';
+import { InputType, Field, ID, PartialType } from '@nestjs/graphql';
 import { IsUUID, IsOptional, IsBoolean, IsString, MinLength, MaxLength, IsEnum } from 'class-validator';
 import { CreateEquipmentInput } from './create-equipment.input';
 import { EquipmentStatus } from '../entities/equipment.entity';
 
 @InputType()
-export class UpdateEquipmentInput extends PartialType(
-  OmitType(CreateEquipmentInput, ['departmentId', 'equipmentTypeId'] as const)
-) {
+export class UpdateEquipmentInput extends PartialType(CreateEquipmentInput) {
   @Field(() => ID)
   @IsUUID()
   id: string;
@@ -31,7 +29,7 @@ export class UpdateEquipmentInput extends PartialType(
 
   @Field(() => [ID], { nullable: true, description: 'Systems this equipment serves (many-to-many)' })
   @IsOptional()
-  @IsUUID('4', { each: true })
+  @IsUUID(undefined, { each: true })
   systemIds?: string[];
 
   @Field(() => EquipmentStatus, { nullable: true })

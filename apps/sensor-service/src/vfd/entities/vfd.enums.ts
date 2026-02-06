@@ -186,12 +186,12 @@ export interface SerialConfig {
 export const VFD_BRAND_DEFAULT_SERIAL: Record<VfdBrand, SerialConfig> = {
   [VfdBrand.DANFOSS]: { baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 1 },
   [VfdBrand.ABB]: { baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 1 },
-  [VfdBrand.SIEMENS]: { baudRate: 19200, dataBits: 8, parity: 'even', stopBits: 1 },
+  [VfdBrand.SIEMENS]: { baudRate: 9600, dataBits: 8, parity: 'even', stopBits: 1 },
   [VfdBrand.SCHNEIDER]: { baudRate: 19200, dataBits: 8, parity: 'even', stopBits: 1 },
-  [VfdBrand.YASKAWA]: { baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 1 },
-  [VfdBrand.DELTA]: { baudRate: 9600, dataBits: 8, parity: 'even', stopBits: 1 },
+  [VfdBrand.YASKAWA]: { baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 2 },
+  [VfdBrand.DELTA]: { baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 1 },
   [VfdBrand.MITSUBISHI]: { baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 1 },
-  [VfdBrand.ROCKWELL]: { baudRate: 9600, dataBits: 8, parity: 'none', stopBits: 1 },
+  [VfdBrand.ROCKWELL]: { baudRate: 19200, dataBits: 8, parity: 'none', stopBits: 1 },
 };
 
 // Standard control word commands (CiA402 / PROFIdrive compatible)

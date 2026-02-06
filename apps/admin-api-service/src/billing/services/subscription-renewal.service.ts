@@ -56,7 +56,7 @@ export class SubscriptionRenewalService {
         s.status,
         s."currentPeriodEnd" as "currentPeriodEnd"
       FROM public.subscriptions s
-      LEFT JOIN public.tenants t ON t.id::text = s."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
       WHERE s.status = 'active'
         AND s."autoRenew" = true
         AND s."currentPeriodEnd" BETWEEN NOW() AND NOW() + INTERVAL '7 days'
@@ -75,7 +75,7 @@ export class SubscriptionRenewalService {
         s.status,
         s."currentPeriodEnd" as "currentPeriodEnd"
       FROM public.subscriptions s
-      LEFT JOIN public.tenants t ON t.id::text = s."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
       WHERE s.status = 'past_due'
       ORDER BY s."currentPeriodEnd" ASC
     `,
@@ -93,7 +93,7 @@ export class SubscriptionRenewalService {
         s.status,
         s."currentPeriodEnd" as "currentPeriodEnd"
       FROM public.subscriptions s
-      LEFT JOIN public.tenants t ON t.id::text = s."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
       WHERE s.status = 'past_due'
         AND s."currentPeriodEnd" < NOW() - ($1::integer * INTERVAL '1 day')
       ORDER BY s."currentPeriodEnd" ASC
@@ -227,7 +227,7 @@ export class SubscriptionRenewalService {
         (s.pricing->>'basePrice')::decimal as "monthlyPrice",
         s."autoRenew" as "autoRenew"
       FROM public.subscriptions s
-      LEFT JOIN public.tenants t ON t.id::text = s."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
       WHERE s.status IN ('active', 'trial')
         AND s."autoRenew" = false
         AND s."currentPeriodEnd" <= NOW() + ($1::integer * INTERVAL '1 day')

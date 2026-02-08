@@ -231,21 +231,25 @@ export default function OrthogonalEdge(props: EdgeProps<OrthogonalEdgeData>) {
   }, [bendPoints, id, setEdges]);
 
   /* ---------- Drag handling ------------------------ */
-  const handleMouseDown = useCallback((e: ReactMouseEvent<SVGCircleElement>, idx: number) => {
+  const handleMouseDown = useCallback((e: ReactMouseEvent<SVGRectElement>, idx: number) => {
     e.stopPropagation();
     e.preventDefault();
 
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const { x: initX, y: initY } = bendPoints[idx];
+    // Get the SVG element for coordinate conversion (handles zoom/pan)
+    const svg = (e.target as SVGElement).ownerSVGElement;
+    if (!svg) return;
 
     const onMove = (mv: globalThis.MouseEvent) => {
-      const dx = mv.clientX - startX;
-      const dy = mv.clientY - startY;
+      const pt = svg.createSVGPoint();
+      pt.x = mv.clientX;
+      pt.y = mv.clientY;
+      const ctm = svg.getScreenCTM();
+      if (!ctm) return;
+      const svgPoint = pt.matrixTransform(ctm.inverse());
 
       // Snap to grid
-      const newX = Math.round((initX + dx) / SNAP) * SNAP;
-      const newY = Math.round((initY + dy) / SNAP) * SNAP;
+      const newX = Math.round(svgPoint.x / SNAP) * SNAP;
+      const newY = Math.round(svgPoint.y / SNAP) * SNAP;
 
       setBendPoints(prev => {
         const copy = [...prev];
@@ -380,7 +384,35 @@ export default function OrthogonalEdge(props: EdgeProps<OrthogonalEdgeData>) {
         />
       )}
 
-      {/* Bend point controls */}
+      {/* Double-click hit area - rendered BEFORE bend points so points stay on top */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={HIT_AREA_WIDTH}
+        style={{ cursor: 'crosshair', pointerEvents: 'stroke' }}
+        onDoubleClick={handlePathDoubleClick}
+      />
+
+      {/* Label */}
+      {data?.label && (
+        <text>
+          <textPath
+            href={`#${id}`}
+            startOffset="50%"
+            textAnchor="middle"
+            style={{
+              fontSize: 11,
+              fill: '#374151',
+              fontWeight: 500,
+            }}
+          >
+            {data.label}
+          </textPath>
+        </text>
+      )}
+
+      {/* Bend point controls - rendered LAST so they're on top and draggable */}
       {bendPoints.map((pt, idx) => (
         <g key={idx}>
           {/* Corner indicator (square for orthogonal) */}
@@ -405,34 +437,6 @@ export default function OrthogonalEdge(props: EdgeProps<OrthogonalEdgeData>) {
           />
         </g>
       ))}
-
-      {/* Label */}
-      {data?.label && (
-        <text>
-          <textPath
-            href={`#${id}`}
-            startOffset="50%"
-            textAnchor="middle"
-            style={{
-              fontSize: 11,
-              fill: '#374151',
-              fontWeight: 500,
-            }}
-          >
-            {data.label}
-          </textPath>
-        </text>
-      )}
-
-      {/* Double-click hit area - rendered last for highest z-index over bend points */}
-      <path
-        d={edgePath}
-        fill="none"
-        stroke="transparent"
-        strokeWidth={HIT_AREA_WIDTH}
-        style={{ cursor: 'crosshair', pointerEvents: 'stroke' }}
-        onDoubleClick={handlePathDoubleClick}
-      />
     </g>
   );
 }

@@ -2,8 +2,16 @@
  * Storage Locations Tab - CRUD for warehouse/silo/cold room locations
  */
 import React, { useState } from 'react';
-import { storageLocations as initialLocations } from '../mock';
-import type { StorageLocation, StorageLocationType } from '../types/storage.types';
+import {
+  useStorageLocationList,
+  useCreateStorageLocation,
+  useUpdateStorageLocation,
+  useDeleteStorageLocation,
+  StorageLocation,
+  StorageLocationType,
+  CreateStorageLocationInput,
+} from '../../../hooks/useStorageLocations';
+import { useSiteList } from '../../../hooks/useSites';
 
 const typeColors: Record<string, string> = {
   WAREHOUSE: 'bg-gray-100 text-gray-800',
@@ -21,41 +29,102 @@ const typeLabels: Record<string, string> = {
 
 const LOCATION_TYPES: StorageLocationType[] = ['WAREHOUSE', 'COLD_ROOM', 'CHEMICAL_STORE', 'FEED_SILO', 'OUTDOOR', 'HAZMAT'];
 
-type FormData = Omit<StorageLocation, 'id'>;
+interface FormData {
+  siteId: string;
+  name: string;
+  code: string;
+  type: StorageLocationType;
+  description: string;
+  capacity: number | '';
+  capacityUnit: string;
+  temperatureMin: number | '';
+  temperatureMax: number | '';
+  humidityMin: number | '';
+  humidityMax: number | '';
+}
+
 const emptyForm: FormData = {
-  name: '', code: '', type: 'WAREHOUSE', capacity: 0, capacityUnit: 'm³',
-  usedCapacity: 0, description: '', isActive: true, humidityControl: false,
+  siteId: '', name: '', code: '', type: 'WAREHOUSE',
+  description: '', capacity: '', capacityUnit: 'm³',
+  temperatureMin: '', temperatureMax: '',
+  humidityMin: '', humidityMax: '',
 };
 
 export const StorageLocationsTab: React.FC = () => {
-  const [locations, setLocations] = useState<StorageLocation[]>(initialLocations);
+  const { data: locationsData, isLoading, error, refetch } = useStorageLocationList();
+  const { data: sitesData } = useSiteList();
+  const sites = sitesData?.items || [];
+  const createLocation = useCreateStorageLocation();
+  const updateLocation = useUpdateStorageLocation();
+  const deleteLocationMutation = useDeleteStorageLocation();
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<FormData>(emptyForm);
 
+  const locations = locationsData?.items || [];
+
   const openCreate = () => { setEditingId(null); setFormData(emptyForm); setIsModalOpen(true); };
   const openEdit = (loc: StorageLocation) => {
     setEditingId(loc.id);
-    const { id, ...rest } = loc;
-    setFormData(rest);
+    setFormData({
+      siteId: loc.siteId || '',
+      name: loc.name,
+      code: loc.code,
+      type: loc.type as StorageLocationType,
+      description: loc.description || '',
+      capacity: loc.capacity ?? '',
+      capacityUnit: loc.capacityUnit || 'm³',
+      temperatureMin: loc.temperatureMin ?? '',
+      temperatureMax: loc.temperatureMax ?? '',
+      humidityMin: loc.humidityMin ?? '',
+      humidityMax: loc.humidityMax ?? '',
+    });
     setIsModalOpen(true);
   };
-  const handleDelete = (id: string) => {
-    if (confirm('Delete this location?')) setLocations(prev => prev.filter(l => l.id !== id));
+
+  const handleDelete = async (id: string) => {
+    if (confirm('Delete this location?')) {
+      try {
+        await deleteLocationMutation.mutateAsync(id);
+      } catch (err) {
+        console.error('Failed to delete location:', err);
+        alert('Failed to delete location.');
+      }
+    }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.code) { alert('Name and code required.'); return; }
-    if (editingId) {
-      setLocations(prev => prev.map(l => l.id === editingId ? { ...formData, id: editingId } : l));
-    } else {
-      setLocations(prev => [...prev, { ...formData, id: Date.now().toString() }]);
-    }
-    setIsModalOpen(false);
-  };
+    if (!formData.siteId) { alert('Please select a site.'); return; }
 
-  const update = <K extends keyof FormData>(k: K, v: FormData[K]) => setFormData(prev => ({ ...prev, [k]: v }));
+    try {
+      const input: any = {
+        siteId: formData.siteId,
+        name: formData.name,
+        code: formData.code,
+        type: formData.type,
+        description: formData.description || undefined,
+        capacity: formData.capacity !== '' ? Number(formData.capacity) : undefined,
+        capacityUnit: formData.capacityUnit,
+        temperatureMin: formData.temperatureMin !== '' ? Number(formData.temperatureMin) : undefined,
+        temperatureMax: formData.temperatureMax !== '' ? Number(formData.temperatureMax) : undefined,
+        humidityMin: formData.humidityMin !== '' ? Number(formData.humidityMin) : undefined,
+        humidityMax: formData.humidityMax !== '' ? Number(formData.humidityMax) : undefined,
+      };
+
+      if (editingId) {
+        await updateLocation.mutateAsync({ id: editingId, ...input });
+      } else {
+        await createLocation.mutateAsync(input as CreateStorageLocationInput);
+      }
+      setIsModalOpen(false);
+    } catch (err) {
+      console.error('Failed to save location:', err);
+      alert('Failed to save location.');
+    }
+  };
 
   return (
     <div>
@@ -70,48 +139,66 @@ export const StorageLocationsTab: React.FC = () => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {locations.map(loc => {
-          const usagePercent = loc.capacity > 0 ? Math.round((loc.usedCapacity / loc.capacity) * 100) : 0;
-          return (
-            <div key={loc.id} className="bg-white rounded-lg border border-gray-200 p-5">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <h4 className="text-sm font-semibold text-gray-900">{loc.name}</h4>
-                  <span className="text-xs text-gray-500">{loc.code}</span>
+      {isLoading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+        </div>
+      )}
+
+      {error && (
+        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
+          <p className="text-red-600">Failed to load locations.</p>
+          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">Retry</button>
+        </div>
+      )}
+
+      {!isLoading && !error && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {locations.map(loc => {
+            const usagePercent = loc.capacity && loc.capacity > 0 ? Math.round((loc.usedCapacity / loc.capacity) * 100) : 0;
+            return (
+              <div key={loc.id} className="bg-white rounded-lg border border-gray-200 p-5">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900">{loc.name}</h4>
+                    <span className="text-xs text-gray-500">{loc.code}</span>
+                  </div>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${typeColors[loc.type] || 'bg-gray-100 text-gray-800'}`}>
+                    {typeLabels[loc.type] || loc.type}
+                  </span>
                 </div>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${typeColors[loc.type] || 'bg-gray-100 text-gray-800'}`}>
-                  {typeLabels[loc.type] || loc.type}
-                </span>
+                <div className="mb-3">
+                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>Capacity</span>
+                    <span>{loc.usedCapacity} / {loc.capacity || 0} {loc.capacityUnit}</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className={`h-2 rounded-full ${usagePercent > 90 ? 'bg-red-500' : usagePercent > 70 ? 'bg-yellow-500' : 'bg-blue-500'}`}
+                      style={{ width: `${Math.min(usagePercent, 100)}%` }}
+                    />
+                  </div>
+                  <div className="text-right text-xs text-gray-400 mt-0.5">{usagePercent}%</div>
+                </div>
+                {(loc.temperatureMin != null || loc.temperatureMax != null) && (
+                  <div className="text-xs text-gray-500 mb-2">
+                    Temp: {loc.temperatureMin ?? '-'}°C - {loc.temperatureMax ?? '-'}°C
+                    {(loc.humidityMin != null || loc.humidityMax != null) && ` | Humidity: ${loc.humidityMin ?? '-'}% - ${loc.humidityMax ?? '-'}%`}
+                  </div>
+                )}
+                {loc.description && <p className="text-xs text-gray-500 mb-3">{loc.description}</p>}
+                <div className="flex gap-2 pt-2 border-t border-gray-100">
+                  <button onClick={() => openEdit(loc)} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
+                  <button onClick={() => handleDelete(loc.id)} className="text-xs text-red-600 hover:text-red-800">Delete</button>
+                </div>
               </div>
-              <div className="mb-3">
-                <div className="flex justify-between text-xs text-gray-500 mb-1">
-                  <span>Capacity</span>
-                  <span>{loc.usedCapacity} / {loc.capacity} {loc.capacityUnit}</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className={`h-2 rounded-full ${usagePercent > 90 ? 'bg-red-500' : usagePercent > 70 ? 'bg-yellow-500' : 'bg-blue-500'}`}
-                    style={{ width: `${Math.min(usagePercent, 100)}%` }}
-                  />
-                </div>
-                <div className="text-right text-xs text-gray-400 mt-0.5">{usagePercent}%</div>
-              </div>
-              {(loc.temperatureMin !== undefined || loc.temperatureMax !== undefined) && (
-                <div className="text-xs text-gray-500 mb-2">
-                  Temp: {loc.temperatureMin}°C - {loc.temperatureMax}°C
-                  {loc.humidityControl && ' | Humidity controlled'}
-                </div>
-              )}
-              <p className="text-xs text-gray-500 mb-3">{loc.description}</p>
-              <div className="flex gap-2 pt-2 border-t border-gray-100">
-                <button onClick={() => openEdit(loc)} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
-                <button onClick={() => handleDelete(loc.id)} className="text-xs text-red-600 hover:text-red-800">Delete</button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+          {locations.length === 0 && (
+            <div className="col-span-3 text-center py-12 text-gray-500 text-sm">No storage locations found. Add your first location.</div>
+          )}
+        </div>
+      )}
 
       {/* Modal */}
       {isModalOpen && (
@@ -125,63 +212,81 @@ export const StorageLocationsTab: React.FC = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700">Name *</label>
-                      <input type="text" required value={formData.name} onChange={e => update('name', e.target.value)}
+                      <input type="text" required value={formData.name} onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
                         className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700">Code *</label>
-                      <input type="text" required value={formData.code} onChange={e => update('code', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Type</label>
-                    <select value={formData.type} onChange={e => update('type', e.target.value as StorageLocationType)}
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500">
-                      {LOCATION_TYPES.map(t => <option key={t} value={t}>{typeLabels[t]}</option>)}
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Capacity</label>
-                      <input type="number" min="0" value={formData.capacity} onChange={e => update('capacity', Number(e.target.value))}
-                        className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Unit</label>
-                      <select value={formData.capacityUnit} onChange={e => update('capacityUnit', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500">
-                        <option value="m³">m³</option>
-                        <option value="kg">kg</option>
-                        <option value="L">L</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Used</label>
-                      <input type="number" min="0" value={formData.usedCapacity} onChange={e => update('usedCapacity', Number(e.target.value))}
+                      <input type="text" required value={formData.code} onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))}
                         className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
+                      <label className="block text-sm font-medium text-gray-700">Type</label>
+                      <select value={formData.type} onChange={e => setFormData(prev => ({ ...prev, type: e.target.value as StorageLocationType }))}
+                        className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500">
+                        {LOCATION_TYPES.map(t => <option key={t} value={t}>{typeLabels[t]}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Site *</label>
+                      <select required value={formData.siteId} onChange={e => setFormData(prev => ({ ...prev, siteId: e.target.value }))}
+                        className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Select Site</option>
+                        {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Capacity</label>
+                      <input type="number" min="0" value={formData.capacity}
+                        onChange={e => setFormData(prev => ({ ...prev, capacity: e.target.value ? Number(e.target.value) : '' }))}
+                        className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Unit</label>
+                      <select value={formData.capacityUnit} onChange={e => setFormData(prev => ({ ...prev, capacityUnit: e.target.value }))}
+                        className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="m³">m³</option>
+                        <option value="kg">kg</option>
+                        <option value="L">L</option>
+                        <option value="tons">tons</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
                       <label className="block text-sm font-medium text-gray-700">Temp Min (°C)</label>
-                      <input type="number" value={formData.temperatureMin ?? ''} onChange={e => update('temperatureMin', e.target.value ? Number(e.target.value) : undefined)}
+                      <input type="number" step="0.1" value={formData.temperatureMin}
+                        onChange={e => setFormData(prev => ({ ...prev, temperatureMin: e.target.value ? Number(e.target.value) : '' }))}
                         className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700">Temp Max (°C)</label>
-                      <input type="number" value={formData.temperatureMax ?? ''} onChange={e => update('temperatureMax', e.target.value ? Number(e.target.value) : undefined)}
+                      <input type="number" step="0.1" value={formData.temperatureMax}
+                        onChange={e => setFormData(prev => ({ ...prev, temperatureMax: e.target.value ? Number(e.target.value) : '' }))}
                         className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
                     </div>
                   </div>
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" checked={formData.humidityControl} onChange={e => update('humidityControl', e.target.checked)}
-                      className="h-4 w-4 text-blue-600 border-gray-300 rounded" />
-                    <span className="text-sm text-gray-700">Humidity Control</span>
-                  </label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Humidity Min (%)</label>
+                      <input type="number" step="0.1" min="0" max="100" value={formData.humidityMin}
+                        onChange={e => setFormData(prev => ({ ...prev, humidityMin: e.target.value ? Number(e.target.value) : '' }))}
+                        className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Humidity Max (%)</label>
+                      <input type="number" step="0.1" min="0" max="100" value={formData.humidityMax}
+                        onChange={e => setFormData(prev => ({ ...prev, humidityMax: e.target.value ? Number(e.target.value) : '' }))}
+                        className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
+                    </div>
+                  </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Description</label>
-                    <textarea rows={2} value={formData.description} onChange={e => update('description', e.target.value)}
+                    <textarea rows={2} value={formData.description} onChange={e => setFormData(prev => ({ ...prev, description: e.target.value }))}
                       className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500" />
                   </div>
                 </div>

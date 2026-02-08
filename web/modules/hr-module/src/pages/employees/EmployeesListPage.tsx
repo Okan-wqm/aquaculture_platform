@@ -18,7 +18,7 @@ import {
   Building2,
 } from 'lucide-react';
 import { cn } from '@aquaculture/shared-ui';
-import { useEmployees, useDepartments, usePositions } from '../../hooks';
+import { useEmployees, useDepartments, usePositions, useToggleFarmWorker } from '../../hooks';
 import { DataTable, StatusBadge, EmployeeAvatar, DepartmentBadge } from '../../components/common';
 import type { Column } from '../../components/common';
 import type { Employee, EmployeeFilterInput, EmployeeStatus, PersonnelCategory, PaginationInput } from '../../types';
@@ -43,6 +43,7 @@ export function EmployeesListPage() {
   );
   const { data: departments } = useDepartments();
   const { data: positions } = usePositions();
+  const toggleFarmWorker = useToggleFarmWorker();
 
   // Table columns
   const columns: Column<Employee>[] = [
@@ -133,6 +134,28 @@ export function EmployeesListPage() {
         >
           {row.seaWorthy ? '✓' : '-'}
         </span>
+      ),
+    },
+    {
+      key: 'farmWorker',
+      header: 'Farm',
+      align: 'center',
+      accessor: (row) => (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleFarmWorker.mutate({ id: row.id, isFarmWorker: !row.isFarmWorker });
+          }}
+          className={cn(
+            'inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium transition-colors',
+            row.isFarmWorker
+              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400'
+              : 'bg-gray-100 text-gray-400 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-500'
+          )}
+          title={row.isFarmWorker ? 'Visible in Farm module (click to hide)' : 'Hidden from Farm module (click to show)'}
+        >
+          {row.isFarmWorker ? '✓' : '-'}
+        </button>
       ),
     },
     {

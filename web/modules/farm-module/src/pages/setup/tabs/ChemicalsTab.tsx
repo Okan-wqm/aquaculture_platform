@@ -119,6 +119,10 @@ interface ChemicalFormData {
   formulation: string;
   // Storage & Safety
   storageRequirements: string;
+  storageTempMin: number | '';
+  storageTempMax: number | '';
+  storageHumidityMin: number | '';
+  storageHumidityMax: number | '';
   hazardClass: string;
   signalWord: string;
   msdsUrl: string;
@@ -147,6 +151,10 @@ const initialFormData: ChemicalFormData = {
   concentration: '',
   formulation: '',
   storageRequirements: 'room_temperature',
+  storageTempMin: '',
+  storageTempMax: '',
+  storageHumidityMin: '',
+  storageHumidityMax: '',
   hazardClass: '',
   signalWord: '',
   msdsUrl: '',
@@ -471,6 +479,10 @@ export const ChemicalsTab: React.FC = () => {
         concentration: formData.concentration || undefined,
         formulation: formData.formulation || undefined,
         storageRequirements: formData.storageRequirements || undefined,
+        storageTempMin: formData.storageTempMin !== '' ? Number(formData.storageTempMin) : undefined,
+        storageTempMax: formData.storageTempMax !== '' ? Number(formData.storageTempMax) : undefined,
+        storageHumidityMin: formData.storageHumidityMin !== '' ? Number(formData.storageHumidityMin) : undefined,
+        storageHumidityMax: formData.storageHumidityMax !== '' ? Number(formData.storageHumidityMax) : undefined,
         withdrawalPeriodDays: formData.withdrawalPeriodDays || undefined,
         status: formData.status,
         notes: formData.notes || undefined,
@@ -525,6 +537,10 @@ export const ChemicalsTab: React.FC = () => {
       concentration: chemical.concentration || '',
       formulation: chemical.formulation || '',
       storageRequirements: chemical.storageRequirements || 'room_temperature',
+      storageTempMin: chemical.storageTempMin ?? '',
+      storageTempMax: chemical.storageTempMax ?? '',
+      storageHumidityMin: chemical.storageHumidityMin ?? '',
+      storageHumidityMax: chemical.storageHumidityMax ?? '',
       hazardClass: chemical.safetyInfo?.hazardClass || '',
       signalWord: chemical.safetyInfo?.signalWord || '',
       msdsUrl: chemical.safetyInfo?.msdsUrl || '',
@@ -912,6 +928,52 @@ export const ChemicalsTab: React.FC = () => {
                             type="text"
                             value={formData.hazardClass}
                             onChange={e => setFormData(prev => ({ ...prev, hazardClass: e.target.value }))}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-4 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Min Temp (°C)</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={formData.storageTempMin}
+                            onChange={e => setFormData(prev => ({ ...prev, storageTempMin: e.target.value ? parseFloat(e.target.value) : '' }))}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Max Temp (°C)</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={formData.storageTempMax}
+                            onChange={e => setFormData(prev => ({ ...prev, storageTempMax: e.target.value ? parseFloat(e.target.value) : '' }))}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Min Humidity (%)</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="100"
+                            value={formData.storageHumidityMin}
+                            onChange={e => setFormData(prev => ({ ...prev, storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '' }))}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Max Humidity (%)</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="100"
+                            value={formData.storageHumidityMax}
+                            onChange={e => setFormData(prev => ({ ...prev, storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '' }))}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>

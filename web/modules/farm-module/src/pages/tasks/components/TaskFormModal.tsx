@@ -12,6 +12,7 @@ interface TaskFormModalProps {
   task?: Task | null;
   onClose: () => void;
   onSave: (data: TaskFormData) => void;
+  users?: { id: string; name: string }[];
 }
 
 export interface TaskFormData {
@@ -29,14 +30,7 @@ export interface TaskFormData {
   tags: string[];
 }
 
-const ASSIGNEES = [
-  { id: 'u1', name: 'Ahmet Yılmaz' },
-  { id: 'u2', name: 'Mehmet Demir' },
-  { id: 'u3', name: 'Ali Kaya' },
-  { id: 'u4', name: 'Fatma Öz' },
-];
-
-export const TaskFormModal: React.FC<TaskFormModalProps> = ({ task, onClose, onSave }) => {
+export const TaskFormModal: React.FC<TaskFormModalProps> = ({ task, onClose, onSave, users = [] }) => {
   const isEdit = !!task;
 
   const [formData, setFormData] = useState<TaskFormData>({
@@ -58,7 +52,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({ task, onClose, onS
   const [newTag, setNewTag] = useState('');
 
   const handleAssigneeChange = (userId: string) => {
-    const assignee = ASSIGNEES.find(a => a.id === userId);
+    const assignee = users.find(a => a.id === userId);
     setFormData(prev => ({
       ...prev,
       assignedTo: userId,
@@ -176,8 +170,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({ task, onClose, onS
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   required
                 >
-                  <option value="">Seçin...</option>
-                  {ASSIGNEES.map(a => (
+                  <option value="">{users.length === 0 ? 'Yükleniyor...' : 'Seçin...'}</option>
+                  {users.map(a => (
                     <option key={a.id} value={a.id}>{a.name}</option>
                   ))}
                 </select>

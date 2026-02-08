@@ -341,7 +341,60 @@ All services expose health endpoints:
 3. Run `npm run lint` and `npm run test` before committing
 4. Update documentation as needed
 
-## Recent Updates (v1.4.0)
+## Recent Updates (v1.4.1)
+
+### New Modules & Major Features
+
+**Farm Service - Consumable Management Module (New)**
+- Full CQRS module: commands, queries, handlers, resolver, DTOs, entities
+- Consumable inventory tracking with category and supplier management
+
+**Farm Service - Storage Management Module (New)**
+- Complete storage module with locations, inventory tracking, and stock movements
+- Purchase order management with create/receive delivery workflows
+- Database migrations: storage management tables, purchase orders
+
+**Farm Service - Worker Management Module (New)**
+- Worker registry with resolver, handlers, DTOs, and entities
+- Worker assignment and role tracking
+
+**Farm Service - Feed & Chemical Enhancements**
+- Feed entity: added `minFishWeight` field with migration
+- Enhanced feed DTOs and handlers (create/update) with improved validation
+- Chemical entity and DTO refinements
+- Feeding module: new Protocols tab, updated resolvers
+
+**HR Service - Employee Enhancements**
+- New employee fields in entity and create DTO
+- Updated HR resolver with additional query/mutation support
+- Employee GraphQL operations and fragments updated on frontend
+
+**Frontend - Storage Page Overhaul**
+- Redesigned storage tabs: Feed Stock, Chemicals Stock, Consumables Stock, Healthcare Stock
+- New Purchase Orders tab with CreatePurchaseOrderModal and ReceiveDeliveryModal
+- Improved Overview, Stock Movements, Storage Locations, and Inventory Count tabs
+
+**Frontend - New Hooks & Pages**
+- New hooks: `useConsumables`, `usePurchaseOrders`, `useStorageInventory`, `useStorageLocations`, `useTenantUsers`, `useWorkers`
+- Workers setup tab in farm setup page
+- Feeding Protocols tab component
+- Enhanced task management: AllTasksTab, TodayTab, TaskFormModal improvements
+- Updated Chemicals, Consumables, and Feeds setup tabs
+
+**Frontend - Production Page Cleanup**
+- Removed legacy ProductionPage and related components (HarvestModal, FeedingTab, TankOperationsTab)
+- Consolidated functionality into dedicated pages
+
+**Infrastructure & Scripts**
+- Database migrations for feed min fish weight, storage management, purchase orders
+- Seed scripts: `seed-feeds.js`, `update-feeds-max-weight.js`
+- Schema manager updates in backend-common
+- Docker Compose configuration updates
+- Updated package dependencies
+
+---
+
+## Previous Updates (v1.4.0)
 
 ### Platform-Wide Enhancements
 

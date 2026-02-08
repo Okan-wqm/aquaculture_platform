@@ -130,6 +130,14 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'code_sequences',
       'farm_audit_logs',
 
+      // Storage & Stock Management
+      'storage_locations',
+      'consumables',
+      'storage_inventory',
+      'stock_movements',
+      'purchase_orders',
+      'purchase_order_items',
+
       // Regulatory settings (Maskinporten credentials, company info)
       'regulatory_settings',
       'sentinel_hub_settings',
@@ -148,6 +156,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'security_events',
       'security_incidents',
       'threat_intelligence',
+
     ],
   },
   {

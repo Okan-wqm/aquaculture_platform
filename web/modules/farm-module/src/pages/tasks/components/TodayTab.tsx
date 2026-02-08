@@ -13,6 +13,7 @@ interface TodayTabProps {
   onToggleComplete: (taskId: string) => void;
   onToggleChecklist: (taskId: string, checklistId: string) => void;
   onAddNote: (taskId: string, note: string) => void;
+  users?: { id: string; name: string }[];
 }
 
 export const TodayTab: React.FC<TodayTabProps> = ({
@@ -21,6 +22,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
   onToggleComplete,
   onToggleChecklist,
   onAddNote,
+  users = [],
 }) => {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [filterCategory, setFilterCategory] = useState<string>('all');
@@ -47,7 +49,9 @@ export const TodayTab: React.FC<TodayTabProps> = ({
     return priorityOrder[a.priority] - priorityOrder[b.priority];
   });
 
-  const assignees = [...new Set(todayTasks.map(t => JSON.stringify({ id: t.assignedTo, name: t.assignedToName })))].map(s => JSON.parse(s));
+  const assignees = users.length > 0
+    ? users
+    : [...new Set(todayTasks.map(t => JSON.stringify({ id: t.assignedTo, name: t.assignedToName })))].map(s => JSON.parse(s));
 
   const statCards = [
     { label: 'Bugün Toplam', value: stats.totalToday, color: 'bg-blue-500', icon: '📋' },

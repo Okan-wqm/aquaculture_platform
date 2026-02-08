@@ -147,6 +147,10 @@ export interface Feed {
   minStock: number;
   unit: string;
   storageRequirements?: string;
+  storageTempMin?: number;
+  storageTempMax?: number;
+  storageHumidityMin?: number;
+  storageHumidityMax?: number;
   shelfLifeMonths?: number;
   expiryDate?: string;
   pricePerKg?: number;
@@ -166,6 +170,8 @@ export interface Feed {
   environmentalImpact?: EnvironmentalImpact;
   feedingCurve?: FeedingCurvePoint[];
   feedingMatrix2D?: FeedingMatrix2D;
+  minFishWeightG?: number;
+  maxFishWeightG?: number;
   documents?: FeedDocument[];
 }
 
@@ -187,6 +193,10 @@ export interface CreateFeedInput {
   minStock?: number;
   unit?: string;
   storageRequirements?: string;
+  storageTempMin?: number;
+  storageTempMax?: number;
+  storageHumidityMin?: number;
+  storageHumidityMax?: number;
   shelfLifeMonths?: number;
   expiryDate?: string;
   pricePerKg?: number;
@@ -201,6 +211,8 @@ export interface CreateFeedInput {
   environmentalImpact?: EnvironmentalImpact;
   feedingCurve?: FeedingCurvePoint[];
   feedingMatrix2D?: FeedingMatrix2D;
+  minFishWeightG?: number;
+  maxFishWeightG?: number;
   documents?: FeedDocument[];
 }
 
@@ -255,6 +267,10 @@ const FEEDS_LIST_QUERY = `
         minStock
         unit
         storageRequirements
+        storageTempMin
+        storageTempMax
+        storageHumidityMin
+        storageHumidityMax
         shelfLifeMonths
         expiryDate
         pricePerKg
@@ -286,6 +302,8 @@ const FEEDS_LIST_QUERY = `
           weightUnit
           notes
         }
+        minFishWeightG
+        maxFishWeightG
         documents {
           id
           name
@@ -338,6 +356,10 @@ const FEED_QUERY = `
       minStock
       unit
       storageRequirements
+      storageTempMin
+      storageTempMax
+      storageHumidityMin
+      storageHumidityMax
       shelfLifeMonths
       expiryDate
       pricePerKg
@@ -369,6 +391,7 @@ const FEED_QUERY = `
         weightUnit
         notes
       }
+      minFishWeightG
       documents {
         id
         name

@@ -176,6 +176,21 @@ export class HRResolver {
 
   @Mutation(() => Employee)
   @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  async toggleFarmWorker(
+    @Args('id', { type: () => ID }) id: string,
+    @Args('isFarmWorker') isFarmWorker: boolean,
+    @Context() context: GraphQLContext,
+  ): Promise<Employee> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute(
+      new UpdateEmployeeCommand(tenantId, { id, isFarmWorker }, userId),
+    );
+  }
+
+  @Mutation(() => Employee)
+  @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async terminateEmployee(
     @Args('id', { type: () => ID }) id: string,

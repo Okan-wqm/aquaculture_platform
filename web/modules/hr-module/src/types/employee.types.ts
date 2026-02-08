@@ -108,6 +108,7 @@ export interface Employee extends BaseEntity {
   currentRotationId?: string;
   emergencyInfo?: EmergencyInfo;
   avatarUrl?: string;
+  isFarmWorker?: boolean;
 }
 
 export interface Department {

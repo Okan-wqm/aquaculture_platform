@@ -18,6 +18,7 @@ import {
   CREATE_EMPLOYEE,
   UPDATE_EMPLOYEE,
   UPDATE_EMPLOYEE_STATUS,
+  TOGGLE_FARM_WORKER,
   ASSIGN_EMPLOYEE_TO_DEPARTMENT,
   ASSIGN_EMPLOYEE_TO_POSITION,
   ASSIGN_MANAGER,
@@ -294,6 +295,24 @@ export function useUpdateEmployeeStatus() {
         client,
         UPDATE_EMPLOYEE_STATUS.loc?.source.body || '',
         { id, status, reason }
+      ),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: employeeKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: employeeKeys.detail(variables.id) });
+    },
+  });
+}
+
+export function useToggleFarmWorker() {
+  const client = useGraphQLClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, isFarmWorker }: { id: string; isFarmWorker: boolean }) =>
+      graphqlRequest<{ toggleFarmWorker: Employee }, unknown>(
+        client,
+        TOGGLE_FARM_WORKER.loc?.source.body || '',
+        { id, isFarmWorker }
       ),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: employeeKeys.lists() });

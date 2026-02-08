@@ -21,6 +21,9 @@ import { CqrsModule } from '@platform/cqrs';
 import { FeedingTable } from './entities/feeding-table.entity';
 import { FeedingRecord } from './entities/feeding-record.entity';
 import { FeedInventory } from './entities/feed-inventory.entity';
+import { FeedingProgram } from './entities/feeding-program.entity';
+import { FeedingProgramTank } from './entities/feeding-program-tank.entity';
+import { DailyFeedingExecution } from './entities/daily-feeding-execution.entity';
 
 // Related entities
 import { Batch } from '../batch/entities/batch.entity';
@@ -29,12 +32,15 @@ import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Tank } from '../tank/entities/tank.entity';
 import { Site } from '../site/entities/site.entity';
+import { Equipment } from '../equipment/entities/equipment.entity';
 
 // Services
 import { FeedSelectorService } from './services/feed-selector.service';
 import { BilinearInterpolationService } from './services/bilinear-interpolation.service';
 import { GrowthSimulatorService } from './services/growth-simulator.service';
 import { FeedConsumptionForecastService } from './services/feed-consumption-forecast.service';
+import { FeedingProgramService } from './services/feeding-program.service';
+import { DailyFeedingExecutionService } from './services/daily-feeding-execution.service';
 
 // Handlers
 import { FeedingCommandHandlers } from './handlers';
@@ -49,12 +55,16 @@ import { FeedingResolvers } from './resolvers';
       FeedingTable,
       FeedingRecord,
       FeedInventory,
+      FeedingProgram,
+      FeedingProgramTank,
+      DailyFeedingExecution,
       Batch,
       BatchFeedAssignment,
       TankBatch,
       Feed,
       Tank,
       Site,
+      Equipment,
     ]),
     CqrsModule,
   ],
@@ -63,6 +73,8 @@ import { FeedingResolvers } from './resolvers';
     BilinearInterpolationService,
     GrowthSimulatorService,
     FeedConsumptionForecastService,
+    FeedingProgramService,
+    DailyFeedingExecutionService,
     ...FeedingCommandHandlers,
     ...FeedingQueryHandlers,
     ...FeedingResolvers,
@@ -73,6 +85,8 @@ import { FeedingResolvers } from './resolvers';
     BilinearInterpolationService,
     GrowthSimulatorService,
     FeedConsumptionForecastService,
+    FeedingProgramService,
+    DailyFeedingExecutionService,
   ],
 })
 export class FeedingModule {}

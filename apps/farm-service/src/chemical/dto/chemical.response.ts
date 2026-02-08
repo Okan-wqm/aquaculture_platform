@@ -197,6 +197,18 @@ export class ChemicalResponse {
   @Field({ nullable: true })
   storageRequirements?: string;
 
+  @Field(() => Float, { nullable: true, description: 'Minimum storage temperature (°C)' })
+  storageTempMin?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Maximum storage temperature (°C)' })
+  storageTempMax?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Minimum storage humidity (%)' })
+  storageHumidityMin?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Maximum storage humidity (%)' })
+  storageHumidityMax?: number;
+
   @Field(() => Int, { nullable: true })
   shelfLifeMonths?: number;
 

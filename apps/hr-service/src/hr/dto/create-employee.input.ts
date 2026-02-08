@@ -234,4 +234,8 @@ export class CreateEmployeeInput {
   @IsString({ each: true })
   @MaxLength(100, { each: true, message: 'Each skill must be at most 100 characters' })
   skills?: string[];
+
+  @Field({ nullable: true, defaultValue: false })
+  @IsOptional()
+  isFarmWorker?: boolean;
 }

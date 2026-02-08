@@ -221,6 +221,15 @@ export const UPDATE_EMPLOYEE_AVATAR = gql`
   }
 `;
 
+export const TOGGLE_FARM_WORKER = gql`
+  mutation ToggleFarmWorker($id: ID!, $isFarmWorker: Boolean!) {
+    toggleFarmWorker(id: $id, isFarmWorker: $isFarmWorker) {
+      id
+      isFarmWorker
+    }
+  }
+`;
+
 export const UPDATE_EMERGENCY_INFO = gql`
   mutation UpdateEmergencyInfo($employeeId: ID!, $emergencyInfo: EmergencyInfoInput!) {
     updateEmergencyInfo(employeeId: $employeeId, emergencyInfo: $emergencyInfo) {

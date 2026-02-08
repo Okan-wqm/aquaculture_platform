@@ -29,6 +29,8 @@ interface FeedingMatrixEditorProps {
   matrix: FeedingMatrix2D | null;
   onChange: (matrix: FeedingMatrix2D) => void;
   showFCR?: boolean;
+  /** Coverage map from merged matrix: coverageMap[weightIdx][tempIdx] = true if feed covers this cell */
+  coverageMap?: boolean[][];
 }
 
 // Default empty matrix
@@ -138,6 +140,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
   matrix: inputMatrix,
   onChange,
   showFCR = true,
+  coverageMap,
 }) => {
   const matrix = inputMatrix ?? createEmptyMatrix();
   const [editMode, setEditMode] = useState<'rates' | 'fcr'>('rates');
@@ -233,6 +236,31 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
     },
     [matrix, onChange]
   );
+
+  // Check if a test point is within coverage
+  const isTestPointCovered = useMemo(() => {
+    if (!coverageMap || testTemp === '' || testWeight === '') return true;
+    const { temperatures, weights } = matrix;
+
+    // Find the closest weight index
+    let wi = 0;
+    for (let i = 0; i < weights.length - 1; i++) {
+      if (testWeight >= weights[i]!) wi = i;
+    }
+    // Check if closer to wi or wi+1
+    const wi2 = Math.min(wi + 1, weights.length - 1);
+    const closestWi = (Math.abs(testWeight - weights[wi]!) <= Math.abs(testWeight - weights[wi2]!)) ? wi : wi2;
+
+    // Find the closest temp index
+    let ti = 0;
+    for (let i = 0; i < temperatures.length - 1; i++) {
+      if (testTemp >= temperatures[i]!) ti = i;
+    }
+    const ti2 = Math.min(ti + 1, temperatures.length - 1);
+    const closestTi = (Math.abs(testTemp - temperatures[ti]!) <= Math.abs(testTemp - temperatures[ti2]!)) ? ti : ti2;
+
+    return coverageMap[closestWi]?.[closestTi] ?? true;
+  }, [coverageMap, matrix, testTemp, testWeight]);
 
   // Calculate interpolated values for test
   const testResult = useMemo(() => {
@@ -339,7 +367,23 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
                   </div>
                 </td>
                 {matrix.temperatures.map((_, ti) => {
+                  const isCovered = coverageMap ? (coverageMap[wi]?.[ti] ?? true) : true;
                   const value = currentValues[wi]?.[ti] ?? (editMode === 'rates' ? 2.0 : 1.0);
+
+                  if (!isCovered) {
+                    return (
+                      <td
+                        key={ti}
+                        className="border border-gray-300 px-1 py-1 bg-gray-100"
+                        title="Bu sicaklik bu yemin kapsami disinda"
+                      >
+                        <div className="w-14 text-center text-gray-400 font-medium text-sm py-0.5">
+                          ×
+                        </div>
+                      </td>
+                    );
+                  }
+
                   const bgColor = editMode === 'rates' ? getRateColor(value) : getFCRColor(value);
                   return (
                     <td
@@ -442,21 +486,37 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
           </div>
           <div>
             <label className="block text-xs text-blue-700 mb-1">Feeding Rate</label>
-            <div className="py-2 px-3 bg-white border border-blue-300 rounded-md text-sm font-medium">
-              {testResult?.rate !== null && testResult?.rate !== undefined
-                ? `${testResult.rate.toFixed(2)}% BW`
-                : '-'}
+            <div className={`py-2 px-3 border rounded-md text-sm font-medium ${
+              !isTestPointCovered ? 'bg-red-50 border-red-300 text-red-700' : 'bg-white border-blue-300'
+            }`}>
+              {!isTestPointCovered
+                ? '× Kapsam disi'
+                : testResult?.rate !== null && testResult?.rate !== undefined
+                  ? `${testResult.rate.toFixed(2)}% BW`
+                  : '-'}
             </div>
           </div>
           <div>
             <label className="block text-xs text-blue-700 mb-1">FCR</label>
-            <div className="py-2 px-3 bg-white border border-blue-300 rounded-md text-sm font-medium">
-              {testResult?.fcr !== null && testResult?.fcr !== undefined
-                ? testResult.fcr.toFixed(3)
-                : '-'}
+            <div className={`py-2 px-3 border rounded-md text-sm font-medium ${
+              !isTestPointCovered ? 'bg-red-50 border-red-300 text-red-700' : 'bg-white border-blue-300'
+            }`}>
+              {!isTestPointCovered
+                ? '× Kapsam disi'
+                : testResult?.fcr !== null && testResult?.fcr !== undefined
+                  ? testResult.fcr.toFixed(3)
+                  : '-'}
             </div>
           </div>
         </div>
+        {!isTestPointCovered && testTemp !== '' && testWeight !== '' && (
+          <div className="mt-2 flex items-center gap-2 text-xs text-red-700">
+            <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+            <span>Bu sicaklik/agirlik kombinasyonu hicbir yemin kapsama alaninda degil. Ilgili yemin sicaklik araligini kontrol edin.</span>
+          </div>
+        )}
       </div>
 
       {/* Notes */}

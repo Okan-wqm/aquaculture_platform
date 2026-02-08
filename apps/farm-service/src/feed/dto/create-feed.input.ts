@@ -2,7 +2,7 @@
  * Create Feed Input DTO
  */
 import { InputType, Field, Float, Int, ID } from '@nestjs/graphql';
-import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, MinLength, IsEnum, IsArray, ValidateNested, IsUUID, IsDate } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, MinLength, IsEnum, IsArray, ValidateNested, IsUUID, IsDate, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 import { GraphQLJSON } from 'graphql-type-json';
 import { FeedType, FloatingType } from '../entities/feed.entity';
@@ -332,8 +332,28 @@ export class CreateFeedInput {
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
-  @MaxLength(100)
+  @MaxLength(2000)
   storageRequirements?: string;
+
+  @Field(() => Float, { nullable: true, description: 'Minimum storage temperature (°C)' })
+  @IsOptional()
+  @IsNumber()
+  storageTempMin?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Maximum storage temperature (°C)' })
+  @IsOptional()
+  @IsNumber()
+  storageTempMax?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Minimum storage humidity (%)' })
+  @IsOptional()
+  @IsNumber()
+  storageHumidityMin?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Maximum storage humidity (%)' })
+  @IsOptional()
+  @IsNumber()
+  storageHumidityMax?: number;
 
   @Field(() => Int, { nullable: true, description: 'Shelf life in months' })
   @IsOptional()
@@ -420,4 +440,18 @@ export class CreateFeedInput {
   @ValidateNested()
   @Type(() => FeedingMatrix2DInput)
   feedingMatrix2D?: FeedingMatrix2DInput;
+
+  @Field(() => Float, { nullable: true, description: 'Minimum fish weight in grams this feed is designed for' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1000000)
+  minFishWeightG?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Maximum fish weight in grams this feed is designed for' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1000000)
+  maxFishWeightG?: number;
 }

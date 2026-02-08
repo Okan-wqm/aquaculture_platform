@@ -324,6 +324,10 @@ export class Employee {
   @Column({ default: false })
   isDeleted!: boolean;
 
+  @Field()
+  @Column({ default: false })
+  isFarmWorker!: boolean;
+
   /**
    * Sanitize and normalize data before insert
    */

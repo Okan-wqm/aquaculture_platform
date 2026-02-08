@@ -66,6 +66,7 @@ export const EMPLOYEE_FULL_FRAGMENT = gql`
     seaWorthy
     currentRotationId
     emergencyInfo
+    isFarmWorker
     createdAt
     updatedAt
     version

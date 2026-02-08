@@ -313,8 +313,8 @@ interface BatchListResponse {
 
 // GraphQL Queries
 const BATCH_LIST_QUERY = `
-  query Batches($tenantId: String!, $filter: BatchFilterInput, $page: Int, $limit: Int, $sortBy: String, $sortOrder: String) {
-    batches(tenantId: $tenantId, filter: $filter, page: $page, limit: $limit, sortBy: $sortBy, sortOrder: $sortOrder) {
+  query Batches($filter: BatchFilterInput, $page: Int, $limit: Int, $sortBy: String, $sortOrder: String) {
+    batches(filter: $filter, page: $page, limit: $limit, sortBy: $sortBy, sortOrder: $sortOrder) {
       items {
         id
         batchNumber
@@ -367,8 +367,8 @@ const BATCH_LIST_QUERY = `
 `;
 
 const BATCH_QUERY = `
-  query Batch($tenantId: String!, $id: ID!) {
-    batch(tenantId: $tenantId, id: $id) {
+  query Batch($id: ID!) {
+    batch(id: $id) {
       id
       batchNumber
       name
@@ -454,8 +454,8 @@ const BATCH_QUERY = `
 `;
 
 const AVAILABLE_TANKS_QUERY = `
-  query AvailableTanks($tenantId: String!, $siteId: ID, $departmentId: ID, $excludeFullTanks: Boolean) {
-    availableTanks(tenantId: $tenantId, siteId: $siteId, departmentId: $departmentId, excludeFullTanks: $excludeFullTanks) {
+  query AvailableTanks($siteId: ID, $departmentId: ID, $excludeFullTanks: Boolean) {
+    availableTanks(siteId: $siteId, departmentId: $departmentId, excludeFullTanks: $excludeFullTanks) {
       id
       code
       name
@@ -476,14 +476,14 @@ const AVAILABLE_TANKS_QUERY = `
 `;
 
 const GENERATE_BATCH_NUMBER_QUERY = `
-  query GenerateBatchNumber($tenantId: String!) {
-    generateBatchNumber(tenantId: $tenantId)
+  query GenerateBatchNumber {
+    generateBatchNumber
   }
 `;
 
 const CREATE_BATCH_MUTATION = `
-  mutation CreateBatch($tenantId: String!, $userId: String!, $input: CreateBatchInput!) {
-    createBatch(tenantId: $tenantId, userId: $userId, input: $input) {
+  mutation CreateBatch($input: CreateBatchInput!) {
+    createBatch(input: $input) {
       id
       batchNumber
       name
@@ -524,7 +524,6 @@ export function useBatchList(
       const data = await graphqlClient.request<{ batches: BatchListResponse }>(
         BATCH_LIST_QUERY,
         {
-          tenantId,
           filter,
           page: options?.page ?? 1,
           limit: options?.limit ?? 20,
@@ -563,7 +562,7 @@ export function useBatch(id: string) {
     queryFn: async () => {
       const data = await graphqlClient.request<{ batch: Batch }>(
         BATCH_QUERY,
-        { tenantId, id }
+        { id }
       );
       return data.batch;
     },
@@ -588,7 +587,6 @@ export function useAvailableTanks(options?: {
       const data = await graphqlClient.request<{ availableTanks: AvailableTank[] }>(
         AVAILABLE_TANKS_QUERY,
         {
-          tenantId,
           siteId: options?.siteId,
           departmentId: options?.departmentId,
           excludeFullTanks: options?.excludeFullTanks ?? false,
@@ -611,8 +609,7 @@ export function useGenerateBatchNumber() {
     queryKey: ['batches', 'generateNumber'],
     queryFn: async () => {
       const data = await graphqlClient.request<{ generateBatchNumber: string }>(
-        GENERATE_BATCH_NUMBER_QUERY,
-        { tenantId }
+        GENERATE_BATCH_NUMBER_QUERY
       );
       return data.generateBatchNumber;
     },
@@ -625,7 +622,7 @@ export function useGenerateBatchNumber() {
  * Hook to create a new batch
  */
 export function useCreateBatch() {
-  const { token, tenantId, user } = useAuth();
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -638,11 +635,7 @@ export function useCreateBatch() {
       }
       const data = await graphqlClient.request<{ createBatch: Batch }>(
         CREATE_BATCH_MUTATION,
-        {
-          tenantId,
-          userId: user?.id || 'unknown',
-          input,
-        }
+        { input }
       );
       return data.createBatch;
     },
@@ -659,8 +652,8 @@ export function useCreateBatch() {
 // ============================================================================
 
 const RECORD_MORTALITY_MUTATION = `
-  mutation RecordMortality($tenantId: String!, $userId: String!, $input: RecordMortalityInput!) {
-    recordMortality(tenantId: $tenantId, userId: $userId, input: $input) {
+  mutation RecordMortality($input: RecordMortalityInput!) {
+    recordMortality(input: $input) {
       id
       batchNumber
       currentQuantity
@@ -673,8 +666,8 @@ const RECORD_MORTALITY_MUTATION = `
 `;
 
 const RECORD_CULL_MUTATION = `
-  mutation RecordCull($tenantId: String!, $userId: String!, $input: RecordCullInput!) {
-    recordCull(tenantId: $tenantId, userId: $userId, input: $input) {
+  mutation RecordCull($input: RecordCullInput!) {
+    recordCull(input: $input) {
       id
       batchNumber
       currentQuantity
@@ -686,8 +679,8 @@ const RECORD_CULL_MUTATION = `
 `;
 
 const TRANSFER_BATCH_MUTATION = `
-  mutation TransferBatch($tenantId: String!, $userId: String!, $input: TransferBatchInput!) {
-    transferBatch(tenantId: $tenantId, userId: $userId, input: $input) {
+  mutation TransferBatch($input: TransferBatchInput!) {
+    transferBatch(input: $input) {
       id
       batchNumber
       currentQuantity
@@ -697,8 +690,8 @@ const TRANSFER_BATCH_MUTATION = `
 `;
 
 const CREATE_HARVEST_RECORD_MUTATION = `
-  mutation CreateHarvestRecord($tenantId: String!, $userId: String!, $input: CreateHarvestRecordInput!) {
-    createHarvestRecord(tenantId: $tenantId, userId: $userId, input: $input) {
+  mutation CreateHarvestRecord($input: CreateHarvestRecordInput!) {
+    createHarvestRecord(input: $input) {
       id
       recordCode
       lotNumber
@@ -715,7 +708,7 @@ const CREATE_HARVEST_RECORD_MUTATION = `
  * Hook to record mortality in a tank
  */
 export function useRecordMortality() {
-  const { token, tenantId, user } = useAuth();
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -728,11 +721,7 @@ export function useRecordMortality() {
       }
       const data = await graphqlClient.request<{ recordMortality: Batch }>(
         RECORD_MORTALITY_MUTATION,
-        {
-          tenantId,
-          userId: user?.id || 'unknown',
-          input,
-        }
+        { input }
       );
       return data.recordMortality;
     },
@@ -749,7 +738,7 @@ export function useRecordMortality() {
  * Hook to record cull in a tank
  */
 export function useRecordCull() {
-  const { token, tenantId, user } = useAuth();
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -762,11 +751,7 @@ export function useRecordCull() {
       }
       const data = await graphqlClient.request<{ recordCull: Batch }>(
         RECORD_CULL_MUTATION,
-        {
-          tenantId,
-          userId: user?.id || 'unknown',
-          input,
-        }
+        { input }
       );
       return data.recordCull;
     },
@@ -782,7 +767,7 @@ export function useRecordCull() {
  * Hook to transfer batch between tanks
  */
 export function useTransferBatch() {
-  const { token, tenantId, user } = useAuth();
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -795,11 +780,7 @@ export function useTransferBatch() {
       }
       const data = await graphqlClient.request<{ transferBatch: Batch }>(
         TRANSFER_BATCH_MUTATION,
-        {
-          tenantId,
-          userId: user?.id || 'unknown',
-          input,
-        }
+        { input }
       );
       return data.transferBatch;
     },
@@ -815,7 +796,7 @@ export function useTransferBatch() {
  * Hook to create harvest record
  */
 export function useCreateHarvestRecord() {
-  const { token, tenantId, user } = useAuth();
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -828,11 +809,7 @@ export function useCreateHarvestRecord() {
       }
       const data = await graphqlClient.request<{ createHarvestRecord: any }>(
         CREATE_HARVEST_RECORD_MUTATION,
-        {
-          tenantId,
-          userId: user?.id || 'unknown',
-          input,
-        }
+        { input }
       );
       return data.createHarvestRecord;
     },

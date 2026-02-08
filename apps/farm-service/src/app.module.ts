@@ -45,7 +45,10 @@ import { DepartmentModule } from './department/department.module';
 import { EquipmentModule } from './equipment/equipment.module';
 import { SupplierModule } from './supplier/supplier.module';
 import { ChemicalModule } from './chemical/chemical.module';
+import { ConsumableModule } from './consumable/consumable.module';
 import { FeedModule } from './feed/feed.module';
+import { StorageModule } from './storage/storage.module';
+import { WorkerModule } from './worker/worker.module';
 import { SystemModule } from './system/system.module';
 import { SentinelHubModule } from './sentinel-hub/sentinel-hub.module';
 import { RegulatoryModule } from './regulatory/regulatory.module';
@@ -214,7 +217,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     EquipmentModule,
     SupplierModule,
     ChemicalModule,
+    ConsumableModule,
     FeedModule,
+    StorageModule,
+    WorkerModule,
     SystemModule,
     SentinelHubModule,
     RegulatoryModule,

@@ -18,6 +18,7 @@ interface AllTasksTabProps {
   onAddNote: (taskId: string, note: string) => void;
   onCreateTask: (data: TaskFormData) => void;
   onDeleteTask: (taskId: string) => void;
+  users?: { id: string; name: string }[];
 }
 
 export const AllTasksTab: React.FC<AllTasksTabProps> = ({
@@ -27,6 +28,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
   onAddNote,
   onCreateTask,
   onDeleteTask,
+  users = [],
 }) => {
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
@@ -48,7 +50,9 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
     return true;
   });
 
-  const assignees = [...new Set(activeTasks.map(t => JSON.stringify({ id: t.assignedTo, name: t.assignedToName })))].map(s => JSON.parse(s));
+  const assignees = users.length > 0
+    ? users
+    : [...new Set(activeTasks.map(t => JSON.stringify({ id: t.assignedTo, name: t.assignedToName })))].map(s => JSON.parse(s));
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -254,6 +258,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
         <TaskFormModal
           onClose={() => setShowCreateModal(false)}
           onSave={(data) => { onCreateTask(data); setShowCreateModal(false); }}
+          users={users}
         />
       )}
     </div>

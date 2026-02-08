@@ -18,7 +18,6 @@ import {
   UserCog,
   Loader2,
   FileText,
-  Factory,
   Droplets,
   Warehouse,
   ClipboardList,
@@ -165,13 +164,7 @@ const staticNavigationSections: NavSection[] = [
         icon: <Settings className="w-5 h-5" />,
         path: '/sites/setup',
       },
-      {
-        id: 'production',
-        label: 'Production',
-        icon: <Factory className="w-5 h-5" />,
-        path: '/sites/production/batch-input',
-      },
-      {
+{
         id: 'reports',
         label: 'Reports',
         icon: <FileText className="w-5 h-5" />,

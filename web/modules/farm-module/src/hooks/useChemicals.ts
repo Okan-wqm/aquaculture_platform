@@ -113,6 +113,10 @@ export interface Chemical {
   usageProtocol?: UsageProtocol;
   safetyInfo?: SafetyInfo;
   storageRequirements?: string;
+  storageTempMin?: number;
+  storageTempMax?: number;
+  storageHumidityMin?: number;
+  storageHumidityMax?: number;
   shelfLifeMonths?: number;
   expiryDate?: string;
   usageAreas?: string[];
@@ -145,6 +149,10 @@ export interface CreateChemicalInput {
   usageProtocol?: UsageProtocol;
   safetyInfo?: SafetyInfo;
   storageRequirements?: string;
+  storageTempMin?: number;
+  storageTempMax?: number;
+  storageHumidityMin?: number;
+  storageHumidityMax?: number;
   shelfLifeMonths?: number;
   expiryDate?: string;
   usageAreas?: string[];
@@ -203,6 +211,10 @@ const CHEMICALS_LIST_QUERY = `
           msdsUrl
         }
         storageRequirements
+        storageTempMin
+        storageTempMax
+        storageHumidityMin
+        storageHumidityMax
         shelfLifeMonths
         expiryDate
         usageAreas
@@ -264,6 +276,10 @@ const CHEMICAL_QUERY = `
         msdsUrl
       }
       storageRequirements
+      storageTempMin
+      storageTempMax
+      storageHumidityMin
+      storageHumidityMax
       shelfLifeMonths
       expiryDate
       usageAreas

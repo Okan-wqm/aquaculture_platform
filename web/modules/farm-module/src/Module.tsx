@@ -12,11 +12,11 @@ import FarmFormPage from './pages/FarmFormPage';
 import SensorDashboardPage from './pages/SensorDashboardPage';
 import MapViewPage from './pages/MapViewPage';
 import SetupPage from './pages/setup/SetupPage';
-import ProductionPage from './pages/production/ProductionPage';
 import ReportsPage from './pages/reports/ReportsPage';
 import TanksPage from './pages/tanks/TanksPage';
 import SentinelHubSettingsPage from './pages/settings/SentinelHubSettingsPage';
 import FeedingPage from './pages/feeding/FeedingPage';
+import FeedingProgramForm from './pages/feeding/FeedingProgramForm';
 import StoragePage from './pages/storage/StoragePage';
 import HealthEventsPage from './pages/health/HealthEventsPage';
 import HarvestPlansPage from './pages/harvest/HarvestPlansPage';
@@ -54,6 +54,10 @@ const FarmModule: React.FC = () => {
       {/* Cleaner Fish - redirect to Tanks page Cleaner Fish tab */}
       <Route path="cleaner-fish/*" element={<Navigate to="/sites/tanks?tab=cleanerFish" replace />} />
 
+      {/* Feeding Management - Protocols (must be before catch-all) */}
+      <Route path="feeding/protocols/new" element={<FeedingProgramForm />} />
+      <Route path="feeding/protocols/:programId/edit" element={<FeedingProgramForm />} />
+
       {/* Feeding Management - Daily Plan, Growth Forecast, Stock, FCR Analysis */}
       <Route path="feeding/*" element={<FeedingPage />} />
 
@@ -63,8 +67,11 @@ const FarmModule: React.FC = () => {
       {/* Kurulum Sayfası - Sites, Departments, Equipment, Suppliers, Chemicals, Feeds */}
       <Route path="setup/*" element={<SetupPage />} />
 
-      {/* Üretim Sayfası - Batch, Tank Operations, Feeding, Growth */}
-      <Route path="production/*" element={<ProductionPage />} />
+      {/* Production redirects (page removed, content moved to Tanks & Feeding) */}
+      <Route path="production/batch-input" element={<Navigate to="/sites/tanks" replace />} />
+      <Route path="production/feeding" element={<Navigate to="/sites/feeding" replace />} />
+      <Route path="production/growth" element={<Navigate to="/sites/feeding?tab=sampling" replace />} />
+      <Route path="production/*" element={<Navigate to="/sites/tanks" replace />} />
 
       {/* Regulatory Reports - Norwegian compliance reports */}
       <Route path="reports/*" element={<ReportsPage />} />

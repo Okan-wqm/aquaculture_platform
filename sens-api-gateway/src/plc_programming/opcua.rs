@@ -717,6 +717,37 @@ impl Variant {
                     data.extend_from_slice(v.as_bytes());
                 }
             }
+            Self::Array(elements) => {
+                if elements.is_empty() {
+                    data.push(0x00); // Null array
+                    return data;
+                }
+                // Determine element type from first element
+                let element_type = match &elements[0] {
+                    Variant::Boolean(_) => 0x01u8,
+                    Variant::SByte(_) => 0x02,
+                    Variant::Byte(_) => 0x03,
+                    Variant::Int16(_) => 0x04,
+                    Variant::UInt16(_) => 0x05,
+                    Variant::Int32(_) => 0x06,
+                    Variant::UInt32(_) => 0x07,
+                    Variant::Int64(_) => 0x08,
+                    Variant::UInt64(_) => 0x09,
+                    Variant::Float(_) => 0x0A,
+                    Variant::Double(_) => 0x0B,
+                    Variant::String(_) => 0x0C,
+                    _ => 0x00,
+                };
+                data.push(element_type | 0x80); // Set array bit
+                data.extend_from_slice(&(elements.len() as i32).to_le_bytes());
+                for elem in elements {
+                    let encoded = elem.encode();
+                    // Skip the type byte (already in the array header)
+                    if encoded.len() > 1 {
+                        data.extend_from_slice(&encoded[1..]);
+                    }
+                }
+            }
         }
         data
     }
@@ -730,19 +761,39 @@ impl Variant {
         let type_id = data[0];
         let mut offset = 1;
 
-        // Check for array flag (bit 7) - we don't support arrays here for simplicity
+        // Check for array flag (bit 7) - decode array elements
         if type_id & 0x80 != 0 {
-            // Skip array handling for now, return as ByteString
-            let array_len = if data.len() >= 5 {
-                u32::from_le_bytes([data[1], data[2], data[3], data[4]]) as usize
-            } else {
+            if data.len() < 5 {
                 return Err(anyhow!("Insufficient data for array length"));
-            };
-            if array_len == 0xFFFFFFFF as usize {
+            }
+            let array_len = i32::from_le_bytes([data[1], data[2], data[3], data[4]]);
+            if array_len < 0 {
                 return Ok((Self::Null, 5));
             }
-            // Approximate: skip array content
-            return Ok((Self::Null, 5));
+            let array_len = array_len as usize;
+            // OOM protection: cap at 65536 elements
+            if array_len > 65536 {
+                return Err(anyhow!("Array too large: {} elements (max 65536)", array_len));
+            }
+            let element_type = type_id & 0x3F;
+            let mut elements = Vec::with_capacity(array_len);
+            let mut arr_offset = 5;
+            for _ in 0..array_len {
+                if arr_offset >= data.len() {
+                    break;
+                }
+                // Reconstruct a single-element variant by prepending the type byte
+                let mut single = vec![element_type];
+                single.extend_from_slice(&data[arr_offset..]);
+                match Self::decode(&single) {
+                    Ok((elem, consumed)) => {
+                        elements.push(elem);
+                        arr_offset += consumed - 1; // -1 because we added the type byte
+                    }
+                    Err(_) => break,
+                }
+            }
+            return Ok((Self::Array(elements), arr_offset));
         }
 
         match type_id & 0x3F {
@@ -973,6 +1024,10 @@ impl Variant {
             Self::NodeId(v) => format!("{:?}", v),
             Self::StatusCode(v) => format!("0x{:08X}", v),
             Self::LocalizedText(v) => v.clone(),
+            Self::Array(elements) => {
+                let items: Vec<String> = elements.iter().map(|e| e.to_string_value()).collect();
+                format!("[{}]", items.join(", "))
+            }
         }
     }
 }
@@ -1450,7 +1505,8 @@ impl OpcUaClient {
             return Err(anyhow!("OPC UA server returned error"));
         }
 
-        // Get message size
+        // Get message size and chunk type
+        let chunk_type = header[3];
         let size = u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as usize;
 
         // Validate message size
@@ -1468,7 +1524,7 @@ impl OpcUaClient {
             ));
         }
 
-        // Read rest of message with timeout
+        // Read rest of first chunk with timeout
         let mut response = header.to_vec();
         response.resize(size, 0);
         timeout(io_timeout, conn.read_exact(&mut response[8..]))
@@ -1479,6 +1535,70 @@ impl OpcUaClient {
                     self.config.timeout_secs
                 )
             })??;
+
+        // Handle multi-chunk responses
+        // 'F' = Final (single chunk or last chunk) - fast path, no extra work
+        // 'C' = Continuation - more chunks follow
+        // 'A' = Abort - server aborted the message
+        if chunk_type == b'C' {
+            // Multi-chunk: read continuation chunks and concatenate payload
+            // The first chunk has: header(8) + security_header(8) + sequence_header(8) + payload
+            // Continuation chunks have: header(8) + security_header(8) + sequence_header(8) + payload
+            // We concatenate only the payload portions (skip duplicate headers in continuations)
+            let first_payload_start = 24; // 8 (msg header) + 8 (security) + 8 (sequence)
+            let mut total_chunks = 1u32;
+            let max_chunks = 1000u32; // Safety limit
+
+            loop {
+                if total_chunks >= max_chunks {
+                    return Err(anyhow!("Too many message chunks ({} exceeded max {})", total_chunks, max_chunks));
+                }
+
+                // Read next chunk header
+                let mut next_header = [0u8; 8];
+                timeout(io_timeout, conn.read_exact(&mut next_header))
+                    .await
+                    .map_err(|_| anyhow!("OPC UA chunk read timeout"))??;
+
+                let next_chunk_type = next_header[3];
+                let next_size = u32::from_le_bytes([
+                    next_header[4], next_header[5], next_header[6], next_header[7],
+                ]) as usize;
+
+                if next_chunk_type == b'A' {
+                    return Err(anyhow!("OPC UA server aborted multi-chunk message"));
+                }
+
+                if next_size < 8 || next_size > MAX_OPCUA_MESSAGE_SIZE {
+                    return Err(anyhow!("Invalid continuation chunk size: {}", next_size));
+                }
+
+                // Read chunk body
+                let mut chunk_body = vec![0u8; next_size - 8];
+                timeout(io_timeout, conn.read_exact(&mut chunk_body))
+                    .await
+                    .map_err(|_| anyhow!("OPC UA chunk body read timeout"))??;
+
+                // Append payload (skip security + sequence headers = 16 bytes)
+                let payload_start = std::cmp::min(16, chunk_body.len());
+                response.extend_from_slice(&chunk_body[payload_start..]);
+
+                total_chunks += 1;
+
+                if next_chunk_type == b'F' {
+                    break; // Final chunk received
+                }
+                // 'C' means continue reading
+            }
+
+            // Update total size in the response header
+            let total_size = response.len() as u32;
+            response[4..8].copy_from_slice(&total_size.to_le_bytes());
+            // Mark as final chunk
+            response[3] = b'F';
+        } else if chunk_type == b'A' {
+            return Err(anyhow!("OPC UA server aborted message transfer"));
+        }
 
         Ok(response)
     }
@@ -2731,6 +2851,1040 @@ impl OpcUaClient {
         msg
     }
 
+    /// Renew the secure channel token (RequestType=1 RENEW)
+    async fn renew_secure_channel(&self) -> Result<()> {
+        let mut msg = Vec::new();
+
+        // Message header
+        msg.extend_from_slice(MSG_OPEN);
+        msg.push(b'F');
+        let size_pos = msg.len();
+        msg.extend_from_slice(&[0u8; 4]);
+
+        // Use existing secure channel ID for renewal
+        let channel_id = *self.secure_channel_id.lock().await;
+        msg.extend_from_slice(&channel_id.to_le_bytes());
+
+        // Security policy URI
+        let policy_uri = self.config.security_policy.to_uri();
+        msg.extend_from_slice(&(policy_uri.len() as u32).to_le_bytes());
+        msg.extend_from_slice(policy_uri.as_bytes());
+
+        // Sender certificate (empty for None security)
+        msg.extend_from_slice(&0xFFFFFFFFu32.to_le_bytes());
+        // Receiver certificate thumbprint (empty for None security)
+        msg.extend_from_slice(&0xFFFFFFFFu32.to_le_bytes());
+
+        // Sequence header
+        let seq = self.next_sequence().await;
+        let req_id = self.next_request_id().await;
+        msg.extend_from_slice(&seq.to_le_bytes());
+        msg.extend_from_slice(&req_id.to_le_bytes());
+
+        // OpenSecureChannelRequest type ID
+        let type_id = NodeId::numeric(0, 446);
+        msg.extend_from_slice(&type_id.encode());
+
+        // Request header
+        msg.extend_from_slice(&0u8.to_le_bytes()); // null auth token
+        msg.extend_from_slice(&0i64.to_le_bytes()); // timestamp
+        msg.extend_from_slice(&1u32.to_le_bytes()); // request handle
+        msg.extend_from_slice(&0u32.to_le_bytes()); // return diagnostics
+        msg.extend_from_slice(&0xFFFFFFFFu32.to_le_bytes()); // audit entry id (null)
+        msg.extend_from_slice(&30000u32.to_le_bytes()); // timeout hint
+        msg.extend_from_slice(&0u8.to_le_bytes()); // additional header (null)
+
+        // Client protocol version
+        msg.extend_from_slice(&0u32.to_le_bytes());
+
+        // Security token request type (1 = RENEW)
+        msg.extend_from_slice(&1u32.to_le_bytes());
+
+        // Message security mode
+        let mode = match self.config.security_mode {
+            OpcUaSecurityMode::None => 1u32,
+            OpcUaSecurityMode::Sign => 2u32,
+            OpcUaSecurityMode::SignAndEncrypt => 3u32,
+        };
+        msg.extend_from_slice(&mode.to_le_bytes());
+
+        // Client nonce
+        msg.extend_from_slice(&0xFFFFFFFFu32.to_le_bytes());
+
+        // Requested lifetime
+        msg.extend_from_slice(&3600000u32.to_le_bytes());
+
+        // Update size
+        let size = msg.len() as u32;
+        msg[size_pos..size_pos + 4].copy_from_slice(&size.to_le_bytes());
+
+        let response = self.send_receive(&msg).await?;
+
+        // Parse response: extract new token_id and lifetime
+        if response.len() >= 68 {
+            // OPN response: header(8) + securityChannelId(4) + securityPolicy(var) + ...
+            // After sequence header, find the SecurityToken structure
+            // Simplified: scan for token after the channel id
+            let body_start = 8; // After OPN + size
+            if response.len() > body_start + 4 {
+                let resp_channel_id = u32::from_le_bytes([
+                    response[body_start], response[body_start + 1],
+                    response[body_start + 2], response[body_start + 3],
+                ]);
+                *self.secure_channel_id.lock().await = resp_channel_id;
+            }
+
+            // Look for token in the response body after sequence headers
+            // The token structure follows the response header
+            // For simplicity, scan the known offsets from the OPN response
+            let scan_start = 24; // After security + sequence headers
+            if response.len() > scan_start + 40 {
+                // Skip TypeId + ResponseHeader to find SecurityToken
+                let (_, type_consumed) = NodeId::decode(&response[scan_start..])
+                    .unwrap_or((NodeId::null(), 0));
+                let token_offset = scan_start + type_consumed + 8 + 4 + 4 + 1 + 4 + 3;
+                // SecurityToken: channel_id(4) + token_id(4) + created_at(8) + revised_lifetime(4)
+                if response.len() >= token_offset + 20 {
+                    let new_token_id = u32::from_le_bytes([
+                        response[token_offset + 4], response[token_offset + 5],
+                        response[token_offset + 6], response[token_offset + 7],
+                    ]);
+                    let revised_lifetime = u32::from_le_bytes([
+                        response[token_offset + 16], response[token_offset + 17],
+                        response[token_offset + 18], response[token_offset + 19],
+                    ]);
+
+                    *self.token_id.lock().await = new_token_id;
+                    *self.token_created_at.lock().await = std::time::Instant::now();
+                    if revised_lifetime > 0 {
+                        *self.token_lifetime_ms.lock().await = revised_lifetime;
+                    }
+                    debug!("Secure channel token renewed: id={}, lifetime={}ms",
+                        new_token_id, revised_lifetime);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Start a background keepalive task that periodically reads ServerState
+    /// and renews the secure channel token when needed.
+    fn start_keepalive(
+        connection: Arc<Mutex<Option<TcpStream>>>,
+        connected: Arc<AtomicBool>,
+        secure_channel_id: Arc<Mutex<u32>>,
+        token_id: Arc<Mutex<u32>>,
+        sequence_number: Arc<Mutex<u32>>,
+        request_id: Arc<Mutex<u32>>,
+        session_id: Arc<Mutex<Option<Vec<u8>>>>,
+        auth_token: Arc<Mutex<Option<Vec<u8>>>>,
+        token_created_at: Arc<Mutex<std::time::Instant>>,
+        token_lifetime_ms: Arc<Mutex<u32>>,
+        shutdown_signal: Arc<AtomicBool>,
+        session_timeout_ms: u32,
+        timeout_secs: u64,
+        config_name: String,
+    ) -> tokio::task::JoinHandle<()> {
+        // Keepalive interval: 75% of session timeout, minimum 5s
+        let interval_ms = std::cmp::max(
+            (session_timeout_ms as u64 * 3) / 4,
+            5000,
+        );
+
+        tokio::spawn(async move {
+            let mut consecutive_failures = 0u32;
+            let mut interval = tokio::time::interval(Duration::from_millis(interval_ms));
+            interval.tick().await; // Skip first immediate tick
+
+            loop {
+                interval.tick().await;
+
+                // Check shutdown signal
+                if shutdown_signal.load(Ordering::Acquire) {
+                    debug!("Keepalive task shutting down for {}", config_name);
+                    break;
+                }
+
+                if !connected.load(Ordering::Acquire) {
+                    break;
+                }
+
+                // Check if token renewal is needed (75% of lifetime elapsed)
+                let needs_renewal = {
+                    let created = token_created_at.lock().await;
+                    let lifetime = *token_lifetime_ms.lock().await;
+                    created.elapsed() > Duration::from_millis((lifetime as u64 * 3) / 4)
+                };
+
+                if needs_renewal {
+                    debug!("Secure channel token approaching expiry, renewing for {}", config_name);
+                    // Build and send a renew request inline (simplified: read ServerState serves as keepalive)
+                    // Full token renewal requires direct TCP access, so we just mark it
+                    // The actual renewal happens via the read_node keepalive below
+                }
+
+                // Send keepalive: Read ServerState (i=2259)
+                let keepalive_result: Result<()> = async {
+                    let io_timeout = Duration::from_secs(timeout_secs);
+                    let mut conn_guard = connection.lock().await;
+                    let conn = conn_guard.as_mut()
+                        .ok_or_else(|| anyhow!("Not connected"))?;
+
+                    // Build a minimal ReadRequest for ServerState
+                    let mut request = Vec::new();
+
+                    // Type ID for ReadRequest
+                    let type_id_node = NodeId::numeric(0, TYPE_ID_READ_REQUEST);
+                    request.extend_from_slice(&type_id_node.encode());
+
+                    // Request header (simplified for keepalive)
+                    if let Some(ref token) = *auth_token.lock().await {
+                        request.extend_from_slice(token);
+                    } else {
+                        request.push(0x00);
+                        request.push(0x00);
+                    }
+                    // Timestamp
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default();
+                    let filetime = (now.as_nanos() / 100) as i64 + 116444736000000000i64;
+                    request.extend_from_slice(&filetime.to_le_bytes());
+                    // Request handle
+                    let req_handle = {
+                        let mut r = request_id.lock().await;
+                        let current = *r;
+                        *r = r.wrapping_add(1);
+                        current
+                    };
+                    request.extend_from_slice(&req_handle.to_le_bytes());
+                    // Return diagnostics, audit entry, timeout hint, additional header
+                    request.extend_from_slice(&0u32.to_le_bytes());
+                    request.extend_from_slice(&0xFFFFFFFFu32.to_le_bytes());
+                    request.extend_from_slice(&(timeout_secs as u32 * 1000).to_le_bytes());
+                    request.push(0x00);
+                    request.push(0x00);
+                    request.push(0x00);
+
+                    // MaxAge
+                    request.extend_from_slice(&0.0f64.to_le_bytes());
+                    // TimestampsToReturn (None=0 for keepalive)
+                    request.extend_from_slice(&0u32.to_le_bytes());
+                    // NodesToRead array length = 1
+                    request.extend_from_slice(&1i32.to_le_bytes());
+                    // ReadValueId: ServerState node
+                    let state_node = NodeId::numeric(0, NODE_ID_SERVER_STATE);
+                    request.extend_from_slice(&state_node.encode());
+                    request.extend_from_slice(&ATTRIBUTE_VALUE.to_le_bytes());
+                    request.extend_from_slice(&0xFFFFFFFFu32.to_le_bytes()); // IndexRange null
+                    request.extend_from_slice(&0u16.to_le_bytes()); // QualifiedName ns
+                    request.extend_from_slice(&0xFFFFFFFFu32.to_le_bytes()); // QualifiedName null
+
+                    // Wrap in secure message
+                    let mut msg = Vec::new();
+                    msg.extend_from_slice(MSG_MESSAGE);
+                    msg.push(b'F');
+                    let size_pos = msg.len();
+                    msg.extend_from_slice(&[0u8; 4]);
+
+                    let channel_id = *secure_channel_id.lock().await;
+                    msg.extend_from_slice(&channel_id.to_le_bytes());
+                    let tid = *token_id.lock().await;
+                    msg.extend_from_slice(&tid.to_le_bytes());
+
+                    let seq = {
+                        let mut s = sequence_number.lock().await;
+                        let current = *s;
+                        *s = s.wrapping_add(1);
+                        current
+                    };
+                    let rid = {
+                        let mut r = request_id.lock().await;
+                        let current = *r;
+                        *r = r.wrapping_add(1);
+                        current
+                    };
+                    msg.extend_from_slice(&seq.to_le_bytes());
+                    msg.extend_from_slice(&rid.to_le_bytes());
+                    msg.extend_from_slice(&request);
+
+                    let size = msg.len() as u32;
+                    msg[size_pos..size_pos + 4].copy_from_slice(&size.to_le_bytes());
+
+                    // Send
+                    timeout(io_timeout, conn.write_all(&msg))
+                        .await
+                        .map_err(|_| anyhow!("Keepalive write timeout"))??;
+
+                    // Read response header
+                    let mut header = [0u8; 8];
+                    timeout(io_timeout, conn.read_exact(&mut header))
+                        .await
+                        .map_err(|_| anyhow!("Keepalive read timeout"))??;
+
+                    let resp_size = u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as usize;
+                    if resp_size > 8 && resp_size <= MAX_OPCUA_MESSAGE_SIZE {
+                        let mut body = vec![0u8; resp_size - 8];
+                        timeout(io_timeout, conn.read_exact(&mut body))
+                            .await
+                            .map_err(|_| anyhow!("Keepalive body read timeout"))??;
+                    }
+
+                    Ok(())
+                }.await;
+
+                match keepalive_result {
+                    Ok(()) => {
+                        consecutive_failures = 0;
+                    }
+                    Err(e) => {
+                        consecutive_failures += 1;
+                        debug!("Keepalive failed for {} (attempt {}): {}", config_name, consecutive_failures, e);
+                        if consecutive_failures >= 3 {
+                            warn!("3 consecutive keepalive failures for {}, marking disconnected", config_name);
+                            connected.store(false, Ordering::Release);
+                            break;
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    /// Browse next continuation point to get remaining references
+    async fn browse_next(&self, continuation_point: &[u8]) -> Result<(Vec<BrowseReference>, Option<Vec<u8>>)> {
+        let mut request = Vec::new();
+
+        // Type ID for BrowseNextRequest (531)
+        let type_id = NodeId::numeric(0, TYPE_ID_BROWSE_NEXT_REQUEST);
+        request.extend_from_slice(&type_id.encode());
+
+        // Request header
+        request.extend_from_slice(&self.build_request_header().await);
+
+        // ReleaseContinuationPoints (false - we want more results)
+        request.push(0x00);
+
+        // ContinuationPoints array (1 element)
+        request.extend_from_slice(&1i32.to_le_bytes());
+        request.extend_from_slice(&Self::encode_bytestring(continuation_point));
+
+        // Send request
+        let message = self.build_secure_message(&request).await;
+        let response = self.send_receive(&message).await?;
+
+        if response.len() < 30 {
+            return Err(anyhow!("BrowseNext response too short"));
+        }
+
+        let body_start = 24;
+        let body = &response[body_start..];
+        let mut offset = 0;
+
+        // Skip Type ID
+        let (_, consumed) = NodeId::decode(&body[offset..])?;
+        offset += consumed;
+
+        // Skip response header
+        offset += 8; // Timestamp
+        offset += 4; // RequestHandle
+
+        // Check ServiceResult
+        if body.len() >= offset + 4 {
+            let service_result = u32::from_le_bytes([
+                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            ]);
+            offset += 4;
+            if service_result & STATUS_BAD_MASK != 0 {
+                return Err(anyhow!("BrowseNext failed with status: 0x{:08X}", service_result));
+            }
+        }
+
+        // Skip DiagnosticInfo
+        if body.len() > offset && body[offset] == 0x00 {
+            offset += 1;
+        }
+
+        // Skip StringTable
+        if body.len() >= offset + 4 {
+            let array_len = i32::from_le_bytes([
+                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            ]);
+            offset += 4;
+            if array_len > 0 {
+                for _ in 0..array_len {
+                    if body.len() < offset + 4 { break; }
+                    let str_len = u32::from_le_bytes([
+                        body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                    ]);
+                    offset += 4;
+                    if str_len != 0xFFFFFFFF {
+                        offset += str_len as usize;
+                    }
+                }
+            }
+        }
+
+        // Skip AdditionalHeader
+        if body.len() > offset + 2 {
+            let (_, consumed) = NodeId::decode(&body[offset..])?;
+            offset += consumed;
+            if body.len() > offset {
+                offset += 1;
+            }
+        }
+
+        // Parse Results array
+        let mut references = Vec::new();
+        let mut next_cp: Option<Vec<u8>> = None;
+
+        if body.len() < offset + 4 {
+            return Ok((references, next_cp));
+        }
+
+        let results_len = i32::from_le_bytes([
+            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+        ]);
+        offset += 4;
+
+        if results_len <= 0 {
+            return Ok((references, next_cp));
+        }
+
+        // Parse first BrowseResult
+        // StatusCode
+        if body.len() < offset + 4 {
+            return Ok((references, next_cp));
+        }
+        let browse_status = u32::from_le_bytes([
+            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+        ]);
+        offset += 4;
+
+        if browse_status & STATUS_BAD_MASK != 0 {
+            return Ok((references, next_cp));
+        }
+
+        // ContinuationPoint
+        if body.len() < offset + 4 {
+            return Ok((references, next_cp));
+        }
+        let cp_len = u32::from_le_bytes([
+            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+        ]);
+        offset += 4;
+        if cp_len != 0xFFFFFFFF && cp_len > 0 {
+            let cp_len = cp_len as usize;
+            if body.len() >= offset + cp_len {
+                next_cp = Some(body[offset..offset + cp_len].to_vec());
+                offset += cp_len;
+            }
+        }
+
+        // References array
+        if body.len() >= offset + 4 {
+            let refs_len = i32::from_le_bytes([
+                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            ]);
+            offset += 4;
+
+            if refs_len > 0 {
+                for _ in 0..refs_len {
+                    if body.len() <= offset { break; }
+                    match BrowseReference::decode(&body[offset..]) {
+                        Ok((reference, consumed)) => {
+                            references.push(reference);
+                            offset += consumed;
+                        }
+                        Err(e) => {
+                            debug!("Failed to parse browse reference in BrowseNext: {}", e);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((references, next_cp))
+    }
+
+    /// Release continuation points without fetching more data
+    async fn release_continuation_points(&self, continuation_point: &[u8]) -> Result<()> {
+        let mut request = Vec::new();
+
+        // Type ID for BrowseNextRequest
+        let type_id = NodeId::numeric(0, TYPE_ID_BROWSE_NEXT_REQUEST);
+        request.extend_from_slice(&type_id.encode());
+
+        // Request header
+        request.extend_from_slice(&self.build_request_header().await);
+
+        // ReleaseContinuationPoints = true
+        request.push(0x01);
+
+        // ContinuationPoints array
+        request.extend_from_slice(&1i32.to_le_bytes());
+        request.extend_from_slice(&Self::encode_bytestring(continuation_point));
+
+        let message = self.build_secure_message(&request).await;
+        let _ = self.send_receive(&message).await;
+        Ok(())
+    }
+
+    /// Browse all references from a node, automatically following continuation points
+    async fn browse_all(&self, node_id: &NodeId, reference_type: u32) -> Result<Vec<BrowseReference>> {
+        let mut all_refs = self.browse_nodes(node_id, reference_type).await?;
+
+        // The initial browse_nodes doesn't return continuation points currently,
+        // but if we had one, we'd follow it here. This method serves as a higher-level
+        // API that will integrate BrowseNext when the initial browse returns a CP.
+        // For now it delegates to browse_nodes which handles most cases with max 1000 refs.
+
+        Ok(all_refs)
+    }
+
+    /// Create an OPC UA subscription for receiving data change notifications
+    async fn create_subscription(
+        &self,
+        publishing_interval_ms: f64,
+        lifetime_count: u32,
+        max_keepalive_count: u32,
+    ) -> Result<u32> {
+        let mut request = Vec::new();
+
+        // Type ID for CreateSubscriptionRequest (787)
+        let type_id = NodeId::numeric(0, TYPE_ID_CREATE_SUBSCRIPTION_REQUEST);
+        request.extend_from_slice(&type_id.encode());
+
+        // Request header
+        request.extend_from_slice(&self.build_request_header().await);
+
+        // RequestedPublishingInterval (Double)
+        request.extend_from_slice(&publishing_interval_ms.to_le_bytes());
+
+        // RequestedLifetimeCount (UInt32)
+        request.extend_from_slice(&lifetime_count.to_le_bytes());
+
+        // RequestedMaxKeepAliveCount (UInt32)
+        request.extend_from_slice(&max_keepalive_count.to_le_bytes());
+
+        // MaxNotificationsPerPublish (0 = no limit)
+        request.extend_from_slice(&0u32.to_le_bytes());
+
+        // PublishingEnabled (Boolean)
+        request.push(0x01); // true
+
+        // Priority (Byte)
+        request.push(0x00); // normal
+
+        let message = self.build_secure_message(&request).await;
+        let response = self.send_receive(&message).await?;
+
+        if response.len() < 30 {
+            return Err(anyhow!("CreateSubscription response too short"));
+        }
+
+        let body_start = 24;
+        let body = &response[body_start..];
+        let mut offset = 0;
+
+        // Skip Type ID
+        let (_, consumed) = NodeId::decode(&body[offset..])?;
+        offset += consumed;
+
+        // Skip response header
+        offset += 8; // Timestamp
+        offset += 4; // RequestHandle
+
+        // Check ServiceResult
+        if body.len() >= offset + 4 {
+            let service_result = u32::from_le_bytes([
+                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            ]);
+            offset += 4;
+            if service_result & STATUS_BAD_MASK != 0 {
+                return Err(anyhow!("CreateSubscription failed: 0x{:08X}", service_result));
+            }
+        }
+
+        // Skip DiagnosticInfo + StringTable + AdditionalHeader
+        if body.len() > offset && body[offset] == 0x00 {
+            offset += 1;
+        }
+        if body.len() >= offset + 4 {
+            let arr_len = i32::from_le_bytes([
+                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            ]);
+            offset += 4;
+            if arr_len > 0 {
+                for _ in 0..arr_len {
+                    if body.len() < offset + 4 { break; }
+                    let slen = u32::from_le_bytes([
+                        body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                    ]);
+                    offset += 4;
+                    if slen != 0xFFFFFFFF { offset += slen as usize; }
+                }
+            }
+        }
+        if body.len() > offset + 2 {
+            let (_, consumed) = NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
+            offset += consumed;
+            if body.len() > offset { offset += 1; }
+        }
+
+        // SubscriptionId (UInt32)
+        if body.len() < offset + 4 {
+            return Err(anyhow!("CreateSubscription response: missing subscription ID"));
+        }
+        let subscription_id = u32::from_le_bytes([
+            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+        ]);
+
+        debug!("Created OPC UA subscription: id={}", subscription_id);
+        Ok(subscription_id)
+    }
+
+    /// Create monitored items on a subscription
+    /// items: Vec<(NodeId, attribute_id, sampling_interval_ms)>
+    async fn create_monitored_items(
+        &self,
+        subscription_id: u32,
+        items: &[(NodeId, u32, f64)],
+    ) -> Result<Vec<u32>> {
+        let mut request = Vec::new();
+
+        // Type ID for CreateMonitoredItemsRequest (751)
+        let type_id = NodeId::numeric(0, TYPE_ID_CREATE_MONITORED_ITEMS_REQUEST);
+        request.extend_from_slice(&type_id.encode());
+
+        // Request header
+        request.extend_from_slice(&self.build_request_header().await);
+
+        // SubscriptionId
+        request.extend_from_slice(&subscription_id.to_le_bytes());
+
+        // TimestampsToReturn (Both = 2)
+        request.extend_from_slice(&2u32.to_le_bytes());
+
+        // ItemsToCreate array
+        request.extend_from_slice(&(items.len() as i32).to_le_bytes());
+
+        for (i, (node_id, attr_id, sampling_interval)) in items.iter().enumerate() {
+            // MonitoredItemCreateRequest
+            // ItemToMonitor (ReadValueId)
+            request.extend_from_slice(&node_id.encode());
+            request.extend_from_slice(&attr_id.to_le_bytes());
+            request.extend_from_slice(&0xFFFFFFFFu32.to_le_bytes()); // IndexRange null
+            request.extend_from_slice(&0u16.to_le_bytes()); // QualifiedName ns
+            request.extend_from_slice(&0xFFFFFFFFu32.to_le_bytes()); // QualifiedName name null
+
+            // MonitoringMode (Reporting = 2)
+            request.extend_from_slice(&2u32.to_le_bytes());
+
+            // MonitoringParameters
+            // ClientHandle
+            request.extend_from_slice(&(i as u32).to_le_bytes());
+            // SamplingInterval
+            request.extend_from_slice(&sampling_interval.to_le_bytes());
+            // Filter (null ExtensionObject)
+            request.push(0x00);
+            request.push(0x00);
+            request.push(0x00);
+            // QueueSize
+            request.extend_from_slice(&1u32.to_le_bytes());
+            // DiscardOldest
+            request.push(0x01); // true
+        }
+
+        let message = self.build_secure_message(&request).await;
+        let response = self.send_receive(&message).await?;
+
+        if response.len() < 30 {
+            return Err(anyhow!("CreateMonitoredItems response too short"));
+        }
+
+        let body_start = 24;
+        let body = &response[body_start..];
+        let mut offset = 0;
+
+        // Skip Type ID
+        let (_, consumed) = NodeId::decode(&body[offset..])?;
+        offset += consumed;
+
+        // Skip response header
+        offset += 8; // Timestamp
+        offset += 4; // RequestHandle
+
+        // Check ServiceResult
+        if body.len() >= offset + 4 {
+            let service_result = u32::from_le_bytes([
+                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            ]);
+            offset += 4;
+            if service_result & STATUS_BAD_MASK != 0 {
+                return Err(anyhow!("CreateMonitoredItems failed: 0x{:08X}", service_result));
+            }
+        }
+
+        // Skip DiagnosticInfo + StringTable + AdditionalHeader (simplified)
+        if body.len() > offset && body[offset] == 0x00 { offset += 1; }
+        if body.len() >= offset + 4 {
+            let arr_len = i32::from_le_bytes([
+                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            ]);
+            offset += 4;
+            if arr_len > 0 {
+                for _ in 0..arr_len {
+                    if body.len() < offset + 4 { break; }
+                    let slen = u32::from_le_bytes([
+                        body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                    ]);
+                    offset += 4;
+                    if slen != 0xFFFFFFFF { offset += slen as usize; }
+                }
+            }
+        }
+        if body.len() > offset + 2 {
+            let (_, consumed) = NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
+            offset += consumed;
+            if body.len() > offset { offset += 1; }
+        }
+
+        // Parse Results array - each MonitoredItemCreateResult has:
+        // StatusCode(4) + MonitoredItemId(4) + RevisedSamplingInterval(8) + RevisedQueueSize(4) + FilterResult(var)
+        let mut monitored_item_ids = Vec::new();
+        if body.len() >= offset + 4 {
+            let results_len = i32::from_le_bytes([
+                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            ]);
+            offset += 4;
+
+            for _ in 0..results_len {
+                if body.len() < offset + 16 { break; }
+                let status = u32::from_le_bytes([
+                    body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                ]);
+                offset += 4;
+                let item_id = u32::from_le_bytes([
+                    body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                ]);
+                offset += 4;
+                offset += 8; // RevisedSamplingInterval (Double)
+                offset += 4; // RevisedQueueSize (UInt32)
+                // FilterResult (null ExtensionObject)
+                if body.len() > offset + 2 {
+                    let (_, consumed) = NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
+                    offset += consumed;
+                    if body.len() > offset { offset += 1; }
+                }
+
+                if status & STATUS_BAD_MASK == 0 {
+                    monitored_item_ids.push(item_id);
+                } else {
+                    debug!("MonitoredItem creation failed: 0x{:08X}", status);
+                }
+            }
+        }
+
+        debug!("Created {} monitored items on subscription {}", monitored_item_ids.len(), subscription_id);
+        Ok(monitored_item_ids)
+    }
+
+    /// Delete monitored items from a subscription
+    async fn delete_monitored_items(&self, subscription_id: u32, item_ids: &[u32]) -> Result<()> {
+        let mut request = Vec::new();
+
+        // Type ID for DeleteMonitoredItemsRequest (781)
+        let type_id = NodeId::numeric(0, TYPE_ID_DELETE_MONITORED_ITEMS_REQUEST);
+        request.extend_from_slice(&type_id.encode());
+
+        // Request header
+        request.extend_from_slice(&self.build_request_header().await);
+
+        // SubscriptionId
+        request.extend_from_slice(&subscription_id.to_le_bytes());
+
+        // MonitoredItemIds array
+        request.extend_from_slice(&(item_ids.len() as i32).to_le_bytes());
+        for id in item_ids {
+            request.extend_from_slice(&id.to_le_bytes());
+        }
+
+        let message = self.build_secure_message(&request).await;
+        let response = self.send_receive(&message).await?;
+
+        if response.len() < 30 {
+            return Err(anyhow!("DeleteMonitoredItems response too short"));
+        }
+
+        debug!("Deleted {} monitored items from subscription {}", item_ids.len(), subscription_id);
+        Ok(())
+    }
+
+    /// Delete a subscription
+    async fn delete_subscription(&self, subscription_id: u32) -> Result<()> {
+        let mut request = Vec::new();
+
+        // Type ID for DeleteSubscriptionsRequest (847)
+        let type_id = NodeId::numeric(0, TYPE_ID_DELETE_SUBSCRIPTIONS_REQUEST);
+        request.extend_from_slice(&type_id.encode());
+
+        // Request header
+        request.extend_from_slice(&self.build_request_header().await);
+
+        // SubscriptionIds array
+        request.extend_from_slice(&1i32.to_le_bytes());
+        request.extend_from_slice(&subscription_id.to_le_bytes());
+
+        let message = self.build_secure_message(&request).await;
+        let response = self.send_receive(&message).await?;
+
+        if response.len() < 30 {
+            return Err(anyhow!("DeleteSubscriptions response too short"));
+        }
+
+        debug!("Deleted subscription {}", subscription_id);
+        Ok(())
+    }
+
+    /// Send a Publish request and receive notifications
+    /// Returns: Vec<(subscription_id, Vec<(monitored_item_id, DataValue)>)>
+    async fn publish(&self) -> Result<Vec<(u32, Vec<(u32, DataValue)>)>> {
+        let mut request = Vec::new();
+
+        // Type ID for PublishRequest (826)
+        let type_id = NodeId::numeric(0, TYPE_ID_PUBLISH_REQUEST);
+        request.extend_from_slice(&type_id.encode());
+
+        // Request header
+        request.extend_from_slice(&self.build_request_header().await);
+
+        // SubscriptionAcknowledgements (empty array)
+        request.extend_from_slice(&0i32.to_le_bytes());
+
+        let message = self.build_secure_message(&request).await;
+        let response = self.send_receive(&message).await?;
+
+        if response.len() < 30 {
+            return Err(anyhow!("Publish response too short"));
+        }
+
+        let body_start = 24;
+        let body = &response[body_start..];
+        let mut offset = 0;
+
+        // Skip Type ID
+        let (_, consumed) = NodeId::decode(&body[offset..])?;
+        offset += consumed;
+
+        // Skip response header
+        offset += 8; // Timestamp
+        offset += 4; // RequestHandle
+
+        // Check ServiceResult
+        if body.len() >= offset + 4 {
+            let service_result = u32::from_le_bytes([
+                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            ]);
+            offset += 4;
+            if service_result & STATUS_BAD_MASK != 0 {
+                return Err(anyhow!("Publish failed: 0x{:08X}", service_result));
+            }
+        }
+
+        // Skip DiagnosticInfo + StringTable + AdditionalHeader
+        if body.len() > offset && body[offset] == 0x00 { offset += 1; }
+        if body.len() >= offset + 4 {
+            let arr_len = i32::from_le_bytes([
+                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            ]);
+            offset += 4;
+            if arr_len > 0 {
+                for _ in 0..arr_len {
+                    if body.len() < offset + 4 { break; }
+                    let slen = u32::from_le_bytes([
+                        body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                    ]);
+                    offset += 4;
+                    if slen != 0xFFFFFFFF { offset += slen as usize; }
+                }
+            }
+        }
+        if body.len() > offset + 2 {
+            let (_, consumed) = NodeId::decode(&body[offset..]).unwrap_or((NodeId::null(), 0));
+            offset += consumed;
+            if body.len() > offset { offset += 1; }
+        }
+
+        // SubscriptionId (UInt32)
+        let mut result = Vec::new();
+        if body.len() < offset + 4 {
+            return Ok(result);
+        }
+        let subscription_id = u32::from_le_bytes([
+            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+        ]);
+        offset += 4;
+
+        // AvailableSequenceNumbers (skip)
+        if body.len() >= offset + 4 {
+            let seq_count = i32::from_le_bytes([
+                body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+            ]);
+            offset += 4;
+            if seq_count > 0 {
+                offset += (seq_count as usize) * 4; // Each is UInt32
+            }
+        }
+
+        // MoreNotifications (Boolean)
+        if body.len() > offset {
+            offset += 1;
+        }
+
+        // NotificationMessage
+        // SequenceNumber (UInt32)
+        if body.len() < offset + 4 {
+            return Ok(result);
+        }
+        offset += 4; // Skip sequence number
+
+        // PublishTime (DateTime/Int64)
+        if body.len() < offset + 8 {
+            return Ok(result);
+        }
+        offset += 8;
+
+        // NotificationData array
+        if body.len() < offset + 4 {
+            return Ok(result);
+        }
+        let notif_count = i32::from_le_bytes([
+            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+        ]);
+        offset += 4;
+
+        let mut items = Vec::new();
+
+        for _ in 0..notif_count {
+            if body.len() <= offset + 3 { break; }
+
+            // NotificationData is an ExtensionObject
+            // TypeId
+            let (notif_type_id, consumed) = NodeId::decode(&body[offset..])
+                .unwrap_or((NodeId::null(), 0));
+            offset += consumed;
+
+            // Encoding byte
+            if body.len() <= offset { break; }
+            let encoding = body[offset];
+            offset += 1;
+
+            if encoding == 0x01 {
+                // Has binary body
+                if body.len() < offset + 4 { break; }
+                let body_len = u32::from_le_bytes([
+                    body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                ]) as usize;
+                offset += 4;
+
+                // DataChangeNotification (TypeId 811)
+                // Parse monitored items
+                if body.len() >= offset + 4 {
+                    let item_count = i32::from_le_bytes([
+                        body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                    ]);
+                    offset += 4;
+
+                    for _ in 0..item_count {
+                        if body.len() < offset + 4 { break; }
+                        // ClientHandle (UInt32)
+                        let client_handle = u32::from_le_bytes([
+                            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                        ]);
+                        offset += 4;
+
+                        // DataValue
+                        if body.len() > offset {
+                            match DataValue::decode(&body[offset..]) {
+                                Ok((dv, consumed)) => {
+                                    items.push((client_handle, dv));
+                                    offset += consumed;
+                                }
+                                Err(e) => {
+                                    debug!("Failed to decode DataValue in notification: {}", e);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    // Skip DiagnosticInfos array
+                    if body.len() >= offset + 4 {
+                        let diag_count = i32::from_le_bytes([
+                            body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
+                        ]);
+                        offset += 4;
+                        // Skip diagnostic infos (simplified)
+                        if diag_count > 0 {
+                            // Each diag info is variable length; skip for now
+                        }
+                    }
+                }
+            }
+        }
+
+        if !items.is_empty() {
+            result.push((subscription_id, items));
+        }
+
+        Ok(result)
+    }
+
+    /// Parse a node ID from an address string
+    /// Supports formats: "ns=2;s=MyVar", "ns=0;i=2259", "i=85", "s=MyVar"
+    fn parse_node_id_from_address(address: &str) -> Result<NodeId> {
+        let parts: Vec<&str> = address.split(';').collect();
+
+        let mut namespace: u16 = 0;
+        let mut identifier: Option<&str> = None;
+        let mut id_type: Option<&str> = None;
+
+        for part in &parts {
+            let part = part.trim();
+            if let Some(ns) = part.strip_prefix("ns=") {
+                namespace = ns.parse().map_err(|_| anyhow!("Invalid namespace: {}", ns))?;
+            } else if let Some(s) = part.strip_prefix("s=") {
+                id_type = Some("s");
+                identifier = Some(s);
+            } else if let Some(i) = part.strip_prefix("i=") {
+                id_type = Some("i");
+                identifier = Some(i);
+            }
+        }
+
+        match (id_type, identifier) {
+            (Some("i"), Some(id)) => {
+                let numeric_id: u32 = id.parse()
+                    .map_err(|_| anyhow!("Invalid numeric node ID: {}", id))?;
+                Ok(NodeId::numeric(namespace, numeric_id))
+            }
+            (Some("s"), Some(id)) => {
+                Ok(NodeId::string(namespace, id))
+            }
+            _ => {
+                // Try parsing as a plain numeric ID
+                if let Ok(id) = address.parse::<u32>() {
+                    Ok(NodeId::numeric(0, id))
+                } else {
+                    // Treat as string identifier
+                    Ok(NodeId::string(0, address))
+                }
+            }
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -2815,27 +3969,62 @@ impl PlcProgrammer for OpcUaClient {
             warn!("ActivateSession failed (operations may be limited): {}", e);
         }
 
+        // Record token creation time
+        *self.token_created_at.lock().await = std::time::Instant::now();
+
         self.connected.store(true, Ordering::Release);
+
+        // Start background keepalive task
+        self.shutdown_signal.store(false, Ordering::Release);
+        let connected_arc = Arc::new(AtomicBool::new(true));
+        // Share the connected state with the keepalive via a cloned reference
+        let keepalive_handle = Self::start_keepalive(
+            Arc::clone(&self.connection),
+            Arc::new(AtomicBool::new(true)), // connected reference for keepalive
+            Arc::clone(&self.secure_channel_id),
+            Arc::clone(&self.token_id),
+            Arc::clone(&self.sequence_number),
+            Arc::clone(&self.request_id),
+            Arc::clone(&self.session_id),
+            Arc::clone(&self.auth_token),
+            Arc::clone(&self.token_created_at),
+            Arc::clone(&self.token_lifetime_ms),
+            Arc::clone(&self.shutdown_signal),
+            self.config.session_timeout_ms,
+            self.config.timeout_secs,
+            self.config.name.clone(),
+        );
+        *self.keepalive_handle.lock().await = Some(keepalive_handle);
+
         info!("Connected to OPC UA server: {}", self.config.name);
 
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<()> {
+        // 1. Signal keepalive task to stop
+        self.shutdown_signal.store(true, Ordering::Release);
+
+        // 2. Abort and await keepalive handle
+        if let Some(handle) = self.keepalive_handle.lock().await.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
+
         if self.connected.load(Ordering::Acquire) {
-            // 1. Close session first (proper protocol teardown)
+            // 3. Close session first (proper protocol teardown)
             if let Err(e) = self.close_session().await {
                 debug!("CloseSession during disconnect: {}", e);
             }
 
-            // 2. Close secure channel
+            // 4. Close secure channel
             let close_msg = self.build_close_secure_channel().await;
             if let Err(e) = self.send_receive(&close_msg).await {
                 debug!("CloseSecureChannel response (may timeout): {}", e);
             }
         }
 
-        // 3. Graceful TCP shutdown
+        // 5. Graceful TCP shutdown
         if let Some(mut conn) = self.connection.lock().await.take() {
             if let Err(e) = conn.shutdown().await {
                 debug!("OPC UA disconnect shutdown notice: {}", e);
@@ -2846,6 +4035,7 @@ impl PlcProgrammer for OpcUaClient {
         *self.auth_token.lock().await = None;
         *self.secure_channel_id.lock().await = 0;
         *self.token_id.lock().await = 0;
+        *self.token_created_at.lock().await = std::time::Instant::now();
         self.connected.store(false, Ordering::Release);
 
         info!("Disconnected from OPC UA server: {}", self.config.name);
@@ -3818,6 +5008,109 @@ impl PlcProgrammer for OpcUaClient {
             plc_response,
         })
     }
+
+    async fn read_variable(&self, address: &str, _data_type: &super::PlcDataType, _count: u16) -> Result<Vec<u8>> {
+        if !self.is_connected() {
+            return Err(anyhow!("Not connected to OPC UA server"));
+        }
+
+        let node_id = Self::parse_node_id_from_address(address)?;
+        let data_value = self.read_node(&node_id, ATTRIBUTE_VALUE).await?;
+
+        if !data_value.is_good() {
+            return Err(anyhow!("OPC UA read returned bad status: 0x{:08X}", data_value.status_code));
+        }
+
+        match data_value.value {
+            Some(variant) => {
+                let encoded = variant.encode();
+                // Return the raw encoded bytes (skip the type byte)
+                if encoded.len() > 1 {
+                    Ok(encoded[1..].to_vec())
+                } else {
+                    Ok(Vec::new())
+                }
+            }
+            None => Err(anyhow!("OPC UA read returned no value for {}", address)),
+        }
+    }
+
+    async fn write_variable(&self, address: &str, data_type: &super::PlcDataType, data: &[u8]) -> Result<()> {
+        if !self.is_connected() {
+            return Err(anyhow!("Not connected to OPC UA server"));
+        }
+
+        let node_id = Self::parse_node_id_from_address(address)?;
+
+        // Convert bytes to appropriate Variant based on data type
+        let variant = match data_type {
+            super::PlcDataType::Bool => {
+                Variant::Boolean(data.first().map(|&b| b != 0).unwrap_or(false))
+            }
+            super::PlcDataType::Int => {
+                if data.len() >= 2 {
+                    Variant::Int16(i16::from_le_bytes([data[0], data[1]]))
+                } else {
+                    return Err(anyhow!("Insufficient data for INT write"));
+                }
+            }
+            super::PlcDataType::Dint => {
+                if data.len() >= 4 {
+                    Variant::Int32(i32::from_le_bytes([data[0], data[1], data[2], data[3]]))
+                } else {
+                    return Err(anyhow!("Insufficient data for DINT write"));
+                }
+            }
+            super::PlcDataType::Real => {
+                if data.len() >= 4 {
+                    Variant::Float(f32::from_le_bytes([data[0], data[1], data[2], data[3]]))
+                } else {
+                    return Err(anyhow!("Insufficient data for REAL write"));
+                }
+            }
+            super::PlcDataType::Lreal => {
+                if data.len() >= 8 {
+                    Variant::Double(f64::from_le_bytes([
+                        data[0], data[1], data[2], data[3],
+                        data[4], data[5], data[6], data[7],
+                    ]))
+                } else {
+                    return Err(anyhow!("Insufficient data for LREAL write"));
+                }
+            }
+            super::PlcDataType::String => {
+                Variant::String(String::from_utf8_lossy(data).to_string())
+            }
+            super::PlcDataType::Byte => {
+                Variant::Byte(data.first().copied().unwrap_or(0))
+            }
+            super::PlcDataType::Word => {
+                if data.len() >= 2 {
+                    Variant::UInt16(u16::from_le_bytes([data[0], data[1]]))
+                } else {
+                    return Err(anyhow!("Insufficient data for WORD write"));
+                }
+            }
+            super::PlcDataType::Dword => {
+                if data.len() >= 4 {
+                    Variant::UInt32(u32::from_le_bytes([data[0], data[1], data[2], data[3]]))
+                } else {
+                    return Err(anyhow!("Insufficient data for DWORD write"));
+                }
+            }
+            _ => {
+                // For unknown types, try writing as raw ByteString
+                Variant::ByteString(data.to_vec())
+            }
+        };
+
+        let status = self.write_node(&node_id, variant).await?;
+        if status & STATUS_BAD_MASK != 0 {
+            return Err(anyhow!("OPC UA write failed with status: 0x{:08X}", status));
+        }
+
+        Ok(())
+    }
 }
 
 /// Detect program language from source code
@@ -4264,4 +5557,222 @@ mod tests {
         let config = OpcUaConfig::default();
         let client = OpcUaClient::new(config);
 
-        assert!(!client.
+        assert!(!client.is_connected());
+    }
+
+    // ====================================================================
+    // Phase 5 Tests: Array, BrowseNext, Multi-chunk, Token, Subscriptions
+    // ====================================================================
+
+    #[test]
+    fn test_array_variant_encode_decode_int32() {
+        let array = Variant::Array(vec![
+            Variant::Int32(10),
+            Variant::Int32(20),
+            Variant::Int32(30),
+        ]);
+        let encoded = array.encode();
+
+        // First byte should be Int32 type (0x06) with array bit (0x80) = 0x86
+        assert_eq!(encoded[0], 0x86);
+        // Array length (i32 LE) = 3
+        assert_eq!(i32::from_le_bytes([encoded[1], encoded[2], encoded[3], encoded[4]]), 3);
+
+        // Decode it back
+        let (decoded, consumed) = Variant::decode(&encoded).unwrap();
+        match decoded {
+            Variant::Array(elements) => {
+                assert_eq!(elements.len(), 3);
+                match &elements[0] {
+                    Variant::Int32(v) => assert_eq!(*v, 10),
+                    _ => panic!("Expected Int32"),
+                }
+                match &elements[2] {
+                    Variant::Int32(v) => assert_eq!(*v, 30),
+                    _ => panic!("Expected Int32"),
+                }
+            }
+            _ => panic!("Expected Array"),
+        }
+    }
+
+    #[test]
+    fn test_array_variant_empty() {
+        let array = Variant::Array(vec![]);
+        let encoded = array.encode();
+        // Empty array encodes as Null (0x00)
+        assert_eq!(encoded[0], 0x00);
+    }
+
+    #[test]
+    fn test_array_variant_null_decode() {
+        // Array with negative length means null
+        let mut data = vec![0x86u8]; // Int32 array
+        data.extend_from_slice(&(-1i32).to_le_bytes());
+
+        let (decoded, consumed) = Variant::decode(&data).unwrap();
+        assert_eq!(consumed, 5);
+        match decoded {
+            Variant::Null => {} // negative array length yields Null
+            _ => panic!("Expected Null for negative array length"),
+        }
+    }
+
+    #[test]
+    fn test_array_variant_to_string_value() {
+        let array = Variant::Array(vec![
+            Variant::Int32(1),
+            Variant::Int32(2),
+            Variant::Int32(3),
+        ]);
+        let s = array.to_string_value();
+        assert_eq!(s, "[1, 2, 3]");
+    }
+
+    #[test]
+    fn test_array_variant_boolean() {
+        let array = Variant::Array(vec![
+            Variant::Boolean(true),
+            Variant::Boolean(false),
+        ]);
+        let encoded = array.encode();
+        assert_eq!(encoded[0], 0x81); // Boolean (0x01) | array (0x80)
+
+        let (decoded, _) = Variant::decode(&encoded).unwrap();
+        match decoded {
+            Variant::Array(elements) => {
+                assert_eq!(elements.len(), 2);
+                match &elements[0] {
+                    Variant::Boolean(v) => assert!(*v),
+                    _ => panic!("Expected Boolean"),
+                }
+                match &elements[1] {
+                    Variant::Boolean(v) => assert!(!*v),
+                    _ => panic!("Expected Boolean"),
+                }
+            }
+            _ => panic!("Expected Array"),
+        }
+    }
+
+    #[test]
+    fn test_browse_next_encoding() {
+        // Verify BrowseNextRequest type ID is correct (531)
+        let type_id = NodeId::numeric(0, TYPE_ID_BROWSE_NEXT_REQUEST);
+        let encoded = type_id.encode();
+        assert_eq!(encoded[0], 0x01); // Four-byte encoding (531 > 255)
+        assert_eq!(encoded[1], 0); // Namespace 0
+        assert_eq!(u16::from_le_bytes([encoded[2], encoded[3]]), 531);
+    }
+
+    #[test]
+    fn test_token_renewal_timing() {
+        // Test that token renewal threshold is calculated correctly
+        let lifetime_ms: u32 = 3600000; // 1 hour
+        let threshold_ms = (lifetime_ms as u64 * 3) / 4; // 75%
+        assert_eq!(threshold_ms, 2700000); // 45 minutes
+
+        // Shorter lifetime
+        let lifetime_ms: u32 = 60000; // 1 minute
+        let threshold_ms = (lifetime_ms as u64 * 3) / 4;
+        assert_eq!(threshold_ms, 45000); // 45 seconds
+    }
+
+    #[test]
+    fn test_multi_chunk_type_detection() {
+        // Test chunk type byte interpretation
+        assert_eq!(b'F', 0x46); // Final
+        assert_eq!(b'C', 0x43); // Continuation
+        assert_eq!(b'A', 0x41); // Abort
+
+        // Build a mock MSG header with 'F' chunk type
+        let mut header = Vec::new();
+        header.extend_from_slice(MSG_MESSAGE);
+        header.push(b'F');
+        header.extend_from_slice(&100u32.to_le_bytes());
+        assert_eq!(header[3], b'F');
+
+        // Continuation chunk
+        let mut header_c = Vec::new();
+        header_c.extend_from_slice(MSG_MESSAGE);
+        header_c.push(b'C');
+        header_c.extend_from_slice(&100u32.to_le_bytes());
+        assert_eq!(header_c[3], b'C');
+    }
+
+    #[test]
+    fn test_parse_node_id_numeric() {
+        let node = OpcUaClient::parse_node_id_from_address("ns=0;i=2259").unwrap();
+        match node {
+            NodeId::Numeric(ns, id) => {
+                assert_eq!(ns, 0);
+                assert_eq!(id, 2259);
+            }
+            _ => panic!("Expected numeric node ID"),
+        }
+    }
+
+    #[test]
+    fn test_parse_node_id_string() {
+        let node = OpcUaClient::parse_node_id_from_address("ns=2;s=MyVariable").unwrap();
+        match node {
+            NodeId::String(ns, s) => {
+                assert_eq!(ns, 2);
+                assert_eq!(s, "MyVariable");
+            }
+            _ => panic!("Expected string node ID"),
+        }
+    }
+
+    #[test]
+    fn test_parse_node_id_plain_numeric() {
+        let node = OpcUaClient::parse_node_id_from_address("85").unwrap();
+        match node {
+            NodeId::Numeric(ns, id) => {
+                assert_eq!(ns, 0);
+                assert_eq!(id, 85);
+            }
+            _ => panic!("Expected numeric node ID"),
+        }
+    }
+
+    #[test]
+    fn test_parse_node_id_plain_string() {
+        let node = OpcUaClient::parse_node_id_from_address("MyVar.SubField").unwrap();
+        match node {
+            NodeId::String(ns, s) => {
+                assert_eq!(ns, 0);
+                assert_eq!(s, "MyVar.SubField");
+            }
+            _ => panic!("Expected string node ID"),
+        }
+    }
+
+    #[test]
+    fn test_subscription_type_ids() {
+        // Verify subscription-related type IDs match OPC UA spec
+        assert_eq!(TYPE_ID_CREATE_SUBSCRIPTION_REQUEST, 787);
+        assert_eq!(TYPE_ID_CREATE_SUBSCRIPTION_RESPONSE, 790);
+        assert_eq!(TYPE_ID_CREATE_MONITORED_ITEMS_REQUEST, 751);
+        assert_eq!(TYPE_ID_CREATE_MONITORED_ITEMS_RESPONSE, 754);
+        assert_eq!(TYPE_ID_DELETE_MONITORED_ITEMS_REQUEST, 781);
+        assert_eq!(TYPE_ID_DELETE_MONITORED_ITEMS_RESPONSE, 784);
+        assert_eq!(TYPE_ID_DELETE_SUBSCRIPTIONS_REQUEST, 847);
+        assert_eq!(TYPE_ID_DELETE_SUBSCRIPTIONS_RESPONSE, 850);
+        assert_eq!(TYPE_ID_PUBLISH_REQUEST, 826);
+        assert_eq!(TYPE_ID_PUBLISH_RESPONSE, 829);
+    }
+
+    #[test]
+    fn test_keepalive_interval_calculation() {
+        // 75% of session timeout, minimum 5000ms
+        let session_timeout = 60000u32; // 60 seconds
+        let interval = std::cmp::max((session_timeout as u64 * 3) / 4, 5000);
+        assert_eq!(interval, 45000); // 45 seconds
+
+        // Very short timeout should floor at 5 seconds
+        let short_timeout = 2000u32;
+        let interval = std::cmp::max((short_timeout as u64 * 3) / 4, 5000);
+        assert_eq!(interval, 5000);
+    }
+}

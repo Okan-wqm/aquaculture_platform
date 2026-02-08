@@ -242,8 +242,24 @@ export class Chemical {
   safetyInfo?: SafetyInfo;
 
   @Field({ nullable: true })
-  @Column({ length: 100, nullable: true })
+  @Column({ type: 'text', nullable: true })
   storageRequirements?: string;
+
+  @Field(() => Float, { nullable: true, description: 'Minimum storage temperature (°C)' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_temp_min' })
+  storageTempMin?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Maximum storage temperature (°C)' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_temp_max' })
+  storageTempMax?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Minimum storage humidity (%)' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_humidity_min' })
+  storageHumidityMin?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Maximum storage humidity (%)' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_humidity_max' })
+  storageHumidityMax?: number;
 
   @Field(() => Int, { nullable: true })
   @Column({ type: 'int', nullable: true })

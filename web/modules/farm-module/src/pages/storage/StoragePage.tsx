@@ -13,6 +13,7 @@ import { ChemicalsStockTab } from './components/ChemicalsStockTab';
 import { ConsumablesStockTab } from './components/ConsumablesStockTab';
 import { StorageLocationsTab } from './components/StorageLocationsTab';
 import { StockMovementsTab } from './components/StockMovementsTab';
+import { HealthcareStockTab } from './components/HealthcareStockTab';
 import { PurchaseOrdersTab } from './components/PurchaseOrdersTab';
 import { InventoryCountTab } from './components/InventoryCountTab';
 
@@ -20,7 +21,7 @@ import { InventoryCountTab } from './components/InventoryCountTab';
 // TYPES
 // ============================================================================
 
-type TabId = 'overview' | 'feed-stock' | 'chemicals' | 'consumables' | 'locations' | 'movements' | 'purchase-orders' | 'inventory-count';
+type TabId = 'overview' | 'feed-stock' | 'chemicals' | 'consumables' | 'healthcare' | 'locations' | 'movements' | 'purchase-orders' | 'inventory-count';
 
 interface Tab {
   id: TabId;
@@ -66,6 +67,15 @@ const tabs: Tab[] = [
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+      </svg>
+    ),
+  },
+  {
+    id: 'healthcare',
+    name: 'Healthcare',
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
       </svg>
     ),
   },
@@ -129,6 +139,7 @@ const StoragePage: React.FC = () => {
       case 'feed-stock': return <FeedStockTab />;
       case 'chemicals': return <ChemicalsStockTab />;
       case 'consumables': return <ConsumablesStockTab />;
+      case 'healthcare': return <HealthcareStockTab />;
       case 'locations': return <StorageLocationsTab />;
       case 'movements': return <StockMovementsTab />;
       case 'purchase-orders': return <PurchaseOrdersTab />;

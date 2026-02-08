@@ -73,6 +73,7 @@
     "start:all": "concurrently -k -n \"backend,frontend\" -c \"blue,green\" \"npm run start:backend\" \"sleep 30 && npm run start:frontend\""
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.37",
     "@apollo/gateway": "^2.12.1",
     "@apollo/server": "^4.12.2",
     "@apollo/subgraph": "^2.12.1",

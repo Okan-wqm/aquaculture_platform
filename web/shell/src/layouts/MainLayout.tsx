@@ -205,7 +205,6 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'sites-tasks', label: 'Tasks', path: '/sites/tasks' },
 { id: 'sites-health', label: 'Health Events', path: '/sites/health', icon: 'activity' },
       { id: 'sites-harvest', label: 'Harvest', path: '/sites/harvest' },
-      { id: 'sites-production', label: 'Production', path: '/sites/production' },
       { id: 'sites-reports', label: 'Reports', path: '/sites/reports' },
     ],
   },

@@ -26,7 +26,7 @@ import {
 } from '@aquaculture/shared-ui';
 import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
 import { useEquipmentList } from '../../hooks/useEquipment';
-import { useFeedList, FeedingMatrix2D } from '../../hooks/useFeeds';
+import { useFeedList, FeedingMatrix2D, Feed } from '../../hooks/useFeeds';
 import { FeedingMatrixEditor } from '../../components/feeding';
 import {
   CREATE_FEEDING_PROGRAM,
@@ -468,10 +468,12 @@ function validateFormData(
     }
   }
 
-  // Step 4: FCR Table validation (optional)
+  // Step 4: FCR Table validation (optional - matrix auto-generated from feeds)
   if (step === undefined || step === 4) {
-    if (!formData.useFeedFCR && !formData.customFCRMatrix) {
-      errors.customFCRMatrix = 'Ozel FCR kullanmak icin matris tanimlanmalidir';
+    // Matrix is auto-generated from feed assignments, so no strict requirement
+    // But if assignments exist and no matrix could be built, warn
+    if (formData.feedAssignments.length > 0 && formData.feedAssignments.some((a) => a.feedId) && !formData.customFCRMatrix) {
+      errors.customFCRMatrix = 'Matris hesaplanamadi. Yem atamalarini kontrol edin.';
     }
   }
 
@@ -1111,24 +1113,110 @@ interface Step3Props {
   errors: ValidationErrors;
 }
 
+/**
+ * Controlled number input that allows typing decimal values like "0.1"
+ * without the browser clearing "0" before you can type the dot.
+ */
+const WeightInput: React.FC<{
+  id: string;
+  value: number;
+  onChange: (val: number) => void;
+  readOnly?: boolean;
+  placeholder?: string;
+  title?: string;
+  className?: string;
+}> = ({ id, value, onChange, readOnly, placeholder, title, className }) => {
+  const [localValue, setLocalValue] = useState(String(value));
+  const prevValue = useRef(value);
+
+  // Sync from parent when value changes externally (e.g. chaining)
+  useEffect(() => {
+    if (value !== prevValue.current) {
+      setLocalValue(String(value));
+      prevValue.current = value;
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setLocalValue(raw);
+    const num = parseFloat(raw);
+    if (!isNaN(num)) {
+      prevValue.current = num;
+      onChange(num);
+    }
+  };
+
+  const handleBlur = () => {
+    // On blur, normalize: empty or invalid → 0
+    const num = parseFloat(localValue);
+    const final = isNaN(num) ? 0 : num;
+    setLocalValue(String(final));
+    if (final !== value) {
+      prevValue.current = final;
+      onChange(final);
+    }
+  };
+
+  return (
+    <input
+      id={id}
+      type="number"
+      min={MIN_WEIGHT}
+      max={MAX_WEIGHT}
+      step="0.1"
+      value={localValue}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      readOnly={readOnly}
+      className={className}
+      placeholder={placeholder}
+      title={title}
+    />
+  );
+};
+
 const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) => {
   const { data: feedsData, isLoading: feedsLoading, error: feedsError } = useFeedList();
 
-  const feedOptions = useMemo(() => {
+  // All active feeds for dropdown
+  const activeFeeds = useMemo(() => {
     if (!feedsData?.items) return [];
-    return feedsData.items
-      .filter((f) => f.isActive)
-      .map((f) => ({
-        value: f.id,
-        label: `${f.name} (${f.code})`,
-      }));
+    return feedsData.items.filter((f) => f.isActive);
   }, [feedsData]);
 
-  // Add new assignment row with UUID
+  // Build a map for quick feed lookup
+  const feedsById = useMemo(() => {
+    const map = new Map<string, Feed>();
+    if (feedsData?.items) {
+      for (const f of feedsData.items) {
+        map.set(f.id, f);
+      }
+    }
+    return map;
+  }, [feedsData]);
+
+  // Check if a feed is suitable for a given weight range
+  // Feed is suitable if its minFishWeightG <= assignment's minWeight AND maxFishWeightG >= assignment's maxWeight
+  // meaning the feed covers the entire assignment range
+  const isFeedInRange = useCallback((feed: Feed, minWeight: number, maxWeight: number): boolean => {
+    // If feed has no weight constraints, always ok
+    if (feed.minFishWeightG == null && feed.maxFishWeightG == null) return true;
+    // Check min: feed must cover from the start of range
+    if (feed.minFishWeightG != null && feed.minFishWeightG > minWeight) return false;
+    // Check max: feed must cover to the end of range (only if maxWeight > 0)
+    if (feed.maxFishWeightG != null && maxWeight > 0 && feed.maxFishWeightG < maxWeight) return false;
+    return true;
+  }, []);
+
+  // Add new assignment row, auto-chain minWeight from previous row's maxWeight
   const handleAddRow = () => {
+    const lastAssignment = data.feedAssignments[data.feedAssignments.length - 1];
+    const newMinWeight = lastAssignment ? lastAssignment.maxWeight : 0;
+
     const newAssignment: FeedAssignment = {
       id: uuidv4(),
-      minWeight: 0,
+      minWeight: newMinWeight,
       maxWeight: 0,
       feedId: '',
       priority: data.feedAssignments.length + 1,
@@ -1136,19 +1224,33 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
     onChange({ feedAssignments: [...data.feedAssignments, newAssignment] });
   };
 
-  // Remove assignment row
+  // Remove assignment row and re-chain weights
   const handleRemoveRow = (id: string) => {
     const newAssignments = data.feedAssignments
       .filter((a) => a.id !== id)
-      .map((a, idx) => ({ ...a, priority: idx + 1 }));
+      .map((a, idx, arr) => {
+        // Re-chain: if not first row, set minWeight to previous row's maxWeight
+        if (idx > 0 && arr[idx - 1]) {
+          return { ...a, priority: idx + 1, minWeight: arr[idx - 1].maxWeight };
+        }
+        return { ...a, priority: idx + 1 };
+      });
     onChange({ feedAssignments: newAssignments });
   };
 
-  // Update assignment
+  // Update assignment with weight chaining
   const handleUpdateAssignment = (id: string, field: keyof FeedAssignment, value: number | string) => {
-    const newAssignments = data.feedAssignments.map((a) =>
-      a.id === id ? { ...a, [field]: value } : a
-    );
+    const idx = data.feedAssignments.findIndex((a) => a.id === id);
+    if (idx === -1) return;
+
+    const newAssignments = [...data.feedAssignments];
+    newAssignments[idx] = { ...newAssignments[idx], [field]: value };
+
+    // When maxWeight changes, auto-update next row's minWeight to maintain chain
+    if (field === 'maxWeight' && idx < newAssignments.length - 1) {
+      newAssignments[idx + 1] = { ...newAssignments[idx + 1], minWeight: value as number };
+    }
+
     onChange({ feedAssignments: newAssignments });
   };
 
@@ -1169,6 +1271,7 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
       <h3 className="text-lg font-medium text-gray-900">Yem Atamalari</h3>
       <p className="text-sm text-gray-500">
         Balik agirlik araligina gore kullanilacak yemleri tanimlayin. Araliklar cakismamalidir.
+        Yeni satir eklendiginde min agirlik otomatik olarak onceki satirin max agirligina esitlenir.
       </p>
 
       {errors.feedAssignments && (
@@ -1212,95 +1315,132 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {data.feedAssignments.map((assignment) => (
-              <tr key={assignment.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <span className="inline-flex items-center justify-center w-8 h-8 bg-blue-100 text-blue-800 text-sm font-medium rounded-full">
-                    {assignment.priority}
-                  </span>
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <label htmlFor={`min-weight-${assignment.id}`} className="sr-only">
-                    Minimum agirlik
-                  </label>
-                  <input
-                    id={`min-weight-${assignment.id}`}
-                    type="number"
-                    min={MIN_WEIGHT}
-                    max={MAX_WEIGHT}
-                    value={assignment.minWeight || ''}
-                    onChange={(e) =>
-                      handleUpdateAssignment(assignment.id, 'minWeight', parseFloat(e.target.value) || 0)
-                    }
-                    className="w-24 border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="0"
-                  />
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <label htmlFor={`max-weight-${assignment.id}`} className="sr-only">
-                    Maksimum agirlik
-                  </label>
-                  <input
-                    id={`max-weight-${assignment.id}`}
-                    type="number"
-                    min={MIN_WEIGHT}
-                    max={MAX_WEIGHT}
-                    value={assignment.maxWeight || ''}
-                    onChange={(e) =>
-                      handleUpdateAssignment(assignment.id, 'maxWeight', parseFloat(e.target.value) || 0)
-                    }
-                    className="w-24 border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="0"
-                  />
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <label htmlFor={`feed-${assignment.id}`} className="sr-only">
-                    Yem secimi
-                  </label>
-                  <select
-                    id={`feed-${assignment.id}`}
-                    value={assignment.feedId}
-                    onChange={(e) => handleUpdateAssignment(assignment.id, 'feedId', e.target.value)}
-                    className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
-                    disabled={feedsLoading}
-                  >
-                    <option value="">Yem secin...</option>
-                    {feedOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap text-right">
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveRow(assignment.id)}
-                    className="text-red-600 hover:text-red-800 p-1"
-                    title="Satiri sil"
-                    aria-label={`${assignment.priority}. yem atamasini sil`}
-                  >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                      />
-                    </svg>
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {data.feedAssignments.length === 0 && (
+          <tbody className="bg-white divide-y divide-gray-200">{data.feedAssignments.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
                   Henuz yem atamasi eklenmedi. Asagidaki butonu kullanarak ekleyin.
                 </td>
               </tr>
-            )}
-          </tbody>
+            ) : (
+              data.feedAssignments.map((assignment, rowIndex) => {
+                const selectedFeed = assignment.feedId ? feedsById.get(assignment.feedId) : undefined;
+                const hasValidRange = assignment.minWeight < assignment.maxWeight && assignment.maxWeight > 0;
+                const selectedFeedOutOfRange = !!(selectedFeed && hasValidRange &&
+                  !isFeedInRange(selectedFeed, assignment.minWeight, assignment.maxWeight));
+                const isMinWeightChained = rowIndex > 0;
+
+                return (
+                  <React.Fragment key={assignment.id}>
+                    <tr className="hover:bg-gray-50">
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className="inline-flex items-center justify-center w-8 h-8 bg-blue-100 text-blue-800 text-sm font-medium rounded-full">
+                          {assignment.priority}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <label htmlFor={`min-weight-${assignment.id}`} className="sr-only">
+                          Minimum agirlik
+                        </label>
+                        <WeightInput
+                          id={`min-weight-${assignment.id}`}
+                          value={assignment.minWeight}
+                          onChange={(val) => handleUpdateAssignment(assignment.id, 'minWeight', val)}
+                          readOnly={isMinWeightChained}
+                          className={`w-24 border rounded-md shadow-sm px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500 ${
+                            isMinWeightChained
+                              ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed'
+                              : 'border-gray-300'
+                          }`}
+                          placeholder="0"
+                          title={isMinWeightChained ? 'Onceki satirin max agirligina zincirlenmis' : undefined}
+                        />
+                        {isMinWeightChained && (
+                          <div className="flex items-center mt-1">
+                            <svg className="w-3 h-3 text-gray-400 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.172 13.828a4 4 0 015.656 0l4 4a4 4 0 01-5.656 5.656l-1.102-1.101" />
+                            </svg>
+                            <span className="text-xs text-gray-400">zincirli</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <label htmlFor={`max-weight-${assignment.id}`} className="sr-only">
+                          Maksimum agirlik
+                        </label>
+                        <WeightInput
+                          id={`max-weight-${assignment.id}`}
+                          value={assignment.maxWeight}
+                          onChange={(val) => handleUpdateAssignment(assignment.id, 'maxWeight', val)}
+                          className="w-24 border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="0"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <label htmlFor={`feed-${assignment.id}`} className="sr-only">
+                          Yem secimi
+                        </label>
+                        <select
+                          id={`feed-${assignment.id}`}
+                          value={assignment.feedId}
+                          onChange={(e) => handleUpdateAssignment(assignment.id, 'feedId', e.target.value)}
+                          className={`w-full border rounded-md shadow-sm px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500 ${
+                            selectedFeedOutOfRange ? 'border-red-300 bg-red-50 text-red-900' : 'border-gray-300'
+                          }`}
+                          disabled={feedsLoading}
+                        >
+                          <option value="">Yem secin...</option>
+                          {activeFeeds.map((feed) => {
+                            const inRange = !hasValidRange || isFeedInRange(feed, assignment.minWeight, assignment.maxWeight);
+                            return (
+                              <option
+                                key={feed.id}
+                                value={feed.id}
+                                style={!inRange ? { backgroundColor: '#FEE2E2', color: '#991B1B' } : undefined}
+                              >
+                                {`${feed.name} (${feed.code})${feed.minFishWeightG != null || feed.maxFishWeightG != null ? ` [${feed.minFishWeightG ?? '?'}-${feed.maxFishWeightG ?? '\u221E'}g]` : ''}${!inRange ? ' \u26A0' : ''}`}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveRow(assignment.id)}
+                          className="text-red-600 hover:text-red-800 p-1"
+                          title="Satiri sil"
+                          aria-label={`${assignment.priority}. yem atamasini sil`}
+                        >
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                            />
+                          </svg>
+                        </button>
+                      </td>
+                    </tr>
+                    {selectedFeedOutOfRange && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-2">
+                          <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-md text-sm text-red-800">
+                            <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                            <span>
+                              {`Uyari: ${selectedFeed!.name} yemi ${selectedFeed!.minFishWeightG ?? '?'}-${selectedFeed!.maxFishWeightG ?? '\u221E'}g balik icin tasarlanmistir, ancak bu atama ${assignment.minWeight}-${assignment.maxWeight}g araliginda. Yine de kullanmak istiyorsaniz kayit edebilirsiniz.`}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })
+            )}</tbody>
         </table>
       </div>
 
@@ -1316,6 +1456,28 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
         </svg>
         Yem Atamasi Ekle
       </button>
+
+      {/* Feed coverage reference - 4 per row, sorted by minFishWeightG */}
+      {activeFeeds.length > 0 && (
+        <div className="mt-3">
+          <p className="text-xs font-medium text-gray-500 mb-1.5">Yem Araliklari (kucukten buyuge)</p>
+          <div className="grid grid-cols-4 gap-1.5">
+            {activeFeeds
+              .filter((f) => f.minFishWeightG != null || f.maxFishWeightG != null)
+              .sort((a, b) => (a.minFishWeightG ?? 0) - (b.minFishWeightG ?? 0))
+              .map((feed) => {
+                const min = feed.minFishWeightG != null ? `${feed.minFishWeightG}g` : '?';
+                const max = feed.maxFishWeightG != null ? `${feed.maxFishWeightG}g` : '\u221E';
+                return (
+                  <div key={feed.id} className="text-xs px-2 py-1 bg-gray-50 rounded border border-gray-200 truncate" title={feed.name}>
+                    <span className="font-semibold text-gray-700">{`${min}-${max}`}</span>
+                    <span className="text-gray-400 ml-1">{feed.code}</span>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1327,103 +1489,338 @@ interface Step4Props {
   errors: ValidationErrors;
 }
 
+/**
+ * Bilinear interpolation for a feed's 2D matrix.
+ * Given a temperature and weight, returns the interpolated value.
+ */
+function interpolateFromFeedMatrix(
+  temps: number[],
+  weights: number[],
+  values: number[][],
+  temp: number,
+  weight: number,
+): number {
+  if (!temps.length || !weights.length || !values.length) return 0;
+
+  // Clamp to matrix bounds
+  const clampedTemp = Math.max(temps[0]!, Math.min(temp, temps[temps.length - 1]!));
+  const clampedWeight = Math.max(weights[0]!, Math.min(weight, weights[weights.length - 1]!));
+
+  // Find bounding temperature indices
+  let ti = 0;
+  for (let i = 0; i < temps.length - 1; i++) {
+    if (clampedTemp >= temps[i]!) ti = i;
+  }
+  const ti2 = Math.min(ti + 1, temps.length - 1);
+
+  // Find bounding weight indices
+  let wi = 0;
+  for (let i = 0; i < weights.length - 1; i++) {
+    if (clampedWeight >= weights[i]!) wi = i;
+  }
+  const wi2 = Math.min(wi + 1, weights.length - 1);
+
+  const t1 = temps[ti]!, t2 = temps[ti2]!;
+  const w1 = weights[wi]!, w2 = weights[wi2]!;
+  const f11 = values[wi]?.[ti] ?? 0;
+  const f21 = values[wi]?.[ti2] ?? f11;
+  const f12 = values[wi2]?.[ti] ?? f11;
+  const f22 = values[wi2]?.[ti2] ?? f11;
+
+  if (t1 === t2 && w1 === w2) return f11;
+  if (t1 === t2) return f11 + (f12 - f11) * (clampedWeight - w1) / (w2 - w1);
+  if (w1 === w2) return f11 + (f21 - f11) * (clampedTemp - t1) / (t2 - t1);
+
+  const denom = (t2 - t1) * (w2 - w1);
+  return (
+    f11 * (t2 - clampedTemp) * (w2 - clampedWeight) +
+    f21 * (clampedTemp - t1) * (w2 - clampedWeight) +
+    f12 * (t2 - clampedTemp) * (clampedWeight - w1) +
+    f22 * (clampedTemp - t1) * (clampedWeight - w1)
+  ) / denom;
+}
+
+/**
+ * Result of merging multiple feed matrices.
+ * coverageMap[wi][ti] = true if the responsible feed covers that temperature for that weight.
+ */
+interface MergedMatrixResult {
+  matrix: FeedingMatrix2D;
+  coverageMap: boolean[][];
+}
+
+/**
+ * Merge multiple feed matrices into a single combined matrix.
+ * Each feed covers its assigned weight range [minWeight, maxWeight).
+ * The combined temperature axis is the union of all feeds' temps.
+ * The combined weight axis spans the full range with points from each feed.
+ * Cells outside a feed's temperature range are marked as uncovered in coverageMap.
+ */
+function buildMergedMatrix(
+  assignments: FeedAssignment[],
+  feedsById: Map<string, Feed>,
+): MergedMatrixResult | null {
+  // Filter valid assignments with feeds that have 2D matrices
+  const validAssignments = assignments
+    .filter((a) => a.feedId && a.minWeight < a.maxWeight)
+    .sort((a, b) => a.minWeight - b.minWeight);
+
+  if (validAssignments.length === 0) return null;
+
+  // Collect all temperature points (union, deduplicated, sorted)
+  const tempSet = new Set<number>();
+  for (const a of validAssignments) {
+    const feed = feedsById.get(a.feedId);
+    const matrix = feed?.feedingMatrix2D;
+    if (matrix?.temperatures) {
+      for (const t of matrix.temperatures) tempSet.add(t);
+    }
+  }
+  if (tempSet.size === 0) return null;
+  const temperatures = Array.from(tempSet).sort((a, b) => a - b);
+
+  // Build weight axis: collect relevant weight points from each feed's matrix
+  // within its assigned range, plus assignment boundaries
+  const weightSet = new Set<number>();
+  for (const a of validAssignments) {
+    weightSet.add(a.minWeight);
+    weightSet.add(a.maxWeight);
+    const feed = feedsById.get(a.feedId);
+    const matrix = feed?.feedingMatrix2D;
+    if (matrix?.weights) {
+      for (const w of matrix.weights) {
+        if (w >= a.minWeight && w <= a.maxWeight) weightSet.add(w);
+      }
+    }
+  }
+  const weights = Array.from(weightSet).sort((a, b) => a - b);
+  if (weights.length < 2) return null;
+
+  // Build rate and FCR matrices by interpolating from the responsible feed
+  const rates: number[][] = [];
+  const fcrMatrix: number[][] = [];
+  const coverageMap: boolean[][] = [];
+
+  for (const weight of weights) {
+    const rateRow: number[] = [];
+    const fcrRow: number[] = [];
+    const coverageRow: boolean[] = [];
+
+    // Find which assignment covers this weight
+    let responsible = validAssignments[0]!;
+    for (const a of validAssignments) {
+      if (weight >= a.minWeight && weight <= a.maxWeight) {
+        responsible = a;
+        break;
+      }
+      if (weight >= a.minWeight) responsible = a;
+    }
+
+    const feed = feedsById.get(responsible.feedId);
+    const matrix = feed?.feedingMatrix2D;
+
+    // Determine the responsible feed's temperature range
+    const feedTempMin = matrix?.temperatures?.[0];
+    const feedTempMax = matrix?.temperatures?.[matrix.temperatures.length - 1];
+
+    for (const temp of temperatures) {
+      // Check if this temperature is within the responsible feed's range
+      const isCovered = matrix?.temperatures && matrix?.weights && matrix?.rates &&
+        feedTempMin != null && feedTempMax != null &&
+        temp >= feedTempMin && temp <= feedTempMax;
+
+      coverageRow.push(!!isCovered);
+
+      if (isCovered) {
+        const rate = interpolateFromFeedMatrix(
+          matrix!.temperatures, matrix!.weights, matrix!.rates, temp, weight,
+        );
+        rateRow.push(+rate.toFixed(2));
+
+        if (matrix!.fcrMatrix) {
+          const fcr = interpolateFromFeedMatrix(
+            matrix!.temperatures, matrix!.weights, matrix!.fcrMatrix, temp, weight,
+          );
+          fcrRow.push(+fcr.toFixed(3));
+        } else {
+          fcrRow.push(1.0);
+        }
+      } else {
+        // Out of range - put 0 as placeholder (will be shown as "×")
+        rateRow.push(0);
+        fcrRow.push(0);
+      }
+    }
+
+    rates.push(rateRow);
+    fcrMatrix.push(fcrRow);
+    coverageMap.push(coverageRow);
+  }
+
+  return {
+    matrix: {
+      temperatures,
+      weights,
+      rates,
+      fcrMatrix,
+      temperatureUnit: 'celsius',
+      weightUnit: 'gram',
+    },
+    coverageMap,
+  };
+}
+
 const Step4FCRTable: React.FC<Step4Props> = ({ data, onChange, errors }) => {
-  // Handle toggle change with proper initialization
-  const handleFCRSourceChange = (useCustom: boolean) => {
-    if (useCustom && !data.customFCRMatrix) {
-      // Initialize with default matrix when switching to custom FCR
-      onChange({
-        useFeedFCR: false,
-        customFCRMatrix: getDefaultFCRMatrix(),
-      });
-    } else {
-      onChange({ useFeedFCR: !useCustom });
+  const { data: feedsData } = useFeedList();
+  const [hasUserEdited, setHasUserEdited] = useState(false);
+
+  // Build feeds map
+  const feedsById = useMemo(() => {
+    const map = new Map<string, Feed>();
+    if (feedsData?.items) {
+      for (const f of feedsData.items) map.set(f.id, f);
+    }
+    return map;
+  }, [feedsData]);
+
+  // Compute merged matrix from feed assignments
+  const mergedResult = useMemo(() => {
+    return buildMergedMatrix(data.feedAssignments, feedsById);
+  }, [data.feedAssignments, feedsById]);
+
+  const mergedMatrix = mergedResult?.matrix ?? null;
+  const coverageMap = mergedResult?.coverageMap ?? null;
+
+  // Auto-initialize customFCRMatrix from merged matrix when assignments change
+  // (only if user hasn't manually edited yet)
+  useEffect(() => {
+    if (mergedMatrix && !hasUserEdited) {
+      onChange({ customFCRMatrix: mergedMatrix, useFeedFCR: false });
+    }
+  }, [mergedMatrix, hasUserEdited]);
+
+  // Handle recalculate button
+  const handleRecalculate = () => {
+    if (mergedMatrix) {
+      onChange({ customFCRMatrix: mergedMatrix });
+      setHasUserEdited(false);
     }
   };
 
+  // Handle manual edits
+  const handleMatrixChange = (matrix: FeedingMatrix2D) => {
+    setHasUserEdited(true);
+    onChange({ customFCRMatrix: matrix });
+  };
+
+  // Check how many feeds have 2D matrices
+  const feedsWithMatrix = data.feedAssignments.filter((a) => {
+    const feed = feedsById.get(a.feedId);
+    return feed?.feedingMatrix2D?.rates;
+  });
+  const feedsWithoutMatrix = data.feedAssignments.filter((a) => {
+    if (!a.feedId) return false;
+    const feed = feedsById.get(a.feedId);
+    return !feed?.feedingMatrix2D?.rates;
+  });
+
+  const hasAssignments = data.feedAssignments.length > 0 && data.feedAssignments.some((a) => a.feedId);
+
   return (
     <div className="space-y-6">
-      <h3 className="text-lg font-medium text-gray-900">FCR Tablosu</h3>
+      <h3 className="text-lg font-medium text-gray-900">Besleme & FCR Matrisi</h3>
       <p className="text-sm text-gray-500">
-        Yem donusum orani (FCR) hesaplamasi icin yem tanimindaki degerleri mi yoksa ozel bir matris
-        mi kullanacaginizi secin.
+        Yem atamalarindaki yemlerin besleme egrilerinden otomatik olarak birlesmis matris hesaplandi.
+        Degerler, her agirlik araligindaki yemin 2D matrisinden interpolasyon ile elde edilmistir.
+        Gerekirse degerleri duzenleyebilirsiniz.
       </p>
 
-      {/* Toggle: Use Feed's FCR vs Custom FCR */}
-      <div className="bg-gray-50 rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h4 className="text-sm font-medium text-gray-900">FCR Kaynagi</h4>
-            <p className="text-sm text-gray-500 mt-1">
-              {data.useFeedFCR
-                ? 'Her yem icin tanimlanmis FCR degerleri kullanilacak'
-                : 'Ozel FCR matrisi kullanilacak (sicaklik x agirlik)'}
-            </p>
+      {/* Feed matrix summary */}
+      {hasAssignments && (
+        <div className="bg-gray-50 rounded-lg p-4">
+          <h4 className="text-sm font-medium text-gray-900 mb-2">Yem Matrisi Durumu</h4>
+          <div className="space-y-1">
+            {data.feedAssignments.filter((a) => a.feedId).map((a) => {
+              const feed = feedsById.get(a.feedId);
+              const hasMatrix = !!feed?.feedingMatrix2D?.rates;
+              return (
+                <div key={a.id} className="flex items-center gap-2 text-sm">
+                  <span className={`inline-block w-2 h-2 rounded-full ${hasMatrix ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                  <span className="text-gray-700">
+                    {a.minWeight}-{a.maxWeight}g: {feed?.name || 'Secilmedi'}
+                  </span>
+                  {hasMatrix ? (
+                    <span className="text-xs text-green-600">
+                      {`2D matris mevcut (${feed!.feedingMatrix2D!.temperatures[0]}°C - ${feed!.feedingMatrix2D!.temperatures[feed!.feedingMatrix2D!.temperatures.length - 1]}°C)`}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-yellow-600">
+                      Matris yok (varsayilan kullanildi)
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
-          <div className="flex items-center gap-3">
-            <span
-              id="fcr-feed-label"
-              className={`text-sm ${data.useFeedFCR ? 'text-blue-600 font-medium' : 'text-gray-500'}`}
-            >
-              Yem FCR'i Kullan
-            </span>
-            <Switch
-              checked={!data.useFeedFCR}
-              onChange={(checked) => handleFCRSourceChange(checked)}
-              aria-labelledby="fcr-custom-label"
-            />
-            <span
-              id="fcr-custom-label"
-              className={`text-sm ${!data.useFeedFCR ? 'text-blue-600 font-medium' : 'text-gray-500'}`}
-            >
-              Ozel FCR
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Custom FCR Matrix Editor */}
-      {!data.useFeedFCR && (
-        <div className="border border-gray-200 rounded-lg p-4">
-          <h4 className="text-sm font-medium text-gray-900 mb-4">Ozel FCR Matrisi</h4>
-          <p className="text-sm text-gray-500 mb-4">
-            Sicaklik ve balik agirligina gore FCR degerlerini tanimlayin. Ara degerler interpolasyon
-            ile hesaplanir.
-          </p>
-          {errors.customFCRMatrix && (
-            <Alert type="error" className="mb-4">
-              {errors.customFCRMatrix}
-            </Alert>
-          )}
-          <FeedingMatrixEditor
-            matrix={data.customFCRMatrix}
-            onChange={(matrix) => onChange({ customFCRMatrix: matrix })}
-            showFCR={true}
-          />
         </div>
       )}
 
-      {/* Info box when using Feed FCR */}
-      {data.useFeedFCR && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex">
-            <svg className="h-5 w-5 text-blue-400 mr-3 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-              <path
-                fillRule="evenodd"
-                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
-                clipRule="evenodd"
-              />
-            </svg>
-            <div>
-              <h4 className="text-sm font-medium text-blue-800">Yem FCR Kullanimi</h4>
-              <p className="text-sm text-blue-700 mt-1">
-                Her yem icin tanimlanmis besleme egrisi veya 2D matris kullanilacaktir. FCR degerleri
-                otomatik olarak balik agirligina ve ortam sicakligina gore interpolasyon ile
-                hesaplanir.
-              </p>
-            </div>
-          </div>
+      {/* Warning for feeds without matrix */}
+      {feedsWithoutMatrix.length > 0 && (
+        <Alert type="warning">
+          {feedsWithoutMatrix.length} yem icin 2D besleme matrisi tanimlanmamis. Bu araliklar icin
+          varsayilan degerler kullanildi (oran: 2.0%, FCR: 1.0).
+        </Alert>
+      )}
+
+      {/* No assignments warning */}
+      {!hasAssignments && (
+        <div className="text-center py-8 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+          <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+          </svg>
+          <h3 className="mt-2 text-sm font-medium text-gray-900">Matris hesaplanamadi</h3>
+          <p className="mt-1 text-sm text-gray-500">
+            Onceki adimda yem atamalari tanimlayin. Matris otomatik hesaplanacaktir.
+          </p>
         </div>
+      )}
+
+      {/* Matrix editor */}
+      {data.customFCRMatrix && hasAssignments && (
+        <>
+          {/* Recalculate button */}
+          {hasUserEdited && mergedMatrix && (
+            <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <svg className="w-5 h-5 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              <span className="text-sm text-amber-800 flex-1">
+                Matrisi manuel olarak duzenlediniz. Yem atamalarindan yeniden hesaplamak ister misiniz?
+              </span>
+              <button
+                type="button"
+                onClick={handleRecalculate}
+                className="px-3 py-1.5 text-sm font-medium text-amber-800 bg-amber-100 border border-amber-300 rounded-md hover:bg-amber-200"
+              >
+                Yeniden Hesapla
+              </button>
+            </div>
+          )}
+
+          {errors.customFCRMatrix && (
+            <Alert type="error">{errors.customFCRMatrix}</Alert>
+          )}
+
+          <div className="border border-gray-200 rounded-lg p-4">
+            <FeedingMatrixEditor
+              matrix={data.customFCRMatrix}
+              onChange={handleMatrixChange}
+              showFCR={true}
+              coverageMap={coverageMap ?? undefined}
+            />
+          </div>
+        </>
       )}
     </div>
   );
@@ -1684,13 +2081,13 @@ const FeedingProgramForm: React.FC = () => {
     if (isDirty) {
       setShowCancelDialog(true);
     } else {
-      navigate('/feeding');
+      navigate('/sites/feeding?tab=protocols');
     }
   };
 
   const confirmCancel = () => {
     setShowCancelDialog(false);
-    navigate('/feeding');
+    navigate('/sites/feeding?tab=protocols');
   };
 
   // Submit handler with actual API call
@@ -1720,7 +2117,7 @@ const FeedingProgramForm: React.FC = () => {
         await createMutation.mutateAsync(input);
       }
 
-      navigate('/feeding');
+      navigate('/sites/feeding?tab=protocols');
     } catch (error) {
       const { message, fieldErrors } = parseGraphQLErrors(error);
       setSubmitError(message);
@@ -1773,7 +2170,7 @@ const FeedingProgramForm: React.FC = () => {
       <div className="mb-6">
         <div className="flex items-center space-x-3">
           <Link
-            to="/feeding"
+            to="/sites/feeding?tab=protocols"
             className="text-gray-400 hover:text-gray-600"
             aria-label="Besleme programlari listesine don"
           >

@@ -236,6 +236,18 @@ export class FeedResponse {
   @Field({ nullable: true })
   storageRequirements?: string;
 
+  @Field(() => Float, { nullable: true, description: 'Minimum storage temperature (°C)' })
+  storageTempMin?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Maximum storage temperature (°C)' })
+  storageTempMax?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Minimum storage humidity (%)' })
+  storageHumidityMin?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Maximum storage humidity (%)' })
+  storageHumidityMax?: number;
+
   @Field(() => Int, { nullable: true })
   shelfLifeMonths?: number;
 
@@ -280,6 +292,12 @@ export class FeedResponse {
 
   @Field(() => FeedingMatrix2DResponse, { nullable: true, description: '2D feeding matrix (temperature x weight) with bilinear interpolation' })
   feedingMatrix2D?: FeedingMatrix2DResponse;
+
+  @Field(() => Float, { nullable: true, description: 'Minimum fish weight in grams this feed is designed for' })
+  minFishWeightG?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Maximum fish weight in grams this feed is designed for' })
+  maxFishWeightG?: number;
 
   @Field()
   isActive!: boolean;

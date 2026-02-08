@@ -225,8 +225,44 @@ export class Feed {
   @Column({ length: 20, default: 'kg' })
   unit: string;
 
-  @Column({ length: 100, nullable: true })
+  @Column({ type: 'text', nullable: true })
   storageRequirements?: string;
+
+  @Column({
+    type: 'decimal',
+    precision: 5,
+    scale: 1,
+    nullable: true,
+    name: 'storage_temp_min',
+  })
+  storageTempMin?: number;
+
+  @Column({
+    type: 'decimal',
+    precision: 5,
+    scale: 1,
+    nullable: true,
+    name: 'storage_temp_max',
+  })
+  storageTempMax?: number;
+
+  @Column({
+    type: 'decimal',
+    precision: 5,
+    scale: 1,
+    nullable: true,
+    name: 'storage_humidity_min',
+  })
+  storageHumidityMin?: number;
+
+  @Column({
+    type: 'decimal',
+    precision: 5,
+    scale: 1,
+    nullable: true,
+    name: 'storage_humidity_max',
+  })
+  storageHumidityMax?: number;
 
   @Column({ type: 'int', nullable: true })
   shelfLifeMonths?: number;
@@ -274,6 +310,34 @@ export class Feed {
   // 2D Besleme Matrisi (sıcaklık x ağırlık)
   @Column({ type: 'jsonb', nullable: true })
   feedingMatrix2D?: FeedingMatrix2D;
+
+  // Minimum balık gramajı - bu yemin tasarlandığı minimum ağırlık
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    name: 'min_fish_weight_g',
+    transformer: {
+      to: (value: number | undefined) => value,
+      from: (value: string | null) => value !== null ? parseFloat(value) : undefined,
+    },
+  })
+  minFishWeightG?: number;
+
+  // Maksimum balık gramajı - bu yemin tasarlandığı maksimum ağırlık
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    name: 'max_fish_weight_g',
+    transformer: {
+      to: (value: number | undefined) => value,
+      from: (value: string | null) => value !== null ? parseFloat(value) : undefined,
+    },
+  })
+  maxFishWeightG?: number;
 
   @Column({ default: true })
   isActive: boolean;

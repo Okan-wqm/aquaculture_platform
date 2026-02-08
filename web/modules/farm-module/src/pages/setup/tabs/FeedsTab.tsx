@@ -133,6 +133,17 @@ interface FeedFormData {
   unitSize: string;
   pricePerKg: number | '';
 
+  // Min/Max Fish Weight
+  minFishWeightG: number | '';
+  maxFishWeightG: number | '';
+
+  // Storage Conditions
+  storageTempMin: number | '';
+  storageTempMax: number | '';
+  storageHumidityMin: number | '';
+  storageHumidityMax: number | '';
+  storageRequirements: string;
+
   // Ek Bilgiler
   notes: string;
   status: string;
@@ -172,6 +183,13 @@ const initialFormData: FeedFormData = {
   unitPrice: '',
   unitSize: '',
   pricePerKg: '',
+  minFishWeightG: '',
+  maxFishWeightG: '',
+  storageTempMin: '',
+  storageTempMax: '',
+  storageHumidityMin: '',
+  storageHumidityMax: '',
+  storageRequirements: '',
   notes: '',
   status: 'AVAILABLE',
 };
@@ -279,6 +297,13 @@ export const FeedsTab: React.FC = () => {
       pricePerKg: formData.pricePerKg ? Number(formData.pricePerKg) : undefined,
       notes: formData.notes || undefined,
       status: formData.status as FeedStatus,
+      minFishWeightG: formData.minFishWeightG ? Number(formData.minFishWeightG) : undefined,
+      maxFishWeightG: formData.maxFishWeightG ? Number(formData.maxFishWeightG) : undefined,
+      storageTempMin: formData.storageTempMin !== '' ? Number(formData.storageTempMin) : undefined,
+      storageTempMax: formData.storageTempMax !== '' ? Number(formData.storageTempMax) : undefined,
+      storageHumidityMin: formData.storageHumidityMin !== '' ? Number(formData.storageHumidityMin) : undefined,
+      storageHumidityMax: formData.storageHumidityMax !== '' ? Number(formData.storageHumidityMax) : undefined,
+      storageRequirements: formData.storageRequirements || undefined,
       feedingCurve: formData.curveType === '1d' && formData.feedingCurve.length > 0 ? formData.feedingCurve : undefined,
       feedingMatrix2D: formData.curveType === '2d' && formData.feedingMatrix2D ? formData.feedingMatrix2D : undefined,
       documents: formData.documents.length > 0 ? formData.documents : undefined,
@@ -363,6 +388,13 @@ export const FeedsTab: React.FC = () => {
       unitPrice: feed.unitPrice || '',
       unitSize: feed.unitSize || '',
       pricePerKg: feed.pricePerKg || '',
+      minFishWeightG: feed.minFishWeightG || '',
+      maxFishWeightG: feed.maxFishWeightG || '',
+      storageTempMin: feed.storageTempMin ?? '',
+      storageTempMax: feed.storageTempMax ?? '',
+      storageHumidityMin: feed.storageHumidityMin ?? '',
+      storageHumidityMax: feed.storageHumidityMax ?? '',
+      storageRequirements: feed.storageRequirements || '',
       notes: feed.notes || '',
       status: feed.status || 'AVAILABLE',
     });
@@ -519,6 +551,16 @@ export const FeedsTab: React.FC = () => {
                       <p className="text-sm text-gray-500">Pellet Size</p>
                       <p className="text-sm font-medium">{feed.pelletSizeLabel || (feed.pelletSize ? `${feed.pelletSize}mm` : '-')}</p>
                     </div>
+                    {(feed.minFishWeightG != null || feed.maxFishWeightG != null) && (
+                      <div className="text-right">
+                        <p className="text-sm text-gray-500">Weight Range</p>
+                        <p className="text-sm font-medium">
+                          {feed.minFishWeightG != null ? `${feed.minFishWeightG}g` : '?'}
+                          {' - '}
+                          {feed.maxFishWeightG != null ? `${feed.maxFishWeightG}g` : '?'}
+                        </p>
+                      </div>
+                    )}
                     <div className="text-right">
                       <p className="text-sm text-gray-500">Price</p>
                       <p className="text-lg font-semibold text-green-600">{feed.pricePerKg?.toFixed(2) || feed.unitPrice?.toFixed(2) || '0.00'} TL</p>
@@ -785,6 +827,32 @@ export const FeedsTab: React.FC = () => {
                           onChange={e => setFormData(prev => ({ ...prev, productStage: e.target.value }))}
                           className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                         />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Min Fish Weight (g)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          placeholder="e.g. 0"
+                          value={formData.minFishWeightG}
+                          onChange={e => setFormData(prev => ({ ...prev, minFishWeightG: e.target.value ? parseFloat(e.target.value) : '' }))}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">Minimum fish weight this feed is designed for</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Max Fish Weight (g)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          placeholder="e.g. 500"
+                          value={formData.maxFishWeightG}
+                          onChange={e => setFormData(prev => ({ ...prev, maxFishWeightG: e.target.value ? parseFloat(e.target.value) : '' }))}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">Maximum fish weight this feed is designed for</p>
                       </div>
                     </div>
                   </CollapsibleSection>
@@ -1209,7 +1277,67 @@ export const FeedsTab: React.FC = () => {
                     </div>
                   </CollapsibleSection>
 
-                  {/* Section 9: Additional Information */}
+                  {/* Section 9: Storage Conditions */}
+                  <CollapsibleSection title="Storage Conditions">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Min Temperature (°C)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={formData.storageTempMin}
+                          onChange={e => setFormData(prev => ({ ...prev, storageTempMin: e.target.value ? parseFloat(e.target.value) : '' }))}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Max Temperature (°C)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={formData.storageTempMax}
+                          onChange={e => setFormData(prev => ({ ...prev, storageTempMax: e.target.value ? parseFloat(e.target.value) : '' }))}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Min Humidity (%)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="100"
+                          value={formData.storageHumidityMin}
+                          onChange={e => setFormData(prev => ({ ...prev, storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '' }))}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Max Humidity (%)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="100"
+                          value={formData.storageHumidityMax}
+                          onChange={e => setFormData(prev => ({ ...prev, storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '' }))}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-sm font-medium text-gray-700">Storage Requirements</label>
+                        <textarea
+                          rows={2}
+                          placeholder="Special storage instructions..."
+                          value={formData.storageRequirements}
+                          onChange={e => setFormData(prev => ({ ...prev, storageRequirements: e.target.value }))}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+                  </CollapsibleSection>
+
+                  {/* Section 10: Additional Information */}
                   <CollapsibleSection title="Additional Information">
                     <div className="space-y-4">
                       <div>

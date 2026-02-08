@@ -60,9 +60,10 @@ export class UpdateFeedHandler implements ICommandHandler<UpdateFeedCommand> {
       }
     }
 
-    // Update fields
+    // Update fields - exclude id to prevent entity identity corruption
+    const { id: _id, ...updateFields } = input as any;
     Object.assign(feed, {
-      ...input,
+      ...updateFields,
       code: input.code ? input.code.toUpperCase() : feed.code,
       updatedBy: userId,
     });

@@ -26,6 +26,7 @@ import type { ChartVisibility } from './components';
 import { MortalityModal } from '../production/components/MortalityModal';
 import { TransferModal } from '../production/components/TransferModal';
 import { CullModal } from '../production/components/CullModal';
+import { BatchFormModal } from '../production/components/BatchFormModal';
 
 // Cleaner Fish Modals
 import { MortalityModal as CleanerMortalityModal } from '../cleaner-fish/components/MortalityModal';
@@ -207,6 +208,9 @@ export const TanksPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'production' | 'cleanerFish'>(
     tabFromUrl === 'cleanerFish' ? 'cleanerFish' : 'production'
   );
+
+  // New Batch modal state
+  const [showBatchModal, setShowBatchModal] = useState(false);
 
   // Filter state
   const [filters, setFilters] = useState<TankFilterState>(initialFilterState);
@@ -1080,6 +1084,19 @@ export const TanksPage: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" />
             </svg>
           </button>
+
+          <div className="h-6 w-px bg-gray-300" />
+
+          <button
+            onClick={() => setShowBatchModal(true)}
+            className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded"
+            title="New Batch"
+          >
+            <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            New Batch
+          </button>
         </div>
       </div>
 
@@ -1159,7 +1176,7 @@ export const TanksPage: React.FC = () => {
             onReset={resetToDefaults}
             onShowAll={showAllColumns}
           />
-        ) : (
+        ) : activeTab === 'cleanerFish' ? (
           <ColumnVisibilityMenu
             columns={cleanerFishColumns}
             visibleColumns={cfVisibleColumns}
@@ -1168,7 +1185,7 @@ export const TanksPage: React.FC = () => {
             onReset={cfResetToDefaults}
             onShowAll={cfShowAllColumns}
           />
-        )}
+        ) : null}
 
         {/* Refresh Button */}
         <button
@@ -1433,9 +1450,9 @@ export const TanksPage: React.FC = () => {
         {' | '}
         {activeTab === 'production' ? (
           <>{visibleColumns.size} of {tankColumns.length} columns visible</>
-        ) : (
+        ) : activeTab === 'cleanerFish' ? (
           <>{cfVisibleColumns.size} of {cleanerFishColumns.length} columns visible</>
-        )}
+        ) : null}
       </div>
 
       {/* ======================================================================== */}
@@ -1566,6 +1583,16 @@ export const TanksPage: React.FC = () => {
         onTimeRangeChange={setChartTimeRange}
         chartVisibility={chartVisibility}
         onChartVisibilityChange={setChartVisibility}
+      />
+
+      {/* New Batch Modal */}
+      <BatchFormModal
+        isOpen={showBatchModal}
+        onClose={() => setShowBatchModal(false)}
+        onSuccess={() => {
+          setShowBatchModal(false);
+          refetch();
+        }}
       />
     </div>
   );

@@ -7,6 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 import { mockTasks, mockRecurringTemplates, mockAutoRules, mockTaskStats } from './mock';
 import { Task, RecurringTemplate, AutoRule, TaskStats, ChecklistItem, TaskNote } from './types/task.types';
 import { TaskFormData } from './components/TaskFormModal';
+import { useTenantUsers } from '../../hooks/useTenantUsers';
 
 // Tab Components
 import { TodayTab } from './components/TodayTab';
@@ -96,6 +97,8 @@ const tabs: Tab[] = [
 const TasksPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get('tab') as TabId) || 'today';
+
+  const { users: tenantUsers } = useTenantUsers();
 
   // State - mock data with local mutations
   const [tasks, setTasks] = useState<Task[]>(mockTasks);
@@ -198,6 +201,7 @@ const TasksPage: React.FC = () => {
             onToggleComplete={handleToggleComplete}
             onToggleChecklist={handleToggleChecklist}
             onAddNote={handleAddNote}
+            users={tenantUsers}
           />
         );
       case 'all-tasks':
@@ -209,6 +213,7 @@ const TasksPage: React.FC = () => {
             onAddNote={handleAddNote}
             onCreateTask={handleCreateTask}
             onDeleteTask={handleDeleteTask}
+            users={tenantUsers}
           />
         );
       case 'recurring':

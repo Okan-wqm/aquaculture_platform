@@ -240,8 +240,28 @@ export class CreateChemicalInput {
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
-  @MaxLength(255)
+  @MaxLength(2000)
   storageRequirements?: string;
+
+  @Field(() => Float, { nullable: true, description: 'Minimum storage temperature (°C)' })
+  @IsOptional()
+  @IsNumber()
+  storageTempMin?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Maximum storage temperature (°C)' })
+  @IsOptional()
+  @IsNumber()
+  storageTempMax?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Minimum storage humidity (%)' })
+  @IsOptional()
+  @IsNumber()
+  storageHumidityMin?: number;
+
+  @Field(() => Float, { nullable: true, description: 'Maximum storage humidity (%)' })
+  @IsOptional()
+  @IsNumber()
+  storageHumidityMax?: number;
 
   @Field(() => Int, { nullable: true, description: 'Shelf life in months' })
   @IsOptional()

@@ -2,7 +2,7 @@
  * Stock Movements Tab - Movement history with filters
  */
 import React, { useState } from 'react';
-import { stockMovements } from '../mock';
+import { useStockMovements } from '../../../hooks/useStorageInventory';
 
 const typeBadge: Record<string, string> = {
   IN: 'bg-green-100 text-green-800',
@@ -19,11 +19,13 @@ export const StockMovementsTab: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
 
-  const filtered = stockMovements.filter(m => {
-    const matchesType = typeFilter === 'all' || m.type === typeFilter;
-    const matchesSearch = m.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      m.performedBy.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesType && matchesSearch;
+  const filter = typeFilter !== 'all' ? { movementType: typeFilter } : undefined;
+  const { data: movementsData, isLoading, error, refetch } = useStockMovements(filter);
+
+  const movements = movementsData?.items || [];
+  const filtered = movements.filter(m => {
+    return m.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (m.performedBy || '').toLowerCase().includes(searchTerm.toLowerCase());
   });
 
   return (
@@ -44,63 +46,78 @@ export const StockMovementsTab: React.FC = () => {
         </select>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">From / To</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">By</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reference</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {filtered.map(m => (
-              <tr key={m.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 text-sm text-gray-500">
-                  {new Date(m.date).toLocaleDateString('nb-NO', { month: 'short', day: 'numeric' })}
-                  <div className="text-xs text-gray-400">
-                    {new Date(m.date).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                </td>
-                <td className="px-6 py-4">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeBadge[m.type] || 'bg-gray-100 text-gray-800'}`}>
-                    {m.type}
-                  </span>
-                </td>
-                <td className="px-6 py-4">
-                  <div className="text-sm font-medium text-gray-900">{m.itemName}</div>
-                  <div className="text-xs text-gray-500">{m.itemCategory}</div>
-                </td>
-                <td className="px-6 py-4 text-sm font-medium">
-                  <span className={m.type === 'OUT' || m.type === 'WASTE' ? 'text-red-600' : 'text-green-600'}>
-                    {m.type === 'OUT' || m.type === 'WASTE' ? '-' : '+'}{Math.abs(m.quantity)} {m.unit}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-sm text-gray-500">
-                  {m.fromLocation && m.toLocation ? (
-                    <>{m.fromLocation} <span className="text-gray-400">→</span> {m.toLocation}</>
-                  ) : m.fromLocation ? (
-                    m.fromLocation
-                  ) : m.toLocation ? (
-                    <><span className="text-gray-400">→</span> {m.toLocation}</>
-                  ) : '-'}
-                </td>
-                <td className="px-6 py-4 text-sm text-gray-500">{m.performedBy}</td>
-                <td className="px-6 py-4 text-sm text-gray-500">
-                  {m.reference || m.notes || '-'}
-                </td>
+      {isLoading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+        </div>
+      )}
+
+      {error && (
+        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
+          <p className="text-red-600">Failed to load movements.</p>
+          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">Retry</button>
+        </div>
+      )}
+
+      {!isLoading && !error && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">From / To</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">By</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reference</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {filtered.length === 0 && (
-          <div className="text-center py-12 text-gray-500 text-sm">No movements found.</div>
-        )}
-      </div>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {filtered.map(m => (
+                <tr key={m.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {new Date(m.performedAt).toLocaleDateString('nb-NO', { month: 'short', day: 'numeric' })}
+                    <div className="text-xs text-gray-400">
+                      {new Date(m.performedAt).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeBadge[m.movementType] || 'bg-gray-100 text-gray-800'}`}>
+                      {m.movementType}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-medium text-gray-900">{m.itemName}</div>
+                    <div className="text-xs text-gray-500">{m.itemType}</div>
+                  </td>
+                  <td className="px-6 py-4 text-sm font-medium">
+                    <span className={m.movementType === 'OUT' || m.movementType === 'WASTE' ? 'text-red-600' : 'text-green-600'}>
+                      {m.movementType === 'OUT' || m.movementType === 'WASTE' ? '-' : '+'}{m.quantity} {m.unit}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {m.fromLocationName && m.toLocationName ? (
+                      <>{m.fromLocationName} <span className="text-gray-400">&rarr;</span> {m.toLocationName}</>
+                    ) : m.fromLocationName ? (
+                      m.fromLocationName
+                    ) : m.toLocationName ? (
+                      <><span className="text-gray-400">&rarr;</span> {m.toLocationName}</>
+                    ) : '-'}
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-500">{m.performedBy}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {m.reference || m.reason || '-'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filtered.length === 0 && (
+            <div className="text-center py-12 text-gray-500 text-sm">No movements found.</div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

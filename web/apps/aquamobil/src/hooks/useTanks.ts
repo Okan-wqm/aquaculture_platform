@@ -6,27 +6,34 @@ import type { Tank } from '@/types';
 // tenantId comes from X-Tenant-Id header (extracted from JWT by backend)
 const TANKS_QUERY = `
   query GetTanksWithBatches {
-    tanks(filter: { status: ACTIVE }) {
-      id
-      name
-      code
-      volumeM3
-      status
-      currentBatch {
+    tanks {
+      items {
         id
-        batchNumber
-        speciesName
-        currentQuantity
-        averageWeight
-        currentBiomassKg
+        name
+        code
+        volume
         status
+        currentBiomass
+        maxBiomass
+        batchMetrics {
+          batchId
+          batchNumber
+          pieces
+          avgWeight
+          biomass
+          density
+          capacityUsedPercent
+          isOverCapacity
+          daysSinceStocking
+        }
       }
+      total
     }
   }
 `;
 
 interface GraphQLResponse {
-  data?: { tanks: Tank[] };
+  data?: { tanks: { items: Tank[]; total: number } };
   errors?: Array<{ message: string }>;
 }
 
@@ -53,11 +60,11 @@ async function fetchTanks(accessToken: string, tenantId: string): Promise<Tank[]
     throw new Error(result.errors[0]?.message || 'Failed to fetch tanks');
   }
 
-  if (!result.data?.tanks) {
+  if (!result.data?.tanks?.items) {
     throw new Error('Invalid response: no tanks data');
   }
 
-  return result.data.tanks;
+  return result.data.tanks.items;
 }
 
 export function useTanks() {

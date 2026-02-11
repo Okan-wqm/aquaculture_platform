@@ -93,7 +93,7 @@ export function useCertificationTypes(filter?: {
     queryFn: () =>
       graphqlRequest<{ certificationTypes: CertificationType[] }, unknown>(
         client,
-        GET_CERTIFICATION_TYPES.loc?.source.body || '',
+        GET_CERTIFICATION_TYPES,
         { filter }
       ),
     select: (data) => data.certificationTypes,
@@ -115,7 +115,7 @@ export function useEmployeeCertifications(
     queryFn: () =>
       graphqlRequest<{ employeeCertifications: EmployeeCertification[] }, unknown>(
         client,
-        GET_EMPLOYEE_CERTIFICATIONS.loc?.source.body || '',
+        GET_EMPLOYEE_CERTIFICATIONS,
         { employeeId, filter }
       ),
     select: (data) => data.employeeCertifications,
@@ -134,7 +134,7 @@ export function useExpiringCertifications(
     queryFn: () =>
       graphqlRequest<{
         expiringCertifications: (EmployeeCertification & { daysUntilExpiry: number })[];
-      }, unknown>(client, GET_EXPIRING_CERTIFICATIONS.loc?.source.body || '', {
+      }, unknown>(client, GET_EXPIRING_CERTIFICATIONS, {
         daysUntilExpiry,
         departmentId,
       }),
@@ -150,7 +150,7 @@ export function useExpiredCertifications(departmentId?: string) {
     queryFn: () =>
       graphqlRequest<{
         expiredCertifications: (EmployeeCertification & { daysSinceExpiry: number })[];
-      }, unknown>(client, GET_EXPIRED_CERTIFICATIONS.loc?.source.body || '', {
+      }, unknown>(client, GET_EXPIRED_CERTIFICATIONS, {
         departmentId,
       }),
     select: (data) => data.expiredCertifications,
@@ -165,7 +165,7 @@ export function useCertificationComplianceReport(departmentId?: string) {
     queryFn: () =>
       graphqlRequest<{
         certificationComplianceReport: CertificationComplianceReport;
-      }, unknown>(client, GET_CERTIFICATION_COMPLIANCE_REPORT.loc?.source.body || '', {
+      }, unknown>(client, GET_CERTIFICATION_COMPLIANCE_REPORT, {
         departmentId,
       }),
     select: (data) => data.certificationComplianceReport,
@@ -197,7 +197,7 @@ export function useEmployeeCertificationStatus(employeeId: string) {
             requiredForOffshore: boolean;
           }[];
         };
-      }, unknown>(client, GET_EMPLOYEE_CERTIFICATION_STATUS.loc?.source.body || '', {
+      }, unknown>(client, GET_EMPLOYEE_CERTIFICATION_STATUS, {
         employeeId,
       }),
     select: (data) => data.employeeCertificationStatus,
@@ -221,7 +221,7 @@ export function useTrainingCourses(filter?: {
     queryFn: () =>
       graphqlRequest<{ trainingCourses: TrainingCourse[] }, unknown>(
         client,
-        GET_TRAINING_COURSES.loc?.source.body || '',
+        GET_TRAINING_COURSES,
         { filter }
       ),
     select: (data) => data.trainingCourses,
@@ -243,7 +243,7 @@ export function useTrainingEnrollments(
     queryFn: () =>
       graphqlRequest<{
         trainingEnrollments: PaginatedResponse<TrainingEnrollment>;
-      }, unknown>(client, GET_TRAINING_ENROLLMENTS.loc?.source.body || '', {
+      }, unknown>(client, GET_TRAINING_ENROLLMENTS, {
         filter,
         pagination,
       }),
@@ -259,7 +259,7 @@ export function useMyTrainingEnrollments(filter?: TrainingFilterInput) {
     queryFn: () =>
       graphqlRequest<{ myTrainingEnrollments: TrainingEnrollment[] }, unknown>(
         client,
-        GET_MY_TRAINING_ENROLLMENTS.loc?.source.body || '',
+        GET_MY_TRAINING_ENROLLMENTS,
         { filter }
       ),
     select: (data) => data.myTrainingEnrollments,
@@ -274,7 +274,7 @@ export function useMandatoryTrainingStatus(employeeId: string) {
     queryFn: () =>
       graphqlRequest<{
         mandatoryTrainingStatus: MandatoryTrainingStatus[];
-      }, unknown>(client, GET_MANDATORY_TRAINING_STATUS.loc?.source.body || '', {
+      }, unknown>(client, GET_MANDATORY_TRAINING_STATUS, {
         employeeId,
       }),
     select: (data) => data.mandatoryTrainingStatus,
@@ -294,7 +294,7 @@ export function useAddEmployeeCertification() {
     mutationFn: (input: AddEmployeeCertificationInput) =>
       graphqlRequest<{ addEmployeeCertification: EmployeeCertification }, unknown>(
         client,
-        ADD_EMPLOYEE_CERTIFICATION.loc?.source.body || '',
+        ADD_EMPLOYEE_CERTIFICATION,
         { input }
       ),
     onSuccess: (data) => {
@@ -314,7 +314,7 @@ export function useVerifyCertification() {
     mutationFn: (input: VerifyCertificationInput) =>
       graphqlRequest<{ verifyCertification: EmployeeCertification }, unknown>(
         client,
-        VERIFY_CERTIFICATION.loc?.source.body || '',
+        VERIFY_CERTIFICATION,
         { input }
       ),
     onSuccess: (data) => {
@@ -333,7 +333,7 @@ export function useRevokeCertification() {
     mutationFn: (input: RevokeCertificationInput) =>
       graphqlRequest<{ revokeCertification: EmployeeCertification }, unknown>(
         client,
-        REVOKE_CERTIFICATION.loc?.source.body || '',
+        REVOKE_CERTIFICATION,
         { input }
       ),
     onSuccess: (data) => {
@@ -363,7 +363,7 @@ export function useRenewCertification() {
     }) =>
       graphqlRequest<{ renewCertification: EmployeeCertification }, unknown>(
         client,
-        RENEW_CERTIFICATION.loc?.source.body || '',
+        RENEW_CERTIFICATION,
         { certificationId, newExpiryDate, certificateNumber, attachmentUrl }
       ),
     onSuccess: (data) => {
@@ -387,7 +387,7 @@ export function useEnrollInTraining() {
     mutationFn: (input: EnrollInTrainingInput) =>
       graphqlRequest<{ enrollInTraining: TrainingEnrollment }, unknown>(
         client,
-        ENROLL_IN_TRAINING.loc?.source.body || '',
+        ENROLL_IN_TRAINING,
         { input }
       ),
     onSuccess: () => {
@@ -405,7 +405,7 @@ export function useStartTraining() {
     mutationFn: (enrollmentId: string) =>
       graphqlRequest<{ startTraining: TrainingEnrollment }, unknown>(
         client,
-        START_TRAINING.loc?.source.body || '',
+        START_TRAINING,
         { enrollmentId }
       ),
     onSuccess: () => {
@@ -423,7 +423,7 @@ export function useCompleteTraining() {
     mutationFn: (input: CompleteTrainingInput) =>
       graphqlRequest<{ completeTraining: TrainingEnrollment }, unknown>(
         client,
-        COMPLETE_TRAINING.loc?.source.body || '',
+        COMPLETE_TRAINING,
         { input }
       ),
     onSuccess: (data) => {
@@ -444,7 +444,7 @@ export function useWithdrawFromTraining() {
     mutationFn: ({ enrollmentId, reason }: { enrollmentId: string; reason?: string }) =>
       graphqlRequest<{ withdrawFromTraining: TrainingEnrollment }, unknown>(
         client,
-        WITHDRAW_FROM_TRAINING.loc?.source.body || '',
+        WITHDRAW_FROM_TRAINING,
         { enrollmentId, reason }
       ),
     onSuccess: () => {

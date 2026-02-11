@@ -145,6 +145,13 @@ const superAdminNavigation: NavigationItem[] = [
  * TENANT_ADMIN base navigation - Management items (English)
  */
 const tenantAdminBaseNavigation: NavigationItem[] = [
+  // ==================== COMPANY (TOP LEVEL) ====================
+  {
+    id: 'company',
+    label: 'Company',
+    path: '/sites/company',
+    icon: 'building',
+  },
   // ==================== MANAGEMENT ====================
   {
     id: 'tenant-dashboard',
@@ -201,6 +208,7 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'sites-setup', label: 'Setup', path: '/sites/setup' },
       { id: 'sites-tanks', label: 'Tanks & Ponds', path: '/sites/tanks' },
       { id: 'sites-feeding', label: 'Feeding', path: '/sites/feeding' },
+      { id: 'sites-water-chemistry', label: 'Water Chemistry', path: '/sites/water-chemistry' },
       { id: 'sites-storage', label: 'Storage & Stock', path: '/sites/storage' },
       { id: 'sites-tasks', label: 'Tasks', path: '/sites/tasks' },
 { id: 'sites-health', label: 'Health Events', path: '/sites/health', icon: 'activity' },
@@ -253,6 +261,12 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
  * MODULE_MANAGER and MODULE_USER navigation - Module based (English)
  */
 const moduleUserBaseNavigation: NavigationItem[] = [
+  {
+    id: 'company',
+    label: 'Company',
+    path: '/sites/company',
+    icon: 'building',
+  },
   {
     id: 'dashboard',
     label: 'Dashboard',

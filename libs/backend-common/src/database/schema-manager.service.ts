@@ -142,6 +142,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'regulatory_settings',
       'sentinel_hub_settings',
 
+      // Weather & Marine observations
+      'weather_observations',
+      'marine_observations',
+      'weather_settings',
+
       // Security & Compliance tables (tenant-specific audit trail)
       'activity_logs',
       'api_usage_logs',
@@ -157,6 +162,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'security_incidents',
       'threat_intelligence',
 
+      // Mobile user settings
+      'mobile_user_settings',
     ],
   },
   {
@@ -431,8 +438,9 @@ export class SchemaManagerService {
       await this.dataSource.query(`CREATE SCHEMA "${safeSchemaName}"`);
       this.logger.debug(`Schema ${safeSchemaName} created`);
 
-      // 2. Create tables for each requested module
-      for (const moduleName of modules) {
+      // 2. Create tables for ALL modules (ensures tenant isolation for all tables)
+      const allModules = ['sensor', 'farm', 'hr'];
+      for (const moduleName of allModules) {
         const moduleSchema = MODULE_SCHEMAS.find(m => m.moduleName === moduleName);
         if (!moduleSchema) {
           this.logger.warn(`Module ${moduleName} not found in schema definitions`);
@@ -483,8 +491,8 @@ export class SchemaManagerService {
         }
       }
 
-      // 3. Copy reference data for each module
-      for (const moduleName of modules) {
+      // 3. Copy reference data for ALL modules
+      for (const moduleName of allModules) {
         const refTables = REFERENCE_DATA_TABLES[moduleName];
         if (!refTables) continue;
 

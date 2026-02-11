@@ -4,6 +4,8 @@
  * Token yönetimi, retry mantığı ve hata işleme
  */
 
+import { print, type DocumentNode } from 'graphql';
+
 // ============================================================================
 // Tip Tanımlamaları
 // ============================================================================
@@ -181,11 +183,14 @@ class GraphQLClient {
    * GraphQL sorgusu/mutasyonu çalıştır
    */
   async request<TData = unknown, TVariables = Record<string, unknown>>(
-    query: string,
+    query: string | DocumentNode,
     variables?: TVariables,
     options?: GraphQLRequestOptions
   ): Promise<TData> {
     const { headers: customHeaders, timeout, signal } = options || {};
+
+    // Convert DocumentNode to string if needed (e.g. from graphql-tag gql`...`)
+    const queryString = typeof query === 'string' ? query : print(query);
 
     // Headers oluştur
     const headers: Record<string, string> = {
@@ -221,7 +226,7 @@ class GraphQLClient {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          query,
+          query: queryString,
           variables,
         }),
         signal: signal || controller.signal,

@@ -7,21 +7,28 @@
 // Queries - tenantId comes from X-Tenant-Id header (set from JWT)
 export const GET_TANKS_WITH_BATCHES = `
   query GetTanksWithBatches {
-    tanks(filter: { status: ACTIVE }) {
-      id
-      name
-      code
-      volumeM3
-      status
-      currentBatch {
+    tanks {
+      items {
         id
-        batchNumber
-        speciesName
-        currentQuantity
-        averageWeight
-        currentBiomassKg
+        name
+        code
+        volume
         status
+        currentBiomass
+        maxBiomass
+        batchMetrics {
+          batchId
+          batchNumber
+          pieces
+          avgWeight
+          biomass
+          density
+          capacityUsedPercent
+          isOverCapacity
+          daysSinceStocking
+        }
       }
+      total
     }
   }
 `;
@@ -69,14 +76,15 @@ export const CREATE_HARVEST_RECORD = `
 
 // Auth
 export const LOGIN = `
-  mutation Login($email: String!, $password: String!) {
-    login(email: $email, password: $password) {
+  mutation Login($input: LoginInput!) {
+    login(input: $input) {
       accessToken
       refreshToken
       user {
         id
         email
-        name
+        firstName
+        lastName
         role
         tenantId
       }

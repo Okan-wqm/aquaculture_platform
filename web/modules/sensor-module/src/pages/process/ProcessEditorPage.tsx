@@ -683,7 +683,6 @@ const ProcessEditorPage: React.FC = () => {
           name: processName,
           nodes: currentState.nodes,
           edges: currentState.edges,
-          status: 'draft',
         });
 
         if (result.success && result.process) {

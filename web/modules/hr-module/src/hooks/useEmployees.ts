@@ -89,7 +89,7 @@ export function useEmployees(
     queryFn: () =>
       graphqlRequest<{ employees: PaginatedResponse<Employee> }, unknown>(
         client,
-        GET_EMPLOYEES.loc?.source.body || '',
+        GET_EMPLOYEES,
         { filter, pagination }
       ),
     select: (data) => data.employees,
@@ -104,7 +104,7 @@ export function useEmployee(id: string) {
     queryFn: () =>
       graphqlRequest<{ employee: Employee }, unknown>(
         client,
-        GET_EMPLOYEE.loc?.source.body || '',
+        GET_EMPLOYEE,
         { id }
       ),
     select: (data) => data.employee,
@@ -120,7 +120,7 @@ export function useEmployeeByNumber(employeeNumber: string) {
     queryFn: () =>
       graphqlRequest<{ employeeByNumber: Employee }, unknown>(
         client,
-        GET_EMPLOYEE_BY_NUMBER.loc?.source.body || '',
+        GET_EMPLOYEE_BY_NUMBER,
         { employeeNumber }
       ),
     select: (data) => data.employeeByNumber,
@@ -136,7 +136,7 @@ export function useSearchEmployees(search: string, limit = 10) {
     queryFn: () =>
       graphqlRequest<{ searchEmployees: Employee[] }, unknown>(
         client,
-        SEARCH_EMPLOYEES.loc?.source.body || '',
+        SEARCH_EMPLOYEES,
         { search, limit }
       ),
     select: (data) => data.searchEmployees,
@@ -152,7 +152,7 @@ export function useDirectReports(managerId: string) {
     queryFn: () =>
       graphqlRequest<{ directReports: Employee[] }, unknown>(
         client,
-        GET_DIRECT_REPORTS.loc?.source.body || '',
+        GET_DIRECT_REPORTS,
         { managerId }
       ),
     select: (data) => data.directReports,
@@ -172,7 +172,7 @@ export function useDepartments(filter?: Record<string, unknown>) {
     queryFn: () =>
       graphqlRequest<{ departments: Department[] }, unknown>(
         client,
-        GET_DEPARTMENTS.loc?.source.body || '',
+        GET_DEPARTMENTS,
         { filter }
       ),
     select: (data) => data.departments,
@@ -187,7 +187,7 @@ export function useDepartment(id: string) {
     queryFn: () =>
       graphqlRequest<{ department: Department & { employees: Employee[] } }, unknown>(
         client,
-        GET_DEPARTMENT.loc?.source.body || '',
+        GET_DEPARTMENT,
         { id }
       ),
     select: (data) => data.department,
@@ -207,7 +207,7 @@ export function usePositions(filter?: Record<string, unknown>) {
     queryFn: () =>
       graphqlRequest<{ positions: Position[] }, unknown>(
         client,
-        GET_POSITIONS.loc?.source.body || '',
+        GET_POSITIONS,
         { filter }
       ),
     select: (data) => data.positions,
@@ -229,7 +229,7 @@ export function useOrganizationTree() {
           departments: Department[];
           employees: Employee[];
         };
-      }, unknown>(client, GET_ORGANIZATION_TREE.loc?.source.body || '', {}),
+      }, unknown>(client, GET_ORGANIZATION_TREE, {}),
     select: (data) => data.organizationTree,
   });
 }
@@ -246,7 +246,7 @@ export function useCreateEmployee() {
     mutationFn: (input: CreateEmployeeInput) =>
       graphqlRequest<{ createEmployee: Employee }, unknown>(
         client,
-        CREATE_EMPLOYEE.loc?.source.body || '',
+        CREATE_EMPLOYEE,
         { input }
       ),
     onSuccess: () => {
@@ -264,7 +264,7 @@ export function useUpdateEmployee() {
     mutationFn: (input: UpdateEmployeeInput) =>
       graphqlRequest<{ updateEmployee: Employee }, unknown>(
         client,
-        UPDATE_EMPLOYEE.loc?.source.body || '',
+        UPDATE_EMPLOYEE,
         { input }
       ),
     onSuccess: (data) => {
@@ -293,7 +293,7 @@ export function useUpdateEmployeeStatus() {
     }) =>
       graphqlRequest<{ updateEmployeeStatus: Employee }, unknown>(
         client,
-        UPDATE_EMPLOYEE_STATUS.loc?.source.body || '',
+        UPDATE_EMPLOYEE_STATUS,
         { id, status, reason }
       ),
     onSuccess: (_, variables) => {
@@ -311,7 +311,7 @@ export function useToggleFarmWorker() {
     mutationFn: ({ id, isFarmWorker }: { id: string; isFarmWorker: boolean }) =>
       graphqlRequest<{ toggleFarmWorker: Employee }, unknown>(
         client,
-        TOGGLE_FARM_WORKER.loc?.source.body || '',
+        TOGGLE_FARM_WORKER,
         { id, isFarmWorker }
       ),
     onSuccess: (_, variables) => {
@@ -329,7 +329,7 @@ export function useAssignEmployeeToDepartment() {
     mutationFn: ({ employeeId, departmentId }: { employeeId: string; departmentId: string }) =>
       graphqlRequest<{ assignEmployeeToDepartment: Employee }, unknown>(
         client,
-        ASSIGN_EMPLOYEE_TO_DEPARTMENT.loc?.source.body || '',
+        ASSIGN_EMPLOYEE_TO_DEPARTMENT,
         { employeeId, departmentId }
       ),
     onSuccess: (_, variables) => {
@@ -347,7 +347,7 @@ export function useAssignEmployeeToPosition() {
     mutationFn: ({ employeeId, positionId }: { employeeId: string; positionId: string }) =>
       graphqlRequest<{ assignEmployeeToPosition: Employee }, unknown>(
         client,
-        ASSIGN_EMPLOYEE_TO_POSITION.loc?.source.body || '',
+        ASSIGN_EMPLOYEE_TO_POSITION,
         { employeeId, positionId }
       ),
     onSuccess: (_, variables) => {
@@ -364,7 +364,7 @@ export function useAssignManager() {
     mutationFn: ({ employeeId, managerId }: { employeeId: string; managerId: string }) =>
       graphqlRequest<{ assignManager: Employee }, unknown>(
         client,
-        ASSIGN_MANAGER.loc?.source.body || '',
+        ASSIGN_MANAGER,
         { employeeId, managerId }
       ),
     onSuccess: (_, variables) => {
@@ -386,7 +386,7 @@ export function useCreateDepartment() {
     mutationFn: (input: { code: string; name: string; description?: string; managerId?: string; parentDepartmentId?: string; colorCode?: string }) =>
       graphqlRequest<{ createDepartment: Department }, unknown>(
         client,
-        CREATE_DEPARTMENT.loc?.source.body || '',
+        CREATE_DEPARTMENT,
         { input }
       ),
     onSuccess: () => {
@@ -404,7 +404,7 @@ export function useUpdateDepartment() {
     mutationFn: (input: { id: string; name?: string; description?: string; managerId?: string; colorCode?: string; isActive?: boolean }) =>
       graphqlRequest<{ updateDepartment: Department }, unknown>(
         client,
-        UPDATE_DEPARTMENT.loc?.source.body || '',
+        UPDATE_DEPARTMENT,
         { input }
       ),
     onSuccess: (data) => {
@@ -429,7 +429,7 @@ export function useCreatePosition() {
     mutationFn: (input: { code: string; title: string; description?: string; departmentId?: string; minSalary?: number; maxSalary?: number }) =>
       graphqlRequest<{ createPosition: Position }, unknown>(
         client,
-        CREATE_POSITION.loc?.source.body || '',
+        CREATE_POSITION,
         { input }
       ),
     onSuccess: () => {
@@ -446,7 +446,7 @@ export function useUpdatePosition() {
     mutationFn: (input: { id: string; title?: string; description?: string; minSalary?: number; maxSalary?: number; isActive?: boolean }) =>
       graphqlRequest<{ updatePosition: Position }, unknown>(
         client,
-        UPDATE_POSITION.loc?.source.body || '',
+        UPDATE_POSITION,
         { input }
       ),
     onSuccess: () => {

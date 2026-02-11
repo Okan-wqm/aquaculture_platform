@@ -280,7 +280,7 @@ export const systemKeys = createQueryKeyFactory('system');
  * GraphQL fetch function with abort controller support for React Query
  */
 export async function graphqlFetchWithCancellation<TData, TVariables = Record<string, unknown>>(
-  query: string,
+  query: string | import('graphql').DocumentNode,
   variables?: TVariables,
   options?: GraphQLQueryOptions
 ): Promise<TData> {

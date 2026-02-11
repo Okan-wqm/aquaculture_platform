@@ -18,8 +18,8 @@ interface ShellTubeHeatExchangerNodeData {
   isScadaMode?: boolean;
 }
 
-const WIDTH = 200;
-const HEIGHT = 100;
+const WIDTH = 160;
+const HEIGHT = 120;
 
 const ShellTubeHeatExchangerNode: React.FC<NodeProps<ShellTubeHeatExchangerNodeData>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
@@ -64,7 +64,7 @@ const ShellTubeHeatExchangerNode: React.FC<NodeProps<ShellTubeHeatExchangerNodeD
         borderRadius: 8,
       }}
     >
-      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 200 100">
+      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 200 100" preserveAspectRatio="xMidYMid meet">
         <defs>
           <linearGradient id={`shell-body-${id}`} x1="0%" y1="0%" x2="0%" y2="100%">
             <stop offset="0%" stopColor="#607D8B" />
@@ -105,7 +105,7 @@ const ShellTubeHeatExchangerNode: React.FC<NodeProps<ShellTubeHeatExchangerNodeD
 
       {/* Shell In Handle (top) */}
       <div
-        style={{ position: 'absolute', left: 65, top: 5, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 52, top: 6, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(shellInType, setShellInType, 'shellInType')}
       >
         <Handle
@@ -118,7 +118,7 @@ const ShellTubeHeatExchangerNode: React.FC<NodeProps<ShellTubeHeatExchangerNodeD
 
       {/* Shell Out Handle (bottom) */}
       <div
-        style={{ position: 'absolute', left: 135, top: 85, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 108, top: 102, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(shellOutType, setShellOutType, 'shellOutType')}
       >
         <Handle
@@ -131,7 +131,7 @@ const ShellTubeHeatExchangerNode: React.FC<NodeProps<ShellTubeHeatExchangerNodeD
 
       {/* Tube In Handle (left) */}
       <div
-        style={{ position: 'absolute', left: 5, top: 45, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 4, top: 54, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(tubeInType, setTubeInType, 'tubeInType')}
       >
         <Handle
@@ -144,7 +144,7 @@ const ShellTubeHeatExchangerNode: React.FC<NodeProps<ShellTubeHeatExchangerNodeD
 
       {/* Tube Out Handle (right) */}
       <div
-        style={{ position: 'absolute', left: 195, top: 45, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 156, top: 54, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(tubeOutType, setTubeOutType, 'tubeOutType')}
       >
         <Handle

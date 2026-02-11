@@ -104,7 +104,7 @@ export function useWorkAreas(filter?: WorkAreaFilterInput) {
     queryFn: () =>
       graphqlRequest<{ workAreas: WorkArea[] }, unknown>(
         client,
-        GET_WORK_AREAS.loc?.source.body || '',
+        GET_WORK_AREAS,
         { filter }
       ),
     select: (data) => data.workAreas,
@@ -122,7 +122,7 @@ export function useWorkArea(id: string) {
           requiredCertifications: { id: string; code: string; name: string; category: string }[];
           currentAssignments: { id: string; firstName: string; lastName: string; avatarUrl?: string }[];
         };
-      }, unknown>(client, GET_WORK_AREA.loc?.source.body || '', { id }),
+      }, unknown>(client, GET_WORK_AREA, { id }),
     select: (data) => data.workArea,
     enabled: !!id,
   });
@@ -136,7 +136,7 @@ export function useOffshoreWorkAreas() {
     queryFn: () =>
       graphqlRequest<{ offshoreWorkAreas: WorkArea[] }, unknown>(
         client,
-        GET_OFFSHORE_WORK_AREAS.loc?.source.body || '',
+        GET_OFFSHORE_WORK_AREAS,
         {}
       ),
     select: (data) => data.offshoreWorkAreas,
@@ -151,7 +151,7 @@ export function useWorkAreaOccupancy(workAreaId: string, date: string) {
     queryFn: () =>
       graphqlRequest<{ workAreaOccupancy: WorkAreaOccupancyReport }, unknown>(
         client,
-        GET_WORK_AREA_OCCUPANCY.loc?.source.body || '',
+        GET_WORK_AREA_OCCUPANCY,
         { workAreaId, date }
       ),
     select: (data) => data.workAreaOccupancy,
@@ -167,7 +167,7 @@ export function useAllWorkAreaOccupancies(date: string) {
     queryFn: () =>
       graphqlRequest<{
         allWorkAreaOccupancies: WorkAreaOccupancyReport[];
-      }, unknown>(client, GET_ALL_WORK_AREA_OCCUPANCIES.loc?.source.body || '', { date }),
+      }, unknown>(client, GET_ALL_WORK_AREA_OCCUPANCIES, { date }),
     select: (data) => data.allWorkAreaOccupancies,
     enabled: !!date,
   });
@@ -188,7 +188,7 @@ export function useWorkRotations(
     queryFn: () =>
       graphqlRequest<{ workRotations: PaginatedResponse<WorkRotation> }, unknown>(
         client,
-        GET_WORK_ROTATIONS.loc?.source.body || '',
+        GET_WORK_ROTATIONS,
         { filter, pagination }
       ),
     select: (data) => data.workRotations,
@@ -203,7 +203,7 @@ export function useWorkRotation(id: string) {
     queryFn: () =>
       graphqlRequest<{ workRotation: WorkRotation }, unknown>(
         client,
-        GET_WORK_ROTATION.loc?.source.body || '',
+        GET_WORK_ROTATION,
         { id }
       ),
     select: (data) => data.workRotation,
@@ -219,7 +219,7 @@ export function useMyRotations(filter?: WorkRotationFilterInput) {
     queryFn: () =>
       graphqlRequest<{ myRotations: WorkRotation[] }, unknown>(
         client,
-        GET_MY_ROTATIONS.loc?.source.body || '',
+        GET_MY_ROTATIONS,
         { filter }
       ),
     select: (data) => data.myRotations,
@@ -234,7 +234,7 @@ export function useCurrentRotation(employeeId: string) {
     queryFn: () =>
       graphqlRequest<{
         currentRotation: WorkRotation & { daysRemaining: number; progressPercent: number };
-      }, unknown>(client, GET_CURRENT_ROTATION.loc?.source.body || '', { employeeId }),
+      }, unknown>(client, GET_CURRENT_ROTATION, { employeeId }),
     select: (data) => data.currentRotation,
     enabled: !!employeeId,
   });
@@ -248,7 +248,7 @@ export function useUpcomingRotations(employeeId: string, limit = 5) {
     queryFn: () =>
       graphqlRequest<{ upcomingRotations: WorkRotation[] }, unknown>(
         client,
-        GET_UPCOMING_ROTATIONS.loc?.source.body || '',
+        GET_UPCOMING_ROTATIONS,
         { employeeId, limit }
       ),
     select: (data) => data.upcomingRotations,
@@ -268,7 +268,7 @@ export function useRotationCalendar(
     queryFn: () =>
       graphqlRequest<{ rotationCalendar: RotationCalendarEntry[] }, unknown>(
         client,
-        GET_ROTATION_CALENDAR.loc?.source.body || '',
+        GET_ROTATION_CALENDAR,
         { workAreaId, startDate, endDate }
       ),
     select: (data) => data.rotationCalendar,
@@ -300,7 +300,7 @@ export function useRotationChangeovers(startDate: string, endDate: string) {
             rotationId: string;
           }[];
         }[];
-      }, unknown>(client, GET_ROTATION_CHANGEOVERS.loc?.source.body || '', {
+      }, unknown>(client, GET_ROTATION_CHANGEOVERS, {
         startDate,
         endDate,
       }),
@@ -321,7 +321,7 @@ export function useCurrentlyOffshore(workAreaId?: string) {
     queryFn: () =>
       graphqlRequest<{ currentlyOffshore: OffshoreStatus[] }, unknown>(
         client,
-        GET_CURRENTLY_OFFSHORE.loc?.source.body || '',
+        GET_CURRENTLY_OFFSHORE,
         { workAreaId }
       ),
     select: (data) => data.currentlyOffshore,
@@ -341,7 +341,7 @@ export function useOffshoreHeadcount() {
           byWorkArea: { workAreaId: string; workAreaName: string; count: number; maxCapacity: number }[];
           byRotationType: { rotationType: string; count: number }[];
         };
-      }, unknown>(client, GET_OFFSHORE_HEADCOUNT.loc?.source.body || '', {}),
+      }, unknown>(client, GET_OFFSHORE_HEADCOUNT, {}),
     select: (data) => data.offshoreHeadcount,
   });
 }
@@ -354,7 +354,7 @@ export function useCrewAssignments() {
     queryFn: () =>
       graphqlRequest<{ crewAssignments: CrewAssignment[] }, unknown>(
         client,
-        GET_CREW_ASSIGNMENTS.loc?.source.body || '',
+        GET_CREW_ASSIGNMENTS,
         {}
       ),
     select: (data) => data.crewAssignments,
@@ -374,7 +374,7 @@ export function useSeaLandSplit(departmentId?: string) {
           inTransit: { count: number; employees: { id: string; firstName: string; lastName: string; destination?: string }[] };
           onLeave: { count: number; employees: { id: string; firstName: string; lastName: string }[] };
         };
-      }, unknown>(client, GET_SEA_LAND_SPLIT.loc?.source.body || '', { departmentId }),
+      }, unknown>(client, GET_SEA_LAND_SPLIT, { departmentId }),
     select: (data) => data.seaLandSplit,
   });
 }
@@ -391,7 +391,7 @@ export function useCreateWorkArea() {
     mutationFn: (input: CreateWorkAreaInput) =>
       graphqlRequest<{ createWorkArea: WorkArea }, unknown>(
         client,
-        CREATE_WORK_AREA.loc?.source.body || '',
+        CREATE_WORK_AREA,
         { input }
       ),
     onSuccess: () => {
@@ -409,7 +409,7 @@ export function useUpdateWorkArea() {
     mutationFn: (input: UpdateWorkAreaInput) =>
       graphqlRequest<{ updateWorkArea: WorkArea }, unknown>(
         client,
-        UPDATE_WORK_AREA.loc?.source.body || '',
+        UPDATE_WORK_AREA,
         { input }
       ),
     onSuccess: (data) => {
@@ -434,7 +434,7 @@ export function useCreateWorkRotation() {
     mutationFn: (input: CreateWorkRotationInput) =>
       graphqlRequest<{ createWorkRotation: WorkRotation }, unknown>(
         client,
-        CREATE_WORK_ROTATION.loc?.source.body || '',
+        CREATE_WORK_ROTATION,
         { input }
       ),
     onSuccess: () => {
@@ -452,7 +452,7 @@ export function useUpdateWorkRotation() {
     mutationFn: (input: UpdateWorkRotationInput) =>
       graphqlRequest<{ updateWorkRotation: WorkRotation }, unknown>(
         client,
-        UPDATE_WORK_ROTATION.loc?.source.body || '',
+        UPDATE_WORK_ROTATION,
         { input }
       ),
     onSuccess: (data) => {
@@ -473,7 +473,7 @@ export function useStartRotation() {
     mutationFn: ({ rotationId, actualStartDate }: { rotationId: string; actualStartDate?: string }) =>
       graphqlRequest<{ startRotation: WorkRotation }, unknown>(
         client,
-        START_ROTATION.loc?.source.body || '',
+        START_ROTATION,
         { rotationId, actualStartDate }
       ),
     onSuccess: (data) => {
@@ -504,7 +504,7 @@ export function useEndRotation() {
     }) =>
       graphqlRequest<{ endRotation: WorkRotation }, unknown>(
         client,
-        END_ROTATION.loc?.source.body || '',
+        END_ROTATION,
         { rotationId, actualEndDate, notes }
       ),
     onSuccess: (data) => {
@@ -527,7 +527,7 @@ export function useCancelRotation() {
     mutationFn: ({ rotationId, reason }: { rotationId: string; reason: string }) =>
       graphqlRequest<{ cancelRotation: WorkRotation }, unknown>(
         client,
-        CANCEL_ROTATION.loc?.source.body || '',
+        CANCEL_ROTATION,
         { rotationId, reason }
       ),
     onSuccess: (data) => {
@@ -548,7 +548,7 @@ export function useApproveRotation() {
     mutationFn: ({ rotationId, notes }: { rotationId: string; notes?: string }) =>
       graphqlRequest<{ approveRotation: WorkRotation }, unknown>(
         client,
-        APPROVE_ROTATION.loc?.source.body || '',
+        APPROVE_ROTATION,
         { rotationId, notes }
       ),
     onSuccess: (data) => {

@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent } from 'react';
-import { EdgeProps, useReactFlow } from 'reactflow';
+import { EdgeProps, Position, useReactFlow } from 'reactflow';
 import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 
 /* -------------------------------------------------- */
@@ -67,12 +67,29 @@ export default function DraggableEdge(props: EdgeProps<DraggableEdgeData>) {
     sourceY,
     targetX,
     targetY,
+    sourcePosition,
+    targetPosition,
     style = {},
     data,
     selected,
   } = props;
 
   const { setEdges } = useReactFlow();
+
+  // Apply handle offset correction to center edges on handle dots
+  const HANDLE_OFFSET = 6; // half of 12px handle
+
+  let sx = sourceX, sy = sourceY;
+  if (sourcePosition === Position.Left)   sx += HANDLE_OFFSET;
+  if (sourcePosition === Position.Right)  sx -= HANDLE_OFFSET;
+  if (sourcePosition === Position.Top)    sy += HANDLE_OFFSET;
+  if (sourcePosition === Position.Bottom) sy -= HANDLE_OFFSET;
+
+  let tx = targetX, ty = targetY;
+  if (targetPosition === Position.Left)   tx += HANDLE_OFFSET;
+  if (targetPosition === Position.Right)  tx -= HANDLE_OFFSET;
+  if (targetPosition === Position.Top)    ty += HANDLE_OFFSET;
+  if (targetPosition === Position.Bottom) ty -= HANDLE_OFFSET;
 
   const curveType = data?.curveType || 'quadratic';
   const showGuides = data?.showGuides ?? true;
@@ -83,13 +100,13 @@ export default function DraggableEdge(props: EdgeProps<DraggableEdgeData>) {
 
   /* ---------- Control points -------------------- */
   const defaultCP1: ControlPoint = {
-    x: (sourceX + targetX) / 2 + 40,
-    y: (sourceY + targetY) / 2 - 40,
+    x: (sx + tx) / 2 + 40,
+    y: (sy + ty) / 2 - 40,
   };
 
   const defaultCP2: ControlPoint = {
-    x: (sourceX + targetX) / 2 - 40,
-    y: (sourceY + targetY) / 2 + 40,
+    x: (sx + tx) / 2 - 40,
+    y: (sy + ty) / 2 + 40,
   };
 
   const [controlPoint, setControlPoint] = useState<ControlPoint>(
@@ -109,15 +126,15 @@ export default function DraggableEdge(props: EdgeProps<DraggableEdgeData>) {
     if (curveType === 'cubic') {
       // Cubic Bezier: M start C cp1 cp2 end
       setEdgePath(
-        `M${sourceX},${sourceY} C${controlPoint.x},${controlPoint.y} ${controlPoint2.x},${controlPoint2.y} ${targetX},${targetY}`
+        `M${sx},${sy} C${controlPoint.x},${controlPoint.y} ${controlPoint2.x},${controlPoint2.y} ${tx},${ty}`
       );
     } else {
       // Quadratic Bezier: M start Q cp end
       setEdgePath(
-        `M${sourceX},${sourceY} Q${controlPoint.x},${controlPoint.y} ${targetX},${targetY}`
+        `M${sx},${sy} Q${controlPoint.x},${controlPoint.y} ${tx},${ty}`
       );
     }
-  }, [sourceX, sourceY, targetX, targetY, controlPoint, controlPoint2, curveType]);
+  }, [sx, sy, tx, ty, controlPoint, controlPoint2, curveType]);
 
   /* ---------- Persist changes ------------------- */
   useEffect(() => {
@@ -173,8 +190,8 @@ export default function DraggableEdge(props: EdgeProps<DraggableEdgeData>) {
 
   /* ---------- Guide lines path ------------------ */
   const guidePath = curveType === 'cubic'
-    ? `M${sourceX},${sourceY} L${controlPoint.x},${controlPoint.y} L${controlPoint2.x},${controlPoint2.y} L${targetX},${targetY}`
-    : `M${sourceX},${sourceY} L${controlPoint.x},${controlPoint.y} L${targetX},${targetY}`;
+    ? `M${sx},${sy} L${controlPoint.x},${controlPoint.y} L${controlPoint2.x},${controlPoint2.y} L${tx},${ty}`
+    : `M${sx},${sy} L${controlPoint.x},${controlPoint.y} L${tx},${ty}`;
 
   /* ---------- Render ---------------------------- */
   return (
@@ -221,8 +238,8 @@ export default function DraggableEdge(props: EdgeProps<DraggableEdgeData>) {
 
       {/* Custom arrow head - tangent direction based on curve type */}
       {curveType === 'cubic'
-        ? renderArrow(targetX, targetY, controlPoint2.x, controlPoint2.y, edgeStyle.stroke)
-        : renderArrow(targetX, targetY, controlPoint.x, controlPoint.y, edgeStyle.stroke)
+        ? renderArrow(tx, ty, controlPoint2.x, controlPoint2.y, edgeStyle.stroke)
+        : renderArrow(tx, ty, controlPoint.x, controlPoint.y, edgeStyle.stroke)
       }
 
       {/* Control point 1 */}
@@ -267,8 +284,8 @@ export default function DraggableEdge(props: EdgeProps<DraggableEdgeData>) {
       {selected && (
         <>
           <circle
-            cx={sourceX}
-            cy={sourceY}
+            cx={sx}
+            cy={sy}
             r={4}
             fill="#22c55e"
             stroke="#16a34a"
@@ -276,8 +293,8 @@ export default function DraggableEdge(props: EdgeProps<DraggableEdgeData>) {
             style={{ pointerEvents: 'none' }}
           />
           <circle
-            cx={targetX}
-            cy={targetY}
+            cx={tx}
+            cy={ty}
             r={4}
             fill="#ef4444"
             stroke="#dc2626"

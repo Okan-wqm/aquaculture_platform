@@ -101,10 +101,13 @@ const FeedingPage: React.FC = () => {
     siteId: selectedSiteId || undefined,
     status: 'ACTIVE',
   });
-  const { data: forecastData, isLoading: forecastLoading } = useFeedConsumptionForecast({
-    siteId: selectedSiteId || undefined,
-    forecastDays,
-  });
+  const { data: forecastData, isLoading: forecastLoading } = useFeedConsumptionForecast(
+    {
+      siteId: selectedSiteId || undefined,
+      forecastDays,
+    },
+    { enabled: activeTab === 'daily-plan' },
+  );
 
   // Tab change handler
   const handleTabChange = (tabId: TabId) => {
@@ -336,40 +339,38 @@ const FeedingPage: React.FC = () => {
 
       {/* Tab Content */}
       <div className="px-4 sm:px-6 py-6">
-        {forecastLoading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          </div>
-        ) : (
-          <>
-            {activeTab === 'daily-plan' && (
-              <DailyFeedPlan
-                siteId={selectedSiteId}
-                batchId={selectedBatchId}
-                forecastDays={forecastDays}
-                forecastData={forecastData}
-              />
-            )}
-            {activeTab === 'growth' && (
-              <GrowthForecastChart
-                siteId={selectedSiteId}
-                batchId={selectedBatchId}
-                batches={batchesData?.items ?? []}
-              />
-            )}
-            {activeTab === 'fcr' && (
-              <FCRAnalysis
-                siteId={selectedSiteId}
-                batchId={selectedBatchId}
-                batches={batchesData?.items ?? []}
-              />
-            )}
-            {activeTab === 'protocols' && (
-              <ProtocolsTab siteId={selectedSiteId} />
-            )}
-            {activeTab === 'sampling' && <GrowthTab />}
-          </>
+        {activeTab === 'daily-plan' && (
+          forecastLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            </div>
+          ) : (
+            <DailyFeedPlan
+              siteId={selectedSiteId}
+              batchId={selectedBatchId}
+              forecastDays={forecastDays}
+              forecastData={forecastData}
+            />
+          )
         )}
+        {activeTab === 'growth' && (
+          <GrowthForecastChart
+            siteId={selectedSiteId}
+            batchId={selectedBatchId}
+            batches={batchesData?.items ?? []}
+          />
+        )}
+        {activeTab === 'fcr' && (
+          <FCRAnalysis
+            siteId={selectedSiteId}
+            batchId={selectedBatchId}
+            batches={batchesData?.items ?? []}
+          />
+        )}
+        {activeTab === 'protocols' && (
+          <ProtocolsTab siteId={selectedSiteId} />
+        )}
+        {activeTab === 'sampling' && <GrowthTab />}
       </div>
     </div>
   );

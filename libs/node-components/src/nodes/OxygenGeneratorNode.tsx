@@ -15,8 +15,8 @@ interface OxygenGeneratorNodeData {
   isScadaMode?: boolean;
 }
 
-const WIDTH = 100;
-const HEIGHT = 150;
+const WIDTH = 120;
+const HEIGHT = 160;
 
 const OxygenGeneratorNode: React.FC<NodeProps<OxygenGeneratorNodeData>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
@@ -54,7 +54,7 @@ const OxygenGeneratorNode: React.FC<NodeProps<OxygenGeneratorNodeData>> = ({ id,
         borderRadius: 8,
       }}
     >
-      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 100 150">
+      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 100 150" preserveAspectRatio="xMidYMid meet">
         <defs>
           <linearGradient id={`o2-tank-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#0277BD" />
@@ -98,7 +98,7 @@ const OxygenGeneratorNode: React.FC<NodeProps<OxygenGeneratorNodeData>> = ({ id,
 
       {/* Output Handle */}
       <div
-        style={{ position: 'absolute', left: 95, top: 90, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 114, top: 96, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle}
       >
         <Handle

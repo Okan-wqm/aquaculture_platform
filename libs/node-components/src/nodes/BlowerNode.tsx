@@ -18,8 +18,8 @@ interface BlowerNodeData {
   isScadaMode?: boolean;
 }
 
-const WIDTH = 200;
-const HEIGHT = 140;
+const WIDTH = 160;
+const HEIGHT = 120;
 
 const BlowerNode: React.FC<NodeProps<BlowerNodeData>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
@@ -37,8 +37,8 @@ const BlowerNode: React.FC<NodeProps<BlowerNodeData>> = ({ id, data, selected })
   const centerY = HEIGHT / 2;
 
   // Calculate rotated handle positions
-  const inletPos = rotatePoint(centerX, centerY, 50, 70, rotation);
-  const outletPos = rotatePoint(centerX, centerY, 185, 70, rotation);
+  const inletPos = rotatePoint(centerX, centerY, 40, 60, rotation);
+  const outletPos = rotatePoint(centerX, centerY, 148, 60, rotation);
 
   const updateNodeData = (updates: Partial<BlowerNodeData>) => {
     if (isScadaMode) return; // Read-only in SCADA mode
@@ -119,7 +119,7 @@ const BlowerNode: React.FC<NodeProps<BlowerNodeData>> = ({ id, data, selected })
           pointerEvents: 'auto',
         }}
       >
-        <svg width={WIDTH} height={HEIGHT}>
+        <svg width={WIDTH} height={HEIGHT} viewBox="0 0 200 140">
           {/* Housing */}
           <rect x="50" y="40" width="100" height="60" rx="12" fill="#cfd8dc" stroke="#444" strokeWidth="2" />
           {/* Left lobe */}

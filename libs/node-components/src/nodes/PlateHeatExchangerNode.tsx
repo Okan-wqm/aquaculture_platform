@@ -18,7 +18,7 @@ interface PlateHeatExchangerNodeData {
   isScadaMode?: boolean;
 }
 
-const WIDTH = 140;
+const WIDTH = 120;
 const HEIGHT = 160;
 
 const PlateHeatExchangerNode: React.FC<NodeProps<PlateHeatExchangerNodeData>> = ({ id, data, selected }) => {
@@ -64,7 +64,7 @@ const PlateHeatExchangerNode: React.FC<NodeProps<PlateHeatExchangerNodeData>> = 
         borderRadius: 8,
       }}
     >
-      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 140 160">
+      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 140 160" preserveAspectRatio="xMidYMid meet">
         <defs>
           <linearGradient id={`plate-frame-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#455A64" />
@@ -102,7 +102,7 @@ const PlateHeatExchangerNode: React.FC<NodeProps<PlateHeatExchangerNodeData>> = 
 
       {/* Hot In Handle (top left) */}
       <div
-        style={{ position: 'absolute', left: 5, top: 40, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 4, top: 40, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(hotInType, setHotInType, 'hotInType')}
       >
         <Handle
@@ -115,7 +115,7 @@ const PlateHeatExchangerNode: React.FC<NodeProps<PlateHeatExchangerNodeData>> = 
 
       {/* Hot Out Handle (bottom right) */}
       <div
-        style={{ position: 'absolute', left: 135, top: 110, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 116, top: 110, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(hotOutType, setHotOutType, 'hotOutType')}
       >
         <Handle
@@ -128,7 +128,7 @@ const PlateHeatExchangerNode: React.FC<NodeProps<PlateHeatExchangerNodeData>> = 
 
       {/* Cold In Handle (top right) */}
       <div
-        style={{ position: 'absolute', left: 135, top: 40, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 116, top: 40, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(coldInType, setColdInType, 'coldInType')}
       >
         <Handle
@@ -141,7 +141,7 @@ const PlateHeatExchangerNode: React.FC<NodeProps<PlateHeatExchangerNodeData>> = 
 
       {/* Cold Out Handle (bottom left) */}
       <div
-        style={{ position: 'absolute', left: 5, top: 110, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 4, top: 110, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(coldOutType, setColdOutType, 'coldOutType')}
       >
         <Handle

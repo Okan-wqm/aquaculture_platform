@@ -218,16 +218,22 @@ export const SHIFT_FRAGMENT = gql`
     code
     name
     description
+    shiftType
     startTime
     endTime
+    totalMinutes
+    breakMinutes
     graceMinutes
-    breakPeriods
+    breakPeriods {
+      startTime
+      endTime
+      isPaid
+    }
     workDays
-    isNightShift
-    isOffshoreShift
-    rotationDays
+    crossesMidnight
     colorCode
     isActive
+    displayOrder
   }
 `;
 

@@ -13,9 +13,15 @@ import {
 // =====================
 
 export const GET_SHIFTS = gql`
-  query GetShifts($filter: ShiftFilterInput) {
-    shifts(filter: $filter) {
-      ...ShiftFull
+  query GetShifts($isActive: Boolean, $shiftType: ShiftType, $limit: Int, $offset: Int) {
+    shifts(isActive: $isActive, shiftType: $shiftType, limit: $limit, offset: $offset) {
+      items {
+        ...ShiftFull
+      }
+      total
+      limit
+      offset
+      hasMore
     }
   }
   ${SHIFT_FRAGMENT}

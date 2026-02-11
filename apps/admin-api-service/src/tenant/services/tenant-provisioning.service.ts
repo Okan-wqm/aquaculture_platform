@@ -408,27 +408,8 @@ export class TenantProvisioningService {
   private async createTenantSchema(tenant: Tenant): Promise<void> {
     this.logger.log(`Creating schema for tenant ${tenant.id}`);
 
-    // Get assigned modules for this tenant
-    const tenantModulesResult = await this.dataSource.query(
-      `SELECT m.code FROM tenant_modules tm
-       JOIN modules m ON tm.module_id = m.id
-       WHERE tm."tenantId" = $1 AND tm.is_active = true`,
-      [tenant.id],
-    );
-
-    // Map module codes to schema module names
-    const moduleCodeMap: Record<string, string> = {
-      'farm': 'farm',
-      'sensor': 'sensor',
-      'hr': 'hr',
-    };
-
-    const modules = tenantModulesResult
-      .map((r: { code: string }) => moduleCodeMap[r.code])
-      .filter(Boolean);
-
-    // If no modules assigned, create all schemas
-    const modulesToCreate = modules.length > 0 ? modules : ['sensor', 'farm', 'hr'];
+    // Always create ALL module tables for tenant isolation (regardless of assigned modules)
+    const modulesToCreate = ['sensor', 'farm', 'hr'];
 
     // Create tenant schema with all module tables
     const result = await this.schemaManager.createTenantSchema(tenant.id, modulesToCreate);

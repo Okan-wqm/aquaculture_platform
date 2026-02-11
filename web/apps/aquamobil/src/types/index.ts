@@ -24,19 +24,23 @@ export interface Tank {
   id: string;
   name: string;
   code: string;
-  volumeM3: number;
-  status: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
-  currentBatch: Batch | null;
+  volume: number;
+  status: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE' | 'QUARANTINE' | 'PREPARING' | 'HARVESTING';
+  currentBiomass: number;
+  maxBiomass: number;
+  batchMetrics: BatchMetrics | null;
 }
 
-export interface Batch {
-  id: string;
-  batchNumber: string;
-  speciesName: string;
-  currentQuantity: number;
-  averageWeight: number;
-  currentBiomassKg: number;
-  status: 'ACTIVE' | 'HARVESTED' | 'TERMINATED';
+export interface BatchMetrics {
+  batchId: string | null;
+  batchNumber: string | null;
+  pieces: number | null;
+  avgWeight: number | null;
+  biomass: number | null;
+  density: number | null;
+  capacityUsedPercent: number | null;
+  isOverCapacity: boolean | null;
+  daysSinceStocking: number | null;
 }
 
 // Data entry types

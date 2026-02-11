@@ -8,30 +8,31 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
-COPY package.json package-lock.json ./
+# Copy only aquamobil package files (standalone, no workspace deps needed)
+COPY web/apps/aquamobil/package.json web/apps/aquamobil/package-lock.json* ./
 
-# Copy workspace packages
-COPY web/shared-ui/package.json ./web/shared-ui/
-COPY web/apps/aquamobil/package.json ./web/apps/aquamobil/
-
-# Install dependencies
-RUN npm ci --workspace=@aquaculture/shared-ui --workspace=@aquaculture/aquamobil || npm install
-
-# Copy shared-ui source
-COPY web/shared-ui ./web/shared-ui
-
-# Build shared-ui
-WORKDIR /app/web/shared-ui
-RUN npm run build || echo "shared-ui build skipped"
+# Install dependencies directly (not workspace mode)
+RUN npm install --ignore-scripts
 
 # Copy aquamobil source
-WORKDIR /app
-COPY web/apps/aquamobil ./web/apps/aquamobil
+COPY web/apps/aquamobil ./
+
+# Patch konsta package.json to add root "." export (needed for Vite/Rollup)
+RUN node -e " \
+  const fs = require('fs'); \
+  const p = './node_modules/konsta/package.json'; \
+  if (fs.existsSync(p)) { \
+    const pkg = JSON.parse(fs.readFileSync(p,'utf8')); \
+    if (!pkg.exports || !pkg.exports['.']) { \
+      pkg.exports = { '.': { types: './react/konsta-react.d.ts', require: './react/cjs/konsta-react.js', import: './react/esm/konsta-react.js' }, ...pkg.exports }; \
+      fs.writeFileSync(p, JSON.stringify(pkg,null,2)); \
+      console.log('Patched konsta'); \
+    } \
+  } \
+" --input-type=commonjs
 
 # Build aquamobil
-WORKDIR /app/web/apps/aquamobil
-RUN npm run build
+RUN npx vite build
 
 # =============================================================================
 # Production stage - Nginx
@@ -45,7 +46,7 @@ RUN apk add --no-cache curl
 COPY infrastructure/docker/nginx/aquamobil.conf /etc/nginx/conf.d/default.conf
 
 # Copy built files
-COPY --from=builder /app/web/apps/aquamobil/dist /usr/share/nginx/html
+COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Create non-root user
 RUN adduser -D -g '' appuser && \

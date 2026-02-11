@@ -27,7 +27,16 @@ export default defineConfig({
     },
     rollupOptions: {
       // Peer dependencies olarak dışarıda bırak
-      external: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query'],
+      // react/jsx-runtime ve react/jsx-dev-runtime da external olmalı,
+      // aksi halde automatic JSX runtime bundled olur ve React internals'a erişemez
+      external: [
+        'react',
+        'react-dom',
+        'react/jsx-runtime',
+        'react/jsx-dev-runtime',
+        'react-router-dom',
+        '@tanstack/react-query',
+      ],
       output: {
         globals: {
           react: 'React',

@@ -26,9 +26,15 @@ export interface FeedSelectionResult {
   usedMatrix2D?: boolean;    // Whether 2D matrix was used
 }
 
+interface CachedFeedData {
+  assignments: FeedAssignmentEntry[];
+  feeds: Map<string, any>; // feedId -> feed row
+}
+
 @Injectable()
 export class FeedSelectorService {
   private readonly logger = new Logger(FeedSelectorService.name);
+  private readonly feedCache = new Map<string, CachedFeedData>();
 
   constructor(
     @InjectRepository(BatchFeedAssignment)
@@ -37,6 +43,75 @@ export class FeedSelectorService {
     private readonly feedRepo: Repository<Feed>,
     private readonly bilinearService: BilinearInterpolationService,
   ) {}
+
+  /**
+   * Preload all feed assignment and feed data for a batch into memory cache.
+   * Call this once before a simulation loop to avoid N queries per day.
+   * Reduces batch queries from 2*N (N=days) to just 2 total.
+   */
+  async preloadFeedDataForBatch(
+    tenantId: string,
+    schemaName: string,
+    batchId: string,
+  ): Promise<void> {
+    const cacheKey = `${tenantId}:${batchId}`;
+    if (this.feedCache.has(cacheKey)) {
+      return; // Already cached
+    }
+
+    try {
+      // 1. Load feed assignments (single query)
+      const assignmentResult = await this.assignmentRepo.query(
+        `SELECT * FROM "${schemaName}".batch_feed_assignments
+         WHERE "tenantId" = $1 AND "batchId" = $2 AND "isActive" = true AND "isDeleted" = false
+         LIMIT 1`,
+        [tenantId, batchId]
+      );
+
+      const assignment = assignmentResult?.[0];
+      if (!assignment || !assignment.feedAssignments || assignment.feedAssignments.length === 0) {
+        this.feedCache.set(cacheKey, { assignments: [], feeds: new Map() });
+        return;
+      }
+
+      const feedAssignments: FeedAssignmentEntry[] = typeof assignment.feedAssignments === 'string'
+        ? JSON.parse(assignment.feedAssignments)
+        : assignment.feedAssignments;
+
+      // 2. Load all referenced feeds in a single query
+      const feedIds = [...new Set(feedAssignments.map(a => a.feedId))];
+      const feeds = new Map<string, any>();
+
+      if (feedIds.length > 0) {
+        const placeholders = feedIds.map((_, i) => `$${i + 3}`).join(', ');
+        const feedResults = await this.feedRepo.query(
+          `SELECT * FROM "${schemaName}".feeds
+           WHERE "id" IN (${placeholders}) AND "tenantId" = $1 AND "isDeleted" = false`,
+          [tenantId, ...feedIds]
+        );
+        for (const feed of feedResults) {
+          feeds.set(feed.id, feed);
+        }
+      }
+
+      this.feedCache.set(cacheKey, { assignments: feedAssignments, feeds });
+      this.logger.debug(`Preloaded feed data for batch ${batchId}: ${feedAssignments.length} assignments, ${feeds.size} feeds`);
+    } catch (error: unknown) {
+      this.logger.error(`Error preloading feed data for batch ${batchId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.feedCache.set(cacheKey, { assignments: [], feeds: new Map() });
+    }
+  }
+
+  /**
+   * Clear cached feed data (call after simulation completes)
+   */
+  clearCache(tenantId?: string, batchId?: string): void {
+    if (tenantId && batchId) {
+      this.feedCache.delete(`${tenantId}:${batchId}`);
+    } else {
+      this.feedCache.clear();
+    }
+  }
 
   /**
    * Select the correct feed for a batch based on current fish weight
@@ -62,26 +137,53 @@ export class FeedSelectorService {
     waterTemperature?: number,
   ): Promise<FeedSelectionResult | null> {
     try {
-      // 1. Get batch's feed assignments using raw query to ensure correct schema
-      const assignmentResult = await this.assignmentRepo.query(
-        `SELECT * FROM "${schemaName}".batch_feed_assignments
-         WHERE "tenantId" = $1 AND "batchId" = $2 AND "isActive" = true AND "isDeleted" = false
-         LIMIT 1`,
-        [tenantId, batchId]
-      );
+      // Check cache first (populated by preloadFeedDataForBatch)
+      const cacheKey = `${tenantId}:${batchId}`;
+      const cached = this.feedCache.get(cacheKey);
 
-      const assignment = assignmentResult?.[0];
-      if (!assignment || !assignment.feedAssignments || assignment.feedAssignments.length === 0) {
+      let feedAssignments: FeedAssignmentEntry[];
+      let feedLookup: (feedId: string) => Promise<any>;
+
+      if (cached) {
+        // Use cached data - zero queries
+        feedAssignments = cached.assignments;
+        feedLookup = async (feedId: string) => cached.feeds.get(feedId) ?? null;
+      } else {
+        // Fallback: query DB directly (uncached path)
+        const assignmentResult = await this.assignmentRepo.query(
+          `SELECT * FROM "${schemaName}".batch_feed_assignments
+           WHERE "tenantId" = $1 AND "batchId" = $2 AND "isActive" = true AND "isDeleted" = false
+           LIMIT 1`,
+          [tenantId, batchId]
+        );
+
+        const assignment = assignmentResult?.[0];
+        if (!assignment || !assignment.feedAssignments || assignment.feedAssignments.length === 0) {
+          this.logger.debug(`No feed assignment found for batch ${batchId}`);
+          return null;
+        }
+
+        feedAssignments = typeof assignment.feedAssignments === 'string'
+          ? JSON.parse(assignment.feedAssignments)
+          : assignment.feedAssignments;
+
+        feedLookup = async (feedId: string) => {
+          const feedResult = await this.feedRepo.query(
+            `SELECT * FROM "${schemaName}".feeds
+             WHERE "id" = $1 AND "tenantId" = $2 AND "isDeleted" = false
+             LIMIT 1`,
+            [feedId, tenantId]
+          );
+          return feedResult?.[0] ?? null;
+        };
+      }
+
+      if (feedAssignments.length === 0) {
         this.logger.debug(`No feed assignment found for batch ${batchId}`);
         return null;
       }
 
-      // 2. Parse feed assignments (it's stored as JSONB)
-      const feedAssignments = typeof assignment.feedAssignments === 'string'
-        ? JSON.parse(assignment.feedAssignments)
-        : assignment.feedAssignments;
-
-      // 3. Find matching feed by weight range (sorted by priority)
+      // Find matching feed by weight range (sorted by priority)
       const sortedAssignments = [...feedAssignments].sort((a, b) => {
         if (a.priority !== b.priority) return a.priority - b.priority;
         return a.minWeightG - b.minWeightG;
@@ -96,15 +198,8 @@ export class FeedSelectorService {
         return null;
       }
 
-      // 4. Load feed entity with feeding curve/matrix
-      const feedResult = await this.feedRepo.query(
-        `SELECT * FROM "${schemaName}".feeds
-         WHERE "id" = $1 AND "tenantId" = $2 AND "isDeleted" = false
-         LIMIT 1`,
-        [matchingEntry.feedId, tenantId]
-      );
-
-      const feed = feedResult?.[0];
+      // Load feed entity (from cache or DB)
+      const feed = await feedLookup(matchingEntry.feedId);
       if (!feed) {
         this.logger.warn(`Feed ${matchingEntry.feedId} not found for batch ${batchId}`);
         return null;

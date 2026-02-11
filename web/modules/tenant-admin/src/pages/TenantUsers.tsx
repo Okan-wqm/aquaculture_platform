@@ -300,26 +300,29 @@ const TenantUsers: React.FC = () => {
     setSaveError(null);
 
     try {
-      const token = getAuthToken();
-      const response = await fetch('/api/users/tenant/invite', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          email: data.email,
+      const CREATE_TENANT_USER_MUTATION = `
+        mutation CreateTenantUser($input: CreateTenantUserInput!) {
+          createTenantUser(input: $input) {
+            userId
+            email
+            firstName
+            lastName
+            roleAssignment { id roleId roleName }
+            invitationSent
+            createdAt
+          }
+        }
+      `;
+
+      await executeGraphQL(CREATE_TENANT_USER_MUTATION, {
+        input: {
           firstName: data.firstName,
           lastName: data.lastName,
-          sendInvitationEmail: data.sendInvitation,
-        }),
+          email: data.email,
+          roleId: data.roleId,
+          sendInvitation: data.sendInvitation ?? true,
+        },
       });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || 'Failed to invite user');
-      }
 
       setIsModalOpen(false);
       loadUsers();

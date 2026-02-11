@@ -120,7 +120,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this chemical?')) {
+    if (confirm('Are you sure you want to delete this therapeutic substance?')) {
       setItems(prev => prev.filter(i => i.id !== id));
     }
   };
@@ -154,7 +154,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
           <div className="relative flex-1 max-w-md">
             <input
               type="text"
-              placeholder="Search fish health chemicals..."
+              placeholder="Search therapeutic substances..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -179,7 +179,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
           <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
           </svg>
-          Add Chemical
+          Add Therapeutic Substance
         </button>
       </div>
 
@@ -236,8 +236,8 @@ export const FishHealthChemicalsTab: React.FC = () => {
             <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
             </svg>
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No fish health chemicals found</h3>
-            <p className="mt-1 text-sm text-gray-500">Add chemicals to manage treatments and protocols.</p>
+            <h3 className="mt-2 text-sm font-medium text-gray-900">No therapeutic substances found</h3>
+            <p className="mt-1 text-sm text-gray-500">Add therapeutic substances to manage treatments and protocols.</p>
           </div>
         )}
       </div>
@@ -251,7 +251,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
               <form onSubmit={handleSubmit}>
                 <div className="px-6 pt-5 pb-4">
                   <h3 className="text-lg font-medium text-gray-900 mb-4">
-                    {editingId ? 'Edit Fish Health Chemical' : 'Add Fish Health Chemical'}
+                    {editingId ? 'Edit Therapeutic Substance' : 'Add Therapeutic Substance'}
                   </h3>
 
                   <div className="space-y-4">

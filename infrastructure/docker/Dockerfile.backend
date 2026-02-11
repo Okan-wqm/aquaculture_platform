@@ -49,8 +49,12 @@ ARG SERVICE_NAME
 # Build the specific service using NX
 # Increase Node memory limit for large builds (sensor-service has 1.4MB bundle)
 # Use NX cache mount for incremental builds
-ENV NODE_OPTIONS="--max-old-space-size=4096"
-RUN --mount=type=cache,target=/app/.nx/cache,sharing=locked \
+# Disable NX Cloud in Docker to prevent connection timeouts that hang builds
+ENV NODE_OPTIONS="--max-old-space-size=2048"
+ENV NX_NO_CLOUD=true
+ENV NX_CLOUD_ACCESS_TOKEN=""
+ENV NX_DAEMON=false
+RUN --mount=type=cache,target=/app/.nx/cache,sharing=shared \
     npx nx build ${SERVICE_NAME}
 
 # -----------------------------------------------------------------------------

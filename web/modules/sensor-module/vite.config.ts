@@ -56,4 +56,10 @@ export default defineConfig({
     minify: false,
     cssCodeSplit: false,
   },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/test-setup.ts'],
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+  },
 });

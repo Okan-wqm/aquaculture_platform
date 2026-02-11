@@ -19,18 +19,20 @@ export class GetSchedulingSettingsHandler implements IQueryHandler<GetScheduling
     });
 
     if (!settings) {
-      // Return default settings (not saved to DB yet)
+      // Create and save default settings
       settings = this.settingsRepository.create({
         tenantId,
         standardWeeklyMinutes: 2700, // 45 hours
         maxOvertimeMinutesPerWeek: 720, // 12 hours
         maxOvertimeMinutesPerMonth: 2880, // 48 hours
+        workWeekStartDay: 'monday' as any,
         autoNotifyEmployees: true,
         notifyDaysBefore: 2,
         maxConsecutiveWorkDays: 6,
         minRestMinutesBetweenShifts: 660, // 11 hours
         allowOvertimeWithoutApproval: true,
       });
+      await this.settingsRepository.save(settings);
     }
 
     return settings;

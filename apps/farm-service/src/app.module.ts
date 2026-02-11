@@ -52,6 +52,7 @@ import { WorkerModule } from './worker/worker.module';
 import { SystemModule } from './system/system.module';
 import { SentinelHubModule } from './sentinel-hub/sentinel-hub.module';
 import { RegulatoryModule } from './regulatory/regulatory.module';
+import { WeatherModule } from './weather/weather.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { EventListenersModule } from './events/event-listeners.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -224,6 +225,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     SystemModule,
     SentinelHubModule,
     RegulatoryModule,
+    WeatherModule,
     SchedulerModule,
     EventListenersModule,
   ],

@@ -159,6 +159,11 @@ export class GrowthSimulatorService {
       `Simulating growth: weight=${effectiveWeightG}g, count=${effectiveCount}, SGR=${sgr}%, days=${projectionDays}`,
     );
 
+    // Preload feed data into cache to avoid N*2 queries in the daily loop
+    if (effectiveBatchId) {
+      await this.feedSelectorService.preloadFeedDataForBatch(tenantId, schemaName, effectiveBatchId);
+    }
+
     const projections: GrowthProjection[] = [];
     const feedRequirements: Map<string, { feedCode: string; feedName: string; totalKg: number; daysUsed: number; startDay: number; endDay: number }> = new Map();
 
@@ -239,6 +244,11 @@ export class GrowthSimulatorService {
       // Grow fish for next day using SGR formula: Wt = W0 × e^(SGR × 1 / 100)
       // For daily growth: W_tomorrow = W_today × e^(SGR/100)
       weight = weight * Math.exp(sgr / 100);
+    }
+
+    // Clean up cache after simulation
+    if (effectiveBatchId) {
+      this.feedSelectorService.clearCache(tenantId, effectiveBatchId);
     }
 
     // Calculate summary

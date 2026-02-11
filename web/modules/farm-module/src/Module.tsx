@@ -21,6 +21,8 @@ import StoragePage from './pages/storage/StoragePage';
 import HealthEventsPage from './pages/health/HealthEventsPage';
 import HarvestPlansPage from './pages/harvest/HarvestPlansPage';
 import TasksPage from './pages/tasks/TasksPage';
+import CompanyPage from './pages/company/CompanyPage';
+import WaterChemistryPage from './pages/water-chemistry/WaterChemistryPage';
 
 // ============================================================================
 // Sites Module
@@ -61,6 +63,9 @@ const FarmModule: React.FC = () => {
       {/* Feeding Management - Daily Plan, Growth Forecast, Stock, FCR Analysis */}
       <Route path="feeding/*" element={<FeedingPage />} />
 
+      {/* Water Chemistry - Water quality monitoring and analysis */}
+      <Route path="water-chemistry/*" element={<WaterChemistryPage />} />
+
       {/* Storage & Stock Management */}
       <Route path="storage/*" element={<StoragePage />} />
 
@@ -81,6 +86,9 @@ const FarmModule: React.FC = () => {
 
       {/* Harvest Plans - Planning, scheduling, workflow management */}
       <Route path="harvest/*" element={<HarvestPlansPage />} />
+
+      {/* Company Information - Top-level company page */}
+      <Route path="company" element={<CompanyPage />} />
 
       {/* Task Management - Daily tasks, recurring, auto rules, calendar */}
       <Route path="tasks/*" element={<TasksPage />} />

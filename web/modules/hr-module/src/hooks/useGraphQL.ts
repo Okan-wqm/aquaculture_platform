@@ -1,49 +1,28 @@
 /**
  * GraphQL Client Hook for HR Module
- * Provides configured GraphQL client with authentication and tenant context
+ * Uses the shared graphqlClient from @aquaculture/shared-ui
  */
 
-import { useMemo } from 'react';
-import { GraphQLClient } from 'graphql-request';
-import { useAuth } from '@aquaculture/shared-ui';
-
-const GRAPHQL_ENDPOINT = import.meta.env.VITE_HR_SERVICE_URL || '/api/hr/graphql';
+import { graphqlClient } from '@aquaculture/shared-ui';
+import { print, type DocumentNode } from 'graphql';
 
 /**
- * Hook to get a configured GraphQL client
+ * Hook to get the shared GraphQL client
  */
-export function useGraphQLClient(): GraphQLClient {
-  const { token } = useAuth();
-
-  const client = useMemo(() => {
-    return new GraphQLClient(GRAPHQL_ENDPOINT, {
-      headers: {
-        ...(token && { Authorization: `Bearer ${token}` }),
-      },
-    });
-  }, [token]);
-
-  return client;
+export function useGraphQLClient() {
+  return graphqlClient;
 }
 
 /**
- * Generic GraphQL request function with error handling
+ * Generic GraphQL request function
+ * Accepts both string queries and DocumentNode (from gql`` tags)
  */
 export async function graphqlRequest<TData, TVariables>(
-  client: GraphQLClient,
-  document: string,
+  client: typeof graphqlClient,
+  document: string | DocumentNode,
   variables?: TVariables
 ): Promise<TData> {
-  try {
-    return await client.request<TData>(document, variables as Record<string, unknown>);
-  } catch (error) {
-    // Extract meaningful error message from GraphQL errors
-    if (error instanceof Error) {
-      const graphqlError = error as { response?: { errors?: { message: string }[] } };
-      if (graphqlError.response?.errors?.[0]?.message) {
-        throw new Error(graphqlError.response.errors[0].message);
-      }
-    }
-    throw error;
-  }
+  // Convert DocumentNode to string with all fragments included
+  const query = typeof document === 'string' ? document : print(document);
+  return client.request<TData, Record<string, unknown>>(query, variables as Record<string, unknown>);
 }

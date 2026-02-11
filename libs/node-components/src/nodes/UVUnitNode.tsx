@@ -20,7 +20,7 @@ interface UVUnitNodeData {
 }
 
 const WIDTH = 160;
-const HEIGHT = 100;
+const HEIGHT = 120;
 
 const UVUnitNode: React.FC<NodeProps<UVUnitNodeData>> = ({ id, selected, data }) => {
   const rotation = data?.rotation || 0;

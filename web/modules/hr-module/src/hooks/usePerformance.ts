@@ -102,7 +102,7 @@ export function usePerformanceReviews(
     queryFn: () =>
       graphqlRequest<{
         performanceReviews: PaginatedResponse<PerformanceReview>;
-      }, unknown>(client, GET_PERFORMANCE_REVIEWS.loc?.source.body || '', {
+      }, unknown>(client, GET_PERFORMANCE_REVIEWS, {
         filter,
         pagination,
       }),
@@ -118,7 +118,7 @@ export function usePerformanceReview(id: string) {
     queryFn: () =>
       graphqlRequest<{ performanceReview: PerformanceReview }, unknown>(
         client,
-        GET_PERFORMANCE_REVIEW.loc?.source.body || '',
+        GET_PERFORMANCE_REVIEW,
         { id }
       ),
     select: (data) => data.performanceReview,
@@ -134,7 +134,7 @@ export function useMyPerformanceReviews(filter?: PerformanceReviewFilterInput) {
     queryFn: () =>
       graphqlRequest<{ myPerformanceReviews: PerformanceReview[] }, unknown>(
         client,
-        GET_MY_PERFORMANCE_REVIEWS.loc?.source.body || '',
+        GET_MY_PERFORMANCE_REVIEWS,
         { filter }
       ),
     select: (data) => data.myPerformanceReviews,
@@ -149,7 +149,7 @@ export function usePendingReviews(reviewerId: string) {
     queryFn: () =>
       graphqlRequest<{ pendingReviews: PerformanceReview[] }, unknown>(
         client,
-        GET_PENDING_REVIEWS.loc?.source.body || '',
+        GET_PENDING_REVIEWS,
         { reviewerId }
       ),
     select: (data) => data.pendingReviews,
@@ -165,7 +165,7 @@ export function useTeamPerformanceOverview(departmentId: string) {
     queryFn: () =>
       graphqlRequest<{
         teamPerformanceOverview: TeamPerformanceOverview;
-      }, unknown>(client, GET_TEAM_PERFORMANCE_OVERVIEW.loc?.source.body || '', {
+      }, unknown>(client, GET_TEAM_PERFORMANCE_OVERVIEW, {
         departmentId,
       }),
     select: (data) => data.teamPerformanceOverview,
@@ -181,7 +181,7 @@ export function usePerformanceSummary(employeeId: string) {
     queryFn: () =>
       graphqlRequest<{ performanceSummary: PerformanceSummary }, unknown>(
         client,
-        GET_PERFORMANCE_SUMMARY.loc?.source.body || '',
+        GET_PERFORMANCE_SUMMARY,
         { employeeId }
       ),
     select: (data) => data.performanceSummary,
@@ -201,7 +201,7 @@ export function useGoals(filter?: GoalFilterInput, pagination?: PaginationInput)
     queryFn: () =>
       graphqlRequest<{ goals: PaginatedResponse<Goal> }, unknown>(
         client,
-        GET_GOALS.loc?.source.body || '',
+        GET_GOALS,
         { filter, pagination }
       ),
     select: (data) => data.goals,
@@ -219,7 +219,7 @@ export function useGoal(id: string) {
           parentGoal?: { id: string; title: string };
           childGoals?: { id: string; title: string; status: string; progressPercent: number }[];
         };
-      }, unknown>(client, GET_GOAL.loc?.source.body || '', { id }),
+      }, unknown>(client, GET_GOAL, { id }),
     select: (data) => data.goal,
     enabled: !!id,
   });
@@ -233,7 +233,7 @@ export function useMyGoals(filter?: GoalFilterInput) {
     queryFn: () =>
       graphqlRequest<{ myGoals: Goal[] }, unknown>(
         client,
-        GET_MY_GOALS.loc?.source.body || '',
+        GET_MY_GOALS,
         { filter }
       ),
     select: (data) => data.myGoals,
@@ -248,7 +248,7 @@ export function useTeamGoals(managerId: string, filter?: GoalFilterInput) {
     queryFn: () =>
       graphqlRequest<{ teamGoals: Goal[] }, unknown>(
         client,
-        GET_TEAM_GOALS.loc?.source.body || '',
+        GET_TEAM_GOALS,
         { managerId, filter }
       ),
     select: (data) => data.teamGoals,
@@ -264,7 +264,7 @@ export function useOverdueGoals(departmentId?: string) {
     queryFn: () =>
       graphqlRequest<{
         overdueGoals: (Goal & { daysOverdue: number })[];
-      }, unknown>(client, GET_OVERDUE_GOALS.loc?.source.body || '', { departmentId }),
+      }, unknown>(client, GET_OVERDUE_GOALS, { departmentId }),
     select: (data) => data.overdueGoals,
   });
 }
@@ -285,7 +285,7 @@ export function useEmployeeKPIs(
     queryFn: () =>
       graphqlRequest<{ employeeKPIs: EmployeeKPI[] }, unknown>(
         client,
-        GET_EMPLOYEE_KPIS.loc?.source.body || '',
+        GET_EMPLOYEE_KPIS,
         { employeeId, periodStart, periodEnd }
       ),
     select: (data) => data.employeeKPIs,
@@ -305,7 +305,7 @@ export function useCreatePerformanceReview() {
     mutationFn: (input: CreatePerformanceReviewInput) =>
       graphqlRequest<{ createPerformanceReview: PerformanceReview }, unknown>(
         client,
-        CREATE_PERFORMANCE_REVIEW.loc?.source.body || '',
+        CREATE_PERFORMANCE_REVIEW,
         { input }
       ),
     onSuccess: () => {
@@ -322,7 +322,7 @@ export function useSubmitSelfAssessment() {
     mutationFn: (input: SubmitSelfAssessmentInput) =>
       graphqlRequest<{ submitSelfAssessment: PerformanceReview }, unknown>(
         client,
-        SUBMIT_SELF_ASSESSMENT.loc?.source.body || '',
+        SUBMIT_SELF_ASSESSMENT,
         { input }
       ),
     onSuccess: (data) => {
@@ -344,7 +344,7 @@ export function useSubmitManagerAssessment() {
     mutationFn: (input: SubmitManagerAssessmentInput) =>
       graphqlRequest<{ submitManagerAssessment: PerformanceReview }, unknown>(
         client,
-        SUBMIT_MANAGER_ASSESSMENT.loc?.source.body || '',
+        SUBMIT_MANAGER_ASSESSMENT,
         { input }
       ),
     onSuccess: (data) => {
@@ -366,7 +366,7 @@ export function useFinalizeReview() {
     mutationFn: (input: FinalizeReviewInput) =>
       graphqlRequest<{ finalizeReview: PerformanceReview }, unknown>(
         client,
-        FINALIZE_REVIEW.loc?.source.body || '',
+        FINALIZE_REVIEW,
         { input }
       ),
     onSuccess: (data) => {
@@ -387,7 +387,7 @@ export function useAcknowledgeReview() {
     mutationFn: ({ reviewId, comments }: { reviewId: string; comments?: string }) =>
       graphqlRequest<{ acknowledgeReview: PerformanceReview }, unknown>(
         client,
-        ACKNOWLEDGE_REVIEW.loc?.source.body || '',
+        ACKNOWLEDGE_REVIEW,
         { reviewId, comments }
       ),
     onSuccess: (data) => {
@@ -413,7 +413,7 @@ export function useCreateGoal() {
     mutationFn: (input: CreateGoalInput) =>
       graphqlRequest<{ createGoal: Goal }, unknown>(
         client,
-        CREATE_GOAL.loc?.source.body || '',
+        CREATE_GOAL,
         { input }
       ),
     onSuccess: () => {
@@ -431,7 +431,7 @@ export function useUpdateGoal() {
     mutationFn: (input: UpdateGoalInput) =>
       graphqlRequest<{ updateGoal: Goal }, unknown>(
         client,
-        UPDATE_GOAL.loc?.source.body || '',
+        UPDATE_GOAL,
         { input }
       ),
     onSuccess: (data) => {
@@ -449,7 +449,7 @@ export function useUpdateGoalProgress() {
     mutationFn: (input: UpdateGoalProgressInput) =>
       graphqlRequest<{ updateGoalProgress: Goal }, unknown>(
         client,
-        UPDATE_GOAL_PROGRESS.loc?.source.body || '',
+        UPDATE_GOAL_PROGRESS,
         { input }
       ),
     onSuccess: (data) => {
@@ -471,7 +471,7 @@ export function useCompleteGoal() {
     mutationFn: ({ goalId, completionNotes }: { goalId: string; completionNotes?: string }) =>
       graphqlRequest<{ completeGoal: Goal }, unknown>(
         client,
-        COMPLETE_GOAL.loc?.source.body || '',
+        COMPLETE_GOAL,
         { goalId, completionNotes }
       ),
     onSuccess: (data) => {
@@ -490,7 +490,7 @@ export function useCancelGoal() {
     mutationFn: ({ goalId, reason }: { goalId: string; reason: string }) =>
       graphqlRequest<{ cancelGoal: Goal }, unknown>(
         client,
-        CANCEL_GOAL.loc?.source.body || '',
+        CANCEL_GOAL,
         { goalId, reason }
       ),
     onSuccess: (data) => {
@@ -517,7 +517,7 @@ export function useDeferGoal() {
     }) =>
       graphqlRequest<{ deferGoal: Goal }, unknown>(
         client,
-        DEFER_GOAL.loc?.source.body || '',
+        DEFER_GOAL,
         { goalId, newTargetDate, reason }
       ),
     onSuccess: (data) => {

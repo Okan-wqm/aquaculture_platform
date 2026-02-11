@@ -8,7 +8,6 @@ import {
   Activity,
   HardDrive,
   Thermometer,
-  Clock,
   CheckCircle2,
   Play,
   RotateCcw,

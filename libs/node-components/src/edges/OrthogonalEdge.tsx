@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMemo } from 'react';
-import { EdgeProps, useReactFlow } from 'reactflow';
+import { EdgeProps, Position, useReactFlow } from 'reactflow';
 import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 
 /* -------------------------------------------------- */
@@ -181,6 +181,8 @@ export default function OrthogonalEdge(props: EdgeProps<OrthogonalEdgeData>) {
     sourceY,
     targetX,
     targetY,
+    sourcePosition,
+    targetPosition,
     style = {},
     data,
     selected,
@@ -188,8 +190,23 @@ export default function OrthogonalEdge(props: EdgeProps<OrthogonalEdgeData>) {
 
   const { setEdges } = useReactFlow();
 
-  const source: Point = { x: sourceX, y: sourceY };
-  const target: Point = { x: targetX, y: targetY };
+  // Apply handle offset correction to center edges on handle dots
+  const HANDLE_OFFSET = 6; // half of 12px handle
+
+  let sx = sourceX, sy = sourceY;
+  if (sourcePosition === Position.Left)   sx += HANDLE_OFFSET;
+  if (sourcePosition === Position.Right)  sx -= HANDLE_OFFSET;
+  if (sourcePosition === Position.Top)    sy += HANDLE_OFFSET;
+  if (sourcePosition === Position.Bottom) sy -= HANDLE_OFFSET;
+
+  let tx = targetX, ty = targetY;
+  if (targetPosition === Position.Left)   tx += HANDLE_OFFSET;
+  if (targetPosition === Position.Right)  tx -= HANDLE_OFFSET;
+  if (targetPosition === Position.Top)    ty += HANDLE_OFFSET;
+  if (targetPosition === Position.Bottom) ty -= HANDLE_OFFSET;
+
+  const source: Point = { x: sx, y: sy };
+  const target: Point = { x: tx, y: ty };
 
   const routingMode = data?.routingMode || 'auto';
 

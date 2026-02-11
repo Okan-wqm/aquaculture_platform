@@ -18,7 +18,7 @@ interface TankInletNodeData {
   isScadaMode?: boolean;
 }
 
-const WIDTH = 100;
+const WIDTH = 120;
 const HEIGHT = 160;
 
 const TankInletNode: React.FC<NodeProps<TankInletNodeData>> = ({ id, data, selected }) => {
@@ -37,8 +37,8 @@ const TankInletNode: React.FC<NodeProps<TankInletNodeData>> = ({ id, data, selec
   const centerY = HEIGHT / 2;
 
   // Calculate rotated handle positions
-  const topPos = rotatePoint(centerX, centerY, 30, 20, rotation);
-  const bottomPos = rotatePoint(centerX, centerY, 30, 140, rotation);
+  const topPos = rotatePoint(centerX, centerY, 36, 20, rotation);
+  const bottomPos = rotatePoint(centerX, centerY, 36, 140, rotation);
 
   const updateNodeData = (updates: Partial<TankInletNodeData>) => {
     setNodes((nodes) =>
@@ -119,7 +119,7 @@ const TankInletNode: React.FC<NodeProps<TankInletNodeData>> = ({ id, data, selec
           pointerEvents: 'auto',
         }}
       >
-        <svg width={WIDTH} height={HEIGHT}>
+        <svg width={WIDTH} height={HEIGHT} viewBox="0 0 100 160">
           {/* Gray vertical pipe */}
           <rect
             x={25}

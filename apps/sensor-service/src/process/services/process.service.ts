@@ -37,8 +37,16 @@ export class ProcessService {
   ): Promise<Process> {
     this.logger.log(`Creating process "${input.name}" for tenant ${tenantId}`);
 
+    // Generate code from name (slug format) + timestamp suffix for uniqueness
+    const slug = input.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    const code = `${slug}-${Date.now().toString(36)}`;
+
     const process = this.processRepository.create({
       ...input,
+      code,
       tenantId,
       nodes: input.nodes || [],
       edges: input.edges || [],
@@ -234,8 +242,15 @@ export class ProcessService {
   ): Promise<Process> {
     const source = await this.getProcessOrFail(id, tenantId);
 
+    const dupSlug = newName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    const dupCode = `${dupSlug}-${Date.now().toString(36)}`;
+
     const duplicate = this.processRepository.create({
       name: newName,
+      code: dupCode,
       description: source.description,
       status: ProcessStatus.DRAFT,
       nodes: source.nodes,

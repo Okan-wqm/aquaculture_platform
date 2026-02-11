@@ -16,7 +16,6 @@ import { ChemicalsTab } from './tabs/ChemicalsTab';
 import { ConsumablesTab } from './tabs/ConsumablesTab';
 import { FishHealthChemicalsTab } from './tabs/FishHealthChemicalsTab';
 import { FeedsTab } from './tabs/FeedsTab';
-import { CompanyRegulatoryTab } from './tabs/CompanyRegulatoryTab';
 import { WorkersTab } from './tabs/WorkersTab';
 
 interface SetupTab {
@@ -150,17 +149,6 @@ const setupTabs: SetupTab[] = [
     ),
     description: 'Manage farm workers and staff',
   },
-  {
-    id: 'regulatory',
-    label: 'Company & Regulatory',
-    path: 'regulatory',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-      </svg>
-    ),
-    description: 'Company info and Maskinporten credentials for regulatory reports',
-  },
 ];
 
 export const SetupPage: React.FC = () => {
@@ -251,7 +239,6 @@ export const SetupPage: React.FC = () => {
           <Route path="fish-health" element={<FishHealthChemicalsTab />} />
           <Route path="feeds" element={<FeedsTab />} />
           <Route path="workers" element={<WorkersTab />} />
-          <Route path="regulatory" element={<CompanyRegulatoryTab />} />
           <Route path="*" element={<SitesTab />} />
         </Routes>
       </div>

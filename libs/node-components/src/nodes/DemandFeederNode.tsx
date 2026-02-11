@@ -15,7 +15,7 @@ interface DemandFeederNodeData {
   isScadaMode?: boolean;
 }
 
-const WIDTH = 100;
+const WIDTH = 120;
 const HEIGHT = 160;
 
 const DemandFeederNode: React.FC<NodeProps<DemandFeederNodeData>> = ({ id, data, selected }) => {
@@ -54,7 +54,7 @@ const DemandFeederNode: React.FC<NodeProps<DemandFeederNodeData>> = ({ id, data,
         borderRadius: 8,
       }}
     >
-      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 100 160">
+      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 100 160" preserveAspectRatio="xMidYMid meet">
         <defs>
           <linearGradient id={`demand-hopper-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#FF8F00" />
@@ -111,7 +111,7 @@ const DemandFeederNode: React.FC<NodeProps<DemandFeederNodeData>> = ({ id, data,
 
       {/* Bottom Handle (pendulum/trigger) */}
       <div
-        style={{ position: 'absolute', left: 50, top: 135, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 60, top: 135, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle}
       >
         <Handle

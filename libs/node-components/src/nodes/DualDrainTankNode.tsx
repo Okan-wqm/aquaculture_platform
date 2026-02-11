@@ -18,7 +18,7 @@ interface DualDrainTankNodeData {
 }
 
 const WIDTH = 180;
-const HEIGHT = 160;
+const HEIGHT = 140;
 
 const DualDrainTankNode: React.FC<NodeProps<DualDrainTankNodeData>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
@@ -62,7 +62,7 @@ const DualDrainTankNode: React.FC<NodeProps<DualDrainTankNodeData>> = ({ id, dat
         borderRadius: 8,
       }}
     >
-      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 180 160">
+      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 180 160" preserveAspectRatio="xMidYMid meet">
         <defs>
           <linearGradient id={`dual-tank-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#546E7A" />
@@ -112,7 +112,7 @@ const DualDrainTankNode: React.FC<NodeProps<DualDrainTankNodeData>> = ({ id, dat
 
       {/* Inlet Handle (left) */}
       <div
-        style={{ position: 'absolute', left: 5, top: 46, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 5, top: 40, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(inletType, setInletType, 'inletType')}
       >
         <Handle
@@ -125,7 +125,7 @@ const DualDrainTankNode: React.FC<NodeProps<DualDrainTankNodeData>> = ({ id, dat
 
       {/* Center Drain Handle (bottom) */}
       <div
-        style={{ position: 'absolute', left: 90, top: 155, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 90, top: 136, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(centerDrainType, setCenterDrainType, 'centerDrainType')}
       >
         <Handle
@@ -138,7 +138,7 @@ const DualDrainTankNode: React.FC<NodeProps<DualDrainTankNodeData>> = ({ id, dat
 
       {/* Side Drain Handle (right) */}
       <div
-        style={{ position: 'absolute', left: 175, top: 70, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 175, top: 61, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(sideDrainType, setSideDrainType, 'sideDrainType')}
       >
         <Handle

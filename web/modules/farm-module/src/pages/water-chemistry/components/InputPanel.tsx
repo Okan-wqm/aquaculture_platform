@@ -1,0 +1,203 @@
+/**
+ * Input Panel - Tabbed compact bar for water chemistry parameters
+ * Tabs: System | Realtime | Target | Toxic Limits | Reagents
+ */
+import React, { useState } from 'react';
+import { FishType, FishSize } from '../engine/types';
+import { REAGENTS } from '../engine/reagents';
+
+export interface WaterChemistryInputs {
+  tempC: number;
+  pH: number;
+  salinity: number;
+  alkalinityMg: number;
+  targetpH: number;
+  targetAlkalinityMg: number;
+  alkMinMg: number;
+  alkMaxMg: number;
+  tan: number;
+  unIonizedNH3: number;
+  co2Toxic: number;
+  h2sUgL: number;       // Measured H₂S in µg/L
+  h2sLimitUgL: number;  // Toxic H₂S limit in µg/L
+  caMgL: number;
+  volume: number;
+  fishType: FishType;
+  fishSize: FishSize;
+  showTarget: boolean;
+}
+
+interface InputPanelProps {
+  inputs: WaterChemistryInputs;
+  onChange: (inputs: WaterChemistryInputs) => void;
+  selectedReagents: string[];
+  onReagentsChange: (selected: string[]) => void;
+}
+
+type InputTab = 'system' | 'realtime' | 'target' | 'toxic' | 'reagents';
+
+const FISH_TYPES: FishType[] = [
+  'Arctic Charr', 'Atlantic Salmon', 'Rainbow Trout', 'Brown Trout',
+  'Sea Bass', 'Sea Bream', 'Turbot', 'Tilapia',
+];
+
+const FISH_SIZES: FishSize[] = [
+  '0-5 gram', '5-20 gram', '20-100 gram', '100-500 gram', '500+ gram',
+];
+
+const INPUT_TABS: Array<{ id: InputTab; label: string }> = [
+  { id: 'system', label: 'System' },
+  { id: 'realtime', label: 'Realtime' },
+  { id: 'target', label: 'Target' },
+  { id: 'toxic', label: 'Toxic Limits' },
+  { id: 'reagents', label: 'Reagents' },
+];
+
+const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReagents, onReagentsChange }) => {
+  const [activeTab, setActiveTab] = useState<InputTab>('realtime');
+
+  const update = (field: keyof WaterChemistryInputs, value: number | string | boolean) => {
+    onChange({ ...inputs, [field]: value });
+  };
+
+  const toggleReagent = (name: string) => {
+    if (selectedReagents.includes(name)) {
+      onReagentsChange(selectedReagents.filter(n => n !== name));
+    } else {
+      onReagentsChange([...selectedReagents, name]);
+    }
+  };
+
+  const numField = (
+    label: string,
+    field: keyof WaterChemistryInputs,
+    min: number,
+    max: number,
+    step: number,
+    unit: string
+  ) => (
+    <div className="flex items-center gap-1.5 mr-4">
+      <label className="text-xs text-gray-600 whitespace-nowrap">{label}</label>
+      <input
+        type="number"
+        value={inputs[field] as number}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(e) => update(field, parseFloat(e.target.value) || 0)}
+        className="w-[72px] px-1.5 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+      />
+      <span className="text-[10px] text-gray-400 whitespace-nowrap">{unit}</span>
+    </div>
+  );
+
+  return (
+    <div className="bg-white rounded-lg shadow">
+      {/* Tab buttons */}
+      <div className="flex border-b border-gray-200">
+        {INPUT_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+              activeTab === tab.id
+                ? 'border-blue-500 text-blue-600 bg-blue-50/50'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content - compact */}
+      <div className="px-3 py-2">
+        {activeTab === 'system' && (
+          <div className="flex flex-wrap items-center">
+            {numField('Volume', 'volume', 0.1, 1000, 0.1, 'm³')}
+            {numField('Ca²⁺', 'caMgL', 1, 2000, 10, 'mg/L')}
+            <div className="flex items-center gap-1.5 mr-4">
+              <label className="text-xs text-gray-600 whitespace-nowrap">Fish Type</label>
+              <select
+                value={inputs.fishType}
+                onChange={(e) => update('fishType', e.target.value)}
+                className="px-1.5 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+              >
+                {FISH_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="flex items-center gap-1.5 mr-4">
+              <label className="text-xs text-gray-600 whitespace-nowrap">Fish Size</label>
+              <select
+                value={inputs.fishSize}
+                onChange={(e) => update('fishSize', e.target.value)}
+                className="px-1.5 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+              >
+                {FISH_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={inputs.showTarget}
+                onChange={(e) => update('showTarget', e.target.checked)}
+                className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded"
+              />
+              <span className="text-xs text-gray-700">Show Target</span>
+            </label>
+          </div>
+        )}
+
+        {activeTab === 'realtime' && (
+          <div className="flex flex-wrap items-center">
+            {numField('Temp', 'tempC', 0, 40, 0.5, '°C')}
+            {numField('pH', 'pH', 6.25, 11.25, 0.05, 'NBS')}
+            {numField('Salinity', 'salinity', 0, 40, 0.5, 'ppt')}
+            {numField('Alkalinity', 'alkalinityMg', 20, 800, 5, 'mg/L CaCO₃')}
+            {numField('H₂S', 'h2sUgL', 0.1, 500, 0.5, 'µg/L')}
+          </div>
+        )}
+
+        {activeTab === 'target' && (
+          <div className="flex flex-wrap items-center">
+            {numField('Target pH', 'targetpH', 6.25, 11.25, 0.05, 'NBS')}
+            {numField('Target Alk', 'targetAlkalinityMg', 20, 3800, 5, 'mg/L CaCO₃')}
+            {numField('Alk Max', 'alkMaxMg', 50, 350, 5, 'mg/L CaCO₃')}
+            {numField('Alk Min', 'alkMinMg', 10, 100, 5, 'mg/L CaCO₃')}
+          </div>
+        )}
+
+        {activeTab === 'toxic' && (
+          <div className="flex flex-wrap items-center">
+            {numField('TAN', 'tan', 0.5, 6, 0.1, 'mg/L')}
+            {numField('NH₃-N Limit', 'unIonizedNH3', 0.0005, 0.5, 0.0005, 'mg/L')}
+            {numField('CO₂ Toxic', 'co2Toxic', 5, 44, 1, 'mg/L')}
+            {numField('H₂S Limit', 'h2sLimitUgL', 1, 100, 1, 'µg/L')}
+          </div>
+        )}
+
+        {activeTab === 'reagents' && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5">
+            {REAGENTS.map((reagent) => (
+              <label
+                key={reagent.name}
+                className="flex items-center gap-1.5 cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedReagents.includes(reagent.name)}
+                  onChange={() => toggleReagent(reagent.name)}
+                  className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded"
+                />
+                <span className="text-xs text-gray-700">{reagent.formula}</span>
+                <span className="text-[10px] text-gray-400">{reagent.mw.toFixed(0)} g/mol</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default InputPanel;

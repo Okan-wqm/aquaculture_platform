@@ -86,9 +86,10 @@ services:
   # ===========================================================================
 
   gateway-api:
+    image: aqua-gateway:latest
     build:
       context: .
-      dockerfile: infrastructure/docker/Dockerfile.backend
+      dockerfile: infrastructure/docker/Dockerfile.backend.simple
       args:
         SERVICE_NAME: gateway-api
     container_name: aqua-gateway
@@ -143,9 +144,10 @@ services:
     restart: unless-stopped
 
   auth-service:
+    image: aqua-auth:latest
     build:
       context: .
-      dockerfile: infrastructure/docker/Dockerfile.backend
+      dockerfile: infrastructure/docker/Dockerfile.backend.simple
       args:
         SERVICE_NAME: auth-service
     container_name: aqua-auth
@@ -184,9 +186,10 @@ services:
     restart: unless-stopped
 
   farm-service:
+    image: aqua-farm:latest
     build:
       context: .
-      dockerfile: infrastructure/docker/Dockerfile.backend
+      dockerfile: infrastructure/docker/Dockerfile.backend.simple
       args:
         SERVICE_NAME: farm-service
     container_name: aqua-farm
@@ -222,9 +225,10 @@ services:
     restart: unless-stopped
 
   sensor-service:
+    image: aqua-sensor:latest
     build:
       context: .
-      dockerfile: infrastructure/docker/Dockerfile.backend
+      dockerfile: infrastructure/docker/Dockerfile.backend.simple
       args:
         SERVICE_NAME: sensor-service
     container_name: aqua-sensor
@@ -260,9 +264,10 @@ services:
     restart: unless-stopped
 
   alert-engine:
+    image: aqua-alert:latest
     build:
       context: .
-      dockerfile: infrastructure/docker/Dockerfile.backend
+      dockerfile: infrastructure/docker/Dockerfile.backend.simple
       args:
         SERVICE_NAME: alert-engine
     container_name: aqua-alert
@@ -296,9 +301,10 @@ services:
     restart: unless-stopped
 
   billing-service:
+    image: aqua-billing:latest
     build:
       context: .
-      dockerfile: infrastructure/docker/Dockerfile.backend
+      dockerfile: infrastructure/docker/Dockerfile.backend.simple
       args:
         SERVICE_NAME: billing-service
     container_name: aqua-billing
@@ -330,9 +336,10 @@ services:
     restart: unless-stopped
 
   hr-service:
+    image: aqua-hr:latest
     build:
       context: .
-      dockerfile: infrastructure/docker/Dockerfile.backend
+      dockerfile: infrastructure/docker/Dockerfile.backend.simple
       args:
         SERVICE_NAME: hr-service
     container_name: aqua-hr
@@ -364,9 +371,10 @@ services:
     restart: unless-stopped
 
   notification-service:
+    image: aqua-notification:latest
     build:
       context: .
-      dockerfile: infrastructure/docker/Dockerfile.backend
+      dockerfile: infrastructure/docker/Dockerfile.backend.simple
       args:
         SERVICE_NAME: notification-service
     container_name: aqua-notification
@@ -394,9 +402,10 @@ services:
     restart: unless-stopped
 
   admin-api-service:
+    image: aqua-admin-api:latest
     build:
       context: .
-      dockerfile: infrastructure/docker/Dockerfile.backend
+      dockerfile: infrastructure/docker/Dockerfile.backend.simple
       args:
         SERVICE_NAME: admin-api-service
     container_name: aqua-admin-api
@@ -437,6 +446,7 @@ services:
   # ===========================================================================
 
   shell:
+    image: aqua-shell:latest
     build:
       context: .
       dockerfile: infrastructure/docker/Dockerfile.shell
@@ -462,6 +472,7 @@ services:
     restart: unless-stopped
 
   dashboard:
+    image: aqua-dashboard:latest
     build:
       context: .
       dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
@@ -473,6 +484,7 @@ services:
     restart: unless-stopped
 
   farm-module:
+    image: aqua-farm-module:latest
     build:
       context: .
       dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
@@ -484,6 +496,7 @@ services:
     restart: unless-stopped
 
   admin-panel:
+    image: aqua-admin-panel:latest
     build:
       context: .
       dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
@@ -495,6 +508,7 @@ services:
     restart: unless-stopped
 
   tenant-admin:
+    image: aqua-tenant-admin:latest
     build:
       context: .
       dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
@@ -506,6 +520,7 @@ services:
     restart: unless-stopped
 
   hr-module:
+    image: aqua-hr-module:latest
     build:
       context: .
       dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
@@ -517,6 +532,7 @@ services:
     restart: unless-stopped
 
   sensor-module:
+    image: aqua-sensor-module:latest
     build:
       context: .
       dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
@@ -549,6 +565,24 @@ services:
       - postgres
     networks:
       - aqua-network
+
+  # ===========================================================================
+  # Mobile App (AquaMobil PWA)
+  # ===========================================================================
+
+  aquamobil:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.aquamobil
+    container_name: aqua-mobile
+    ports:
+      - "8090:80"
+    depends_on:
+      gateway-api:
+        condition: service_healthy
+    networks:
+      - aqua-network
+    restart: unless-stopped
 
 # =============================================================================
 # Networks

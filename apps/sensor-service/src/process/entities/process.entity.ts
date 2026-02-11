@@ -91,6 +91,10 @@ export class Process {
   @Column()
   name!: string;
 
+  @Field()
+  @Column()
+  code!: string;
+
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
   description?: string;

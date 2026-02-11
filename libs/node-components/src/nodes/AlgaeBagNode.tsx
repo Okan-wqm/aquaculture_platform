@@ -18,8 +18,8 @@ interface AlgaeBagNodeData {
   isScadaMode?: boolean;
 }
 
-const WIDTH = 100;
-const HEIGHT = 180;
+const WIDTH = 120;
+const HEIGHT = 160;
 
 const algaeColors: Record<AlgaeColor, { primary: string; secondary: string; bubble: string }> = {
   green: { primary: '#4CAF50', secondary: '#81C784', bubble: '#C8E6C9' },
@@ -72,7 +72,7 @@ const AlgaeBagNode: React.FC<NodeProps<AlgaeBagNodeData>> = ({ id, data, selecte
         borderRadius: 8,
       }}
     >
-      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 100 180">
+      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 100 180" preserveAspectRatio="xMidYMid meet">
         <defs>
           <linearGradient id={`algae-bag-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor={colors.primary} stopOpacity={0.8} />
@@ -110,7 +110,7 @@ const AlgaeBagNode: React.FC<NodeProps<AlgaeBagNodeData>> = ({ id, data, selecte
 
       {/* Top Handle */}
       <div
-        style={{ position: 'absolute', left: 50, top: 10, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 60, top: 9, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(topType, setTopType, 'topType')}
       >
         <Handle
@@ -123,7 +123,7 @@ const AlgaeBagNode: React.FC<NodeProps<AlgaeBagNodeData>> = ({ id, data, selecte
 
       {/* Bottom Handle */}
       <div
-        style={{ position: 'absolute', left: 50, top: 160, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 60, top: 142, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(bottomType, setBottomType, 'bottomType')}
       >
         <Handle

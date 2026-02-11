@@ -28,7 +28,7 @@ export default defineConfig({
         name: 'AquaMobil',
         short_name: 'AquaMobil',
         description: 'Aquaculture Mobile Data Entry - Offline First',
-        theme_color: '#0ea5e9',
+        theme_color: '#0073e6',
         background_color: '#ffffff',
         display: 'standalone',
         orientation: 'portrait',

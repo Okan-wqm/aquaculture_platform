@@ -67,18 +67,18 @@ export const attendanceKeys = {
 // Shift Queries
 // =====================
 
-export function useShifts(filter?: { isActive?: boolean; isOffshoreShift?: boolean }) {
+export function useShifts(filter?: { isActive?: boolean; shiftType?: string }) {
   const client = useGraphQLClient();
 
   return useQuery({
     queryKey: attendanceKeys.shiftList(filter),
     queryFn: () =>
-      graphqlRequest<{ shifts: Shift[] }, unknown>(
+      graphqlRequest<{ shifts: { items: Shift[]; total: number } }, unknown>(
         client,
-        GET_SHIFTS.loc?.source.body || '',
-        { filter }
+        GET_SHIFTS,
+        { isActive: filter?.isActive, shiftType: filter?.shiftType, limit: 100, offset: 0 }
       ),
-    select: (data) => data.shifts,
+    select: (data) => data.shifts.items,
   });
 }
 
@@ -90,7 +90,7 @@ export function useShift(id: string) {
     queryFn: () =>
       graphqlRequest<{ shift: Shift }, unknown>(
         client,
-        GET_SHIFT.loc?.source.body || '',
+        GET_SHIFT,
         { id }
       ),
     select: (data) => data.shift,
@@ -113,7 +113,7 @@ export function useAttendanceRecords(
     queryFn: () =>
       graphqlRequest<{ attendanceRecords: PaginatedResponse<AttendanceRecord> }, unknown>(
         client,
-        GET_ATTENDANCE_RECORDS.loc?.source.body || '',
+        GET_ATTENDANCE_RECORDS,
         { filter, pagination }
       ),
     select: (data) => data.attendanceRecords,
@@ -131,7 +131,7 @@ export function useMyAttendanceRecords(
     queryFn: () =>
       graphqlRequest<{ myAttendanceRecords: PaginatedResponse<AttendanceRecord> }, unknown>(
         client,
-        GET_MY_ATTENDANCE_RECORDS.loc?.source.body || '',
+        GET_MY_ATTENDANCE_RECORDS,
         { filter, pagination }
       ),
     select: (data) => data.myAttendanceRecords,
@@ -146,7 +146,7 @@ export function useAttendanceSummary(employeeId: string, month: number, year: nu
     queryFn: () =>
       graphqlRequest<{ attendanceSummary: AttendanceSummary }, unknown>(
         client,
-        GET_ATTENDANCE_SUMMARY.loc?.source.body || '',
+        GET_ATTENDANCE_SUMMARY,
         { employeeId, month, year }
       ),
     select: (data) => data.attendanceSummary,
@@ -162,7 +162,7 @@ export function useDailyAttendanceOverview(date: string, departmentId?: string) 
     queryFn: () =>
       graphqlRequest<{ dailyAttendanceOverview: DailyAttendanceOverview }, unknown>(
         client,
-        GET_DAILY_ATTENDANCE_OVERVIEW.loc?.source.body || '',
+        GET_DAILY_ATTENDANCE_OVERVIEW,
         { date, departmentId }
       ),
     select: (data) => data.dailyAttendanceOverview,
@@ -178,7 +178,7 @@ export function useTodaysAttendance(departmentId?: string) {
     queryFn: () =>
       graphqlRequest<{ todaysAttendance: AttendanceRecord[] }, unknown>(
         client,
-        GET_TODAYS_ATTENDANCE.loc?.source.body || '',
+        GET_TODAYS_ATTENDANCE,
         { departmentId }
       ),
     select: (data) => data.todaysAttendance,
@@ -207,7 +207,7 @@ export function useEmployeeSchedule(
           workAreaId?: string;
           workAreaName?: string;
         }[];
-      }, unknown>(client, GET_EMPLOYEE_SCHEDULE.loc?.source.body || '', {
+      }, unknown>(client, GET_EMPLOYEE_SCHEDULE, {
         employeeId,
         startDate,
         endDate,
@@ -236,7 +236,7 @@ export function useSchedules(filter?: { status?: string }) {
           effectiveTo?: string;
           isDefault: boolean;
         }[];
-      }, unknown>(client, GET_SCHEDULES.loc?.source.body || '', { filter }),
+      }, unknown>(client, GET_SCHEDULES, { filter }),
     select: (data) => data.schedules,
   });
 }
@@ -253,7 +253,7 @@ export function useClockIn() {
     mutationFn: (input: ClockInInput) =>
       graphqlRequest<{ clockIn: AttendanceRecord }, unknown>(
         client,
-        CLOCK_IN.loc?.source.body || '',
+        CLOCK_IN,
         { input }
       ),
     onSuccess: () => {
@@ -272,7 +272,7 @@ export function useClockOut() {
     mutationFn: (input: ClockOutInput) =>
       graphqlRequest<{ clockOut: AttendanceRecord }, unknown>(
         client,
-        CLOCK_OUT.loc?.source.body || '',
+        CLOCK_OUT,
         { input }
       ),
     onSuccess: () => {
@@ -295,7 +295,7 @@ export function useCreateAttendanceRecord() {
     mutationFn: (input: CreateAttendanceRecordInput) =>
       graphqlRequest<{ createAttendanceRecord: AttendanceRecord }, unknown>(
         client,
-        CREATE_ATTENDANCE_RECORD.loc?.source.body || '',
+        CREATE_ATTENDANCE_RECORD,
         { input }
       ),
     onSuccess: () => {
@@ -312,7 +312,7 @@ export function useUpdateAttendanceRecord() {
     mutationFn: (input: UpdateAttendanceRecordInput) =>
       graphqlRequest<{ updateAttendanceRecord: AttendanceRecord }, unknown>(
         client,
-        UPDATE_ATTENDANCE_RECORD.loc?.source.body || '',
+        UPDATE_ATTENDANCE_RECORD,
         { input }
       ),
     onSuccess: (data) => {
@@ -333,7 +333,7 @@ export function useApproveAttendanceRecords() {
     mutationFn: (ids: string[]) =>
       graphqlRequest<{
         approveAttendanceRecords: { approved: number; failed: number; errors: string[] };
-      }, unknown>(client, APPROVE_ATTENDANCE_RECORDS.loc?.source.body || '', { ids }),
+      }, unknown>(client, APPROVE_ATTENDANCE_RECORDS, { ids }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: attendanceKeys.records() });
     },
@@ -352,7 +352,7 @@ export function useCreateShift() {
     mutationFn: (input: CreateShiftInput) =>
       graphqlRequest<{ createShift: Shift }, unknown>(
         client,
-        CREATE_SHIFT.loc?.source.body || '',
+        CREATE_SHIFT,
         { input }
       ),
     onSuccess: () => {
@@ -369,7 +369,7 @@ export function useUpdateShift() {
     mutationFn: (input: { id: string } & Partial<CreateShiftInput>) =>
       graphqlRequest<{ updateShift: Shift }, unknown>(
         client,
-        UPDATE_SHIFT.loc?.source.body || '',
+        UPDATE_SHIFT,
         { input }
       ),
     onSuccess: (data) => {

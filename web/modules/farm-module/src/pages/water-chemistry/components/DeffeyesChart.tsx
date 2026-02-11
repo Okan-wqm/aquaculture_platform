@@ -1,0 +1,671 @@
+/**
+ * Deffeyes Diagram Chart Component
+ *
+ * Full-featured Deffeyes (ALK vs DIC) diagram with:
+ * - pH isolines (4.25 - 12.50)
+ * - NH3 toxic zone (red filled wedge via Area, between NH3 line and Y-axis)
+ * - CO2 toxic zone (red filled area via Area, between CO2 curve and X-axis)
+ * - Safe operating zone (green)
+ * - Current operating point (blue star)
+ * - Target point (black X with dashed line)
+ * - Reagent direction line (optional)
+ * - Visibility toggles for each layer
+ */
+import React, { useMemo, useState } from 'react';
+import {
+  ComposedChart,
+  Line,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  Scatter,
+  Label,
+  ReferenceArea,
+  Customized,
+} from 'recharts';
+import { DeffeyesChartData } from '../engine/types';
+
+interface DeffeyesChartProps {
+  data: DeffeyesChartData;
+  maxDIC?: number;
+  maxALK?: number;
+}
+
+/** Select subset of isolines for display - show every 0.5 pH */
+function selectDisplayIsolines(data: DeffeyesChartData) {
+  const majorPHs = new Set<number>();
+  for (let pH = 5.0; pH <= 12.0; pH += 0.5) {
+    majorPHs.add(parseFloat(pH.toFixed(2)));
+  }
+  return {
+    major: data.isolines.filter(iso => majorPHs.has(iso.pH)),
+    minor: data.isolines.filter(iso => !majorPHs.has(iso.pH)),
+  };
+}
+
+/** Interpolate CT where AT crosses a target value between two points */
+function interpolateCT(
+  p1: { CT: number; AT: number },
+  p2: { CT: number; AT: number },
+  targetAT: number
+): number {
+  if (Math.abs(p2.AT - p1.AT) < 1e-10) return p1.CT;
+  const t = (targetAT - p1.AT) / (p2.AT - p1.AT);
+  return p1.CT + t * (p2.CT - p1.CT);
+}
+
+/** Interpolate AT where CT crosses a target value between two points */
+function interpolateAT(
+  p1: { CT: number; AT: number },
+  p2: { CT: number; AT: number },
+  targetCT: number
+): number {
+  if (Math.abs(p2.CT - p1.CT) < 1e-10) return p1.AT;
+  const t = (targetCT - p1.CT) / (p2.CT - p1.CT);
+  return p1.AT + t * (p2.AT - p1.AT);
+}
+
+/**
+ * Clip CO2 boundary to visible chart area [0,maxDIC] x [0,maxALK].
+ * Extends to chart edges so the filled area reaches all boundaries.
+ * Area with baseValue=0 fills between curve and x-axis.
+ */
+function clipCO2Boundary(
+  rawPoints: Array<{ CT: number; AT: number }>,
+  maxDIC: number,
+  maxALK: number
+): Array<{ CT: number; AT: number }> {
+  const result: Array<{ CT: number; AT: number }> = [];
+
+  for (let i = 0; i < rawPoints.length; i++) {
+    const curr = rawPoints[i];
+    const prev = i > 0 ? rawPoints[i - 1] : null;
+
+    // Interpolate AT=0 crossing (curve enters visible area from below)
+    if (prev && prev.AT < 0 && curr.AT >= 0) {
+      const crossCT = interpolateCT(prev, curr, 0);
+      if (crossCT >= 0 && crossCT <= maxDIC) {
+        result.push({ CT: parseFloat(crossCT.toFixed(4)), AT: 0 });
+      }
+    }
+
+    // Interpolate CT=0 crossing (curve enters from left)
+    if (prev && prev.CT < 0 && curr.CT >= 0 && curr.AT >= 0) {
+      const crossAT = interpolateAT(prev, curr, 0);
+      if (crossAT >= 0 && crossAT <= maxALK) {
+        result.push({ CT: 0, AT: parseFloat(Math.min(crossAT, maxALK).toFixed(4)) });
+      }
+    }
+
+    // Include if fully in visible range
+    if (curr.CT >= 0 && curr.CT <= maxDIC && curr.AT >= 0 && isFinite(curr.AT)) {
+      result.push({ CT: curr.CT, AT: Math.min(curr.AT, maxALK) });
+    }
+
+    // Interpolate to CT=maxDIC boundary (curve exits through right edge)
+    if (prev && prev.CT <= maxDIC && curr.CT > maxDIC) {
+      const atAtMax = interpolateAT(prev, curr, maxDIC);
+      if (isFinite(atAtMax) && atAtMax >= 0) {
+        result.push({ CT: maxDIC, AT: Math.min(atAtMax, maxALK) });
+      }
+      break;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Clip NH3 boundary to visible chart area [0,maxDIC] x [0,maxALK].
+ * Extends to chart edges so the filled area reaches all boundaries.
+ * Area with baseValue=maxALK fills between line and top edge.
+ */
+function clipNH3Boundary(
+  rawPoints: Array<{ CT: number; AT: number }>,
+  maxDIC: number,
+  maxALK: number
+): Array<{ CT: number; AT: number }> {
+  const result: Array<{ CT: number; AT: number }> = [];
+
+  for (let i = 0; i < rawPoints.length; i++) {
+    const curr = rawPoints[i];
+    const prev = i > 0 ? rawPoints[i - 1] : null;
+
+    // Interpolate AT=0 crossing (line enters visible area from below)
+    if (prev && prev.AT < 0 && curr.AT >= 0 && curr.CT >= 0 && curr.CT <= maxDIC) {
+      const crossCT = interpolateCT(prev, curr, 0);
+      if (crossCT >= 0 && crossCT <= maxDIC) {
+        result.push({ CT: parseFloat(crossCT.toFixed(4)), AT: 0 });
+      }
+    }
+
+    // Include if in visible range
+    if (curr.CT >= 0 && curr.CT <= maxDIC && curr.AT >= 0 && curr.AT <= maxALK) {
+      result.push(curr);
+    }
+
+    // Interpolate AT=maxALK crossing (line exits through top)
+    if (prev && prev.AT <= maxALK && curr.AT > maxALK && prev.CT >= 0) {
+      const crossCT = interpolateCT(prev, curr, maxALK);
+      if (crossCT >= 0 && crossCT <= maxDIC) {
+        result.push({ CT: parseFloat(crossCT.toFixed(4)), AT: maxALK });
+      }
+      return result; // Done - exited through top
+    }
+
+    // Interpolate CT=maxDIC crossing (line exits through right edge)
+    if (prev && prev.CT <= maxDIC && curr.CT > maxDIC) {
+      const atAtMax = interpolateAT(prev, curr, maxDIC);
+      if (isFinite(atAtMax) && atAtMax >= 0) {
+        result.push({ CT: maxDIC, AT: Math.min(atAtMax, maxALK) });
+      }
+      return result; // Done - exited through right
+    }
+  }
+
+  // If we get here, the line stayed within bounds for all points.
+  // Add final point at CT=maxDIC if last point didn't reach it.
+  if (result.length > 0) {
+    const last = result[result.length - 1];
+    if (last.CT < maxDIC - 0.01) {
+      // Extrapolate from last two points
+      if (result.length >= 2) {
+        const prev2 = result[result.length - 2];
+        const extAT = interpolateAT(prev2, last, maxDIC);
+        if (isFinite(extAT) && extAT >= 0 && extAT <= maxALK) {
+          result.push({ CT: maxDIC, AT: extAT });
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+/** Custom shape for current operating point (blue star) */
+const StarShape: React.FC<any> = (props) => {
+  const { cx, cy } = props;
+  if (cx == null || cy == null) return null;
+  const r = 8;
+  const points: string[] = [];
+  for (let i = 0; i < 5; i++) {
+    const angle = (i * 72 - 90) * Math.PI / 180;
+    points.push(`${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`);
+    const innerAngle = ((i * 72 + 36) - 90) * Math.PI / 180;
+    points.push(`${cx + r * 0.4 * Math.cos(innerAngle)},${cy + r * 0.4 * Math.sin(innerAngle)}`);
+  }
+  return <polygon points={points.join(' ')} fill="#2563eb" stroke="#1d4ed8" strokeWidth={1} />;
+};
+
+/** Custom arrowhead shape for reagent direction line tip */
+const ArrowShape: React.FC<any> = (props) => {
+  const { cx, cy, payload } = props;
+  if (cx == null || cy == null) return null;
+  const angle = payload?.angle ?? 0;
+  const size = 12;
+  // Arrow pointing in the direction given by angle (SVG coords)
+  const tipX = cx;
+  const tipY = cy;
+  const a1 = angle + Math.PI * 0.82;
+  const a2 = angle - Math.PI * 0.82;
+  return (
+    <polygon
+      points={`${tipX},${tipY} ${tipX + size * Math.cos(a1)},${tipY + size * Math.sin(a1)} ${tipX + size * Math.cos(a2)},${tipY + size * Math.sin(a2)}`}
+      fill="#f59e0b"
+      stroke="#d97706"
+      strokeWidth={1}
+    />
+  );
+};
+
+/** Custom shape for target point (black X) */
+const CrossShape: React.FC<any> = (props) => {
+  const { cx, cy } = props;
+  if (cx == null || cy == null) return null;
+  const s = 7;
+  return (
+    <g>
+      <line x1={cx - s} y1={cy - s} x2={cx + s} y2={cy + s} stroke="#111827" strokeWidth={2.5} />
+      <line x1={cx + s} y1={cy - s} x2={cx - s} y2={cy + s} stroke="#111827" strokeWidth={2.5} />
+    </g>
+  );
+};
+
+/** Custom shape for intermediate dosing point (orange diamond) */
+const DiamondShape: React.FC<any> = (props) => {
+  const { cx, cy } = props;
+  if (cx == null || cy == null) return null;
+  const s = 7;
+  return (
+    <polygon
+      points={`${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}`}
+      fill="#f59e0b"
+      stroke="#d97706"
+      strokeWidth={1.5}
+    />
+  );
+};
+
+/** Layer visibility checkbox */
+const LayerToggle: React.FC<{
+  label: string;
+  color: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}> = ({ label, color, checked, onChange }) => (
+  <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-gray-700">
+    <input
+      type="checkbox"
+      checked={checked}
+      onChange={(e) => onChange(e.target.checked)}
+      className="w-3.5 h-3.5 rounded border-gray-300 cursor-pointer"
+      style={{ accentColor: color }}
+    />
+    <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: color, opacity: 0.7 }} />
+    {label}
+  </label>
+);
+
+const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
+  data,
+  maxDIC = 6,
+  maxALK = 6,
+}) => {
+  const [showIsolines, setShowIsolines] = useState(true);
+  const [showSafeZone, setShowSafeZone] = useState(false);
+  const [showNH3Zone, setShowNH3Zone] = useState(false);
+  const [showCO2Zone, setShowCO2Zone] = useState(false);
+  const [showOmega, setShowOmega] = useState(false);
+  const [showTarget, setShowTarget] = useState(true);
+  const [showDosing, setShowDosing] = useState(true);
+  const [showCurrentPoint, setShowCurrentPoint] = useState(true);
+
+  const { major, minor } = useMemo(() => selectDisplayIsolines(data), [data]);
+
+  const safeZone = data.safeZone;
+
+  const visibleMajor = major.filter(iso => {
+    const firstPt = iso.points[0];
+    const lastPt = iso.points[iso.points.length - 1];
+    return lastPt.AT > -2 && firstPt.AT < maxALK + 2;
+  });
+
+  const visibleMinor = minor.filter(iso => {
+    const firstPt = iso.points[0];
+    const lastPt = iso.points[iso.points.length - 1];
+    return lastPt.AT > -2 && firstPt.AT < maxALK + 2;
+  });
+
+  // Prepare CO2 toxic zone data for Area component
+  // Area with baseValue={0} fills between curve and X-axis
+  const co2AreaData = useMemo(() => {
+    if (!data.co2ToxicZone) return null;
+    const clipped = clipCO2Boundary(data.co2ToxicZone.points, maxDIC, maxALK);
+    return clipped.length >= 2 ? clipped : null;
+  }, [data.co2ToxicZone, maxDIC, maxALK]);
+
+  // Compute arrowhead for reagent line tip
+  // The angle is in SVG coords (Y down), computed from last 2 data points
+  const reagentArrow = useMemo(() => {
+    if (!data.reagentLine || data.reagentLine.length < 2) return null;
+    // Find last visible point within chart bounds
+    const visible = data.reagentLine.filter(
+      p => p.CT >= 0 && p.CT <= maxDIC && p.AT >= 0 && p.AT <= maxALK
+    );
+    if (visible.length < 2) return null;
+    const last = visible[visible.length - 1];
+    const prev = visible[visible.length - 2];
+    // Data-space deltas, normalize by axis range to account for scale
+    const dx = (last.CT - prev.CT) / maxDIC;
+    const dy = (last.AT - prev.AT) / maxALK;
+    // SVG Y is inverted (up = negative)
+    const angle = Math.atan2(-dy, dx);
+    return [{ CT: last.CT, AT: last.AT, angle }];
+  }, [data.reagentLine, maxDIC, maxALK]);
+
+  // Prepare NH3 toxic zone data for Area component
+  // Area with baseValue={maxALK} fills between NH3 line and top (Y=maxALK)
+  // This creates the wedge between NH3 line and Y-axis
+  const nh3AreaData = useMemo(() => {
+    if (!data.nh3ToxicZone) return null;
+    const clipped = clipNH3Boundary(data.nh3ToxicZone.points, maxDIC, maxALK);
+    return clipped.length >= 2 ? clipped : null;
+  }, [data.nh3ToxicZone, maxDIC, maxALK]);
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg border border-gray-200">
+      <div className="px-6 py-4 border-b border-gray-200">
+        <div className="text-center">
+          <h3 className="text-lg font-bold text-gray-900">Water Quality Management Chart</h3>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-4 mt-3 pt-3 border-t border-gray-100">
+          <LayerToggle label="pH Isolines" color="#3b82f6" checked={showIsolines} onChange={setShowIsolines} />
+          <LayerToggle label="Safe Zone" color="#22c55e" checked={showSafeZone} onChange={setShowSafeZone} />
+          <LayerToggle label="NH₃ Toxic" color="#ef4444" checked={showNH3Zone} onChange={setShowNH3Zone} />
+          <LayerToggle label="CO₂ Toxic" color="#f97316" checked={showCO2Zone} onChange={setShowCO2Zone} />
+          <LayerToggle label="Ω Calcite/Ar" color="#8b5cf6" checked={showOmega} onChange={setShowOmega} />
+          <LayerToggle label="Current" color="#2563eb" checked={showCurrentPoint} onChange={setShowCurrentPoint} />
+          <LayerToggle label="Dosing Path" color="#f59e0b" checked={showDosing} onChange={setShowDosing} />
+          <LayerToggle label="Target" color="#111827" checked={showTarget} onChange={setShowTarget} />
+        </div>
+      </div>
+      <div className="p-4" style={{ height: 700 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart margin={{ top: 10, right: 20, left: 5, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <XAxis
+              dataKey="CT"
+              type="number"
+              domain={[0, maxDIC]}
+              allowDataOverflow={true}
+              tickCount={Math.min(maxDIC + 1, 17)}
+              tick={{ fontSize: 11 }}
+            />
+            <YAxis
+              dataKey="AT"
+              type="number"
+              domain={[0, maxALK]}
+              allowDataOverflow={true}
+              tickCount={maxALK + 1}
+              tick={{ fontSize: 11 }}
+            />
+            <Tooltip
+              formatter={(value: number, name: string) => [value.toFixed(3), name]}
+              labelFormatter={(label) => `CT: ${label} mmol/L`}
+            />
+
+            {/* CO2 Toxic Zone - filled area between curve and X-axis */}
+            {showCO2Zone && co2AreaData && (
+              <Area
+                data={co2AreaData}
+                dataKey="AT"
+                baseValue={0}
+                fill="rgba(249, 115, 22, 0.15)"
+                stroke="#f97316"
+                strokeWidth={1.5}
+                strokeDasharray="6 3"
+                dot={false}
+                type="monotone"
+                legendType="none"
+                name="CO₂ Toxic Zone"
+                isAnimationActive={false}
+              />
+            )}
+
+            {/* NH3 Toxic Zone - filled wedge between NH3 line and Y=maxALK */}
+            {showNH3Zone && nh3AreaData && (
+              <Area
+                data={nh3AreaData}
+                dataKey="AT"
+                baseValue={maxALK}
+                fill="rgba(239, 68, 68, 0.18)"
+                stroke="#ef4444"
+                strokeWidth={1.5}
+                strokeDasharray="6 3"
+                dot={false}
+                type="monotone"
+                legendType="none"
+                name="NH₃ Toxic Zone"
+                isAnimationActive={false}
+              />
+            )}
+
+            {/* Safe Zone (green rectangle) */}
+            {showSafeZone && safeZone && (
+              <ReferenceArea
+                x1={Math.min(safeZone.topLeft.DIC, safeZone.bottomLeft.DIC)}
+                x2={Math.max(safeZone.topRight.DIC, safeZone.bottomRight.DIC)}
+                y1={safeZone.bottomLeft.ALK}
+                y2={safeZone.topLeft.ALK}
+                fill="#22c55e"
+                fillOpacity={0.15}
+                stroke="#16a34a"
+                strokeWidth={1.5}
+                strokeDasharray="4 4"
+              />
+            )}
+
+            {/* Minor pH isolines (thin, transparent) */}
+            {showIsolines && visibleMinor.map((iso) => (
+              <Line
+                key={`minor-${iso.pH}`}
+                data={iso.points}
+                dataKey="AT"
+                stroke={iso.color}
+                strokeWidth={0.5}
+                strokeOpacity={0.25}
+                dot={false}
+                type="monotone"
+                legendType="none"
+                name={`pH ${iso.pH.toFixed(2)}`}
+              />
+            ))}
+
+            {/* Major pH isolines (semi-transparent) */}
+            {showIsolines && visibleMajor.map((iso) => (
+              <Line
+                key={`major-${iso.pH}`}
+                data={iso.points}
+                dataKey="AT"
+                name={`pH ${iso.pH.toFixed(1)}`}
+                stroke={iso.color}
+                strokeWidth={1.5}
+                strokeOpacity={0.5}
+                dot={false}
+                type="monotone"
+                legendType="none"
+              />
+            ))}
+
+            {/* Reagent direction line */}
+            {data.reagentLine && (
+              <Line
+                data={data.reagentLine}
+                dataKey="AT"
+                name="Reagent Path"
+                stroke="#f59e0b"
+                strokeWidth={2}
+                strokeDasharray="8 4"
+                dot={false}
+                type="monotone"
+                legendType="none"
+              />
+            )}
+
+            {/* Reagent arrowhead */}
+            {reagentArrow && (
+              <Scatter
+                data={reagentArrow}
+                shape={<ArrowShape />}
+                legendType="none"
+                name="arrow"
+                isAnimationActive={false}
+              />
+            )}
+
+            {/* Two-reagent dosing visualization */}
+            {showDosing && data.dosingVisualization && (
+              <>
+                {/* Reagent 1 direction line (from current point) */}
+                <Line
+                  data={data.dosingVisualization.reagentLine1.points}
+                  dataKey="AT"
+                  name={data.dosingVisualization.reagentLine1.label}
+                  stroke={data.dosingVisualization.reagentLine1.color}
+                  strokeWidth={1.5}
+                  strokeDasharray="4 4"
+                  strokeOpacity={0.6}
+                  dot={false}
+                  type="monotone"
+                  legendType="none"
+                />
+                {/* Reagent 2 direction line (from current point) */}
+                <Line
+                  data={data.dosingVisualization.reagentLine2.points}
+                  dataKey="AT"
+                  name={data.dosingVisualization.reagentLine2.label}
+                  stroke={data.dosingVisualization.reagentLine2.color}
+                  strokeWidth={1.5}
+                  strokeDasharray="4 4"
+                  strokeOpacity={0.6}
+                  dot={false}
+                  type="monotone"
+                  legendType="none"
+                />
+
+                {/* Step1/step2 bold path + intermediate point (only when target ON and dosing path computed) */}
+                {showTarget && data.dosingVisualization.step1Path.length > 0 && (
+                  <>
+                    <Line
+                      data={data.dosingVisualization.step1Path}
+                      dataKey="AT"
+                      name={data.dosingVisualization.step1Label}
+                      stroke={data.dosingVisualization.reagentLine1.color}
+                      strokeWidth={3}
+                      dot={false}
+                      type="monotone"
+                      legendType="none"
+                    />
+                    <Line
+                      data={data.dosingVisualization.step2Path}
+                      dataKey="AT"
+                      name={data.dosingVisualization.step2Label}
+                      stroke={data.dosingVisualization.reagentLine2.color}
+                      strokeWidth={3}
+                      dot={false}
+                      type="monotone"
+                      legendType="none"
+                    />
+                    <Scatter
+                      data={[{ CT: data.dosingVisualization.intermediatePoint.DIC, AT: data.dosingVisualization.intermediatePoint.ALK }]}
+                      name="Intermediate"
+                      shape={<DiamondShape />}
+                      legendType="none"
+                      isAnimationActive={false}
+                    />
+                  </>
+                )}
+
+                {/* Reachable wedge (filled area between two reagent lines) - always shown */}
+                <Customized
+                  component={(props: any) => {
+                    const { xAxisMap, yAxisMap } = props;
+                    if (!xAxisMap || !yAxisMap) return null;
+                    const xAxis = Object.values(xAxisMap)[0] as any;
+                    const yAxis = Object.values(yAxisMap)[0] as any;
+                    if (!xAxis?.scale || !yAxis?.scale) return null;
+                    const xScale = xAxis.scale;
+                    const yScale = yAxis.scale;
+
+                    const viz = data.dosingVisualization!;
+                    const line1 = viz.reagentLine1.points;
+                    const line2 = viz.reagentLine2.points;
+
+                    // Build polygon: line1 forward + line2 reversed
+                    const polygonPoints: string[] = [];
+                    for (const p of line1) {
+                      const px = xScale(p.CT);
+                      const py = yScale(p.AT);
+                      if (isFinite(px) && isFinite(py)) polygonPoints.push(`${px},${py}`);
+                    }
+                    for (let i = line2.length - 1; i >= 0; i--) {
+                      const p = line2[i];
+                      const px = xScale(p.CT);
+                      const py = yScale(p.AT);
+                      if (isFinite(px) && isFinite(py)) polygonPoints.push(`${px},${py}`);
+                    }
+
+                    if (polygonPoints.length < 3) return null;
+                    return (
+                      <polygon
+                        points={polygonPoints.join(' ')}
+                        fill="#f59e0b"
+                        fillOpacity={0.12}
+                        stroke="#f59e0b"
+                        strokeWidth={0}
+                      />
+                    );
+                  }}
+                />
+              </>
+            )}
+
+            {/* Omega Calcite isopleth (Ω=1) */}
+            {showOmega && data.omegaCalcite && (
+              <Line
+                data={data.omegaCalcite.points}
+                dataKey="AT"
+                name="Ω-Calcite=1"
+                stroke="#2563eb"
+                strokeWidth={2}
+                strokeDasharray="8 4"
+                dot={false}
+                type="monotone"
+                legendType="none"
+              />
+            )}
+
+            {/* Omega Aragonite isopleth (Ω=1) */}
+            {showOmega && data.omegaAragonite && (
+              <Line
+                data={data.omegaAragonite.points}
+                dataKey="AT"
+                name="Ω-Aragonite=1"
+                stroke="#d946ef"
+                strokeWidth={2}
+                strokeDasharray="8 4"
+                dot={false}
+                type="monotone"
+                legendType="none"
+              />
+            )}
+
+            {/* Dashed line from current to target (only when current point is also shown) */}
+            {showCurrentPoint && showTarget && data.targetPoint && (
+              <Line
+                data={[
+                  { CT: data.currentPoint.DIC, AT: data.currentPoint.ALK },
+                  { CT: data.targetPoint.DIC, AT: data.targetPoint.ALK },
+                ]}
+                dataKey="AT"
+                name="Path to Target"
+                stroke="#6b7280"
+                strokeWidth={1.5}
+                strokeDasharray="6 4"
+                dot={false}
+                type="monotone"
+                legendType="none"
+              />
+            )}
+
+            {/* Current operating point (blue star) */}
+            {showCurrentPoint && (
+              <Scatter
+                name="Current Point"
+                data={[{ CT: data.currentPoint.DIC, AT: data.currentPoint.ALK }]}
+                shape={<StarShape />}
+                legendType="none"
+              />
+            )}
+
+            {/* Target point (black X) */}
+            {showTarget && data.targetPoint && (
+              <Scatter
+                name="Target Point"
+                data={[{ CT: data.targetPoint.DIC, AT: data.targetPoint.ALK }]}
+                shape={<CrossShape />}
+                legendType="none"
+              />
+            )}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+};
+
+export default DeffeyesChart;

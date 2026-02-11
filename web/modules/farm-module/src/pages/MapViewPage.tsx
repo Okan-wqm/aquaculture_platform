@@ -43,6 +43,9 @@ import { SENTINEL_LAYERS, type LayerType } from '../services/sentinelHubService'
 import { CMEMS_LAYERS, type CMEMSLayerType } from '../services/cmemsService';
 import { type WaterQualityLayerType, getLayerDataSource } from '../services/pointQueryService';
 
+// Weather section
+import { SiteWeatherSection } from '../components/weather/SiteWeatherSection';
+
 // AOI Drawing components - Phase 2
 import { useAOIDrawing, type AOI, type AOIType } from '../hooks/useAOIDrawing';
 import { AOIDrawingControls } from '../components/map/AOIDrawingControls';
@@ -865,6 +868,12 @@ const MapViewPage: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Weather Section */}
+          <SiteWeatherSection
+            siteId={selectedSiteId}
+            siteName={selectedSite?.name}
+          />
         </>
       )}
     </div>

@@ -24,9 +24,8 @@ interface UltrafiltrationNodeData {
   isScadaMode?: boolean;
 }
 
-const SCALE_FACTOR = 0.8;
-const WIDTH = 260 * SCALE_FACTOR;
-const HEIGHT = 280 * SCALE_FACTOR;
+const WIDTH = 180;
+const HEIGHT = 140;
 
 const UltrafiltrationNode: React.FC<NodeProps<UltrafiltrationNodeData>> = ({ id, data, selected }) => {
   const isScadaMode = data?.isScadaMode || false;
@@ -220,8 +219,8 @@ const UltrafiltrationNode: React.FC<NodeProps<UltrafiltrationNodeData>> = ({ id,
       <div
         style={{
           position: 'absolute',
-          left: 5 * SCALE_FACTOR,
-          top: 33 * SCALE_FACTOR,
+          left: 3,
+          top: 17,
           width: 12,
           height: 12,
           transform: 'translate(-50%, -50%)',
@@ -252,8 +251,8 @@ const UltrafiltrationNode: React.FC<NodeProps<UltrafiltrationNodeData>> = ({ id,
       <div
         style={{
           position: 'absolute',
-          left: 175 * SCALE_FACTOR,
-          top: 33 * SCALE_FACTOR,
+          left: 121,
+          top: 17,
           width: 12,
           height: 12,
           transform: 'translate(-50%, -50%)',
@@ -284,8 +283,8 @@ const UltrafiltrationNode: React.FC<NodeProps<UltrafiltrationNodeData>> = ({ id,
       <div
         style={{
           position: 'absolute',
-          left: 175 * SCALE_FACTOR,
-          top: 231.5 * SCALE_FACTOR,
+          left: 121,
+          top: 116,
           width: 12,
           height: 12,
           transform: 'translate(-50%, -50%)',
@@ -322,8 +321,8 @@ const UltrafiltrationNode: React.FC<NodeProps<UltrafiltrationNodeData>> = ({ id,
             key={`plc-${i}`}
             style={{
               position: 'absolute',
-              left: 233 * SCALE_FACTOR,
-              top: y * SCALE_FACTOR,
+              left: 161,
+              top: Math.round(y * 0.5),
               width: 12,
               height: 12,
               transform: 'translate(-50%, -50%)',
@@ -362,8 +361,8 @@ const UltrafiltrationNode: React.FC<NodeProps<UltrafiltrationNodeData>> = ({ id,
             key={`elec-${i}`}
             style={{
               position: 'absolute',
-              left: 233 * SCALE_FACTOR,
-              top: y * SCALE_FACTOR,
+              left: 161,
+              top: Math.round(y * 0.5),
               width: 12,
               height: 12,
               transform: 'translate(-50%, -50%)',

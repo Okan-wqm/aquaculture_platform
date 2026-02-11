@@ -17,8 +17,8 @@ interface DirtyWaterTankNodeData {
   isScadaMode?: boolean;
 }
 
-const WIDTH = 220;
-const HEIGHT = 180;
+const WIDTH = 180;
+const HEIGHT = 140;
 
 const DirtyWaterTankNode: React.FC<NodeProps<DirtyWaterTankNodeData>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
@@ -64,7 +64,7 @@ const DirtyWaterTankNode: React.FC<NodeProps<DirtyWaterTankNodeData>> = ({ id, d
         borderRadius: 8,
       }}
     >
-      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 220 180">
+      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 220 180" preserveAspectRatio="xMidYMid meet">
         <defs>
           <linearGradient id={`${gid}-tankGradient`} x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#8D8D8D" />
@@ -120,7 +120,7 @@ const DirtyWaterTankNode: React.FC<NodeProps<DirtyWaterTankNodeData>> = ({ id, d
 
       {/* Left Handle */}
       <div
-        style={{ position: 'absolute', left: 3, top: 55, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 2, top: 43, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(leftType, setLeftType, 'leftType')}
       >
         <Handle
@@ -133,7 +133,7 @@ const DirtyWaterTankNode: React.FC<NodeProps<DirtyWaterTankNodeData>> = ({ id, d
 
       {/* Right Handle */}
       <div
-        style={{ position: 'absolute', left: 217, top: 55, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 178, top: 43, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(rightType, setRightType, 'rightType')}
       >
         <Handle
@@ -146,7 +146,7 @@ const DirtyWaterTankNode: React.FC<NodeProps<DirtyWaterTankNodeData>> = ({ id, d
 
       {/* Bottom Handle */}
       <div
-        style={{ position: 'absolute', left: 110, top: 168, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 90, top: 131, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(bottomType, setBottomType, 'bottomType')}
       >
         <Handle

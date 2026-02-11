@@ -341,7 +341,103 @@ All services expose health endpoints:
 3. Run `npm run lint` and `npm run test` before committing
 4. Update documentation as needed
 
-## Recent Updates (v1.4.1)
+## Recent Updates (v1.5.0)
+
+### Weather & Marine Data Integration (New)
+
+**Farm Service - Weather Module**
+- Complete weather integration via Open-Meteo API (free, no API key required)
+- Weather observations entity with hourly forecast data (temperature, wind, humidity, pressure, precipitation)
+- Marine observations entity (wave height, swell, ocean currents, sea surface temperature)
+- Per-tenant weather settings (sync interval, forecast days, enabled toggle)
+- Automatic hourly sync with tenant-specific cron scheduling
+- GraphQL queries for forecasts, marine data, current weather, and manual sync trigger
+- Database migration with automatic propagation to all tenant schemas
+
+**Frontend - Weather Dashboard**
+- Site weather section on Map page with current conditions cards
+- Tabbed charts: Temperature vs Sea Surface, Wind Speed + Gusts, Precipitation + Humidity, Marine Conditions
+- Wind gust warnings (>40 km/h threshold)
+- Weather settings modal for sync configuration
+- Recharts-based visualizations with 3-hourly data sampling
+
+### Water Chemistry Calculator (New)
+
+**Farm Module - Advanced Water Chemistry**
+- Full aquaculture water chemistry calculator (ported from Python PyQt5 scientific application)
+- Millero thermodynamic equations for carbonate system calculations
+- Deffeyes diagram visualization with pH-alkalinity isolines, toxic zones, safe zones, and reagent paths
+- Un-ionized Ammonia (UIA) calculator with pH-dependent safety zones (Safe/Alert/Danger)
+- H₂S / HS⁻ speciation vs pH with toxic thresholds
+- CO₂ / HCO₃⁻ / CO₃²⁻ distribution charts
+- Calcite & Aragonite saturation indices (Mucci 1983)
+- Chemical dosing recipes for multiple reagents (Sodium Bicarbonate, NaOH, CO₂, etc.)
+- Real-time calculations with adjustable inputs (temperature, pH, salinity, alkalinity, TAN, H₂S)
+- Print report function with formatted output containing all charts and parameters
+
+### Mobile App (AquaMobil) Overhaul
+
+**Auth Service - Mobile Settings & Permissions**
+- Mobile user settings entity with feature flags (mortality, cull, harvest, feeding, waterQuality, tankView)
+- GraphQL endpoints for querying and managing mobile permissions (individual + bulk admin updates)
+- Default configuration management per tenant
+
+**AquaMobil PWA Enhancements**
+- PWA install prompt for iOS (manual instructions) and Android/Chrome (native prompt)
+- Mobile permissions system with IndexedDB offline caching
+- Employee schedule page with week navigation, shift details, work hours summary, overtime display
+- Redesigned UI with improved Tailwind configuration and mobile-optimized components
+- Enhanced login page, home page, and record pages (mortality, cull, harvest)
+
+### Company & Regulatory Management
+
+**Farm Module - Company Page**
+- Standalone company information management page
+- Organisation number, address, and regulatory details
+- Integrated with RegulatorySettings backend entity
+
+**Report Settings Modal**
+- Norwegian regulatory reporting configuration (Maskinporten OAuth2 integration)
+- Default contact information management
+- Site to Lokalitetsnummer (Norwegian locality code) mappings
+- Slaughter facility approval number
+- Connection test and status dashboard
+
+### Backend & Infrastructure Improvements
+
+**Feed Intelligence Enhancements**
+- Enhanced feed selector service with improved scoring algorithms
+- Feed consumption forecast service improvements
+- Growth simulator updates for better prediction accuracy
+- Feeding program entity and service refinements
+
+**Process & Sensor Service**
+- Process entity enhancements with additional fields
+- Process service improvements
+- Node components library updates (20+ aquaculture equipment nodes redesigned)
+- Orthogonal and draggable edge improvements for process editor
+
+**HR Module**
+- Scheduling settings page with comprehensive configuration UI
+- Weekly schedule page overhaul with improved UX
+- GraphQL operations and hooks updates across all HR features
+
+**Tenant Administration**
+- Tenant settings page expansion with new configuration options
+- Tenant users management improvements
+- Edge device detail page updates
+
+**Infrastructure**
+- Docker Compose configuration updates
+- Dockerfile optimizations for backend and AquaMobil
+- Nginx configuration improvements for shell and AquaMobil
+- Schema manager service updates for weather tables
+- Shared UI utilities (api-client, graphql-utils) refinements
+- Vite config updates across all frontend modules
+
+---
+
+## Previous Updates (v1.4.1)
 
 ### New Modules & Major Features
 

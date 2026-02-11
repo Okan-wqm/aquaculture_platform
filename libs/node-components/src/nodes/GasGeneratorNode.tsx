@@ -16,7 +16,7 @@ interface GasGeneratorNodeData {
   isScadaMode?: boolean;
 }
 
-const WIDTH = 180;
+const WIDTH = 160;
 const HEIGHT = 120;
 
 const GasGeneratorNode: React.FC<NodeProps<GasGeneratorNodeData>> = ({ id, data, selected }) => {
@@ -112,7 +112,7 @@ const GasGeneratorNode: React.FC<NodeProps<GasGeneratorNodeData>> = ({ id, data,
 
       {/* Gas Input Handle */}
       <div
-        style={{ position: 'absolute', left: 5, top: 57, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 4, top: 57, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(inputType, setInputType, 'inputType')}
       >
         <Handle
@@ -125,7 +125,7 @@ const GasGeneratorNode: React.FC<NodeProps<GasGeneratorNodeData>> = ({ id, data,
 
       {/* Power Output Handle */}
       <div
-        style={{ position: 'absolute', left: 175, top: 57, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 156, top: 57, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(outputType, setOutputType, 'outputType')}
       >
         <Handle

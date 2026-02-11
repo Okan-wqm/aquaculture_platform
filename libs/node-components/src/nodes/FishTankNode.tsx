@@ -24,8 +24,8 @@ interface FishTankNodeData {
   isScadaMode?: boolean;
 }
 
-const DEFAULT_WIDTH = 300;
-const DEFAULT_HEIGHT = 100;
+const DEFAULT_WIDTH = 180;
+const DEFAULT_HEIGHT = 120;
 
 const FishTankNode: React.FC<NodeProps<FishTankNodeData>> = ({ id, data, selected }) => {
   const label = data?.label || 'Fish Tank (RAS)';

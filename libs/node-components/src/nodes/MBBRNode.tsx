@@ -18,7 +18,7 @@ interface MBBRNodeData {
 }
 
 const WIDTH = 180;
-const HEIGHT = 200;
+const HEIGHT = 140;
 
 const MBBRNode: React.FC<NodeProps<MBBRNodeData>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
@@ -69,7 +69,7 @@ const MBBRNode: React.FC<NodeProps<MBBRNodeData>> = ({ id, data, selected }) => 
         borderRadius: 8,
       }}
     >
-      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 180 200">
+      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 180 200" preserveAspectRatio="xMidYMid meet">
         <defs>
           <linearGradient id={`mbbr-tank-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#455A64" />
@@ -126,7 +126,7 @@ const MBBRNode: React.FC<NodeProps<MBBRNodeData>> = ({ id, data, selected }) => 
 
       {/* Left Handle */}
       <div
-        style={{ position: 'absolute', left: 5, top: 70, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 5, top: 49, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(leftType, setLeftType, 'leftType')}
       >
         <Handle
@@ -139,7 +139,7 @@ const MBBRNode: React.FC<NodeProps<MBBRNodeData>> = ({ id, data, selected }) => 
 
       {/* Right Handle */}
       <div
-        style={{ position: 'absolute', left: 175, top: 70, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 175, top: 49, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(rightType, setRightType, 'rightType')}
       >
         <Handle
@@ -152,7 +152,7 @@ const MBBRNode: React.FC<NodeProps<MBBRNodeData>> = ({ id, data, selected }) => 
 
       {/* Bottom Handle */}
       <div
-        style={{ position: 'absolute', left: 90, top: 195, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 90, top: 137, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(bottomType, setBottomType, 'bottomType')}
       >
         <Handle

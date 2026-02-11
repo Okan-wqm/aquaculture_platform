@@ -16,8 +16,8 @@ interface OzoneGeneratorNodeData {
   isScadaMode?: boolean;
 }
 
-const WIDTH = 120;
-const HEIGHT = 140;
+const WIDTH = 160;
+const HEIGHT = 120;
 
 const OzoneGeneratorNode: React.FC<NodeProps<OzoneGeneratorNodeData>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
@@ -60,7 +60,7 @@ const OzoneGeneratorNode: React.FC<NodeProps<OzoneGeneratorNodeData>> = ({ id, d
         borderRadius: 8,
       }}
     >
-      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 120 140">
+      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 120 140" preserveAspectRatio="xMidYMid meet">
         <defs>
           <linearGradient id={`ozone-body-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#5E35B1" />
@@ -109,7 +109,7 @@ const OzoneGeneratorNode: React.FC<NodeProps<OzoneGeneratorNodeData>> = ({ id, d
 
       {/* Air In Handle (left) */}
       <div
-        style={{ position: 'absolute', left: 5, top: 61, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 7, top: 52, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(airInType, setAirInType, 'airInType')}
       >
         <Handle
@@ -122,7 +122,7 @@ const OzoneGeneratorNode: React.FC<NodeProps<OzoneGeneratorNodeData>> = ({ id, d
 
       {/* Ozone Out Handle (right) */}
       <div
-        style={{ position: 'absolute', left: 115, top: 61, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 153, top: 52, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(ozoneOutType, setOzoneOutType, 'ozoneOutType')}
       >
         <Handle

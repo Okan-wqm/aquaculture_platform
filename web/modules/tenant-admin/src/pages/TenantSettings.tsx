@@ -1,15 +1,40 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Building2,
   Bell,
   Shield,
   Globe,
   Palette,
+  Smartphone,
   Save,
   ChevronRight,
   Info,
   Check,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
+
+// GraphQL Configuration
+const GRAPHQL_URL = '/graphql';
+
+const getAuthToken = (): string | null => localStorage.getItem('access_token');
+
+const executeGraphQL = async <T,>(query: string, variables?: Record<string, unknown>): Promise<T> => {
+  const token = getAuthToken();
+  const response = await fetch(GRAPHQL_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  const result = await response.json();
+  if (result.errors) {
+    throw new Error(result.errors[0]?.message || 'GraphQL error');
+  }
+  return result.data;
+};
 
 /**
  * Settings section type
@@ -19,6 +44,33 @@ interface SettingsSection {
   title: string;
   description: string;
   icon: React.ReactNode;
+}
+
+/**
+ * Mobile user settings from API
+ */
+interface MobileUserSettingsData {
+  id: string;
+  userId: string;
+  tenantId: string;
+  isMobileEnabled: boolean;
+  allowedFeatures: {
+    mortality: boolean;
+    cull: boolean;
+    harvest: boolean;
+    feeding: boolean;
+    waterQuality: boolean;
+    tankView: boolean;
+  };
+}
+
+interface TenantUser {
+  id: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  role: string;
+  isActive: boolean;
 }
 
 /**
@@ -55,6 +107,12 @@ const settingsSections: SettingsSection[] = [
     description: 'Customize look and feel',
     icon: <Palette className="w-5 h-5" />,
   },
+  {
+    id: 'mobileUsers',
+    title: 'Mobile Users',
+    description: 'AquaMobil access and feature permissions',
+    icon: <Smartphone className="w-5 h-5" />,
+  },
 ];
 
 /**
@@ -88,15 +146,37 @@ const Toggle: React.FC<{
 );
 
 /**
+ * Small inline toggle for table cells
+ */
+const SmallToggle: React.FC<{
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
+}> = ({ enabled, onChange }) => (
+  <button
+    type="button"
+    onClick={() => onChange(!enabled)}
+    className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+      enabled ? 'bg-tenant-600' : 'bg-gray-200'
+    }`}
+  >
+    <span
+      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+        enabled ? 'translate-x-4' : 'translate-x-0'
+      }`}
+    />
+  </button>
+);
+
+// Feature labels for the table header
+const FEATURE_COLUMNS = [
+  { key: 'mortality' as const, label: 'Mortality' },
+  { key: 'cull' as const, label: 'Cull' },
+  { key: 'harvest' as const, label: 'Harvest' },
+  { key: 'tankView' as const, label: 'Tank View' },
+] as const;
+
+/**
  * TenantSettings Page
- *
- * Settings management page for tenant admin.
- * Features:
- * - General settings (tenant name, contact info)
- * - Notification preferences
- * - Security settings
- * - Localization settings
- * - Appearance customization
  */
 const TenantSettings: React.FC = () => {
   const [activeSection, setActiveSection] = useState('general');
@@ -124,8 +204,163 @@ const TenantSettings: React.FC = () => {
   const [timezone, setTimezone] = useState('UTC');
   const [dateFormat, setDateFormat] = useState('MM/DD/YYYY');
 
+  // Mobile Users state
+  const [mobileUsers, setMobileUsers] = useState<TenantUser[]>([]);
+  const [mobileSettings, setMobileSettings] = useState<Map<string, MobileUserSettingsData>>(new Map());
+  const [mobileLoading, setMobileLoading] = useState(false);
+  const [mobileError, setMobileError] = useState<string | null>(null);
+  const [mobileSaving, setMobileSaving] = useState(false);
+  const [dirtyUserIds, setDirtyUserIds] = useState<Set<string>>(new Set());
+
+  const loadMobileData = useCallback(async () => {
+    setMobileLoading(true);
+    setMobileError(null);
+    try {
+      // Load users and mobile settings in parallel
+      const [usersData, settingsData] = await Promise.all([
+        executeGraphQL<{ tenantUsers: TenantUser[] }>(`
+          query TenantUsers {
+            tenantUsers {
+              id
+              email
+              firstName
+              lastName
+              role
+              isActive
+            }
+          }
+        `),
+        executeGraphQL<{ getMobileUsersSettings: MobileUserSettingsData[] }>(`
+          query GetMobileUsersSettings {
+            getMobileUsersSettings {
+              id
+              userId
+              tenantId
+              isMobileEnabled
+              allowedFeatures
+            }
+          }
+        `),
+      ]);
+
+      setMobileUsers(usersData.tenantUsers || []);
+
+      const settingsMap = new Map<string, MobileUserSettingsData>();
+      for (const s of settingsData.getMobileUsersSettings || []) {
+        settingsMap.set(s.userId, s);
+      }
+      setMobileSettings(settingsMap);
+      setDirtyUserIds(new Set());
+    } catch (err) {
+      setMobileError((err as Error).message);
+    } finally {
+      setMobileLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeSection === 'mobileUsers') {
+      loadMobileData();
+    }
+  }, [activeSection, loadMobileData]);
+
+  // Get or create default settings for a user
+  const getUserSettings = (userId: string): MobileUserSettingsData => {
+    return mobileSettings.get(userId) || {
+      id: '',
+      userId,
+      tenantId: '',
+      isMobileEnabled: true,
+      allowedFeatures: {
+        mortality: true,
+        cull: true,
+        harvest: true,
+        feeding: false,
+        waterQuality: false,
+        tankView: true,
+      },
+    };
+  };
+
+  // Update local state for a user's mobile settings
+  const updateUserMobileSetting = (
+    userId: string,
+    field: 'isMobileEnabled' | keyof MobileUserSettingsData['allowedFeatures'],
+    value: boolean,
+  ) => {
+    const current = getUserSettings(userId);
+    let updated: MobileUserSettingsData;
+
+    if (field === 'isMobileEnabled') {
+      updated = { ...current, isMobileEnabled: value };
+    } else {
+      updated = {
+        ...current,
+        allowedFeatures: { ...current.allowedFeatures, [field]: value },
+      };
+    }
+
+    setMobileSettings((prev) => {
+      const next = new Map(prev);
+      next.set(userId, updated);
+      return next;
+    });
+    setDirtyUserIds((prev) => new Set(prev).add(userId));
+  };
+
+  // Save changed mobile settings
+  const saveMobileSettings = async () => {
+    setMobileSaving(true);
+    setMobileError(null);
+
+    try {
+      for (const userId of dirtyUserIds) {
+        const settings = getUserSettings(userId);
+        await executeGraphQL(`
+          mutation UpdateMobileUserSettings($input: UpdateMobileUserSettingsInput!) {
+            updateMobileUserSettings(input: $input) {
+              id
+              userId
+              isMobileEnabled
+              allowedFeatures
+            }
+          }
+        `, {
+          input: {
+            userId,
+            isMobileEnabled: settings.isMobileEnabled,
+            mortality: settings.allowedFeatures.mortality,
+            cull: settings.allowedFeatures.cull,
+            harvest: settings.allowedFeatures.harvest,
+            feeding: settings.allowedFeatures.feeding,
+            waterQuality: settings.allowedFeatures.waterQuality,
+            tankView: settings.allowedFeatures.tankView,
+          },
+        });
+      }
+
+      setDirtyUserIds(new Set());
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      setMobileError((err as Error).message);
+    } finally {
+      setMobileSaving(false);
+    }
+  };
+
+  // Apply settings to all users
+  const applyToAll = (field: 'isMobileEnabled' | keyof MobileUserSettingsData['allowedFeatures'], value: boolean) => {
+    for (const user of mobileUsers) {
+      updateUserMobileSetting(user.id, field, value);
+    }
+  };
+
   const handleSave = () => {
-    // Simulate save
+    if (activeSection === 'mobileUsers') {
+      saveMobileSettings();
+      return;
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
@@ -323,9 +558,145 @@ const TenantSettings: React.FC = () => {
           </div>
         );
 
+      case 'mobileUsers':
+        return renderMobileUsersSection();
+
       default:
         return null;
     }
+  };
+
+  const renderMobileUsersSection = () => {
+    if (mobileLoading) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <RefreshCw className="w-6 h-6 animate-spin text-tenant-600" />
+        </div>
+      );
+    }
+
+    if (mobileError) {
+      return (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-red-800">Failed to load mobile settings</p>
+            <p className="text-sm text-red-600">{mobileError}</p>
+          </div>
+          <button
+            onClick={loadMobileData}
+            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+
+    if (mobileUsers.length === 0) {
+      return (
+        <div className="py-12 text-center">
+          <Smartphone className="w-12 h-12 text-gray-300 mx-auto" />
+          <h3 className="mt-4 text-sm font-medium text-gray-900">No users found</h3>
+          <p className="mt-1 text-sm text-gray-500">
+            Add users to your tenant first to configure mobile access.
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        {/* Bulk actions */}
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <span>Apply to all:</span>
+          <button
+            onClick={() => applyToAll('isMobileEnabled', true)}
+            className="px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100 transition-colors"
+          >
+            Enable All
+          </button>
+          <button
+            onClick={() => applyToAll('isMobileEnabled', false)}
+            className="px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100 transition-colors"
+          >
+            Disable All
+          </button>
+        </div>
+
+        {/* Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100">
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  User
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Mobile
+                </th>
+                {FEATURE_COLUMNS.map((col) => (
+                  <th
+                    key={col.key}
+                    className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
+                    {col.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {mobileUsers.map((user) => {
+                const settings = getUserSettings(user.id);
+                const name = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
+                const isDirty = dirtyUserIds.has(user.id);
+
+                return (
+                  <tr
+                    key={user.id}
+                    className={`hover:bg-gray-50 transition-colors ${isDirty ? 'bg-tenant-50/30' : ''}`}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white text-xs font-medium">
+                          {name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{name}</p>
+                          <p className="text-xs text-gray-500">{user.email}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <SmallToggle
+                        enabled={settings.isMobileEnabled}
+                        onChange={(v) => updateUserMobileSetting(user.id, 'isMobileEnabled', v)}
+                      />
+                    </td>
+                    {FEATURE_COLUMNS.map((col) => (
+                      <td key={col.key} className="px-4 py-3 text-center">
+                        <SmallToggle
+                          enabled={settings.allowedFeatures[col.key]}
+                          onChange={(v) => updateUserMobileSetting(user.id, col.key, v)}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Dirty indicator */}
+        {dirtyUserIds.size > 0 && (
+          <div className="flex items-center gap-2 text-sm text-tenant-600">
+            <Info className="w-4 h-4" />
+            <span>{dirtyUserIds.size} user(s) have unsaved changes</span>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -340,12 +711,18 @@ const TenantSettings: React.FC = () => {
         </div>
         <button
           onClick={handleSave}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+          disabled={activeSection === 'mobileUsers' && (mobileSaving || dirtyUserIds.size === 0)}
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {saved ? (
             <>
               <Check className="w-4 h-4" />
               Saved!
+            </>
+          ) : mobileSaving ? (
+            <>
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              Saving...
             </>
           ) : (
             <>

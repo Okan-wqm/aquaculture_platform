@@ -15,7 +15,7 @@ interface DieselGeneratorNodeData {
   isScadaMode?: boolean;
 }
 
-const WIDTH = 180;
+const WIDTH = 160;
 const HEIGHT = 120;
 
 const DieselGeneratorNode: React.FC<NodeProps<DieselGeneratorNodeData>> = ({ id, data, selected }) => {
@@ -108,7 +108,7 @@ const DieselGeneratorNode: React.FC<NodeProps<DieselGeneratorNodeData>> = ({ id,
 
       {/* Output Handle (power) */}
       <div
-        style={{ position: 'absolute', left: 175, top: 62, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 156, top: 62, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle}
       >
         <Handle

@@ -568,16 +568,14 @@ export class TenantService {
         let rowCount = parseInt(row.row_count) || 0;
         let size = row.size;
 
-        // For time-series tables, get exact count
-        if (['sensor_readings', 'sensor_metrics', 'sensors'].includes(row.name)) {
-          try {
-            const countResult: CountQueryRow[] = await this.dataSource.query(
-              `SELECT COUNT(*) as cnt FROM "${tenantSchemaName}"."${row.name}"`
-            );
-            rowCount = parseInt(countResult[0]?.cnt ?? '0') || 0;
-          } catch (err) {
-            this.logger.debug(`Could not count ${row.name}: ${(err as Error).message}`);
-          }
+        // Get exact row count for all tables (pg_stat n_live_tup is often stale)
+        try {
+          const countResult: CountQueryRow[] = await this.dataSource.query(
+            `SELECT COUNT(*) as cnt FROM "${tenantSchemaName}"."${row.name}"`
+          );
+          rowCount = parseInt(countResult[0]?.cnt ?? '0') || 0;
+        } catch (err) {
+          this.logger.debug(`Could not count ${row.name}: ${(err as Error).message}`);
         }
 
         // For TimescaleDB hypertables, get proper size including chunks

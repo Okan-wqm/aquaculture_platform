@@ -16,8 +16,8 @@ interface HEPAFilterNodeData {
   isScadaMode?: boolean;
 }
 
-const WIDTH = 120;
-const HEIGHT = 100;
+const WIDTH = 160;
+const HEIGHT = 120;
 
 const HEPAFilterNode: React.FC<NodeProps<HEPAFilterNodeData>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
@@ -60,7 +60,7 @@ const HEPAFilterNode: React.FC<NodeProps<HEPAFilterNodeData>> = ({ id, data, sel
         borderRadius: 8,
       }}
     >
-      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 120 100">
+      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 120 100" preserveAspectRatio="xMidYMid meet">
         <defs>
           <linearGradient id={`hepa-frame-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#455A64" />
@@ -110,7 +110,7 @@ const HEPAFilterNode: React.FC<NodeProps<HEPAFilterNodeData>> = ({ id, data, sel
 
       {/* Left Handle (air input) */}
       <div
-        style={{ position: 'absolute', left: 5, top: 45, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 7, top: 54, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(leftType, setLeftType, 'leftType')}
       >
         <Handle
@@ -123,7 +123,7 @@ const HEPAFilterNode: React.FC<NodeProps<HEPAFilterNodeData>> = ({ id, data, sel
 
       {/* Right Handle (air output) */}
       <div
-        style={{ position: 'absolute', left: 115, top: 45, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 153, top: 54, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle(rightType, setRightType, 'rightType')}
       >
         <Handle

@@ -301,6 +301,7 @@ function transformFormDataToInput(formData: FeedingProgramFormData): CreateFeedi
     endDate: formData.endDate?.toISOString().split('T')[0],
     tankIds: formData.selectedTanks.map((tank) => ({
       equipmentId: tank.tankId,
+      equipmentType: 'TANK',
       temperatureSensorId: tank.temperatureSensorId || undefined,
     })),
     feedAssignments: formData.feedAssignments.map((fa) => ({
@@ -311,11 +312,21 @@ function transformFormDataToInput(formData: FeedingProgramFormData): CreateFeedi
     })),
     fcrTable:
       !formData.useFeedFCR && formData.customFCRMatrix
-        ? {
-            temperatures: formData.customFCRMatrix.temperatures,
-            weights: formData.customFCRMatrix.weights,
-            fcrValues: formData.customFCRMatrix.fcrMatrix || formData.customFCRMatrix.rates,
-          }
+        ? (() => {
+            // Frontend builds matrix as [weight][temperature] but backend expects [temperature][weight]
+            const srcMatrix = formData.customFCRMatrix.fcrMatrix || formData.customFCRMatrix.rates;
+            const temps = formData.customFCRMatrix.temperatures;
+            const wts = formData.customFCRMatrix.weights;
+            // Transpose: srcMatrix[w][t] → fcrValues[t][w]
+            const fcrValues = srcMatrix && temps && wts
+              ? temps.map((_: number, tIdx: number) => wts.map((_: number, wIdx: number) => srcMatrix[wIdx]?.[tIdx] ?? 0))
+              : srcMatrix;
+            return {
+              temperatures: temps,
+              weights: wts,
+              fcrValues,
+            };
+          })()
         : undefined,
     settings: {
       autoTransition: formData.autoTransition,

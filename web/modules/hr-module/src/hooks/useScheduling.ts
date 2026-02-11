@@ -65,7 +65,7 @@ export function useWeeklyPlans(
     queryFn: () =>
       graphqlRequest<{ weeklyPlans: WeeklyPlanConnection }, unknown>(
         client,
-        GET_WEEKLY_PLANS.loc?.source.body || '',
+        GET_WEEKLY_PLANS,
         {
           employeeId: filter?.employeeId,
           departmentId: filter?.departmentId,
@@ -88,7 +88,7 @@ export function useWeeklyPlan(id: string) {
     queryFn: () =>
       graphqlRequest<{ weeklyPlan: WeeklyPlan }, unknown>(
         client,
-        GET_WEEKLY_PLAN.loc?.source.body || '',
+        GET_WEEKLY_PLAN,
         { id }
       ),
     select: (data) => data.weeklyPlan,
@@ -108,7 +108,7 @@ export function useTeamWeeklyOverview(
     queryFn: () =>
       graphqlRequest<{ teamWeeklyOverview: TeamWeeklyOverview }, unknown>(
         client,
-        GET_TEAM_WEEKLY_OVERVIEW.loc?.source.body || '',
+        GET_TEAM_WEEKLY_OVERVIEW,
         { weekStartDate, departmentId, siteId }
       ),
     select: (data) => data.teamWeeklyOverview,
@@ -124,7 +124,7 @@ export function useSchedulingSettings() {
     queryFn: () =>
       graphqlRequest<{ schedulingSettings: SchedulingSettings }, unknown>(
         client,
-        GET_SCHEDULING_SETTINGS.loc?.source.body || '',
+        GET_SCHEDULING_SETTINGS,
         {}
       ),
     select: (data) => data.schedulingSettings,
@@ -144,7 +144,7 @@ export function useOvertimeSummary(
     queryFn: () =>
       graphqlRequest<{ overtimeSummary: OvertimeSummary }, unknown>(
         client,
-        GET_OVERTIME_SUMMARY.loc?.source.body || '',
+        GET_OVERTIME_SUMMARY,
         { month, year, employeeId, departmentId }
       ),
     select: (data) => data.overtimeSummary,
@@ -165,7 +165,7 @@ export function useCreateWeeklyPlan() {
     mutationFn: (input: CreateWeeklyPlanInput) =>
       graphqlRequest<{ createWeeklyPlan: WeeklyPlan }, unknown>(
         client,
-        CREATE_WEEKLY_PLAN.loc?.source.body || '',
+        CREATE_WEEKLY_PLAN,
         { input }
       ),
     onSuccess: () => {
@@ -183,7 +183,7 @@ export function useUpdatePlanEntry() {
     mutationFn: (input: UpdatePlanEntryInput) =>
       graphqlRequest<{ updatePlanEntry: WeeklyPlanEntry }, unknown>(
         client,
-        UPDATE_PLAN_ENTRY.loc?.source.body || '',
+        UPDATE_PLAN_ENTRY,
         { input }
       ),
     onSuccess: (_data, variables) => {
@@ -202,7 +202,7 @@ export function useBulkAssignShifts() {
     mutationFn: (input: BulkAssignShiftsInput) =>
       graphqlRequest<{ bulkAssignShifts: BulkAssignResult }, unknown>(
         client,
-        BULK_ASSIGN_SHIFTS.loc?.source.body || '',
+        BULK_ASSIGN_SHIFTS,
         { input }
       ),
     onSuccess: (_data, variables) => {
@@ -228,7 +228,7 @@ export function useCopyWeeklyPlan() {
     }) =>
       graphqlRequest<{ copyWeeklyPlan: WeeklyPlan }, unknown>(
         client,
-        COPY_WEEKLY_PLAN.loc?.source.body || '',
+        COPY_WEEKLY_PLAN,
         { sourceId, targetWeekStartDate }
       ),
     onSuccess: () => {
@@ -245,7 +245,7 @@ export function usePublishWeeklyPlan() {
     mutationFn: (id: string) =>
       graphqlRequest<{ publishWeeklyPlan: WeeklyPlan }, unknown>(
         client,
-        PUBLISH_WEEKLY_PLAN.loc?.source.body || '',
+        PUBLISH_WEEKLY_PLAN,
         { id }
       ),
     onSuccess: (data) => {
@@ -265,7 +265,7 @@ export function useDeleteWeeklyPlan() {
     mutationFn: (id: string) =>
       graphqlRequest<{ deleteWeeklyPlan: boolean }, unknown>(
         client,
-        DELETE_WEEKLY_PLAN.loc?.source.body || '',
+        DELETE_WEEKLY_PLAN,
         { id }
       ),
     onSuccess: () => {
@@ -286,7 +286,7 @@ export function useUpdateSchedulingSettings() {
     mutationFn: (input: UpdateSchedulingSettingsInput) =>
       graphqlRequest<{ updateSchedulingSettings: SchedulingSettings }, unknown>(
         client,
-        UPDATE_SCHEDULING_SETTINGS.loc?.source.body || '',
+        UPDATE_SCHEDULING_SETTINGS,
         { input }
       ),
     onSuccess: () => {

@@ -301,8 +301,9 @@ export function validateFCRTable(table: unknown): string[] {
       } else {
         for (let j = 0; j < t.fcrValues[i].length; j++) {
           const val = t.fcrValues[i][j];
-          if (typeof val !== 'number' || val <= 0 || val > 5) {
-            errors.push(`fcrValues[${i}][${j}] must be a number between 0 and 5 (exclusive of 0)`);
+          // 0 is allowed as it indicates an uncovered cell
+          if (typeof val !== 'number' || val < 0 || val > 5) {
+            errors.push(`fcrValues[${i}][${j}] must be a number between 0 and 5`);
           }
         }
       }

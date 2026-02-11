@@ -118,26 +118,35 @@ export class FeedConsumptionForecastService {
       }
     }
 
-    // 3. Run growth simulation for each tank
+    // 3. Run growth simulation for each tank (parallelized with concurrency limit)
     const tankProjections = new Map<string, { tankBatch: TankBatch; projections: GrowthProjection[] }>();
-    for (const tankBatch of activeTanks) {
-      const currentCount = tankBatch.totalQuantity;
-      const currentWeightG = Number(tankBatch.avgWeightG) || 0;
+    const validTanks = activeTanks.filter(tb => {
+      const currentCount = tb.totalQuantity;
+      const currentWeightG = Number(tb.avgWeightG) || 0;
+      return currentCount > 0 && currentWeightG > 0;
+    });
 
-      if (currentCount > 0 && currentWeightG > 0) {
-        // Get SGR from pre-loaded batch data (O(1) lookup)
-        const sgr = (tankBatch.primaryBatchId && batchSgrMap.get(tankBatch.primaryBatchId)) || 1.5;
-
-        const result = await this.growthSimulator.simulateGrowth({
-          tenantId,
-          schemaName,
-          tankId: tankBatch.tankId,
-          currentWeightG,
-          currentCount,
-          sgr,
-          projectionDays: forecastDays,
-        });
-        tankProjections.set(tankBatch.tankId, { tankBatch, projections: result.projections });
+    // Process tanks in parallel chunks of 5 to avoid DB connection pool exhaustion
+    const CONCURRENCY = 5;
+    for (let i = 0; i < validTanks.length; i += CONCURRENCY) {
+      const chunk = validTanks.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        chunk.map(async (tankBatch) => {
+          const sgr = (tankBatch.primaryBatchId && batchSgrMap.get(tankBatch.primaryBatchId)) || 1.5;
+          const result = await this.growthSimulator.simulateGrowth({
+            tenantId,
+            schemaName,
+            tankId: tankBatch.tankId,
+            currentWeightG: Number(tankBatch.avgWeightG),
+            currentCount: tankBatch.totalQuantity,
+            sgr,
+            projectionDays: forecastDays,
+          });
+          return { tankBatch, projections: result.projections };
+        })
+      );
+      for (const { tankBatch, projections } of results) {
+        tankProjections.set(tankBatch.tankId, { tankBatch, projections });
       }
     }
 

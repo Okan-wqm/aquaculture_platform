@@ -920,16 +920,17 @@ export class FeedingProgramService {
       }
     }
 
-    // FCR değerleri kontrolü (0 < FCR <= 5 geçerli kabul ediliyor)
+    // FCR değerleri kontrolü (0 = uncovered cell, 0 < FCR <= 5 geçerli)
     if (fcrTable.fcrValues) {
       for (let i = 0; i < fcrTable.fcrValues.length; i++) {
         const row = fcrTable.fcrValues[i];
         if (row) {
           for (let j = 0; j < row.length; j++) {
             const fcr = row[j];
-            if (fcr !== undefined && (fcr <= 0 || fcr > 5)) {
+            // 0 is allowed as it indicates an uncovered cell
+            if (fcr !== undefined && fcr !== 0 && (fcr < 0 || fcr > 5)) {
               errors.push(
-                `Invalid FCR value at [${i}][${j}]: ${fcr} (must be greater than 0 and at most 5)`,
+                `Invalid FCR value at [${i}][${j}]: ${fcr} (must be 0 or between 0 and 5)`,
               );
             }
           }

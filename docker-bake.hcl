@@ -335,18 +335,12 @@ target "_frontend-common" {
   dockerfile = "infrastructure/docker/Dockerfile.microfrontend.simple"
   context    = "."
   platforms  = ["linux/amd64"]
-
-  cache-from = cache_from_frontend()
-  cache-to   = cache_to_frontend()
 }
 
 target "_shell-common" {
   dockerfile = "infrastructure/docker/Dockerfile.shell"
   context    = "."
   platforms  = ["linux/amd64"]
-
-  cache-from = cache_from_frontend()
-  cache-to   = cache_to_frontend()
 }
 
 # =============================================================================

@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -18,7 +20,7 @@
 /* Touch feedback */
 @layer components {
   .touch-feedback {
-    @apply active:scale-95 active:opacity-80 transition-transform duration-100;
+    @apply active:scale-[0.97] active:opacity-80 transition-all duration-150 ease-out;
   }
 }
 
@@ -28,23 +30,23 @@ html {
 }
 
 body {
-  @apply bg-white dark:bg-gray-900 text-gray-900 dark:text-white;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  @apply bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Konsta UI overrides for aquaculture branding */
+/* Konsta UI overrides — ocean blue branding */
 :root {
-  --k-color-primary: #0ea5e9;
-  --k-color-primary-tint: #38bdf8;
-  --k-color-primary-shade: #0284c7;
+  --k-color-primary: #0073e6;
+  --k-color-primary-tint: #3080ff;
+  --k-color-primary-shade: #0f5bcc;
 }
 
 /* Custom scrollbar for webkit browsers */
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 3px;
+  height: 3px;
 }
 
 ::-webkit-scrollbar-track {
@@ -52,35 +54,63 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-gray-300 dark:bg-gray-600 rounded-full;
+  @apply bg-gray-300 dark:bg-gray-700 rounded-full;
 }
 
 /* Loading skeleton animation */
 @keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
 .skeleton {
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background: linear-gradient(
+    90deg,
+    rgba(0, 115, 230, 0.04) 25%,
+    rgba(0, 115, 230, 0.08) 50%,
+    rgba(0, 115, 230, 0.04) 75%
+  );
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
 
 /* Offline indicator pulse */
 @keyframes pulse-offline {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .offline-pulse {
   animation: pulse-offline 2s ease-in-out infinite;
+}
+
+/* Gradient text utility */
+.text-gradient-ocean {
+  background: linear-gradient(135deg, #0073e6, #3080ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glass card effect */
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.dark .glass {
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Slide up animation for install prompt */
+@keyframes slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.4s ease-out;
 }

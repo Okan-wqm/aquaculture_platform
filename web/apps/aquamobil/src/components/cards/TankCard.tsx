@@ -7,11 +7,20 @@ interface TankCardProps {
   tank: Tank;
 }
 
+const STATUS_CONFIG: Record<string, { dot: string; label: string }> = {
+  ACTIVE: { dot: 'bg-sea-500', label: 'Active' },
+  MAINTENANCE: { dot: 'bg-amber-500', label: 'Maintenance' },
+  QUARANTINE: { dot: 'bg-red-500', label: 'Quarantine' },
+  PREPARING: { dot: 'bg-ocean-500', label: 'Preparing' },
+  HARVESTING: { dot: 'bg-harvest', label: 'Harvesting' },
+  INACTIVE: { dot: 'bg-gray-400', label: 'Inactive' },
+};
+
 export function TankCard({ tank }: TankCardProps) {
   const navigate = useNavigate();
-  const batch = tank.currentBatch;
-
-  if (!batch) return null;
+  const metrics = tank.batchMetrics;
+  const hasBatch = !!metrics?.batchId;
+  const status = STATUS_CONFIG[tank.status] || STATUS_CONFIG.INACTIVE;
 
   const formatNumber = (num: number) => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
@@ -20,81 +29,98 @@ export function TankCard({ tank }: TankCardProps) {
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card overflow-hidden border border-gray-100 dark:border-gray-800">
       {/* Header */}
-      <div className="p-3 border-b border-gray-100 dark:border-gray-700">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white">{tank.name}</h3>
-            <p className="text-xs text-gray-500">{tank.code}</p>
+      <div className="px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col">
+            <h3 className="font-semibold text-gray-900 dark:text-white text-[15px]">{tank.name}</h3>
+            <p className="text-xs text-gray-400 font-medium">{tank.code} &middot; {tank.volume}m&sup3;</p>
           </div>
-          <div className="text-right">
-            <p className="text-sm font-medium text-aqua-600 dark:text-aqua-400">
-              {batch.speciesName}
-            </p>
-            <p className="text-xs text-gray-500">{batch.batchNumber}</p>
-          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {hasBatch && (
+            <span className="text-xs font-semibold text-ocean-600 dark:text-ocean-400 bg-ocean-50 dark:bg-ocean-900/30 px-2 py-0.5 rounded-md">
+              {metrics.batchNumber}
+            </span>
+          )}
+          <span className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
+            <span className={clsx('w-2 h-2 rounded-full', status.dot)} />
+            {status.label}
+          </span>
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 divide-x divide-gray-100 dark:divide-gray-700">
-        <div className="p-3 text-center">
-          <div className="text-lg font-bold text-gray-900 dark:text-white">
-            {formatNumber(batch.currentQuantity)}
+      {hasBatch ? (
+        <div className="grid grid-cols-3 border-t border-gray-50 dark:border-gray-800">
+          <div className="px-4 py-3 text-center">
+            <div className="text-lg font-bold text-gray-900 dark:text-white">
+              {formatNumber(metrics.pieces ?? 0)}
+            </div>
+            <div className="text-[11px] text-gray-400 font-medium">Fish</div>
           </div>
-          <div className="text-xs text-gray-500">Fish</div>
-        </div>
-        <div className="p-3 text-center">
-          <div className="text-lg font-bold text-gray-900 dark:text-white">
-            {batch.averageWeight.toFixed(0)}g
+          <div className="px-4 py-3 text-center border-x border-gray-50 dark:border-gray-800">
+            <div className="text-lg font-bold text-gray-900 dark:text-white">
+              {(metrics.avgWeight ?? 0).toFixed(0)}g
+            </div>
+            <div className="text-[11px] text-gray-400 font-medium">Avg Weight</div>
           </div>
-          <div className="text-xs text-gray-500">Avg Weight</div>
-        </div>
-        <div className="p-3 text-center">
-          <div className="text-lg font-bold text-gray-900 dark:text-white">
-            {batch.currentBiomassKg.toFixed(0)}kg
+          <div className="px-4 py-3 text-center">
+            <div className="text-lg font-bold text-gray-900 dark:text-white">
+              {(metrics.biomass ?? tank.currentBiomass ?? 0).toFixed(0)}kg
+            </div>
+            <div className="text-[11px] text-gray-400 font-medium">Biomass</div>
           </div>
-          <div className="text-xs text-gray-500">Biomass</div>
         </div>
-      </div>
+      ) : (
+        <div className="border-t border-gray-50 dark:border-gray-800">
+          <div className="grid grid-cols-2">
+            <div className="px-4 py-3 text-center">
+              <div className="text-lg font-bold text-gray-900 dark:text-white">
+                {tank.currentBiomass > 0 ? `${tank.currentBiomass.toFixed(0)}kg` : '--'}
+              </div>
+              <div className="text-[11px] text-gray-400 font-medium">Biomass</div>
+            </div>
+            <div className="px-4 py-3 text-center border-l border-gray-50 dark:border-gray-800">
+              <div className="text-lg font-bold text-gray-900 dark:text-white">
+                {tank.maxBiomass > 0 ? `${formatNumber(tank.maxBiomass)}kg` : '--'}
+              </div>
+              <div className="text-[11px] text-gray-400 font-medium">Max Capacity</div>
+            </div>
+          </div>
+          {tank.status === 'ACTIVE' && (
+            <p className="text-xs text-gray-300 text-center pb-3">No batch assigned</p>
+          )}
+        </div>
+      )}
 
-      {/* Actions */}
-      <div className="grid grid-cols-3 border-t border-gray-100 dark:border-gray-700">
-        <button
-          onClick={() => navigate(`/mortality/record/${tank.id}`)}
-          className={clsx(
-            'flex items-center justify-center gap-2 p-3',
-            'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20',
-            'touch-feedback border-r border-gray-100 dark:border-gray-700'
-          )}
-        >
-          <Skull size={18} />
-          <span className="text-sm font-medium">Mortality</span>
-        </button>
-        <button
-          onClick={() => navigate(`/cull/record/${tank.id}`)}
-          className={clsx(
-            'flex items-center justify-center gap-2 p-3',
-            'text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20',
-            'touch-feedback border-r border-gray-100 dark:border-gray-700'
-          )}
-        >
-          <Scissors size={18} />
-          <span className="text-sm font-medium">Cull</span>
-        </button>
-        <button
-          onClick={() => navigate(`/harvest/record/${tank.id}`)}
-          className={clsx(
-            'flex items-center justify-center gap-2 p-3',
-            'text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20',
-            'touch-feedback'
-          )}
-        >
-          <Package size={18} />
-          <span className="text-sm font-medium">Harvest</span>
-        </button>
-      </div>
+      {/* Action buttons - only for tanks with batches */}
+      {hasBatch && (
+        <div className="grid grid-cols-3 border-t border-gray-50 dark:border-gray-800">
+          <button
+            onClick={() => navigate(`/mortality/record/${tank.id}`)}
+            className="flex items-center justify-center gap-1.5 py-2.5 text-mortality hover:bg-mortality-light dark:hover:bg-red-900/20 touch-feedback transition-colors border-r border-gray-50 dark:border-gray-800"
+          >
+            <Skull size={16} />
+            <span className="text-xs font-semibold">Mortality</span>
+          </button>
+          <button
+            onClick={() => navigate(`/cull/record/${tank.id}`)}
+            className="flex items-center justify-center gap-1.5 py-2.5 text-cull hover:bg-cull-light dark:hover:bg-orange-900/20 touch-feedback transition-colors border-r border-gray-50 dark:border-gray-800"
+          >
+            <Scissors size={16} />
+            <span className="text-xs font-semibold">Cull</span>
+          </button>
+          <button
+            onClick={() => navigate(`/harvest/record/${tank.id}`)}
+            className="flex items-center justify-center gap-1.5 py-2.5 text-harvest hover:bg-harvest-light dark:hover:bg-purple-900/20 touch-feedback transition-colors"
+          >
+            <Package size={16} />
+            <span className="text-xs font-semibold">Harvest</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Navbar, List, ListInput, Block, Button, BlockTitle } from 'konsta/react';
+import { List, ListInput, Block, BlockTitle } from 'konsta/react';
 import { ArrowLeft, Scissors, CheckCircle, AlertCircle, Minus, Plus } from 'lucide-react';
 import { useTanks } from '@/hooks/useTanks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -37,8 +37,8 @@ export function RecordCullPage() {
   const [errors, setErrors] = useState<FormErrors>({});
 
   const selectedTank = tanks?.find((t) => t.id === selectedTankId);
-  const batch = selectedTank?.currentBatch;
-  const maxQuantity = batch?.currentQuantity || 1000;
+  const metrics = selectedTank?.batchMetrics;
+  const maxQuantity = metrics?.pieces || 1000;
 
   useEffect(() => {
     if (tankId) setSelectedTankId(tankId);
@@ -47,23 +47,23 @@ export function RecordCullPage() {
   const validateForm = useCallback((): boolean => {
     const newErrors: FormErrors = {};
     if (!selectedTankId) newErrors.tank = 'Please select a tank';
-    if (!batch) newErrors.tank = 'Selected tank has no active batch';
+    if (!metrics) newErrors.tank = 'Selected tank has no active batch';
     if (quantity < 1) newErrors.quantity = 'Quantity must be at least 1';
     if (quantity > maxQuantity) newErrors.quantity = `Cannot exceed ${maxQuantity}`;
     if (!Number.isInteger(quantity)) newErrors.quantity = 'Must be a whole number';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  }, [selectedTankId, batch, quantity, maxQuantity]);
+  }, [selectedTankId, metrics, quantity, maxQuantity]);
 
   const handleSubmit = async () => {
-    if (!validateForm() || !batch) return;
+    if (!validateForm() || !metrics?.batchId) return;
 
     setIsSubmitting(true);
     setErrors({});
 
     try {
       await addToQueue('recordCull', {
-        batchId: batch.id,
+        batchId: metrics.batchId,
         tankId: selectedTankId,
         quantity,
         reason,
@@ -97,10 +97,12 @@ export function RecordCullPage() {
 
   if (showSuccess) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 dark:bg-green-900/20">
-        <CheckCircle size={64} className="text-green-500 mb-4" />
-        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">Recorded!</h2>
-        <p className="text-green-600 dark:text-green-400 text-sm">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-sea-50 dark:bg-sea-900/10">
+        <div className="w-20 h-20 bg-sea-100 dark:bg-sea-900/30 rounded-full flex items-center justify-center mb-4">
+          <CheckCircle size={48} className="text-sea-600" />
+        </div>
+        <h2 className="text-xl font-bold text-sea-700 dark:text-sea-300">Recorded!</h2>
+        <p className="text-sea-600 dark:text-sea-400 text-sm mt-1">
           {isOnline ? 'Saved to server' : 'Queued for sync'}
         </p>
       </div>
@@ -108,41 +110,43 @@ export function RecordCullPage() {
   }
 
   return (
-    <>
-      <Navbar
-        title="Record Cull"
-        left={
-          <button onClick={() => navigate(-1)} className="p-2">
-            <ArrowLeft size={24} />
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-orange-600 to-cull text-white">
+        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
+          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
+            <ArrowLeft size={22} />
           </button>
-        }
-      />
+          <div className="flex items-center gap-2.5">
+            <Scissors size={22} />
+            <h1 className="text-lg font-bold">Record Cull</h1>
+          </div>
+        </div>
+      </div>
 
       {/* Tank/Batch Info */}
-      {selectedTank && batch && (
-        <Block className="!mt-0 bg-orange-50 dark:bg-orange-900/20">
+      {selectedTank && metrics && (
+        <div className="mx-4 mt-4 bg-white dark:bg-gray-900 rounded-2xl shadow-card p-4 border border-gray-100 dark:border-gray-800">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-orange-100 dark:bg-orange-800 rounded-full flex items-center justify-center">
-              <Scissors className="text-orange-500" size={24} />
+            <div className="w-11 h-11 bg-orange-50 dark:bg-orange-900/20 rounded-xl flex items-center justify-center">
+              <Scissors className="text-cull" size={22} />
             </div>
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white">{selectedTank.name}</h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                {batch.speciesName} • {batch.currentQuantity.toLocaleString()} fish
+              <p className="text-sm text-gray-500">
+                {metrics.batchNumber ?? '--'} &middot; {(metrics.pieces ?? 0).toLocaleString()} fish
               </p>
             </div>
           </div>
-        </Block>
+        </div>
       )}
 
       {/* Error Banner */}
       {errors.general && (
-        <Block className="!mt-0 bg-red-100 dark:bg-red-900/30">
-          <div className="flex items-center gap-2 text-red-700 dark:text-red-300">
-            <AlertCircle size={20} />
-            <span>{errors.general}</span>
-          </div>
-        </Block>
+        <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
+          <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
+          <span className="text-red-600 dark:text-red-300 text-sm">{errors.general}</span>
+        </div>
       )}
 
       {/* Tank Selector */}
@@ -150,20 +154,13 @@ export function RecordCullPage() {
         <>
           <BlockTitle>Select Tank</BlockTitle>
           <List strongIos insetIos>
-            <ListInput
-              type="select"
-              value={selectedTankId}
-              onChange={handleTankChange}
-              error={errors.tank}
-            >
+            <ListInput type="select" value={selectedTankId} onChange={handleTankChange} error={errors.tank}>
               <option value="">-- Select Tank --</option>
-              {tanks
-                ?.filter((t) => t.currentBatch)
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} - {t.currentBatch?.speciesName}
-                  </option>
-                ))}
+              {tanks?.filter((t) => t.batchMetrics).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
+                </option>
+              ))}
             </ListInput>
           </List>
           {errors.tank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.tank}</p>}
@@ -171,56 +168,58 @@ export function RecordCullPage() {
       )}
 
       {/* Quantity */}
-      <BlockTitle>Culled Fish Count</BlockTitle>
-      <Block>
-        <div className="flex items-center justify-center gap-4">
-          <button
-            type="button"
-            onClick={() => handleQuantityChange(quantity - 1)}
-            disabled={quantity <= 1}
-            className="w-14 h-14 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center disabled:opacity-50 touch-feedback"
-          >
-            <Minus size={24} className="text-orange-600" />
-          </button>
-          <div className="text-4xl font-bold text-gray-900 dark:text-white min-w-[80px] text-center">
-            {quantity}
+      <div className="px-4 mt-5">
+        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Culled Fish Count</h3>
+        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-5 border border-gray-100 dark:border-gray-800">
+          <div className="flex items-center justify-center gap-5">
+            <button
+              type="button"
+              onClick={() => handleQuantityChange(quantity - 1)}
+              disabled={quantity <= 1}
+              className="w-14 h-14 rounded-2xl bg-orange-50 dark:bg-orange-900/20 flex items-center justify-center disabled:opacity-30 touch-feedback border border-orange-100 dark:border-orange-800"
+            >
+              <Minus size={22} className="text-cull" />
+            </button>
+            <div className="text-5xl font-bold text-gray-900 dark:text-white min-w-[90px] text-center tabular-nums">
+              {quantity}
+            </div>
+            <button
+              type="button"
+              onClick={() => handleQuantityChange(quantity + 1)}
+              disabled={quantity >= maxQuantity}
+              className="w-14 h-14 rounded-2xl bg-orange-50 dark:bg-orange-900/20 flex items-center justify-center disabled:opacity-30 touch-feedback border border-orange-100 dark:border-orange-800"
+            >
+              <Plus size={22} className="text-cull" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => handleQuantityChange(quantity + 1)}
-            disabled={quantity >= maxQuantity}
-            className="w-14 h-14 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center disabled:opacity-50 touch-feedback"
-          >
-            <Plus size={24} className="text-orange-600" />
-          </button>
+          <p className="text-center text-xs text-gray-400 mt-3 font-medium">
+            Max: {maxQuantity.toLocaleString()} fish in tank
+          </p>
+          {errors.quantity && <p className="text-red-500 text-sm text-center mt-2">{errors.quantity}</p>}
         </div>
-        <p className="text-center text-sm text-gray-500 mt-3">
-          Max: {maxQuantity.toLocaleString()} fish in tank
-        </p>
-        {errors.quantity && <p className="text-red-500 text-sm text-center mt-2">{errors.quantity}</p>}
-      </Block>
+      </div>
 
       {/* Reason Selector */}
-      <BlockTitle>Cull Reason</BlockTitle>
-      <Block>
+      <div className="px-4 mt-5">
+        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Cull Reason</h3>
         <div className="grid grid-cols-3 gap-2">
           {CULL_REASONS.map((r) => (
             <button
               key={r.value}
               onClick={() => setReason(r.value)}
               className={clsx(
-                'flex flex-col items-center p-3 rounded-xl border-2 transition-all touch-feedback',
+                'flex flex-col items-center p-3 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900',
                 reason === r.value
-                  ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/30'
-                  : 'border-gray-200 dark:border-gray-700'
+                  ? 'border-cull bg-orange-50 dark:bg-orange-900/20 shadow-glow-orange'
+                  : 'border-gray-100 dark:border-gray-800'
               )}
             >
-              <span className="text-2xl mb-1">{r.emoji}</span>
-              <span className="text-xs font-medium text-center">{r.label}</span>
+              <span className="text-xl mb-1">{r.emoji}</span>
+              <span className="text-[10px] font-semibold text-center leading-tight">{r.label}</span>
             </button>
           ))}
         </div>
-      </Block>
+      </div>
 
       {/* Notes */}
       <BlockTitle>Notes (Optional)</BlockTitle>
@@ -235,32 +234,30 @@ export function RecordCullPage() {
       </List>
 
       {/* Submit Button */}
-      <Block className="mb-24">
-        <Button
-          large
-          raised
+      <div className="px-4 pb-28">
+        <button
           onClick={handleSubmit}
-          disabled={!selectedTankId || !batch || quantity < 1 || isSubmitting}
-          className="w-full !bg-orange-500"
+          disabled={!selectedTankId || !metrics?.batchId || quantity < 1 || isSubmitting}
+          className="w-full py-4 bg-gradient-to-r from-orange-600 to-cull text-white font-bold rounded-2xl shadow-lg shadow-orange-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
         >
           {isSubmitting ? (
-            <span className="flex items-center justify-center gap-2">
+            <>
               <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
               Recording...
-            </span>
+            </>
           ) : (
-            <span className="flex items-center justify-center gap-2">
+            <>
               <Scissors size={20} />
               Record {quantity} Culled Fish
-            </span>
+            </>
           )}
-        </Button>
+        </button>
         {!isOnline && (
-          <p className="text-center text-amber-600 dark:text-amber-400 text-sm mt-2">
+          <p className="text-center text-amber-500 text-sm mt-3 font-medium">
             Offline - will sync when connected
           </p>
         )}
-      </Block>
-    </>
+      </div>
+    </div>
   );
 }

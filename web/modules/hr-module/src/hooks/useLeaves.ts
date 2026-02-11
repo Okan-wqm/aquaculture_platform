@@ -69,7 +69,7 @@ export function useLeaveTypes(filter?: { category?: string; isActive?: boolean }
     queryFn: () =>
       graphqlRequest<{ leaveTypes: LeaveType[] }, unknown>(
         client,
-        GET_LEAVE_TYPES.loc?.source.body || '',
+        GET_LEAVE_TYPES,
         { filter }
       ),
     select: (data) => data.leaveTypes,
@@ -88,7 +88,7 @@ export function useLeaveBalances(employeeId: string, year: number) {
     queryFn: () =>
       graphqlRequest<{ leaveBalances: LeaveBalance[] }, unknown>(
         client,
-        GET_LEAVE_BALANCES.loc?.source.body || '',
+        GET_LEAVE_BALANCES,
         { employeeId, year }
       ),
     select: (data) => data.leaveBalances,
@@ -118,7 +118,7 @@ export function useLeaveBalanceSummary(employeeId: string, year: number) {
             available: number;
           }[];
         };
-      }, unknown>(client, GET_LEAVE_BALANCE_SUMMARY.loc?.source.body || '', {
+      }, unknown>(client, GET_LEAVE_BALANCE_SUMMARY, {
         employeeId,
         year,
       }),
@@ -142,7 +142,7 @@ export function useLeaveRequests(
     queryFn: () =>
       graphqlRequest<{ leaveRequests: PaginatedResponse<LeaveRequest> }, unknown>(
         client,
-        GET_LEAVE_REQUESTS.loc?.source.body || '',
+        GET_LEAVE_REQUESTS,
         { filter, pagination }
       ),
     select: (data) => data.leaveRequests,
@@ -157,7 +157,7 @@ export function useLeaveRequest(id: string) {
     queryFn: () =>
       graphqlRequest<{ leaveRequest: LeaveRequest }, unknown>(
         client,
-        GET_LEAVE_REQUEST.loc?.source.body || '',
+        GET_LEAVE_REQUEST,
         { id }
       ),
     select: (data) => data.leaveRequest,
@@ -176,7 +176,7 @@ export function useMyLeaveRequests(
     queryFn: () =>
       graphqlRequest<{ myLeaveRequests: PaginatedResponse<LeaveRequest> }, unknown>(
         client,
-        GET_MY_LEAVE_REQUESTS.loc?.source.body || '',
+        GET_MY_LEAVE_REQUESTS,
         { filter, pagination }
       ),
     select: (data) => data.myLeaveRequests,
@@ -191,7 +191,7 @@ export function usePendingLeaveApprovals(approverId: string) {
     queryFn: () =>
       graphqlRequest<{ pendingLeaveApprovals: LeaveRequest[] }, unknown>(
         client,
-        GET_PENDING_LEAVE_APPROVALS.loc?.source.body || '',
+        GET_PENDING_LEAVE_APPROVALS,
         { approverId }
       ),
     select: (data) => data.pendingLeaveApprovals,
@@ -211,7 +211,7 @@ export function useTeamLeaveCalendar(
     queryFn: () =>
       graphqlRequest<{ teamLeaveCalendar: LeaveCalendarEntry[] }, unknown>(
         client,
-        GET_TEAM_LEAVE_CALENDAR.loc?.source.body || '',
+        GET_TEAM_LEAVE_CALENDAR,
         { departmentId, startDate, endDate }
       ),
     select: (data) => data.teamLeaveCalendar,
@@ -239,7 +239,7 @@ export function useCheckLeaveOverlap(
           hasOverlap: boolean;
           overlappingRequests: { id: string; requestNumber: string; startDate: string; endDate: string; status: string }[];
         };
-      }, unknown>(client, CHECK_LEAVE_OVERLAP.loc?.source.body || '', {
+      }, unknown>(client, CHECK_LEAVE_OVERLAP, {
         employeeId,
         startDate,
         endDate,
@@ -268,7 +268,7 @@ export function useCalculateLeaveDays(
           weekends: number;
           holidays: number;
         };
-      }, unknown>(client, CALCULATE_LEAVE_DAYS.loc?.source.body || '', {
+      }, unknown>(client, CALCULATE_LEAVE_DAYS, {
         leaveTypeId,
         startDate,
         endDate,
@@ -291,7 +291,7 @@ export function useCreateLeaveRequest() {
     mutationFn: (input: CreateLeaveRequestInput) =>
       graphqlRequest<{ createLeaveRequest: LeaveRequest }, unknown>(
         client,
-        CREATE_LEAVE_REQUEST.loc?.source.body || '',
+        CREATE_LEAVE_REQUEST,
         { input }
       ),
     onSuccess: (data) => {
@@ -313,7 +313,7 @@ export function useUpdateLeaveRequest() {
     mutationFn: (input: UpdateLeaveRequestInput) =>
       graphqlRequest<{ updateLeaveRequest: LeaveRequest }, unknown>(
         client,
-        UPDATE_LEAVE_REQUEST.loc?.source.body || '',
+        UPDATE_LEAVE_REQUEST,
         { input }
       ),
     onSuccess: (data) => {
@@ -334,7 +334,7 @@ export function useSubmitLeaveRequest() {
     mutationFn: (id: string) =>
       graphqlRequest<{ submitLeaveRequest: LeaveRequest }, unknown>(
         client,
-        SUBMIT_LEAVE_REQUEST.loc?.source.body || '',
+        SUBMIT_LEAVE_REQUEST,
         { id }
       ),
     onSuccess: (data) => {
@@ -356,7 +356,7 @@ export function useApproveLeaveRequest() {
     mutationFn: ({ id, notes }: { id: string; notes?: string }) =>
       graphqlRequest<{ approveLeaveRequest: LeaveRequest }, unknown>(
         client,
-        APPROVE_LEAVE_REQUEST.loc?.source.body || '',
+        APPROVE_LEAVE_REQUEST,
         { id, notes }
       ),
     onSuccess: (data) => {
@@ -381,7 +381,7 @@ export function useRejectLeaveRequest() {
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       graphqlRequest<{ rejectLeaveRequest: LeaveRequest }, unknown>(
         client,
-        REJECT_LEAVE_REQUEST.loc?.source.body || '',
+        REJECT_LEAVE_REQUEST,
         { id, reason }
       ),
     onSuccess: (data) => {
@@ -406,7 +406,7 @@ export function useCancelLeaveRequest() {
     mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
       graphqlRequest<{ cancelLeaveRequest: LeaveRequest }, unknown>(
         client,
-        CANCEL_LEAVE_REQUEST.loc?.source.body || '',
+        CANCEL_LEAVE_REQUEST,
         { id, reason }
       ),
     onSuccess: (data) => {
@@ -431,7 +431,7 @@ export function useWithdrawLeaveRequest() {
     mutationFn: (id: string) =>
       graphqlRequest<{ withdrawLeaveRequest: LeaveRequest }, unknown>(
         client,
-        WITHDRAW_LEAVE_REQUEST.loc?.source.body || '',
+        WITHDRAW_LEAVE_REQUEST,
         { id }
       ),
     onSuccess: (data) => {
@@ -469,7 +469,7 @@ export function useAdjustLeaveBalance() {
     }) =>
       graphqlRequest<{ adjustLeaveBalance: LeaveBalance }, unknown>(
         client,
-        ADJUST_LEAVE_BALANCE.loc?.source.body || '',
+        ADJUST_LEAVE_BALANCE,
         { employeeId, leaveTypeId, year, adjustment, reason }
       ),
     onSuccess: (_, variables) => {

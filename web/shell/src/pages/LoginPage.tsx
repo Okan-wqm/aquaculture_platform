@@ -148,6 +148,32 @@ const LoginForm: React.FC = () => {
       <div className="text-center text-xs text-blue-600 mt-4">
         <p>Demo: by-okan@live.com / 12345678</p>
       </div>
+
+      {/* Mobile App Download Banner */}
+      <div className="mt-6 pt-5 border-t border-blue-200/50">
+        <a
+          href="/mobile"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-3 p-3 bg-gradient-to-r from-blue-50 to-sky-50 hover:from-blue-100 hover:to-sky-100 rounded-xl border border-blue-200/60 transition-all group"
+        >
+          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md group-hover:scale-105 transition-transform">
+            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+              <line x1="12" y1="18" x2="12.01" y2="18" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-bold text-blue-800">AquaMobil</div>
+            <div className="text-xs text-blue-600">Mobile field data entry app</div>
+          </div>
+          <div className="text-blue-400 group-hover:text-blue-600 transition-colors flex-shrink-0">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+          </div>
+        </a>
+      </div>
     </form>
   );
 };

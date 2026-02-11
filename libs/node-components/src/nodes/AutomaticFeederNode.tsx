@@ -15,8 +15,8 @@ interface AutomaticFeederNodeData {
   isScadaMode?: boolean;
 }
 
-const WIDTH = 100;
-const HEIGHT = 140;
+const WIDTH = 120;
+const HEIGHT = 160;
 
 const AutomaticFeederNode: React.FC<NodeProps<AutomaticFeederNodeData>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
@@ -54,7 +54,7 @@ const AutomaticFeederNode: React.FC<NodeProps<AutomaticFeederNodeData>> = ({ id,
         borderRadius: 8,
       }}
     >
-      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 100 140">
+      <svg width={WIDTH} height={HEIGHT} viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">
         <defs>
           <linearGradient id={`feeder-hopper-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#455A64" />
@@ -103,7 +103,7 @@ const AutomaticFeederNode: React.FC<NodeProps<AutomaticFeederNodeData>> = ({ id,
 
       {/* Bottom Handle (feed output) */}
       <div
-        style={{ position: 'absolute', left: 50, top: 120, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
+        style={{ position: 'absolute', left: 60, top: 137, width: 12, height: 12, transform: 'translate(-50%, -50%)', pointerEvents: 'all' }}
         onContextMenu={toggleHandle}
       >
         <Handle

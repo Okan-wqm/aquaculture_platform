@@ -9,8 +9,11 @@
 
 import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThan } from 'typeorm';
+import { RedisService } from '@platform/backend-common';
 import PDFDocument from 'pdfkit';
+import { Repository, Between, LessThan } from 'typeorm';
+
+import { AuditLogService } from '../../audit/audit.service';
 import {
   AnalyticsSnapshot,
   ReportType,
@@ -25,9 +28,10 @@ import {
 } from '../entities/analytics-snapshot.entity';
 import { TenantReadOnly, TenantStatus, TenantPlan } from '../entities/external/tenant.entity';
 import { UserReadOnly } from '../entities/external/user.entity';
+
 import { AnalyticsService } from './analytics.service';
-import { AuditLogService } from '../../audit/audit.service';
-import { RedisService } from '@platform/backend-common';
+
+
 
 // ============================================================================
 // Report Data Types

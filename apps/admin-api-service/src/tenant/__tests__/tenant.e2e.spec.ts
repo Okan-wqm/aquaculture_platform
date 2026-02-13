@@ -15,17 +15,17 @@
  * 3. Remove .skip from the describe block
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, HttpStatus, ValidationPipe } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
-import * as request from 'supertest';
+import { Test, TestingModule } from '@nestjs/testing';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import request from 'supertest';
 
 // Import app modules
-import { TenantManagementModule } from '../tenant.module';
 import { AuditLogModule } from '../../audit/audit.module';
+import { SystemModulesModule } from '../../modules/modules.module';
 import { SettingsModule } from '../../settings/settings.module';
-import { ModulesModule } from '../../modules/modules.module';
+import { TenantManagementModule } from '../tenant.module';
 
 /**
  * E2E Test Suite for Tenant Management

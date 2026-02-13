@@ -5,9 +5,10 @@ import {
   Body,
   Query,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 
-import { PerformanceMonitoringService, MetricThreshold } from '../services/performance-monitoring.service';
 import { MetricType } from '../entities/performance-metric.entity';
+import { PerformanceMonitoringService, MetricThreshold } from '../services/performance-monitoring.service';
 
 // ============================================================================
 // DTOs
@@ -32,6 +33,7 @@ class UpdateThresholdsDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Analytics')
 @Controller('system/performance')
 export class PerformanceController {
   constructor(private readonly performanceService: PerformanceMonitoringService) {}

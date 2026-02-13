@@ -322,6 +322,9 @@ const TenantDetailPage: React.FC = () => {
               <h1 className="text-2xl font-bold text-gray-900">{tenant.name}</h1>
               <Badge variant={getStatusVariant(tenant.status)}>{tenant.status}</Badge>
               <Badge variant={getTierVariant(tenant.tier)}>{tenant.tier}</Badge>
+              {tenant.isTrialActive && (
+                <Badge variant="warning">Trial Active</Badge>
+              )}
             </div>
             <p className="text-gray-500 mt-1">
               {tenant.slug} {tenant.domain && `• ${tenant.domain}`}
@@ -452,6 +455,25 @@ const TenantDetailPage: React.FC = () => {
                 {tenant.modules?.filter((m) => m.isActive).length || 0}
               </p>
             </Card>
+            <Card className="p-4">
+              <h4 className="text-sm font-medium text-gray-500 mb-2">Depolama Limiti</h4>
+              <p className="text-3xl font-bold text-gray-900">
+                {tenant.maxStorage === undefined || tenant.maxStorage === -1
+                  ? 'Sinirsiz'
+                  : `${tenant.maxStorage} GB`}
+              </p>
+            </Card>
+            {tenant.isTrialActive && (
+              <Card className="p-4 border-l-4 border-l-yellow-400">
+                <h4 className="text-sm font-medium text-gray-500 mb-2">Deneme Durumu</h4>
+                <Badge variant="warning">Trial Active</Badge>
+                {tenant.trialEndsAt && (
+                  <p className="text-sm text-gray-500 mt-1">
+                    Bitis: {formatDate(new Date(tenant.trialEndsAt), 'short')}
+                  </p>
+                )}
+              </Card>
+            )}
           </div>
         </div>
       )}

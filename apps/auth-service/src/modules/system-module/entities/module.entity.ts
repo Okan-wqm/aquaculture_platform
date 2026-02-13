@@ -16,6 +16,7 @@ export enum ModuleCode {
   FARM = 'farm',
   HR = 'hr',
   SENSOR = 'sensor',
+  HYDROPONICS = 'hydroponics',
 }
 
 registerEnumType(ModuleCode, {
@@ -203,6 +204,24 @@ export class Module {
           'analytics',
           'trends',
           'reports',
+        ],
+      },
+      {
+        code: ModuleCode.HYDROPONICS,
+        name: 'Hydroponics Management',
+        description:
+          'Hydroponic system management: growing systems, nutrient solutions, growing beds, climate control, harvest tracking and analytics',
+        icon: 'sprout',
+        color: '#22C55E',
+        defaultRoute: '/hydroponics/setup',
+        sortOrder: 4,
+        features: [
+          'systems',
+          'nutrients',
+          'growing-beds',
+          'climate',
+          'harvest',
+          'analytics',
         ],
       },
     ];

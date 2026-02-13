@@ -92,6 +92,7 @@ export interface DeviceHealthMetrics {
 @Index(['deviceCode'], { unique: true })
 @Index(['mqttClientId'], { unique: true, where: 'mqtt_client_id IS NOT NULL' })
 @Index('IDX_edge_devices_serial_number', ['serialNumber'], { unique: true, where: 'serial_number IS NOT NULL' })
+@Index('IDX_edge_devices_tenant_fingerprint_machineid', { synchronize: false })
 export class EdgeDevice {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

@@ -260,6 +260,10 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
                 name: 'billing',
                 url: configService.get('BILLING_SERVICE_URL', 'http://localhost:3006/graphql'),
               },
+              {
+                name: 'hydroponics',
+                url: configService.get('HYDROPONICS_SERVICE_URL', 'http://localhost:4007/graphql'),
+              },
               // NOTE: notification-service doesn't expose GraphQL - it's event-driven only
               // {
               //   name: 'notification',

@@ -17,10 +17,12 @@ import {
   HttpCode,
   BadRequestException,
 } from '@nestjs/common';
-import { AnnouncementService } from '../services/announcement.service';
-import { AnnouncementType, AnnouncementStatus, AnnouncementTarget } from '../entities/support.entity';
+import { ApiTags } from '@nestjs/swagger';
+
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { AllowTenantAdmin } from '../../decorators/roles.decorator';
+import { AnnouncementType, AnnouncementStatus, AnnouncementTarget } from '../entities/support.entity';
+import { AnnouncementService } from '../services/announcement.service';
 
 // ============================================================================
 // DTOs
@@ -58,6 +60,7 @@ class AcknowledgeDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Support')
 @Controller('support/announcements')
 export class AnnouncementController {
   constructor(private readonly announcementService: AnnouncementService) {}

@@ -1,3 +1,5 @@
+import * as crypto from 'crypto';
+
 import {
   Injectable,
   Logger,
@@ -7,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+
 import {
   TenantConfiguration,
   createDefaultTenantConfiguration,
@@ -22,7 +25,6 @@ import {
   ApiKeyConfig,
   WebhookConfig,
 } from '../entities/tenant-configuration.entity';
-import * as crypto from 'crypto';
 
 // ============================================================================
 // DTOs

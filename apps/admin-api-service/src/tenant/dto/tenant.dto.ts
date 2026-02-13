@@ -1,3 +1,4 @@
+import { Type, Transform } from 'class-transformer';
 import {
   IsString,
   IsOptional,
@@ -14,7 +15,7 @@ import {
   Min,
   IsArray,
 } from 'class-validator';
-import { Type, Transform } from 'class-transformer';
+
 import { TenantStatus, TenantPlan, TenantTier } from '../entities/tenant.entity';
 
 export class TenantLimitsDto {

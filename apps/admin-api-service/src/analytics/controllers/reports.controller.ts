@@ -19,8 +19,9 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
-import { ReportsService } from '../services/reports.service';
+
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import {
   ReportType,
@@ -32,6 +33,7 @@ import {
   ReportSchedule,
   ReportExecutionStatus,
 } from '../entities/analytics-snapshot.entity';
+import { ReportsService } from '../services/reports.service';
 
 // ============================================================================
 // DTOs
@@ -85,6 +87,7 @@ class QuickReportDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Analytics')
 @Controller('reports')
 @UseGuards(PlatformAdminGuard)
 export class ReportsController {

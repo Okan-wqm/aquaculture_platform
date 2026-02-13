@@ -6,10 +6,15 @@ import {
   ParseUUIDPipe,
   UseGuards,
 } from '@nestjs/common';
-import { AuditLogService, AuditLogFilter } from './audit.service';
-import { PlatformAdminGuard } from '../guards/platform-admin.guard';
-import { AuditLog, AuditSeverity } from './audit.entity';
+import { ApiTags } from '@nestjs/swagger';
 
+import { PlatformAdminGuard } from '../guards/platform-admin.guard';
+import { PaginationQueryDto } from '../shared/pagination-query.dto';
+
+import { AuditLog, AuditSeverity } from './audit.entity';
+import { AuditLogService, AuditLogFilter } from './audit.service';
+
+@ApiTags('Security')
 @Controller('audit-logs')
 @UseGuards(PlatformAdminGuard)
 export class AuditLogController {
@@ -26,8 +31,7 @@ export class AuditLogController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('search') search?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query() pagination?: PaginationQueryDto,
   ) {
     const filter: AuditLogFilter = {
       action,
@@ -43,8 +47,8 @@ export class AuditLogController {
 
     return this.auditLogService.query(
       filter,
-      page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 50,
+      pagination?.page ?? 1,
+      pagination?.limit ?? 50,
     );
   }
 

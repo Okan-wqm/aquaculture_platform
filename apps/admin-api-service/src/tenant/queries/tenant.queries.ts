@@ -44,18 +44,18 @@ export class GetTenantActivityQuery {
 
 export class GetTenantsApproachingLimitsQuery {
   constructor(
-    public readonly thresholdPercentage: number = 80,
+    public readonly thresholdPercentage = 80,
     public readonly limitType?: 'users',
   ) {}
 }
 
 export class GetExpiringTrialsQuery {
-  constructor(public readonly withinDays: number = 7) {}
+  constructor(public readonly withinDays = 7) {}
 }
 
 export class SearchTenantsQuery {
   constructor(
     public readonly searchTerm: string,
-    public readonly limit: number = 20,
+    public readonly limit = 20,
   ) {}
 }

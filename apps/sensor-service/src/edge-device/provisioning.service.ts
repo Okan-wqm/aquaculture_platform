@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import * as crypto from 'crypto';
 
 import {
   Injectable,
@@ -32,44 +32,40 @@ import {
   DeviceModel,
 } from './entities/edge-device.entity';
 import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
-import { DeviceEvent, DeviceEventType, DeviceEventSeverity } from './entities/device-event.entity';
+import { DeviceEventType, DeviceEventSeverity } from './entities/device-event.entity';
 import { MqttAuthService } from './mqtt-auth.service';
+import { InstallerScriptService } from './installer-script.service';
+import { TenantKeyService } from './tenant-key.service';
+import { DeviceEventService } from './device-event.service';
 
 /**
  * Provisioning Service
- * Handles zero-touch device provisioning workflow
+ * Handles zero-touch device provisioning workflow.
+ * Delegates script generation, tenant key management, and event logging
+ * to focused sub-services.
  */
 @Injectable()
 export class ProvisioningService {
   private readonly logger = new Logger(ProvisioningService.name);
   private readonly TOKEN_TTL_HOURS: number;
-  private readonly API_BASE_URL: string;
-  private readonly AGENT_VERSION: string;
-  private readonly MQTT_BROKER: string;
-  private readonly MQTT_PORT: number;
 
   constructor(
     @InjectRepository(EdgeDevice)
     private readonly deviceRepository: Repository<EdgeDevice>,
-    @InjectRepository(TenantProvisioningKey)
-    private readonly tenantKeyRepository: Repository<TenantProvisioningKey>,
-    @InjectRepository(DeviceEvent)
-    private readonly deviceEventRepository: Repository<DeviceEvent>,
     private readonly configService: ConfigService,
     private readonly mqttAuthService: MqttAuthService,
+    private readonly installerScriptService: InstallerScriptService,
+    private readonly tenantKeyService: TenantKeyService,
+    private readonly deviceEventService: DeviceEventService,
   ) {
     this.TOKEN_TTL_HOURS = this.configService.get<number>('PROVISIONING_TOKEN_TTL_HOURS', 24);
-    this.API_BASE_URL = this.configService.get<string>('PROVISIONING_API_BASE_URL', 'http://localhost:3000');
-    this.AGENT_VERSION = this.configService.get<string>('AGENT_VERSION', '1.0.0');
-    this.MQTT_BROKER = this.configService.get<string>('MQTT_BROKER_HOST', 'localhost');
-    this.MQTT_PORT = this.configService.get<number>('MQTT_BROKER_PORT', 1883);
   }
 
   /**
    * Generate a cryptographically secure provisioning token
    */
   generateProvisioningToken(): string {
-    return randomBytes(32).toString('hex');
+    return crypto.randomBytes(32).toString('hex');
   }
 
   /**
@@ -77,7 +73,7 @@ export class ProvisioningService {
    */
   generateDeviceCode(model?: DeviceModel): string {
     const prefix = this.getDeviceCodePrefix(model);
-    const suffix = randomBytes(4).toString('hex').toUpperCase();
+    const suffix = crypto.randomBytes(4).toString('hex').toUpperCase();
     return `${prefix}-${suffix}`;
   }
 
@@ -145,10 +141,18 @@ export class ProvisioningService {
       createdBy,
     });
 
-    const saved = await this.deviceRepository.save(device);
+    let saved: EdgeDevice;
+    try {
+      saved = await this.deviceRepository.save(device);
+    } catch (error: any) {
+      if (error?.code === '23505') { // PostgreSQL unique violation
+        throw new ConflictException('Device code conflict, please retry');
+      }
+      throw error;
+    }
     this.logger.log(`Created provisioned device ${deviceCode} for tenant ${tenantId}`);
 
-    return this.buildProvisioningResponse(saved, provisioningToken);
+    return await this.buildProvisioningResponse(saved, provisioningToken);
   }
 
   /**
@@ -180,17 +184,20 @@ export class ProvisioningService {
     const provisioningToken = this.generateProvisioningToken();
     const tokenExpiresAt = new Date(Date.now() + this.TOKEN_TTL_HOURS * 60 * 60 * 1000);
 
+    await this.deviceRepository.update(device.id, {
+      provisioningToken,
+      tokenExpiresAt,
+    });
     device.provisioningToken = provisioningToken;
     device.tokenExpiresAt = tokenExpiresAt;
-
-    const saved = await this.deviceRepository.save(device);
+    const saved = device;
     this.logger.log(`Regenerated token for device ${device.deviceCode}`);
 
     return {
       deviceId: saved.id,
       deviceCode: saved.deviceCode,
-      installerUrl: this.buildInstallerUrl(saved.deviceCode),
-      installerCommand: this.buildInstallerCommand(saved.deviceCode),
+      installerUrl: await this.installerScriptService.buildInstallerUrl(saved.deviceCode),
+      installerCommand: await this.installerScriptService.buildInstallerCommand(saved.deviceCode),
       tokenExpiresAt,
     };
   }
@@ -221,17 +228,19 @@ export class ProvisioningService {
       throw new UnauthorizedException('Provisioning token has expired');
     }
 
+    const config = await this.installerScriptService.getProvisioningConfig();
+
     const variables: InstallerScriptVariables = {
       deviceId: device.id,
       deviceCode: device.deviceCode,
       provisioningToken: device.provisioningToken,
-      apiUrl: this.API_BASE_URL,
-      agentVersion: this.AGENT_VERSION,
-      mqttBroker: this.MQTT_BROKER,
-      mqttPort: this.MQTT_PORT,
+      apiUrl: config.apiBaseUrl,
+      agentVersion: config.agentVersion,
+      mqttBroker: config.mqttBroker,
+      mqttPort: config.mqttPort,
     };
 
-    return this.renderInstallerScript(variables);
+    return this.installerScriptService.renderInstallerScript(variables, config);
   }
 
   /**
@@ -276,7 +285,10 @@ export class ProvisioningService {
     }
 
     // Validate token
-    if (!device.provisioningToken || device.provisioningToken !== token) {
+    // Hash both tokens to get constant-length buffers, preventing length-based timing leaks
+    const tokenHash = crypto.createHash('sha256').update(token).digest();
+    const storedHash = crypto.createHash('sha256').update(device.provisioningToken || '').digest();
+    if (!device.provisioningToken || !crypto.timingSafeEqual(tokenHash, storedHash)) {
       this.logger.warn(`Activation failed: invalid token for device ${device.deviceCode}`);
       throw new UnauthorizedException({
         success: false,
@@ -298,36 +310,44 @@ export class ProvisioningService {
     // Generate MQTT credentials
     const { password: mqttPassword, hash: mqttPasswordHash } = this.generateMqttCredentials();
 
-    // Update device
-    device.tokenUsedAt = new Date();
-    device.fingerprint = fingerprint;
-    device.agentVersion = agentVersion;
-    device.mqttPasswordHash = mqttPasswordHash;
-    device.lifecycleState = DeviceLifecycleState.PROVISIONING;
-    device.isOnline = false; // Will be set to true when MQTT heartbeat arrives
+    // Wrap in transaction to prevent partial activation
+    return await this.deviceRepository.manager.transaction(async (transactionalManager) => {
+      // Update device
+      device.tokenUsedAt = new Date();
+      device.fingerprint = fingerprint;
+      device.agentVersion = agentVersion;
+      device.mqttPasswordHash = mqttPasswordHash;
+      device.lifecycleState = DeviceLifecycleState.PROVISIONING;
+      device.isOnline = false; // Will be set to true when MQTT heartbeat arrives
 
-    // Clear the token from database (single-use)
-    device.provisioningToken = undefined;
+      // Clear the token from database (single-use)
+      // Use null (not undefined) so TypeORM sends SET provisioning_token = NULL
+      (device as any).provisioningToken = null;
 
-    await this.deviceRepository.save(device);
+      await transactionalManager.save(device);
 
-    // Add MQTT credentials to password file (for Mosquitto auth)
-    const mqttClientId = device.mqttClientId ?? '';
-    await this.mqttAuthService.addDeviceCredentials(mqttClientId, mqttPasswordHash);
+      // Add MQTT credentials to password file (for Mosquitto auth)
+      const mqttClientId = device.mqttClientId ?? '';
+      const mqttResult = await this.mqttAuthService.addDeviceCredentials(mqttClientId, mqttPasswordHash);
+      if (!mqttResult) {
+        throw new Error('Failed to write MQTT credentials');
+      }
 
-    this.logger.log(`Device ${device.deviceCode} activated successfully`);
+      this.logger.log(`Device ${device.deviceCode} activated successfully`);
 
-    // Return snake_case response (v1.1 spec)
-    return {
-      success: true,
-      mqtt_broker: this.MQTT_BROKER,
-      mqtt_port: this.MQTT_PORT,
-      mqtt_username: mqttClientId,
-      mqtt_password: mqttPassword,
-      tenant_id: device.tenantId,
-      device_code: device.deviceCode,
-      config: device.config,
-    };
+      // Return snake_case response (v1.1 spec)
+      const config = await this.installerScriptService.getProvisioningConfig();
+      return {
+        success: true,
+        mqtt_broker: config.mqttBroker,
+        mqtt_port: config.mqttPort,
+        mqtt_username: mqttClientId,
+        mqtt_password: mqttPassword,
+        tenant_id: device.tenantId,
+        device_code: device.deviceCode,
+        config: device.config,
+      };
+    });
   }
 
   /**
@@ -339,240 +359,20 @@ export class ProvisioningService {
   }
 
   /**
-   * Build installer URL
-   */
-  private buildInstallerUrl(deviceCode: string): string {
-    return `${this.API_BASE_URL}/install/${deviceCode}`;
-  }
-
-  /**
-   * Build installer command
-   */
-  private buildInstallerCommand(deviceCode: string): string {
-    return `curl -sSL ${this.buildInstallerUrl(deviceCode)} | sudo sh`;
-  }
-
-  /**
    * Build provisioning response
    */
-  private buildProvisioningResponse(
+  private async buildProvisioningResponse(
     device: EdgeDevice,
     _token: string,
-  ): ProvisionedDeviceResponse {
+  ): Promise<ProvisionedDeviceResponse> {
     return {
       deviceId: device.id,
       deviceCode: device.deviceCode,
-      installerUrl: this.buildInstallerUrl(device.deviceCode),
-      installerCommand: this.buildInstallerCommand(device.deviceCode),
+      installerUrl: await this.installerScriptService.buildInstallerUrl(device.deviceCode),
+      installerCommand: await this.installerScriptService.buildInstallerCommand(device.deviceCode),
       tokenExpiresAt: device.tokenExpiresAt ?? new Date(),
       status: device.lifecycleState,
     };
-  }
-
-  /**
-   * Render installer script from template
-   * Downloads edge-agent from GitHub Releases
-   */
-  private renderInstallerScript(variables: InstallerScriptVariables): string {
-    const GITHUB_REPO = this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/sens');
-    const now = new Date().toISOString();
-
-    return `#!/bin/bash
-set -e
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Suderra Edge Agent Installer v2.0
-#  Device: ${variables.deviceCode}
-#  Generated: ${now}
-# ══════════════════════════════════════════════════════════════════════════════
-
-GITHUB_REPO="${GITHUB_REPO}"
-INSTALL_DIR="/opt/suderra"
-CONFIG_DIR="/etc/suderra"
-DATA_DIR="/var/lib/suderra"
-LOG_FILE="/var/log/suderra-install.log"
-
-log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"; }
-
-log "╔══════════════════════════════════════════════════════════════╗"
-log "║           Suderra Edge Agent Installer v2.0                  ║"
-log "║              Device: ${variables.deviceCode}                              ║"
-log "╚══════════════════════════════════════════════════════════════╝"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 1: Prerequisites
-# ─────────────────────────────────────────────────────────────────────────────
-log "[1/7] Checking prerequisites..."
-if [ "$(id -u)" -ne 0 ]; then
-    log "ERROR: This script must be run as root"
-    exit 1
-fi
-
-if ! command -v curl &> /dev/null; then
-    log "Installing curl..."
-    apt-get update && apt-get install -y curl
-fi
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 2: Detect Architecture
-# ─────────────────────────────────────────────────────────────────────────────
-log "[2/7] Detecting architecture..."
-ARCH=$(uname -m)
-case $ARCH in
-    x86_64)   BINARY_NAME="edge-agent-x86_64-unknown-linux-gnu"  ;;
-    aarch64)  BINARY_NAME="edge-agent-aarch64-unknown-linux-gnu" ;;
-    armv7l)   BINARY_NAME="edge-agent-armv7-unknown-linux-gnueabihf" ;;
-    *)
-        log "ERROR: Unsupported architecture: $ARCH"
-        exit 1
-        ;;
-esac
-log "Architecture: $ARCH -> $BINARY_NAME"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 3: Download from GitHub Releases
-# ─────────────────────────────────────────────────────────────────────────────
-log "[3/7] Downloading edge-agent from GitHub..."
-
-# Get latest release tag
-LATEST_TAG=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep '"tag_name"' | cut -d '"' -f 4)
-
-if [ -z "$LATEST_TAG" ]; then
-    log "WARNING: Could not get latest release, using 'latest'"
-    LATEST_TAG="latest"
-fi
-
-log "Latest version: $LATEST_TAG"
-
-DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/$LATEST_TAG/$BINARY_NAME"
-log "Download URL: $DOWNLOAD_URL"
-
-mkdir -p "$INSTALL_DIR"
-curl -L --progress-bar -o "$INSTALL_DIR/edge-agent" "$DOWNLOAD_URL"
-chmod +x "$INSTALL_DIR/edge-agent"
-
-# Verify binary
-if ! "$INSTALL_DIR/edge-agent" --version &> /dev/null; then
-    log "WARNING: Could not verify binary version"
-else
-    VERSION=$("$INSTALL_DIR/edge-agent" --version 2>/dev/null || echo "unknown")
-    log "Installed version: $VERSION"
-fi
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 4: Create Configuration
-# ─────────────────────────────────────────────────────────────────────────────
-log "[4/7] Creating configuration..."
-mkdir -p "$CONFIG_DIR"
-mkdir -p "$DATA_DIR"
-
-cat > "$CONFIG_DIR/config.yaml" << 'CONFIGEOF'
-# Suderra Edge Agent Configuration
-# Generated: ${now}
-
-device_id: "${variables.deviceId}"
-device_code: "${variables.deviceCode}"
-api_url: "${variables.apiUrl}"
-provisioning_token: "${variables.provisioningToken}"
-
-mqtt:
-  port: ${variables.mqttPort}
-  keepalive_secs: 60
-  clean_session: false
-
-telemetry:
-  interval_seconds: 30
-  include_cpu: true
-  include_memory: true
-  include_disk: true
-  include_temperature: true
-
-modbus: []
-
-gpio: []
-CONFIGEOF
-
-# Set restrictive permissions on config
-chmod 600 "$CONFIG_DIR/config.yaml"
-log "Configuration created at $CONFIG_DIR/config.yaml"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 5: Create Systemd Service
-# ─────────────────────────────────────────────────────────────────────────────
-log "[5/7] Installing systemd service..."
-
-cat > /etc/systemd/system/suderra-agent.service << 'SERVICEEOF'
-[Unit]
-Description=Suderra Edge Agent
-Documentation=https://docs.suderra.com/edge-agent
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/opt/suderra/edge-agent
-Restart=always
-RestartSec=10
-WatchdogSec=120
-
-# Environment
-Environment="RUST_LOG=info"
-Environment="SUDERRA_DATA_DIR=/var/lib/suderra"
-
-# Security hardening
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/suderra /etc/suderra /var/log
-NoNewPrivileges=true
-
-# Resource limits
-LimitNOFILE=65536
-MemoryMax=256M
-CPUQuota=50%
-
-[Install]
-WantedBy=multi-user.target
-SERVICEEOF
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 6: Start Service
-# ─────────────────────────────────────────────────────────────────────────────
-log "[6/7] Starting edge-agent service..."
-systemctl daemon-reload
-systemctl enable suderra-agent
-systemctl start suderra-agent
-
-# Wait for activation
-sleep 5
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 7: Verify Installation
-# ─────────────────────────────────────────────────────────────────────────────
-log "[7/7] Verifying installation..."
-
-STATUS=$(systemctl is-active suderra-agent)
-if [ "$STATUS" = "active" ]; then
-    log "✅ Edge agent is running"
-else
-    log "❌ Edge agent failed to start"
-    log "Check logs: journalctl -u suderra-agent -n 50"
-    exit 1
-fi
-
-log ""
-log "══════════════════════════════════════════════════════════════════════════════"
-log "                    INSTALLATION COMPLETE!"
-log "══════════════════════════════════════════════════════════════════════════════"
-log ""
-log "  Device Code:    ${variables.deviceCode}"
-log "  Service Status: $STATUS"
-log "  Config File:    $CONFIG_DIR/config.yaml"
-log "  Log Command:    journalctl -u suderra-agent -f"
-log ""
-log "  The device will appear online in the dashboard within 30 seconds."
-log ""
-`;
   }
 
   /**
@@ -618,112 +418,53 @@ log ""
   }
 
   // ============================================
-  // Tenant-Level Provisioning (v2.0)
+  // Tenant-Level Provisioning (v2.0) - Delegated
   // ============================================
 
   /**
    * Create a tenant-level provisioning key
-   * Allows multiple devices to self-register with a single installer link
+   * Delegates to TenantKeyService
    */
   async createTenantKey(
     tenantId: string,
     input: CreateTenantKeyInput,
     createdBy: string,
   ): Promise<TenantKeyResponse> {
-    const keyToken = randomBytes(32).toString('hex');
-
-    let expiresAt: Date | undefined;
-    if (input.expiresInDays) {
-      expiresAt = new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000);
-    }
-
-    const key = this.tenantKeyRepository.create({
-      tenantId,
-      keyToken,
-      name: input.name,
-      isActive: true,
-      maxDevices: input.maxDevices,
-      usedCount: 0,
-      autoApprove: input.autoApprove ?? false,
-      defaultSiteId: input.defaultSiteId,
-      expiresAt,
-      createdBy,
-    });
-
-    const saved = await this.tenantKeyRepository.save(key);
-    this.logger.log(`Created tenant provisioning key ${saved.id} for tenant ${tenantId}`);
-
-    return {
-      id: saved.id,
-      keyToken: saved.keyToken,
-      installerUrl: this.buildTenantInstallerUrl(saved.keyToken),
-      installerCommand: this.buildTenantInstallerCommand(saved.keyToken),
-      expiresAt: saved.expiresAt,
-      maxDevices: saved.maxDevices,
-      autoApprove: saved.autoApprove,
-    };
+    return this.tenantKeyService.createTenantKey(tenantId, input, createdBy);
   }
 
   /**
    * Revoke a tenant provisioning key
+   * Delegates to TenantKeyService
    */
   async revokeTenantKey(keyId: string, tenantId: string): Promise<boolean> {
-    const key = await this.tenantKeyRepository.findOne({
-      where: { id: keyId, tenantId },
-    });
-
-    if (!key) {
-      throw new NotFoundException(`Provisioning key ${keyId} not found`);
-    }
-
-    key.isActive = false;
-    await this.tenantKeyRepository.save(key);
-    this.logger.log(`Revoked tenant provisioning key ${keyId}`);
-    return true;
+    return this.tenantKeyService.revokeTenantKey(keyId, tenantId);
   }
 
   /**
    * List all provisioning keys for a tenant
+   * Delegates to TenantKeyService
    */
   async listTenantKeys(tenantId: string): Promise<TenantProvisioningKey[]> {
-    return this.tenantKeyRepository.find({
-      where: { tenantId },
-      order: { createdAt: 'DESC' },
-    });
+    return this.tenantKeyService.listTenantKeys(tenantId);
   }
 
   /**
    * Generate tenant-level installer script
    */
   async generateTenantInstallerScript(tenantToken: string): Promise<string> {
-    const key = await this.tenantKeyRepository.findOne({
-      where: { keyToken: tenantToken },
-    });
+    const key = await this.tenantKeyService.validateAndGetKey(tenantToken);
 
-    if (!key) {
-      throw new NotFoundException('Invalid installer token');
-    }
-
-    if (!key.isActive) {
-      throw new BadRequestException('This installer key has been revoked');
-    }
-
-    if (key.expiresAt && key.expiresAt < new Date()) {
-      throw new UnauthorizedException('This installer key has expired');
-    }
-
-    if (key.maxDevices && key.usedCount >= key.maxDevices) {
-      throw new ConflictException('Maximum device limit reached for this key');
-    }
+    const config = await this.installerScriptService.getProvisioningConfig();
 
     const variables: TenantInstallerScriptVariables = {
       tenantToken: key.keyToken,
-      apiUrl: this.API_BASE_URL,
-      agentVersion: this.AGENT_VERSION,
-      mqttPort: this.MQTT_PORT,
+      apiUrl: config.apiBaseUrl,
+      agentVersion: config.agentVersion,
+      mqttPort: config.mqttPort,
     };
 
-    return this.renderTenantInstallerScript(variables);
+    return this.installerScriptService.renderTenantInstallerScript(variables, config);
   }
 
   /**
@@ -731,28 +472,12 @@ log ""
    * Called by the edge agent after installation via tenant installer
    */
   async selfRegisterDevice(request: SelfRegisterRequest): Promise<SelfRegisterResponse> {
-    // Lookup the tenant key
-    const key = await this.tenantKeyRepository.findOne({
-      where: { keyToken: request.tenant_token },
-    });
+    // Validate the tenant key (throws if invalid/revoked/expired/at capacity)
+    const key = await this.tenantKeyService.validateAndGetKey(request.tenant_token);
 
-    if (!key) {
-      throw new NotFoundException('Invalid tenant token');
-    }
+    // Note: maxDevices check is handled atomically below to prevent TOCTOU race
 
-    if (!key.isActive) {
-      throw new BadRequestException('This installer key has been revoked');
-    }
-
-    if (key.expiresAt && key.expiresAt < new Date()) {
-      throw new UnauthorizedException('This installer key has expired');
-    }
-
-    if (key.maxDevices && key.usedCount >= key.maxDevices) {
-      throw new ConflictException('Maximum device limit reached for this key');
-    }
-
-    // Fingerprint duplicate check
+    // Fingerprint duplicate check (with power-loss recovery - Fix 5)
     if (request.fingerprint.machineId) {
       const existing = await this.deviceRepository
         .createQueryBuilder('d')
@@ -763,6 +488,37 @@ log ""
         .getOne();
 
       if (existing) {
+        // If device was registered but never connected, return existing credentials for recovery
+        if (!existing.isOnline && !existing.lastSeenAt) {
+          // Only allow recovery within 1 hour of creation to limit attack window
+          const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+          if (existing.createdAt && existing.createdAt < oneHourAgo) {
+            throw new ConflictException(
+              `Device ${existing.deviceCode} registration has expired. Contact administrator to re-provision.`,
+            );
+          }
+          this.logger.log(`Returning existing registration for device ${existing.deviceCode} (power-loss recovery)`);
+          const config = await this.installerScriptService.getProvisioningConfig();
+          // Regenerate MQTT credentials for the recovery
+          const { password: mqttPassword, hash: mqttPasswordHash } = this.generateMqttCredentials();
+          existing.mqttPasswordHash = mqttPasswordHash;
+          await this.deviceRepository.save(existing);
+          const mqttResult = await this.mqttAuthService.addDeviceCredentials(existing.mqttClientId ?? '', mqttPasswordHash);
+          if (!mqttResult) {
+            throw new Error('Failed to write MQTT credentials');
+          }
+
+          return {
+            success: true,
+            device_id: existing.id,
+            device_code: existing.deviceCode,
+            mqtt_broker: config.mqttBroker,
+            mqtt_port: config.mqttPort,
+            mqtt_username: existing.mqttClientId ?? '',
+            mqtt_password: mqttPassword,
+            tenant_id: existing.tenantId,
+          };
+        }
         throw new ConflictException(
           `Device with this machine ID is already registered as ${existing.deviceCode}`,
         );
@@ -779,68 +535,82 @@ log ""
       ? DeviceLifecycleState.ACTIVE
       : DeviceLifecycleState.PENDING_APPROVAL;
 
-    // Create the device record
-    const device = this.deviceRepository.create({
-      tenantId: key.tenantId,
-      deviceCode,
-      deviceName: request.fingerprint.hostname || deviceCode,
-      deviceModel: DeviceModel.CUSTOM,
-      siteId: key.defaultSiteId,
-      lifecycleState,
-      mqttClientId,
-      mqttPasswordHash,
-      fingerprint: request.fingerprint,
-      agentVersion: request.agent_version,
-      isOnline: false,
-      securityLevel: 2,
+    // Wrap in transaction: atomic maxDevices increment + device creation
+    // If device creation fails, the usedCount rollback happens automatically
+    const saved = await this.deviceRepository.manager.transaction(async (transactionalManager) => {
+      // Atomically check and increment used count BEFORE device creation (prevents TOCTOU race + orphans)
+      await this.tenantKeyService.incrementUsedCount(key.id, key.maxDevices ?? null, transactionalManager);
+
+      // Create the device record AFTER the maxDevices check
+      const device = this.deviceRepository.create({
+        tenantId: key.tenantId,
+        deviceCode,
+        deviceName: request.fingerprint.hostname || deviceCode,
+        deviceModel: DeviceModel.CUSTOM,
+        siteId: key.defaultSiteId,
+        lifecycleState,
+        mqttClientId,
+        mqttPasswordHash,
+        fingerprint: request.fingerprint,
+        agentVersion: request.agent_version,
+        isOnline: false,
+        securityLevel: 2,
+      });
+
+      const saved = await transactionalManager.save(device);
+
+      // MQTT credentials INSIDE transaction so rollback on failure
+      const mqttResult = await this.mqttAuthService.addDeviceCredentials(mqttClientId, mqttPasswordHash);
+      if (!mqttResult) {
+        throw new Error('Failed to write MQTT credentials');
+      }
+
+      return saved;
     });
 
-    const saved = await this.deviceRepository.save(device);
-
-    // Atomically increment used count on the key (prevents race condition)
-    await this.tenantKeyRepository
-      .createQueryBuilder()
-      .update()
-      .set({ usedCount: () => '"used_count" + 1' })
-      .where('id = :id', { id: key.id })
-      .execute();
-
-    // Add MQTT credentials to auth
-    await this.mqttAuthService.addDeviceCredentials(mqttClientId, mqttPasswordHash);
-
-    // Log the event
-    await this.logDeviceEvent(
-      key.tenantId,
-      saved.id,
-      DeviceEventType.SELF_REGISTERED,
-      DeviceEventSeverity.INFO,
-      `Device ${deviceCode} self-registered via tenant key "${key.name || key.id}"`,
-      {
-        keyId: key.id,
-        keyName: key.name,
-        autoApprove: key.autoApprove,
-        agentVersion: request.agent_version,
-      },
-    );
+    // Log the event (non-critical - must not fail the registration)
+    try {
+      await this.deviceEventService.logDeviceEvent(
+        key.tenantId,
+        saved.id,
+        DeviceEventType.SELF_REGISTERED,
+        DeviceEventSeverity.INFO,
+        `Device ${deviceCode} self-registered via tenant key "${key.name || key.id}"`,
+        {
+          keyId: key.id,
+          keyName: key.name,
+          autoApprove: key.autoApprove,
+          agentVersion: request.agent_version,
+        },
+      );
+    } catch (e) {
+      this.logger.error('Failed to log device event', e);
+    }
 
     this.logger.log(
       `Device ${deviceCode} self-registered for tenant ${key.tenantId} (state: ${lifecycleState})`,
     );
 
+    const config = await this.installerScriptService.getProvisioningConfig();
     return {
       success: true,
       device_id: saved.id,
       device_code: saved.deviceCode,
-      mqtt_broker: this.MQTT_BROKER,
-      mqtt_port: this.MQTT_PORT,
+      mqtt_broker: config.mqttBroker,
+      mqtt_port: config.mqttPort,
       mqtt_username: mqttClientId,
       mqtt_password: mqttPassword,
       tenant_id: key.tenantId,
     };
   }
 
+  // ============================================
+  // Event Logging - Delegated
+  // ============================================
+
   /**
    * Log a device event
+   * Delegates to DeviceEventService
    */
   async logDeviceEvent(
     tenantId: string,
@@ -849,20 +619,13 @@ log ""
     severity: DeviceEventSeverity,
     message: string,
     metadata?: Record<string, unknown>,
-  ): Promise<DeviceEvent> {
-    const event = this.deviceEventRepository.create({
-      tenantId,
-      deviceId,
-      eventType,
-      severity,
-      message,
-      metadata,
-    });
-    return this.deviceEventRepository.save(event);
+  ): Promise<import('./entities/device-event.entity').DeviceEvent> {
+    return this.deviceEventService.logDeviceEvent(tenantId, deviceId, eventType, severity, message, metadata);
   }
 
   /**
    * Get device events with pagination
+   * Delegates to DeviceEventService
    */
   async getDeviceEvents(
     tenantId: string,
@@ -870,236 +633,7 @@ log ""
     eventType?: string,
     page = 1,
     limit = 20,
-  ): Promise<{ items: DeviceEvent[]; total: number }> {
-    const where: Record<string, unknown> = { tenantId };
-    if (deviceId) where.deviceId = deviceId;
-    if (eventType) where.eventType = eventType;
-
-    const [items, total] = await this.deviceEventRepository.findAndCount({
-      where,
-      order: { createdAt: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
-
-    return { items, total };
-  }
-
-  /**
-   * Build tenant installer URL
-   */
-  private buildTenantInstallerUrl(tenantToken: string): string {
-    return `${this.API_BASE_URL}/install/t/${tenantToken}`;
-  }
-
-  /**
-   * Build tenant installer command
-   */
-  private buildTenantInstallerCommand(tenantToken: string): string {
-    return `curl -sSL ${this.buildTenantInstallerUrl(tenantToken)} | sudo bash`;
-  }
-
-  /**
-   * Render tenant-level installer script
-   * Downloads edge-agent from GitHub Releases, config has tenant_token instead of device_id
-   */
-  private renderTenantInstallerScript(variables: TenantInstallerScriptVariables): string {
-    const GITHUB_REPO = this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/sens');
-    const now = new Date().toISOString();
-
-    return `#!/bin/bash
-set -e
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  Suderra Edge Agent Installer v2.0 (Tenant Self-Registration)
-#  Generated: ${now}
-# ══════════════════════════════════════════════════════════════════════════════
-
-GITHUB_REPO="${GITHUB_REPO}"
-INSTALL_DIR="/opt/suderra"
-CONFIG_DIR="/etc/suderra"
-DATA_DIR="/var/lib/suderra"
-LOG_FILE="/var/log/suderra-install.log"
-
-log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"; }
-
-log "╔══════════════════════════════════════════════════════════════╗"
-log "║     Suderra Edge Agent Installer v2.0 (Self-Registration)   ║"
-log "╚══════════════════════════════════════════════════════════════╝"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 1: Prerequisites
-# ─────────────────────────────────────────────────────────────────────────────
-log "[1/7] Checking prerequisites..."
-if [ "$(id -u)" -ne 0 ]; then
-    log "ERROR: This script must be run as root"
-    exit 1
-fi
-
-if ! command -v curl &> /dev/null; then
-    log "Installing curl..."
-    apt-get update && apt-get install -y curl
-fi
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 2: Detect Architecture
-# ─────────────────────────────────────────────────────────────────────────────
-log "[2/7] Detecting architecture..."
-ARCH=$(uname -m)
-case $ARCH in
-    x86_64)   BINARY_NAME="edge-agent-x86_64-unknown-linux-gnu"  ;;
-    aarch64)  BINARY_NAME="edge-agent-aarch64-unknown-linux-gnu" ;;
-    armv7l)   BINARY_NAME="edge-agent-armv7-unknown-linux-gnueabihf" ;;
-    *)
-        log "ERROR: Unsupported architecture: $ARCH"
-        exit 1
-        ;;
-esac
-log "Architecture: $ARCH -> $BINARY_NAME"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 3: Download from GitHub Releases
-# ─────────────────────────────────────────────────────────────────────────────
-log "[3/7] Downloading edge-agent from GitHub..."
-
-LATEST_TAG=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep '"tag_name"' | cut -d '"' -f 4)
-
-if [ -z "$LATEST_TAG" ]; then
-    log "WARNING: Could not get latest release, using 'latest'"
-    LATEST_TAG="latest"
-fi
-
-log "Latest version: $LATEST_TAG"
-
-DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/$LATEST_TAG/$BINARY_NAME"
-log "Download URL: $DOWNLOAD_URL"
-
-mkdir -p "$INSTALL_DIR"
-curl -L --progress-bar -o "$INSTALL_DIR/edge-agent" "$DOWNLOAD_URL"
-chmod +x "$INSTALL_DIR/edge-agent"
-
-# Verify binary
-if ! "$INSTALL_DIR/edge-agent" --version &> /dev/null; then
-    log "WARNING: Could not verify binary version"
-else
-    VERSION=$("$INSTALL_DIR/edge-agent" --version 2>/dev/null || echo "unknown")
-    log "Installed version: $VERSION"
-fi
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 4: Create Configuration (Tenant Self-Registration Mode)
-# ─────────────────────────────────────────────────────────────────────────────
-log "[4/7] Creating configuration (self-registration mode)..."
-mkdir -p "$CONFIG_DIR"
-mkdir -p "$DATA_DIR"
-
-cat > "$CONFIG_DIR/config.yaml" << 'CONFIGEOF'
-# Suderra Edge Agent Configuration
-# Mode: Tenant Self-Registration (device_id assigned on first connect)
-# Generated: ${now}
-
-device_id: ""
-device_code: ""
-api_url: "${variables.apiUrl}"
-tenant_token: "${variables.tenantToken}"
-
-mqtt:
-  port: ${variables.mqttPort}
-  keepalive_secs: 60
-  clean_session: false
-
-telemetry:
-  interval_seconds: 30
-  include_cpu: true
-  include_memory: true
-  include_disk: true
-  include_temperature: true
-
-modbus: []
-
-gpio: []
-CONFIGEOF
-
-# Set restrictive permissions on config
-chmod 600 "$CONFIG_DIR/config.yaml"
-log "Configuration created at $CONFIG_DIR/config.yaml"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 5: Create Systemd Service
-# ─────────────────────────────────────────────────────────────────────────────
-log "[5/7] Installing systemd service..."
-
-cat > /etc/systemd/system/suderra-agent.service << 'SERVICEEOF'
-[Unit]
-Description=Suderra Edge Agent
-Documentation=https://docs.suderra.com/edge-agent
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/opt/suderra/edge-agent
-Restart=always
-RestartSec=10
-WatchdogSec=120
-
-# Environment
-Environment="RUST_LOG=info"
-Environment="SUDERRA_DATA_DIR=/var/lib/suderra"
-
-# Security hardening
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/suderra /etc/suderra /var/log
-NoNewPrivileges=true
-
-# Resource limits
-LimitNOFILE=65536
-MemoryMax=256M
-CPUQuota=50%
-
-[Install]
-WantedBy=multi-user.target
-SERVICEEOF
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 6: Start Service
-# ─────────────────────────────────────────────────────────────────────────────
-log "[6/7] Starting edge-agent service..."
-systemctl daemon-reload
-systemctl enable suderra-agent
-systemctl start suderra-agent
-
-# Wait for self-registration
-sleep 5
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 7: Verify Installation
-# ─────────────────────────────────────────────────────────────────────────────
-log "[7/7] Verifying installation..."
-
-STATUS=$(systemctl is-active suderra-agent)
-if [ "$STATUS" = "active" ]; then
-    log "✅ Edge agent is running (self-registration in progress)"
-else
-    log "❌ Edge agent failed to start"
-    log "Check logs: journalctl -u suderra-agent -n 50"
-    exit 1
-fi
-
-log ""
-log "══════════════════════════════════════════════════════════════════════════════"
-log "                    INSTALLATION COMPLETE!"
-log "══════════════════════════════════════════════════════════════════════════════"
-log ""
-log "  Mode:           Self-Registration (tenant-first)"
-log "  Service Status: $STATUS"
-log "  Config File:    $CONFIG_DIR/config.yaml"
-log "  Log Command:    journalctl -u suderra-agent -f"
-log ""
-log "  The device will self-register and appear in the dashboard within 30 seconds."
-log ""
-`;
+  ): Promise<{ items: import('./entities/device-event.entity').DeviceEvent[]; total: number }> {
+    return this.deviceEventService.getDeviceEvents(tenantId, deviceId, eventType, page, limit);
   }
 }

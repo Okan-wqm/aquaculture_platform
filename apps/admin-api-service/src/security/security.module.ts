@@ -11,10 +11,14 @@
  */
 
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
+import { ActivityLogController } from './controllers/activity-log.controller';
+import { AuditTrailController } from './controllers/audit-trail.controller';
+import { ComplianceController } from './controllers/compliance.controller';
+import { SecurityMonitoringController } from './controllers/security-monitoring.controller';
 import {
   ActivityLog,
   SecurityEvent,
@@ -35,10 +39,6 @@ import { ComplianceService } from './services/compliance.service';
 import { SecurityMonitoringService } from './services/security-monitoring.service';
 
 // Controllers
-import { ActivityLogController } from './controllers/activity-log.controller';
-import { AuditTrailController } from './controllers/audit-trail.controller';
-import { ComplianceController } from './controllers/compliance.controller';
-import { SecurityMonitoringController } from './controllers/security-monitoring.controller';
 
 @Module({
   imports: [

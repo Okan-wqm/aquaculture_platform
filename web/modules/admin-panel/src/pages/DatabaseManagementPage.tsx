@@ -1177,8 +1177,9 @@ const MonitoringTab: React.FC<{
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {storage.map((item) => {
+              {(() => {
                 const totalStorage = storage.reduce((sum, s) => sum + s.totalSizeBytes, 0);
+                return storage.map((item) => {
                 const percentage = totalStorage > 0 ? (item.totalSizeBytes / totalStorage) * 100 : 0;
                 return (
                   <tr key={item.tenantId} className="hover:bg-gray-50">
@@ -1206,7 +1207,8 @@ const MonitoringTab: React.FC<{
                     </td>
                   </tr>
                 );
-              })}
+              });
+              })()}
             </tbody>
           </table>
         </div>

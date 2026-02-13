@@ -16,10 +16,13 @@ import {
   HttpCode,
   BadRequestException,
 } from '@nestjs/common';
-import { TicketService } from '../services/ticket.service';
-import { TicketPriority, TicketStatus, TicketCategory, TicketAttachment } from '../entities/support.entity';
+import { ApiTags } from '@nestjs/swagger';
+
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { AllowTenantAdmin } from '../../decorators/roles.decorator';
+import { PaginationQueryDto } from '../../shared/pagination-query.dto';
+import { TicketPriority, TicketStatus, TicketCategory, TicketAttachment } from '../entities/support.entity';
+import { TicketService } from '../services/ticket.service';
 
 // ============================================================================
 // DTOs
@@ -78,6 +81,7 @@ class SatisfactionRatingDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Support')
 @Controller('support/tickets')
 export class TicketController {
   constructor(private readonly ticketService: TicketService) {}
@@ -88,18 +92,17 @@ export class TicketController {
 
   @Get()
   async getAllTickets(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
     @Query('status') status?: TicketStatus,
     @Query('priority') priority?: TicketPriority,
     @Query('category') category?: TicketCategory,
     @Query('assignedTo') assignedTo?: string,
     @Query('tenantId') tenantId?: string,
     @Query('search') search?: string,
+    @Query() pagination?: PaginationQueryDto,
   ) {
     return this.ticketService.getAllTickets({
-      page: page ? parseInt(page, 10) : undefined,
-      limit: limit ? parseInt(limit, 10) : undefined,
+      page: pagination?.page,
+      limit: pagination?.limit,
       status,
       priority,
       category,
@@ -125,8 +128,13 @@ export class TicketController {
   }
 
   @Get('unassigned')
-  async getUnassignedTickets() {
-    return this.ticketService.getUnassignedTickets();
+  async getUnassignedTickets(
+    @Query() pagination?: PaginationQueryDto,
+  ) {
+    return this.ticketService.getUnassignedTickets({
+      page: pagination?.page,
+      limit: pagination?.limit,
+    });
   }
 
   @Get('sla-risk')
@@ -156,16 +164,26 @@ export class TicketController {
   async getTicketsForTenant(
     @Param('tenantId') tenantId: string,
     @Query('status') status?: TicketStatus,
+    @Query() pagination?: PaginationQueryDto,
   ) {
-    return this.ticketService.getTicketsForTenant(tenantId, { status });
+    return this.ticketService.getTicketsForTenant(tenantId, {
+      status,
+      page: pagination?.page,
+      limit: pagination?.limit,
+    });
   }
 
   @Get('assigned/:userId')
   async getAssignedTickets(
     @Param('userId') userId: string,
     @Query('status') status?: TicketStatus,
+    @Query() pagination?: PaginationQueryDto,
   ) {
-    return this.ticketService.getAssignedTickets(userId, { status });
+    return this.ticketService.getAssignedTickets(userId, {
+      status,
+      page: pagination?.page,
+      limit: pagination?.limit,
+    });
   }
 
   @Post()
@@ -267,9 +285,12 @@ export class TicketController {
   async getComments(
     @Param('id') id: string,
     @Query('includeInternal') includeInternal?: string,
+    @Query() pagination?: PaginationQueryDto,
   ) {
     return this.ticketService.getComments(id, {
       includeInternal: includeInternal !== 'false',
+      page: pagination?.page,
+      limit: pagination?.limit,
     });
   }
 
@@ -304,10 +325,13 @@ export class TicketController {
   async getReplies(
     @Param('id') id: string,
     @Query('includeInternal') includeInternal?: string,
+    @Query() pagination?: PaginationQueryDto,
   ) {
     // Replies are the same as comments, just with different naming
     return this.ticketService.getComments(id, {
       includeInternal: includeInternal !== 'false',
+      page: pagination?.page,
+      limit: pagination?.limit,
     });
   }
 

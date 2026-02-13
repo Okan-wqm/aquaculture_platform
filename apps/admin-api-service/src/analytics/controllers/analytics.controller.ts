@@ -11,8 +11,10 @@ import {
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
-import { AnalyticsService } from '../services/analytics.service';
+import { ApiTags } from '@nestjs/swagger';
+
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
+import { AnalyticsService } from '../services/analytics.service';
 
 // INPUT VALIDATION: Constants for parameter limits
 const MIN_DATA_POINTS = 1;
@@ -88,6 +90,7 @@ function validatePeriod(value: string): 'day' | 'week' | 'month' | 'year' {
 // Controller
 // ============================================================================
 
+@ApiTags('Analytics')
 @Controller('analytics')
 @UseGuards(PlatformAdminGuard)
 export class AnalyticsController {
@@ -118,7 +121,7 @@ export class AnalyticsController {
 
   @Get('tenants/growth')
   async getTenantGrowthTrend(
-    @Query('period') period: string = 'month',
+    @Query('period') period = 'month',
     @Query('dataPoints') dataPoints: unknown = 12,
   ) {
     // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
@@ -136,7 +139,7 @@ export class AnalyticsController {
 
   @Get('tenants/churn')
   async getChurnRateTrend(
-    @Query('period') period: string = 'month',
+    @Query('period') period = 'month',
     @Query('dataPoints') dataPoints: unknown = 12,
   ) {
     // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
@@ -160,7 +163,7 @@ export class AnalyticsController {
 
   @Get('users/activity')
   async getUserActivityTrend(
-    @Query('period') period: string = 'day',
+    @Query('period') period = 'day',
     @Query('dataPoints') dataPoints: unknown = 30,
   ) {
     // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
@@ -189,7 +192,7 @@ export class AnalyticsController {
 
   @Get('financial/revenue')
   async getRevenueTrend(
-    @Query('period') period: string = 'month',
+    @Query('period') period = 'month',
     @Query('dataPoints') dataPoints: unknown = 12,
   ) {
     // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')

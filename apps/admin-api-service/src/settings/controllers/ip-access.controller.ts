@@ -10,12 +10,15 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+
 import {
   IpAccessService,
   CreateIpAccessRuleDto,
   UpdateIpAccessRuleDto,
 } from '../services/ip-access.service';
 
+@ApiTags('Settings')
 @Controller('settings/ip-access')
 export class IpAccessController {
   constructor(

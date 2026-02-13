@@ -10,9 +10,10 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 
-import { ErrorTrackingService, ErrorReport } from '../services/error-tracking.service';
 import { ErrorSeverity, ErrorStatus, ErrorContext } from '../entities/error-tracking.entity';
+import { ErrorTrackingService, ErrorReport } from '../services/error-tracking.service';
 
 // ============================================================================
 // DTOs
@@ -64,6 +65,7 @@ class CreateAlertRuleDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Analytics')
 @Controller('system/errors')
 export class ErrorTrackingController {
   constructor(private readonly errorTrackingService: ErrorTrackingService) {}

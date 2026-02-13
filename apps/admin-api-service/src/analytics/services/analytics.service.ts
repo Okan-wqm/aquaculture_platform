@@ -10,6 +10,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, MoreThanOrEqual, LessThanOrEqual, In } from 'typeorm';
+
+import { AuditLogService } from '../../audit/audit.service';
 import {
   AnalyticsSnapshot,
   SnapshotType,
@@ -23,11 +25,10 @@ import {
   TimeSeriesData,
   ChartData,
 } from '../entities/analytics-snapshot.entity';
+import { InvoiceReadOnly, InvoiceStatus } from '../entities/external/invoice.entity';
+import { SubscriptionReadOnly, SubscriptionStatus, PlanTier } from '../entities/external/subscription.entity';
 import { TenantReadOnly, TenantPlan, TenantStatus } from '../entities/external/tenant.entity';
 import { UserReadOnly, UserRole } from '../entities/external/user.entity';
-import { SubscriptionReadOnly, SubscriptionStatus, PlanTier } from '../entities/external/subscription.entity';
-import { InvoiceReadOnly, InvoiceStatus } from '../entities/external/invoice.entity';
-import { AuditLogService } from '../../audit/audit.service';
 
 // ============================================================================
 // DTOs

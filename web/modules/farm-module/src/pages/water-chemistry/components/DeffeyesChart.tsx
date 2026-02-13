@@ -24,7 +24,6 @@ import {
   ResponsiveContainer,
   Scatter,
   Label,
-  ReferenceArea,
   Customized,
 } from 'recharts';
 import { DeffeyesChartData } from '../engine/types';
@@ -414,18 +413,38 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
               />
             )}
 
-            {/* Safe Zone (green rectangle) */}
+            {/* Safe Zone (quadrilateral bounded by NH3 line, CO2 line, alkMin, alkMax) */}
             {showSafeZone && safeZone && (
-              <ReferenceArea
-                x1={Math.min(safeZone.topLeft.DIC, safeZone.bottomLeft.DIC)}
-                x2={Math.max(safeZone.topRight.DIC, safeZone.bottomRight.DIC)}
-                y1={safeZone.bottomLeft.ALK}
-                y2={safeZone.topLeft.ALK}
-                fill="#22c55e"
-                fillOpacity={0.15}
-                stroke="#16a34a"
-                strokeWidth={1.5}
-                strokeDasharray="4 4"
+              <Customized
+                component={(props: any) => {
+                  const { xAxisMap, yAxisMap } = props;
+                  if (!xAxisMap || !yAxisMap) return null;
+                  const xAxis = Object.values(xAxisMap)[0] as any;
+                  const yAxis = Object.values(yAxisMap)[0] as any;
+                  if (!xAxis?.scale || !yAxis?.scale) return null;
+                  const xScale = xAxis.scale;
+                  const yScale = yAxis.scale;
+
+                  // 4 corners: topLeft, topRight, bottomRight, bottomLeft
+                  const corners = [
+                    safeZone!.topLeft,
+                    safeZone!.topRight,
+                    safeZone!.bottomRight,
+                    safeZone!.bottomLeft,
+                  ];
+                  const pts = corners.map(c => `${xScale(c.DIC)},${yScale(c.ALK)}`).join(' ');
+
+                  return (
+                    <polygon
+                      points={pts}
+                      fill="#22c55e"
+                      fillOpacity={0.15}
+                      stroke="#16a34a"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 4"
+                    />
+                  );
+                }}
               />
             )}
 

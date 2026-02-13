@@ -17,6 +17,9 @@ import { MortalityRecord, MortalityCause } from '../entities/mortality-record.en
 import { TankOperation, OperationType, MortalityReason } from '../entities/tank-operation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
+import { Tank } from '../../tank/entities/tank.entity';
+import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
+import { findTankOrEquipment, TankLookupResult } from '../utils/tank-lookup.util';
 
 @Injectable()
 @CommandHandler(RecordMortalityCommand)
@@ -32,6 +35,10 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     private readonly tankBatchRepository: Repository<TankBatch>,
     @InjectRepository(Equipment)
     private readonly equipmentRepository: Repository<Equipment>,
+    @InjectRepository(Tank)
+    private readonly tankRepository: Repository<Tank>,
+    @InjectRepository(EquipmentType)
+    private readonly equipmentTypeRepository: Repository<EquipmentType>,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -48,14 +55,20 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       throw new NotFoundException(`Batch ${batchId} bulunamadı`);
     }
 
-    // Tank bul (Equipment entity kullanılıyor)
-    const tank = await this.equipmentRepository.findOne({
-      where: { id: payload.tankId, tenantId, isActive: true },
-    });
+    // Tank bul (checks both equipment and tanks tables)
+    const tankLookup = await findTankOrEquipment(
+      this.equipmentRepository,
+      this.tankRepository,
+      this.equipmentTypeRepository,
+      payload.tankId,
+      tenantId,
+    );
 
-    if (!tank) {
+    if (!tankLookup) {
       throw new NotFoundException(`Tank ${payload.tankId} bulunamadı`);
     }
+
+    const tank = tankLookup.equipment;
 
     // Validasyon: mortality mevcut sayıyı aşamaz
     if (payload.quantity > batch.currentQuantity) {
@@ -145,10 +158,21 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       await this.tankBatchRepository.save(tankBatch);
     }
 
-    // Tank biomass güncelle
-    tank.currentBiomass = Number(tank.currentBiomass || 0) - biomassKg;
-    tank.currentCount = (tank.currentCount || 0) - payload.quantity;
-    await this.equipmentRepository.save(tank);
+    // Tank biomass güncelle (update the correct table)
+    const newBiomass = Number(tank.currentBiomass || 0) - biomassKg;
+    const newCount = (tank.currentCount || 0) - payload.quantity;
+    if (tankLookup.isFromTanksTable && tankLookup.originalTank) {
+      await this.tankRepository
+        .createQueryBuilder()
+        .update(Tank)
+        .set({ currentBiomass: newBiomass, currentCount: newCount })
+        .where('id = :id', { id: tankLookup.originalTank.id })
+        .execute();
+    } else {
+      tank.currentBiomass = newBiomass;
+      tank.currentCount = newCount;
+      await this.equipmentRepository.save(tank);
+    }
 
     // Domain event yayınla
     // await this.eventBus.publish(new MortalityRecordedEvent({

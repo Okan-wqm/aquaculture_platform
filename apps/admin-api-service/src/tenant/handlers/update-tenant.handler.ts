@@ -7,9 +7,10 @@ import {
 import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner, Not } from 'typeorm';
+
+import { AuditLogService } from '../../audit/audit.service';
 import { UpdateTenantCommand } from '../commands/tenant.commands';
 import { Tenant } from '../entities/tenant.entity';
-import { AuditLogService } from '../../audit/audit.service';
 
 @Injectable()
 @CommandHandler(UpdateTenantCommand)

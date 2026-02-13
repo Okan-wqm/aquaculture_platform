@@ -138,3 +138,33 @@ declare module 'tenantAdmin/TenantDatabase' {
   const TenantDatabase: FC;
   export default TenantDatabase;
 }
+
+// ============================================================================
+// HR Module
+// ============================================================================
+
+declare module 'hrModule/Module' {
+  import { FC } from 'react';
+  const HRModule: FC;
+  export default HRModule;
+}
+
+// ============================================================================
+// Sensor Module
+// ============================================================================
+
+declare module 'sensorModule/Module' {
+  import { FC } from 'react';
+  const SensorModule: FC;
+  export default SensorModule;
+}
+
+// ============================================================================
+// Hydroponics Module
+// ============================================================================
+
+declare module 'hydroponicsModule/Module' {
+  import { FC } from 'react';
+  const HydroponicsModule: FC;
+  export default HydroponicsModule;
+}

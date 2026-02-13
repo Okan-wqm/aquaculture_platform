@@ -13,8 +13,11 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
-import { ModulesService, PaginatedModules } from './modules.service';
+import { ApiTags } from '@nestjs/swagger';
+
 import { PlatformAdminGuard } from '../guards/platform-admin.guard';
+
+import { ModulesService, PaginatedModules } from './modules.service';
 
 export interface CreateModuleDto {
   code: string;
@@ -56,6 +59,7 @@ export interface AssignModuleDto {
   expiresAt?: Date;
 }
 
+@ApiTags('Modules')
 @Controller('modules')
 @UseGuards(PlatformAdminGuard)
 export class ModulesController {

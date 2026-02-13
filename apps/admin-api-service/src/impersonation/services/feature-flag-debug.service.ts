@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { FeatureFlagOverride } from '../entities/debug-session.entity';
 
@@ -90,7 +90,7 @@ export class FeatureFlagDebugService {
   /**
    * Get all active overrides (for dashboard)
    */
-  async getAllActiveOverrides(tenantId?: string, limit: number = 10): Promise<FeatureFlagOverride[]> {
+  async getAllActiveOverrides(tenantId?: string, limit = 10): Promise<FeatureFlagOverride[]> {
     return this.overrideRepo.find({
       where: tenantId ? { tenantId, isActive: true } : { isActive: true },
       order: { createdAt: 'DESC' },

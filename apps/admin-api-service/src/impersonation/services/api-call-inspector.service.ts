@@ -1,13 +1,14 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
 
 import {
   CapturedApiCall,
   DebugSession,
   DebugSessionType,
 } from '../entities/debug-session.entity';
+
 import { ApiLogResult, ApiUsageSummary } from './debug-tools-types';
 
 /**
@@ -299,7 +300,7 @@ export class ApiCallInspectorService {
   /**
    * Get recent API calls for dashboard
    */
-  async getRecentApiCalls(tenantId?: string, limit: number = 10): Promise<CapturedApiCall[]> {
+  async getRecentApiCalls(tenantId?: string, limit = 10): Promise<CapturedApiCall[]> {
     return this.apiCallRepo.find({
       where: tenantId ? { tenantId } : {},
       order: { timestamp: 'DESC' },

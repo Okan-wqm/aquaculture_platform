@@ -1,3 +1,6 @@
+import * as crypto from 'crypto';
+
+import { ThrottlePasswordReset } from '@aquaculture/backend-common';
 import {
   Controller,
   Post,
@@ -8,11 +11,12 @@ import {
   BadRequestException,
   SetMetadata,
 } from '@nestjs/common';
-import { IsEmail, IsString, MinLength, MaxLength } from 'class-validator';
+import { ApiTags } from '@nestjs/swagger';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
-import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
+import { IsEmail, IsString, MinLength, MaxLength } from 'class-validator';
+import { DataSource } from 'typeorm';
+
 import { EmailSenderService } from '../settings/services/email-sender.service';
 import { EmailTemplateService } from '../settings/services/email-template.service';
 
@@ -36,6 +40,7 @@ export class ResetPasswordDto {
 const IS_PUBLIC_KEY = 'isPublic';
 const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
+@ApiTags('Authentication')
 @Controller('auth')
 export class PasswordResetController {
   private readonly logger = new Logger(PasswordResetController.name);
@@ -53,6 +58,7 @@ export class PasswordResetController {
    */
   @Post('forgot-password')
   @Public()
+  @ThrottlePasswordReset()
   @HttpCode(HttpStatus.OK)
   async forgotPassword(
     @Body() dto: ForgotPasswordDto,
@@ -140,6 +146,7 @@ export class PasswordResetController {
    */
   @Post('reset-password')
   @Public()
+  @ThrottlePasswordReset()
   @HttpCode(HttpStatus.OK)
   async resetPassword(
     @Body() dto: ResetPasswordDto,

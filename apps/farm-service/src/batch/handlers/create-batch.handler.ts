@@ -19,7 +19,9 @@ import { BatchDocument, BatchDocumentType } from '../entities/batch-document.ent
 import { TankBatch } from '../entities/tank-batch.entity';
 import { Species } from '../../species/entities/species.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
+import { Tank } from '../../tank/entities/tank.entity';
 import { CodeGeneratorService } from '../../database/services/code-generator.service';
+import { findTankOrEquipmentWithManager, updateTankBiomass } from '../utils/tank-lookup.util';
 
 @Injectable()
 @CommandHandler(CreateBatchCommand)
@@ -240,16 +242,15 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
             continue;
           }
 
-          // Find the equipment (tank/pond/cage)
-          const equipment = await queryRunner.manager.findOne(Equipment, {
-            where: { id: tankId, tenantId },
-            relations: ['equipmentType'],
-          });
+          // Find the tank/equipment (checks both equipment and tanks tables)
+          const lookupResult = await findTankOrEquipmentWithManager(queryRunner.manager, tankId, tenantId);
 
-          if (!equipment) {
-            this.logger.warn(`Equipment ${tankId} not found, skipping allocation`);
+          if (!lookupResult) {
+            this.logger.warn(`Equipment/Tank ${tankId} not found, skipping allocation`);
             continue;
           }
+
+          const equipment = lookupResult.equipment;
 
           // Calculate avg weight from biomass and quantity
           const avgWeightG = location.quantity > 0
@@ -321,11 +322,13 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
 
           await queryRunner.manager.save(TankBatch, tankBatch);
 
-          // Update equipment's currentBiomass and currentCount
-          await queryRunner.manager.update(Equipment, tankId, {
-            currentBiomass: Number(tankBatch.totalBiomassKg),
-            currentCount: tankBatch.totalQuantity,
-          });
+          // Update currentBiomass and currentCount on the correct entity (Equipment or Tank)
+          await updateTankBiomass(
+            queryRunner.manager,
+            lookupResult,
+            Number(tankBatch.totalBiomassKg),
+            tankBatch.totalQuantity,
+          );
 
           this.logger.log(`Allocated ${location.quantity} fish (${location.biomass} kg) to ${equipment.code}`);
         }

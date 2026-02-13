@@ -15,10 +15,12 @@ import {
   HttpCode,
   BadRequestException,
 } from '@nestjs/common';
-import { MessagingService } from '../services/messaging.service';
-import { MessageAttachment, AnnouncementTarget } from '../entities/support.entity';
+import { ApiTags } from '@nestjs/swagger';
+
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { AllowTenantAdmin } from '../../decorators/roles.decorator';
+import { MessageAttachment, AnnouncementTarget } from '../entities/support.entity';
+import { MessagingService } from '../services/messaging.service';
 
 // ============================================================================
 // DTOs
@@ -50,6 +52,7 @@ class BulkMessageDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Support')
 @Controller('support/messages')
 export class MessagingController {
   constructor(private readonly messagingService: MessagingService) {}

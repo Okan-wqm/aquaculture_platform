@@ -207,6 +207,13 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'safety_training_records',
     ],
   },
+  {
+    moduleName: 'hydroponics',
+    sourceSchema: 'hydroponics',
+    tables: [
+      'hydroponics_config',
+    ],
+  },
 ];
 
 /**
@@ -232,6 +239,7 @@ export const REFERENCE_DATA_TABLES: Record<string, string[]> = {
   sensor: [
     'sensor_protocols',
   ],
+  hydroponics: [],
 };
 
 /**
@@ -388,7 +396,7 @@ export class SchemaManagerService {
    */
   async createTenantSchema(
     tenantId: string,
-    modules: string[] = ['sensor', 'farm', 'hr'],
+    modules: string[] = ['sensor', 'farm', 'hr', 'hydroponics'],
   ): Promise<SchemaCreationResult> {
     const startTime = Date.now();
     const schemaName = this.getTenantSchemaName(tenantId);
@@ -439,7 +447,7 @@ export class SchemaManagerService {
       this.logger.debug(`Schema ${safeSchemaName} created`);
 
       // 2. Create tables for ALL modules (ensures tenant isolation for all tables)
-      const allModules = ['sensor', 'farm', 'hr'];
+      const allModules = ['sensor', 'farm', 'hr', 'hydroponics'];
       for (const moduleName of allModules) {
         const moduleSchema = MODULE_SCHEMAS.find(m => m.moduleName === moduleName);
         if (!moduleSchema) {

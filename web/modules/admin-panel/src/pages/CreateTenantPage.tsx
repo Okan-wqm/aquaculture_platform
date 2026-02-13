@@ -72,6 +72,7 @@ interface TenantFormData {
 
   // Step 4: Trial settings
   trialDays: number;
+  maxStorage: number;
 }
 
 const initialFormData: TenantFormData = {
@@ -90,6 +91,7 @@ const initialFormData: TenantFormData = {
   moduleConfigs: [],
   pricingTier: 'starter',
   trialDays: 14,
+  maxStorage: -1,
 };
 
 // Helper to check if metric is BASE_PRICE (handles both string and enum)
@@ -378,14 +380,7 @@ const CreateTenantPage: React.FC = () => {
         setModulePricings(safePricings);
 
         // Initialize module configs from pricings with includedQuantity as defaults
-        console.log('=== LOADING MODULE PRICINGS ===');
-        console.log('Raw pricings:', safePricings);
-
         const configs: ModuleConfig[] = safePricings.map((p) => {
-          console.log(`Processing module: ${p.moduleCode}`);
-          console.log('  pricingMetrics:', p.pricingMetrics);
-          console.log('  pricingMetrics type:', typeof p.pricingMetrics);
-          console.log('  isArray:', Array.isArray(p.pricingMetrics));
 
           // Extract includedQuantity from pricing metrics as default values
           const defaultQuantities: ModuleQuantities = {
@@ -406,9 +401,8 @@ const CreateTenantPage: React.FC = () => {
           if (typeof metrics === 'string') {
             try {
               metrics = JSON.parse(metrics);
-              console.log('  Parsed metrics from string:', metrics);
-            } catch (e) {
-              console.error('  Failed to parse metrics:', e);
+            } catch {
+              // metrics remains as-is if parsing fails
             }
           }
 
@@ -416,15 +410,11 @@ const CreateTenantPage: React.FC = () => {
           if (metrics && Array.isArray(metrics)) {
             metrics.forEach((metric: any) => {
               const field = getQuantityField(metric.type);
-              console.log(`    Metric: ${metric.type}, field: ${field}, includedQty: ${metric.includedQuantity}`);
               if (field && metric.includedQuantity && metric.includedQuantity > 0) {
                 defaultQuantities[field] = metric.includedQuantity;
-                console.log(`    -> Set ${field} = ${metric.includedQuantity}`);
               }
             });
           }
-
-          console.log('  Final quantities:', defaultQuantities);
 
           return {
             moduleId: p.moduleId,
@@ -434,8 +424,6 @@ const CreateTenantPage: React.FC = () => {
             quantities: defaultQuantities,
           };
         });
-
-        console.log('=== FINAL CONFIGS ===', configs);
 
         setFormData((prev) => ({ ...prev, moduleConfigs: configs }));
       } catch (err) {
@@ -673,6 +661,7 @@ const CreateTenantPage: React.FC = () => {
         },
         billingEmail: formData.billingEmail || formData.primaryContact.email,
         trialDays: formData.trialDays > 0 ? formData.trialDays : undefined,
+        maxStorage: formData.maxStorage !== -1 ? formData.maxStorage : undefined,
         // NEW: Include moduleIds for backend to assign during creation
         moduleIds: enabledModulesForCreation.map((m) => m.moduleId),
         // NEW: Include module quantities for pricing calculation
@@ -698,9 +687,6 @@ const CreateTenantPage: React.FC = () => {
       // 4. Create subscription with trial period if specified
       // 5. Send invitation email to the primary contact
 
-      console.log('Tenant created successfully:', tenant.id);
-      console.log('Modules assigned:', enabledModulesForCreation.map(m => m.moduleName).join(', '));
-
       setSuccess(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Tenant olusturulamadi');
@@ -718,41 +704,27 @@ const CreateTenantPage: React.FC = () => {
   // Calculate total price directly from enabled modules (reliable, no API dependency)
   const calculatedTotal = useMemo(() => {
     let total = 0;
-    console.log('=== PRICE CALCULATION DEBUG ===');
-    console.log('Enabled modules:', enabledModules.length);
-    console.log('Module pricings:', modulePricings.length);
 
     enabledModules.forEach((config) => {
       const pricing = modulePricings.find((p) => p.moduleId === config.moduleId);
-      console.log(`Module ${config.moduleName}:`, pricing ? 'found' : 'NOT FOUND');
 
       if (pricing?.pricingMetrics && Array.isArray(pricing.pricingMetrics)) {
-        console.log(`  Metrics count: ${pricing.pricingMetrics.length}`);
         pricing.pricingMetrics.forEach((metric) => {
-          console.log(`  Metric: ${metric.type}, price: ${metric.price}, isBase: ${isBasePrice(metric.type)}`);
-
           if (isBasePrice(metric.type)) {
-            // Base price - always added
             total += metric.price || 0;
-            console.log(`    Added base price: ${metric.price}, total now: ${total}`);
           } else {
-            // Usage-based metric
             const field = getQuantityField(metric.type);
-            console.log(`    Field for ${metric.type}: ${field}`);
             if (field) {
               const includedQty = metric.includedQuantity || 0;
               const minQty = Math.max(includedQty, 1);
               const qty = Math.max(config.quantities[field] || minQty, minQty);
               const billableQty = Math.max(0, qty - includedQty);
-              const cost = billableQty * (metric.price || 0);
-              total += cost;
-              console.log(`    qty: ${qty}, included: ${includedQty}, billable: ${billableQty}, cost: ${cost}, total: ${total}`);
+              total += billableQty * (metric.price || 0);
             }
           }
         });
       }
     });
-    console.log('=== FINAL TOTAL:', total, '===');
     return total;
   }, [enabledModules, modulePricings]);
 
@@ -876,15 +848,25 @@ const CreateTenantPage: React.FC = () => {
                 </div>
               </div>
 
-              <Input
-                label="Deneme Suresi (Gun)"
-                type="number"
-                value={String(formData.trialDays)}
-                onChange={(e) => updateFormData('trialDays', parseInt(e.target.value) || 0)}
-                min={0}
-                max={90}
-                helperText="0 = Deneme suresi yok"
-              />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input
+                  label="Deneme Suresi (Gun)"
+                  type="number"
+                  value={String(formData.trialDays)}
+                  onChange={(e) => updateFormData('trialDays', parseInt(e.target.value) || 0)}
+                  min={0}
+                  max={90}
+                  helperText="0 = Deneme suresi yok"
+                />
+                <Input
+                  label="Depolama Limiti (GB)"
+                  type="number"
+                  value={String(formData.maxStorage)}
+                  onChange={(e) => updateFormData('maxStorage', parseInt(e.target.value) || -1)}
+                  min={-1}
+                  helperText="-1 = Sinirsiz depolama"
+                />
+              </div>
             </div>
           )}
 
@@ -998,6 +980,10 @@ const CreateTenantPage: React.FC = () => {
                         <dd>{formData.trialDays} gun</dd>
                       </div>
                     )}
+                    <div className="flex justify-between">
+                      <dt className="text-gray-500">Depolama:</dt>
+                      <dd>{formData.maxStorage === -1 ? 'Sinirsiz' : `${formData.maxStorage} GB`}</dd>
+                    </div>
                     {formData.country && (
                       <div className="flex justify-between">
                         <dt className="text-gray-500">Konum:</dt>

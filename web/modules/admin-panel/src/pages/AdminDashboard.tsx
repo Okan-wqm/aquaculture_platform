@@ -12,21 +12,33 @@ import {
   usersApi,
   tenantsApi,
   auditApi,
+  debugApi,
   type SystemMetrics,
   type ServiceHealth,
   type UserStats,
   type AuditLog,
+  type CircuitBreakerStatus,
 } from '../services/adminApi';
 
 // ============================================================================
 // Types
 // ============================================================================
 
+interface CacheStats {
+  totalEntries: number;
+  totalSize: number;
+  hitRate: number;
+  missRate: number;
+  byStore: Array<{ store: string; entries: number; size: number }>;
+}
+
 interface DashboardData {
   metrics: SystemMetrics | null;
   userStats: UserStats | null;
   services: ServiceHealth[];
   recentLogs: AuditLog[];
+  circuitBreakers: CircuitBreakerStatus | null;
+  cacheStats: CacheStats | null;
   loading: boolean;
   error: string | null;
 }
@@ -204,6 +216,151 @@ const RecentActivityCard: React.FC<{ logs: AuditLog[] }> = ({ logs }) => {
 };
 
 // ============================================================================
+// Circuit Breaker Status Component
+// ============================================================================
+
+const stateStyles: Record<string, { bg: string; border: string; dot: string; label: string }> = {
+  closed: { bg: 'bg-green-50', border: 'border-green-200', dot: 'bg-green-500', label: 'Closed' },
+  open: { bg: 'bg-red-50', border: 'border-red-200', dot: 'bg-red-500', label: 'Open' },
+  half_open: { bg: 'bg-yellow-50', border: 'border-yellow-200', dot: 'bg-yellow-500', label: 'Half-Open' },
+};
+
+const CircuitBreakerCard: React.FC<{
+  circuitBreakers: CircuitBreakerStatus | null;
+  onReset: (name: string) => void;
+  resetting: string | null;
+}> = ({ circuitBreakers, onReset, resetting }) => {
+  if (!circuitBreakers) return null;
+
+  const entries = Object.entries(circuitBreakers);
+  if (entries.length === 0) return null;
+
+  const formatTime = (timestamp: number) => {
+    if (!timestamp) return '-';
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <Card>
+      <div className="px-4 py-3 border-b border-gray-200">
+        <h3 className="text-lg font-semibold text-gray-900">Circuit Breakers</h3>
+      </div>
+      <div className="p-4 space-y-3">
+        {entries.map(([name, info]) => {
+          const style = stateStyles[info.state] || stateStyles.closed;
+          const isOpen = info.state === 'open';
+          const isResetting = resetting === name;
+
+          return (
+            <div
+              key={name}
+              className={`p-4 rounded-lg border ${style.border} ${style.bg}`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className={`w-3 h-3 rounded-full ${style.dot}`} />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900 uppercase">{name}</p>
+                    <Badge
+                      variant={info.state === 'closed' ? 'success' : info.state === 'open' ? 'error' : 'warning'}
+                      size="sm"
+                    >
+                      {style.label}
+                    </Badge>
+                  </div>
+                </div>
+                {(isOpen || info.state === 'half_open') && (
+                  <button
+                    onClick={() => onReset(name)}
+                    disabled={isResetting}
+                    className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {isResetting ? 'Resetting...' : 'Reset'}
+                  </button>
+                )}
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-4 text-xs">
+                <div>
+                  <span className="text-gray-500">Failures</span>
+                  <p className="font-semibold text-gray-900">{info.consecutiveFailures}</p>
+                </div>
+                <div>
+                  <span className="text-gray-500">Last failure</span>
+                  <p className="font-semibold text-gray-900">{formatTime(info.lastFailureTime)}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+};
+
+// ============================================================================
+// Cache Stats Component
+// ============================================================================
+
+const CacheStatsCard: React.FC<{
+  cacheStats: CacheStats | null;
+  onClearCache: () => void;
+  clearing: boolean;
+}> = ({ cacheStats, onClearCache, clearing }) => {
+  return (
+    <Card>
+      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900">Cache</h3>
+        <button
+          onClick={onClearCache}
+          disabled={clearing}
+          className="inline-flex items-center px-3 py-1.5 border border-red-300 rounded-md text-xs font-medium text-red-700 bg-white hover:bg-red-50 disabled:opacity-50"
+        >
+          {clearing ? 'Clearing...' : 'Clear Cache'}
+        </button>
+      </div>
+      <div className="p-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-gray-500">Total Entries</p>
+            <p className="text-lg font-semibold text-gray-900">
+              {cacheStats ? formatNumber(cacheStats.totalEntries) : '-'}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">Hit Rate</p>
+            <p className="text-lg font-semibold text-gray-900">
+              {cacheStats ? `${(cacheStats.hitRate * 100).toFixed(1)}%` : '-'}
+            </p>
+          </div>
+        </div>
+        {cacheStats && cacheStats.byStore.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <p className="text-xs text-gray-500 mb-2">By Store</p>
+            <div className="space-y-1">
+              {cacheStats.byStore.map((store) => (
+                <div key={store.store} className="flex items-center justify-between text-xs">
+                  <span className="text-gray-600">{store.store}</span>
+                  <span className="font-medium text-gray-900">{store.entries} entries</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+};
+
+// ============================================================================
 // Admin Dashboard
 // ============================================================================
 
@@ -213,19 +370,24 @@ const AdminDashboard: React.FC = () => {
     userStats: null,
     services: [],
     recentLogs: [],
+    circuitBreakers: null,
+    cacheStats: null,
     loading: true,
     error: null,
   });
+  const [resettingBreaker, setResettingBreaker] = useState<string | null>(null);
 
   const fetchDashboardData = useCallback(async () => {
     setData((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
-      const [metrics, userStats, services, logsResult] = await Promise.allSettled([
+      const [metrics, userStats, services, logsResult, circuitBreakers, cacheStats] = await Promise.allSettled([
         systemApi.getMetrics(),
         usersApi.getStats(),
         systemApi.getServicesHealth(),
         auditApi.query({ limit: 10 }),
+        systemApi.getCircuitBreakers(),
+        debugApi.getCacheStats(),
       ]);
 
       setData({
@@ -233,6 +395,8 @@ const AdminDashboard: React.FC = () => {
         userStats: userStats.status === 'fulfilled' ? userStats.value : null,
         services: services.status === 'fulfilled' ? services.value : [],
         recentLogs: logsResult.status === 'fulfilled' ? logsResult.value.data : [],
+        circuitBreakers: circuitBreakers.status === 'fulfilled' ? circuitBreakers.value : null,
+        cacheStats: cacheStats.status === 'fulfilled' ? cacheStats.value : null,
         loading: false,
         error: null,
       });
@@ -245,6 +409,23 @@ const AdminDashboard: React.FC = () => {
     }
   }, []);
 
+  const handleResetCircuitBreaker = useCallback(async (name: string) => {
+    setResettingBreaker(name);
+    try {
+      await systemApi.resetCircuitBreaker(name);
+      // Refresh circuit breaker data after reset
+      const updated = await systemApi.getCircuitBreakers();
+      setData((prev) => ({ ...prev, circuitBreakers: updated }));
+    } catch {
+      setData((prev) => ({
+        ...prev,
+        error: `Failed to reset circuit breaker '${name}'`,
+      }));
+    } finally {
+      setResettingBreaker(null);
+    }
+  }, []);
+
   useEffect(() => {
     fetchDashboardData();
     // Refresh every 30 seconds
@@ -252,7 +433,23 @@ const AdminDashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, [fetchDashboardData]);
 
-  const { metrics, userStats, services, recentLogs, loading, error } = data;
+  const [clearingCache, setClearingCache] = useState(false);
+
+  const handleClearCache = useCallback(async () => {
+    setClearingCache(true);
+    try {
+      await debugApi.invalidateCacheByPattern('*');
+      // Refresh cache stats after clearing
+      const freshStats = await debugApi.getCacheStats();
+      setData((prev) => ({ ...prev, cacheStats: freshStats }));
+    } catch {
+      // Silently fail - cache clear is best-effort
+    } finally {
+      setClearingCache(false);
+    }
+  }, []);
+
+  const { metrics, userStats, services, recentLogs, circuitBreakers, cacheStats, loading, error } = data;
 
   // Calculate metrics with fallbacks
   const platformMetrics = metrics?.platform || {
@@ -356,13 +553,19 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Alt Kisim: Servis Durumu, Veritabani, Son Aktiviteler */}
+      {/* Alt Kisim: Servis Durumu, Veritabani, Circuit Breakers, Son Aktiviteler */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <ServiceStatusCard services={services} />
           <DatabaseStatsCard database={metrics?.database} />
+          <CacheStatsCard cacheStats={cacheStats} onClearCache={handleClearCache} clearing={clearingCache} />
         </div>
-        <div>
+        <div className="space-y-6">
+          <CircuitBreakerCard
+            circuitBreakers={circuitBreakers}
+            onReset={handleResetCircuitBreaker}
+            resetting={resettingBreaker}
+          />
           <RecentActivityCard logs={recentLogs} />
         </div>
       </div>

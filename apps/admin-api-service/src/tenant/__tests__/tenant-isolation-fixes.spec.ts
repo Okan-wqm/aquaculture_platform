@@ -7,8 +7,8 @@
  * @see docs/security/tenant-isolation-audit.md for full audit report
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource, Repository } from 'typeorm';
 
 // Mock types

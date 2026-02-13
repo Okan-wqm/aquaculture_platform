@@ -10,9 +10,10 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 
-import { JobQueueService, JobDefinition } from '../services/job-queue.service';
 import { JobStatus, JobType, JobPriority, JobRetryPolicy } from '../entities/job-queue.entity';
+import { JobQueueService, JobDefinition } from '../services/job-queue.service';
 
 // ============================================================================
 // DTOs
@@ -58,6 +59,7 @@ class UpdateJobProgressDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Analytics')
 @Controller('system/jobs')
 export class JobQueueController {
   constructor(private readonly jobQueueService: JobQueueService) {}

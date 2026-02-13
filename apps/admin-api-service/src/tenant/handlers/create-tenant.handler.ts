@@ -2,12 +2,13 @@ import { Injectable, ConflictException, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
+
+import { AuditLogService } from '../../audit/audit.service';
+import { PlanTier, BillingCycle } from '../../billing/entities/plan-definition.entity';
+import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
 import { CreateTenantCommand } from '../commands/tenant.commands';
 import { Tenant, TenantStatus, TenantTier } from '../entities/tenant.entity';
-import { AuditLogService } from '../../audit/audit.service';
 import { TenantProvisioningService } from '../services/tenant-provisioning.service';
-import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
-import { PlanTier, BillingCycle } from '../../billing/entities/plan-definition.entity';
 
 @Injectable()
 @CommandHandler(CreateTenantCommand)

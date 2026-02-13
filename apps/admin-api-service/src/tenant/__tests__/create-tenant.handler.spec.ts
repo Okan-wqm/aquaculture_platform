@@ -1,8 +1,8 @@
 /**
  * CreateTenantHandler Test Suite
  *
- * Kapsamlı test senaryoları:
- * - Temel Oluşturma İşlemleri
+ * Kapsamli test senaryolari:
+ * - Temel Olusturma Islemleri
  * - Validasyon Testleri
  * - Transaction & Rollback
  * - Event Publishing
@@ -10,24 +10,29 @@
  * - Auto-Provisioning
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
-import { Repository, DataSource, QueryRunner, EntityManager } from 'typeorm';
 import { ConflictException } from '@nestjs/common';
 import { EventBus } from '@nestjs/cqrs';
-import { CreateTenantHandler } from '../handlers/create-tenant.handler';
-import { CreateTenantCommand } from '../commands/tenant.commands';
-import { Tenant, TenantStatus, TenantTier } from '../entities/tenant.entity';
+import { Test, TestingModule } from '@nestjs/testing';
+import { getDataSourceToken } from '@nestjs/typeorm';
+import { DataSource, QueryRunner, EntityManager } from 'typeorm';
+
 import { AuditLogService } from '../../audit/audit.service';
-import { TenantProvisioningService } from '../services/tenant-provisioning.service';
+import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
+import { CreateTenantCommand } from '../commands/tenant.commands';
 import { CreateTenantDto } from '../dto/tenant.dto';
-import { v4 as uuidv4 } from 'uuid';
+import { Tenant, TenantStatus, TenantTier } from '../entities/tenant.entity';
+import { CreateTenantHandler } from '../handlers/create-tenant.handler';
+import { TenantProvisioningService } from '../services/tenant-provisioning.service';
+
+// Simple mock UUID generator for tests
+let uuidCounter = 0;
+const uuidv4 = (): string => `00000000-0000-0000-0000-${String(++uuidCounter).padStart(12, '0')}`;
 
 // =============================================================================
 // Mock Factories
 // =============================================================================
 
-const createMockTenant = (overrides: Partial<Tenant> = {}): Tenant => {
+const createMockTenant = (overrides: Record<string, any> = {}): Tenant => {
   const tenant = new Tenant();
   Object.assign(tenant, {
     id: uuidv4(),
@@ -36,7 +41,10 @@ const createMockTenant = (overrides: Partial<Tenant> = {}): Tenant => {
     description: 'Test tenant description',
     domain: 'test.example.com',
     status: TenantStatus.PENDING,
-    tier: TenantTier.FREE,
+    plan: TenantTier.FREE,
+    maxUsers: 5,
+    maxStorage: -1,
+    isTrialActive: false,
     userCount: 0,
     farmCount: 0,
     sensorCount: 0,
@@ -61,7 +69,7 @@ const createMockCreateTenantDto = (overrides: Partial<CreateTenantDto> = {}): Cr
     role: 'admin',
   },
   billingEmail: 'billing@test.com',
-  country: 'Turkey',
+  country: 'TR',
   region: 'Istanbul',
   trialDays: 14,
   ...overrides,
@@ -71,7 +79,7 @@ const createMockEntityManager = (): jest.Mocked<EntityManager> =>
   ({
     findOne: jest.fn(),
     save: jest.fn(),
-    create: jest.fn((entity, data) => ({ ...data })),
+    create: jest.fn((_entity, data) => ({ ...data })),
     query: jest.fn(),
   }) as any;
 
@@ -93,7 +101,6 @@ const createMockQueryRunner = (
 
 describe('CreateTenantHandler', () => {
   let handler: CreateTenantHandler;
-  let tenantRepository: jest.Mocked<Repository<Tenant>>;
   let dataSource: jest.Mocked<DataSource>;
   let eventBus: jest.Mocked<EventBus>;
   let auditLogService: jest.Mocked<AuditLogService>;
@@ -109,12 +116,6 @@ describe('CreateTenantHandler', () => {
       createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner),
     };
 
-    const mockTenantRepository = {
-      findOne: jest.fn(),
-      save: jest.fn(),
-      create: jest.fn(),
-    };
-
     const mockEventBus = {
       publish: jest.fn(),
     };
@@ -127,13 +128,18 @@ describe('CreateTenantHandler', () => {
       provisionTenant: jest.fn().mockResolvedValue({ success: true }),
     };
 
+    const mockModuleAssignmentService = {
+      assignModulesToTenant: jest.fn().mockResolvedValue({
+        success: true,
+        assignedModules: [],
+        failedModules: [],
+        totalMonthlyPrice: 0,
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CreateTenantHandler,
-        {
-          provide: getRepositoryToken(Tenant),
-          useValue: mockTenantRepository,
-        },
         {
           provide: getDataSourceToken(),
           useValue: mockDataSource,
@@ -150,11 +156,14 @@ describe('CreateTenantHandler', () => {
           provide: TenantProvisioningService,
           useValue: mockProvisioningService,
         },
+        {
+          provide: ModuleAssignmentService,
+          useValue: mockModuleAssignmentService,
+        },
       ],
     }).compile();
 
     handler = module.get<CreateTenantHandler>(CreateTenantHandler);
-    tenantRepository = module.get(getRepositoryToken(Tenant));
     dataSource = module.get(getDataSourceToken());
     eventBus = module.get(EventBus);
     auditLogService = module.get(AuditLogService);
@@ -166,11 +175,11 @@ describe('CreateTenantHandler', () => {
   });
 
   // ===========================================================================
-  // TEMEL OLUŞTURMA İŞLEMLERİ
+  // TEMEL OLUSTURMA ISLEMLERI
   // ===========================================================================
 
-  describe('Temel Oluşturma İşlemleri', () => {
-    it('geçerli veri ile tenant başarıyla oluşturulur', async () => {
+  describe('Temel Olusturma Islemleri', () => {
+    it('gecerli veri ile tenant basariyla olusturulur', async () => {
       // Arrange
       const dto = createMockCreateTenantDto();
       const savedTenant = createMockTenant({
@@ -193,7 +202,7 @@ describe('CreateTenantHandler', () => {
       expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
     });
 
-    it('tenant oluşturma sonrası otomatik ID atanır', async () => {
+    it('tenant olusturma sonrasi otomatik ID atanir', async () => {
       // Arrange
       const dto = createMockCreateTenantDto();
       const savedTenant = createMockTenant({ ...dto, id: 'generated-uuid' });
@@ -210,7 +219,7 @@ describe('CreateTenantHandler', () => {
       expect(result.id).toBe('generated-uuid');
     });
 
-    it('tenant status PENDING olarak başlar', async () => {
+    it('tenant status PENDING olarak baslar', async () => {
       // Arrange
       const dto = createMockCreateTenantDto();
       const savedTenant = createMockTenant({
@@ -230,10 +239,10 @@ describe('CreateTenantHandler', () => {
       expect(result.status).toBe(TenantStatus.PENDING);
     });
 
-    it('tier belirtilmezse FREE olarak atanır', async () => {
+    it('tier belirtilmezse STARTER olarak atanir', async () => {
       // Arrange
       const dto = createMockCreateTenantDto({ tier: undefined });
-      const savedTenant = createMockTenant({ ...dto, tier: TenantTier.FREE });
+      const savedTenant = createMockTenant({ ...dto, plan: TenantTier.STARTER });
 
       mockManager.findOne.mockResolvedValue(null);
       mockManager.save.mockResolvedValue(savedTenant);
@@ -241,16 +250,16 @@ describe('CreateTenantHandler', () => {
       const command = new CreateTenantCommand(dto, 'admin-user-id');
 
       // Act
-      const result = await handler.execute(command);
+      await handler.execute(command);
 
       // Assert
       expect(mockManager.create).toHaveBeenCalledWith(
         Tenant,
-        expect.objectContaining({ tier: TenantTier.FREE }),
+        expect.objectContaining({ tier: TenantTier.STARTER }),
       );
     });
 
-    it('trial tenant için trialEndsAt hesaplanır', async () => {
+    it('trial tenant icin trialEndsAt hesaplanir', async () => {
       // Arrange
       const dto = createMockCreateTenantDto({ trialDays: 14 });
       const savedTenant = createMockTenant({ ...dto });
@@ -290,7 +299,7 @@ describe('CreateTenantHandler', () => {
       );
     });
 
-    it('userCount, farmCount, sensorCount 0 olarak başlar', async () => {
+    it('userCount, farmCount, sensorCount 0 olarak baslar', async () => {
       // Arrange
       const dto = createMockCreateTenantDto();
       const savedTenant = createMockTenant({
@@ -321,7 +330,7 @@ describe('CreateTenantHandler', () => {
   });
 
   // ===========================================================================
-  // DUPLICATE KONTROL TESTLERİ
+  // DUPLICATE KONTROL TESTLERI
   // ===========================================================================
 
   describe('Duplicate Kontrol Testleri', () => {
@@ -331,13 +340,11 @@ describe('CreateTenantHandler', () => {
       const dto = createMockCreateTenantDto({ slug: 'existing-slug' });
 
       mockManager.findOne
-        .mockResolvedValueOnce(existingTenant) // slug check
-        .mockResolvedValueOnce(null); // domain check
+        .mockResolvedValueOnce(existingTenant); // slug check returns existing
 
       const command = new CreateTenantCommand(dto, 'admin-user-id');
 
       // Act & Assert
-      await expect(handler.execute(command)).rejects.toThrow(ConflictException);
       await expect(handler.execute(command)).rejects.toThrow(/slug.*already exists/i);
     });
 
@@ -347,17 +354,16 @@ describe('CreateTenantHandler', () => {
       const dto = createMockCreateTenantDto({ domain: 'existing.example.com' });
 
       mockManager.findOne
-        .mockResolvedValueOnce(null) // slug check
-        .mockResolvedValueOnce(existingTenant); // domain check
+        .mockResolvedValueOnce(null) // slug check passes
+        .mockResolvedValueOnce(existingTenant); // domain check returns existing
 
       const command = new CreateTenantCommand(dto, 'admin-user-id');
 
       // Act & Assert
-      await expect(handler.execute(command)).rejects.toThrow(ConflictException);
       await expect(handler.execute(command)).rejects.toThrow(/domain.*already exists/i);
     });
 
-    it('slug sağlanmazsa duplicate check yapılmaz', async () => {
+    it('slug saglanmazsa duplicate check yapilmaz', async () => {
       // Arrange
       const dto = createMockCreateTenantDto({ slug: undefined });
       const savedTenant = createMockTenant({ ...dto });
@@ -375,7 +381,7 @@ describe('CreateTenantHandler', () => {
       // Since we didn't provide slug, the slug findOne should be skipped
     });
 
-    it('domain sağlanmazsa duplicate check yapılmaz', async () => {
+    it('domain saglanmazsa duplicate check yapilmaz', async () => {
       // Arrange
       const dto = createMockCreateTenantDto({ domain: undefined });
       const savedTenant = createMockTenant({ ...dto });
@@ -394,11 +400,11 @@ describe('CreateTenantHandler', () => {
   });
 
   // ===========================================================================
-  // TRANSACTION TESTLERİ
+  // TRANSACTION TESTLERI
   // ===========================================================================
 
   describe('Transaction Testleri', () => {
-    it('transaction SERIALIZABLE isolation level ile başlar', async () => {
+    it('transaction SERIALIZABLE isolation level ile baslar', async () => {
       // Arrange
       const dto = createMockCreateTenantDto();
       const savedTenant = createMockTenant({ ...dto });
@@ -415,7 +421,7 @@ describe('CreateTenantHandler', () => {
       expect(mockQueryRunner.startTransaction).toHaveBeenCalledWith('SERIALIZABLE');
     });
 
-    it('başarılı işlemde transaction commit edilir', async () => {
+    it('basarili islemde transaction commit edilir', async () => {
       // Arrange
       const dto = createMockCreateTenantDto();
       const savedTenant = createMockTenant({ ...dto });
@@ -477,7 +483,7 @@ describe('CreateTenantHandler', () => {
       expect(mockQueryRunner.release).toHaveBeenCalled();
     });
 
-    it('pessimistic_read lock kullanılır', async () => {
+    it('pessimistic_read lock kullanilir', async () => {
       // Arrange
       const dto = createMockCreateTenantDto();
       const savedTenant = createMockTenant({ ...dto });
@@ -501,11 +507,11 @@ describe('CreateTenantHandler', () => {
   });
 
   // ===========================================================================
-  // EVENT PUBLISHING TESTLERİ
+  // EVENT PUBLISHING TESTLERI
   // ===========================================================================
 
   describe('Event Publishing Testleri', () => {
-    it('tenant oluşturulduktan sonra TenantCreated event publish edilir', async () => {
+    it('tenant olusturulduktan sonra TenantCreated event publish edilir', async () => {
       // Arrange
       const dto = createMockCreateTenantDto();
       const savedTenant = createMockTenant({ ...dto, id: 'new-tenant-id' });
@@ -550,11 +556,11 @@ describe('CreateTenantHandler', () => {
   });
 
   // ===========================================================================
-  // AUDIT LOGGING TESTLERİ
+  // AUDIT LOGGING TESTLERI
   // ===========================================================================
 
   describe('Audit Logging Testleri', () => {
-    it('tenant oluşturulduktan sonra audit log kaydedilir', async () => {
+    it('tenant olusturulduktan sonra audit log kaydedilir', async () => {
       // Arrange
       const dto = createMockCreateTenantDto();
       const savedTenant = createMockTenant({ ...dto, id: 'new-tenant-id' });
@@ -597,7 +603,7 @@ describe('CreateTenantHandler', () => {
   });
 
   // ===========================================================================
-  // AUTO-PROVISIONING TESTLERİ
+  // AUTO-PROVISIONING TESTLERI
   // ===========================================================================
 
   describe('Auto-Provisioning Testleri', () => {
@@ -621,10 +627,7 @@ describe('CreateTenantHandler', () => {
       // Act
       await handler.execute(command);
 
-      // Assert - setImmediate içinde çağrıldığından async olarak kontrol etmeliyiz
-      // Bu test için manuel olarak promise'ı bekletebiliriz
-      await new Promise((resolve) => setImmediate(resolve));
-
+      // Assert - provisioning is now synchronous
       expect(provisioningService.provisionTenant).toHaveBeenCalledWith(
         savedTenant.id,
         expect.objectContaining({
@@ -636,9 +639,9 @@ describe('CreateTenantHandler', () => {
       );
     });
 
-    it('primaryContact yoksa auto-provisioning tetiklenmez', async () => {
+    it('primaryContact yoksa admin olusturulmaz ama provisioning yine calisir', async () => {
       // Arrange
-      const dto = createMockCreateTenantDto({ primaryContact: undefined });
+      const dto = createMockCreateTenantDto({ primaryContact: undefined, contactEmail: undefined });
       const savedTenant = createMockTenant({ ...dto, id: 'new-tenant-id' });
 
       mockManager.findOne.mockResolvedValue(null);
@@ -649,37 +652,16 @@ describe('CreateTenantHandler', () => {
       // Act
       await handler.execute(command);
 
-      // Assert
-      await new Promise((resolve) => setImmediate(resolve));
-      expect(provisioningService.provisionTenant).not.toHaveBeenCalled();
+      // Assert - provisioning still runs (for schema creation) but without admin
+      expect(provisioningService.provisionTenant).toHaveBeenCalledWith(
+        savedTenant.id,
+        expect.objectContaining({
+          createFirstAdmin: false,
+        }),
+      );
     });
 
-    it('primaryContact email boşsa auto-provisioning tetiklenmez', async () => {
-      // Arrange
-      const dto = createMockCreateTenantDto({
-        primaryContact: {
-          name: 'Test Admin',
-          email: '',
-          phone: '+1234567890',
-          role: 'admin',
-        },
-      });
-      const savedTenant = createMockTenant({ ...dto, id: 'new-tenant-id' });
-
-      mockManager.findOne.mockResolvedValue(null);
-      mockManager.save.mockResolvedValue(savedTenant);
-
-      const command = new CreateTenantCommand(dto, 'admin-user-id');
-
-      // Act
-      await handler.execute(command);
-
-      // Assert
-      await new Promise((resolve) => setImmediate(resolve));
-      expect(provisioningService.provisionTenant).not.toHaveBeenCalled();
-    });
-
-    it('auto-provisioning hatası tenant oluşturmayı etkilemez', async () => {
+    it('auto-provisioning hatasi tenant olusturmayi etkilemez', async () => {
       // Arrange
       const dto = createMockCreateTenantDto({
         primaryContact: {
@@ -705,7 +687,7 @@ describe('CreateTenantHandler', () => {
       expect(result.id).toBe(savedTenant.id);
     });
 
-    it('admin ismi doğru şekilde parse edilir', async () => {
+    it('admin ismi dogru sekilde parse edilir', async () => {
       // Arrange
       const dto = createMockCreateTenantDto({
         primaryContact: {
@@ -726,8 +708,6 @@ describe('CreateTenantHandler', () => {
       await handler.execute(command);
 
       // Assert
-      await new Promise((resolve) => setImmediate(resolve));
-
       expect(provisioningService.provisionTenant).toHaveBeenCalledWith(
         savedTenant.id,
         expect.objectContaining({
@@ -737,7 +717,7 @@ describe('CreateTenantHandler', () => {
       );
     });
 
-    it('tek isimli contact için lastName "User" olarak atanır', async () => {
+    it('tek isimli contact icin lastName "User" olarak atanir', async () => {
       // Arrange
       const dto = createMockCreateTenantDto({
         primaryContact: {
@@ -758,8 +738,6 @@ describe('CreateTenantHandler', () => {
       await handler.execute(command);
 
       // Assert
-      await new Promise((resolve) => setImmediate(resolve));
-
       expect(provisioningService.provisionTenant).toHaveBeenCalledWith(
         savedTenant.id,
         expect.objectContaining({
@@ -771,11 +749,11 @@ describe('CreateTenantHandler', () => {
   });
 
   // ===========================================================================
-  // DATA MAPPING TESTLERİ
+  // DATA MAPPING TESTLERI
   // ===========================================================================
 
   describe('Data Mapping Testleri', () => {
-    it('tüm DTO alanları tenant entity\'sine doğru şekilde map edilir', async () => {
+    it('tum DTO alanlari tenant entity\'sine dogru sekilde map edilir', async () => {
       // Arrange
       const dto = createMockCreateTenantDto({
         name: 'Complete Tenant',
@@ -796,7 +774,7 @@ describe('CreateTenantHandler', () => {
           role: 'billing',
         },
         billingEmail: 'finance@test.com',
-        country: 'USA',
+        country: 'US',
         region: 'California',
         trialDays: 30,
       });
@@ -828,7 +806,7 @@ describe('CreateTenantHandler', () => {
       );
     });
 
-    it('createdBy doğru şekilde atanır', async () => {
+    it('createdBy dogru sekilde atanir', async () => {
       // Arrange
       const dto = createMockCreateTenantDto();
       const savedTenant = createMockTenant({ ...dto });

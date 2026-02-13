@@ -8,10 +8,14 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { SystemSettingService, UpdateSystemSettingDto } from './services/system-setting.service';
-import { PlatformAdminGuard } from '../guards/platform-admin.guard';
-import { SettingCategory } from './entities/system-setting.entity';
+import { ApiTags } from '@nestjs/swagger';
 
+import { PlatformAdminGuard } from '../guards/platform-admin.guard';
+
+import { SettingCategory } from './entities/system-setting.entity';
+import { SystemSettingService, UpdateSystemSettingDto } from './services/system-setting.service';
+
+@ApiTags('Settings')
 @Controller('settings')
 @UseGuards(PlatformAdminGuard)
 export class SettingsController {

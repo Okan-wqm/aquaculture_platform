@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
 
 import {
   DebugSession,
@@ -142,7 +142,7 @@ export class DebugSessionService {
   /**
    * Get all active sessions (for dashboard)
    */
-  async getAllActiveSessions(limit: number = 10): Promise<DebugSession[]> {
+  async getAllActiveSessions(limit = 10): Promise<DebugSession[]> {
     return this.debugSessionRepo.find({
       where: { isActive: true },
       order: { createdAt: 'DESC' },
@@ -175,7 +175,7 @@ export class DebugSessionService {
   /**
    * Cleanup old inactive sessions
    */
-  async cleanupOldSessions(daysOld: number = 7): Promise<number> {
+  async cleanupOldSessions(daysOld = 7): Promise<number> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - daysOld);
 

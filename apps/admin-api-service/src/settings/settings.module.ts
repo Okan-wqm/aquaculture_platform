@@ -2,6 +2,9 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
+import { EmailTemplateController } from './controllers/email-template.controller';
+import { IpAccessController } from './controllers/ip-access.controller';
+import { TenantConfigurationController } from './controllers/tenant-configuration.controller';
 import {
   TenantConfiguration,
   SystemSetting,
@@ -20,9 +23,6 @@ import { EmailSenderService } from './services/email-sender.service';
 
 // Controllers
 import { SettingsController } from './settings.controller';
-import { TenantConfigurationController } from './controllers/tenant-configuration.controller';
-import { EmailTemplateController } from './controllers/email-template.controller';
-import { IpAccessController } from './controllers/ip-access.controller';
 
 @Module({
   imports: [

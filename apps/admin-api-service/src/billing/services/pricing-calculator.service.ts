@@ -1,9 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ModulePricingService } from './module-pricing.service';
-import { DiscountCodeService } from './discount-code.service';
+
 import { ModulePricing } from '../entities/module-pricing.entity';
 import { PlanTier, BillingCycle } from '../entities/plan-definition.entity';
 import { PricingMetricType, PricingMetricLabels } from '../entities/pricing-metric.enum';
+
+import { DiscountCodeService } from './discount-code.service';
+import { ModulePricingService } from './module-pricing.service';
 import { ModuleQuantities } from './subscription-management.service';
 
 /**

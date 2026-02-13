@@ -10,15 +10,8 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import {
-  TenantConfigurationService,
-  CreateTenantConfigurationDto,
-  UpdateTenantConfigurationDto,
-  CreateApiKeyDto,
-  CreateWebhookDto,
-  VerifyDomainDto,
-  UpdateBrandingDto,
-} from '../services/tenant-configuration.service';
+import { ApiTags } from '@nestjs/swagger';
+
 import {
   UserLimitsConfig,
   StorageConfig,
@@ -28,7 +21,17 @@ import {
   TenantNotificationConfig,
   FeatureFlagsConfig,
 } from '../entities/tenant-configuration.entity';
+import {
+  TenantConfigurationService,
+  CreateTenantConfigurationDto,
+  UpdateTenantConfigurationDto,
+  CreateApiKeyDto,
+  CreateWebhookDto,
+  VerifyDomainDto,
+  UpdateBrandingDto,
+} from '../services/tenant-configuration.service';
 
+@ApiTags('Settings')
 @Controller('settings/tenant')
 export class TenantConfigurationController {
   constructor(

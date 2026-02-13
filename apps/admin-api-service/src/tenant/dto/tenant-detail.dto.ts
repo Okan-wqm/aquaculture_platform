@@ -1,6 +1,7 @@
-import { TenantLimitsDto } from './tenant.dto';
 import { TenantActivity, TenantNote, TenantBillingInfo } from '../entities/tenant-activity.entity';
 import { Tenant } from '../entities/tenant.entity';
+
+import { TenantLimitsDto } from './tenant.dto';
 
 // User Statistics by Role
 export interface UserStatsByRole {

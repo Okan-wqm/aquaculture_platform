@@ -218,7 +218,12 @@ const TenantManagementPage: React.FC = () => {
           className="cursor-pointer hover:text-primary-600"
           onClick={() => navigate(`/admin/tenants/${tenant.id}`)}
         >
-          <p className="font-medium text-gray-900">{tenant.name}</p>
+          <div className="flex items-center space-x-2">
+            <p className="font-medium text-gray-900">{tenant.name}</p>
+            {tenant.isTrialActive && (
+              <Badge variant="warning">Trial</Badge>
+            )}
+          </div>
           <p className="text-sm text-gray-500">{tenant.slug}</p>
         </div>
       ),

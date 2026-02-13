@@ -13,18 +13,10 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import {
-  CreateTenantDto,
-  UpdateTenantDto,
-  SuspendTenantDto,
-  ListTenantsQueryDto,
-  TenantStatsDto,
-  TenantUsageDto,
-} from './dto/tenant.dto';
-import {
-  TenantDetailDto,
-  BulkSuspendDto,
-} from './dto/tenant-detail.dto';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
+
+import { CurrentUser } from '../decorators/current-user.decorator';
+
 import {
   CreateTenantCommand,
   UpdateTenantCommand,
@@ -33,6 +25,20 @@ import {
   DeactivateTenantCommand,
   ArchiveTenantCommand,
 } from './commands/tenant.commands';
+import {
+  TenantDetailDto,
+  BulkSuspendDto,
+} from './dto/tenant-detail.dto';
+import {
+  CreateTenantDto,
+  UpdateTenantDto,
+  SuspendTenantDto,
+  ListTenantsQueryDto,
+  TenantStatsDto,
+  TenantUsageDto,
+} from './dto/tenant.dto';
+import { TenantActivity, TenantNote } from './entities/tenant-activity.entity';
+import { Tenant } from './entities/tenant.entity';
 import {
   GetTenantByIdQuery,
   GetTenantBySlugQuery,
@@ -43,12 +49,9 @@ import {
   GetExpiringTrialsQuery,
   SearchTenantsQuery,
 } from './queries/tenant.queries';
-import { Tenant } from './entities/tenant.entity';
-import { TenantActivity, TenantNote } from './entities/tenant-activity.entity';
 import { PaginatedResult } from './query-handlers/tenant-query.handlers';
-import { CurrentUser } from '../decorators/current-user.decorator';
-import { TenantDetailService } from './services/tenant-detail.service';
 import { TenantActivityService } from './services/tenant-activity.service';
+import { TenantDetailService } from './services/tenant-detail.service';
 import { TenantProvisioningService, ProvisioningResult } from './services/tenant-provisioning.service';
 
 interface AdminUser {
@@ -57,6 +60,7 @@ interface AdminUser {
   roles: string[];
 }
 
+@ApiTags('Tenants')
 @Controller('tenants')
 export class TenantController {
   constructor(
@@ -68,6 +72,7 @@ export class TenantController {
   ) {}
 
   @Post()
+  @ApiOperation({ summary: 'Create a new tenant' })
   @HttpCode(HttpStatus.CREATED)
   async createTenant(
     @Body() dto: CreateTenantDto,
@@ -77,6 +82,7 @@ export class TenantController {
   }
 
   @Get()
+  @ApiOperation({ summary: 'List all tenants with filtering and pagination' })
   async listTenants(
     @Query() query: ListTenantsQueryDto,
   ): Promise<PaginatedResult<Tenant>> {
@@ -100,11 +106,13 @@ export class TenantController {
   }
 
   @Get('stats')
+  @ApiOperation({ summary: 'Get tenant statistics' })
   async getTenantStats(): Promise<TenantStatsDto> {
     return this.queryBus.execute(new GetTenantStatsQuery());
   }
 
   @Get('search')
+  @ApiOperation({ summary: 'Search tenants by name or domain' })
   async searchTenants(
     @Query('q') searchTerm: string,
     @Query('limit') limit?: number,
@@ -115,6 +123,7 @@ export class TenantController {
   }
 
   @Get('approaching-limits')
+  @ApiOperation({ summary: 'Get tenants approaching usage limits' })
   async getTenantsApproachingLimits(
     @Query('threshold') threshold?: number,
   ): Promise<Tenant[]> {
@@ -124,6 +133,7 @@ export class TenantController {
   }
 
   @Get('expiring-trials')
+  @ApiOperation({ summary: 'Get tenants with expiring trial periods' })
   async getExpiringTrials(
     @Query('withinDays') withinDays?: number,
   ): Promise<Tenant[]> {
@@ -131,6 +141,7 @@ export class TenantController {
   }
 
   @Get('slug/:slug')
+  @ApiOperation({ summary: 'Get tenant by slug' })
   async getTenantBySlug(@Param('slug') slug: string): Promise<Tenant> {
     return this.queryBus.execute(new GetTenantBySlugQuery(slug));
   }
@@ -140,6 +151,7 @@ export class TenantController {
   // ============================================================================
 
   @Post('bulk/suspend')
+  @ApiOperation({ summary: 'Bulk suspend multiple tenants' })
   @HttpCode(HttpStatus.OK)
   async bulkSuspend(
     @Body() dto: BulkSuspendDto,
@@ -149,6 +161,7 @@ export class TenantController {
   }
 
   @Post('bulk/activate')
+  @ApiOperation({ summary: 'Bulk activate multiple tenants' })
   @HttpCode(HttpStatus.OK)
   async bulkActivate(
     @Body('tenantIds') tenantIds: string[],
@@ -162,6 +175,7 @@ export class TenantController {
   // ============================================================================
 
   @Get(':id')
+  @ApiOperation({ summary: 'Get tenant by ID' })
   async getTenantById(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<Tenant> {
@@ -169,6 +183,7 @@ export class TenantController {
   }
 
   @Get(':id/detail')
+  @ApiOperation({ summary: 'Get detailed tenant information' })
   async getTenantDetail(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<TenantDetailDto> {
@@ -176,6 +191,7 @@ export class TenantController {
   }
 
   @Get(':id/usage')
+  @ApiOperation({ summary: 'Get tenant resource usage' })
   async getTenantUsage(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<TenantUsageDto> {
@@ -183,6 +199,7 @@ export class TenantController {
   }
 
   @Get(':id/activities')
+  @ApiOperation({ summary: 'Get tenant activity timeline' })
   async getTenantActivities(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('page') page?: number,
@@ -196,6 +213,7 @@ export class TenantController {
   }
 
   @Get(':id/notes')
+  @ApiOperation({ summary: 'Get tenant notes' })
   async getTenantNotes(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('category') category?: string,
@@ -204,6 +222,7 @@ export class TenantController {
   }
 
   @Post(':id/notes')
+  @ApiOperation({ summary: 'Create a note for a tenant' })
   @HttpCode(HttpStatus.CREATED)
   async createTenantNote(
     @Param('id', ParseUUIDPipe) id: string,
@@ -221,6 +240,7 @@ export class TenantController {
   }
 
   @Patch(':id/notes/:noteId')
+  @ApiOperation({ summary: 'Update a tenant note' })
   async updateTenantNote(
     @Param('noteId', ParseUUIDPipe) noteId: string,
     @Body() body: { content?: string; isPinned?: boolean; category?: string },
@@ -229,6 +249,7 @@ export class TenantController {
   }
 
   @Delete(':id/notes/:noteId')
+  @ApiOperation({ summary: 'Delete a tenant note' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteTenantNote(
     @Param('noteId', ParseUUIDPipe) noteId: string,
@@ -241,6 +262,7 @@ export class TenantController {
   // ============================================================================
 
   @Put(':id')
+  @ApiOperation({ summary: 'Update tenant details' })
   async updateTenant(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateTenantDto,
@@ -250,6 +272,7 @@ export class TenantController {
   }
 
   @Patch(':id/suspend')
+  @ApiOperation({ summary: 'Suspend a tenant' })
   async suspendTenant(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: SuspendTenantDto,
@@ -259,6 +282,7 @@ export class TenantController {
   }
 
   @Patch(':id/activate')
+  @ApiOperation({ summary: 'Activate a suspended tenant' })
   async activateTenant(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AdminUser,
@@ -267,6 +291,7 @@ export class TenantController {
   }
 
   @Patch(':id/deactivate')
+  @ApiOperation({ summary: 'Deactivate a tenant' })
   async deactivateTenant(
     @Param('id', ParseUUIDPipe) id: string,
     @Body('reason') reason: string,
@@ -282,6 +307,7 @@ export class TenantController {
   // ============================================================================
 
   @Post(':id/provision')
+  @ApiOperation({ summary: 'Provision tenant schema and resources' })
   @HttpCode(HttpStatus.OK)
   async provisionTenant(
     @Param('id', ParseUUIDPipe) id: string,
@@ -295,6 +321,7 @@ export class TenantController {
   }
 
   @Get(':id/provision/status')
+  @ApiOperation({ summary: 'Get tenant provisioning status' })
   async getProvisioningStatus(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<{ status: string }> {
@@ -302,6 +329,7 @@ export class TenantController {
   }
 
   @Delete(':id')
+  @ApiOperation({ summary: 'Archive a tenant' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async archiveTenant(
     @Param('id', ParseUUIDPipe) id: string,

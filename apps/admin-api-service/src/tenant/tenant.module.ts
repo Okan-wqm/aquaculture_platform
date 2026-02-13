@@ -1,21 +1,27 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
-import { Tenant, TenantInvitation } from './entities/tenant.entity';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { AuditLogModule } from '../audit/audit.module';
+import { BillingModule } from '../billing/billing.module';
+import { ModuleAssignmentService } from '../modules/tenant-management/services/module-assignment.service';
+import { SettingsModule } from '../settings/settings.module';
+import { UsersModule } from '../users/users.module';
+
 import {
   TenantActivity,
   TenantNote,
   TenantBillingInfo,
 } from './entities/tenant-activity.entity';
-import { TenantController } from './tenant.controller';
+import { Tenant, TenantInvitation } from './entities/tenant.entity';
 import { CreateTenantHandler } from './handlers/create-tenant.handler';
-import { UpdateTenantHandler } from './handlers/update-tenant.handler';
 import {
   SuspendTenantHandler,
   ActivateTenantHandler,
   DeactivateTenantHandler,
   ArchiveTenantHandler,
 } from './handlers/suspend-tenant.handler';
+import { UpdateTenantHandler } from './handlers/update-tenant.handler';
 import {
   GetTenantByIdHandler,
   GetTenantBySlugHandler,
@@ -26,14 +32,10 @@ import {
   GetExpiringTrialsHandler,
   SearchTenantsHandler,
 } from './query-handlers/tenant-query.handlers';
-import { TenantProvisioningService } from './services/tenant-provisioning.service';
 import { TenantActivityService } from './services/tenant-activity.service';
 import { TenantDetailService } from './services/tenant-detail.service';
-import { ModuleAssignmentService } from '../modules/tenant-management/services/module-assignment.service';
-import { AuditLogModule } from '../audit/audit.module';
-import { SettingsModule } from '../settings/settings.module';
-import { BillingModule } from '../billing/billing.module';
-import { UsersModule } from '../users/users.module';
+import { TenantProvisioningService } from './services/tenant-provisioning.service';
+import { TenantController } from './tenant.controller';
 
 const CommandHandlers = [
   CreateTenantHandler,

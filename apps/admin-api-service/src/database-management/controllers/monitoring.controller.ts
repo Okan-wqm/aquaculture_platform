@@ -15,8 +15,10 @@ import {
   HttpCode,
   UseGuards,
 } from '@nestjs/common';
-import { DatabaseMonitoringService } from '../services/database-monitoring.service';
+import { ApiTags } from '@nestjs/swagger';
+
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
+import { DatabaseMonitoringService } from '../services/database-monitoring.service';
 
 // ============================================================================
 // DTOs
@@ -31,6 +33,7 @@ class AnalyzeQueryDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Database Management')
 @Controller('database/monitoring')
 @UseGuards(PlatformAdminGuard)
 export class MonitoringController {

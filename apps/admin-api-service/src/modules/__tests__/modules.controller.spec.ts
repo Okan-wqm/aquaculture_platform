@@ -1,5 +1,8 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ConflictException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
+
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { ModulesController, CreateModuleDto, UpdateModuleDto, AssignModuleDto } from '../modules.controller';
 import { ModulesService, ModuleDto, PaginatedModules, ModuleStats, TenantModuleAssignment } from '../modules.service';
 
@@ -71,6 +74,16 @@ describe('ModulesController', () => {
         {
           provide: ModulesService,
           useValue: mockModulesService,
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: string) => {
+              if (key === 'JWT_SECRET') return 'test-secret-key-that-is-at-least-32-characters-long';
+              if (key === 'NODE_ENV') return 'test';
+              return defaultValue;
+            }),
+          },
         },
       ],
     }).compile();

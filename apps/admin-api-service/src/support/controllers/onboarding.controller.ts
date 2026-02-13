@@ -16,8 +16,10 @@ import {
   HttpCode,
   BadRequestException,
 } from '@nestjs/common';
-import { OnboardingService } from '../services/onboarding.service';
+import { ApiTags } from '@nestjs/swagger';
+
 import { OnboardingStatus, TrainingSession } from '../entities/support.entity';
+import { OnboardingService } from '../services/onboarding.service';
 
 // ============================================================================
 // DTOs
@@ -56,6 +58,7 @@ class AssignGuideDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Support')
 @Controller('support/onboarding')
 export class OnboardingController {
   constructor(private readonly onboardingService: OnboardingService) {}

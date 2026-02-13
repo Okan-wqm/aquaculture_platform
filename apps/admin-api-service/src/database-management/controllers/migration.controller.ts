@@ -16,28 +16,61 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
-import { MigrationManagementService } from '../services/migration-management.service';
+import { ApiTags } from '@nestjs/swagger';
+import { IsNotEmpty, IsString, IsOptional, IsBoolean, MaxLength, Matches } from 'class-validator';
+
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { MigrationStatus } from '../entities/database-management.entity';
+import { MigrationManagementService } from '../services/migration-management.service';
 
 // ============================================================================
 // DTOs
 // ============================================================================
 
 class RunMigrationDto {
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(20)
+  @Matches(/^\d+\.\d+\.\d+$/, { message: 'version must be in semver format (e.g. 1.0.0)' })
   version!: string;
+
+  @IsOptional()
+  @IsBoolean()
   isDryRun?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
   executedBy?: string;
 }
 
 class BatchMigrationDto {
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(20)
+  @Matches(/^\d+\.\d+\.\d+$/, { message: 'version must be in semver format (e.g. 1.0.0)' })
   version!: string;
+
+  @IsOptional()
+  @IsBoolean()
   isDryRun?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
   executedBy?: string;
 }
 
 class RollbackMigrationDto {
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(20)
+  @Matches(/^\d+\.\d+\.\d+$/, { message: 'version must be in semver format (e.g. 1.0.0)' })
   version!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
   executedBy?: string;
 }
 
@@ -45,6 +78,7 @@ class RollbackMigrationDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Database Management')
 @Controller('database/migrations')
 @UseGuards(PlatformAdminGuard)
 export class MigrationController {

@@ -99,12 +99,12 @@ export class ModulesService {
    */
   async listModules(
     filter: ModuleFilter,
-    page: number = 1,
-    limit: number = 50,
+    page = 1,
+    limit = 50,
   ): Promise<PaginatedModules> {
     const offset = (page - 1) * limit;
 
-    let whereConditions: string[] = [];
+    const whereConditions: string[] = [];
     const params: (string | boolean)[] = [];
     let paramIndex = 1;
 
@@ -466,8 +466,8 @@ export class ModulesService {
    */
   async getModuleTenants(
     moduleId: string,
-    page: number = 1,
-    limit: number = 50,
+    page = 1,
+    limit = 50,
   ) {
     const offset = (page - 1) * limit;
 
@@ -518,8 +518,8 @@ export class ModulesService {
    */
   async getAssignments(
     filter: { tenantId?: string; moduleId?: string },
-    page: number = 1,
-    limit: number = 50,
+    page = 1,
+    limit = 50,
   ) {
     const offset = (page - 1) * limit;
     const conditions: string[] = [];

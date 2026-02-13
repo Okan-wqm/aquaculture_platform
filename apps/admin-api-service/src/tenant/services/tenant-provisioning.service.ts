@@ -1,13 +1,15 @@
+import * as crypto from 'crypto';
+
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
-import { Tenant, TenantStatus } from '../entities/tenant.entity';
-import * as crypto from 'crypto';
-import { EmailSenderService } from '../../settings/services/email-sender.service';
 import { SchemaManagerService } from '@platform/backend-common';
+import { Repository, DataSource } from 'typeorm';
+
+import { EmailSenderService } from '../../settings/services/email-sender.service';
 import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
 import { RoleTemplateService } from '../../users/services/role-template.service';
 import { UserPermissionsService } from '../../users/services/user-permissions.service';
+import { Tenant, TenantStatus } from '../entities/tenant.entity';
 
 /**
  * Default tenant role definition for provisioning
@@ -409,7 +411,7 @@ export class TenantProvisioningService {
     this.logger.log(`Creating schema for tenant ${tenant.id}`);
 
     // Always create ALL module tables for tenant isolation (regardless of assigned modules)
-    const modulesToCreate = ['sensor', 'farm', 'hr'];
+    const modulesToCreate = ['sensor', 'farm', 'hr', 'hydroponics'];
 
     // Create tenant schema with all module tables
     const result = await this.schemaManager.createTenantSchema(tenant.id, modulesToCreate);

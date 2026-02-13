@@ -86,7 +86,7 @@ export class MobileSettingsResolver {
       }
     }
 
-    return this.mobileSettingsService.bulkUpdate(userIds, currentUser.tenantId, {
+    return this.mobileSettingsService.bulkUpdate(currentUser.tenantId, userIds, {
       isMobileEnabled,
       allowedFeatures: Object.keys(allowedFeatures).length > 0 ? allowedFeatures : undefined,
     });

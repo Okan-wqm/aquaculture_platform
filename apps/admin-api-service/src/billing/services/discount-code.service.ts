@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, MoreThanOrEqual, IsNull, Or } from 'typeorm';
+
 import {
   DiscountCode,
   DiscountRedemption,
@@ -107,7 +108,11 @@ export class DiscountCodeService {
     isActive?: boolean;
     campaignId?: string;
     includeExpired?: boolean;
-  }): Promise<DiscountCode[]> {
+    page?: number;
+    limit?: number;
+  }): Promise<{ data: DiscountCode[]; total: number; page: number; limit: number }> {
+    const page = options?.page || 1;
+    const limit = options?.limit || 50;
     const query = this.discountCodeRepo.createQueryBuilder('dc');
 
     if (options?.isActive !== undefined) {
@@ -126,7 +131,13 @@ export class DiscountCodeService {
       );
     }
 
-    return query.orderBy('dc.createdAt', 'DESC').getMany();
+    query.orderBy('dc.createdAt', 'DESC');
+    query.skip((page - 1) * limit);
+    query.take(limit);
+
+    const [data, total] = await query.getManyAndCount();
+
+    return { data, total, page, limit };
   }
 
   /**
@@ -392,11 +403,20 @@ export class DiscountCodeService {
   /**
    * Get redemption history for a tenant
    */
-  async getTenantRedemptions(tenantId: string): Promise<DiscountRedemption[]> {
-    return this.redemptionRepo.find({
+  async getTenantRedemptions(
+    tenantId: string,
+    options: { page?: number; limit?: number } = {},
+  ): Promise<{ data: DiscountRedemption[]; total: number; page: number; limit: number }> {
+    const { page = 1, limit = 20 } = options;
+
+    const [data, total] = await this.redemptionRepo.findAndCount({
       where: { tenantId },
       order: { redeemedAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return { data, total, page, limit };
   }
 
   /**

@@ -5,9 +5,10 @@
  */
 
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThan, IsNull, Not } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
+
 import {
   SupportTicket,
   TicketComment,
@@ -250,15 +251,20 @@ export class TicketService {
    */
   async getTicketsForTenant(
     tenantId: string,
-    options: { status?: TicketStatus } = {},
-  ): Promise<SupportTicket[]> {
+    options: { status?: TicketStatus; page?: number; limit?: number } = {},
+  ): Promise<{ data: SupportTicket[]; total: number; page: number; limit: number }> {
+    const { page = 1, limit = 20, status } = options;
     const where: Record<string, unknown> = { tenantId };
-    if (options.status) where.status = options.status;
+    if (status) where.status = status;
 
-    return this.ticketRepository.find({
+    const [data, total] = await this.ticketRepository.findAndCount({
       where,
       order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return { data, total, page, limit };
   }
 
   /**
@@ -266,28 +272,41 @@ export class TicketService {
    */
   async getAssignedTickets(
     assignedTo: string,
-    options: { status?: TicketStatus } = {},
-  ): Promise<SupportTicket[]> {
+    options: { status?: TicketStatus; page?: number; limit?: number } = {},
+  ): Promise<{ data: SupportTicket[]; total: number; page: number; limit: number }> {
+    const { page = 1, limit = 20, status } = options;
     const where: Record<string, unknown> = { assignedTo };
-    if (options.status) where.status = options.status;
+    if (status) where.status = status;
 
-    return this.ticketRepository.find({
+    const [data, total] = await this.ticketRepository.findAndCount({
       where,
       order: { priority: 'DESC', createdAt: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return { data, total, page, limit };
   }
 
   /**
    * Get unassigned tickets
    */
-  async getUnassignedTickets(): Promise<SupportTicket[]> {
-    return this.ticketRepository.find({
+  async getUnassignedTickets(
+    options: { page?: number; limit?: number } = {},
+  ): Promise<{ data: SupportTicket[]; total: number; page: number; limit: number }> {
+    const { page = 1, limit = 20 } = options;
+
+    const [data, total] = await this.ticketRepository.findAndCount({
       where: {
         assignedTo: IsNull(),
         status: Not('closed' as TicketStatus),
       },
       order: { priority: 'DESC', createdAt: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return { data, total, page, limit };
   }
 
   // ============================================================================
@@ -462,17 +481,21 @@ export class TicketService {
    */
   async getComments(
     ticketId: string,
-    options: { includeInternal?: boolean } = {},
-  ): Promise<TicketComment[]> {
-    const { includeInternal = true } = options;
+    options: { includeInternal?: boolean; page?: number; limit?: number } = {},
+  ): Promise<{ data: TicketComment[]; total: number; page: number; limit: number }> {
+    const { includeInternal = true, page = 1, limit = 50 } = options;
 
     const where: Record<string, unknown> = { ticketId };
     if (!includeInternal) where.isInternal = false;
 
-    return this.commentRepository.find({
+    const [data, total] = await this.commentRepository.findAndCount({
       where,
       order: { createdAt: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return { data, total, page, limit };
   }
 
   // ============================================================================

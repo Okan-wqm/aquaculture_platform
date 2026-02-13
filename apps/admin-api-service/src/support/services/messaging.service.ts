@@ -7,6 +7,8 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, IsNull, Not } from 'typeorm';
+
+import { TenantReadOnly, TenantStatus, TenantPlan } from '../../analytics/entities/external/tenant.entity';
 import {
   MessageThread,
   Message,
@@ -16,7 +18,6 @@ import {
   BulkMessageRequest,
   AnnouncementTarget,
 } from '../entities/support.entity';
-import { TenantReadOnly, TenantStatus, TenantPlan } from '../../analytics/entities/external/tenant.entity';
 
 // ============================================================================
 // Service

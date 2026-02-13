@@ -13,6 +13,8 @@ import {
   UseGuards,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsString,
   IsOptional,
@@ -28,19 +30,18 @@ import {
   IsDateString,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 import { Request } from 'express';
 
-import {
-  ImpersonationService,
-  StartImpersonationRequest,
-} from '../services/impersonation.service';
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import {
   ImpersonationStatus,
   ImpersonationReason,
   ImpersonationPermissions,
 } from '../entities/impersonation-session.entity';
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
+import {
+  ImpersonationService,
+  StartImpersonationRequest,
+} from '../services/impersonation.service';
 
 // ============================================================================
 // DTOs with Validation
@@ -230,6 +231,7 @@ class QuerySessionsDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Impersonation')
 @Controller('impersonation')
 @UseGuards(PlatformAdminGuard)
 export class ImpersonationController {

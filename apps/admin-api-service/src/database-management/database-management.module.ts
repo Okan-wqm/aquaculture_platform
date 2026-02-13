@@ -5,10 +5,15 @@
  */
 
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
+import { BackupController } from './controllers/backup.controller';
+import { DatabaseExplorerController } from './controllers/explorer.controller';
+import { MigrationController } from './controllers/migration.controller';
+import { MonitoringController } from './controllers/monitoring.controller';
+import { SchemaController } from './controllers/schema.controller';
 import {
   TenantSchema,
   SchemaMigration,
@@ -19,17 +24,12 @@ import {
 } from './entities/database-management.entity';
 
 // Services
-import { SchemaManagementService } from './services/schema-management.service';
-import { MigrationManagementService } from './services/migration-management.service';
 import { BackupRestoreService } from './services/backup-restore.service';
 import { DatabaseMonitoringService } from './services/database-monitoring.service';
+import { MigrationManagementService } from './services/migration-management.service';
+import { SchemaManagementService } from './services/schema-management.service';
 
 // Controllers
-import { SchemaController } from './controllers/schema.controller';
-import { MigrationController } from './controllers/migration.controller';
-import { BackupController } from './controllers/backup.controller';
-import { MonitoringController } from './controllers/monitoring.controller';
-import { DatabaseExplorerController } from './controllers/explorer.controller';
 
 @Module({
   imports: [

@@ -1,5 +1,6 @@
-import { IsEmail, IsString, IsOptional, IsObject, ValidateNested, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsEmail, IsString, IsOptional, IsObject, ValidateNested, IsBoolean } from 'class-validator';
+
 import { PanelPermissions } from '../entities/user-permissions.entity';
 
 /**

@@ -1,12 +1,24 @@
-import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { ValidationPipe, Logger, VersioningType, VERSION_NEUTRAL } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AppModule } from './app.module';
+import { NestFactory } from '@nestjs/core';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
+
+import { AppModule } from './app.module';
+import { CorrelationIdMiddleware } from './shared/correlation-id.middleware';
+import { StructuredLoggerService } from './shared/structured-logger.service';
 
 async function bootstrap() {
   const logger = new Logger('AdminApiService');
   const app = await NestFactory.create(AppModule);
+
+  // Use structured logger with correlation ID support
+  const structuredLogger = new StructuredLoggerService();
+  app.useLogger(structuredLogger);
+
+  // Apply correlation ID middleware (must be early in the chain)
+  const correlationMiddleware = new CorrelationIdMiddleware();
+  app.use(correlationMiddleware.use.bind(correlationMiddleware));
 
   const configService = app.get(ConfigService);
   const isProduction = process.env['NODE_ENV'] === 'production';
@@ -98,18 +110,51 @@ async function bootstrap() {
     }),
   );
 
-  // No global prefix - nginx handles /api routing
-  // Health endpoints are at root level for kubernetes probes
+  // API Versioning — URI-based (e.g., /v1/tenants)
+  // defaultVersion includes VERSION_NEUTRAL so existing unversioned routes
+  // continue to work at their current paths (backwards-compatible).
+  // New or updated endpoints can use @Version('2') for future breaking changes.
+  app.enableVersioning({
+    type: VersioningType.URI,
+    defaultVersion: ['1', VERSION_NEUTRAL],
+  });
 
   // Enable graceful shutdown hooks
   app.enableShutdownHooks();
 
   const port = process.env['PORT'] || 3000;
+
+  // OpenAPI / Swagger documentation (non-production only by default)
+  if (!isProduction || process.env['ENABLE_SWAGGER'] === 'true') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Aquaculture Admin API')
+      .setDescription('Platform administration API for the Aquaculture SaaS platform')
+      .setVersion('1.0.0')
+      .addBearerAuth(
+        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        'JWT',
+      )
+      .addServer('/', 'Direct (dev)')
+      .addServer('/api', 'Via nginx gateway')
+      .build();
+
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('docs', app, document, {
+      swaggerOptions: {
+        persistAuthorization: true,
+        tagsSorter: 'alpha',
+        operationsSorter: 'alpha',
+      },
+    });
+    logger.log(`Swagger docs available at http://localhost:${port}/docs`);
+  }
+
   await app.listen(port);
 
   logger.log(`Admin API Service running on port ${port}`);
   logger.log(`Environment: ${process.env['NODE_ENV'] || 'development'}`);
-  logger.log(`Health check: http://localhost:${port}/api/v1/health`);
+  logger.log(`Health check: http://localhost:${port}/v1/health`);
+  logger.log(`Health check (unversioned): http://localhost:${port}/health`);
 }
 
 const bootstrapLogger = new Logger('AdminApiServiceBootstrap');

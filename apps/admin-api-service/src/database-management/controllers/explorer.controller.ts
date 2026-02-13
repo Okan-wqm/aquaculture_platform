@@ -21,12 +21,14 @@ import {
   Req,
   StreamableFile,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
-import { IsOptional, IsNumber, IsString, IsIn, IsObject, IsBoolean } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
+import { IsOptional, IsNumber, IsString, IsIn, IsObject, IsBoolean } from 'class-validator';
 import { Response, Request } from 'express';
+import { DataSource } from 'typeorm';
+
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 // ============================================================================
 // Sensitive Column Masking Configuration
@@ -202,6 +204,7 @@ interface TableData {
 // Controller
 // ============================================================================
 
+@ApiTags('Database Management')
 @Controller('database/explorer')
 @UseGuards(PlatformAdminGuard)
 export class DatabaseExplorerController {

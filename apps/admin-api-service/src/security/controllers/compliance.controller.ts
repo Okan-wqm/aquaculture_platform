@@ -15,12 +15,8 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import {
-  ComplianceService,
-  DataRequestCreateParams,
-  ComplianceCheckResult,
-  DataInventory,
-} from '../services/compliance.service';
+import { ApiTags } from '@nestjs/swagger';
+
 import {
   DataRequest,
   DataRequestType,
@@ -28,6 +24,12 @@ import {
   ComplianceReport,
   ComplianceType,
 } from '../entities/security.entity';
+import {
+  ComplianceService,
+  DataRequestCreateParams,
+  ComplianceCheckResult,
+  DataInventory,
+} from '../services/compliance.service';
 
 // ============================================================================
 // DTOs
@@ -100,6 +102,7 @@ class QueryReportsDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Security')
 @Controller('security/compliance')
 export class ComplianceController {
   constructor(private readonly complianceService: ComplianceService) {}

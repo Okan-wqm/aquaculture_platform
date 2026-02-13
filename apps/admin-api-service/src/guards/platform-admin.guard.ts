@@ -8,9 +8,10 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
 import * as jwt from 'jsonwebtoken';
+
 import { ROLES_KEY } from '../decorators/roles.decorator';
 
 export interface JwtPayload {

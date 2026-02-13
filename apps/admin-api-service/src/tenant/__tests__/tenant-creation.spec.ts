@@ -11,28 +11,34 @@
  * 7. Country code validation (ISO 3166-1)
  */
 
+import { ConflictException, BadRequestException } from '@nestjs/common';
+import { CommandBus, EventBus } from '@nestjs/cqrs';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
-import { CommandBus, EventBus } from '@nestjs/cqrs';
-import { ConflictException, BadRequestException } from '@nestjs/common';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { Repository, DataSource, QueryRunner, EntityManager } from 'typeorm';
-import { CreateTenantHandler } from '../handlers/create-tenant.handler';
-import { CreateTenantCommand } from '../commands/tenant.commands';
-import { Tenant, TenantStatus, TenantTier, TenantPlan } from '../entities/tenant.entity';
-import { TenantProvisioningService, ProvisioningResult } from '../services/tenant-provisioning.service';
+
 import { AuditLogService } from '../../audit/audit.service';
 import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
+import { CreateTenantCommand } from '../commands/tenant.commands';
 import { CreateTenantDto, TenantContactDto } from '../dto/tenant.dto';
-import { validate } from 'class-validator';
-import { plainToInstance } from 'class-transformer';
-import { v4 as uuidv4 } from 'uuid';
+import { Tenant, TenantStatus, TenantTier, TenantPlan } from '../entities/tenant.entity';
+import { CreateTenantHandler } from '../handlers/create-tenant.handler';
+import { TenantProvisioningService, ProvisioningResult } from '../services/tenant-provisioning.service';
+
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { v4: uuidv4 } = require('uuid');
 
 // =============================================================================
 // Mock Factories
 // =============================================================================
 
-const createMockTenant = (overrides: Partial<Tenant> = {}): Tenant => {
+const createMockTenant = (overrides: Record<string, any> = {}): Tenant => {
   const tenant = new Tenant();
+  // Extract 'limits' from overrides since it's a getter-only property on Tenant
+  const { limits: _limits, ...safeOverrides } = overrides;
   Object.assign(tenant, {
     id: uuidv4(),
     name: 'Test Aquaculture Farm',
@@ -42,9 +48,15 @@ const createMockTenant = (overrides: Partial<Tenant> = {}): Tenant => {
     status: TenantStatus.PENDING,
     plan: TenantPlan.PROFESSIONAL,
     maxUsers: 5,
+    maxStorage: -1,
+    isTrialActive: false,
+    userCount: 0,
+    farmCount: 0,
+    sensorCount: 0,
+    version: 1,
     createdAt: new Date(),
     updatedAt: new Date(),
-    ...overrides,
+    ...safeOverrides,
   });
   return tenant;
 };
@@ -90,7 +102,7 @@ const createMockEntityManager = (): jest.Mocked<EntityManager> =>
   ({
     findOne: jest.fn(),
     save: jest.fn(),
-    create: jest.fn((entity, data) => ({ ...data })),
+    create: jest.fn((_entity: any, data: any) => ({ ...data })),
     query: jest.fn(),
   }) as unknown as jest.Mocked<EntityManager>;
 
@@ -214,7 +226,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -237,7 +249,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -260,7 +272,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(dataWithoutTier, 'admin-user-id');
@@ -280,7 +292,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -298,7 +310,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -326,7 +338,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -378,7 +390,7 @@ describe('TenantCreation', () => {
       const createdTenant = createMockTenant({ ...validTenantData });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -437,7 +449,7 @@ describe('TenantCreation', () => {
       const createdTenant = createMockTenant({ ...validTenantData });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -454,7 +466,7 @@ describe('TenantCreation', () => {
       const createdTenant = createMockTenant({ ...validTenantData });
 
       mockManager.findOne.mockResolvedValue(null); // Both checks pass
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -479,7 +491,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -503,7 +515,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
       provisioningService.provisionTenant.mockResolvedValue(
         createMockProvisioningResult({
@@ -533,7 +545,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
       provisioningService.provisionTenant.mockResolvedValue(
         createMockProvisioningResult({
@@ -566,7 +578,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -589,7 +601,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
       provisioningService.provisionTenant.mockRejectedValue(
         new Error('Unexpected provisioning error'),
@@ -624,7 +636,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -650,7 +662,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -676,7 +688,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -706,7 +718,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -736,7 +748,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -760,7 +772,7 @@ describe('TenantCreation', () => {
       });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
       provisioningService.provisionTenant.mockResolvedValue(
         createMockProvisioningResult({
@@ -789,7 +801,7 @@ describe('TenantCreation', () => {
       const createdTenant = createMockTenant({ ...validTenantData });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -803,7 +815,7 @@ describe('TenantCreation', () => {
       const createdTenant = createMockTenant({ ...validTenantData });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -834,7 +846,7 @@ describe('TenantCreation', () => {
       const createdTenant = createMockTenant({ ...validTenantData });
 
       mockManager.findOne.mockResolvedValue(null);
-      mockManager.create.mockReturnValue(createdTenant);
+      (mockManager.create as jest.Mock).mockReturnValue(createdTenant);
       mockManager.save.mockResolvedValue(createdTenant);
 
       const command = new CreateTenantCommand(validTenantData, 'admin-user-id');
@@ -1034,17 +1046,19 @@ describe('CountryCodeValidation', () => {
       }
     });
 
-    it('should reject lowercase country codes', async () => {
-      const invalidCodes = ['us', 'gb', 'de'];
+    it('should transform lowercase country codes to uppercase', async () => {
+      const codes = ['us', 'gb', 'de'];
 
-      for (const country of invalidCodes) {
+      for (const country of codes) {
         const dto = plainToInstance(CreateTenantDto, {
           name: 'Test Tenant',
           country,
         });
+        // @Transform decorator uppercases the value before validation
+        expect(dto.country).toBe(country.toUpperCase());
         const errors = await validate(dto);
         const countryErrors = errors.filter((e) => e.property === 'country');
-        expect(countryErrors.length).toBeGreaterThan(0);
+        expect(countryErrors).toHaveLength(0);
       }
     });
 
@@ -1138,14 +1152,16 @@ describe('SlugAndDomainValidation', () => {
       expect(slugErrors.length).toBeGreaterThan(0);
     });
 
-    it('should reject uppercase slugs', async () => {
+    it('should transform uppercase slugs to lowercase', async () => {
       const dto = plainToInstance(CreateTenantDto, {
         name: 'Test Tenant',
         slug: 'Invalid-Slug',
       });
+      // @Transform decorator lowercases the value before validation
+      expect(dto.slug).toBe('invalid-slug');
       const errors = await validate(dto);
       const slugErrors = errors.filter((e) => e.property === 'slug');
-      expect(slugErrors.length).toBeGreaterThan(0);
+      expect(slugErrors).toHaveLength(0);
     });
 
     it('should reject slugs with special characters', async () => {
@@ -1193,14 +1209,16 @@ describe('SlugAndDomainValidation', () => {
       expect(domainErrors.length).toBeGreaterThan(0);
     });
 
-    it('should reject domains with uppercase letters', async () => {
+    it('should transform domains with uppercase letters to lowercase', async () => {
       const dto = plainToInstance(CreateTenantDto, {
         name: 'Test Tenant',
         domain: 'Invalid.COM',
       });
+      // @Transform decorator lowercases the value before validation
+      expect(dto.domain).toBe('invalid.com');
       const errors = await validate(dto);
       const domainErrors = errors.filter((e) => e.property === 'domain');
-      expect(domainErrors.length).toBeGreaterThan(0);
+      expect(domainErrors).toHaveLength(0);
     });
 
     it('should reject domains with invalid characters', async () => {

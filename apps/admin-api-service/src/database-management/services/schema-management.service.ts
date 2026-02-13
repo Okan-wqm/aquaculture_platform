@@ -7,6 +7,7 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+
 import {
   TenantSchema,
   SchemaStatus,
@@ -174,10 +175,18 @@ export class SchemaManagementService {
   /**
    * Get all tenant schemas
    */
-  async getAllSchemas(): Promise<TenantSchema[]> {
-    return this.schemaRepository.find({
+  async getAllSchemas(
+    options: { page?: number; limit?: number } = {},
+  ): Promise<{ data: TenantSchema[]; total: number; page: number; limit: number }> {
+    const { page = 1, limit = 50 } = options;
+
+    const [data, total] = await this.schemaRepository.findAndCount({
       order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return { data, total, page, limit };
   }
 
   /**

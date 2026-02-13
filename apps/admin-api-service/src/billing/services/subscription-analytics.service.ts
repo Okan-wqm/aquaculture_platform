@@ -4,6 +4,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+
 import {
   SubscriptionStatus,
   SubscriptionStats,
@@ -159,7 +160,7 @@ export class SubscriptionAnalyticsService {
   /**
    * Get MRR trend over time
    */
-  async getMrrTrend(months: number = 12): Promise<Array<{
+  async getMrrTrend(months = 12): Promise<Array<{
     month: string;
     mrr: number;
     activeCount: number;
@@ -199,7 +200,7 @@ export class SubscriptionAnalyticsService {
   /**
    * Get churn analysis
    */
-  async getChurnAnalysis(days: number = 90): Promise<{
+  async getChurnAnalysis(days = 90): Promise<{
     churned: number;
     churnRate: number;
     reasonBreakdown: Record<string, number>;
@@ -322,7 +323,7 @@ export class SubscriptionAnalyticsService {
   /**
    * Get growth metrics
    */
-  async getGrowthMetrics(months: number = 3): Promise<{
+  async getGrowthMetrics(months = 3): Promise<{
     newSubscriptions: number;
     netGrowth: number;
     growthRate: number;

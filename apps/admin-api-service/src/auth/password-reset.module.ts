@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
-import { PasswordResetController } from './password-reset.controller';
+
 import { SettingsModule } from '../settings/settings.module';
+
+import { PasswordResetController } from './password-reset.controller';
 
 @Module({
   imports: [SettingsModule],

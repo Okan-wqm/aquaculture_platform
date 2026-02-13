@@ -10,14 +10,17 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+
+import { EmailTemplateVariable } from '../entities/system-setting.entity';
 import {
   EmailTemplateService,
   CreateEmailTemplateDto,
   UpdateEmailTemplateDto,
   RenderTemplateDto,
 } from '../services/email-template.service';
-import { EmailTemplateVariable } from '../entities/system-setting.entity';
 
+@ApiTags('Settings')
 @Controller('settings/email-templates')
 export class EmailTemplateController {
   constructor(

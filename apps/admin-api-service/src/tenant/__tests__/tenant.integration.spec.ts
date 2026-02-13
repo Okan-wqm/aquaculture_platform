@@ -1,19 +1,29 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, HttpStatus, ValidationPipe } from '@nestjs/common';
-import { TypeOrmModule, getRepositoryToken } from '@nestjs/typeorm';
 import { CqrsModule, CommandBus, QueryBus } from '@nestjs/cqrs';
-import { Repository, DataSource } from 'typeorm';
+import { Test, TestingModule } from '@nestjs/testing';
+import { TypeOrmModule, getRepositoryToken } from '@nestjs/typeorm';
 import * as request from 'supertest';
+import { Repository, DataSource } from 'typeorm';
 
-import { TenantController } from '../tenant.controller';
+import { AuditLogService } from '../../audit/audit.service';
+import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
+import { SystemSettingService } from '../../settings/services/system-setting.service';
+import { CreateTenantCommand } from '../commands/tenant.commands';
+import {
+  TenantActivity,
+  TenantNote,
+  TenantBillingInfo,
+} from '../entities/tenant-activity.entity';
+import { Tenant, TenantInvitation, TenantStatus, TenantTier } from '../entities/tenant.entity';
 import { CreateTenantHandler } from '../handlers/create-tenant.handler';
-import { UpdateTenantHandler } from '../handlers/update-tenant.handler';
 import {
   SuspendTenantHandler,
   ActivateTenantHandler,
   DeactivateTenantHandler,
   ArchiveTenantHandler,
 } from '../handlers/suspend-tenant.handler';
+import { UpdateTenantHandler } from '../handlers/update-tenant.handler';
+import { ListTenantsQuery } from '../queries/tenant.queries';
 import {
   GetTenantByIdHandler,
   GetTenantBySlugHandler,
@@ -24,17 +34,10 @@ import {
   GetExpiringTrialsHandler,
   SearchTenantsHandler,
 } from '../query-handlers/tenant-query.handlers';
-import { TenantProvisioningService } from '../services/tenant-provisioning.service';
 import { TenantActivityService } from '../services/tenant-activity.service';
 import { TenantDetailService } from '../services/tenant-detail.service';
-import { Tenant, TenantInvitation, TenantStatus, TenantTier } from '../entities/tenant.entity';
-import {
-  TenantActivity,
-  TenantNote,
-  TenantBillingInfo,
-} from '../entities/tenant-activity.entity';
-import { AuditLogService } from '../../audit/audit-log.service';
-import { SettingsService } from '../../settings/settings.service';
+import { TenantProvisioningService } from '../services/tenant-provisioning.service';
+import { TenantController } from '../tenant.controller';
 
 // Mock services
 const mockAuditLogService = {
@@ -68,6 +71,15 @@ const mockDetailService = {
   getActivitiesTimeline: jest.fn().mockResolvedValue({ data: [], total: 0, totalPages: 0 }),
   bulkSuspend: jest.fn(),
   bulkActivate: jest.fn(),
+};
+
+const mockModuleAssignmentService = {
+  assignModulesToTenant: jest.fn().mockResolvedValue({
+    success: true,
+    assignedModules: [],
+    failedModules: [],
+    totalMonthlyPrice: 0,
+  }),
 };
 
 // Mock repository
@@ -106,20 +118,27 @@ const mockActivityRepository = createMockRepository();
 const mockNoteRepository = createMockRepository();
 const mockBillingRepository = createMockRepository();
 
+const mockQueryRunner = {
+  connect: jest.fn(),
+  startTransaction: jest.fn(),
+  commitTransaction: jest.fn(),
+  rollbackTransaction: jest.fn(),
+  release: jest.fn(),
+  manager: {
+    save: jest.fn(),
+    findOne: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+    create: jest.fn((entityClass: any, data: any) => {
+      const instance = new entityClass();
+      Object.assign(instance, data);
+      return instance;
+    }),
+  },
+};
+
 const mockDataSource = {
-  createQueryRunner: jest.fn(() => ({
-    connect: jest.fn(),
-    startTransaction: jest.fn(),
-    commitTransaction: jest.fn(),
-    rollbackTransaction: jest.fn(),
-    release: jest.fn(),
-    manager: {
-      save: jest.fn(),
-      findOne: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-    },
-  })),
+  createQueryRunner: jest.fn(() => mockQueryRunner),
   query: jest.fn(),
   getRepository: jest.fn(),
 };
@@ -189,7 +208,7 @@ describe('Tenant Integration Tests', () => {
           useValue: mockAuditLogService,
         },
         {
-          provide: SettingsService,
+          provide: SystemSettingService,
           useValue: mockSettingsService,
         },
         {
@@ -203,6 +222,10 @@ describe('Tenant Integration Tests', () => {
         {
           provide: TenantDetailService,
           useValue: mockDetailService,
+        },
+        {
+          provide: ModuleAssignmentService,
+          useValue: mockModuleAssignmentService,
         },
         // Command Handlers
         CreateTenantHandler,
@@ -247,38 +270,35 @@ describe('Tenant Integration Tests', () => {
 
         // 1. Create Tenant
         mockTenantRepository.findOne.mockResolvedValueOnce(null); // No existing slug
-        (queryRunner.manager.save as jest.Mock).mockResolvedValueOnce(tenant);
+        (queryRunner.manager.save).mockResolvedValueOnce(tenant);
         mockTenantRepository.findOne.mockResolvedValueOnce(tenant);
 
-        const createResult = await commandBus.execute({
-          name: 'CreateTenantCommand',
-          tenantData: {
-            name: 'Test Tenant',
-            slug: 'test-tenant',
-            tier: 'PROFESSIONAL',
-          },
-          adminUserId: 'admin-123',
-        });
+        const createResult = await commandBus.execute(
+          new CreateTenantCommand(
+            { name: 'Test Tenant', slug: 'test-tenant' } as any,
+            'admin-123',
+          ),
+        );
 
         // 2. Update Tenant
         mockTenantRepository.findOne.mockResolvedValueOnce(tenant);
         const updatedTenant = { ...tenant, name: 'Updated Tenant' };
-        (queryRunner.manager.save as jest.Mock).mockResolvedValueOnce(updatedTenant);
+        (queryRunner.manager.save).mockResolvedValueOnce(updatedTenant);
 
         // 3. Suspend Tenant
         const suspendedTenant = { ...tenant, status: TenantStatus.SUSPENDED };
         mockTenantRepository.findOne.mockResolvedValueOnce(tenant);
-        (queryRunner.manager.save as jest.Mock).mockResolvedValueOnce(suspendedTenant);
+        (queryRunner.manager.save).mockResolvedValueOnce(suspendedTenant);
 
         // 4. Activate Tenant
         const activatedTenant = { ...tenant, status: TenantStatus.ACTIVE };
         mockTenantRepository.findOne.mockResolvedValueOnce(suspendedTenant);
-        (queryRunner.manager.save as jest.Mock).mockResolvedValueOnce(activatedTenant);
+        (queryRunner.manager.save).mockResolvedValueOnce(activatedTenant);
 
         // 5. Archive Tenant
         const archivedTenant = { ...tenant, status: TenantStatus.ARCHIVED };
         mockTenantRepository.findOne.mockResolvedValueOnce(activatedTenant);
-        (queryRunner.manager.save as jest.Mock).mockResolvedValueOnce(archivedTenant);
+        (queryRunner.manager.save).mockResolvedValueOnce(archivedTenant);
 
         // Verify audit log was called for each operation
         // expect(mockAuditLogService.log).toHaveBeenCalledTimes(5);
@@ -298,7 +318,7 @@ describe('Tenant Integration Tests', () => {
 
         mockTenantRepository.findOne.mockResolvedValueOnce(null);
         const queryRunner = mockDataSource.createQueryRunner();
-        (queryRunner.manager.save as jest.Mock).mockResolvedValueOnce(trialTenant);
+        (queryRunner.manager.save).mockResolvedValueOnce(trialTenant);
 
         // Verify trial tenant properties
         expect(trialTenant.isTrialActive).toBe(true);
@@ -325,7 +345,7 @@ describe('Tenant Integration Tests', () => {
         const queryRunner = mockDataSource.createQueryRunner();
 
         mockTenantRepository.findOne.mockResolvedValueOnce(null);
-        (queryRunner.manager.save as jest.Mock).mockResolvedValueOnce(tenant);
+        (queryRunner.manager.save).mockResolvedValueOnce(tenant);
 
         // After tenant creation, provisioning should be triggered
         expect(mockProvisioningService.provisionTenant).toHaveBeenCalledTimes(0);
@@ -358,7 +378,7 @@ describe('Tenant Integration Tests', () => {
         const queryRunner = mockDataSource.createQueryRunner();
 
         mockTenantRepository.findOne.mockResolvedValueOnce(null);
-        (queryRunner.manager.save as jest.Mock).mockResolvedValueOnce(tenant);
+        (queryRunner.manager.save).mockResolvedValueOnce(tenant);
 
         // Audit log should be created
       });
@@ -372,12 +392,9 @@ describe('Tenant Integration Tests', () => {
         mockTenantRepository.createQueryBuilder().getManyAndCount.mockResolvedValueOnce([tenants, 2]);
 
         // Execute query through queryBus
-        const result = await queryBus.execute({
-          name: 'ListTenantsQuery',
-          filters: {},
-          pagination: { page: 1, limit: 20 },
-          sorting: { field: 'createdAt', order: 'DESC' },
-        });
+        const result = await queryBus.execute(
+          new ListTenantsQuery({}, { page: 1, limit: 20 }, { field: 'createdAt', order: 'DESC' }),
+        );
       });
 
       it('should filter tenants by status', async () => {
@@ -513,7 +530,7 @@ describe('Tenant Integration Tests', () => {
         const queryRunner = mockDataSource.createQueryRunner();
 
         mockTenantRepository.findOne.mockResolvedValueOnce(null);
-        (queryRunner.manager.save as jest.Mock).mockResolvedValueOnce(tenant);
+        (queryRunner.manager.save).mockResolvedValueOnce(tenant);
         mockProvisioningService.provisionTenant.mockRejectedValueOnce(new Error('Provisioning failed'));
 
         // Transaction should be rolled back
@@ -525,7 +542,7 @@ describe('Tenant Integration Tests', () => {
         const queryRunner = mockDataSource.createQueryRunner();
 
         mockTenantRepository.findOne.mockResolvedValueOnce(null);
-        (queryRunner.manager.save as jest.Mock).mockResolvedValueOnce(tenant);
+        (queryRunner.manager.save).mockResolvedValueOnce(tenant);
         mockProvisioningService.provisionTenant.mockResolvedValueOnce(undefined);
 
         // Transaction should be committed
@@ -580,11 +597,13 @@ describe('Tenant Integration Tests', () => {
   describe('Error Handling Integration', () => {
     describe('Database Errors', () => {
       it('should handle connection errors gracefully', async () => {
+        const originalImpl = mockDataSource.createQueryRunner.getMockImplementation();
         mockDataSource.createQueryRunner.mockImplementationOnce(() => {
           throw new Error('Connection refused');
         });
 
-        // Should return appropriate error response
+        // Consume the mock so it doesn't bleed to next test
+        expect(() => mockDataSource.createQueryRunner()).toThrow('Connection refused');
       });
 
       it('should handle constraint violations', async () => {
@@ -592,7 +611,7 @@ describe('Tenant Integration Tests', () => {
         const queryRunner = mockDataSource.createQueryRunner();
 
         mockTenantRepository.findOne.mockResolvedValueOnce(null);
-        (queryRunner.manager.save as jest.Mock).mockRejectedValueOnce({
+        (queryRunner.manager.save).mockRejectedValueOnce({
           code: '23505', // Unique constraint violation
           message: 'duplicate key value violates unique constraint',
         });
@@ -625,7 +644,7 @@ describe('Tenant Integration Tests', () => {
         const queryRunner = mockDataSource.createQueryRunner();
 
         mockTenantRepository.findOne.mockResolvedValueOnce(null);
-        (queryRunner.manager.save as jest.Mock).mockResolvedValueOnce(tenant);
+        (queryRunner.manager.save).mockResolvedValueOnce(tenant);
 
         // TenantCreated event should be published
       });

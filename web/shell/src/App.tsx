@@ -40,6 +40,11 @@ const HRModule = lazy(() => import('hrModule/Module'));
 const SensorModule = lazy(() => import('sensorModule/Module'));
 
 /**
+ * Hydroponics module (Remote)
+ */
+const HydroponicsModule = lazy(() => import('hydroponicsModule/Module'));
+
+/**
  * Admin Panel module (Remote) - SUPER_ADMIN Only
  */
 const AdminPanelModule = lazy(() => import('adminPanel/Module'));
@@ -189,6 +194,18 @@ const App: React.FC = () => {
             <ErrorBoundary moduleName="Sensor">
               <Suspense fallback={<RemoteModuleLoader moduleName="Sensor" />}>
                 <SensorModule />
+              </Suspense>
+            </ErrorBoundary>
+          }
+        />
+
+        {/* Hydroponics Module */}
+        <Route
+          path="/hydroponics/*"
+          element={
+            <ErrorBoundary moduleName="Hydroponics">
+              <Suspense fallback={<RemoteModuleLoader moduleName="Hydroponics" />}>
+                <HydroponicsModule />
               </Suspense>
             </ErrorBoundary>
           }

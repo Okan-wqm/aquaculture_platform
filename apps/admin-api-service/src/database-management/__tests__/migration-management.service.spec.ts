@@ -11,17 +11,20 @@
  * - Batch Migration
  */
 
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { MigrationManagementService } from '../services/migration-management.service';
+
 import {
   TenantSchema,
   SchemaMigration,
   MigrationStatus,
 } from '../entities/database-management.entity';
-import { v4 as uuidv4 } from 'uuid';
+import { MigrationManagementService } from '../services/migration-management.service';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { v4: uuidv4 } = require('uuid');
 
 // =============================================================================
 // Mock Factories
@@ -257,9 +260,9 @@ describe('MigrationManagementService', () => {
       beforeEach(() => {
         const schema = createMockTenantSchema({ tenantId, currentVersion: '0.0.0' });
         schemaRepository.findOne.mockResolvedValue(schema);
-        schemaRepository.save.mockImplementation(async (s) => s);
+        schemaRepository.save.mockImplementation(async (s) => s as any);
         migrationRepository.findOne.mockResolvedValue(null);
-        migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }));
+        migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }) as any);
         (queryRunner.query as jest.Mock).mockResolvedValue([]);
       });
 
@@ -337,16 +340,20 @@ describe('MigrationManagementService', () => {
       });
 
       it('schema status migrating ve active olarak güncellenir', async () => {
+        // Capture status values at each save call
+        const statusHistory: string[] = [];
+        schemaRepository.save.mockImplementation(async (s) => {
+          statusHistory.push((s as any).status);
+          return s as any;
+        });
+
         // Act
         await service.runMigration(tenantId, version, false, 'admin');
 
-        // Assert
-        expect(schemaRepository.save).toHaveBeenCalledWith(
-          expect.objectContaining({ status: 'migrating' }),
-        );
-        expect(schemaRepository.save).toHaveBeenCalledWith(
-          expect.objectContaining({ status: 'active' }),
-        );
+        // Assert - first save should be 'migrating', second should be 'active'
+        expect(statusHistory).toContain('migrating');
+        expect(statusHistory).toContain('active');
+        expect(statusHistory.indexOf('migrating')).toBeLessThan(statusHistory.indexOf('active'));
       });
 
       it('currentVersion güncellenir', async () => {
@@ -400,7 +407,7 @@ describe('MigrationManagementService', () => {
 
       beforeEach(() => {
         migrationRepository.findOne.mockResolvedValue(null);
-        migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }));
+        migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }) as any);
         (queryRunner.query as jest.Mock).mockResolvedValue([]);
       });
 
@@ -416,7 +423,7 @@ describe('MigrationManagementService', () => {
           const tenantId = (where as any).tenantId;
           return tenants.find((t) => t.tenantId === tenantId) || null;
         });
-        schemaRepository.save.mockImplementation(async (s) => s);
+        schemaRepository.save.mockImplementation(async (s) => s as any);
 
         // Act
         const results = await service.runBatchMigration(version, false, 'admin');
@@ -429,14 +436,14 @@ describe('MigrationManagementService', () => {
         // Arrange
         const tenants = [createMockTenantSchema({ tenantId: 'tenant-1', status: 'active' })];
         schemaRepository.find.mockResolvedValue(tenants);
-        schemaRepository.findOne.mockResolvedValue(tenants[0]);
-        schemaRepository.save.mockImplementation(async (s) => s);
+        schemaRepository.findOne.mockResolvedValue(tenants[0]!);
+        schemaRepository.save.mockImplementation(async (s) => s as any);
 
         // Act
         const results = await service.runBatchMigration(version, true, 'admin');
 
         // Assert
-        expect(results[0].status).toBe('completed');
+        expect(results[0]!.status).toBe('completed');
       });
 
       it('bir tenant başarısız olsa da diğerleri devam eder', async () => {
@@ -447,17 +454,17 @@ describe('MigrationManagementService', () => {
         ];
         schemaRepository.find.mockResolvedValue(tenants);
         schemaRepository.findOne
-          .mockResolvedValueOnce(tenants[0])
+          .mockResolvedValueOnce(tenants[0]!)
           .mockResolvedValueOnce(null); // Second tenant not found
-        schemaRepository.save.mockImplementation(async (s) => s);
+        schemaRepository.save.mockImplementation(async (s) => s as any);
 
         // Act
         const results = await service.runBatchMigration(version, false, 'admin');
 
         // Assert
         expect(results).toHaveLength(2);
-        expect(results[0].status).toBe('completed');
-        expect(results[1].status).toBe('failed');
+        expect(results[0]!.status).toBe('completed');
+        expect(results[1]!.status).toBe('failed');
       });
 
       it('active tenant yoksa boş dizi döner', async () => {
@@ -521,8 +528,8 @@ describe('MigrationManagementService', () => {
       beforeEach(() => {
         const schema = createMockTenantSchema({ tenantId, currentVersion: version });
         schemaRepository.findOne.mockResolvedValue(schema);
-        schemaRepository.save.mockImplementation(async (s) => s);
-        migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }));
+        schemaRepository.save.mockImplementation(async (s) => s as any);
+        migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }) as any);
         (queryRunner.query as jest.Mock).mockResolvedValue([]);
       });
 
@@ -780,9 +787,9 @@ describe('MigrationManagementService', () => {
       const schema = createMockTenantSchema({ tenantId, currentVersion: '1.0.0' });
 
       schemaRepository.findOne.mockResolvedValue(schema);
-      schemaRepository.save.mockImplementation(async (s) => s);
+      schemaRepository.save.mockImplementation(async (s) => s as any);
       migrationRepository.findOne.mockResolvedValue(null);
-      migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }));
+      migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }) as any);
       (queryRunner.query as jest.Mock).mockResolvedValue([]);
 
       // Act
@@ -801,9 +808,9 @@ describe('MigrationManagementService', () => {
       const schema = createMockTenantSchema({ tenantId, currentVersion: '0.0.0' });
 
       schemaRepository.findOne.mockResolvedValue(schema);
-      schemaRepository.save.mockImplementation(async (s) => s);
+      schemaRepository.save.mockImplementation(async (s) => s as any);
       migrationRepository.findOne.mockResolvedValue(null);
-      migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }));
+      migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }) as any);
       (queryRunner.query as jest.Mock).mockResolvedValue([]);
 
       // Act
@@ -827,9 +834,9 @@ describe('MigrationManagementService', () => {
       const schema = createMockTenantSchema({ tenantId });
 
       schemaRepository.findOne.mockResolvedValue(schema);
-      schemaRepository.save.mockImplementation(async (s) => s);
+      schemaRepository.save.mockImplementation(async (s) => s as any);
       migrationRepository.findOne.mockResolvedValue(null);
-      migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }));
+      migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }) as any);
       (queryRunner.query as jest.Mock).mockResolvedValue([]);
 
       // Act
@@ -845,9 +852,9 @@ describe('MigrationManagementService', () => {
       const schema = createMockTenantSchema({ tenantId });
 
       schemaRepository.findOne.mockResolvedValue(schema);
-      schemaRepository.save.mockImplementation(async (s) => s);
+      schemaRepository.save.mockImplementation(async (s) => s as any);
       migrationRepository.findOne.mockResolvedValue(null);
-      migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }));
+      migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }) as any);
       (queryRunner.query as jest.Mock).mockResolvedValue([]);
 
       // Act
@@ -863,9 +870,9 @@ describe('MigrationManagementService', () => {
       const schema = createMockTenantSchema({ tenantId });
 
       schemaRepository.findOne.mockResolvedValue(schema);
-      schemaRepository.save.mockImplementation(async (s) => s);
+      schemaRepository.save.mockImplementation(async (s) => s as any);
       migrationRepository.findOne.mockResolvedValue(null);
-      migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }));
+      migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }) as any);
       (queryRunner.query as jest.Mock)
         .mockResolvedValueOnce([]) // SET search_path
         .mockRejectedValueOnce(new Error('SQL error'));
@@ -884,9 +891,9 @@ describe('MigrationManagementService', () => {
       const schema = createMockTenantSchema({ tenantId, schemaName });
 
       schemaRepository.findOne.mockResolvedValue(schema);
-      schemaRepository.save.mockImplementation(async (s) => s);
+      schemaRepository.save.mockImplementation(async (s) => s as any);
       migrationRepository.findOne.mockResolvedValue(null);
-      migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }));
+      migrationRepository.save.mockImplementation(async (m) => ({ ...m, id: uuidv4() }) as any);
       (queryRunner.query as jest.Mock).mockResolvedValue([]);
 
       // Act

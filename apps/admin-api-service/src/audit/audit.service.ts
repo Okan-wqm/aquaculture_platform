@@ -7,6 +7,7 @@ import {
   MoreThanOrEqual,
   LessThanOrEqual,
 } from 'typeorm';
+
 import { AuditLog, AuditSeverity } from './audit.entity';
 
 export interface AuditLogInput {
@@ -92,8 +93,8 @@ export class AuditLogService {
    */
   async query(
     filter: AuditLogFilter,
-    page: number = 1,
-    limit: number = 50,
+    page = 1,
+    limit = 50,
   ): Promise<PaginatedAuditLogs> {
     const skip = (page - 1) * limit;
     const take = Math.min(limit, 100);
@@ -174,7 +175,7 @@ export class AuditLogService {
   async getEntityHistory(
     entityType: string,
     entityId: string,
-    limit: number = 100,
+    limit = 100,
   ): Promise<AuditLog[]> {
     return this.auditLogRepository.find({
       where: { entityType, entityId },
@@ -190,7 +191,7 @@ export class AuditLogService {
     userId: string,
     startDate?: Date,
     endDate?: Date,
-    limit: number = 100,
+    limit = 100,
   ): Promise<AuditLog[]> {
     const where: FindOptionsWhere<AuditLog> = { performedBy: userId };
 
@@ -214,7 +215,7 @@ export class AuditLogService {
    */
   async getSecurityLogs(
     tenantId?: string,
-    limit: number = 100,
+    limit = 100,
   ): Promise<AuditLog[]> {
     const securityActions = [
       'LOGIN_SUCCESS',

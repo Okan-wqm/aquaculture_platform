@@ -5,10 +5,16 @@
  */
 
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
+import { TenantReadOnly } from '../analytics/entities/external/tenant.entity';
+
+import { AnnouncementController } from './controllers/announcement.controller';
+import { MessagingController } from './controllers/messaging.controller';
+import { OnboardingController } from './controllers/onboarding.controller';
+import { TicketController } from './controllers/ticket.controller';
 import {
   MessageThread,
   Message,
@@ -20,19 +26,14 @@ import {
 } from './entities/support.entity';
 
 // External Entities (read-only)
-import { TenantReadOnly } from '../analytics/entities/external/tenant.entity';
 
 // Services
-import { MessagingService } from './services/messaging.service';
 import { AnnouncementService } from './services/announcement.service';
-import { TicketService } from './services/ticket.service';
+import { MessagingService } from './services/messaging.service';
 import { OnboardingService } from './services/onboarding.service';
+import { TicketService } from './services/ticket.service';
 
 // Controllers
-import { MessagingController } from './controllers/messaging.controller';
-import { AnnouncementController } from './controllers/announcement.controller';
-import { TicketController } from './controllers/ticket.controller';
-import { OnboardingController } from './controllers/onboarding.controller';
 
 @Module({
   imports: [

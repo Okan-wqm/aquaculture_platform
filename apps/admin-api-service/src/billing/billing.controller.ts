@@ -11,33 +11,14 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+
+import { InvoiceStatus } from '../analytics/entities/external/invoice.entity';
 import { PlatformAdminGuard } from '../guards/platform-admin.guard';
-import {
-  PlanDefinitionService,
-  CreatePlanDto,
-  UpdatePlanDto,
-} from './services/plan-definition.service';
-import {
-  DiscountCodeService,
-  CreateDiscountCodeDto,
-  UpdateDiscountCodeDto,
-} from './services/discount-code.service';
-import {
-  SubscriptionManagementService,
-  SubscriptionFilters,
-  SubscriptionStatus,
-  PlanChangeRequest,
-  CreateSubscriptionDto,
-} from './services/subscription-management.service';
-import {
-  ModulePricingService,
-  SetModulePricingDto,
-} from './services/module-pricing.service';
-import {
-  PricingCalculatorService,
-  QuoteRequest,
-  ModuleSelection,
-} from './services/pricing-calculator.service';
+import { PaginationQueryDto } from '../shared/pagination-query.dto';
+
+import { CustomPlanStatus } from './entities/custom-plan.entity';
+import { PlanTier, BillingCycle } from './entities/plan-definition.entity';
 import {
   CustomPlanService,
   CreateCustomPlanDto,
@@ -45,17 +26,41 @@ import {
   CustomPlanFilter,
 } from './services/custom-plan.service';
 import {
+  DiscountCodeService,
+  CreateDiscountCodeDto,
+  UpdateDiscountCodeDto,
+} from './services/discount-code.service';
+import {
   InvoiceManagementService,
   InvoiceFilters,
 } from './services/invoice-management.service';
-import { InvoiceStatus } from '../analytics/entities/external/invoice.entity';
-import { PlanTier, BillingCycle } from './entities/plan-definition.entity';
-import { CustomPlanStatus } from './entities/custom-plan.entity';
+import {
+  ModulePricingService,
+  SetModulePricingDto,
+} from './services/module-pricing.service';
+import {
+  PlanDefinitionService,
+  CreatePlanDto,
+  UpdatePlanDto,
+} from './services/plan-definition.service';
+import {
+  PricingCalculatorService,
+  QuoteRequest,
+  ModuleSelection,
+} from './services/pricing-calculator.service';
+import {
+  SubscriptionManagementService,
+  SubscriptionFilters,
+  SubscriptionStatus,
+  PlanChangeRequest,
+  CreateSubscriptionDto,
+} from './services/subscription-management.service';
 
 /**
  * Billing Controller
  * REST API for subscription and billing management
  */
+@ApiTags('Billing')
 @Controller('billing')
 @UseGuards(PlatformAdminGuard)
 export class BillingController {
@@ -144,11 +149,14 @@ export class BillingController {
     @Query('isActive') isActive?: string,
     @Query('campaignId') campaignId?: string,
     @Query('includeExpired') includeExpired?: string,
+    @Query() pagination?: PaginationQueryDto,
   ) {
     return this.discountService.findAll({
       isActive: isActive !== undefined ? isActive === 'true' : undefined,
       campaignId,
       includeExpired: includeExpired === 'true',
+      page: pagination?.page,
+      limit: pagination?.limit,
     });
   }
 
@@ -361,8 +369,14 @@ export class BillingController {
   // ============================================================================
 
   @Get('tenant/:tenantId/redemptions')
-  async getTenantRedemptions(@Param('tenantId') tenantId: string) {
-    return this.discountService.getTenantRedemptions(tenantId);
+  async getTenantRedemptions(
+    @Param('tenantId') tenantId: string,
+    @Query() pagination?: PaginationQueryDto,
+  ) {
+    return this.discountService.getTenantRedemptions(tenantId, {
+      page: pagination?.page,
+      limit: pagination?.limit,
+    });
   }
 
   // ============================================================================
@@ -390,8 +404,14 @@ export class BillingController {
   }
 
   @Get('module-pricing/:moduleId/history')
-  async getModulePricingHistory(@Param('moduleId') moduleId: string) {
-    return this.modulePricingService.getPricingHistory(moduleId);
+  async getModulePricingHistory(
+    @Param('moduleId') moduleId: string,
+    @Query() pagination?: PaginationQueryDto,
+  ) {
+    return this.modulePricingService.getPricingHistory(moduleId, {
+      page: pagination?.page,
+      limit: pagination?.limit,
+    });
   }
 
   @Post('module-pricing')
@@ -461,16 +481,15 @@ export class BillingController {
     @Query('status') status?: CustomPlanStatus,
     @Query('tier') tier?: PlanTier,
     @Query('search') search?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query() pagination?: PaginationQueryDto,
   ) {
     const filter: CustomPlanFilter = {
       tenantId,
       status,
       tier,
       search,
-      page: page ? parseInt(page, 10) : undefined,
-      limit: limit ? parseInt(limit, 10) : undefined,
+      page: pagination?.page,
+      limit: pagination?.limit,
     };
     return this.customPlanService.listCustomPlans(filter);
   }

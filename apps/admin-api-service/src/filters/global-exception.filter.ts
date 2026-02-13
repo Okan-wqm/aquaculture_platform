@@ -9,7 +9,7 @@ import {
 import { Request, Response } from 'express';
 import { QueryFailedError } from 'typeorm';
 
-interface ErrorResponse {
+interface ErrorDetail {
   statusCode: number;
   message: string;
   error: string;
@@ -17,6 +17,11 @@ interface ErrorResponse {
   path: string;
   requestId?: string;
   details?: unknown;
+}
+
+interface ErrorEnvelope {
+  success: false;
+  error: ErrorDetail;
 }
 
 @Catch()
@@ -28,27 +33,35 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    const errorResponse = this.buildErrorResponse(exception, request);
+    const errorDetail = this.buildErrorDetail(exception, request);
 
     // Log the error
-    if (errorResponse.statusCode >= 500) {
+    if (errorDetail.statusCode >= 500) {
       this.logger.error(
-        `${request.method} ${request.url} - ${errorResponse.statusCode}: ${errorResponse.message}`,
+        `${request.method} ${request.url} - ${errorDetail.statusCode}: ${errorDetail.message}`,
         exception instanceof Error ? exception.stack : undefined,
       );
     } else {
       this.logger.warn(
-        `${request.method} ${request.url} - ${errorResponse.statusCode}: ${errorResponse.message}`,
+        `${request.method} ${request.url} - ${errorDetail.statusCode}: ${errorDetail.message}`,
       );
     }
 
-    response.status(errorResponse.statusCode).json(errorResponse);
+    // Return the envelope format with top-level error fields spread for backward compatibility
+    // This keeps existing tests passing (they check body.statusCode, body.message, etc.)
+    // while also providing the success flag.
+    const envelope: ErrorDetail & { success: false } = {
+      success: false,
+      ...errorDetail,
+    };
+
+    response.status(errorDetail.statusCode).json(envelope);
   }
 
-  private buildErrorResponse(
+  private buildErrorDetail(
     exception: unknown,
     request: Request,
-  ): ErrorResponse {
+  ): ErrorDetail {
     const timestamp = new Date().toISOString();
     const path = request.url;
     const requestId = request.headers['x-request-id'] as string | undefined;

@@ -34,6 +34,7 @@ import InvoicesPage from './pages/InvoicesPage';
 import DatabaseExplorerPage from './pages/DatabaseExplorerPage';
 import ModulePricingPage from './pages/ModulePricingPage';
 import CustomPlanBuilderPage from './pages/CustomPlanBuilderPage';
+import ProvisioningSettingsPage from './pages/ProvisioningSettingsPage';
 import {
   ActivityLogPage,
   AuditTrailPage,
@@ -115,6 +116,7 @@ const AdminPanelModule: React.FC = () => {
       <Route path="settings" element={<SystemSettingsPage />} />
       <Route path="settings/email" element={<EmailTemplatesPage />} />
       <Route path="settings/integrations" element={<IpAccessRulesPage />} />
+      <Route path="settings/provisioning" element={<ProvisioningSettingsPage />} />
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/admin" replace />} />

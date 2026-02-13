@@ -1,3 +1,5 @@
+import * as crypto from 'crypto';
+
 import {
   Injectable,
   Logger,
@@ -6,7 +8,6 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import * as crypto from 'crypto';
 
 export interface CreateFirstAdminDto {
   tenantId: string;

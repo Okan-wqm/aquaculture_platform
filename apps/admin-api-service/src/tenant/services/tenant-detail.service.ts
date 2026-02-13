@@ -1,12 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { Tenant, TenantStatus } from '../entities/tenant.entity';
-import {
-  TenantActivity,
-  TenantNote,
-  TenantBillingInfo,
-} from '../entities/tenant-activity.entity';
+
 import {
   TenantDetailDto,
   UserStatsByRole,
@@ -14,6 +9,13 @@ import {
   ResourceUsage,
   BillingSummary,
 } from '../dto/tenant-detail.dto';
+import {
+  TenantActivity,
+  TenantNote,
+  TenantBillingInfo,
+} from '../entities/tenant-activity.entity';
+import { Tenant, TenantStatus } from '../entities/tenant.entity';
+
 import { TenantActivityService } from './tenant-activity.service';
 
 @Injectable()
@@ -298,8 +300,8 @@ export class TenantDetailService {
    */
   async getActivitiesTimeline(
     tenantId: string,
-    page: number = 1,
-    limit: number = 20,
+    page = 1,
+    limit = 20,
   ): Promise<{ data: TenantActivity[]; total: number; totalPages: number }> {
     const result = await this.activityService.getActivities(tenantId, {
       limit,

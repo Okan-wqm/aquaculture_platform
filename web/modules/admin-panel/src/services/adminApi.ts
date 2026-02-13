@@ -219,6 +219,14 @@ export interface ServiceHealth {
   details?: Record<string, unknown>;
 }
 
+export interface CircuitBreakerInfo {
+  state: 'closed' | 'open' | 'half_open';
+  consecutiveFailures: number;
+  lastFailureTime: number;
+}
+
+export type CircuitBreakerStatus = Record<string, CircuitBreakerInfo>;
+
 export const systemApi = {
   getMetrics: () => apiFetch<SystemMetrics>('/system/metrics'),
   getDatabaseMetrics: () => apiFetch<SystemMetrics['database']>('/system/metrics/database'),
@@ -227,6 +235,9 @@ export const systemApi = {
   getServicesHealth: () => apiFetch<ServiceHealth[]>('/system/services/health'),
   getMetricTrends: (metric: string, interval: string) =>
     apiFetch<Array<{ timestamp: string; value: number }>>(`/system/metrics/trends?metric=${metric}&interval=${interval}`),
+  getCircuitBreakers: () => apiFetch<CircuitBreakerStatus>('/health/circuit-breakers'),
+  resetCircuitBreaker: (name: string) =>
+    apiFetch<{ success: boolean; name: string; state: string }>(`/health/circuit-breakers/${name}/reset`, { method: 'POST' }),
 };
 
 // ============================================================================
@@ -1297,6 +1308,12 @@ export const systemSettingsApi = {
   checkMaintenanceStatus: (tenantId?: string) =>
     apiFetch<{ isInMaintenance: boolean; maintenanceInfo?: { title: string; message: string; estimatedEnd?: string } }>(`/system/settings/maintenance/check${tenantId ? `?tenantId=${tenantId}` : ''}`),
 
+  // Provisioning Settings
+  getProvisioningConfig: () =>
+    apiFetch<Record<string, string>>('/system/settings/provisioning-config'),
+  updateProvisioningConfig: (config: Record<string, string>) =>
+    apiFetch<Record<string, string>>('/system/settings/provisioning-config', { method: 'PUT', body: JSON.stringify(config) }),
+
   // Performance Monitoring
   getPerformanceDashboard: (service?: string, timeRange?: { start: string; end: string }) =>
     apiFetch<PerformanceDashboard>(`/system/performance/dashboard?${buildQueryString({ service, ...timeRange })}`),
@@ -1862,6 +1879,8 @@ export interface Tenant {
   suspendedBy?: string;
   lastActivityAt?: string;
   createdBy?: string;
+  maxStorage?: number;
+  isTrialActive?: boolean;
   createdAt: string;
   updatedAt: string;
   version?: number;
@@ -1995,6 +2014,7 @@ export interface CreateTenantDto {
   region?: string;
   trialDays?: number;
   maxUsers?: number;
+  maxStorage?: number;
   limits?: Partial<TenantLimits>;
   settings?: Partial<TenantSettings>;
   /**

@@ -1,11 +1,8 @@
 import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import { SchemaManagerService } from '@platform/backend-common';
-import {
-  TenantRole,
-  DEFAULT_TENANT_ROLES,
-} from '../entities/tenant-role.entity';
+import { DataSource } from 'typeorm';
+
 import {
   TenantRolePermissions,
   PanelPermissions,
@@ -13,6 +10,10 @@ import {
   panelPermissionsToResourceArray,
   PERMISSION_CATEGORIES,
 } from '../entities/tenant-role-permissions.entity';
+import {
+  TenantRole,
+  DEFAULT_TENANT_ROLES,
+} from '../entities/tenant-role.entity';
 
 /**
  * Input for creating a tenant role

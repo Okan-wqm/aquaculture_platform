@@ -7,6 +7,7 @@ import {
   OneToOne,
   Index,
 } from 'typeorm';
+
 import { TenantRolePermissions } from './tenant-role-permissions.entity';
 
 /**

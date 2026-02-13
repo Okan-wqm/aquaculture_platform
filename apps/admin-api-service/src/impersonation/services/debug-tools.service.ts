@@ -12,12 +12,9 @@ import {
   QueryLogType,
 } from '../entities/debug-session.entity';
 
-import { DebugSessionService } from './debug-session.service';
-import { QueryInspectorService } from './query-inspector.service';
 import { ApiCallInspectorService } from './api-call-inspector.service';
 import { CacheInspectorService } from './cache-inspector.service';
-import { FeatureFlagDebugService } from './feature-flag-debug.service';
-
+import { DebugSessionService } from './debug-session.service';
 import {
   QueryInspectorResult,
   ApiLogResult,
@@ -27,6 +24,8 @@ import {
   ApiUsageSummary,
   CacheStats,
 } from './debug-tools-types';
+import { FeatureFlagDebugService } from './feature-flag-debug.service';
+import { QueryInspectorService } from './query-inspector.service';
 
 // Re-export types for backward compatibility
 export {

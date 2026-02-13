@@ -1,12 +1,15 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { UsersController } from './users.controller';
-import { UsersService } from './users.service';
-import { UserProvisioningService } from './services/user-provisioning.service';
+
+import { SettingsModule } from '../settings/settings.module';
+
+import { UserPermissions } from './entities/user-permissions.entity';
 import { RoleTemplateService } from './services/role-template.service';
 import { UserPermissionsService } from './services/user-permissions.service';
-import { UserPermissions } from './entities/user-permissions.entity';
-import { SettingsModule } from '../settings/settings.module';
+import { UserProvisioningService } from './services/user-provisioning.service';
+import { UsersController } from './users.controller';
+import { UsersService } from './users.service';
+
 
 @Module({
   imports: [TypeOrmModule.forFeature([UserPermissions]), SettingsModule],

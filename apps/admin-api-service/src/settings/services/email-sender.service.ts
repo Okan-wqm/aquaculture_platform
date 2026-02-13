@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
+
 import { SystemSettingService } from './system-setting.service';
 
 export interface InvitationEmailData {
@@ -18,6 +19,7 @@ export interface EmailResult {
   messageId?: string;
   error?: string;
   attempts?: number;
+  circuitBreakerOpen?: boolean;
 }
 
 export interface EmailSendOptions {
@@ -29,17 +31,93 @@ export interface EmailSendOptions {
   retryDelayMs?: number;
 }
 
+/** SMTP circuit breaker state */
+enum SmtpCircuitState {
+  CLOSED = 'closed',
+  OPEN = 'open',
+  HALF_OPEN = 'half_open',
+}
+
 /**
  * Email Sender Service
- * Sends emails using SMTP configuration from system settings
+ * Sends emails using SMTP configuration from system settings.
+ * Includes circuit breaker to prevent cascading failures when SMTP is down.
  */
 @Injectable()
-export class EmailSenderService {
+export class EmailSenderService implements OnModuleDestroy {
   private readonly logger = new Logger(EmailSenderService.name);
   private transporter: nodemailer.Transporter | null = null;
-  private lastConfigHash: string = '';
+  private lastConfigHash = '';
+
+  /** SMTP send timeout in ms */
+  private static readonly SEND_TIMEOUT_MS = 30_000;
+
+  // Circuit breaker state
+  private circuitState = SmtpCircuitState.CLOSED;
+  private consecutiveFailures = 0;
+  private lastFailureTime = 0;
+  private static readonly FAILURE_THRESHOLD = 5;
+  private static readonly RECOVERY_TIMEOUT_MS = 60_000; // 1 minute before half-open
 
   constructor(private readonly settingsService: SystemSettingService) {}
+
+  onModuleDestroy(): void {
+    if (this.transporter) {
+      this.transporter.close();
+      this.logger.log('SMTP transporter closed');
+    }
+  }
+
+  /** Get current circuit breaker status (for health checks) */
+  getCircuitStatus(): { state: string; consecutiveFailures: number; lastFailureTime: number } {
+    return {
+      state: this.circuitState,
+      consecutiveFailures: this.consecutiveFailures,
+      lastFailureTime: this.lastFailureTime,
+    };
+  }
+
+  private isCircuitOpen(): boolean {
+    if (this.circuitState === SmtpCircuitState.CLOSED) {
+      return false;
+    }
+
+    if (this.circuitState === SmtpCircuitState.OPEN) {
+      // Check if recovery timeout has elapsed — transition to half-open
+      if (Date.now() - this.lastFailureTime >= EmailSenderService.RECOVERY_TIMEOUT_MS) {
+        this.circuitState = SmtpCircuitState.HALF_OPEN;
+        this.logger.log('SMTP circuit breaker transitioning to half-open');
+        return false; // Allow one test request
+      }
+      return true;
+    }
+
+    // HALF_OPEN — allow request through
+    return false;
+  }
+
+  private recordSuccess(): void {
+    if (this.circuitState !== SmtpCircuitState.CLOSED) {
+      this.logger.log('SMTP circuit breaker closed (recovery successful)');
+    }
+    this.circuitState = SmtpCircuitState.CLOSED;
+    this.consecutiveFailures = 0;
+  }
+
+  private recordFailure(): void {
+    this.consecutiveFailures++;
+    this.lastFailureTime = Date.now();
+
+    if (this.circuitState === SmtpCircuitState.HALF_OPEN) {
+      this.circuitState = SmtpCircuitState.OPEN;
+      this.logger.warn('SMTP circuit breaker re-opened (half-open test failed)');
+    } else if (this.consecutiveFailures >= EmailSenderService.FAILURE_THRESHOLD) {
+      this.circuitState = SmtpCircuitState.OPEN;
+      this.logger.warn(
+        `SMTP circuit breaker opened after ${this.consecutiveFailures} consecutive failures`,
+      );
+    }
+  }
 
   /**
    * Initialize or reinitialize transporter with current SMTP settings
@@ -107,6 +185,23 @@ export class EmailSenderService {
       retryDelayMs = 1000
     } = options || {};
 
+    // Circuit breaker check — fail fast if SMTP is known to be down
+    if (this.isCircuitOpen()) {
+      const errorMsg = 'SMTP circuit breaker is open. Email delivery temporarily suspended.';
+      this.logger.warn(`Email not sent (circuit open): ${subject} to ${to}`);
+
+      if (required) {
+        throw new Error(errorMsg);
+      }
+
+      return {
+        success: false,
+        error: errorMsg,
+        attempts: 0,
+        circuitBreakerOpen: true,
+      };
+    }
+
     // Validate retry count
     const effectiveMaxRetries = Math.min(Math.max(1, maxRetries), 5);
 
@@ -139,25 +234,35 @@ export class EmailSenderService {
         const fromAddress = config.fromAddress || 'noreply@aquaculture.io';
         const fromName = config.fromName || 'Aquaculture Platform';
 
-        const result = await this.transporter.sendMail({
-          from: `"${fromName}" <${fromAddress}>`,
-          to,
-          subject,
-          html,
-          text: text || this.stripHtml(html),
-        });
+        const result = await this.sendMailWithTimeout(
+          {
+            from: `"${fromName}" <${fromAddress}>`,
+            to,
+            subject,
+            html,
+            text: text || this.stripHtml(html),
+          },
+          EmailSenderService.SEND_TIMEOUT_MS,
+        );
 
+        this.recordSuccess();
         this.logger.log(`Email sent to ${to}: ${result.messageId} (attempt ${attempt}/${effectiveMaxRetries})`);
         return {
           success: true,
-          messageId: result.messageId,
+          messageId: result.messageId as string,
           attempts,
         };
       } catch (error) {
         lastError = error as Error;
+        this.recordFailure();
         this.logger.warn(
           `Email attempt ${attempt}/${effectiveMaxRetries} failed for ${to}: ${lastError.message}`,
         );
+
+        // If circuit just opened, stop retrying immediately
+        if (this.circuitState === SmtpCircuitState.OPEN) {
+          break;
+        }
 
         // Don't wait after the last attempt
         if (attempt < effectiveMaxRetries) {
@@ -172,11 +277,11 @@ export class EmailSenderService {
     // All attempts failed
     const errorMessage = lastError?.message || 'Unknown error';
     this.logger.error(
-      `Failed to send email to ${to} after ${effectiveMaxRetries} attempts: ${errorMessage}`,
+      `Failed to send email to ${to} after ${attempts} attempts: ${errorMessage}`,
     );
 
     if (required) {
-      throw new Error(`Failed to send email after ${effectiveMaxRetries} attempts: ${errorMessage}`);
+      throw new Error(`Failed to send email after ${attempts} attempts: ${errorMessage}`);
     }
 
     return {
@@ -184,6 +289,30 @@ export class EmailSenderService {
       error: errorMessage,
       attempts,
     };
+  }
+
+  /**
+   * Send mail with a timeout to prevent hanging on unresponsive SMTP servers
+   */
+  private sendMailWithTimeout(
+    mailOptions: nodemailer.SendMailOptions,
+    timeoutMs: number,
+  ): Promise<nodemailer.SentMessageInfo> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`SMTP sendMail timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      this.transporter!.sendMail(mailOptions)
+        .then((result: nodemailer.SentMessageInfo) => {
+          clearTimeout(timer);
+          resolve(result);
+        })
+        .catch((error: Error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+    });
   }
 
   /**
@@ -331,8 +460,18 @@ export class EmailSenderService {
       .trim();
   }
 
+  /** Manually reset the circuit breaker to CLOSED state */
+  resetCircuit(): void {
+    const previousState = this.circuitState;
+    this.circuitState = SmtpCircuitState.CLOSED;
+    this.consecutiveFailures = 0;
+    this.lastFailureTime = 0;
+    this.logger.log(`SMTP circuit breaker manually reset from ${previousState} to closed`);
+  }
+
   /**
-   * Test SMTP configuration
+   * Test SMTP configuration.
+   * A successful test also resets the circuit breaker, allowing email flow to resume.
    */
   async testConnection(): Promise<EmailResult> {
     const initialized = await this.initializeTransporter();
@@ -346,9 +485,11 @@ export class EmailSenderService {
 
     try {
       await this.transporter.verify();
+      this.recordSuccess();
       this.logger.log('SMTP connection verified successfully');
       return { success: true };
     } catch (error) {
+      this.recordFailure();
       this.logger.error(`SMTP connection test failed: ${(error as Error).message}`);
       return {
         success: false,

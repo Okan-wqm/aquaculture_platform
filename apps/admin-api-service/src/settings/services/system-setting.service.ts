@@ -1,3 +1,5 @@
+import * as crypto from 'crypto';
+
 import {
   Injectable,
   Logger,
@@ -7,13 +9,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
+
 import {
   SystemSetting,
   SettingCategory,
   SettingValueType,
   DEFAULT_SYSTEM_SETTINGS,
 } from '../entities/system-setting.entity';
-import * as crypto from 'crypto';
 
 // ============================================================================
 // DTOs
@@ -150,7 +152,7 @@ export class SystemSettingService {
       if (!grouped[category]) {
         grouped[category] = [];
       }
-      grouped[category]!.push(this.toResponse(setting));
+      grouped[category].push(this.toResponse(setting));
     }
 
     return grouped;

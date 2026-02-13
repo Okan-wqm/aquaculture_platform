@@ -1,7 +1,11 @@
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
+import { RedisService } from '@platform/backend-common';
 import { Repository, ILike, MoreThan, Between, FindOptionsWhere, DataSource } from 'typeorm';
+
+import { TenantStatsDto, TenantUsageDto } from '../dto/tenant.dto';
+import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
 import {
   GetTenantByIdQuery,
   GetTenantBySlugQuery,
@@ -12,9 +16,6 @@ import {
   GetExpiringTrialsQuery,
   SearchTenantsQuery,
 } from '../queries/tenant.queries';
-import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
-import { TenantStatsDto, TenantUsageDto } from '../dto/tenant.dto';
-import { RedisService } from '@platform/backend-common';
 
 @Injectable()
 @QueryHandler(GetTenantByIdQuery)

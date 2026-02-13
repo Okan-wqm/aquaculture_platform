@@ -108,6 +108,7 @@ services:
       HR_SERVICE_URL: http://hr-service:3000/graphql
       BILLING_SERVICE_URL: http://billing-service:3000/graphql
       NOTIFICATION_SERVICE_URL: http://notification-service:3000/graphql
+      HYDROPONICS_SERVICE_URL: http://hydroponics-service:3000/graphql
       # MinIO Storage Configuration
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
@@ -136,6 +137,8 @@ services:
       alert-engine:
         condition: service_healthy
       hr-service:
+        condition: service_healthy
+      hydroponics-service:
         condition: service_healthy
       billing-service:
         condition: service_healthy
@@ -370,6 +373,41 @@ services:
       - aqua-network
     restart: unless-stopped
 
+  hydroponics-service:
+    image: aqua-hydroponics:latest
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend.simple
+      args:
+        SERVICE_NAME: hydroponics-service
+    container_name: aqua-hydroponics
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      HYDROPONICS_SERVICE_PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: aquaculture
+      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      DATABASE_NAME: aquaculture
+      DATABASE_SYNC: "true"
+      REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
+      NATS_URL: nats://nats:4222
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
   notification-service:
     image: aqua-notification:latest
     build:
@@ -456,6 +494,7 @@ services:
       FARM_MODULE_URL: http://farm-module:80
       HR_MODULE_URL: http://hr-module:80
       SENSOR_MODULE_URL: http://sensor-module:80
+      HYDROPONICS_MODULE_URL: http://hydroponics-module:80
       ADMIN_PANEL_URL: http://admin-panel:80
       TENANT_ADMIN_URL: http://tenant-admin:80
     ports:
@@ -465,6 +504,7 @@ services:
       - farm-module
       - hr-module
       - sensor-module
+      - hydroponics-module
       - admin-panel
       - tenant-admin
     networks:
@@ -527,6 +567,18 @@ services:
       args:
         MODULE_PATH: web/modules/hr-module
     container_name: aqua-hr-module
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  hydroponics-module:
+    image: aqua-hydroponics-module:latest
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+      args:
+        MODULE_PATH: web/modules/hydroponics-module
+    container_name: aqua-hydroponics-module
     networks:
       - aqua-network
     restart: unless-stopped

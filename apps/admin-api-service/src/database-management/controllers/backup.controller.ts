@@ -17,32 +17,94 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
-import { BackupRestoreService } from '../services/backup-restore.service';
+import { ApiTags } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import {
+  IsOptional,
+  IsUUID,
+  IsIn,
+  IsBoolean,
+  IsInt,
+  Min,
+  Max,
+  IsArray,
+  IsString,
+  MaxLength,
+  Matches,
+  IsNotEmpty,
+  ArrayMaxSize,
+} from 'class-validator';
+
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { BackupType, BackupStatus } from '../entities/database-management.entity';
+import { BackupRestoreService } from '../services/backup-restore.service';
 
 // ============================================================================
 // DTOs
 // ============================================================================
 
 class CreateBackupDto {
+  @IsOptional()
+  @IsUUID()
   tenantId?: string;
+
+  @IsIn(['full', 'incremental', 'differential'])
   backupType!: BackupType;
+
+  @IsOptional()
+  @IsBoolean()
   compress?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   encrypt?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(365)
   retentionDays?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  @MaxLength(63, { each: true })
+  @Matches(/^[a-z_][a-z0-9_]*$/i, { each: true, message: 'Invalid table name' })
   excludeTables?: string[];
 }
 
 class RestoreBackupDto {
+  @IsUUID()
   backupId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  @Matches(/^[a-z_][a-z0-9_]*$/i, { message: 'Invalid schema name' })
   targetSchemaName?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  @MaxLength(63, { each: true })
+  @Matches(/^[a-z_][a-z0-9_]*$/i, { each: true, message: 'Invalid table name' })
   tablesToRestore?: string[];
+
+  @IsOptional()
+  @IsBoolean()
   skipValidation?: boolean;
 }
 
 class PointInTimeRecoveryDto {
+  @IsUUID()
   tenantId!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(50)
   targetTime!: string;
 }
 
@@ -50,6 +112,7 @@ class PointInTimeRecoveryDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Database Management')
 @Controller('database/backups')
 @UseGuards(PlatformAdminGuard)
 export class BackupController {

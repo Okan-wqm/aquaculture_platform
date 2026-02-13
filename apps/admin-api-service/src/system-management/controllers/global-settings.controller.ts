@@ -7,23 +7,30 @@ import {
   Body,
   Param,
   Query,
+  Req,
   HttpCode,
   HttpStatus,
+  BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 
-import { GlobalSettingsService } from '../services/global-settings.service';
+import { Public } from '../../decorators/public.decorator';
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
+
 import {
   FeatureToggleScope,
   FeatureToggleStatus,
   FeatureCondition,
 } from '../entities/feature-toggle.entity';
+import { ConfigCategory, ConfigValueType } from '../entities/global-config.entity';
 import {
   MaintenanceScope,
   MaintenanceStatus,
   MaintenanceType,
 } from '../entities/maintenance-mode.entity';
 import { ReleaseType, ReleaseStatus, ChangelogEntry } from '../entities/system-version.entity';
-import { ConfigCategory, ConfigValueType } from '../entities/global-config.entity';
+import { GlobalSettingsService } from '../services/global-settings.service';
 
 // ============================================================================
 // DTOs
@@ -130,6 +137,7 @@ class UpdateConfigDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Settings')
 @Controller('system/settings')
 export class GlobalSettingsController {
   constructor(private readonly globalSettingsService: GlobalSettingsService) {}
@@ -372,6 +380,30 @@ export class GlobalSettingsController {
     @Body() dto: { updates: Array<{ key: string; value: unknown }> },
   ) {
     return this.globalSettingsService.bulkUpdateConfigs(dto.updates, 'admin');
+  }
+
+  // ============================================================================
+  // Provisioning Configuration
+  // ============================================================================
+
+  @Public()
+  @Get('provisioning-config')
+  async getProvisioningConfig() {
+    return this.globalSettingsService.getProvisioningConfig();
+  }
+
+  @Put('provisioning-config')
+  @UseGuards(PlatformAdminGuard)
+  async updateProvisioningConfig(
+    @Body() body: Record<string, string>,
+    @Req() req: any,
+  ) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new BadRequestException('Invalid configuration payload');
+    }
+    const updatedBy = req.user?.email || req.user?.id || 'admin';
+    await this.globalSettingsService.updateProvisioningConfig(body, updatedBy);
+    return { success: true };
   }
 
   // ============================================================================

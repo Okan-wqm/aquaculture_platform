@@ -31,6 +31,7 @@ import { TankOperation } from './entities/tank-operation.entity';
 import { Species } from '../species/entities/species.entity';
 import { Tank } from '../tank/entities/tank.entity';
 import { Equipment } from '../equipment/entities/equipment.entity';
+import { EquipmentType } from '../equipment/entities/equipment-type.entity';
 import { Feed } from '../feed/entities/feed.entity';
 
 // Services
@@ -67,6 +68,7 @@ import { BatchResolvers } from './resolvers';
       Species,
       Tank,
       Equipment,
+      EquipmentType,
       Feed,
       GrowthMeasurement,
     ]),

@@ -7,8 +7,9 @@ import {
   Index,
   Unique,
 } from 'typeorm';
-import { PricingMetricType } from './pricing-metric.enum';
+
 import { PlanTier } from './plan-definition.entity';
+import { PricingMetricType } from './pricing-metric.enum';
 
 /**
  * Individual pricing metric configuration

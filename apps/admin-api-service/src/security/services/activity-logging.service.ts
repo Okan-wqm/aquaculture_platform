@@ -6,9 +6,10 @@
  */
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThan, MoreThan, In, Like } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
+
 import {
   ActivityLog,
   ActivityCategory,
@@ -396,7 +397,7 @@ export class ActivityLoggingService implements OnModuleInit {
    */
   async getRecentLoginAttempts(
     ipAddress: string,
-    minutes: number = 15,
+    minutes = 15,
   ): Promise<LoginAttempt[]> {
     const since = new Date(Date.now() - minutes * 60 * 1000);
     return this.loginAttemptRepository.find({
@@ -411,7 +412,7 @@ export class ActivityLoggingService implements OnModuleInit {
   /**
    * Get failed login count for IP
    */
-  async getFailedLoginCount(ipAddress: string, minutes: number = 15): Promise<number> {
+  async getFailedLoginCount(ipAddress: string, minutes = 15): Promise<number> {
     const since = new Date(Date.now() - minutes * 60 * 1000);
     return this.loginAttemptRepository.count({
       where: {
@@ -425,7 +426,7 @@ export class ActivityLoggingService implements OnModuleInit {
   /**
    * Get failed login count for email
    */
-  async getFailedLoginCountByEmail(email: string, minutes: number = 15): Promise<number> {
+  async getFailedLoginCountByEmail(email: string, minutes = 15): Promise<number> {
     const since = new Date(Date.now() - minutes * 60 * 1000);
     return this.loginAttemptRepository.count({
       where: {
@@ -673,7 +674,7 @@ export class ActivityLoggingService implements OnModuleInit {
   async getActivitiesForEntity(
     entityType: string,
     entityId: string,
-    limit: number = 50,
+    limit = 50,
   ): Promise<ActivityLog[]> {
     return this.activityRepository.find({
       where: { entityType, entityId },

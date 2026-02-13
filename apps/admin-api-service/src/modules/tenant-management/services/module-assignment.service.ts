@@ -5,15 +5,16 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
+import { EventBus } from '@nestjs/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { EventBus } from '@nestjs/cqrs';
+
+import { PlanTier, BillingCycle } from '../../../billing/entities/plan-definition.entity';
 import {
   PricingCalculatorService,
   ModuleSelection,
   PricingCalculation,
 } from '../../../billing/services/pricing-calculator.service';
-import { PlanTier, BillingCycle } from '../../../billing/entities/plan-definition.entity';
 
 /**
  * Module quantities for pricing calculation

@@ -15,12 +15,10 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, IsArray, Min, Max } from 'class-validator';
+import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
-import {
-  SecurityMonitoringService,
-  SecurityDashboardStats,
-} from '../services/security-monitoring.service';
+import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, IsArray, Min, Max } from 'class-validator';
+
 import {
   SecurityEvent,
   SecurityEventType,
@@ -32,6 +30,10 @@ import {
   ThreatIntelligence,
   GeoLocation,
 } from '../entities/security.entity';
+import {
+  SecurityMonitoringService,
+  SecurityDashboardStats,
+} from '../services/security-monitoring.service';
 
 // ============================================================================
 // DTOs
@@ -321,6 +323,7 @@ class AnalyzeLoginDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Security')
 @Controller('security/monitoring')
 export class SecurityMonitoringController {
   constructor(

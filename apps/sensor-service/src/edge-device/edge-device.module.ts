@@ -7,15 +7,19 @@ import { SimpleRateLimitGuard } from '../guards/rate-limit.guard';
 import { PlcAlarm } from '../plc-control/entities/plc-alarm.entity';
 // SharedMqttModule is @Global, no need to import explicitly
 
+import { DeviceEventService } from './device-event.service';
 import { EdgeDeviceResolver } from './edge-device.resolver';
 import { EdgeDeviceService } from './edge-device.service';
 import { DeviceIoConfig } from './entities/device-io-config.entity';
 import { EdgeDevice } from './entities/edge-device.entity';
 import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
 import { DeviceEvent } from './entities/device-event.entity';
+import { InstallerScriptService } from './installer-script.service';
+import { MqttAuthController } from './mqtt-auth.controller';
 import { MqttAuthService } from './mqtt-auth.service';
 import { ProvisioningController } from './provisioning.controller';
 import { ProvisioningService } from './provisioning.service';
+import { TenantKeyService } from './tenant-key.service';
 
 
 @Module({
@@ -32,15 +36,18 @@ import { ProvisioningService } from './provisioning.service';
     ]),
     // MqttClientService is available via @Global SharedMqttModule
   ],
-  controllers: [ProvisioningController],
+  controllers: [ProvisioningController, MqttAuthController],
   providers: [
     EdgeDeviceService,
     EdgeDeviceResolver,
     ProvisioningService,
+    InstallerScriptService,
+    TenantKeyService,
+    DeviceEventService,
     MqttAuthService,
     SimpleRateLimitGuard, // Rate limiting for provisioning endpoints
   ],
-  exports: [EdgeDeviceService, ProvisioningService, MqttAuthService],
+  exports: [EdgeDeviceService, ProvisioningService, MqttAuthService, InstallerScriptService],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class EdgeDeviceModule {}

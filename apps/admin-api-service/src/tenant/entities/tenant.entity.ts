@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  VersionColumn,
   Index,
 } from 'typeorm';
 
@@ -18,6 +19,7 @@ export enum TenantStatus {
 }
 
 export enum TenantPlan {
+  FREE = 'free',
   TRIAL = 'trial',
   STARTER = 'starter',
   PROFESSIONAL = 'professional',
@@ -66,6 +68,21 @@ export class Tenant {
   @Column({ type: 'int', default: 5 })
   maxUsers!: number;
 
+  @Column({ type: 'int', default: -1, name: 'max_storage' })
+  maxStorage!: number;
+
+  @Column({ type: 'boolean', default: false, name: 'is_trial_active' })
+  isTrialActive!: boolean;
+
+  @Column({ type: 'int', default: 0, name: 'user_count' })
+  userCount!: number;
+
+  @Column({ type: 'int', default: 0, name: 'farm_count' })
+  farmCount!: number;
+
+  @Column({ type: 'int', default: 0, name: 'sensor_count' })
+  sensorCount!: number;
+
   @Column({ type: 'timestamp', nullable: true })
   trialEndsAt?: Date;
 
@@ -105,6 +122,9 @@ export class Tenant {
   @UpdateDateColumn({ type: 'timestamp' })
   updatedAt!: Date;
 
+  @VersionColumn({ name: 'version' })
+  version!: number;
+
   // Backwards compatibility - these properties are NOT in the database
   // but exist for code compatibility with other services
   domain?: string; // Use customDomain instead
@@ -117,7 +137,6 @@ export class Tenant {
   billingEmail?: string;
   primaryContact?: { name: string; email: string; phone?: string; role: string };
   billingContact?: { name: string; email: string; phone?: string; role: string };
-  version?: number;
 
   // Backwards compatibility getter for 'tier' -> 'plan'
   get tier(): string {
@@ -126,19 +145,6 @@ export class Tenant {
 
   set tier(value: string) {
     this.plan = value;
-  }
-
-  // Computed properties for backwards compatibility
-  get userCount(): number {
-    return 0; // Not tracked in this table
-  }
-
-  get farmCount(): number {
-    return 0; // Not tracked in this table
-  }
-
-  get sensorCount(): number {
-    return 0; // Not tracked in this table
   }
 
   // Limits getter for backwards compatibility (extended for all expected properties)
@@ -178,16 +184,16 @@ export class Tenant {
     return new Date() > this.trialEndsAt;
   }
 
-  canAddUsers(count: number = 1): boolean {
+  canAddUsers(count = 1): boolean {
     if (this.maxUsers === -1) return true; // unlimited
     return count <= this.maxUsers;
   }
 
-  canAddFarms(_count: number = 1): boolean {
+  canAddFarms(_count = 1): boolean {
     return true; // No limit in this schema
   }
 
-  canAddSensors(_count: number = 1): boolean {
+  canAddSensors(_count = 1): boolean {
     return true; // No limit in this schema
   }
 }

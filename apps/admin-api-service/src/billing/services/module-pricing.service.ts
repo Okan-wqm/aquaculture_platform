@@ -1,6 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, MoreThanOrEqual, IsNull, Or } from 'typeorm';
+
+import {
+  DEFAULT_MODULE_PRICING,
+  DefaultModulePricingData,
+} from '../data/default-module-pricing';
 import {
   ModulePricing,
   PricingMetric,
@@ -8,10 +13,6 @@ import {
 } from '../entities/module-pricing.entity';
 import { PlanTier } from '../entities/plan-definition.entity';
 import { PricingMetricType } from '../entities/pricing-metric.enum';
-import {
-  DEFAULT_MODULE_PRICING,
-  DefaultModulePricingData,
-} from '../data/default-module-pricing';
 
 /**
  * DTO for creating/updating module pricing
@@ -248,11 +249,20 @@ export class ModulePricingService {
   /**
    * Get pricing history for a module
    */
-  async getPricingHistory(moduleId: string): Promise<ModulePricing[]> {
-    return this.pricingRepo.find({
+  async getPricingHistory(
+    moduleId: string,
+    options: { page?: number; limit?: number } = {},
+  ): Promise<{ data: ModulePricing[]; total: number; page: number; limit: number }> {
+    const { page = 1, limit = 50 } = options;
+
+    const [data, total] = await this.pricingRepo.findAndCount({
       where: { moduleId },
       order: { effectiveFrom: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return { data, total, page, limit };
   }
 
   /**

@@ -1,8 +1,14 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
+import {
+  GlobalSettingsController,
+  PerformanceController,
+  ErrorTrackingController,
+  JobQueueController,
+} from './controllers';
 import {
   FeatureToggle,
   MaintenanceMode,
@@ -27,12 +33,6 @@ import {
 } from './services';
 
 // Controllers
-import {
-  GlobalSettingsController,
-  PerformanceController,
-  ErrorTrackingController,
-  JobQueueController,
-} from './controllers';
 
 @Module({
   imports: [

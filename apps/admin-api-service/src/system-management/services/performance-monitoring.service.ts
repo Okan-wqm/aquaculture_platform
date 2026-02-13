@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, Between } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
 
 import {
   PerformanceMetric,
@@ -233,8 +233,8 @@ export class PerformanceMonitoringService {
   }
 
   async calculateApdexScore(
-    satisfiedThreshold: number = 500,
-    toleratedThreshold: number = 2000,
+    satisfiedThreshold = 500,
+    toleratedThreshold = 2000,
     service?: string,
     timeRange?: { start?: Date; end?: Date },
   ): Promise<number> {
@@ -324,8 +324,8 @@ export class PerformanceMonitoringService {
   }
 
   async getSlowQueries(
-    threshold: number = 1000,
-    limit: number = 20,
+    threshold = 1000,
+    limit = 20,
     timeRange?: { start?: Date; end?: Date },
   ): Promise<Array<{ query: string; avgTime: number; count: number; maxTime: number }>> {
     const end = timeRange?.end || new Date();

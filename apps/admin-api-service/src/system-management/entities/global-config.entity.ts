@@ -19,6 +19,7 @@ export enum ConfigCategory {
   PERFORMANCE = 'performance',
   FEATURE = 'feature',
   SYSTEM = 'system',
+  PROVISIONING = 'provisioning',
 }
 
 export enum ConfigValueType {

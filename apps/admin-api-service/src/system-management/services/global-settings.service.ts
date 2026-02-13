@@ -1,8 +1,9 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import * as crypto from 'crypto';
+
+import { Injectable, Logger, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, LessThanOrEqual, MoreThanOrEqual, Between } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import * as crypto from 'crypto';
 
 import {
   FeatureToggle,
@@ -10,6 +11,12 @@ import {
   FeatureToggleStatus,
   FeatureCondition,
 } from '../entities/feature-toggle.entity';
+import {
+  GlobalConfig,
+  ConfigCategory,
+  ConfigValueType,
+  ConfigHistory,
+} from '../entities/global-config.entity';
 import {
   MaintenanceMode,
   MaintenanceScope,
@@ -22,12 +29,6 @@ import {
   ReleaseStatus,
   ChangelogEntry,
 } from '../entities/system-version.entity';
-import {
-  GlobalConfig,
-  ConfigCategory,
-  ConfigValueType,
-  ConfigHistory,
-} from '../entities/global-config.entity';
 
 // ============================================================================
 // Interfaces
@@ -66,7 +67,7 @@ export interface SystemHealthStatus {
 // ============================================================================
 
 @Injectable()
-export class GlobalSettingsService {
+export class GlobalSettingsService implements OnModuleInit {
   private readonly logger = new Logger(GlobalSettingsService.name);
   private featureToggleCache: Map<string, FeatureToggle> = new Map();
   private configCache: Map<string, GlobalConfig> = new Map();
@@ -82,8 +83,10 @@ export class GlobalSettingsService {
     private readonly systemVersionRepo: Repository<SystemVersion>,
     @InjectRepository(GlobalConfig)
     private readonly globalConfigRepo: Repository<GlobalConfig>,
-  ) {
-    this.refreshCaches();
+  ) {}
+
+  async onModuleInit() {
+    await this.refreshCaches();
   }
 
   // ============================================================================
@@ -985,6 +988,112 @@ export class GlobalSettingsService {
             this.logger.log(`Completed rollout for ${toggle.key}`);
           }
         }
+      }
+    }
+  }
+
+  // ============================================================================
+  // System Status
+  // ============================================================================
+
+  /**
+   * Get provisioning configuration for edge device installer scripts.
+   * Called by sensor-service to generate dynamic installer scripts.
+   */
+  async getProvisioningConfig(): Promise<{
+    provisioningApiUrl: string;
+    mqttBrokerHost: string;
+    mqttBrokerPort: number;
+    githubReleaseUrl: string;
+    agentDefaultVersion: string;
+    githubRepo: string;
+  }> {
+    // Default values - used when no DB config exists yet
+    const defaults: Record<string, string> = {
+      'provisioning.api_url': 'http://localhost:3000',
+      'provisioning.mqtt_broker_host': 'localhost',
+      'provisioning.mqtt_broker_port': '1883',
+      'provisioning.github_release_url': 'https://github.com/Okan-wqm/sens/releases',
+      'provisioning.agent_default_version': 'latest',
+      'provisioning.github_repo': 'Okan-wqm/sens',
+    };
+
+    // Fetch all provisioning configs from DB
+    const configs = await this.globalConfigRepo.find({
+      where: { category: ConfigCategory.PROVISIONING },
+    });
+
+    const getValue = (key: string): string => {
+      const config = configs.find(c => c.key === key);
+      return (config?.value as string) ?? defaults[key] ?? '';
+    };
+
+    return {
+      provisioningApiUrl: getValue('provisioning.api_url'),
+      mqttBrokerHost: getValue('provisioning.mqtt_broker_host'),
+      mqttBrokerPort: parseInt(getValue('provisioning.mqtt_broker_port'), 10),
+      githubReleaseUrl: getValue('provisioning.github_release_url'),
+      agentDefaultVersion: getValue('provisioning.agent_default_version'),
+      githubRepo: getValue('provisioning.github_repo'),
+    };
+  }
+
+  /**
+   * Update provisioning configuration
+   */
+  async updateProvisioningConfig(
+    updates: Record<string, string>,
+    updatedBy: string,
+  ): Promise<void> {
+    // Whitelist of allowed provisioning config keys
+    const ALLOWED_KEYS = new Set([
+      'provisioning.api_url',
+      'provisioning.mqtt_broker_host',
+      'provisioning.mqtt_broker_port',
+      'provisioning.github_release_url',
+      'provisioning.github_repo',
+      'provisioning.agent_default_version',
+    ]);
+
+    // Validate ALL keys first before making any changes
+    const rejectedKeys: string[] = [];
+    const validUpdates: Array<{ fullKey: string; value: string }> = [];
+
+    for (const [key, value] of Object.entries(updates)) {
+      const fullKey = key.startsWith('provisioning.') ? key : `provisioning.${key}`;
+
+      if (!ALLOWED_KEYS.has(fullKey)) {
+        rejectedKeys.push(fullKey);
+        continue;
+      }
+
+      if (typeof value !== 'string' || value.length > 2048) {
+        rejectedKeys.push(fullKey);
+        continue;
+      }
+
+      validUpdates.push({ fullKey, value });
+    }
+
+    if (rejectedKeys.length > 0) {
+      throw new BadRequestException(`Invalid provisioning config keys: ${rejectedKeys.join(', ')}`);
+    }
+
+    // Now apply all valid updates
+    for (const { fullKey, value } of validUpdates) {
+      const existing = await this.globalConfigRepo.findOne({ where: { key: fullKey } });
+
+      if (existing) {
+        await this.updateConfig(existing.id, value, updatedBy);
+      } else {
+        await this.createConfig({
+          key: fullKey,
+          name: fullKey,
+          value,
+          category: ConfigCategory.PROVISIONING,
+          valueType: ConfigValueType.STRING,
+          description: `Provisioning setting: ${fullKey}`,
+        });
       }
     }
   }

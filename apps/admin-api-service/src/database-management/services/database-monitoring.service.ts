@@ -5,9 +5,10 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThan } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
+
 import {
   TenantSchema,
   DatabaseMetric,

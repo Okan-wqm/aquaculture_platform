@@ -14,22 +14,22 @@ import GraphQLJSON from 'graphql-type-json';
 @ObjectType('MobileAllowedFeatures')
 export class MobileAllowedFeatures {
   @Field(() => Boolean)
-  mortality: boolean;
+  mortality!: boolean;
 
   @Field(() => Boolean)
-  cull: boolean;
+  cull!: boolean;
 
   @Field(() => Boolean)
-  harvest: boolean;
+  harvest!: boolean;
 
   @Field(() => Boolean)
-  feeding: boolean;
+  feeding!: boolean;
 
   @Field(() => Boolean)
-  waterQuality: boolean;
+  waterQuality!: boolean;
 
   @Field(() => Boolean)
-  tankView: boolean;
+  tankView!: boolean;
 }
 
 /**
@@ -53,29 +53,29 @@ export const DEFAULT_MOBILE_FEATURES: MobileAllowedFeatures = {
 export class MobileUserSettings {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Field(() => String)
   @Column({ type: 'uuid', name: 'user_id', unique: true })
-  userId: string;
+  userId!: string;
 
   @Field(() => String)
   @Column({ type: 'uuid', name: 'tenant_id' })
-  tenantId: string;
+  tenantId!: string;
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb', name: 'allowed_features', default: () => `'${JSON.stringify(DEFAULT_MOBILE_FEATURES)}'` })
-  allowedFeatures: MobileAllowedFeatures;
+  allowedFeatures!: MobileAllowedFeatures;
 
   @Field(() => Boolean)
   @Column({ type: 'boolean', name: 'is_mobile_enabled', default: true })
-  isMobileEnabled: boolean;
+  isMobileEnabled!: boolean;
 
   @Field(() => Date)
   @CreateDateColumn({ name: 'created_at' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Field(() => Date)
   @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt: Date;
+  updatedAt!: Date;
 }

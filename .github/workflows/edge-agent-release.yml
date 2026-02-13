@@ -1,0 +1,177 @@
+name: Edge Agent Release
+
+on:
+  push:
+    tags:
+      - 'agent-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g., agent-v1.3.0)'
+        required: true
+        type: string
+
+# Cancel in-progress runs for the same workflow
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: stable
+  BINARY_NAME: suderra-agent
+  ARCHIVE_BINARY_NAME: edge-agent
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            archive_name: suderra-agent-x86_64-linux
+            strip: true
+          - target: aarch64-unknown-linux-gnu
+            archive_name: suderra-agent-aarch64-linux
+            strip: false
+          - target: armv7-unknown-linux-gnueabihf
+            archive_name: suderra-agent-armv7-linux
+            strip: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e18c1f174353f47 # stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            sens-api-gateway/target/
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('sens-api-gateway/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+
+      - name: Install cross
+        run: cargo install cross --version 0.2.5 --locked
+
+      - name: Audit dependencies
+        working-directory: sens-api-gateway
+        run: |
+          cargo install cargo-audit --locked 2>/dev/null || true
+          cargo audit || echo "::warning::Dependency audit found vulnerabilities"
+
+      - name: Build release binary
+        working-directory: sens-api-gateway
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Strip binary (x86_64 only)
+        if: matrix.strip
+        run: strip sens-api-gateway/target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}
+
+      - name: Verify binary size
+        run: |
+          set -euo pipefail
+          BINARY_SIZE=$(stat --format=%s "sens-api-gateway/target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}" 2>/dev/null || stat -f%z "sens-api-gateway/target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}")
+          echo "Binary size: $BINARY_SIZE bytes"
+          if [ "$BINARY_SIZE" -lt 1048576 ]; then
+            echo "ERROR: Binary is suspiciously small (< 1MB). Build may have failed."
+            exit 1
+          fi
+
+      - name: Package binary
+        run: |
+          set -euo pipefail
+          STAGING_DIR=$(mktemp -d)
+          cp sens-api-gateway/target/${{ matrix.target }}/release/${{ env.BINARY_NAME }} \
+            "${STAGING_DIR}/${{ env.ARCHIVE_BINARY_NAME }}"
+          tar -czf ${{ matrix.archive_name }}.tar.gz -C "${STAGING_DIR}" ${{ env.ARCHIVE_BINARY_NAME }}
+          sha256sum ${{ matrix.archive_name }}.tar.gz > ${{ matrix.archive_name }}.tar.gz.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
+        with:
+          name: ${{ matrix.archive_name }}
+          path: |
+            ${{ matrix.archive_name }}.tar.gz
+            ${{ matrix.archive_name }}.tar.gz.sha256
+          retention-days: 5
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lh artifacts/
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.1
+        with:
+          name: "Edge Agent ${{ steps.version.outputs.tag }}"
+          tag_name: ${{ steps.version.outputs.tag }}
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.tag, '-rc') || contains(steps.version.outputs.tag, '-beta') || contains(steps.version.outputs.tag, '-alpha') }}
+          generate_release_notes: true
+          body: |
+            ## Suderra Edge Agent ${{ steps.version.outputs.tag }}
+
+            Cross-compiled release binaries for Linux targets.
+
+            ### Downloads
+
+            | Platform | Architecture | File |
+            |----------|-------------|------|
+            | Linux | x86_64 | `suderra-agent-x86_64-linux.tar.gz` |
+            | Linux | aarch64 (ARM64) | `suderra-agent-aarch64-linux.tar.gz` |
+            | Linux | armv7 (ARM32) | `suderra-agent-armv7-linux.tar.gz` |
+
+            ### Verify checksums
+
+            ```bash
+            sha256sum -c suderra-agent-x86_64-linux.tar.gz.sha256
+            sha256sum -c suderra-agent-aarch64-linux.tar.gz.sha256
+            sha256sum -c suderra-agent-armv7-linux.tar.gz.sha256
+            ```
+
+            ### Install
+
+            ```bash
+            tar -xzf suderra-agent-<arch>-linux.tar.gz
+            chmod +x edge-agent
+            sudo mv edge-agent /usr/local/bin/
+            ```
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.sha256

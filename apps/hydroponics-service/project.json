@@ -1,0 +1,65 @@
+{
+  "name": "hydroponics-service",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/hydroponics-service/src",
+  "projectType": "application",
+  "tags": ["scope:backend", "type:service"],
+  "targets": {
+    "build": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "target": "node",
+        "compiler": "tsc",
+        "outputPath": "dist/apps/hydroponics-service",
+        "main": "apps/hydroponics-service/src/main.ts",
+        "tsConfig": "apps/hydroponics-service/tsconfig.app.json",
+        "assets": ["apps/hydroponics-service/src/assets"],
+        "generatePackageJson": true,
+        "webpackConfig": "apps/hydroponics-service/webpack.config.js"
+      },
+      "configurations": {
+        "development": {
+          "optimization": false,
+          "sourceMap": true
+        },
+        "production": {
+          "optimization": true,
+          "extractLicenses": true,
+          "inspect": false,
+          "sourceMap": false
+        }
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "hydroponics-service:build"
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "hydroponics-service:build:development"
+        },
+        "production": {
+          "buildTarget": "hydroponics-service:build:production"
+        }
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["apps/hydroponics-service/**/*.ts"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "apps/hydroponics-service/jest.config.ts"
+      }
+    }
+  }
+}

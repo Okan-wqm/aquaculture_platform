@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
 
 import {
   CapturedQuery,
@@ -9,6 +9,7 @@ import {
   DebugSessionType,
   QueryLogType,
 } from '../entities/debug-session.entity';
+
 import { QueryInspectorResult, SlowQueryAnalysis } from './debug-tools-types';
 
 /**
@@ -258,7 +259,7 @@ export class QueryInspectorService {
   /**
    * Get recent queries for dashboard
    */
-  async getRecentQueries(tenantId?: string, limit: number = 10): Promise<CapturedQuery[]> {
+  async getRecentQueries(tenantId?: string, limit = 10): Promise<CapturedQuery[]> {
     return this.queryRepo.find({
       where: tenantId ? { tenantId } : {},
       order: { timestamp: 'DESC' },

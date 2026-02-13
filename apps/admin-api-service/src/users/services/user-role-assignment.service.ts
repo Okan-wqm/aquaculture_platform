@@ -1,14 +1,16 @@
 import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import { SchemaManagerService } from '@platform/backend-common';
+import { DataSource } from 'typeorm';
+
+import { PanelPermissions, panelPermissionsToResourceArray } from '../entities/tenant-role-permissions.entity';
 import {
   UserRoleAssignment,
   PermissionOverrides,
   EffectivePermissions,
   computeEffectivePermissions,
 } from '../entities/user-role-assignment.entity';
-import { PanelPermissions, panelPermissionsToResourceArray } from '../entities/tenant-role-permissions.entity';
+
 import { TenantRoleService } from './tenant-role.service';
 
 /**

@@ -48,6 +48,7 @@ const moduleRouteMap: Record<string, string> = {
   'farm': '/farm/dashboard',
   'sensor': '/sensor/dashboard',
   'hr': '/hr/dashboard',
+  'hydroponics': '/hydroponics/setup',
 };
 
 /**
@@ -57,6 +58,7 @@ const moduleIconMap: Record<string, string> = {
   'farm': '🐟',
   'sensor': '📊',
   'hr': '👥',
+  'hydroponics': '🌱',
 };
 
 /**
@@ -66,6 +68,7 @@ const moduleFeaturesMap: Record<string, string[]> = {
   'farm': ['Site Management', 'Tank Tracking', 'Batch Management', 'Feeding', 'Growth Monitoring'],
   'sensor': ['Real-time Data', 'Alerts', 'Historical Trends', 'Device Management'],
   'hr': ['Employee Records', 'Attendance', 'Payroll', 'Leave Management'],
+  'hydroponics': ['System Management', 'Nutrient Solutions', 'Growing Beds', 'Climate Control', 'Harvest Tracking'],
 };
 
 // GraphQL Configuration - Gateway API

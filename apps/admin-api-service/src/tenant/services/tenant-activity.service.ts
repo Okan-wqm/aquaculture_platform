@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
+
 import {
   TenantActivity,
   ActivityType,
@@ -98,7 +99,7 @@ export class TenantActivityService {
 
   async getRecentActivities(
     tenantId: string,
-    limit: number = 20,
+    limit = 20,
   ): Promise<TenantActivity[]> {
     return this.activityRepository.find({
       where: { tenantId },

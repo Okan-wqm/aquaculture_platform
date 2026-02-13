@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, LessThan, LessThanOrEqual, IsNull } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
 
 import {
   BackgroundJob,
@@ -69,7 +69,7 @@ export type JobHandler = (job: BackgroundJob) => Promise<Record<string, unknown>
 export class JobQueueService {
   private readonly logger = new Logger(JobQueueService.name);
   private jobHandlers: Map<string, JobHandler> = new Map();
-  private isProcessing: boolean = false;
+  private isProcessing = false;
   private workerId: string;
 
   constructor(
@@ -716,7 +716,7 @@ export class JobQueueService {
     return result.affected || 0;
   }
 
-  async purgeCompletedJobs(olderThanDays: number = 7): Promise<number> {
+  async purgeCompletedJobs(olderThanDays = 7): Promise<number> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - olderThanDays);
 

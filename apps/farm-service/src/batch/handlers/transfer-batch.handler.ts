@@ -16,6 +16,9 @@ import { TankAllocation, AllocationType } from '../entities/tank-allocation.enti
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
+import { Tank, TankStatus } from '../../tank/entities/tank.entity';
+import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
+import { findTankOrEquipment, TankLookupResult } from '../utils/tank-lookup.util';
 
 // Note: TransferResult interface kept for internal tracking but handler returns Batch for GraphQL compatibility
 export interface TransferResult {
@@ -40,6 +43,10 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
     private readonly tankBatchRepository: Repository<TankBatch>,
     @InjectRepository(Equipment)
     private readonly equipmentRepository: Repository<Equipment>,
+    @InjectRepository(Tank)
+    private readonly tankRepository: Repository<Tank>,
+    @InjectRepository(EquipmentType)
+    private readonly equipmentTypeRepository: Repository<EquipmentType>,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -56,21 +63,33 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
       throw new NotFoundException(`Batch ${batchId} bulunamadı`);
     }
 
-    const sourceTank = await this.equipmentRepository.findOne({
-      where: { id: payload.sourceTankId, tenantId, isActive: true },
-    });
+    const sourceLookup = await findTankOrEquipment(
+      this.equipmentRepository,
+      this.tankRepository,
+      this.equipmentTypeRepository,
+      payload.sourceTankId,
+      tenantId,
+    );
 
-    if (!sourceTank) {
+    if (!sourceLookup) {
       throw new NotFoundException(`Kaynak tank ${payload.sourceTankId} bulunamadı`);
     }
 
-    const destinationTank = await this.equipmentRepository.findOne({
-      where: { id: payload.destinationTankId, tenantId, isActive: true },
-    });
+    const sourceTank = sourceLookup.equipment;
 
-    if (!destinationTank) {
+    const destLookup = await findTankOrEquipment(
+      this.equipmentRepository,
+      this.tankRepository,
+      this.equipmentTypeRepository,
+      payload.destinationTankId,
+      tenantId,
+    );
+
+    if (!destLookup) {
       throw new NotFoundException(`Hedef tank ${payload.destinationTankId} bulunamadı`);
     }
+
+    const destinationTank = destLookup.equipment;
 
     if (payload.sourceTankId === payload.destinationTankId) {
       throw new BadRequestException('Kaynak ve hedef tank aynı olamaz');
@@ -219,17 +238,46 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
       await this.updateTankBatchWithManager(queryRunner.manager, tenantId, payload.sourceTankId, batchId, -payload.quantity, -biomassKg);
       await this.updateTankBatchWithManager(queryRunner.manager, tenantId, payload.destinationTankId, batchId, payload.quantity, biomassKg, batch.batchNumber);
 
-      // 6. Equipment güncellemeleri
-      sourceTank.currentBiomass = Number(sourceTank.currentBiomass || 0) - biomassKg;
-      sourceTank.currentCount = (sourceTank.currentCount || 0) - payload.quantity;
-      await queryRunner.manager.save(Equipment, sourceTank);
-
-      destinationTank.currentBiomass = Number(destinationTank.currentBiomass || 0) + biomassKg;
-      destinationTank.currentCount = (destinationTank.currentCount || 0) + payload.quantity;
-      if (destinationTank.status === EquipmentStatus.PREPARING || destinationTank.status === EquipmentStatus.FALLOW) {
-        destinationTank.status = EquipmentStatus.ACTIVE;
+      // 6. Tank/Equipment biomass güncellemeleri
+      const newSourceBiomass = Number(sourceTank.currentBiomass || 0) - biomassKg;
+      const newSourceCount = (sourceTank.currentCount || 0) - payload.quantity;
+      if (sourceLookup.isFromTanksTable && sourceLookup.originalTank) {
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(Tank)
+          .set({ currentBiomass: newSourceBiomass, currentCount: newSourceCount })
+          .where('id = :id', { id: sourceLookup.originalTank.id })
+          .execute();
+      } else {
+        sourceTank.currentBiomass = newSourceBiomass;
+        sourceTank.currentCount = newSourceCount;
+        await queryRunner.manager.save(Equipment, sourceTank);
       }
-      await queryRunner.manager.save(Equipment, destinationTank);
+
+      const newDestBiomass = Number(destinationTank.currentBiomass || 0) + biomassKg;
+      const newDestCount = (destinationTank.currentCount || 0) + payload.quantity;
+      if (destLookup.isFromTanksTable && destLookup.originalTank) {
+        const destOriginalTank = destLookup.originalTank;
+        // Activate tank if it was preparing/fallow
+        const shouldActivate = destOriginalTank.status === 'preparing' || destOriginalTank.status === 'fallow';
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(Tank)
+          .set({
+            currentBiomass: newDestBiomass,
+            currentCount: newDestCount,
+            ...(shouldActivate ? { status: TankStatus.ACTIVE } : {}),
+          })
+          .where('id = :id', { id: destOriginalTank.id })
+          .execute();
+      } else {
+        destinationTank.currentBiomass = newDestBiomass;
+        destinationTank.currentCount = newDestCount;
+        if (destinationTank.status === EquipmentStatus.PREPARING || destinationTank.status === EquipmentStatus.FALLOW) {
+          destinationTank.status = EquipmentStatus.ACTIVE;
+        }
+        await queryRunner.manager.save(Equipment, destinationTank);
+      }
 
       // Post-operation states güncelle
       const updatedSourceTankBatch = await queryRunner.manager.findOne(TankBatch, {

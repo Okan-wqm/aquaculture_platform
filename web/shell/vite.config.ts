@@ -25,6 +25,8 @@ export default defineConfig({
         hrModule: 'http://localhost:8080/mf/hr-module/assets/remoteEntry.js',
         // Sensor module (includes Process Editor)
         sensorModule: 'http://localhost:8080/mf/sensor-module/assets/remoteEntry.js',
+        // Hydroponics module
+        hydroponicsModule: 'http://localhost:8080/mf/hydroponics-module/assets/remoteEntry.js',
         // Admin Panel module (SUPER_ADMIN)
         adminPanel: 'http://localhost:8080/mf/admin-panel/assets/remoteEntry.js',
         // Tenant Admin module (TENANT_ADMIN)

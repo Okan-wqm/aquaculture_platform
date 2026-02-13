@@ -5,7 +5,7 @@ import { IsUUID, IsBoolean, IsOptional } from 'class-validator';
 export class UpdateMobileUserSettingsInput {
   @Field(() => ID)
   @IsUUID()
-  userId: string;
+  userId!: string;
 
   @Field(() => Boolean, { nullable: true })
   @IsOptional()
@@ -46,7 +46,7 @@ export class UpdateMobileUserSettingsInput {
 @InputType()
 export class BulkUpdateMobileSettingsInput {
   @Field(() => [ID])
-  userIds: string[];
+  userIds!: string[];
 
   @Field(() => Boolean, { nullable: true })
   @IsOptional()

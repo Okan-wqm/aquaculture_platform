@@ -6,9 +6,10 @@
  */
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, Between, In } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
+
 import {
   ActivityLog,
   ActivityCategory,

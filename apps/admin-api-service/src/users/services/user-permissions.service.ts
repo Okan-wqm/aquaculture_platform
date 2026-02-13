@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+
 import { UserPermissions, PanelPermissions, DEFAULT_USER_PERMISSIONS, TENANT_ADMIN_PERMISSIONS } from '../entities/user-permissions.entity';
 
 @Injectable()
@@ -17,7 +18,7 @@ export class UserPermissionsService {
     userId: string,
     tenantId: string,
     grantedBy: string,
-    isAdmin: boolean = false,
+    isAdmin = false,
   ): Promise<UserPermissions> {
     const permissions = this.permissionsRepository.create({
       userId,

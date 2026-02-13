@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import * as bcryptjs from 'bcryptjs';
+import { DataSource } from 'typeorm';
 
 export interface UserFilter {
   tenantId?: string;
@@ -77,14 +77,14 @@ export class UsersService {
    */
   async listUsers(
     filter: UserFilter,
-    page: number = 1,
-    limit: number = 20,
-    sortBy: string = 'createdAt',
+    page = 1,
+    limit = 20,
+    sortBy = 'createdAt',
     sortOrder: 'ASC' | 'DESC' = 'DESC',
   ): Promise<PaginatedUsers> {
     const offset = (page - 1) * limit;
 
-    let whereConditions: string[] = [];
+    const whereConditions: string[] = [];
     const params: (string | boolean)[] = [];
     let paramIndex = 1;
 
@@ -257,7 +257,7 @@ export class UsersService {
   /**
    * Get recently active users
    */
-  async getRecentlyActiveUsers(limit: number = 50): Promise<UserDto[]> {
+  async getRecentlyActiveUsers(limit = 50): Promise<UserDto[]> {
     try {
       return await this.dataSource.query(
         `
@@ -331,7 +331,7 @@ export class UsersService {
    */
   async getUserActivity(
     userId: string,
-    limit: number = 50,
+    limit = 50,
   ): Promise<UserActivity[]> {
     try {
       return await this.dataSource.query(

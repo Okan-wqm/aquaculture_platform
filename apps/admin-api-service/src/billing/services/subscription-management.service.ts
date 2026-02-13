@@ -2,10 +2,11 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
+
+import { SubscriptionAnalyticsService } from './subscription-analytics.service';
 import { SubscriptionCoreService } from './subscription-core.service';
 import { SubscriptionPlanChangeService } from './subscription-plan-change.service';
 import { SubscriptionRenewalService } from './subscription-renewal.service';
-import { SubscriptionAnalyticsService } from './subscription-analytics.service';
 import {
   SubscriptionStatus,
   SubscriptionOverview,
@@ -182,14 +183,14 @@ export class SubscriptionManagementService {
   /**
    * Get MRR trend over time
    */
-  async getMrrTrend(months: number = 12) {
+  async getMrrTrend(months = 12) {
     return this.analyticsService.getMrrTrend(months);
   }
 
   /**
    * Get churn analysis
    */
-  async getChurnAnalysis(days: number = 90) {
+  async getChurnAnalysis(days = 90) {
     return this.analyticsService.getChurnAnalysis(days);
   }
 
@@ -203,7 +204,7 @@ export class SubscriptionManagementService {
   /**
    * Get growth metrics
    */
-  async getGrowthMetrics(months: number = 3) {
+  async getGrowthMetrics(months = 3) {
     return this.analyticsService.getGrowthMetrics(months);
   }
 }

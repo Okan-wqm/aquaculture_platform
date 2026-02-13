@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+
 import { TenantRole } from './tenant-role.entity';
 
 /**

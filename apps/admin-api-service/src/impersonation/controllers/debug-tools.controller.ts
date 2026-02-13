@@ -10,95 +10,349 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import {
+  IsUUID,
+  IsEnum,
+  IsOptional,
+  IsObject,
+  IsString,
+  IsNotEmpty,
+  IsInt,
+  IsNumber,
+  IsBoolean,
+  IsArray,
+  MaxLength,
+  Min,
+  Max,
+  ArrayMaxSize,
+  ValidateNested,
+  IsDefined,
+} from 'class-validator';
 
-import { DebugToolsService } from '../services/debug-tools.service';
 import { DebugSessionType, QueryLogType } from '../entities/debug-session.entity';
+import { DebugToolsService } from '../services/debug-tools.service';
 
 // ============================================================================
 // DTOs
 // ============================================================================
 
+class DebugSessionFiltersDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  startTime?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  endTime?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsEnum(QueryLogType, { each: true })
+  queryTypes?: QueryLogType[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(500, { each: true })
+  apiEndpoints?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(500, { each: true })
+  cacheKeys?: string[];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  minDuration?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  includeErrors?: boolean;
+
+  @IsOptional()
+  @IsUUID()
+  userId?: string;
+}
+
 class StartDebugSessionDto {
+  @IsUUID()
   tenantId!: string;
+
+  @IsEnum(DebugSessionType)
   sessionType!: DebugSessionType;
+
+  @IsOptional()
+  @IsObject()
   configuration?: Record<string, unknown>;
-  filters?: {
-    startTime?: string;
-    endTime?: string;
-    queryTypes?: QueryLogType[];
-    apiEndpoints?: string[];
-    cacheKeys?: string[];
-    minDuration?: number;
-    includeErrors?: boolean;
-    userId?: string;
-  };
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DebugSessionFiltersDto)
+  filters?: DebugSessionFiltersDto;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10000)
   maxResults?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1440)
   durationMinutes?: number;
 }
 
 class CaptureQueryDto {
+  @IsUUID()
   tenantId!: string;
+
+  @IsOptional()
+  @IsUUID()
   userId?: string;
+
+  @IsEnum(QueryLogType)
   queryType!: QueryLogType;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(50000)
   query!: string;
+
+  @IsOptional()
+  @IsArray()
   parameters?: unknown[];
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
   durationMs!: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
   rowsAffected?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
   rowsReturned?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
   tableName?: string;
+
+  @IsOptional()
+  @IsObject()
   explainPlan?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsBoolean()
   hasError?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
   errorMessage?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
   stackTrace?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
   connectionSource?: string;
 }
 
 class CaptureApiCallDto {
+  @IsUUID()
   tenantId!: string;
+
+  @IsOptional()
+  @IsUUID()
   userId?: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(10)
   method!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(2000)
   endpoint!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
   fullUrl?: string;
+
+  @IsOptional()
+  @IsObject()
   requestHeaders?: Record<string, string>;
+
+  @IsOptional()
   requestBody?: unknown;
+
+  @IsOptional()
+  @IsObject()
   queryParams?: Record<string, string>;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(100)
+  @Max(599)
   responseStatus!: number;
+
+  @IsOptional()
+  @IsObject()
   responseHeaders?: Record<string, string>;
+
+  @IsOptional()
   responseBody?: unknown;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
   durationMs!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(45)
   clientIp?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
   userAgent?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   correlationId?: string;
+
+  @IsOptional()
+  @IsBoolean()
   hasError?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
   errorMessage?: string;
 }
 
 class CreateFeatureFlagOverrideDto {
+  @IsUUID()
   tenantId!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(255)
   featureKey!: string;
+
+  @IsDefined()
   originalValue!: unknown;
+
+  @IsDefined()
   overrideValue!: unknown;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
   reason?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
   expiresAt?: string;
 }
 
 class CaptureSnapshotDto {
+  @IsOptional()
+  @IsUUID()
   tenantId?: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(1000)
   key!: string;
+
+  @IsOptional()
   value?: unknown;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
   sizeBytes?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
   ttlSeconds?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
   expiresAt?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
   hitCount?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
   lastAccessedAt?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
   cacheStore?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
   tags?: string[];
+}
+
+class InvalidateCachePatternDto {
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(500)
+  pattern!: string;
+
+  @IsOptional()
+  @IsUUID()
+  tenantId?: string;
 }
 
 // ============================================================================
 // Controller
 // ============================================================================
 
+@ApiTags('Impersonation')
 @Controller('debug')
 export class DebugToolsController {
   constructor(private readonly debugToolsService: DebugToolsService) {}
@@ -315,7 +569,7 @@ export class DebugToolsController {
 
   @Post('cache/invalidate')
   async invalidateCacheByPattern(
-    @Body() dto: { pattern: string; tenantId?: string },
+    @Body() dto: InvalidateCachePatternDto,
   ) {
     const count = await this.debugToolsService.invalidateCachePattern(
       dto.tenantId || '',

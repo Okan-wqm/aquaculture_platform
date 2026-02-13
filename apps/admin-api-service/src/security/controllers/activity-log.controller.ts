@@ -14,10 +14,12 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { IsOptional, IsNumber, IsString, IsIn, IsBoolean, Min, Max } from 'class-validator';
+import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
-import { ActivityLoggingService, ActivityQueryOptions, ActivityStats } from '../services/activity-logging.service';
+import { IsOptional, IsNumber, IsString, IsIn, IsBoolean, Min, Max } from 'class-validator';
+
 import { ActivityLog, ActivityCategory, ActivitySeverity } from '../entities/security.entity';
+import { ActivityLoggingService, ActivityQueryOptions, ActivityStats } from '../services/activity-logging.service';
 
 // ============================================================================
 // DTOs
@@ -200,6 +202,7 @@ class ActivityStatsQueryDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Security')
 @Controller('security/activities')
 export class ActivityLogController {
   constructor(private readonly activityService: ActivityLoggingService) {}

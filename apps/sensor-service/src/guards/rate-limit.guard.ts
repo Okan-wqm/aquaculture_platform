@@ -5,6 +5,7 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  OnModuleDestroy,
   SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -49,7 +50,7 @@ interface RateLimitEntry {
  * Use @RateLimit() decorator to customize per endpoint
  */
 @Injectable()
-export class SimpleRateLimitGuard implements CanActivate {
+export class SimpleRateLimitGuard implements CanActivate, OnModuleDestroy {
   private readonly logger = new Logger(SimpleRateLimitGuard.name);
   private readonly store = new Map<string, RateLimitEntry>();
   private readonly cleanupInterval: ReturnType<typeof setInterval>;
@@ -110,17 +111,11 @@ export class SimpleRateLimitGuard implements CanActivate {
   }
 
   private generateKey(request: Request): string {
-    // Use IP address for rate limiting
-    const forwardedFor = request.headers['x-forwarded-for'];
-    const ip =
-      request.ip ||
-      (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0]?.trim() : undefined) ||
-      request.socket?.remoteAddress ||
-      'unknown';
-
-    // Include path to allow different limits per endpoint
+    // Only trust request.ip (which Express resolves via trust proxy setting).
+    // Manual X-Forwarded-For parsing is a bypass vector - attackers can spoof
+    // the header to get a fresh rate limit bucket per request.
+    const ip = request.ip || request.socket?.remoteAddress || 'unknown';
     const path = request.path || request.url;
-
     return `${ip}:${path}`;
   }
 

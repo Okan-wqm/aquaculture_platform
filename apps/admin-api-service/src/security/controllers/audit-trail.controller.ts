@@ -17,9 +17,12 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { Response } from 'express';
-import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, Min, Max } from 'class-validator';
+import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
+import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, Min, Max } from 'class-validator';
+import { Response } from 'express';
+
+import { ActivityLog, ActivityCategory, ActivitySeverity, RetentionPolicyEntity, ComplianceType } from '../entities/security.entity';
 import {
   AuditTrailService,
   AuditExportOptions,
@@ -27,7 +30,6 @@ import {
   AuditSummary,
   RetentionStats,
 } from '../services/audit-trail.service';
-import { ActivityLog, ActivityCategory, ActivitySeverity, RetentionPolicyEntity, ComplianceType } from '../entities/security.entity';
 
 // ============================================================================
 // DTOs
@@ -175,6 +177,7 @@ class CreateAlertRuleDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Security')
 @Controller('security/audit')
 export class AuditTrailController {
   constructor(private readonly auditService: AuditTrailService) {}

@@ -1,14 +1,15 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { NotFoundException } from '@nestjs/common';
-import { UserPermissionsService } from '../services/user-permissions.service';
+
 import {
   UserPermissions,
   PanelPermissions,
   DEFAULT_USER_PERMISSIONS,
   TENANT_ADMIN_PERMISSIONS
 } from '../entities/user-permissions.entity';
+import { UserPermissionsService } from '../services/user-permissions.service';
 
 describe('UserPermissionsService', () => {
   let service: UserPermissionsService;

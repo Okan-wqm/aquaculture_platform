@@ -17,10 +17,12 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, IsUUID, IsEnum } from 'class-validator';
-import { SchemaManagementService } from '../services/schema-management.service';
+
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { SchemaStatus } from '../entities/database-management.entity';
+import { SchemaManagementService } from '../services/schema-management.service';
 
 // ============================================================================
 // DTOs
@@ -43,6 +45,7 @@ class UpdateSchemaStatusDto {
 // Controller
 // ============================================================================
 
+@ApiTags('Database Management')
 @Controller('database/schemas')
 @UseGuards(PlatformAdminGuard)
 export class SchemaController {
@@ -53,8 +56,14 @@ export class SchemaController {
   // ============================================================================
 
   @Get()
-  async getAllSchemas() {
-    return this.schemaService.getAllSchemas();
+  async getAllSchemas(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.schemaService.getAllSchemas({
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
   }
 
   @Get('summary')

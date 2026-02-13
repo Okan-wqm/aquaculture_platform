@@ -1,11 +1,15 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+
+import { PlatformAdminGuard } from '../guards/platform-admin.guard';
+
 import {
   SystemMetricsService,
   SystemMetrics,
   ServiceHealth,
 } from './system-metrics.service';
-import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 
+@ApiTags('Analytics')
 @Controller('system')
 @UseGuards(PlatformAdminGuard)
 export class SystemMetricsController {

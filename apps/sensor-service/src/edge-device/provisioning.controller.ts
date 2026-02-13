@@ -58,6 +58,12 @@ export class ProvisioningController {
     @Param('deviceCode') deviceCode: string,
     @Res() res: Response,
   ): Promise<void> {
+    // Validate device code format to prevent injection
+    if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
+      res.status(HttpStatus.BAD_REQUEST).contentType('text/plain').send('Invalid device code format');
+      return;
+    }
+
     this.logger.log(`Installer script requested for device: ${deviceCode}`);
 
     try {
@@ -159,14 +165,23 @@ export class ProvisioningController {
    * Can be used by the installer to verify device state.
    */
   @Get('api/devices/:deviceCode/status')
+  @RateLimit({ limit: 5, windowMs: 60000 })
   async getDeviceStatus(
     @Param('deviceCode') deviceCode: string,
   ): Promise<{
     deviceCode: string;
     ready: boolean;
     status: string;
-    reason?: string;
   }> {
+    // Validate device code format to prevent injection/enumeration
+    if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
+      return {
+        deviceCode: '',
+        ready: false,
+        status: 'NOT_AVAILABLE',
+      };
+    }
+
     this.logger.log(`Status check for device: ${deviceCode}`);
 
     const device = await this.provisioningService.getDeviceByCode(deviceCode);
@@ -175,8 +190,7 @@ export class ProvisioningController {
       return {
         deviceCode,
         ready: false,
-        status: 'NOT_FOUND',
-        reason: 'Device not found',
+        status: 'NOT_AVAILABLE',
       };
     }
 
@@ -185,8 +199,7 @@ export class ProvisioningController {
     return {
       deviceCode,
       ready: readyCheck.ready,
-      status: device.lifecycleState,
-      reason: readyCheck.reason,
+      status: readyCheck.ready ? 'READY' : 'NOT_AVAILABLE',
     };
   }
 
@@ -206,6 +219,12 @@ export class ProvisioningController {
     @Param('tenantToken') tenantToken: string,
     @Res() res: Response,
   ): Promise<void> {
+    // Validate tenant token format (64 char hex string)
+    if (!/^[0-9a-f]{64}$/.test(tenantToken)) {
+      res.status(HttpStatus.BAD_REQUEST).contentType('text/plain').send('Invalid token format');
+      return;
+    }
+
     this.logger.log(`Tenant installer script requested for token: ${tenantToken.substring(0, 8)}...`);
 
     try {
@@ -250,6 +269,14 @@ export class ProvisioningController {
   async selfRegisterDevice(
     @Body() request: SelfRegisterRequest,
   ): Promise<SelfRegisterResponse | ActivationErrorResponse> {
+    // Validate tenant token format
+    if (!/^[0-9a-f]{64}$/.test(request.tenant_token)) {
+      throw new HttpException(
+        { success: false, error: 'Invalid token format', errorCode: ActivationErrorCode.INVALID_TOKEN },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     this.logger.log('Self-register request received');
 
     try {
@@ -281,6 +308,10 @@ export class ProvisioningController {
     errorMessage: string,
     errorCode?: ActivationErrorCode,
   ): string {
+    // Sanitize inputs for shell safety
+    const safeDeviceCode = deviceCode.replace(/[^a-zA-Z0-9._\-]/g, '');
+    const safeErrorMessage = errorMessage.replace(/[^a-zA-Z0-9._\- :()]/g, '');
+
     return `#!/bin/bash
 # Suderra Edge Agent Installer - Error
 
@@ -289,8 +320,8 @@ echo "========================================"
 echo "  Suderra Agent Installation Failed"
 echo "========================================"
 echo ""
-echo "Device Code: ${deviceCode}"
-echo "Error: ${errorMessage}"
+echo "Device Code: ${safeDeviceCode}"
+echo "Error: ${safeErrorMessage}"
 ${errorCode ? `echo "Error Code: ${errorCode}"` : ''}
 echo ""
 echo "Possible solutions:"

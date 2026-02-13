@@ -17,6 +17,8 @@ import {
   NotFoundException,
   Logger,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsString,
   IsEmail,
@@ -32,24 +34,25 @@ import {
   Max,
   Matches,
 } from 'class-validator';
-import { Type } from 'class-transformer';
-import { UsersService, UserFilter, PaginatedUsers } from './users.service';
-import {
-  UserProvisioningService,
-  InviteUserDto as ProvisioningInviteUserDto,
-  UserLimitCheckResult,
-} from './services/user-provisioning.service';
+
+import { AllowTenantAdmin, Roles } from '../decorators/roles.decorator';
+import { PlatformAdminGuard } from '../guards/platform-admin.guard';
+import { EmailSenderService, InvitationEmailData } from '../settings/services/email-sender.service';
+
+import { InviteUserDto, UpdateUserPermissionsDto, UserWithPermissionsDto } from './dto/invite-user.dto';
+import { PanelPermissions, DEFAULT_USER_PERMISSIONS } from './entities/user-permissions.entity';
 import {
   RoleTemplateService,
   Permission,
   RoleTemplate,
 } from './services/role-template.service';
 import { UserPermissionsService } from './services/user-permissions.service';
-import { PlatformAdminGuard } from '../guards/platform-admin.guard';
-import { AllowTenantAdmin, Roles } from '../decorators/roles.decorator';
-import { InviteUserDto, UpdateUserPermissionsDto, UserWithPermissionsDto } from './dto/invite-user.dto';
-import { PanelPermissions, DEFAULT_USER_PERMISSIONS } from './entities/user-permissions.entity';
-import { EmailSenderService, InvitationEmailData } from '../settings/services/email-sender.service';
+import {
+  UserProvisioningService,
+  InviteUserDto as ProvisioningInviteUserDto,
+  UserLimitCheckResult,
+} from './services/user-provisioning.service';
+import { UsersService, UserFilter, PaginatedUsers } from './users.service';
 
 // Allowed sort fields whitelist for security
 const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'email', 'firstName', 'lastName', 'role'] as const;
@@ -206,6 +209,7 @@ export class ListUsersQueryDto {
   sortOrder?: 'ASC' | 'DESC';
 }
 
+@ApiTags('Users')
 @Controller('users')
 @UseGuards(PlatformAdminGuard)
 export class UsersController {
@@ -661,7 +665,7 @@ export class UsersController {
     }
 
     // Check if permissions exist, create if not
-    let permissions = await this.userPermissionsService.getUserPermissions(id, tenantId);
+    const permissions = await this.userPermissionsService.getUserPermissions(id, tenantId);
 
     if (!permissions) {
       // Create default permissions first

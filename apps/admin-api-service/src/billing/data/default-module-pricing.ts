@@ -1,6 +1,6 @@
-import { PricingMetricType } from '../entities/pricing-metric.enum';
-import { PlanTier } from '../entities/plan-definition.entity';
 import { PricingMetric, TierMultipliers } from '../entities/module-pricing.entity';
+import { PlanTier } from '../entities/plan-definition.entity';
+import { PricingMetricType } from '../entities/pricing-metric.enum';
 
 /**
  * Default module pricing configuration
@@ -176,6 +176,53 @@ export const DEFAULT_MODULE_PRICING: DefaultModulePricingData[] = [
         currency: 'USD',
         description: 'Per sensor analytics report',
         includedQuantity: 30, // 30 reports included
+      },
+    ],
+    tierMultipliers: DEFAULT_TIER_MULTIPLIERS,
+  },
+  // ============================================
+  // Hydroponics Management Module
+  // Includes: systems, nutrients, growing-beds, climate, harvest, analytics
+  // ============================================
+  {
+    moduleCode: 'hydroponics',
+    moduleName: 'Hidroponik Yönetimi',
+    metrics: [
+      {
+        type: PricingMetricType.BASE_PRICE,
+        price: 45,
+        currency: 'USD',
+        description: 'Base monthly fee for Hydroponics module',
+      },
+      {
+        type: PricingMetricType.PER_USER,
+        price: 10,
+        currency: 'USD',
+        description: 'Per active user',
+        minQuantity: 1,
+        includedQuantity: 2,
+      },
+      {
+        type: PricingMetricType.PER_FARM,
+        price: 20,
+        currency: 'USD',
+        description: 'Per hydroponic system/facility',
+        minQuantity: 1,
+        includedQuantity: 1,
+      },
+      {
+        type: PricingMetricType.PER_POND,
+        price: 3,
+        currency: 'USD',
+        description: 'Per growing bed/channel',
+        includedQuantity: 10,
+      },
+      {
+        type: PricingMetricType.PER_REPORT,
+        price: 0.5,
+        currency: 'USD',
+        description: 'Per analytics report',
+        includedQuantity: 30,
       },
     ],
     tierMultipliers: DEFAULT_TIER_MULTIPLIERS,

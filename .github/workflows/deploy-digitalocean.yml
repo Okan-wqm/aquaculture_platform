@@ -59,10 +59,10 @@ jobs:
           CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null || echo "")
 
           # Backend services matrix
-          BACKEND_SERVICES='["gateway-api","auth-service","farm-service","sensor-service","alert-engine","billing-service","hr-service","notification-service","admin-api-service"]'
+          BACKEND_SERVICES='["gateway-api","auth-service","farm-service","sensor-service","alert-engine","billing-service","hr-service","notification-service","admin-api-service","hydroponics-service"]'
 
           # Frontend modules matrix
-          FRONTEND_MODULES='["shell","dashboard","farm-module","hr-module","sensor-module","admin-panel","tenant-admin","aquamobil"]'
+          FRONTEND_MODULES='["shell","dashboard","farm-module","hr-module","sensor-module","admin-panel","tenant-admin","hydroponics-module","aquamobil"]'
 
           # Check for shared library changes (rebuild all if libs changed)
           if echo "$CHANGED_FILES" | grep -q "^libs/"; then
@@ -115,7 +115,7 @@ jobs:
             nx-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
 
       # Skip lint & test for faster deployment
       # - name: Lint & Test (affected)
@@ -127,6 +127,9 @@ jobs:
         run: npx nx run-many -t build --all --parallel=4
         env:
           NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+          NODE_OPTIONS: '--max-old-space-size=4096'
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -220,6 +223,9 @@ jobs:
           - module: tenant-admin
             dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
             module_path: web/modules/tenant-admin
+          - module: hydroponics-module
+            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+            module_path: web/modules/hydroponics-module
           - module: aquamobil
             dockerfile: infrastructure/docker/Dockerfile.aquamobil
             module_path: web/apps/aquamobil

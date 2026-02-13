@@ -60,7 +60,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-
       - name: Install npm dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
       - name: Run Snyk to check for vulnerabilities
         uses: snyk/actions/node@master
         env:

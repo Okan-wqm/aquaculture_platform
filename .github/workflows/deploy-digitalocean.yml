@@ -117,15 +117,33 @@ jobs:
           # Lockfile generated on Windows only has win32 binaries.
           # Manually download Linux (x64-gnu) binaries from npm registry.
           install_pkg() {
-            local name=$1 ver=$2
-            echo "Installing ${name}@${ver}..."
-            mkdir -p "node_modules/${name}"
+            local name=$1 ver=$2 dest=${3:-"node_modules/${name}"}
+            echo "Installing ${name}@${ver} → ${dest}"
+            mkdir -p "${dest}"
             curl -sfL --max-time 30 "https://registry.npmjs.org/${name}/-/$(basename ${name})-${ver}.tgz" \
-              | tar xz -C "node_modules/${name}" --strip-components=1
+              | tar xz -C "${dest}" --strip-components=1
+            if [ -f "${dest}/package.json" ]; then
+              echo "  ✓ OK ($(node -p "require('./${dest}/package.json').name"))"
+            else
+              echo "  ✗ FAILED - no package.json found"
+            fi
           }
 
-          # esbuild (needed by Vite)
-          install_pkg "@esbuild/linux-x64" "$(node -p "require('./node_modules/esbuild/package.json').version")"
+          # esbuild linux-x64 for ALL esbuild installations (root + nested in vite)
+          for esbuild_pkg in $(find node_modules -name "package.json" -path "*/esbuild/package.json" -not -path "*/@esbuild/*" 2>/dev/null); do
+            esbuild_dir=$(dirname "$esbuild_pkg")
+            esbuild_ver=$(node -p "require('./${esbuild_pkg}').version")
+            parent_dir=$(dirname "$esbuild_dir")
+            target="${parent_dir}/@esbuild/linux-x64"
+            if [ ! -d "$target" ]; then
+              install_pkg "@esbuild/linux-x64" "$esbuild_ver" "$target"
+            else
+              echo "Skipping ${target} (already exists)"
+            fi
+          done
+
+          # Rollup native binary (needed by Vite for frontend builds)
+          install_pkg "@rollup/rollup-linux-x64-gnu" "$(node -p "require('./node_modules/rollup/package.json').version")"
 
           # SWC (needed by NX for fast TypeScript compilation)
           install_pkg "@swc/core-linux-x64-gnu" "$(node -p "require('./node_modules/@swc/core/package.json').version")"

@@ -87,7 +87,7 @@ jobs:
   build:
     needs: [prepare]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -131,16 +131,16 @@ jobs:
 
       - name: Build backend services
         run: |
-          npx nx run-many -t build --parallel=2 \
-            --projects=gateway-api,auth-service,farm-service,sensor-service,admin-api-service,alert-engine,notification-service,hr-service,billing-service,hydroponics-service
+          npx nx run-many -t build --parallel=3 \
+            --projects=gateway-api,auth-service,farm-service,sensor-service,admin-api-service
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
           NX_DAEMON: 'false'
 
       - name: Build frontend modules
         run: |
-          npx nx run-many -t build --parallel=2 \
-            --projects=shared-ui,shell,dashboard,farm-module,sensor-module,admin-panel,hr-module,tenant-admin,hydroponics-module
+          npx nx run-many -t build --parallel=3 \
+            --projects=shared-ui,shell,dashboard,farm-module,sensor-module,admin-panel
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
           NX_DAEMON: 'false'
@@ -184,11 +184,6 @@ jobs:
           - farm-service
           - sensor-service
           - admin-api-service
-          - alert-engine
-          - notification-service
-          - hr-service
-          - billing-service
-          - hydroponics-service
     steps:
       - uses: actions/checkout@v4
 
@@ -248,18 +243,9 @@ jobs:
           - module: sensor-module
             dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
             module_path: web/modules/sensor-module
-          - module: hr-module
-            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
-            module_path: web/modules/hr-module
           - module: admin-panel
             dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
             module_path: web/modules/admin-panel
-          - module: tenant-admin
-            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
-            module_path: web/modules/tenant-admin
-          - module: hydroponics-module
-            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
-            module_path: web/modules/hydroponics-module
     steps:
       - uses: actions/checkout@v4
 

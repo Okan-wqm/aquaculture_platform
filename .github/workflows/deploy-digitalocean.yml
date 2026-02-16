@@ -87,7 +87,7 @@ jobs:
   build:
     needs: [prepare]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -103,20 +103,29 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .nx/cache
-          key: nx-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}-${{ github.sha }}
+          key: nx-deploy-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}-${{ github.sha }}
           restore-keys: |
-            nx-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}-
-            nx-${{ runner.os }}-
+            nx-deploy-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}-
+            nx-deploy-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --legacy-peer-deps --no-audit
 
-      - name: Build all services
-        run: npx nx run-many -t build --all --parallel=3
+      - name: Build backend services
+        run: |
+          npx nx run-many -t build --parallel=2 \
+            --projects=gateway-api,auth-service,farm-service,sensor-service,admin-api-service,alert-engine,notification-service,hr-service,billing-service,hydroponics-service
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
           NX_DAEMON: 'false'
-          NX_NO_CLOUD: 'true'
+
+      - name: Build frontend modules
+        run: |
+          npx nx run-many -t build --parallel=2 \
+            --projects=shared-ui,shell,dashboard,farm-module,sensor-module,admin-panel,hr-module,tenant-admin,hydroponics-module
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+          NX_DAEMON: 'false'
 
       # Upload backend artifacts (dist/apps/*)
       - name: Upload backend artifacts

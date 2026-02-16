@@ -94,7 +94,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({
 }) => {
   // API hooks
   const { data: batchNumber, isLoading: isLoadingBatchNumber, refetch: refetchBatchNumber } = useGenerateBatchNumber();
-  const { data: availableTanks = [], isLoading: isLoadingTanks } = useAvailableTanks({ excludeFullTanks: false });
+  const { data: availableTanks = [], isLoading: isLoadingTanks, error: tanksError } = useAvailableTanks({ excludeFullTanks: false });
   const { data: suppliers } = useSupplierList();
   const { data: species } = useSpeciesList();
   const uploadMutation = useUploadBatchDocument();
@@ -692,6 +692,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({
                     onAllocationsChange={setTankAllocations}
                     availableTanks={availableTanks}
                     isLoadingTanks={isLoadingTanks}
+                    tanksError={tanksError}
                     totalQuantity={Number(formData.initialQuantity) || 0}
                     avgWeightG={Number(formData.avgWeightG) || 0}
                   />

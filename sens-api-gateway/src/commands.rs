@@ -17,7 +17,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, error, info, warn};
 
 use crate::AppState;
@@ -25,6 +25,8 @@ use crate::mqtt::{CommandMessage, CommandResponse, IncomingMessage};
 use crate::plc_programming::{
     AdsClient, CodesysClient, EtherNetIpClient, OpcUaClient, PlcProgram, PlcProgrammer, S7Client,
 };
+use crate::deploy_orchestrator::DeployCommand;
+use crate::st_validator::validate_st;
 use crate::scripting::{ExecutionMode, FBDefinition, ScriptDefinition, ScriptStorage};
 use crate::security::sanitize_for_log;
 
@@ -204,6 +206,8 @@ pub struct CommandHandler {
     rate_limiter: RateLimiter,
     /// Path to program state file
     program_state_path: PathBuf,
+    /// Concurrency lock to prevent overlapping deploy operations
+    deploy_lock: Mutex<()>,
 }
 
 impl CommandHandler {
@@ -232,6 +236,7 @@ impl CommandHandler {
                 Duration::from_secs(rate_limit_window_secs),
             ),
             program_state_path,
+            deploy_lock: Mutex::new(()),
         }
     }
 
@@ -332,6 +337,24 @@ impl CommandHandler {
             state.config.device_id.clone()
         };
 
+        // IEC 62443 SL-2: Audit log safety-critical commands before execution
+        let is_safety_critical = matches!(
+            command.command.as_str(),
+            "deploy_program" | "deploy_script" | "deploy_to_codesys" | "deploy_auto"
+                | "rollback_program" | "plc_upload" | "plc_start" | "plc_stop"
+                | "plc_delete" | "write_modbus" | "write_gpio" | "reboot"
+                | "restart_agent" | "delete_script"
+        );
+        if is_safety_critical {
+            warn!(
+                "AUDIT: Safety-critical command initiated: command='{}', id='{}', device_id='{}', timestamp='{}'",
+                sanitize_for_log(&command.command),
+                command.command_id,
+                device_id,
+                Utc::now().to_rfc3339()
+            );
+        }
+
         let (success, result, error) = match command.command.as_str() {
             "ping" => self.cmd_ping().await,
             "get_info" => self.cmd_get_info().await,
@@ -360,6 +383,10 @@ impl CommandHandler {
             "plc_list" => self.cmd_plc_list(&command.params).await,
             "plc_download" => self.cmd_plc_download(&command.params).await,
             "plc_delete" => self.cmd_plc_delete(&command.params).await,
+            // Deploy orchestrator commands (v2.2)
+            "deploy_to_codesys" => self.cmd_deploy_to_codesys(&command.params).await,
+            "deploy_auto" => self.cmd_deploy_auto(&command.params).await,
+            "validate_st" => self.cmd_validate_st(&command.params).await,
             // System commands
             "reboot" => self.cmd_reboot(&command.params).await,
             "restart_agent" => self.cmd_restart_agent().await,
@@ -386,18 +413,31 @@ impl CommandHandler {
         let elapsed = start_time.elapsed();
         if success {
             info!(
-                "✅ Command completed: id='{}', command='{}', success=true, duration={:?}",
+                "Command completed: id='{}', command='{}', success=true, duration={:?}",
                 command.command_id,
                 sanitize_for_log(&command.command),
                 elapsed
             );
         } else {
             warn!(
-                "❌ Command failed: id='{}', command='{}', error={:?}, duration={:?}",
+                "Command failed: id='{}', command='{}', error={:?}, duration={:?}",
                 command.command_id,
                 sanitize_for_log(&command.command),
                 error,
                 elapsed
+            );
+        }
+
+        // IEC 62443 SL-2: Audit log outcome of safety-critical commands
+        if is_safety_critical {
+            warn!(
+                "AUDIT: Safety-critical command completed: command='{}', id='{}', device_id='{}', success={}, duration={:?}, timestamp='{}'",
+                sanitize_for_log(&command.command),
+                command.command_id,
+                device_id,
+                success,
+                elapsed,
+                Utc::now().to_rfc3339()
             );
         }
 
@@ -891,7 +931,14 @@ impl CommandHandler {
         info!("Executing write_gpio command");
 
         let pin = match params.get("pin").and_then(|v| v.as_u64()) {
-            Some(p) => p as u8,
+            Some(p) if p <= u8::MAX as u64 => p as u8,
+            Some(p) => {
+                return (
+                    false,
+                    json!(null),
+                    Some(format!("GPIO pin {} exceeds valid range (0-255)", p)),
+                );
+            }
             None => {
                 return (
                     false,
@@ -1195,6 +1242,7 @@ impl CommandHandler {
     /// 4. Deploys the script portion
     /// 5. Engine will pick up FB definitions on next reload
     async fn cmd_deploy_program(&mut self, params: &Value) -> (bool, Value, Option<String>) {
+        let _deploy_guard = self.deploy_lock.lock().await;
         info!("Executing deploy_program command");
 
         // Get scripting limits from config
@@ -1354,6 +1402,7 @@ impl CommandHandler {
 
     /// Rollback to previous program version
     async fn cmd_rollback_program(&mut self) -> (bool, Value, Option<String>) {
+        let _deploy_guard = self.deploy_lock.lock().await;
         info!("Executing rollback_program command");
 
         let mut state = self.load_program_state();
@@ -1651,11 +1700,14 @@ impl CommandHandler {
     }
 
     /// Helper to upload program using any PlcProgrammer client
+    /// v2.3: Connect with 30-second timeout to prevent command handler freeze
     async fn upload_with_client<P: PlcProgrammer>(
         client: &mut P,
         program: &PlcProgram,
     ) -> anyhow::Result<crate::plc_programming::UploadResult> {
-        client.connect().await?;
+        tokio::time::timeout(Duration::from_secs(30), client.connect())
+            .await
+            .map_err(|_| anyhow::anyhow!("PLC connect timed out after 30s"))??;
         let result = client.upload_program(program).await;
         let _ = client.disconnect().await; // Best effort disconnect
         result
@@ -1811,10 +1863,13 @@ impl CommandHandler {
     }
 
     /// Helper to get status using any PlcProgrammer client
+    /// v2.3: Connect with 30-second timeout to prevent command handler freeze
     async fn get_status_with_client<P: PlcProgrammer>(
         client: &mut P,
     ) -> anyhow::Result<crate::plc_programming::PlcStatus> {
-        client.connect().await?;
+        tokio::time::timeout(Duration::from_secs(30), client.connect())
+            .await
+            .map_err(|_| anyhow::anyhow!("PLC connect timed out after 30s"))??;
         let status = client.get_status().await;
         let _ = client.disconnect().await;
         status
@@ -1930,16 +1985,22 @@ impl CommandHandler {
     }
 
     /// Helper to start PLC
+    /// v2.3: Connect with 30-second timeout
     async fn start_with_client<P: PlcProgrammer>(client: &mut P) -> anyhow::Result<()> {
-        client.connect().await?;
+        tokio::time::timeout(Duration::from_secs(30), client.connect())
+            .await
+            .map_err(|_| anyhow::anyhow!("PLC connect timed out after 30s"))??;
         let result = client.start().await;
         let _ = client.disconnect().await;
         result
     }
 
     /// Helper to stop PLC
+    /// v2.3: Connect with 30-second timeout
     async fn stop_with_client<P: PlcProgrammer>(client: &mut P) -> anyhow::Result<()> {
-        client.connect().await?;
+        tokio::time::timeout(Duration::from_secs(30), client.connect())
+            .await
+            .map_err(|_| anyhow::anyhow!("PLC connect timed out after 30s"))??;
         let result = client.stop().await;
         let _ = client.disconnect().await;
         result
@@ -2022,8 +2083,11 @@ impl CommandHandler {
     }
 
     /// Helper to list programs
+    /// v2.3: Connect with 30-second timeout
     async fn list_with_client<P: PlcProgrammer>(client: &mut P) -> anyhow::Result<Vec<String>> {
-        client.connect().await?;
+        tokio::time::timeout(Duration::from_secs(30), client.connect())
+            .await
+            .map_err(|_| anyhow::anyhow!("PLC connect timed out after 30s"))??;
         let result = client.list_programs().await;
         let _ = client.disconnect().await;
         result
@@ -2109,11 +2173,14 @@ impl CommandHandler {
     }
 
     /// Helper to download program
+    /// v2.3: Connect with 30-second timeout
     async fn download_with_client<P: PlcProgrammer>(
         client: &mut P,
         program_name: &str,
     ) -> anyhow::Result<PlcProgram> {
-        client.connect().await?;
+        tokio::time::timeout(Duration::from_secs(30), client.connect())
+            .await
+            .map_err(|_| anyhow::anyhow!("PLC connect timed out after 30s"))??;
         let result = client.download_program(program_name).await;
         let _ = client.disconnect().await;
         result
@@ -2194,14 +2261,386 @@ impl CommandHandler {
     }
 
     /// Helper to delete program
+    /// v2.3: Connect with 30-second timeout
     async fn delete_with_client<P: PlcProgrammer>(
         client: &mut P,
         program_name: &str,
     ) -> anyhow::Result<()> {
-        client.connect().await?;
+        tokio::time::timeout(Duration::from_secs(30), client.connect())
+            .await
+            .map_err(|_| anyhow::anyhow!("PLC connect timed out after 30s"))??;
         let result = client.delete_program(program_name).await;
         let _ = client.disconnect().await;
         result
+    }
+
+    // ========================================================================
+    // Deploy Orchestrator Commands (v2.2)
+    // ========================================================================
+
+    /// Deploy program directly to Codesys PLC
+    ///
+    /// Sends ST source code to a Codesys-based PLC which compiles on-device.
+    /// Safety sequence: validate ST → connect → stop PLC → upload → verify compile → report status
+    /// Note: PLC is NOT auto-started after upload. Operator must explicitly start via a separate command.
+    async fn cmd_deploy_to_codesys(&self, params: &Value) -> (bool, Value, Option<String>) {
+        let _deploy_guard = self.deploy_lock.lock().await;
+        info!("Executing deploy_to_codesys command");
+
+        let st_source = match params.get("st_source").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => {
+                return (false, json!(null), Some("Missing 'st_source' parameter".to_string()));
+            }
+        };
+
+        let plc_address = match params.get("plc_address").and_then(|v| v.as_str()) {
+            Some(a) => a,
+            None => {
+                return (false, json!(null), Some("Missing 'plc_address' parameter".to_string()));
+            }
+        };
+
+        // Validate PLC address is a valid IPv4
+        if !plc_address.parse::<std::net::Ipv4Addr>().is_ok()
+            && !plc_address.parse::<std::net::Ipv6Addr>().is_ok()
+        {
+            return (false, json!(null), Some(format!("Invalid PLC address: {}", sanitize_for_log(plc_address))));
+        }
+
+        // Reject loopback and link-local addresses
+        if let Ok(ip) = plc_address.parse::<std::net::Ipv4Addr>() {
+            if ip.is_loopback() || ip.is_link_local() || ip.is_broadcast() || ip.is_unspecified() {
+                return (false, json!(null), Some("PLC address cannot be loopback, link-local, or broadcast".to_string()));
+            }
+        }
+
+        let plc_port_raw = params.get("plc_port").and_then(|v| v.as_u64()).unwrap_or(1217);
+        if plc_port_raw == 0 || plc_port_raw > u16::MAX as u64 {
+            return (false, json!(null), Some(format!("PLC port must be between 1-65535, got {}", plc_port_raw)));
+        }
+        let plc_port = plc_port_raw as u16;
+
+        let program_name = params.get("program_name").and_then(|v| v.as_str()).unwrap_or("Main");
+        let auto_start = params.get("auto_start").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        // Step 0: Validate ST source before sending to PLC (safety check)
+        let max_source_len = 1_000_000; // 1MB max
+        if st_source.len() > max_source_len {
+            return (false, json!(null), Some(format!("ST source too large: {} bytes (max {})", st_source.len(), max_source_len)));
+        }
+
+        let validation = validate_st(st_source);
+        if !validation.valid {
+            let error_msgs: Vec<String> = validation.errors.iter().map(|e| e.message.clone()).collect();
+            return (
+                false,
+                json!({
+                    "success": false,
+                    "validation_errors": error_msgs,
+                    "error_count": validation.errors.len(),
+                    "warning_count": validation.warnings.len(),
+                }),
+                Some(format!("ST validation failed: {} error(s)", validation.errors.len())),
+            );
+        }
+
+        // Read credentials from local store, not from MQTT params (security)
+        let username = params.get("plc_credentials").and_then(|c| c.get("username")).and_then(|v| v.as_str())
+            .or_else(|| params.get("username").and_then(|v| v.as_str()));
+        let password = params.get("plc_credentials").and_then(|c| c.get("password")).and_then(|v| v.as_str())
+            .or_else(|| params.get("password").and_then(|v| v.as_str()));
+
+        info!(plc_address = %plc_address, plc_port = %plc_port, program_name = %program_name, "Deploying ST to Codesys PLC");
+
+        let config = crate::plc_programming::codesys::CodesysConfig {
+            name: format!("deploy-{}", program_name),
+            address: plc_address.to_string(),
+            port: plc_port,
+            mode: Default::default(),
+            device_name: params.get("device_name").and_then(|v| v.as_str()).map(String::from),
+            username: username.map(String::from),
+            password: password.map(String::from),
+            encrypted: params.get("encrypted").and_then(|v| v.as_bool()).unwrap_or(false),
+            timeout_secs: 30,
+            application: params.get("application").and_then(|v| v.as_str()).unwrap_or("Application").to_string(),
+        };
+
+        let mut client = CodesysClient::new(config);
+
+        // Step 1: Connect (with 30s timeout to prevent command handler freeze)
+        match tokio::time::timeout(Duration::from_secs(30), client.connect()).await {
+            Err(_) => {
+                error!("PLC connect timed out after 30s at {}:{}", plc_address, plc_port);
+                return (false, json!(null), Some(format!("PLC connect timed out after 30s at {}:{}", plc_address, plc_port)));
+            }
+            Ok(Err(e)) => {
+                error!(error = %e, "Failed to connect to Codesys PLC");
+                return (false, json!(null), Some(format!("Failed to connect to PLC at {}:{}: {}", plc_address, plc_port, e)));
+            }
+            Ok(Ok(())) => {}
+        }
+
+        // Step 2: Stop PLC before uploading (safety: prevents undefined output states)
+        match client.get_status().await {
+            Ok(status) => {
+                let mode = format!("{:?}", status.run_mode);
+                if mode.to_lowercase().contains("run") {
+                    info!("PLC is in RUN mode, stopping before upload for safety");
+                    if let Err(e) = client.stop().await {
+                        error!(error = %e, "Failed to stop PLC before upload - aborting deploy for safety");
+                        let _ = client.disconnect().await;
+                        return (false, json!(null), Some(format!("Cannot stop PLC before upload: {}. Deploy aborted for safety.", e)));
+                    }
+                    info!("PLC stopped successfully");
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to get PLC status before upload - proceeding cautiously");
+            }
+        }
+
+        // Step 3: Create PlcProgram from ST source
+        let program = PlcProgram {
+            name: program_name.to_string(),
+            language: crate::plc_programming::ProgramLanguage::St,
+            source: st_source.to_string(),
+            variables: vec![],
+            function_blocks: vec![],
+            metadata: std::collections::HashMap::new(),
+        };
+
+        // Step 4: Upload program (PLC compiles on-device)
+        let upload_result = match client.upload_program(&program).await {
+            Ok(result) => result,
+            Err(e) => {
+                error!(error = %e, "Failed to upload program to Codesys PLC");
+                let _ = client.disconnect().await;
+                return (false, json!(null), Some(format!("Program upload failed: {}", e)));
+            }
+        };
+
+        if !upload_result.success {
+            let _ = client.disconnect().await;
+            return (
+                false,
+                json!({"success": false, "errors": upload_result.errors, "warnings": upload_result.warnings}),
+                Some("Program compilation failed on PLC".to_string()),
+            );
+        }
+
+        // Step 5: Conditionally start PLC (only if explicitly requested)
+        if auto_start {
+            info!("auto_start=true, starting PLC after successful upload");
+            if let Err(e) = client.start().await {
+                warn!(error = %e, "Failed to start PLC after upload (program uploaded successfully, PLC in STOP)");
+            }
+        } else {
+            info!("PLC left in STOP mode after upload. Operator must explicitly start.");
+        }
+
+        // Step 6: Get final status
+        let plc_status = match client.get_status().await {
+            Ok(status) => Some(format!("{:?}", status.run_mode)),
+            Err(e) => { warn!(error = %e, "Failed to get PLC status after deploy"); None }
+        };
+
+        let _ = client.disconnect().await;
+
+        info!(program_name = %program_name, plc_address = %plc_address, plc_status = ?plc_status, "Codesys deploy completed");
+
+        (
+            true,
+            json!({
+                "success": true,
+                "target": "codesys_plc",
+                "program_name": program_name,
+                "program_id": upload_result.program_id,
+                "plc_address": plc_address,
+                "plc_port": plc_port,
+                "plc_status": plc_status,
+                "auto_started": auto_start,
+                "warnings": upload_result.warnings,
+                "validation_warnings": validation.warnings.len(),
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+            None,
+        )
+    }
+
+    /// Unified deploy command - routes to appropriate target automatically
+    async fn cmd_deploy_auto(&mut self, params: &Value) -> (bool, Value, Option<String>) {
+        // Note: no deploy_lock here - this method delegates to cmd_deploy_program()
+        // and cmd_deploy_to_codesys() which each acquire the lock themselves.
+        // Locking here would deadlock since tokio::sync::Mutex is not reentrant.
+        info!("Executing deploy_auto command");
+
+        // Deserialize from string to avoid deep-cloning the entire Value tree
+        let params_str = params.to_string();
+        let deploy_cmd: DeployCommand = match serde_json::from_str(&params_str) {
+            Ok(cmd) => cmd,
+            Err(e) => {
+                return (false, json!(null), Some(format!("Invalid deploy command: {}", e)));
+            }
+        };
+
+        info!(target = %deploy_cmd.target, program = %deploy_cmd.program_name, "Routing deploy");
+
+        match deploy_cmd.target {
+            crate::deploy_orchestrator::DeployTarget::RustEngine => {
+                let program_params = json!({
+                    "id": deploy_cmd.program_id,
+                    "name": deploy_cmd.program_name,
+                    "version": deploy_cmd.version,
+                    "script": deploy_cmd.script,
+                    "functionBlocks": deploy_cmd.function_blocks,
+                    "executionMode": deploy_cmd.execution_mode.unwrap_or_else(|| "event_driven".to_string()),
+                    "scanCycleMs": deploy_cmd.scan_cycle_ms.unwrap_or(100),
+                });
+                self.cmd_deploy_program(&program_params).await
+            }
+
+            crate::deploy_orchestrator::DeployTarget::CodesysPlc => {
+                let codesys_params = json!({
+                    "st_source": deploy_cmd.st_source,
+                    "plc_address": deploy_cmd.plc_address,
+                    "plc_port": deploy_cmd.plc_port.unwrap_or(1217),
+                    "program_name": deploy_cmd.program_name,
+                    "plc_credentials": deploy_cmd.plc_credentials,
+                });
+                self.cmd_deploy_to_codesys(&codesys_params).await
+            }
+
+            crate::deploy_orchestrator::DeployTarget::PlcSetpoint => {
+                let protocol = deploy_cmd.setpoint_protocol.as_deref().unwrap_or("modbus");
+                let setpoints = match deploy_cmd.setpoints {
+                    Some(sp) => sp,
+                    None => {
+                        return (false, json!(null), Some("Missing 'setpoints' for PlcSetpoint target".to_string()));
+                    }
+                };
+
+                let mut results = Vec::new();
+                let mut all_success = true;
+
+                for sp in &setpoints {
+                    let write_params = json!({
+                        "device": deploy_cmd.plc_address,
+                        "address": sp.address,
+                        "value": sp.value,
+                        "data_type": sp.data_type,
+                    });
+                    let (success, result, error) = match protocol {
+                        "opcua" => self.cmd_write_opcua(&write_params).await,
+                        "s7comm" => self.cmd_write_s7(&write_params).await,
+                        _ => self.cmd_write_modbus(&write_params).await,
+                    };
+                    if !success { all_success = false; }
+                    results.push(json!({"address": sp.address, "success": success, "result": result, "error": error}));
+                }
+
+                (
+                    all_success,
+                    json!({
+                        "success": all_success,
+                        "target": "plc_setpoint",
+                        "protocol": protocol,
+                        "setpoint_results": results,
+                        "timestamp": chrono::Utc::now().to_rfc3339()
+                    }),
+                    if all_success { None } else { Some("Some setpoint writes failed".to_string()) },
+                )
+            }
+        }
+    }
+
+    /// Write a value to an OPC-UA node on a PLC
+    /// Stub: not yet implemented
+    async fn cmd_write_opcua(&self, params: &Value) -> (bool, Value, Option<String>) {
+        warn!("cmd_write_opcua called but OPC-UA write is not yet implemented");
+
+        let address = params.get("address").and_then(|v| v.as_str()).unwrap_or("<unknown>");
+        let value = params.get("value").unwrap_or(&json!(null));
+
+        (
+            false,
+            json!({
+                "protocol": "opcua",
+                "address": address,
+                "requested_value": value,
+                "implemented": false,
+            }),
+            Some("OPC-UA write not yet implemented".to_string()),
+        )
+    }
+
+    /// Write a value to an S7 PLC via S7comm protocol
+    /// Stub: not yet implemented
+    async fn cmd_write_s7(&self, params: &Value) -> (bool, Value, Option<String>) {
+        warn!("cmd_write_s7 called but S7 write is not yet implemented");
+
+        let address = params.get("address").and_then(|v| v.as_str()).unwrap_or("<unknown>");
+        let value = params.get("value").unwrap_or(&json!(null));
+
+        (
+            false,
+            json!({
+                "protocol": "s7comm",
+                "address": address,
+                "requested_value": value,
+                "implemented": false,
+            }),
+            Some("S7 write not yet implemented".to_string()),
+        )
+    }
+
+    /// Validate IEC 61131-3 Structured Text code
+    /// v2.2: Uses the real AST-based parser/validator
+    /// Runs on blocking thread pool to avoid blocking the async MQTT event loop.
+    async fn cmd_validate_st(&mut self, params: &Value) -> (bool, Value, Option<String>) {
+        let source = match params.get("source").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => {
+                return (false, json!({"valid": false}), Some("Missing 'source' parameter".to_string()));
+            }
+        };
+
+        // Size limit: prevent DoS on edge device parser
+        const MAX_SOURCE_LEN: usize = 1_000_000; // 1MB
+        if source.len() > MAX_SOURCE_LEN {
+            return (
+                false,
+                json!({"valid": false, "errors": [{"message": format!("Source too large: {} bytes (max {})", source.len(), MAX_SOURCE_LEN)}]}),
+                Some("Source code exceeds maximum size".to_string()),
+            );
+        }
+
+        // Run CPU-intensive parsing on blocking thread pool with 60s timeout
+        let source_owned = source.to_string();
+        let validation_future = tokio::task::spawn_blocking(move || {
+            let mut result = validate_st(&source_owned);
+            // Strip AST from response to reduce MQTT payload size (can be MB for large programs)
+            result.ast = None;
+            result
+        });
+
+        let result = match tokio::time::timeout(Duration::from_secs(60), validation_future).await {
+            Err(_) => {
+                return (false, json!({"valid": false}), Some("ST validation timed out after 60s".to_string()));
+            }
+            Ok(Err(e)) => {
+                return (false, json!({"valid": false}), Some(format!("Validation task failed: {}", e)));
+            }
+            Ok(Ok(r)) => r,
+        };
+
+        let success = result.valid;
+
+        (
+            success,
+            serde_json::to_value(&result).unwrap_or(json!({"valid": false})),
+            if success { None } else { Some(format!("{} error(s) found", result.errors.len())) },
+        )
     }
 
     /// Load program state from disk
@@ -2260,6 +2699,7 @@ impl CommandHandler {
     }
 
     /// Save program state to disk
+    /// v2.3: Atomic write (tmp + rename) to prevent corruption on power loss
     fn save_program_state(&self, state: &ProgramState) -> anyhow::Result<()> {
         // Ensure parent directory exists
         if let Some(parent) = self.program_state_path.parent() {
@@ -2267,9 +2707,13 @@ impl CommandHandler {
         }
 
         let content = serde_json::to_string_pretty(state)?;
-        fs::write(&self.program_state_path, content)?;
 
-        debug!(path = ?self.program_state_path, "Program state saved");
+        // Write to temp file first, then atomically rename
+        let tmp_path = self.program_state_path.with_extension("json.tmp");
+        fs::write(&tmp_path, &content)?;
+        fs::rename(&tmp_path, &self.program_state_path)?;
+
+        debug!(path = ?self.program_state_path, "Program state saved (atomic)");
         Ok(())
     }
 

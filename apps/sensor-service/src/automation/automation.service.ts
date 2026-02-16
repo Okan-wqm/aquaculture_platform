@@ -10,7 +10,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, FindOptionsWhere, In } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
@@ -36,6 +36,7 @@ import {
   ProgramStatus,
   ProgramType,
   ExecutionMode,
+  DeployTarget,
   SfcDefinition,
   TriggerConfig,
 } from './entities/automation-program.entity';
@@ -112,6 +113,11 @@ export class AutomationService {
       category: input.category,
       triggerConfig: input.triggerConfig as TriggerConfig,
       tags: input.tags,
+      deployTarget: input.deployTarget,
+      targetPlcAddress: input.targetPlcAddress,
+      targetPlcPort: input.targetPlcPort,
+      targetPlcModel: input.targetPlcModel,
+      targetPlcProtocol: input.targetPlcProtocol,
       status: ProgramStatus.DRAFT,
       version: 1,
       createdBy,
@@ -152,6 +158,11 @@ export class AutomationService {
     if (input.triggerConfig !== undefined) program.triggerConfig = input.triggerConfig as TriggerConfig;
     if (input.tags !== undefined) program.tags = input.tags;
     if (input.metadata !== undefined) program.metadata = input.metadata;
+    if (input.deployTarget !== undefined) program.deployTarget = input.deployTarget;
+    if (input.targetPlcAddress !== undefined) program.targetPlcAddress = input.targetPlcAddress;
+    if (input.targetPlcPort !== undefined) program.targetPlcPort = input.targetPlcPort;
+    if (input.targetPlcModel !== undefined) program.targetPlcModel = input.targetPlcModel;
+    if (input.targetPlcProtocol !== undefined) program.targetPlcProtocol = input.targetPlcProtocol;
 
     // Reset status to DRAFT if it was approved but content changed
     if (program.status === ProgramStatus.APPROVED && (input.sfcDefinition || input.structuredTextCode)) {
@@ -203,36 +214,27 @@ export class AutomationService {
     page = 1,
     limit = 20,
   ): Promise<{ items: AutomationProgram[]; total: number }> {
-    const where: FindOptionsWhere<AutomationProgram> = { tenantId };
-
-    if (filter?.status) where.status = filter.status;
-    if (filter?.programType) where.programType = filter.programType;
-    if (filter?.deviceId) where.deviceId = filter.deviceId;
-    if (filter?.processTemplateId) where.processTemplateId = filter.processTemplateId;
-    if (filter?.category) where.category = filter.category;
-    if (filter?.isLocked !== undefined) where.isLocked = filter.isLocked;
-
     const queryBuilder = this.programRepo.createQueryBuilder('p')
-      .where('p."tenantId" = :tenantId', { tenantId });
+      .where('p.tenantId = :tenantId', { tenantId });
 
     if (filter?.status) {
       queryBuilder.andWhere('p.status = :status', { status: filter.status });
     }
     if (filter?.programType) {
-      queryBuilder.andWhere('p."programType" = :programType', { programType: filter.programType });
+      queryBuilder.andWhere('p.programType = :programType', { programType: filter.programType });
     }
     if (filter?.deviceId) {
-      queryBuilder.andWhere('p."deviceId" = :deviceId', { deviceId: filter.deviceId });
+      queryBuilder.andWhere('p.deviceId = :deviceId', { deviceId: filter.deviceId });
     }
     if (filter?.search) {
       queryBuilder.andWhere(
-        '(p."programName" ILIKE :search OR p."programCode" ILIKE :search)',
+        '(p.programName ILIKE :search OR p.programCode ILIKE :search)',
         { search: `%${filter.search}%` },
       );
     }
 
     const [items, total] = await queryBuilder
-      .orderBy('p."updatedAt"', 'DESC')
+      .orderBy('p.updatedAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
@@ -371,12 +373,12 @@ export class AutomationService {
     // Verify program belongs to tenant
     await this.findByIdOrFail(step.programId, tenantId);
 
-    // Delete associated actions
-    await this.actionRepo.delete({ stepId: id });
-
-    // Delete transitions that reference this step
-    await this.transitionRepo.delete({ fromStepId: id });
-    await this.transitionRepo.delete({ toStepId: id });
+    // Delete associated actions and transitions that reference this step in parallel
+    await Promise.all([
+      this.actionRepo.delete({ stepId: id }),
+      this.transitionRepo.delete({ fromStepId: id }),
+      this.transitionRepo.delete({ toStepId: id }),
+    ]);
 
     await this.stepRepo.delete(id);
     return true;
@@ -443,9 +445,10 @@ export class AutomationService {
 
     // Verify step and program belong to tenant
     const step = await this.stepRepo.findOne({ where: { id: action.stepId } });
-    if (step) {
-      await this.findByIdOrFail(step.programId, tenantId);
+    if (!step) {
+      throw new NotFoundException('Step not found for action');
     }
+    await this.findByIdOrFail(step.programId, tenantId);
 
     if (input.actionName !== undefined) action.actionName = input.actionName;
     if (input.description !== undefined) action.description = input.description;
@@ -473,9 +476,10 @@ export class AutomationService {
 
     // Verify ownership through step -> program -> tenant
     const step = await this.stepRepo.findOne({ where: { id: action.stepId } });
-    if (step) {
-      await this.findByIdOrFail(step.programId, tenantId);
+    if (!step) {
+      throw new NotFoundException('Step not found for action');
     }
+    await this.findByIdOrFail(step.programId, tenantId);
 
     await this.actionRepo.delete(id);
     return true;
@@ -790,17 +794,31 @@ export class AutomationService {
     tenantId: string,
     userId: string,
   ): Promise<AutomationProgram> {
-    const program = await this.findByIdOrFail(id, tenantId);
+    // v2.3: Atomic UPDATE WHERE to prevent TOCTOU race condition
+    // Two users checking isLocked=false simultaneously could both succeed with find-then-save
+    const result = await this.programRepo
+      .createQueryBuilder()
+      .update(AutomationProgram)
+      .set({
+        isLocked: true,
+        lockedBy: userId,
+        lockedAt: new Date(),
+      })
+      .where('id = :id AND tenant_id = :tenantId', { id, tenantId })
+      .andWhere('(is_locked = false OR locked_by = :userId)', { userId })
+      .execute();
 
-    if (program.isLocked && program.lockedBy !== userId) {
-      throw new ConflictException(`Program is already locked by another user`);
+    if (result.affected === 0) {
+      // Either program doesn't exist or is locked by another user
+      const program = await this.findByIdOrFail(id, tenantId);
+      if (program.isLocked && program.lockedBy !== userId) {
+        throw new ConflictException(`Program is already locked by another user`);
+      }
+      // Program doesn't exist
+      throw new ConflictException(`Failed to acquire lock on program`);
     }
 
-    program.isLocked = true;
-    program.lockedBy = userId;
-    program.lockedAt = new Date();
-
-    return this.programRepo.save(program);
+    return this.findByIdOrFail(id, tenantId);
   }
 
   /**
@@ -822,8 +840,8 @@ export class AutomationService {
   async archiveProgram(id: string, tenantId: string): Promise<AutomationProgram> {
     const program = await this.findByIdOrFail(id, tenantId);
 
-    if (program.status === ProgramStatus.DEPLOYED) {
-      throw new ForbiddenException('Cannot archive deployed program');
+    if (program.status === ProgramStatus.DEPLOYED || program.status === ProgramStatus.DEPLOYING) {
+      throw new ForbiddenException('Cannot archive deployed or deploying program');
     }
 
     program.status = ProgramStatus.ARCHIVED;
@@ -1026,19 +1044,79 @@ export class AutomationService {
       );
     }
 
-    // 3. Build edge script definition from IEC 61131-3 program
-    const edgeScript = await this.translateProgramToEdgeScript(program);
-
-    // 4. Build deployment command
+    // 3. Build deployment command based on deploy target
     const commandId = randomUUID();
-    const deployCommand = {
-      commandId,
-      command: 'deploy_program',
-      timestamp: new Date().toISOString(),
-      params: edgeScript,
-    };
+    let deployCommand: Record<string, unknown>;
 
-    // 5. Create deployment log entry
+    switch (program.deployTarget) {
+      case DeployTarget.CODESYS_PLC: {
+        // Yol B: Send ST source code to edge agent for Codesys PLC upload
+        if (!program.structuredTextCode) {
+          throw new BadRequestException(
+            'Structured Text code is required for Codesys PLC deployment',
+          );
+        }
+        if (!program.targetPlcAddress) {
+          throw new BadRequestException(
+            'Target PLC address is required for Codesys PLC deployment',
+          );
+        }
+        deployCommand = {
+          commandId,
+          command: 'deploy_to_codesys',
+          timestamp: new Date().toISOString(),
+          params: {
+            program_name: program.programName,
+            program_id: program.id,
+            version: program.version,
+            st_source: program.structuredTextCode,
+            plc_address: program.targetPlcAddress,
+            plc_port: program.targetPlcPort || 1217,
+            plc_protocol: program.targetPlcProtocol || 'codesys_v3',
+          },
+        };
+        break;
+      }
+
+      case DeployTarget.PLC_SETPOINT: {
+        // Yol C: Write setpoints to closed PLC via edge agent
+        if (!program.targetPlcAddress) {
+          throw new BadRequestException(
+            'Target PLC address is required for PLC setpoint deployment',
+          );
+        }
+        deployCommand = {
+          commandId,
+          command: 'deploy_auto',
+          timestamp: new Date().toISOString(),
+          params: {
+            target: 'plc_setpoint',
+            program_name: program.programName,
+            program_id: program.id,
+            version: program.version,
+            setpoint_protocol: program.targetPlcProtocol || 'modbus',
+            plc_address: program.targetPlcAddress,
+            plc_port: program.targetPlcPort,
+          },
+        };
+        break;
+      }
+
+      case DeployTarget.RUST_ENGINE:
+      default: {
+        // Yol A: Existing flow - translate to edge script and deploy to Rust engine
+        const edgeScript = await this.translateProgramToEdgeScript(program);
+        deployCommand = {
+          commandId,
+          command: 'deploy_program',
+          timestamp: new Date().toISOString(),
+          params: edgeScript,
+        };
+        break;
+      }
+    }
+
+    // 4. Create deployment log entry
     if (this.deploymentLogService) {
       await this.deploymentLogService.createLog({
         tenantId,
@@ -1046,7 +1124,7 @@ export class AutomationService {
         deviceId,
         commandId,
         version: program.version,
-        edgeScript: edgeScript as Record<string, unknown>,
+        edgeScript: (deployCommand as any).params as Record<string, unknown>,
         deployedBy,
       });
     }
@@ -1065,8 +1143,9 @@ export class AutomationService {
         await this.deploymentLogService.markDeploying(commandId);
       }
 
-      // 7. Update program status
-      program.status = ProgramStatus.DEPLOYED;
+      // 7. Update program status to DEPLOYING (not DEPLOYED - that requires device confirmation)
+      // v2.3: DEPLOYING intermediate state prevents false-positive deploy status
+      program.status = ProgramStatus.DEPLOYING;
       program.deployedVersion = program.version;
       program.deployedAt = new Date();
       program.deployedBy = deployedBy;
@@ -1092,6 +1171,61 @@ export class AutomationService {
   }
 
   /**
+   * Confirm deployment success (called when device reports back)
+   * v2.3: Transitions DEPLOYING → DEPLOYED on device confirmation
+   */
+  async confirmDeployment(
+    programId: string,
+    tenantId: string,
+    commandId: string,
+  ): Promise<AutomationProgram> {
+    const program = await this.findByIdOrFail(programId, tenantId);
+
+    if (program.status !== ProgramStatus.DEPLOYING) {
+      this.logger.warn(
+        `Deployment confirmation for program ${programId} in unexpected status: ${program.status}`,
+      );
+    }
+
+    program.status = ProgramStatus.DEPLOYED;
+    const saved = await this.programRepo.save(program);
+
+    // Update deployment log if available
+    if (this.deploymentLogService) {
+      await this.deploymentLogService.handleResponse(commandId, true);
+    }
+
+    this.logger.log(`Program ${programId} deployment confirmed by device`);
+    return saved;
+  }
+
+  /**
+   * Mark deployment as failed (called when device reports error or timeout)
+   * v2.3: Transitions DEPLOYING → APPROVED (back to deployable state)
+   */
+  async failDeployment(
+    programId: string,
+    tenantId: string,
+    commandId: string,
+    errorMessage: string,
+  ): Promise<AutomationProgram> {
+    const program = await this.findByIdOrFail(programId, tenantId);
+
+    if (program.status === ProgramStatus.DEPLOYING) {
+      program.status = ProgramStatus.APPROVED; // Revert to deployable
+    }
+
+    const saved = await this.programRepo.save(program);
+
+    if (this.deploymentLogService) {
+      await this.deploymentLogService.handleResponse(commandId, false, errorMessage);
+    }
+
+    this.logger.error(`Program ${programId} deployment failed: ${errorMessage}`);
+    return saved;
+  }
+
+  /**
    * Translate IEC 61131-3 program to edge script format
    *
    * This is a simplified translator. In a full implementation,
@@ -1101,19 +1235,11 @@ export class AutomationService {
   private async translateProgramToEdgeScript(
     program: AutomationProgram,
   ): Promise<Record<string, unknown>> {
-    // Get program steps, transitions, and variables
-    const steps = await this.stepRepo.find({
-      where: { programId: program.id },
-      order: { stepOrder: 'ASC' },
-    });
-
-    const transitions = await this.transitionRepo.find({
-      where: { programId: program.id },
-    });
-
-    const variables = await this.variableRepo.find({
-      where: { programId: program.id },
-    });
+    // Get program steps and transitions in parallel
+    const [steps, transitions] = await Promise.all([
+      this.stepRepo.find({ where: { programId: program.id }, order: { stepOrder: 'ASC' } }),
+      this.transitionRepo.find({ where: { programId: program.id } }),
+    ]);
 
     // Build triggers from transition conditions
     const triggers = transitions.map((t) => ({
@@ -1149,7 +1275,7 @@ export class AutomationService {
     });
 
     // Build function blocks from timers/counters in ST code
-    const functionBlocks = this.extractFunctionBlocks(program, variables);
+    const functionBlocks = this.extractFunctionBlocks(program);
 
     // Determine execution mode
     const executionMode =
@@ -1190,7 +1316,6 @@ export class AutomationService {
    */
   private extractFunctionBlocks(
     program: AutomationProgram,
-    _variables: ProgramVariable[],
   ): Array<Record<string, unknown>> {
     const functionBlocks: Array<Record<string, unknown>> = [];
 
@@ -1238,10 +1363,10 @@ export class AutomationService {
    * Map program priority (1-10) to edge script priority
    */
   private mapPriority(priority: number): string {
-    if (priority >= 9) return 'emergency';
-    if (priority >= 7) return 'critical';
-    if (priority >= 5) return 'high';
-    if (priority >= 3) return 'normal';
+    if (priority <= 2) return 'emergency';
+    if (priority <= 4) return 'critical';
+    if (priority <= 6) return 'high';
+    if (priority <= 8) return 'normal';
     return 'low';
   }
 
@@ -1303,43 +1428,45 @@ export class AutomationService {
    * Get program statistics for tenant
    */
   async getStats(tenantId: string): Promise<ProgramStats> {
-    const total = await this.programRepo.count({ where: { tenantId } });
+    const [total, statusResult, typeResult, lockedCount, deployedCount] = await Promise.all([
+      this.programRepo.count({ where: { tenantId } }),
 
-    // By status
-    const statusResult: Array<{ status: ProgramStatus; count: string }> = await this.programRepo
-      .createQueryBuilder('p')
-      .select('p.status', 'status')
-      .addSelect('COUNT(*)', 'count')
-      .where('p."tenantId" = :tenantId', { tenantId })
-      .groupBy('p.status')
-      .getRawMany();
+      // By status
+      this.programRepo
+        .createQueryBuilder('p')
+        .select('p.status', 'status')
+        .addSelect('COUNT(*)', 'count')
+        .where('p.tenantId = :tenantId', { tenantId })
+        .groupBy('p.status')
+        .getRawMany() as Promise<Array<{ status: ProgramStatus; count: string }>>,
+
+      // By type
+      this.programRepo
+        .createQueryBuilder('p')
+        .select('p.programType', 'type')
+        .addSelect('COUNT(*)', 'count')
+        .where('p.tenantId = :tenantId', { tenantId })
+        .groupBy('p.programType')
+        .getRawMany() as Promise<Array<{ type: ProgramType; count: string }>>,
+
+      this.programRepo.count({
+        where: { tenantId, isLocked: true },
+      }),
+
+      this.programRepo.count({
+        where: { tenantId, status: ProgramStatus.DEPLOYED },
+      }),
+    ]);
 
     const byStatus = statusResult.map((r) => ({
       status: r.status,
       count: parseInt(r.count, 10),
     }));
 
-    // By type
-    const typeResult: Array<{ type: ProgramType; count: string }> = await this.programRepo
-      .createQueryBuilder('p')
-      .select('p."programType"', 'type')
-      .addSelect('COUNT(*)', 'count')
-      .where('p."tenantId" = :tenantId', { tenantId })
-      .groupBy('p."programType"')
-      .getRawMany();
-
     const byType = typeResult.map((r) => ({
       type: r.type,
       count: parseInt(r.count, 10),
     }));
-
-    const lockedCount = await this.programRepo.count({
-      where: { tenantId, isLocked: true },
-    });
-
-    const deployedCount = await this.programRepo.count({
-      where: { tenantId, status: ProgramStatus.DEPLOYED },
-    });
 
     return {
       total,

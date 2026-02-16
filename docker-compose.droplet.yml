@@ -1,0 +1,449 @@
+# =============================================================================
+# Aquaculture Platform - DigitalOcean Droplet (2GB RAM Optimized)
+#
+# Minimal deployment for small servers.
+# Total memory usage: ~1.2GB (leaves room for OS + swap)
+#
+# Usage:
+#   docker compose -f docker-compose.droplet.yml pull
+#   docker compose -f docker-compose.droplet.yml up -d
+#
+# To add more services, uncomment the sections below.
+# =============================================================================
+
+networks:
+  aqua-network:
+    driver: bridge
+  aqua-internal:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres_data:
+  redis_data:
+  nats_data:
+
+services:
+  # ===========================================================================
+  # Infrastructure (required)
+  # ===========================================================================
+
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: aqua-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aquaculture}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: ${POSTGRES_DB:-aquaculture}
+      # Memory optimization for 2GB server
+      POSTGRES_SHARED_BUFFERS: 128MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 256MB
+      POSTGRES_WORK_MEM: 4MB
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aquaculture}"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: aqua-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required} --maxmemory 48mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: aqua-nats
+    restart: unless-stopped
+    command: ["--jetstream", "--store_dir=/data", "--max_mem_store=32MB"]
+    volumes:
+      - nats_data:/data
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 48M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # Core Backend Services (required)
+  # ===========================================================================
+
+  gateway-api:
+    image: ghcr.io/okan-wqm/aquaculture_platform/gateway-api:latest
+    container_name: aqua-gateway
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NODE_OPTIONS: '--max-old-space-size=128'
+      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      AUTH_SERVICE_URL: http://auth-service:3000/graphql
+      FARM_SERVICE_URL: http://farm-service:3000/graphql
+      SENSOR_SERVICE_URL: http://sensor-service:3000/graphql
+      HR_SERVICE_URL: http://hr-service:3000/graphql
+      ADMIN_SERVICE_URL: http://admin-api-service:3000/graphql
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aqua-network
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  auth-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/auth-service:latest
+    container_name: aqua-auth
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NODE_OPTIONS: '--max-old-space-size=96'
+      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  farm-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/farm-service:latest
+    container_name: aqua-farm
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NODE_OPTIONS: '--max-old-space-size=96'
+      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-default-change-me}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  sensor-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-service:latest
+    container_name: aqua-sensor
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NODE_OPTIONS: '--max-old-space-size=96'
+      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  admin-api-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/admin-api-service:latest
+    container_name: aqua-admin-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NODE_OPTIONS: '--max-old-space-size=96'
+      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ===========================================================================
+  # Optional Backend Services (uncomment as needed)
+  # ===========================================================================
+
+  # hr-service:
+  #   image: ghcr.io/okan-wqm/aquaculture_platform/hr-service:latest
+  #   container_name: aqua-hr
+  #   restart: unless-stopped
+  #   environment:
+  #     NODE_ENV: production
+  #     PORT: 3000
+  #     NODE_OPTIONS: '--max-old-space-size=96'
+  #     DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+  #     REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+  #     NATS_URL: nats://nats:4222
+  #     JWT_SECRET: ${JWT_SECRET}
+  #   depends_on:
+  #     - postgres
+  #     - redis
+  #   networks:
+  #     - aqua-internal
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 128M
+
+  # alert-engine:
+  #   image: ghcr.io/okan-wqm/aquaculture_platform/alert-engine:latest
+  #   container_name: aqua-alert
+  #   restart: unless-stopped
+  #   environment:
+  #     NODE_ENV: production
+  #     PORT: 3000
+  #     NODE_OPTIONS: '--max-old-space-size=96'
+  #     DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+  #     REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+  #     NATS_URL: nats://nats:4222
+  #     JWT_SECRET: ${JWT_SECRET}
+  #   depends_on:
+  #     - postgres
+  #     - redis
+  #     - nats
+  #   networks:
+  #     - aqua-internal
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 128M
+
+  # notification-service:
+  #   image: ghcr.io/okan-wqm/aquaculture_platform/notification-service:latest
+  #   container_name: aqua-notification
+  #   restart: unless-stopped
+  #   environment:
+  #     NODE_ENV: production
+  #     PORT: 3000
+  #     NODE_OPTIONS: '--max-old-space-size=96'
+  #     DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+  #     REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+  #     NATS_URL: nats://nats:4222
+  #     JWT_SECRET: ${JWT_SECRET}
+  #     SMTP_HOST: ${SMTP_HOST:-}
+  #     SMTP_PORT: ${SMTP_PORT:-587}
+  #     SMTP_USER: ${SMTP_USER:-}
+  #     SMTP_PASS: ${SMTP_PASS:-}
+  #   depends_on:
+  #     - postgres
+  #     - nats
+  #   networks:
+  #     - aqua-internal
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 128M
+
+  # ===========================================================================
+  # Core Frontend (required)
+  # ===========================================================================
+
+  shell:
+    image: ghcr.io/okan-wqm/aquaculture_platform/shell:latest
+    container_name: aqua-shell
+    restart: unless-stopped
+    networks:
+      - aqua-network
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+
+  dashboard:
+    image: ghcr.io/okan-wqm/aquaculture_platform/dashboard:latest
+    container_name: aqua-dashboard
+    restart: unless-stopped
+    networks:
+      - aqua-network
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+
+  farm-module:
+    image: ghcr.io/okan-wqm/aquaculture_platform/farm-module:latest
+    container_name: aqua-farm-module
+    restart: unless-stopped
+    networks:
+      - aqua-network
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+
+  sensor-module:
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-module:latest
+    container_name: aqua-sensor-module
+    restart: unless-stopped
+    networks:
+      - aqua-network
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+
+  admin-panel:
+    image: ghcr.io/okan-wqm/aquaculture_platform/admin-panel:latest
+    container_name: aqua-admin-panel
+    restart: unless-stopped
+    networks:
+      - aqua-network
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+
+  # ===========================================================================
+  # Optional Frontend (uncomment as needed)
+  # ===========================================================================
+
+  # hr-module:
+  #   image: ghcr.io/okan-wqm/aquaculture_platform/hr-module:latest
+  #   container_name: aqua-hr-module
+  #   restart: unless-stopped
+  #   networks:
+  #     - aqua-network
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 32M
+
+  # tenant-admin:
+  #   image: ghcr.io/okan-wqm/aquaculture_platform/tenant-admin:latest
+  #   container_name: aqua-tenant-admin
+  #   restart: unless-stopped
+  #   networks:
+  #     - aqua-network
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 32M
+
+  # hydroponics-module:
+  #   image: ghcr.io/okan-wqm/aquaculture_platform/hydroponics-module:latest
+  #   container_name: aqua-hydroponics-module
+  #   restart: unless-stopped
+  #   networks:
+  #     - aqua-network
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 32M
+
+  # ===========================================================================
+  # Reverse Proxy (Nginx)
+  # ===========================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: aqua-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./infrastructure/nginx/droplet.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - gateway-api
+      - shell
+    networks:
+      - aqua-network
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

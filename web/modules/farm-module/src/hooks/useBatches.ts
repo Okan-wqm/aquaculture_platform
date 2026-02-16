@@ -584,18 +584,24 @@ export function useAvailableTanks(options?: {
   return useQuery({
     queryKey: ['batches', 'availableTanks', options],
     queryFn: async () => {
-      const data = await graphqlClient.request<{ availableTanks: AvailableTank[] }>(
-        AVAILABLE_TANKS_QUERY,
-        {
-          siteId: options?.siteId,
-          departmentId: options?.departmentId,
-          excludeFullTanks: options?.excludeFullTanks ?? false,
-        }
-      );
-      return data.availableTanks;
+      try {
+        const data = await graphqlClient.request<{ availableTanks: AvailableTank[] }>(
+          AVAILABLE_TANKS_QUERY,
+          {
+            siteId: options?.siteId,
+            departmentId: options?.departmentId,
+            excludeFullTanks: options?.excludeFullTanks ?? false,
+          }
+        );
+        return data.availableTanks;
+      } catch (error) {
+        console.error('[useAvailableTanks] GraphQL error:', error);
+        throw error;
+      }
     },
     staleTime: 30000,
     enabled: !!token && !!tenantId,
+    retry: 1,
   });
 }
 

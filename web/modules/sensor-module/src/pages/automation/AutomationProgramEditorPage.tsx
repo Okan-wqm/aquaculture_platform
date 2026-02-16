@@ -33,8 +33,13 @@ import {
   Zap,
   Server,
   Send,
+  Code,
+  Target,
 } from 'lucide-react';
 import { useAuth } from '@aquaculture/shared-ui';
+import STEditor from '../../components/automation/STEditor';
+import DeployTargetSelector, { DeployTarget } from '../../components/automation/DeployTargetSelector';
+import CompileResultPanel, { type ValidationResult } from '../../components/automation/CompileResultPanel';
 
 // ============================================================================
 // GraphQL Fetch Helper
@@ -68,30 +73,35 @@ async function graphqlFetch<T>(
 // ============================================================================
 
 enum ProgramStatus {
-  DRAFT = 'DRAFT',
-  IN_REVIEW = 'IN_REVIEW',
-  APPROVED = 'APPROVED',
-  DEPLOYED = 'DEPLOYED',
-  ARCHIVED = 'ARCHIVED',
-  REJECTED = 'REJECTED',
+  DRAFT = 'draft',
+  PENDING_REVIEW = 'pending_review',
+  APPROVED = 'approved',
+  DEPLOYING = 'deploying',
+  DEPLOYED = 'deployed',
+  ARCHIVED = 'archived',
 }
 
 enum ProgramType {
-  SEQUENTIAL_FUNCTION_CHART = 'SEQUENTIAL_FUNCTION_CHART',
-  LADDER_DIAGRAM = 'LADDER_DIAGRAM',
-  FUNCTION_BLOCK = 'FUNCTION_BLOCK',
-  STRUCTURED_TEXT = 'STRUCTURED_TEXT',
-  INSTRUCTION_LIST = 'INSTRUCTION_LIST',
+  SFC = 'sfc',
+  FBD = 'fbd',
+  ST = 'st',
+  LD = 'ld',
 }
 
 interface AutomationProgram {
   id: string;
   programCode: string;
-  name: string;
+  programName: string;
   description?: string;
-  version: string;
+  version: number;
   programType: ProgramType;
   status: ProgramStatus;
+  structuredTextCode?: string;
+  deployTarget?: string;
+  targetPlcAddress?: string;
+  targetPlcPort?: number;
+  targetPlcModel?: string;
+  targetPlcProtocol?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -99,15 +109,15 @@ interface AutomationProgram {
 interface ProgramStep {
   id: string;
   stepName: string;
-  stepNumber: number;
+  stepCode: string;
+  stepOrder: number;
+  stepType: string;
   description?: string;
-  isInitial: boolean;
-  actionCount?: number;
 }
 
 interface ProgramVariable {
   id: string;
-  variableName: string;
+  varName: string;
   dataType: string;
   initialValue?: string;
   scope: string;
@@ -116,10 +126,10 @@ interface ProgramVariable {
 
 interface ProgramTransition {
   id: string;
-  transitionName: string;
-  sourceStepId: string;
-  targetStepId: string;
-  condition: string;
+  transitionCode?: string;
+  fromStepId: string;
+  toStepId: string;
+  conditionExpression: string;
 }
 
 // ============================================================================
@@ -131,25 +141,31 @@ const PROGRAM_QUERY = `
     automationProgram(id: $id) {
       id
       programCode
-      name
+      programName
       description
       version
       programType
       status
+      structuredTextCode
+      deployTarget
+      targetPlcAddress
+      targetPlcPort
+      targetPlcModel
+      targetPlcProtocol
       createdAt
       updatedAt
     }
     programSteps(programId: $id) {
       id
+      stepCode
       stepName
-      stepNumber
+      stepOrder
+      stepType
       description
-      isInitial
-      actionCount
     }
     programVariables(programId: $id) {
       id
-      variableName
+      varName
       dataType
       initialValue
       scope
@@ -157,10 +173,10 @@ const PROGRAM_QUERY = `
     }
     programTransitions(programId: $id) {
       id
-      transitionName
-      sourceStepId
-      targetStepId
-      condition
+      transitionCode
+      fromStepId
+      toStepId
+      conditionExpression
     }
   }
 `;
@@ -178,7 +194,7 @@ const UPDATE_PROGRAM = `
   mutation UpdateAutomationProgram($id: ID!, $input: UpdateProgramInput!) {
     updateAutomationProgram(id: $id, input: $input) {
       id
-      name
+      programName
     }
   }
 `;
@@ -222,7 +238,7 @@ const ADD_VARIABLE = `
   mutation AddProgramVariable($input: CreateVariableInput!) {
     addProgramVariable(input: $input) {
       id
-      variableName
+      varName
     }
   }
 `;
@@ -240,11 +256,11 @@ const REMOVE_VARIABLE = `
 const getStatusColor = (status: ProgramStatus): string => {
   const colors: Record<ProgramStatus, string> = {
     [ProgramStatus.DRAFT]: 'bg-gray-100 text-gray-700',
-    [ProgramStatus.IN_REVIEW]: 'bg-yellow-100 text-yellow-700',
+    [ProgramStatus.PENDING_REVIEW]: 'bg-yellow-100 text-yellow-700',
     [ProgramStatus.APPROVED]: 'bg-blue-100 text-blue-700',
+    [ProgramStatus.DEPLOYING]: 'bg-orange-100 text-orange-700',
     [ProgramStatus.DEPLOYED]: 'bg-green-100 text-green-700',
     [ProgramStatus.ARCHIVED]: 'bg-gray-100 text-gray-500',
-    [ProgramStatus.REJECTED]: 'bg-red-100 text-red-700',
   };
   return colors[status] || colors[ProgramStatus.DRAFT];
 };
@@ -252,11 +268,11 @@ const getStatusColor = (status: ProgramStatus): string => {
 const getStatusText = (status: ProgramStatus): string => {
   const texts: Record<ProgramStatus, string> = {
     [ProgramStatus.DRAFT]: 'Taslak',
-    [ProgramStatus.IN_REVIEW]: 'Inceleniyor',
+    [ProgramStatus.PENDING_REVIEW]: 'Inceleniyor',
     [ProgramStatus.APPROVED]: 'Onaylandi',
+    [ProgramStatus.DEPLOYING]: 'Yukleniyor',
     [ProgramStatus.DEPLOYED]: 'Devrede',
     [ProgramStatus.ARCHIVED]: 'Arsivlendi',
-    [ProgramStatus.REJECTED]: 'Reddedildi',
   };
   return texts[status] || status;
 };
@@ -298,9 +314,9 @@ const StepCard: React.FC<{
     <div className="flex items-start justify-between">
       <div className="flex items-center gap-3">
         <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-          step.isInitial ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+          step.stepType === 'initial' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
         }`}>
-          {step.stepNumber}
+          {step.stepOrder}
         </div>
         <div>
           <h4 className="font-medium text-gray-900 dark:text-white">{step.stepName}</h4>
@@ -316,14 +332,9 @@ const StepCard: React.FC<{
         <Trash2 className="h-4 w-4" />
       </button>
     </div>
-    {step.isInitial && (
+    {step.stepType === 'initial' && (
       <span className="mt-2 inline-block text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded">
         Baslangic Adimi
-      </span>
-    )}
-    {step.actionCount !== undefined && step.actionCount > 0 && (
-      <span className="mt-2 ml-2 inline-block text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-        {step.actionCount} aksiyon
       </span>
     )}
   </div>
@@ -334,7 +345,7 @@ const VariableRow: React.FC<{
   onRemove: () => void;
 }> = ({ variable, onRemove }) => (
   <tr className="hover:bg-gray-50 dark:hover:bg-gray-800">
-    <td className="px-4 py-3 font-mono text-sm">{variable.variableName}</td>
+    <td className="px-4 py-3 font-mono text-sm">{variable.varName}</td>
     <td className="px-4 py-3 text-sm">{variable.dataType}</td>
     <td className="px-4 py-3 text-sm font-mono">{variable.initialValue || '-'}</td>
     <td className="px-4 py-3 text-sm">{variable.scope}</td>
@@ -362,17 +373,28 @@ const AutomationProgramEditorPage: React.FC = () => {
   const isNew = !programId || programId === 'new';
 
   // State
-  const [activeTab, setActiveTab] = useState<'info' | 'steps' | 'variables' | 'deploy'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'steps' | 'variables' | 'code' | 'deploy'>('info');
   const [formData, setFormData] = useState({
     programCode: '',
     name: '',
     description: '',
-    programType: ProgramType.SEQUENTIAL_FUNCTION_CHART,
+    programType: ProgramType.SFC,
   });
+  const [stCode, setStCode] = useState('');
+  const [deployTarget, setDeployTarget] = useState<DeployTarget>(DeployTarget.RUST_ENGINE);
+  const [plcConfig, setPlcConfig] = useState<{
+    targetPlcAddress?: string;
+    targetPlcPort?: number;
+    targetPlcModel?: string;
+    targetPlcProtocol?: string;
+  }>({});
+  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
   const [showAddStep, setShowAddStep] = useState(false);
   const [showAddVariable, setShowAddVariable] = useState(false);
-  const [newStep, setNewStep] = useState({ stepName: '', stepNumber: 1, isInitial: false });
-  const [newVariable, setNewVariable] = useState({ variableName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL' });
+  const [newStep, setNewStep] = useState({ stepName: '', stepCode: '', stepOrder: 1, stepType: 'normal' });
+  const [newVariable, setNewVariable] = useState({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL' });
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Query
   const { data, isLoading } = useQuery({
@@ -390,81 +412,128 @@ const AutomationProgramEditorPage: React.FC = () => {
   // Update form when data loads
   useEffect(() => {
     if (data?.automationProgram) {
+      const prog = data.automationProgram;
       setFormData({
-        programCode: data.automationProgram.programCode,
-        name: data.automationProgram.name,
-        description: data.automationProgram.description || '',
-        programType: data.automationProgram.programType,
+        programCode: prog.programCode,
+        name: prog.programName,
+        description: prog.description || '',
+        programType: prog.programType,
       });
+      if (prog.structuredTextCode) {
+        setStCode(prog.structuredTextCode);
+      }
+      if (prog.deployTarget) {
+        setDeployTarget(prog.deployTarget as DeployTarget);
+      }
+      if (prog.targetPlcAddress || prog.targetPlcPort) {
+        setPlcConfig({
+          targetPlcAddress: prog.targetPlcAddress,
+          targetPlcPort: prog.targetPlcPort,
+          targetPlcModel: prog.targetPlcModel,
+          targetPlcProtocol: prog.targetPlcProtocol,
+        });
+      }
     }
   }, [data]);
 
   // Mutations
+  const handleMutationError = (error: Error, context: string) => {
+    const message = `${context}: ${error.message || 'Bilinmeyen hata'}`;
+    setErrorMessage(message);
+    // Auto-clear error after 8 seconds
+    setTimeout(() => setErrorMessage((prev) => (prev === message ? null : prev)), 8000);
+  };
+
   const createMutation = useMutation({
-    mutationFn: (input: typeof formData) =>
+    mutationFn: (input: Record<string, unknown>) =>
       graphqlFetch<{ createAutomationProgram: { id: string } }>(CREATE_PROGRAM, { input }, token),
     onSuccess: (result) => {
+      setErrorMessage(null);
       navigate(`/sensor/automation/${result.createAutomationProgram.id}`);
     },
+    onError: (error: Error) => handleMutationError(error, 'Program olusturulamadi'),
   });
 
   const updateMutation = useMutation({
-    mutationFn: (input: Partial<typeof formData>) =>
+    mutationFn: (input: Record<string, unknown>) =>
       graphqlFetch(UPDATE_PROGRAM, { id: programId, input }, token),
     onSuccess: () => {
+      setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
     },
+    onError: (error: Error) => handleMutationError(error, 'Program kaydedilemedi'),
   });
 
   const submitForReviewMutation = useMutation({
     mutationFn: () => graphqlFetch(SUBMIT_FOR_REVIEW, { id: programId }, token),
     onSuccess: () => {
+      setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
     },
+    onError: (error: Error) => handleMutationError(error, 'Incelemeye gonderilemedi'),
   });
 
   const addStepMutation = useMutation({
     mutationFn: (input: typeof newStep & { programId: string }) =>
       graphqlFetch(ADD_STEP, { input }, token),
     onSuccess: () => {
+      setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
       setShowAddStep(false);
-      setNewStep({ stepName: '', stepNumber: (data?.programSteps?.length ?? 0) + 1, isInitial: false });
+      setNewStep({ stepName: '', stepCode: '', stepOrder: (data?.programSteps?.length ?? 0) + 1, stepType: 'normal' });
     },
+    onError: (error: Error) => handleMutationError(error, 'Adim eklenemedi'),
   });
 
   const removeStepMutation = useMutation({
     mutationFn: (id: string) => graphqlFetch(REMOVE_STEP, { id }, token),
     onSuccess: () => {
+      setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
     },
+    onError: (error: Error) => handleMutationError(error, 'Adim silinemedi'),
   });
 
   const addVariableMutation = useMutation({
     mutationFn: (input: typeof newVariable & { programId: string }) =>
       graphqlFetch(ADD_VARIABLE, { input }, token),
     onSuccess: () => {
+      setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
       setShowAddVariable(false);
-      setNewVariable({ variableName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL' });
+      setNewVariable({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL' });
     },
+    onError: (error: Error) => handleMutationError(error, 'Degisken eklenemedi'),
   });
 
   const removeVariableMutation = useMutation({
     mutationFn: (id: string) => graphqlFetch(REMOVE_VARIABLE, { id }, token),
     onSuccess: () => {
+      setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
     },
+    onError: (error: Error) => handleMutationError(error, 'Degisken silinemedi'),
   });
 
   // Handlers
   const handleSave = () => {
     if (isNew) {
-      createMutation.mutate(formData);
+      createMutation.mutate({
+        programCode: formData.programCode,
+        programName: formData.name,
+        description: formData.description,
+        programType: formData.programType,
+        structuredTextCode: stCode || undefined,
+        deployTarget,
+        ...plcConfig,
+      });
     } else {
       updateMutation.mutate({
-        name: formData.name,
+        programName: formData.name,
         description: formData.description,
+        structuredTextCode: stCode || undefined,
+        deployTarget,
+        ...plcConfig,
       });
     }
   };
@@ -476,7 +545,7 @@ const AutomationProgramEditorPage: React.FC = () => {
   };
 
   const handleAddVariable = () => {
-    if (programId && newVariable.variableName) {
+    if (programId && newVariable.varName) {
       addVariableMutation.mutate({ ...newVariable, programId });
     }
   };
@@ -495,6 +564,23 @@ const AutomationProgramEditorPage: React.FC = () => {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
+      {/* Error Toast */}
+      {errorMessage && (
+        <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center justify-between" role="alert">
+          <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+            <span className="text-sm">{errorMessage}</span>
+          </div>
+          <button
+            onClick={() => setErrorMessage(null)}
+            className="text-red-500 hover:text-red-700 text-sm font-medium px-2"
+            aria-label="Dismiss error"
+          >
+            Kapat
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
@@ -568,6 +654,12 @@ const AutomationProgramEditorPage: React.FC = () => {
             count={variables.length}
           />
           <TabButton
+            active={activeTab === 'code'}
+            onClick={() => setActiveTab('code')}
+            icon={<Code className="h-4 w-4" />}
+            label="ST Kodu"
+          />
+          <TabButton
             active={activeTab === 'deploy'}
             onClick={() => setActiveTab('deploy')}
             icon={<Upload className="h-4 w-4" />}
@@ -615,11 +707,10 @@ const AutomationProgramEditorPage: React.FC = () => {
                 disabled={!isNew}
                 className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 disabled:bg-gray-100"
               >
-                <option value={ProgramType.SEQUENTIAL_FUNCTION_CHART}>Sequential Function Chart (SFC)</option>
-                <option value={ProgramType.LADDER_DIAGRAM}>Ladder Diagram (LD)</option>
-                <option value={ProgramType.FUNCTION_BLOCK}>Function Block Diagram (FBD)</option>
-                <option value={ProgramType.STRUCTURED_TEXT}>Structured Text (ST)</option>
-                <option value={ProgramType.INSTRUCTION_LIST}>Instruction List (IL)</option>
+                <option value={ProgramType.SFC}>Sequential Function Chart (SFC)</option>
+                <option value={ProgramType.LD}>Ladder Diagram (LD)</option>
+                <option value={ProgramType.FBD}>Function Block Diagram (FBD)</option>
+                <option value={ProgramType.ST}>Structured Text (ST)</option>
               </select>
             </div>
             <div className="col-span-2">
@@ -663,20 +754,28 @@ const AutomationProgramEditorPage: React.FC = () => {
                   className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 />
                 <input
+                  type="text"
+                  value={newStep.stepCode}
+                  onChange={(e) => setNewStep({ ...newStep, stepCode: e.target.value })}
+                  placeholder="Adim kodu (S001)"
+                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
+                />
+                <input
                   type="number"
-                  value={newStep.stepNumber}
-                  onChange={(e) => setNewStep({ ...newStep, stepNumber: parseInt(e.target.value) })}
+                  value={newStep.stepOrder}
+                  onChange={(e) => setNewStep({ ...newStep, stepOrder: parseInt(e.target.value) || 1 })}
                   placeholder="Sira no"
                   className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 />
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={newStep.isInitial}
-                    onChange={(e) => setNewStep({ ...newStep, isInitial: e.target.checked })}
-                  />
-                  Baslangic adimi
-                </label>
+                <select
+                  value={newStep.stepType}
+                  onChange={(e) => setNewStep({ ...newStep, stepType: e.target.value })}
+                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
+                >
+                  <option value="normal">Normal</option>
+                  <option value="initial">Baslangic</option>
+                  <option value="final">Bitis</option>
+                </select>
               </div>
               <div className="flex justify-end gap-2 mt-4">
                 <button
@@ -733,8 +832,8 @@ const AutomationProgramEditorPage: React.FC = () => {
               <div className="grid grid-cols-4 gap-4">
                 <input
                   type="text"
-                  value={newVariable.variableName}
-                  onChange={(e) => setNewVariable({ ...newVariable, variableName: e.target.value })}
+                  value={newVariable.varName}
+                  onChange={(e) => setNewVariable({ ...newVariable, varName: e.target.value })}
                   placeholder="Degisken adi"
                   className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 />
@@ -820,25 +919,95 @@ const AutomationProgramEditorPage: React.FC = () => {
         </div>
       )}
 
+      {/* Code Tab - ST Editor */}
+      {activeTab === 'code' && !isNew && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              IEC 61131-3 Structured Text
+            </h3>
+            <button
+              onClick={async () => {
+                setIsValidating(true);
+                try {
+                  const res = await graphqlFetch<{ validateStructuredText: ValidationResult }>(
+                    `mutation ValidateST($code: String!) {
+                      validateStructuredText(code: $code) {
+                        valid
+                        errors { line column severity message code }
+                        warnings { line column severity message code }
+                        infos { line column severity message code }
+                        parsedSymbols
+                      }
+                    }`,
+                    { code: stCode },
+                    token,
+                  );
+                  setValidationResult(res.validateStructuredText);
+                } catch (err: any) {
+                  setValidationResult({
+                    valid: false,
+                    errors: [{ line: 0, column: 0, severity: 'error', message: err.message }],
+                    warnings: [],
+                    infos: [],
+                  });
+                } finally {
+                  setIsValidating(false);
+                }
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            >
+              <CheckCircle className="h-3.5 w-3.5" />
+              Dogrula
+            </button>
+          </div>
+          <STEditor
+            value={stCode}
+            onChange={setStCode}
+            height="450px"
+          />
+          <CompileResultPanel
+            result={validationResult}
+            isValidating={isValidating}
+          />
+        </div>
+      )}
+
       {/* Deploy Tab */}
       {activeTab === 'deploy' && !isNew && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <div className="text-center py-8">
-            <Server className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-              Edge Cihazina Dagit
+        <div className="space-y-6">
+          {/* Deploy Target Selection */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
+              Hedef Platform
             </h3>
-            <p className="text-gray-500 dark:text-gray-400 mb-4">
-              {program?.status === ProgramStatus.APPROVED
-                ? 'Onaylanan programi bir edge cihazina dagitabilirsiniz'
-                : 'Program dagitilmadan once onaylanmalidir'}
-            </p>
-            {program?.status === ProgramStatus.APPROVED && (
-              <button className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                <Upload className="h-4 w-4" />
-                Dagitim Baslat
-              </button>
-            )}
+            <DeployTargetSelector
+              value={deployTarget}
+              onChange={setDeployTarget}
+              plcConfig={plcConfig}
+              onPlcConfigChange={setPlcConfig}
+            />
+          </div>
+
+          {/* Deploy Action */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <div className="text-center py-4">
+              <Server className="h-12 w-12 mx-auto text-gray-400 mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                Edge Cihazina Dagit
+              </h3>
+              <p className="text-gray-500 dark:text-gray-400 mb-4 text-sm">
+                {program?.status === ProgramStatus.APPROVED
+                  ? `${deployTarget === DeployTarget.RUST_ENGINE ? 'Rust Engine' : deployTarget === DeployTarget.CODESYS_PLC ? 'Codesys PLC' : 'PLC Setpoint'} hedefine dagitim yapilacak`
+                  : 'Program dagitilmadan once onaylanmalidir'}
+              </p>
+              {program?.status === ProgramStatus.APPROVED && (
+                <button className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                  <Upload className="h-4 w-4" />
+                  Dagitim Baslat
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

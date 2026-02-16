@@ -1,15 +1,15 @@
 # =============================================================================
-# DigitalOcean Production Deployment - Optimized
+# DigitalOcean Droplet Deployment
 #
-# Features:
-# - Parallel Docker builds with matrix strategy (9 backend + 7 frontend)
-# - Registry cache (unlimited size, no 10GB GHA limit)
-# - Pre-built images pulled on server (no rebuild!)
-# - Nx Cloud remote caching for build artifacts
-# - Zero-downtime deployment with health checks
+# Fixes applied:
+# - GHCR lowercase image paths (Docker registry requirement)
+# - Frontend artifact upload (was missing web/*/dist)
+# - Deploy condition: only deploys when build succeeds
+# - Build timeout: 30 min max
+# - Optimized for 2GB RAM droplet (uses docker-compose.droplet.yml)
 # =============================================================================
 
-name: Deploy to DigitalOcean (Optimized)
+name: Deploy to DigitalOcean
 
 on:
   push:
@@ -19,6 +19,7 @@ on:
       - '**.md'
       - 'docs/**'
       - '.vscode/**'
+      - '.claude/**'
   workflow_dispatch:
     inputs:
       services:
@@ -28,7 +29,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
   TAG: ${{ github.sha }}
 
 # Cancel in-progress deploys for the same branch
@@ -38,62 +38,56 @@ concurrency:
 
 jobs:
   # ===========================================================================
-  # Detect Changes - Only build what changed
+  # Prepare - Set lowercase image prefix & detect changes
   # ===========================================================================
-  detect-changes:
+  prepare:
     runs-on: ubuntu-latest
     outputs:
-      backend_services: ${{ steps.changes.outputs.backend_services }}
-      frontend_modules: ${{ steps.changes.outputs.frontend_modules }}
-      has_backend_changes: ${{ steps.changes.outputs.has_backend_changes }}
-      has_frontend_changes: ${{ steps.changes.outputs.has_frontend_changes }}
+      image_prefix: ${{ steps.vars.outputs.image_prefix }}
+      has_backend_changes: ${{ steps.changes.outputs.has_backend }}
+      has_frontend_changes: ${{ steps.changes.outputs.has_frontend }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Detect changed services
+      - name: Set variables
+        id: vars
+        run: |
+          # GHCR requires lowercase image paths
+          REPO="${{ github.repository }}"
+          echo "image_prefix=ghcr.io/${REPO,,}" >> $GITHUB_OUTPUT
+
+      - name: Detect changes
         id: changes
         run: |
-          # Get changed files
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null || echo "")
+          CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null || echo "ALL")
 
-          # Backend services matrix
-          BACKEND_SERVICES='["gateway-api","auth-service","farm-service","sensor-service","alert-engine","billing-service","hr-service","notification-service","admin-api-service","hydroponics-service"]'
-
-          # Frontend modules matrix
-          FRONTEND_MODULES='["shell","dashboard","farm-module","hr-module","sensor-module","admin-panel","tenant-admin","hydroponics-module","aquamobil"]'
-
-          # Check for shared library changes (rebuild all if libs changed)
-          if echo "$CHANGED_FILES" | grep -q "^libs/"; then
-            echo "Shared libs changed - rebuilding all services"
-            HAS_BACKEND=true
-            HAS_FRONTEND=true
-          else
-            # Check backend changes
-            HAS_BACKEND=$(echo "$CHANGED_FILES" | grep -q "^apps/.*-service\|^apps/gateway-api\|^apps/alert-engine" && echo true || echo false)
-            # Check frontend changes
-            HAS_FRONTEND=$(echo "$CHANGED_FILES" | grep -q "^web/\|^apps/.*-module\|^apps/.*-panel" && echo true || echo false)
+          if [ "$CHANGED" = "ALL" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "has_backend=true" >> $GITHUB_OUTPUT
+            echo "has_frontend=true" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
-          # For workflow_dispatch, build all
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            if [ "${{ github.event.inputs.services }}" == "all" ]; then
-              HAS_BACKEND=true
-              HAS_FRONTEND=true
-            fi
+          # Shared libs change = rebuild everything
+          if echo "$CHANGED" | grep -q "^libs/\|^platform/"; then
+            echo "has_backend=true" >> $GITHUB_OUTPUT
+            echo "has_frontend=true" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
-          echo "backend_services=$BACKEND_SERVICES" >> $GITHUB_OUTPUT
-          echo "frontend_modules=$FRONTEND_MODULES" >> $GITHUB_OUTPUT
-          echo "has_backend_changes=$HAS_BACKEND" >> $GITHUB_OUTPUT
-          echo "has_frontend_changes=$HAS_FRONTEND" >> $GITHUB_OUTPUT
+          HAS_BACKEND=$(echo "$CHANGED" | grep -q "^apps/" && echo true || echo false)
+          HAS_FRONTEND=$(echo "$CHANGED" | grep -q "^web/" && echo true || echo false)
+          echo "has_backend=$HAS_BACKEND" >> $GITHUB_OUTPUT
+          echo "has_frontend=$HAS_FRONTEND" >> $GITHUB_OUTPUT
 
   # ===========================================================================
-  # Build & Test with Nx (Cached)
+  # Build with NX
   # ===========================================================================
-  build-and-test:
+  build:
+    needs: [prepare]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -117,34 +111,39 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
 
-      # Skip lint & test for faster deployment
-      # - name: Lint & Test (affected)
-      #   run: npx nx affected -t lint test --parallel=3
-      #   env:
-      #     NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
-
       - name: Build all services
-        run: npx nx run-many -t build --all --parallel=4
+        run: npx nx run-many -t build --all --parallel=3
         env:
-          NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
           NODE_OPTIONS: '--max-old-space-size=4096'
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
 
-      - name: Upload build artifacts
+      # Upload backend artifacts (dist/apps/*)
+      - name: Upload backend artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist
+          name: backend-dist
           path: dist/
           retention-days: 1
 
+      # Upload frontend artifacts (web/*/dist/)
+      - name: Upload frontend artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: |
+            web/shell/dist/
+            web/modules/*/dist/
+          retention-days: 1
+
   # ===========================================================================
-  # Build Backend Docker Images (Parallel Matrix)
+  # Build Backend Docker Images
   # ===========================================================================
   build-backend-images:
-    needs: [detect-changes, build-and-test]
-    if: needs.detect-changes.outputs.has_backend_changes == 'true'
+    needs: [prepare, build]
+    if: needs.prepare.outputs.has_backend_changes == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
@@ -152,21 +151,29 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        service: ${{ fromJson(needs.detect-changes.outputs.backend_services) }}
+        service:
+          - gateway-api
+          - auth-service
+          - farm-service
+          - sensor-service
+          - admin-api-service
+          - alert-engine
+          - notification-service
+          - hr-service
+          - billing-service
+          - hydroponics-service
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download build artifacts
+      - name: Download backend artifacts
         uses: actions/download-artifact@v4
         with:
-          name: dist
+          name: backend-dist
           path: dist/
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -179,20 +186,21 @@ jobs:
           file: infrastructure/docker/Dockerfile.backend.simple
           push: true
           tags: |
-            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ env.TAG }}
-            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:${{ env.TAG }}
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:latest
           build-args: |
             SERVICE_NAME=${{ matrix.service }}
-          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:buildcache,mode=max
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache,mode=max
 
   # ===========================================================================
-  # Build Frontend Docker Images (Parallel Matrix)
+  # Build Frontend Docker Images
   # ===========================================================================
   build-frontend-images:
-    needs: [detect-changes, build-and-test]
-    if: needs.detect-changes.outputs.has_frontend_changes == 'true'
+    needs: [prepare, build]
+    if: needs.prepare.outputs.has_frontend_changes == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
@@ -200,7 +208,6 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        module: ${{ fromJson(needs.detect-changes.outputs.frontend_modules) }}
         include:
           - module: shell
             dockerfile: infrastructure/docker/Dockerfile.shell
@@ -211,12 +218,12 @@ jobs:
           - module: farm-module
             dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
             module_path: web/modules/farm-module
-          - module: hr-module
-            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
-            module_path: web/modules/hr-module
           - module: sensor-module
             dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
             module_path: web/modules/sensor-module
+          - module: hr-module
+            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+            module_path: web/modules/hr-module
           - module: admin-panel
             dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
             module_path: web/modules/admin-panel
@@ -226,23 +233,18 @@ jobs:
           - module: hydroponics-module
             dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
             module_path: web/modules/hydroponics-module
-          - module: aquamobil
-            dockerfile: infrastructure/docker/Dockerfile.aquamobil
-            module_path: web/apps/aquamobil
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download build artifacts
+      # Download frontend artifacts to workspace root (preserves web/*/dist/ paths)
+      - name: Download frontend artifacts
         uses: actions/download-artifact@v4
         with:
-          name: dist
-          path: dist/
+          name: frontend-dist
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -255,20 +257,27 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ${{ env.IMAGE_PREFIX }}/${{ matrix.module }}:${{ env.TAG }}
-            ${{ env.IMAGE_PREFIX }}/${{ matrix.module }}:latest
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:${{ env.TAG }}
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:latest
           build-args: |
             MODULE_PATH=${{ matrix.module_path }}
-          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.module }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.module }}:buildcache,mode=max
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache,mode=max
 
   # ===========================================================================
-  # Deploy to DigitalOcean (Pull Pre-built Images)
+  # Deploy to DigitalOcean Droplet
   # ===========================================================================
   deploy:
-    needs: [build-backend-images, build-frontend-images]
-    if: always() && (needs.build-backend-images.result == 'success' || needs.build-backend-images.result == 'skipped') && (needs.build-frontend-images.result == 'success' || needs.build-frontend-images.result == 'skipped')
+    needs: [prepare, build, build-backend-images, build-frontend-images]
+    # Only deploy if build succeeded, and at least one image build succeeded or was skipped
+    if: |
+      always() &&
+      needs.build.result == 'success' &&
+      (needs.build-backend-images.result == 'success' || needs.build-backend-images.result == 'skipped') &&
+      (needs.build-frontend-images.result == 'success' || needs.build-frontend-images.result == 'skipped') &&
+      (needs.build-backend-images.result == 'success' || needs.build-frontend-images.result == 'success')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: production
     steps:
       - name: Deploy to DigitalOcean Droplet
@@ -277,68 +286,43 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
+          command_timeout: 10m
           script: |
             set -e
             cd /var/aqua-saas
 
-            # Pull latest code from GitHub
-            echo "Pulling latest code..."
+            echo "=== Pulling latest code ==="
             git pull origin main
 
-            # Login to GitHub Container Registry
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "=== Logging into GHCR ==="
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            # Pull latest images (NO REBUILD!)
-            echo "Pulling latest images..."
-            docker compose -f docker-compose.prod.yml pull
+            echo "=== Pulling latest images ==="
+            docker compose -f docker-compose.droplet.yml pull --ignore-pull-failures
 
-            # Rolling update with zero downtime
-            echo "Starting rolling update..."
-            docker compose -f docker-compose.prod.yml up -d --no-build --remove-orphans
+            echo "=== Starting services ==="
+            docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans
 
-            # Wait for services to be healthy
-            echo "Waiting for services to be healthy..."
+            echo "=== Waiting for services ==="
             sleep 30
 
-            # Health check
-            if curl -sf http://localhost:3000/health > /dev/null; then
-              echo "Deployment successful!"
+            echo "=== Health check ==="
+            if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
+              echo "Gateway API: OK"
             else
-              echo "Health check failed, but containers are running"
+              echo "Gateway API: not responding yet (may still be starting)"
             fi
 
-            # Cleanup old images
+            echo "=== Cleanup old images ==="
             docker image prune -f --filter "until=24h"
 
-            echo "Deployment completed at $(date)"
+            echo "=== Container status ==="
+            docker compose -f docker-compose.droplet.yml ps
+
+            echo "=== Deployment completed at $(date) ==="
 
       - name: Verify deployment
         run: |
-          sleep 10
-          # Add your production URL health check here
-          # curl -sf https://your-domain.com/health || exit 1
-          echo "Deployment verification passed"
-
-  # ===========================================================================
-  # Notify on Completion
-  # ===========================================================================
-  notify:
-    needs: [deploy]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Send Slack notification
-        # Note: Can't check secrets in if condition, use continue-on-error instead
-        continue-on-error: true
-        uses: 8398a7/action-slack@v3
-        with:
-          status: ${{ needs.deploy.result }}
-          channel: '#deployments'
-          text: |
-            DigitalOcean Deployment: ${{ needs.deploy.result }}
-            Commit: ${{ github.sha }}
-            Branch: ${{ github.ref_name }}
-            Actor: ${{ github.actor }}
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-# Trigger deploy 1770142502
+          echo "Deployment initiated successfully"
+          echo "Server: ${{ secrets.DROPLET_HOST }}"
+          echo "Commit: ${{ github.sha }}"

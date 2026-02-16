@@ -26,7 +26,6 @@ import {
   CheckCircle,
   Clock,
   AlertCircle,
-  XCircle,
   Loader2,
   LayoutGrid,
   List,
@@ -69,20 +68,19 @@ async function graphqlFetch<T>(
 // ============================================================================
 
 enum ProgramStatus {
-  DRAFT = 'DRAFT',
-  IN_REVIEW = 'IN_REVIEW',
-  APPROVED = 'APPROVED',
-  DEPLOYED = 'DEPLOYED',
-  ARCHIVED = 'ARCHIVED',
-  REJECTED = 'REJECTED',
+  DRAFT = 'draft',
+  PENDING_REVIEW = 'pending_review',
+  APPROVED = 'approved',
+  DEPLOYING = 'deploying',
+  DEPLOYED = 'deployed',
+  ARCHIVED = 'archived',
 }
 
 enum ProgramType {
-  SEQUENTIAL_FUNCTION_CHART = 'SEQUENTIAL_FUNCTION_CHART',
-  LADDER_DIAGRAM = 'LADDER_DIAGRAM',
-  FUNCTION_BLOCK = 'FUNCTION_BLOCK',
-  STRUCTURED_TEXT = 'STRUCTURED_TEXT',
-  INSTRUCTION_LIST = 'INSTRUCTION_LIST',
+  SFC = 'sfc',
+  FBD = 'fbd',
+  ST = 'st',
+  LD = 'ld',
 }
 
 interface AutomationProgram {
@@ -177,11 +175,11 @@ const ARCHIVE_PROGRAM = `
 const getStatusColor = (status: ProgramStatus): string => {
   const colors: Record<ProgramStatus, string> = {
     [ProgramStatus.DRAFT]: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
-    [ProgramStatus.IN_REVIEW]: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
+    [ProgramStatus.PENDING_REVIEW]: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
     [ProgramStatus.APPROVED]: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+    [ProgramStatus.DEPLOYING]: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
     [ProgramStatus.DEPLOYED]: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
     [ProgramStatus.ARCHIVED]: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500',
-    [ProgramStatus.REJECTED]: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
   };
   return colors[status] || colors[ProgramStatus.DRAFT];
 };
@@ -189,11 +187,11 @@ const getStatusColor = (status: ProgramStatus): string => {
 const getStatusIcon = (status: ProgramStatus) => {
   const icons: Record<ProgramStatus, React.ReactNode> = {
     [ProgramStatus.DRAFT]: <Edit className="h-3.5 w-3.5" />,
-    [ProgramStatus.IN_REVIEW]: <Clock className="h-3.5 w-3.5" />,
+    [ProgramStatus.PENDING_REVIEW]: <Clock className="h-3.5 w-3.5" />,
     [ProgramStatus.APPROVED]: <CheckCircle className="h-3.5 w-3.5" />,
+    [ProgramStatus.DEPLOYING]: <Clock className="h-3.5 w-3.5" />,
     [ProgramStatus.DEPLOYED]: <Play className="h-3.5 w-3.5" />,
     [ProgramStatus.ARCHIVED]: <Archive className="h-3.5 w-3.5" />,
-    [ProgramStatus.REJECTED]: <XCircle className="h-3.5 w-3.5" />,
   };
   return icons[status] || icons[ProgramStatus.DRAFT];
 };
@@ -201,22 +199,21 @@ const getStatusIcon = (status: ProgramStatus) => {
 const getStatusText = (status: ProgramStatus): string => {
   const texts: Record<ProgramStatus, string> = {
     [ProgramStatus.DRAFT]: 'Taslak',
-    [ProgramStatus.IN_REVIEW]: 'Inceleniyor',
+    [ProgramStatus.PENDING_REVIEW]: 'Inceleniyor',
     [ProgramStatus.APPROVED]: 'Onaylandi',
+    [ProgramStatus.DEPLOYING]: 'Yukleniyor',
     [ProgramStatus.DEPLOYED]: 'Devrede',
     [ProgramStatus.ARCHIVED]: 'Arsivlendi',
-    [ProgramStatus.REJECTED]: 'Reddedildi',
   };
   return texts[status] || status;
 };
 
 const getProgramTypeText = (type: ProgramType): string => {
   const texts: Record<ProgramType, string> = {
-    [ProgramType.SEQUENTIAL_FUNCTION_CHART]: 'SFC',
-    [ProgramType.LADDER_DIAGRAM]: 'Ladder',
-    [ProgramType.FUNCTION_BLOCK]: 'FBD',
-    [ProgramType.STRUCTURED_TEXT]: 'ST',
-    [ProgramType.INSTRUCTION_LIST]: 'IL',
+    [ProgramType.SFC]: 'SFC',
+    [ProgramType.LD]: 'Ladder',
+    [ProgramType.FBD]: 'FBD',
+    [ProgramType.ST]: 'ST',
   };
   return texts[type] || type;
 };
@@ -531,10 +528,10 @@ const AutomationProgramsPage: React.FC = () => {
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
           <StatCard label="Toplam" value={stats.total} color="bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white" />
-          <StatCard label="Taslak" value={stats.byStatus?.DRAFT ?? 0} color="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300" />
-          <StatCard label="Onaylandi" value={stats.byStatus?.APPROVED ?? 0} color="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" />
-          <StatCard label="Devrede" value={stats.byStatus?.DEPLOYED ?? 0} color="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300" />
-          <StatCard label="Inceleniyor" value={stats.byStatus?.IN_REVIEW ?? 0} color="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300" />
+          <StatCard label="Taslak" value={stats.byStatus?.draft ?? 0} color="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300" />
+          <StatCard label="Onaylandi" value={stats.byStatus?.approved ?? 0} color="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" />
+          <StatCard label="Devrede" value={stats.byStatus?.deployed ?? 0} color="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300" />
+          <StatCard label="Inceleniyor" value={stats.byStatus?.pending_review ?? 0} color="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300" />
         </div>
       )}
 

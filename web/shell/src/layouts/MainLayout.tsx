@@ -245,6 +245,14 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'hr-payroll', label: 'Payroll', path: '/hr/payroll' },
     ],
   },
+  hydroponics: {
+    id: 'hydroponics-module',
+    label: 'Hydroponics',
+    icon: 'sprout',
+    children: [
+      { id: 'hydroponics-setup', label: 'Setup', path: '/hydroponics/setup' },
+    ],
+  },
   process: {
     id: 'process-module',
     label: 'Process Management',

@@ -113,7 +113,7 @@ export class AutomationResolver {
   ): Promise<AutomationProgramConnection> {
     const result = await this.automationService.findAll(tenantId, filter, page, limit);
     return {
-      items: result.items.map((p) => p.id),
+      items: result.items,
       total: result.total,
       page: page || 1,
       limit: limit || 20,

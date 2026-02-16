@@ -16,11 +16,15 @@ import { EquipmentCategory, EquipmentType } from '../../equipment/entities/equip
 import { Tank, TankStatus } from '../../tank/entities/tank.entity';
 import { Department } from '../../department/entities/department.entity';
 
-/** Tank statuses considered operational for batch allocation */
+/** Tank statuses considered operational for batch allocation (all except INACTIVE) */
 const OPERATIONAL_TANK_STATUSES: TankStatus[] = [
   TankStatus.ACTIVE,
   TankStatus.PREPARING,
   TankStatus.FALLOW,
+  TankStatus.CLEANING,
+  TankStatus.MAINTENANCE,
+  TankStatus.HARVESTING,
+  TankStatus.QUARANTINE,
 ];
 
 @Injectable()
@@ -90,7 +94,7 @@ export class ListAvailableTanksHandler implements IQueryHandler<ListAvailableTan
       .andWhere('eq.isDeleted = :isDeleted', { isDeleted: false });
 
     queryBuilder.andWhere('eq.status IN (:...statuses)', {
-      statuses: ['operational', 'active', 'preparing', 'fallow'],
+      statuses: ['operational', 'active', 'preparing', 'fallow', 'cleaning', 'maintenance', 'harvesting', 'quarantine'],
     });
 
     if (siteId) {

@@ -37,7 +37,8 @@ export enum ProgramStatus {
   DRAFT = 'draft',             // Being edited
   PENDING_REVIEW = 'pending_review', // Awaiting approval
   APPROVED = 'approved',       // Ready to deploy
-  DEPLOYED = 'deployed',       // Running on device
+  DEPLOYING = 'deploying',     // Deploy command sent, awaiting device confirmation
+  DEPLOYED = 'deployed',       // Confirmed running on device
   ARCHIVED = 'archived',       // No longer active
 }
 
@@ -59,6 +60,20 @@ export enum ProgramType {
 registerEnumType(ProgramType, {
   name: 'ProgramType',
   description: 'IEC 61131-3 programming language type',
+});
+
+/**
+ * Deploy target - where the program runs
+ */
+export enum DeployTarget {
+  RUST_ENGINE = 'rust_engine',       // Yol A: Edge agent's internal Rust scripting engine
+  CODESYS_PLC = 'codesys_plc',      // Yol B: Codesys-based PLC (on-device compile)
+  PLC_SETPOINT = 'plc_setpoint',    // Yol C: Closed PLC - setpoint write only
+}
+
+registerEnumType(DeployTarget, {
+  name: 'DeployTarget',
+  description: 'Where the automation program is deployed to',
 });
 
 /**
@@ -240,6 +255,32 @@ export class AutomationProgram {
   @Field({ nullable: true })
   @Column({ name: 'locked_at', type: 'timestamptz', nullable: true })
   lockedAt?: Date;
+
+  // Deploy Target Configuration
+  @Field(() => DeployTarget)
+  @Column({
+    name: 'deploy_target',
+    type: 'enum',
+    enum: DeployTarget,
+    default: DeployTarget.RUST_ENGINE,
+  })
+  deployTarget!: DeployTarget;
+
+  @Field({ nullable: true })
+  @Column({ name: 'target_plc_address', length: 100, nullable: true })
+  targetPlcAddress?: string;
+
+  @Field({ nullable: true })
+  @Column({ name: 'target_plc_port', type: 'int', nullable: true })
+  targetPlcPort?: number;
+
+  @Field({ nullable: true })
+  @Column({ name: 'target_plc_model', length: 100, nullable: true })
+  targetPlcModel?: string;
+
+  @Field({ nullable: true })
+  @Column({ name: 'target_plc_protocol', length: 50, nullable: true })
+  targetPlcProtocol?: string;  // 'codesys_v3', 'opcua', 'modbus', 's7comm'
 
   // Metadata
   @Field(() => GraphQLJSON, { nullable: true })

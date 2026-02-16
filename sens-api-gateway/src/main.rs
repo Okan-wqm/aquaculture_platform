@@ -29,7 +29,9 @@ mod provisioning;
 mod pwm; // v1.2.4: PWM support for motor/servo control
 mod resilience;
 mod scripting;
+mod deploy_orchestrator; // v2.2: Unified deploy orchestrator (Rust/Codesys/Setpoint)
 mod security; // v1.2.2: Security hardening utilities
+mod st_validator; // v2.2: IEC 61131-3 Structured Text parser and validator
 mod shutdown;
 mod spi;
 mod telemetry; // v1.2.4: SPI support for high-speed peripherals

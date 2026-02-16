@@ -17,6 +17,7 @@ interface TankAllocationSectionProps {
   onAllocationsChange: (allocations: TankAllocation[]) => void;
   availableTanks: AvailableTank[];
   isLoadingTanks: boolean;
+  tanksError?: Error | null;
   totalQuantity: number;
   avgWeightG: number;
 }
@@ -26,6 +27,7 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
   onAllocationsChange,
   availableTanks,
   isLoadingTanks,
+  tanksError,
   totalQuantity,
   avgWeightG,
 }) => {
@@ -281,6 +283,16 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
           </svg>
           Loading available tanks...
+        </div>
+      ) : tanksError ? (
+        <div className="text-center py-4 text-red-600 bg-red-50 rounded-lg">
+          <svg className="w-8 h-8 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <p className="font-medium">Failed to load tanks</p>
+          <p className="text-sm text-red-500 mt-1">
+            {tanksError instanceof Error ? tanksError.message : 'An unexpected error occurred'}
+          </p>
         </div>
       ) : availableTanks.length === 0 ? (
         <div className="text-center py-4 text-amber-600 bg-amber-50 rounded-lg">

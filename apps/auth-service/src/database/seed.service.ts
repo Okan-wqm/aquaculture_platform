@@ -125,24 +125,30 @@ export class SeedService implements OnModuleInit {
    * Seed default system modules
    */
   private async seedModules(): Promise<void> {
-    const existingModules = await this.moduleRepository.count();
-
-    if (existingModules > 0) {
-      this.logger.log(`Modules already exist (${existingModules} found), skipping module seed`);
-      return;
-    }
-
-    this.logger.log('Seeding default modules...');
-
     const defaultModules = Module.createDefaults();
+    let created = 0;
 
     for (const moduleData of defaultModules) {
+      const existing = await this.moduleRepository.findOne({
+        where: { code: moduleData.code },
+      });
+
+      if (existing) {
+        this.logger.log(`Module already exists: ${moduleData.code}, skipping`);
+        continue;
+      }
+
       const module = this.moduleRepository.create(moduleData);
       await this.moduleRepository.save(module);
       this.logger.log(`Created module: ${module.code} - ${module.name}`);
+      created++;
     }
 
-    this.logger.log(`Seeded ${defaultModules.length} modules`);
+    if (created > 0) {
+      this.logger.log(`Seeded ${created} new modules`);
+    } else {
+      this.logger.log('All modules already exist, nothing to seed');
+    }
   }
 
   /**

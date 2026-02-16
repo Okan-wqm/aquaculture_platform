@@ -1,6 +1,6 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual, MoreThanOrEqual, IsNull, Or } from 'typeorm';
+import { Repository, LessThanOrEqual, MoreThanOrEqual, IsNull, Or, DataSource } from 'typeorm';
 
 import {
   DEFAULT_MODULE_PRICING,
@@ -45,13 +45,29 @@ export interface ModulePricingWithModule extends ModulePricing {
  * Handles versioned pricing with effective dates.
  */
 @Injectable()
-export class ModulePricingService {
+export class ModulePricingService implements OnModuleInit {
   private readonly logger = new Logger(ModulePricingService.name);
 
   constructor(
     @InjectRepository(ModulePricing)
     private readonly pricingRepo: Repository<ModulePricing>,
+    private readonly dataSource: DataSource,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    try {
+      const modules = await this.dataSource.query<Array<{ id: string; code: string }>>(
+        'SELECT id, code FROM auth.modules',
+      );
+      const moduleIdMap = new Map(modules.map((m) => [m.code, m.id]));
+      const seeded = await this.seedDefaultPricing(moduleIdMap);
+      if (seeded > 0) {
+        this.logger.log(`Auto-seeded ${seeded} missing module pricings on startup`);
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to auto-seed module pricing: ${error.message}`);
+    }
+  }
 
   /**
    * Get current active pricing for a module

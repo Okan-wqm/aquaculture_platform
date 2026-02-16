@@ -112,24 +112,21 @@ jobs:
         run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
 
       - name: Install platform binaries
+        timeout-minutes: 3
         run: |
           # Lockfile was generated on Windows - Linux binaries are missing.
-          # Download them directly from npm registry (no npm subprocess = no hanging)
+          # Download them directly from npm registry with timeout to prevent hanging.
           ESBUILD_VER=$(node -e "console.log(require('./node_modules/esbuild/package.json').version)")
           echo "Installing @esbuild/linux-x64@${ESBUILD_VER}..."
           mkdir -p node_modules/@esbuild/linux-x64
-          curl -sL "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-${ESBUILD_VER}.tgz" | tar xz -C node_modules/@esbuild/linux-x64 --strip-components=1
+          curl -sL --max-time 30 "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-${ESBUILD_VER}.tgz" | tar xz -C node_modules/@esbuild/linux-x64 --strip-components=1
 
           SWC_VER=$(node -e "console.log(require('./node_modules/@swc/core/package.json').version)")
           echo "Installing @swc/core-linux-x64-gnu@${SWC_VER}..."
           mkdir -p node_modules/@swc/core-linux-x64-gnu
-          curl -sL "https://registry.npmjs.org/@swc/core-linux-x64-gnu/-/core-linux-x64-gnu-${SWC_VER}.tgz" | tar xz -C node_modules/@swc/core-linux-x64-gnu --strip-components=1
+          curl -sL --max-time 30 "https://registry.npmjs.org/@swc/core-linux-x64-gnu/-/core-linux-x64-gnu-${SWC_VER}.tgz" | tar xz -C node_modules/@swc/core-linux-x64-gnu --strip-components=1
 
-          echo "Installing @swc/core-linux-x64-musl@${SWC_VER}..."
-          mkdir -p node_modules/@swc/core-linux-x64-musl
-          curl -sL "https://registry.npmjs.org/@swc/core-linux-x64-musl/-/core-linux-x64-musl-${SWC_VER}.tgz" | tar xz -C node_modules/@swc/core-linux-x64-musl --strip-components=1 || true
-
-          node node_modules/nx/bin/post-install || true
+          timeout 30 node node_modules/nx/bin/post-install || true
           echo "Platform binaries installed successfully"
 
       - name: Build backend services

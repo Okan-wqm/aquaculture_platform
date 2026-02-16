@@ -111,23 +111,30 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
 
-      - name: Install platform binaries
+      - name: Install Linux platform binaries
         timeout-minutes: 3
         run: |
-          # Lockfile was generated on Windows - Linux binaries are missing.
-          # Download them directly from npm registry with timeout to prevent hanging.
-          ESBUILD_VER=$(node -e "console.log(require('./node_modules/esbuild/package.json').version)")
-          echo "Installing @esbuild/linux-x64@${ESBUILD_VER}..."
-          mkdir -p node_modules/@esbuild/linux-x64
-          curl -sL --max-time 30 "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-${ESBUILD_VER}.tgz" | tar xz -C node_modules/@esbuild/linux-x64 --strip-components=1
+          # Lockfile generated on Windows only has win32 binaries.
+          # Manually download Linux (x64-gnu) binaries from npm registry.
+          install_pkg() {
+            local name=$1 ver=$2
+            echo "Installing ${name}@${ver}..."
+            mkdir -p "node_modules/${name}"
+            curl -sfL --max-time 30 "https://registry.npmjs.org/${name}/-/$(basename ${name})-${ver}.tgz" \
+              | tar xz -C "node_modules/${name}" --strip-components=1
+          }
 
-          SWC_VER=$(node -e "console.log(require('./node_modules/@swc/core/package.json').version)")
-          echo "Installing @swc/core-linux-x64-gnu@${SWC_VER}..."
-          mkdir -p node_modules/@swc/core-linux-x64-gnu
-          curl -sL --max-time 30 "https://registry.npmjs.org/@swc/core-linux-x64-gnu/-/core-linux-x64-gnu-${SWC_VER}.tgz" | tar xz -C node_modules/@swc/core-linux-x64-gnu --strip-components=1
+          # esbuild (needed by Vite)
+          install_pkg "@esbuild/linux-x64" "$(node -p "require('./node_modules/esbuild/package.json').version")"
+
+          # SWC (needed by NX for fast TypeScript compilation)
+          install_pkg "@swc/core-linux-x64-gnu" "$(node -p "require('./node_modules/@swc/core/package.json').version")"
+
+          # NX native binary (CRITICAL - without this NX hangs on Linux!)
+          install_pkg "@nx/nx-linux-x64-gnu" "$(node -p "require('./node_modules/nx/package.json').version")"
 
           timeout 30 node node_modules/nx/bin/post-install || true
-          echo "Platform binaries installed successfully"
+          echo "All Linux platform binaries installed successfully"
 
       - name: Build backend services
         run: |

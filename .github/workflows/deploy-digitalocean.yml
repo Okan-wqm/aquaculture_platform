@@ -109,7 +109,14 @@ jobs:
             nx-deploy-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --no-audit
+        run: |
+          npm ci --legacy-peer-deps --ignore-scripts --no-audit
+          # Download critical build tool binaries (esbuild for Vite, swc for NX, nx setup)
+          node node_modules/esbuild/install.js
+          node node_modules/@swc/core/postinstall.js 2>/dev/null || true
+          node node_modules/nx/bin/post-install || true
+          # Also handle nested esbuild in vite
+          node node_modules/vite/node_modules/esbuild/install.js 2>/dev/null || true
 
       - name: Build backend services
         run: |

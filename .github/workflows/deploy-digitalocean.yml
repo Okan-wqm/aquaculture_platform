@@ -109,12 +109,28 @@ jobs:
             nx-deploy-${{ runner.os }}-
 
       - name: Install dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+
+      - name: Install platform binaries
         run: |
-          npm ci --legacy-peer-deps --ignore-scripts --no-audit
-          # npm ci --ignore-scripts skips platform binary downloads.
-          # Use npm rebuild to properly install them without hanging.
-          npm rebuild esbuild @swc/core
+          # Lockfile was generated on Windows - Linux binaries are missing.
+          # Download them directly from npm registry (no npm subprocess = no hanging)
+          ESBUILD_VER=$(node -e "console.log(require('./node_modules/esbuild/package.json').version)")
+          echo "Installing @esbuild/linux-x64@${ESBUILD_VER}..."
+          mkdir -p node_modules/@esbuild/linux-x64
+          curl -sL "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-${ESBUILD_VER}.tgz" | tar xz -C node_modules/@esbuild/linux-x64 --strip-components=1
+
+          SWC_VER=$(node -e "console.log(require('./node_modules/@swc/core/package.json').version)")
+          echo "Installing @swc/core-linux-x64-gnu@${SWC_VER}..."
+          mkdir -p node_modules/@swc/core-linux-x64-gnu
+          curl -sL "https://registry.npmjs.org/@swc/core-linux-x64-gnu/-/core-linux-x64-gnu-${SWC_VER}.tgz" | tar xz -C node_modules/@swc/core-linux-x64-gnu --strip-components=1
+
+          echo "Installing @swc/core-linux-x64-musl@${SWC_VER}..."
+          mkdir -p node_modules/@swc/core-linux-x64-musl
+          curl -sL "https://registry.npmjs.org/@swc/core-linux-x64-musl/-/core-linux-x64-musl-${SWC_VER}.tgz" | tar xz -C node_modules/@swc/core-linux-x64-musl --strip-components=1 || true
+
           node node_modules/nx/bin/post-install || true
+          echo "Platform binaries installed successfully"
 
       - name: Build backend services
         run: |

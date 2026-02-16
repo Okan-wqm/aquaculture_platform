@@ -143,6 +143,7 @@ jobs:
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
           NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
 
       - name: Build frontend modules
         run: |
@@ -151,6 +152,7 @@ jobs:
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
           NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
 
       # Upload backend artifacts (dist/apps/*)
       - name: Upload backend artifacts

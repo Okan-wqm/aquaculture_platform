@@ -65,7 +65,7 @@ export class ModulePricingService implements OnModuleInit {
         this.logger.log(`Auto-seeded ${seeded} missing module pricings on startup`);
       }
     } catch (error) {
-      this.logger.warn(`Failed to auto-seed module pricing: ${error.message}`);
+      this.logger.warn(`Failed to auto-seed module pricing: ${error instanceof Error ? error.message : error}`);
     }
   }
 

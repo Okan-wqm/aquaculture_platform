@@ -145,10 +145,6 @@ const LoginForm: React.FC = () => {
         Sign In
       </Button>
 
-      <div className="text-center text-xs text-blue-600 mt-4">
-        <p>Demo: by-okan@live.com / 12345678</p>
-      </div>
-
       {/* Mobile App Download Banner */}
       <div className="mt-6 pt-5 border-t border-blue-200/50">
         <a

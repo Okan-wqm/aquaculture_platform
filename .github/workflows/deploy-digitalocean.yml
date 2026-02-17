@@ -278,11 +278,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Download frontend artifacts to workspace root (preserves web/*/dist/ paths)
+      # Download frontend artifacts - upload strips common ancestor 'web/',
+      # so we extract into 'web/' to restore original paths (web/shell/dist, web/modules/*/dist)
       - name: Download frontend artifacts
         uses: actions/download-artifact@v4
         with:
           name: frontend-dist
+          path: web
 
       - uses: docker/setup-buildx-action@v3
 

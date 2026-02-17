@@ -128,7 +128,7 @@ services:
       - "3000:3000"
     environment:
       NODE_ENV: production
-      PORT: 3000
+      GATEWAY_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=384'
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
@@ -156,6 +156,7 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-aquaculture}
       MINIO_REGION: us-east-1
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_SYNC: "true"
     depends_on:
       postgres:
@@ -185,7 +186,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: 3000
+      AUTH_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
@@ -223,7 +224,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: 3000
+      FARM_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
@@ -259,7 +260,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: 3000
+      SENSOR_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
@@ -329,7 +330,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: 3000
+      ALERT_ENGINE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
@@ -364,7 +365,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: 3000
+      BILLING_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
@@ -399,7 +400,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: 3000
+      HR_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
@@ -434,7 +435,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: 3000
+      HYDROPONICS_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
@@ -469,7 +470,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: 3000
+      NOTIFICATION_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres

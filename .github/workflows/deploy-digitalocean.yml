@@ -159,7 +159,7 @@ jobs:
       - name: Build backend services
         run: |
           npx nx run-many -t build --parallel=3 \
-            --projects=gateway-api,auth-service,farm-service,sensor-service,admin-api-service
+            --projects=gateway-api,auth-service,farm-service,sensor-service,admin-api-service,alert-engine,billing-service,hr-service,hydroponics-service,notification-service
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
           NX_DAEMON: 'false'
@@ -168,7 +168,7 @@ jobs:
       - name: Build frontend modules
         run: |
           npx nx run-many -t build --parallel=3 \
-            --projects=shared-ui,shell,dashboard,farm-module,sensor-module,admin-panel
+            --projects=shared-ui,shell,dashboard,farm-module,sensor-module,admin-panel,tenant-admin,hr-module,hydroponics-module
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
           NX_DAEMON: 'false'
@@ -190,6 +190,7 @@ jobs:
           path: |
             web/shell/dist/
             web/modules/*/dist/
+            web/apps/*/dist/
           retention-days: 1
 
   # ===========================================================================
@@ -213,6 +214,11 @@ jobs:
           - farm-service
           - sensor-service
           - admin-api-service
+          - alert-engine
+          - billing-service
+          - hr-service
+          - hydroponics-service
+          - notification-service
     steps:
       - uses: actions/checkout@v4
 
@@ -275,6 +281,18 @@ jobs:
           - module: admin-panel
             dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
             module_path: web/modules/admin-panel
+          - module: tenant-admin
+            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+            module_path: web/modules/tenant-admin
+          - module: hr-module
+            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+            module_path: web/modules/hr-module
+          - module: hydroponics-module
+            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+            module_path: web/modules/hydroponics-module
+          - module: aquamobil
+            dockerfile: infrastructure/docker/Dockerfile.aquamobil
+            module_path: web/apps/aquamobil
     steps:
       - uses: actions/checkout@v4
 

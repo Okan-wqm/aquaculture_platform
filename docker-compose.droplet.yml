@@ -38,6 +38,10 @@ services:
       POSTGRES_EFFECTIVE_CACHE_SIZE: 1536MB
       POSTGRES_WORK_MEM: 16MB
       POSTGRES_MAINTENANCE_WORK_MEM: 128MB
+    command: >
+      postgres
+      -c max_connections=300
+      -c search_path=public,auth,admin
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -157,6 +161,7 @@ services:
       MINIO_REGION: us-east-1
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      THROTTLE_DEFAULT_LIMIT: 500
       DATABASE_SYNC: "true"
     depends_on:
       postgres:
@@ -625,6 +630,7 @@ services:
       - shell
     networks:
       - aqua-network
+      - aqua-internal
     deploy:
       resources:
         limits:

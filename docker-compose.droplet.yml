@@ -1,14 +1,12 @@
 # =============================================================================
-# Aquaculture Platform - DigitalOcean Droplet (2GB RAM Optimized)
+# Aquaculture Platform - DigitalOcean Droplet (4 CPU / 8GB RAM)
 #
-# Minimal deployment for small servers.
-# Total memory usage: ~1.2GB (leaves room for OS + swap)
+# Optimized for 8GB RAM server with 4 CPUs.
+# Total memory budget: ~5.5GB (leaves ~2.5GB for OS + buffer)
 #
 # Usage:
 #   docker compose -f docker-compose.droplet.yml pull
 #   docker compose -f docker-compose.droplet.yml up -d
-#
-# To add more services, uncomment the sections below.
 # =============================================================================
 
 networks:
@@ -36,10 +34,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-aquaculture}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       POSTGRES_DB: ${POSTGRES_DB:-aquaculture}
-      # Memory optimization for 2GB server
-      POSTGRES_SHARED_BUFFERS: 128MB
-      POSTGRES_EFFECTIVE_CACHE_SIZE: 256MB
-      POSTGRES_WORK_MEM: 4MB
+      # Tuned for 8GB server
+      POSTGRES_SHARED_BUFFERS: 512MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 1536MB
+      POSTGRES_WORK_MEM: 16MB
+      POSTGRES_MAINTENANCE_WORK_MEM: 128MB
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -47,7 +46,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 384M
+          memory: 1536M
+          cpus: '1.0'
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aquaculture}"]
       interval: 15s
@@ -58,7 +58,7 @@ services:
     image: redis:7-alpine
     container_name: aqua-redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required} --maxmemory 48mb --maxmemory-policy allkeys-lru
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required} --maxmemory 192mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     networks:
@@ -66,7 +66,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 64M
+          memory: 256M
+          cpus: '0.25'
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 15s
@@ -77,7 +78,7 @@ services:
     image: nats:2.10-alpine
     container_name: aqua-nats
     restart: unless-stopped
-    command: ["--jetstream", "--store_dir=/data", "--max_mem_store=32MB"]
+    command: ["--jetstream", "--store_dir=/data"]
     volumes:
       - nats_data:/data
     networks:
@@ -85,7 +86,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 48M
+          memory: 128M
+          cpus: '0.25'
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/healthz"]
       interval: 15s
@@ -105,7 +107,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      NODE_OPTIONS: '--max-old-space-size=128'
+      NODE_OPTIONS: '--max-old-space-size=384'
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
@@ -129,7 +131,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 192M
+          memory: 512M
+          cpus: '0.5'
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
       interval: 30s
@@ -144,7 +147,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      NODE_OPTIONS: '--max-old-space-size=96'
+      NODE_OPTIONS: '--max-old-space-size=256'
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
@@ -158,7 +161,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 384M
+          cpus: '0.5'
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
       interval: 30s
@@ -173,7 +177,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      NODE_OPTIONS: '--max-old-space-size=96'
+      NODE_OPTIONS: '--max-old-space-size=256'
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
@@ -187,7 +191,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 384M
+          cpus: '0.5'
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
       interval: 30s
@@ -202,7 +207,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      NODE_OPTIONS: '--max-old-space-size=96'
+      NODE_OPTIONS: '--max-old-space-size=256'
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
@@ -215,7 +220,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 384M
+          cpus: '0.5'
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
       interval: 30s
@@ -230,7 +236,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      NODE_OPTIONS: '--max-old-space-size=96'
+      NODE_OPTIONS: '--max-old-space-size=256'
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
@@ -243,7 +249,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 384M
+          cpus: '0.5'
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
       interval: 30s
@@ -262,7 +269,7 @@ services:
   #   environment:
   #     NODE_ENV: production
   #     PORT: 3000
-  #     NODE_OPTIONS: '--max-old-space-size=96'
+  #     NODE_OPTIONS: '--max-old-space-size=256'
   #     DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
   #     REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
   #     NATS_URL: nats://nats:4222
@@ -275,7 +282,7 @@ services:
   #   deploy:
   #     resources:
   #       limits:
-  #         memory: 128M
+  #         memory: 384M
 
   # alert-engine:
   #   image: ghcr.io/okan-wqm/aquaculture_platform/alert-engine:latest
@@ -284,7 +291,7 @@ services:
   #   environment:
   #     NODE_ENV: production
   #     PORT: 3000
-  #     NODE_OPTIONS: '--max-old-space-size=96'
+  #     NODE_OPTIONS: '--max-old-space-size=256'
   #     DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
   #     REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
   #     NATS_URL: nats://nats:4222
@@ -298,7 +305,7 @@ services:
   #   deploy:
   #     resources:
   #       limits:
-  #         memory: 128M
+  #         memory: 384M
 
   # notification-service:
   #   image: ghcr.io/okan-wqm/aquaculture_platform/notification-service:latest
@@ -307,7 +314,7 @@ services:
   #   environment:
   #     NODE_ENV: production
   #     PORT: 3000
-  #     NODE_OPTIONS: '--max-old-space-size=96'
+  #     NODE_OPTIONS: '--max-old-space-size=256'
   #     DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
   #     REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
   #     NATS_URL: nats://nats:4222
@@ -324,7 +331,7 @@ services:
   #   deploy:
   #     resources:
   #       limits:
-  #         memory: 128M
+  #         memory: 384M
 
   # ===========================================================================
   # Core Frontend (required)
@@ -339,7 +346,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 32M
+          memory: 64M
 
   dashboard:
     image: ghcr.io/okan-wqm/aquaculture_platform/dashboard:latest
@@ -350,7 +357,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 32M
+          memory: 64M
 
   farm-module:
     image: ghcr.io/okan-wqm/aquaculture_platform/farm-module:latest
@@ -361,7 +368,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 32M
+          memory: 64M
 
   sensor-module:
     image: ghcr.io/okan-wqm/aquaculture_platform/sensor-module:latest
@@ -372,7 +379,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 32M
+          memory: 64M
 
   admin-panel:
     image: ghcr.io/okan-wqm/aquaculture_platform/admin-panel:latest
@@ -383,7 +390,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 32M
+          memory: 64M
 
   # ===========================================================================
   # Optional Frontend (uncomment as needed)
@@ -398,7 +405,7 @@ services:
   #   deploy:
   #     resources:
   #       limits:
-  #         memory: 32M
+  #         memory: 64M
 
   # tenant-admin:
   #   image: ghcr.io/okan-wqm/aquaculture_platform/tenant-admin:latest
@@ -409,7 +416,7 @@ services:
   #   deploy:
   #     resources:
   #       limits:
-  #         memory: 32M
+  #         memory: 64M
 
   # hydroponics-module:
   #   image: ghcr.io/okan-wqm/aquaculture_platform/hydroponics-module:latest
@@ -420,7 +427,7 @@ services:
   #   deploy:
   #     resources:
   #       limits:
-  #         memory: 32M
+  #         memory: 64M
 
   # ===========================================================================
   # Reverse Proxy (Nginx)
@@ -441,7 +448,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 32M
+          memory: 64M
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
       interval: 30s

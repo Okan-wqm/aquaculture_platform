@@ -194,6 +194,8 @@ services:
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@localhost.dev}
+      SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD}
     depends_on:
       - postgres
       - redis

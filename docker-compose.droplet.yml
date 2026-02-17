@@ -78,7 +78,7 @@ services:
     image: nats:2.10-alpine
     container_name: aqua-nats
     restart: unless-stopped
-    command: ["--jetstream", "--store_dir=/data"]
+    command: ["--jetstream", "--store_dir=/data", "-m", "8222"]
     volumes:
       - nats_data:/data
     networks:

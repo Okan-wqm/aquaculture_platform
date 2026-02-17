@@ -117,7 +117,9 @@ jobs:
           # Lockfile generated on Windows only has win32 binaries.
           # Manually download Linux (x64-gnu) binaries from npm registry.
           install_pkg() {
-            local name=$1 ver=$2 dest=${3:-"node_modules/${name}"}
+            local name=$1
+            local ver=$2
+            local dest=${3:-"node_modules/${name}"}
             echo "Installing ${name}@${ver} → ${dest}"
             mkdir -p "${dest}"
             curl -sfL --max-time 30 "https://registry.npmjs.org/${name}/-/$(basename ${name})-${ver}.tgz" \

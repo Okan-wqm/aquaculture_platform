@@ -29,7 +29,7 @@ export default defineConfig({
         'react-dom': { singleton: true, requiredVersion: '^18.2.0' },
         'react-router-dom': { singleton: true, requiredVersion: '^6.21.0' },
         '@tanstack/react-query': { singleton: true, requiredVersion: '^5.17.0' },
-        '@aquaculture/shared-ui': { singleton: true, import: false },
+        '@aquaculture/shared-ui': { singleton: true, import: true },
         zustand: { singleton: true, requiredVersion: '^4.4.0' },
         'use-sync-external-store': { singleton: true },
       },

@@ -42,7 +42,7 @@ export default defineConfig({
         // singleton: true ile host'un provider'larına erişebilir
         '@aquaculture/shared-ui': {
           singleton: true,
-          import: false, // Host'tan al
+          import: true,
         },
         zustand: {
           singleton: true,

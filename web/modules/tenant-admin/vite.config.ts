@@ -40,7 +40,7 @@ export default defineConfig({
         // Bu olmadan useAuthContext() "must be used within AuthProvider" hatası verir
         '@aquaculture/shared-ui': {
           singleton: true,
-          import: false, // Host'tan al, kendi kopyasını oluşturma
+          import: true,
         },
         zustand: {
           singleton: true,

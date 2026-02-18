@@ -9,83 +9,76 @@ import { resolve } from 'path';
  * Module Federation ile remote microfrontend'leri tüketir.
  * Paylaşılan bağımlılıkları merkezi olarak yönetir.
  */
-export default defineConfig({
-  plugins: [
-    react(),
-    federation({
-      name: 'shell',
-      // Remote microfrontend'ler
-      // Docker'da nginx proxy üzerinden, development'ta doğrudan
-      remotes: {
-        // Dashboard module
-        dashboard: 'http://localhost:8080/mf/dashboard/assets/remoteEntry.js',
-        // Farm module
-        farmModule: 'http://localhost:8080/mf/farm-module/assets/remoteEntry.js',
-        // HR module
-        hrModule: 'http://localhost:8080/mf/hr-module/assets/remoteEntry.js',
-        // Sensor module (includes Process Editor)
-        sensorModule: 'http://localhost:8080/mf/sensor-module/assets/remoteEntry.js',
-        // Hydroponics module
-        hydroponicsModule: 'http://localhost:8080/mf/hydroponics-module/assets/remoteEntry.js',
-        // Admin Panel module (SUPER_ADMIN)
-        adminPanel: 'http://localhost:8080/mf/admin-panel/assets/remoteEntry.js',
-        // Tenant Admin module (TENANT_ADMIN)
-        tenantAdmin: 'http://localhost:8080/mf/tenant-admin/assets/remoteEntry.js',
+export default defineConfig(({ command }) => {
+  // Development: local docker proxy at localhost:8080/mf/
+  // Production build: relative /remotes/ paths resolved by nginx reverse proxy
+  const isDev = command === 'serve';
+  const remoteBase = isDev ? 'http://localhost:8080/mf' : '/remotes';
+
+  return {
+    plugins: [
+      react(),
+      federation({
+        name: 'shell',
+        remotes: {
+          dashboard: `${remoteBase}/dashboard/assets/remoteEntry.js`,
+          farmModule: `${remoteBase}/farm-module/assets/remoteEntry.js`,
+          hrModule: `${remoteBase}/hr-module/assets/remoteEntry.js`,
+          sensorModule: `${remoteBase}/sensor-module/assets/remoteEntry.js`,
+          hydroponicsModule: `${remoteBase}/hydroponics-module/assets/remoteEntry.js`,
+          adminPanel: `${remoteBase}/admin-panel/assets/remoteEntry.js`,
+          tenantAdmin: `${remoteBase}/tenant-admin/assets/remoteEntry.js`,
+        },
+        shared: {
+          react: {
+            singleton: true,
+            requiredVersion: '^18.2.0',
+          },
+          'react-dom': {
+            singleton: true,
+            requiredVersion: '^18.2.0',
+          },
+          'react-router-dom': {
+            singleton: true,
+            requiredVersion: '^6.21.0',
+          },
+          '@tanstack/react-query': {
+            singleton: true,
+            requiredVersion: '^5.17.0',
+          },
+          '@aquaculture/shared-ui': {
+            singleton: true,
+            import: true,
+          },
+          zustand: {
+            singleton: true,
+            requiredVersion: '^4.4.0',
+          },
+          'use-sync-external-store': {
+            singleton: true,
+          },
+        },
+      }),
+    ],
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, 'src'),
+        '@aquaculture/shared-ui': resolve(__dirname, '../shared-ui/dist'),
       },
-      // Paylaşılan modüller - SINGLETON olarak işaretlenmeli
-      // Bu sayede tüm remote modüller aynı instance'ı kullanır
-      shared: {
-        react: {
-          singleton: true,
-          requiredVersion: '^18.2.0',
-        },
-        'react-dom': {
-          singleton: true,
-          requiredVersion: '^18.2.0',
-        },
-        'react-router-dom': {
-          singleton: true,
-          requiredVersion: '^6.21.0',
-        },
-        '@tanstack/react-query': {
-          singleton: true,
-          requiredVersion: '^5.17.0',
-        },
-        // CRITICAL: shared-ui MUST be singleton for context sharing
-        // Bu olmadan her modül kendi AuthContext kopyasını alır ve context chain kırılır
-        '@aquaculture/shared-ui': {
-          singleton: true,
-          import: true,  // Shell shared-ui'yi bundle'lar, remote'lar bu singleton'ı kullanır
-        },
-        zustand: {
-          singleton: true,
-          requiredVersion: '^4.4.0',
-        },
-        // ReactFlow için gerekli - React instance paylaşımı
-        'use-sync-external-store': {
-          singleton: true,
-        },
-      },
-    }),
-  ],
-  resolve: {
-    alias: {
-      '@': resolve(__dirname, 'src'),
-      '@aquaculture/shared-ui': resolve(__dirname, '../shared-ui/dist'),
     },
-  },
-  server: {
-    port: 3000,
-    strictPort: true,
-    cors: true,
-  },
-  preview: {
-    port: 3000,
-  },
-  build: {
-    modulePreload: false,
-    target: 'esnext',
-    minify: false,
-    cssCodeSplit: false,
-  },
+    server: {
+      port: 3000,
+      strictPort: true,
+      cors: true,
+    },
+    preview: {
+      port: 3000,
+    },
+    build: {
+      modulePreload: false,
+      target: 'esnext',
+      minify: false,
+      cssCodeSplit: false,
+    },
+  };
 });

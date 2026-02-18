@@ -229,7 +229,7 @@ const App: React.FC = () => {
         <Route
           path="/tenant/*"
           element={
-            <ProtectedRoute requiredRoles={['TENANT_ADMIN', 'SUPER_ADMIN']}>
+            <ProtectedRoute requiredRoles={['TENANT_ADMIN']}>
               <ErrorBoundary moduleName="Tenant Admin">
                 <Suspense fallback={<RemoteModuleLoader moduleName="Tenant Admin" />}>
                   <TenantAdminModule />

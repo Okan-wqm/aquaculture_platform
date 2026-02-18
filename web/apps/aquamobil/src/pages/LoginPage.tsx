@@ -117,7 +117,7 @@ export function LoginPage() {
           )}
 
           {/* Login form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form method="post" autoComplete="off" onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Email
@@ -127,8 +127,9 @@ export function LoginPage() {
                 value={email}
                 onChange={handleEmailChange}
                 placeholder="name@company.com"
-                autoComplete="email"
+                autoComplete="username"
                 autoCapitalize="none"
+                required
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 focus:border-ocean-500 focus:ring-2 focus:ring-ocean-500/20 outline-none transition-all bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400"
               />
             </div>
@@ -144,6 +145,9 @@ export function LoginPage() {
                   onChange={handlePasswordChange}
                   placeholder="Enter your password"
                   autoComplete="current-password"
+                  minLength={8}
+                  maxLength={128}
+                  required
                   className="w-full px-4 py-3 pr-12 rounded-xl border border-gray-200 dark:border-gray-700 focus:border-ocean-500 focus:ring-2 focus:ring-ocean-500/20 outline-none transition-all bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400"
                 />
                 <button

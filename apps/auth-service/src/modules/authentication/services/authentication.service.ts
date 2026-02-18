@@ -472,19 +472,30 @@ export class AuthenticationService {
     }
 
     // SECURITY: Use transaction with pessimistic locking to prevent double-spending
+    // NOTE: FOR UPDATE cannot be used with LEFT JOIN in PostgreSQL, so we split
+    // the token lock and user fetch into separate queries.
     return this.dataSource.transaction(async (manager) => {
-      // SELECT FOR UPDATE to lock the row and prevent concurrent refresh
-      const refreshToken = await manager
-        .getRepository(RefreshToken)
+      const tokenRepo = manager.getRepository(RefreshToken);
+
+      // SELECT FOR UPDATE to lock the token row and prevent concurrent refresh
+      const refreshToken = await tokenRepo
         .createQueryBuilder('rt')
         .setLock('pessimistic_write')
-        .leftJoinAndSelect('rt.user', 'user')
         .where('rt.token = :token', { token })
         .andWhere('rt.isRevoked = :isRevoked', { isRevoked: false })
         .andWhere('rt.expiresAt > :now', { now: new Date() })
         .getOne();
 
-      if (!refreshToken || !refreshToken.user) {
+      if (!refreshToken) {
+        throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+      }
+
+      // Fetch the associated user separately (no lock needed on user row)
+      const user = await manager
+        .getRepository(User)
+        .findOne({ where: { id: refreshToken.userId } });
+
+      if (!user || !user.isActive) {
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
@@ -492,10 +503,10 @@ export class AuthenticationService {
       refreshToken.isRevoked = true;
       refreshToken.revokedAt = new Date();
       refreshToken.revokedReason = 'Token refreshed';
-      await manager.save(refreshToken);
+      await tokenRepo.save(refreshToken);
 
       return this.generateTokens(
-        refreshToken.user,
+        user,
         refreshToken.ipAddress ?? undefined,
         refreshToken.userAgent ?? undefined,
       );
@@ -514,10 +525,10 @@ export class AuthenticationService {
       const tokenRepo = manager.getRepository(RefreshToken);
 
       // Get all non-revoked, non-expired tokens with pessimistic lock
+      // NOTE: No LEFT JOIN here — FOR UPDATE cannot be applied to outer join targets in PostgreSQL
       const validTokens = await tokenRepo
         .createQueryBuilder('rt')
         .setLock('pessimistic_write')
-        .leftJoinAndSelect('rt.user', 'user')
         .where('rt.isRevoked = :isRevoked', { isRevoked: false })
         .andWhere('rt.expiresAt > :now', { now: new Date() })
         .orderBy('rt.createdAt', 'DESC')
@@ -534,12 +545,21 @@ export class AuthenticationService {
         }
       }
 
-      if (!matchedToken || !matchedToken.user) {
+      if (!matchedToken) {
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
       // Double-check the token is still not revoked (within locked transaction)
       if (matchedToken.isRevoked) {
+        throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+      }
+
+      // Fetch the associated user separately
+      const user = await manager
+        .getRepository(User)
+        .findOne({ where: { id: matchedToken.userId } });
+
+      if (!user || !user.isActive) {
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
@@ -550,7 +570,7 @@ export class AuthenticationService {
       await tokenRepo.save(matchedToken);
 
       return this.generateTokens(
-        matchedToken.user,
+        user,
         matchedToken.ipAddress ?? undefined,
         matchedToken.userAgent ?? undefined,
       );

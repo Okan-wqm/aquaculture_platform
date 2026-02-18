@@ -241,6 +241,7 @@ export class SettingsController {
    */
   @Get('system/info')
   async getSystemInfo() {
+    const isProduction = process.env['NODE_ENV'] === 'production';
     const security = await this.settingsService.getSecurityConfig();
     const rateLimits = await this.settingsService.getRateLimitConfig();
     const maintenance = await this.settingsService.getMaintenanceStatus();
@@ -249,8 +250,10 @@ export class SettingsController {
       platform: {
         name: 'Aquaculture Platform',
         version: '1.0.0',
-        environment: process.env.NODE_ENV || 'development',
-        nodeVersion: process.version,
+        ...(isProduction ? {} : {
+          environment: process.env['NODE_ENV'] || 'development',
+          nodeVersion: process.version,
+        }),
       },
       security,
       rateLimits,

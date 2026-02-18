@@ -80,7 +80,6 @@ export class HealthController {
   }
 
   @Get('metrics')
-  @Public()
   async metrics() {
     return this.healthService.getMetrics();
   }

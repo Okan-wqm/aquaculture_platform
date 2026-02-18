@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -24,6 +24,17 @@ import { QueryInspectorService } from './services/query-inspector.service';
 
 // Controllers
 
+const isProduction = process.env['NODE_ENV'] === 'production';
+
+// In production, exclude DebugToolsController entirely (H-3: debug endpoints must not be available)
+const controllers = isProduction
+  ? [ImpersonationController]
+  : [ImpersonationController, DebugToolsController];
+
+if (isProduction) {
+  new Logger('ImpersonationModule').log('Production mode: DebugToolsController disabled');
+}
+
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -39,7 +50,7 @@ import { QueryInspectorService } from './services/query-inspector.service';
       FeatureFlagOverride,
     ]),
   ],
-  controllers: [ImpersonationController, DebugToolsController],
+  controllers,
   providers: [
     ImpersonationService,
     // Debug Tools services (SRP compliant)

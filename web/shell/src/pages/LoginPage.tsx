@@ -95,7 +95,7 @@ const LoginForm: React.FC = () => {
   );
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form method="post" autoComplete="off" onSubmit={handleSubmit} className="space-y-5">
       <div className="text-center mb-6">
         <h2 className="text-2xl font-bold text-blue-700">Sign In</h2>
         <p className="mt-1 text-sm text-blue-600">Access your account</p>
@@ -115,7 +115,7 @@ const LoginForm: React.FC = () => {
         onChange={handleChange}
         placeholder="example@email.com"
         error={errors.email}
-        autoComplete="email"
+        autoComplete="username"
         required
       />
 
@@ -128,6 +128,8 @@ const LoginForm: React.FC = () => {
         placeholder="••••••••"
         error={errors.password}
         autoComplete="current-password"
+        minLength={8}
+        maxLength={128}
         required
       />
 

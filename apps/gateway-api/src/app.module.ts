@@ -280,6 +280,17 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
           playground: configService.get('NODE_ENV') !== 'production',
           // SECURITY: Disable introspection in production to prevent schema discovery attacks
           introspection: configService.get('NODE_ENV') !== 'production',
+          // SECURITY: Hide stack traces in production error responses (C-4)
+          includeStacktraceInErrorResponses: configService.get('NODE_ENV') !== 'production',
+          // SECURITY: Strip internal details from error responses in production
+          formatError: configService.get('NODE_ENV') === 'production'
+            ? (formattedError: { message: string; extensions?: Record<string, unknown> }) => ({
+                message: formattedError.message,
+                extensions: {
+                  code: formattedError.extensions?.code ?? 'INTERNAL_SERVER_ERROR',
+                },
+              })
+            : undefined,
           // SECURITY: Depth limiting to prevent deeply nested query DoS attacks
           // Maximum query depth of 10 prevents excessive resource consumption
           validationRules: [depthLimit(10)],

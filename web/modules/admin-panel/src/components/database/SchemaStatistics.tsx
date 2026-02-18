@@ -64,7 +64,8 @@ async function fetchSchemaStatistics(schema: string): Promise<SchemaStatisticsDa
   if (!response.ok) {
     throw new Error('Failed to fetch schema statistics');
   }
-  return response.json();
+  const json = await response.json();
+  return json && json.data ? json.data : json;
 }
 
 // ============================================================================

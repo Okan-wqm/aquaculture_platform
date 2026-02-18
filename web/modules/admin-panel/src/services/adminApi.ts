@@ -97,7 +97,17 @@ async function apiFetch<T>(
         return {} as T;
       }
 
-      return JSON.parse(text);
+      const json = JSON.parse(text);
+      // Unwrap API envelope: { success, data, meta }
+      if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
+        // Paginated response: meta has 'page' field -> return {data, ...meta} to match PaginatedResult
+        if (json.meta && typeof json.meta === 'object' && 'page' in json.meta) {
+          return { data: json.data, ...json.meta } as T;
+        }
+        // Non-paginated: return data directly
+        return json.data as T;
+      }
+      return json;
     } catch (err) {
       if (err instanceof TypeError && err.message.includes('fetch')) {
         // Network error - retry

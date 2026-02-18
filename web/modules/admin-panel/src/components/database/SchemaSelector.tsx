@@ -80,7 +80,8 @@ async function fetchCategorizedSchemas(): Promise<CategorizedSchemas> {
     throw new Error(errorText || `HTTP error! status: ${response.status}`);
   }
 
-  return response.json();
+  const json = await response.json();
+  return json && json.data ? json.data : json;
 }
 
 // ============================================================================

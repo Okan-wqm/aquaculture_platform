@@ -231,7 +231,7 @@ export class DatabaseExplorerController {
       const schemas = await queryRunner.query(`
         SELECT schema_name
         FROM information_schema.schemata
-        WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+        WHERE schema_name IN ('public', 'auth', 'admin', 'billing')
         ORDER BY schema_name
       `);
 

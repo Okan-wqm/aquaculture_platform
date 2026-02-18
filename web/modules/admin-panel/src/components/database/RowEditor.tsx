@@ -87,7 +87,8 @@ async function fetchForeignKeyValues(
     }));
   }
 
-  return response.json();
+  const json = await response.json();
+  return json && json.data ? json.data : json;
 }
 
 // ============================================================================

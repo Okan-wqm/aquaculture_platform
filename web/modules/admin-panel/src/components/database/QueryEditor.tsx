@@ -62,7 +62,8 @@ async function fetchSchemas(): Promise<string[]> {
     headers: { ...getAuthHeader() },
   });
   if (!response.ok) throw new Error('Failed to fetch schemas');
-  return response.json();
+  const json = await response.json();
+  return json && json.data ? json.data : json;
 }
 
 async function executeQuery(
@@ -83,7 +84,8 @@ async function executeQuery(
     throw new Error(errorData.message || `Query failed with status ${response.status}`);
   }
 
-  return response.json();
+  const json = await response.json();
+  return json && json.data ? json.data : json;
 }
 
 // ============================================================================

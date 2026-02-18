@@ -1,25 +1,11 @@
-import { defineConfig, Plugin } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import { resolve } from 'path';
 
-// Custom plugin to resolve 'konsta' to 'konsta/react'
-function konstaResolve(): Plugin {
-  return {
-    name: 'konsta-resolve',
-    enforce: 'pre',
-    resolveId(id) {
-      if (id === 'konsta') {
-        return { id: 'konsta/react', external: false };
-      }
-      return null;
-    },
-  };
-}
-
 export default defineConfig({
+  base: '/mobile/',
   plugins: [
-    konstaResolve(),
     react(),
     VitePWA({
       registerType: 'prompt',
@@ -32,23 +18,23 @@ export default defineConfig({
         background_color: '#ffffff',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/',
-        scope: '/',
+        start_url: '/mobile/',
+        scope: '/mobile/',
         icons: [
           {
-            src: '/icons/icon-192x192.svg',
+            src: '/mobile/icons/icon-192x192.png',
             sizes: '192x192',
-            type: 'image/svg+xml',
+            type: 'image/png',
           },
           {
-            src: '/icons/icon-512x512.svg',
+            src: '/mobile/icons/icon-512x512.png',
             sizes: '512x512',
-            type: 'image/svg+xml',
+            type: 'image/png',
           },
           {
-            src: '/icons/icon-512x512.svg',
+            src: '/mobile/icons/icon-512x512.png',
             sizes: '512x512',
-            type: 'image/svg+xml',
+            type: 'image/png',
             purpose: 'maskable',
           },
         ],
@@ -106,12 +92,10 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
-      'konsta': 'konsta/react',
     },
   },
   optimizeDeps: {
     include: ['konsta/react'],
-    exclude: ['konsta'],
   },
   server: {
     port: 8090,

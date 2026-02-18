@@ -71,7 +71,8 @@ async function fetchSchemas(): Promise<string[]> {
     headers: { ...getAuthHeader() },
   });
   if (!response.ok) throw new Error('Failed to fetch schemas');
-  return response.json();
+  const json = await response.json();
+  return json && json.data ? json.data : json;
 }
 
 async function fetchTables(schema: string): Promise<TableInfo[]> {
@@ -79,7 +80,8 @@ async function fetchTables(schema: string): Promise<TableInfo[]> {
     headers: { ...getAuthHeader() },
   });
   if (!response.ok) throw new Error('Failed to fetch tables');
-  return response.json();
+  const json = await response.json();
+  return json && json.data ? json.data : json;
 }
 
 async function fetchTableData(
@@ -104,7 +106,8 @@ async function fetchTableData(
     { headers: { ...getAuthHeader() } }
   );
   if (!response.ok) throw new Error('Failed to fetch table data');
-  return response.json();
+  const json = await response.json();
+  return json && json.data ? json.data : json;
 }
 
 async function insertRow(
@@ -124,7 +127,8 @@ async function insertRow(
     const error = await response.json();
     throw new Error(error.message || 'Failed to insert row');
   }
-  return response.json();
+  const json = await response.json();
+  return json && json.data ? json.data : json;
 }
 
 async function updateRow(
@@ -148,7 +152,8 @@ async function updateRow(
     const error = await response.json();
     throw new Error(error.message || 'Failed to update row');
   }
-  return response.json();
+  const json = await response.json();
+  return json && json.data ? json.data : json;
 }
 
 async function deleteRow(

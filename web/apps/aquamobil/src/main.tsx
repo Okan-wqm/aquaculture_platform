@@ -57,7 +57,7 @@ const isIOS =
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <BrowserRouter basename="/mobile">
         <AuthProvider>
           <OfflineProvider>
             <KonstaApp theme={isIOS ? 'ios' : 'material'} safeAreas>

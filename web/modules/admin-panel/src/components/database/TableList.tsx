@@ -63,7 +63,8 @@ async function fetchTables(schema: string): Promise<TableInfo[]> {
     headers: { ...getAuthHeader() },
   });
   if (!response.ok) throw new Error('Failed to fetch tables');
-  return response.json();
+  const json = await response.json();
+  return json && json.data ? json.data : json;
 }
 
 // ============================================================================

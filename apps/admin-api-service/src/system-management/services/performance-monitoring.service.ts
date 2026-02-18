@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan, Between } from 'typeorm';
+import { Repository, DataSource, LessThan, Between } from 'typeorm';
+import * as os from 'os';
+import * as fs from 'fs';
 
 import {
   PerformanceMetric,
@@ -115,6 +117,7 @@ export class PerformanceMonitoringService {
     private readonly metricRepo: Repository<PerformanceMetric>,
     @InjectRepository(PerformanceSnapshot)
     private readonly snapshotRepo: Repository<PerformanceSnapshot>,
+    private readonly dataSource: DataSource,
   ) {}
 
   // ============================================================================
@@ -279,48 +282,64 @@ export class PerformanceMonitoringService {
   // ============================================================================
 
   async getDatabaseMetrics(database?: string, timeRange?: { start?: Date; end?: Date }): Promise<DatabaseMetrics> {
-    const end = timeRange?.end || new Date();
-    const start = timeRange?.start || new Date(end.getTime() - 5 * 60 * 1000);
+    try {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
 
-    const query = this.metricRepo
-      .createQueryBuilder('m')
-      .where('m.timestamp BETWEEN :start AND :end', { start, end })
-      .andWhere('m.metricType IN (:...types)', {
-        types: [
-          MetricType.DB_CONNECTION_POOL,
-          MetricType.DB_QUERY_TIME,
-          MetricType.DB_CACHE_HIT_RATIO,
-          MetricType.DB_DEADLOCKS,
-          MetricType.DB_ACTIVE_CONNECTIONS,
-          MetricType.DB_SLOW_QUERIES,
-        ],
-      });
+      try {
+        // Active connections
+        const connResult = await queryRunner.query(
+          `SELECT count(*) as active FROM pg_stat_activity WHERE state = 'active'`
+        );
+        const activeConnections = parseInt(connResult[0]?.active || '0', 10);
 
-    if (database) {
-      query.andWhere("m.dimensions->>'database' = :database", { database });
+        // Max connections (pool size)
+        const maxConnResult = await queryRunner.query(`SHOW max_connections`);
+        const poolSize = parseInt(maxConnResult[0]?.max_connections || '100', 10);
+
+        // Cache hit ratio
+        const cacheResult = await queryRunner.query(`
+          SELECT ROUND(100.0 * sum(blks_hit) / NULLIF(sum(blks_hit) + sum(blks_read), 0), 2) as ratio
+          FROM pg_stat_database
+        `);
+        const cacheHitRatio = parseFloat(cacheResult[0]?.ratio || '0');
+
+        // Deadlocks
+        const deadlockResult = await queryRunner.query(`
+          SELECT COALESCE(sum(deadlocks), 0) as deadlocks FROM pg_stat_database
+        `);
+        const deadlockCount = parseInt(deadlockResult[0]?.deadlocks || '0', 10);
+
+        // Total connections
+        const totalConnResult = await queryRunner.query(
+          `SELECT count(*) as total FROM pg_stat_activity`
+        );
+        const totalConnections = parseInt(totalConnResult[0]?.total || '0', 10);
+
+        return {
+          activeConnections,
+          poolSize,
+          poolUtilization: Math.round((totalConnections / poolSize) * 10000) / 100,
+          avgQueryTime: 0,
+          slowQueryCount: 0,
+          cacheHitRatio: cacheHitRatio || 0,
+          deadlockCount,
+        };
+      } finally {
+        await queryRunner.release();
+      }
+    } catch (error) {
+      this.logger.error('Failed to get database metrics', error);
+      return {
+        activeConnections: 0,
+        poolSize: 100,
+        poolUtilization: 0,
+        avgQueryTime: 0,
+        slowQueryCount: 0,
+        cacheHitRatio: 0,
+        deadlockCount: 0,
+      };
     }
-
-    const metrics = await query.getMany();
-
-    const connectionPoolMetrics = metrics.filter((m) => m.metricType === MetricType.DB_CONNECTION_POOL);
-    const queryTimeMetrics = metrics.filter((m) => m.metricType === MetricType.DB_QUERY_TIME);
-    const cacheHitMetrics = metrics.filter((m) => m.metricType === MetricType.DB_CACHE_HIT_RATIO);
-    const deadlockMetrics = metrics.filter((m) => m.metricType === MetricType.DB_DEADLOCKS);
-    const activeConnMetrics = metrics.filter((m) => m.metricType === MetricType.DB_ACTIVE_CONNECTIONS);
-    const slowQueryMetrics = metrics.filter((m) => m.metricType === MetricType.DB_SLOW_QUERIES);
-
-    const poolSize = 100; // Would come from actual config
-    const activeConnections = this.calculateAverage(activeConnMetrics.map((m) => m.value)) || 0;
-
-    return {
-      activeConnections,
-      poolSize,
-      poolUtilization: (activeConnections / poolSize) * 100,
-      avgQueryTime: this.calculateAverage(queryTimeMetrics.map((m) => m.value)) || 0,
-      slowQueryCount: this.calculateSum(slowQueryMetrics.map((m) => m.value)),
-      cacheHitRatio: this.calculateAverage(cacheHitMetrics.map((m) => m.value)) || 95,
-      deadlockCount: this.calculateSum(deadlockMetrics.map((m) => m.value)),
-    };
   }
 
   async getSlowQueries(
@@ -358,46 +377,39 @@ export class PerformanceMonitoringService {
   // ============================================================================
 
   async getInfrastructureMetrics(host?: string, timeRange?: { start?: Date; end?: Date }): Promise<InfrastructureMetrics> {
-    const end = timeRange?.end || new Date();
-    const start = timeRange?.start || new Date(end.getTime() - 5 * 60 * 1000);
+    // Real OS metrics
+    const cpus = os.cpus();
+    const cpuUsage = cpus.reduce((acc, cpu) => {
+      const total = Object.values(cpu.times).reduce((a, b) => a + b, 0);
+      const idle = cpu.times.idle;
+      return acc + ((total - idle) / total) * 100;
+    }, 0) / cpus.length;
 
-    const query = this.metricRepo
-      .createQueryBuilder('m')
-      .where('m.timestamp BETWEEN :start AND :end', { start, end })
-      .andWhere('m.metricType IN (:...types)', {
-        types: [
-          MetricType.CPU_USAGE,
-          MetricType.MEMORY_USAGE,
-          MetricType.DISK_USAGE,
-          MetricType.NETWORK_LATENCY,
-          MetricType.CONTAINER_HEALTH,
-          MetricType.POD_RESTARTS,
-        ],
-      });
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const memoryUsage = ((totalMem - freeMem) / totalMem) * 100;
 
-    if (host) {
-      query.andWhere("m.dimensions->>'host' = :host", { host });
+    let diskUsage = 0;
+    let diskTotal = 0;
+    try {
+      const diskStats = fs.statfsSync('/');
+      diskTotal = diskStats.bsize * diskStats.blocks;
+      const diskFree = diskStats.bsize * diskStats.bavail;
+      diskUsage = ((diskTotal - diskFree) / diskTotal) * 100;
+    } catch (e) {
+      this.logger.warn('Failed to get disk stats');
     }
 
-    const metrics = await query.getMany();
-
-    const cpuMetrics = metrics.filter((m) => m.metricType === MetricType.CPU_USAGE);
-    const memoryMetrics = metrics.filter((m) => m.metricType === MetricType.MEMORY_USAGE);
-    const diskMetrics = metrics.filter((m) => m.metricType === MetricType.DISK_USAGE);
-    const networkMetrics = metrics.filter((m) => m.metricType === MetricType.NETWORK_LATENCY);
-    const containerMetrics = metrics.filter((m) => m.metricType === MetricType.CONTAINER_HEALTH);
-    const podRestartMetrics = metrics.filter((m) => m.metricType === MetricType.POD_RESTARTS);
-
     return {
-      cpuUsage: this.calculateAverage(cpuMetrics.map((m) => m.value)) || 0,
-      memoryUsage: this.calculateAverage(memoryMetrics.map((m) => m.value)) || 0,
-      memoryTotal: 16 * 1024 * 1024 * 1024, // Would come from actual config
-      diskUsage: this.calculateAverage(diskMetrics.map((m) => m.value)) || 0,
-      diskTotal: 500 * 1024 * 1024 * 1024, // Would come from actual config
-      networkLatency: this.calculateAverage(networkMetrics.map((m) => m.value)) || 0,
-      containerCount: containerMetrics.length > 0 ? containerMetrics[containerMetrics.length - 1]?.sampleCount ?? 0 : 0,
-      healthyContainers: containerMetrics.length > 0 ? containerMetrics[containerMetrics.length - 1]?.value ?? 0 : 0,
-      podRestarts: this.calculateSum(podRestartMetrics.map((m) => m.value)),
+      cpuUsage: Math.round(cpuUsage * 100) / 100,
+      memoryUsage: Math.round(memoryUsage * 100) / 100,
+      memoryTotal: totalMem,
+      diskUsage: Math.round(diskUsage * 100) / 100,
+      diskTotal,
+      networkLatency: 0,
+      containerCount: 0,
+      healthyContainers: 0,
+      podRestarts: 0,
     };
   }
 

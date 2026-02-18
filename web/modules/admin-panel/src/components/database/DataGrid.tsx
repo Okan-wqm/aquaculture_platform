@@ -77,7 +77,8 @@ async function fetchTableData(
     { headers: { ...getAuthHeader() } }
   );
   if (!response.ok) throw new Error('Failed to fetch table data');
-  return response.json();
+  const json = await response.json();
+  return json && json.data ? json.data : json;
 }
 
 // ============================================================================

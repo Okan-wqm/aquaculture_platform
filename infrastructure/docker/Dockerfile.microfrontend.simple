@@ -23,10 +23,9 @@ COPY ${MODULE_PATH}/dist /usr/share/nginx/html
 # Expose default HTTP port
 EXPOSE 80
 
-# Health check - verify nginx is responding and remoteEntry.js is accessible
-# Uses curl with fail-fast options for reliable health checking
+# Health check - verify nginx is responding
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl --fail --silent --head http://127.0.0.1:80/assets/remoteEntry.js || exit 1
+    CMD curl --fail --silent http://127.0.0.1:80/healthz || exit 1
 
 # Start nginx in foreground
 CMD ["nginx", "-g", "daemon off;"]

@@ -20,10 +20,40 @@ spec:
         app: notification-service
         tier: backend
     spec:
-      serviceAccountName: aquaculture-sa
+      # SEC-003: per-service service account
+      serviceAccountName: notification-service-sa
+      # SEC-017: pull secret for GHCR private registry
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      # ARCH-006: pod anti-affinity to spread replicas across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - notification-service
+                topologyKey: kubernetes.io/hostname
+      # ARCH-015: topology spread for AZ resilience
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: notification-service
+      volumes:
+        # SEC-004: emptyDir for /tmp since readOnlyRootFilesystem: true
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: notification-service
-          image: ghcr.io/aquaculture/notification-service:latest
+          # ARCH-013: no tag here; tag set via Kustomize images transformer
+          image: ghcr.io/aquaculture/notification-service
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
@@ -33,18 +63,28 @@ spec:
             - secretRef:
                 name: aquaculture-secrets
           env:
+            # SEC-009: smtp-credentials defined in secrets.yaml — optional:true removed
+            # so pod fails explicitly if SMTP secret is not provisioned
             - name: SMTP_HOST
               valueFrom:
                 secretKeyRef:
                   name: smtp-credentials
                   key: SMTP_HOST
-                  optional: true
             - name: SMTP_PORT
               valueFrom:
                 secretKeyRef:
                   name: smtp-credentials
                   key: SMTP_PORT
-                  optional: true
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-credentials
+                  key: SMTP_USER
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-credentials
+                  key: SMTP_PASSWORD
           resources:
             requests:
               cpu: "100m"
@@ -52,22 +92,45 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          # ARCH-010: startupProbe replaces long initialDelaySeconds blind window
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            failureThreshold: 30
+            periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /health
               port: 3000
-            initialDelaySeconds: 30
+            initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # ARCH-007: readinessProbe uses /health/ready (separate from liveness)
           readinessProbe:
             httpGet:
               path: /health/ready
               port: 3000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 5
             periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
           securityContext:
             runAsNonRoot: true
             runAsUser: 1001
             allowPrivilegeEscalation: false
+            # SEC-004: readOnlyRootFilesystem
+            readOnlyRootFilesystem: true
+            # SEC-006: seccompProfile and capabilities drop ALL
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
 
 ---
 apiVersion: v1
@@ -83,3 +146,16 @@ spec:
       name: http
   selector:
     app: notification-service
+
+---
+# ARCH-001: PodDisruptionBudget for notification-service
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notification-service-pdb
+  namespace: aquaculture
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: notification-service

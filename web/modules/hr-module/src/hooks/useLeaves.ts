@@ -92,7 +92,8 @@ export function useLeaveBalances(employeeId: string, year: number) {
         { employeeId, year }
       ),
     select: (data) => data.leaveBalances,
-    enabled: !!employeeId && !!year,
+    // BUG-005: year=0 is falsy but a valid-looking bad value; guard with range check
+    enabled: !!employeeId && year > 2000 && year < 2100,
   });
 }
 
@@ -123,7 +124,9 @@ export function useLeaveBalanceSummary(employeeId: string, year: number) {
         year,
       }),
     select: (data) => data.leaveBalanceSummary,
-    enabled: !!employeeId && !!year,
+    // BUG-005: match the same range guard used by useLeaveBalances so year=0 or
+    // NaN values cannot trigger an erroneous fetch.
+    enabled: !!employeeId && year > 2000 && year < 2100,
   });
 }
 
@@ -361,7 +364,11 @@ export function useApproveLeaveRequest() {
       ),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: leaveKeys.requests() });
-      queryClient.invalidateQueries({ queryKey: [...leaveKeys.all, 'pendingApprovals'] });
+      // BUG-014: use prefix invalidation so all pendingApprovals(approverId) keys are invalidated
+      queryClient.invalidateQueries({
+        queryKey: [...leaveKeys.all, 'pendingApprovals'],
+        exact: false,
+      });
       queryClient.invalidateQueries({
         queryKey: leaveKeys.balances(data.approveLeaveRequest.employeeId, new Date().getFullYear()),
       });
@@ -386,7 +393,11 @@ export function useRejectLeaveRequest() {
       ),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: leaveKeys.requests() });
-      queryClient.invalidateQueries({ queryKey: [...leaveKeys.all, 'pendingApprovals'] });
+      // BUG-014: use prefix invalidation so all pendingApprovals(approverId) keys are invalidated
+      queryClient.invalidateQueries({
+        queryKey: [...leaveKeys.all, 'pendingApprovals'],
+        exact: false,
+      });
       queryClient.invalidateQueries({
         queryKey: leaveKeys.balances(data.rejectLeaveRequest.employeeId, new Date().getFullYear()),
       });

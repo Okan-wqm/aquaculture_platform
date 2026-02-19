@@ -82,6 +82,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   }
 
   private sanitize(message: string): string {
-    return /password|secret|token|sql/i.test(message) ? 'An error occurred' : message;
+    // Redact messages that may contain sensitive values: credentials, keys, connection strings, etc.
+    const sensitivePattern =
+      /password|secret|token|sql|credential|apikey|api_key|connectionstring|database_url|bearer|jwt|private|cert|auth/i;
+    return sensitivePattern.test(message) ? 'An error occurred' : message;
   }
 }

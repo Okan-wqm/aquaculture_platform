@@ -4,7 +4,7 @@
  * Reusable pagination logic with URL sync support.
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 export interface PaginationState {
@@ -67,11 +67,14 @@ export function usePagination(options: UsePaginationOptions = {}): UsePagination
 
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Get initial values from URL if syncing
+  // Get initial values from URL if syncing — clamp to valid ranges (SEC-011, BUG-008)
   const getInitialPage = () => {
     if (syncUrl) {
       const urlPage = searchParams.get('page');
-      return urlPage ? parseInt(urlPage, 10) : initialPage;
+      if (urlPage) {
+        const parsed = parseInt(urlPage, 10);
+        if (!isNaN(parsed)) return Math.max(1, parsed);
+      }
     }
     return initialPage;
   };
@@ -79,7 +82,14 @@ export function usePagination(options: UsePaginationOptions = {}): UsePagination
   const getInitialLimit = () => {
     if (syncUrl) {
       const urlLimit = searchParams.get('limit');
-      return urlLimit ? parseInt(urlLimit, 10) : initialLimit;
+      if (urlLimit) {
+        const parsed = parseInt(urlLimit, 10);
+        if (!isNaN(parsed) && pageSizeOptions.includes(parsed)) return parsed;
+        // Clamp to nearest allowed value if not in the allowed list
+        if (!isNaN(parsed)) return pageSizeOptions.reduce((prev, curr) =>
+          Math.abs(curr - parsed) < Math.abs(prev - parsed) ? curr : prev
+        );
+      }
     }
     return initialLimit;
   };
@@ -87,6 +97,21 @@ export function usePagination(options: UsePaginationOptions = {}): UsePagination
   const [page, setPage] = useState(getInitialPage);
   const [limit, setLimitState] = useState(getInitialLimit);
   const [total, setTotalState] = useState(initialTotal);
+
+  // Sync pagination state when URL changes externally (e.g., browser back/forward) (BUG-008)
+  useEffect(() => {
+    if (!syncUrl) return;
+    const urlPage = searchParams.get('page');
+    const urlLimit = searchParams.get('limit');
+    if (urlPage) {
+      const parsed = parseInt(urlPage, 10);
+      if (!isNaN(parsed) && parsed >= 1 && parsed !== page) setPage(parsed);
+    }
+    if (urlLimit) {
+      const parsed = parseInt(urlLimit, 10);
+      if (!isNaN(parsed) && pageSizeOptions.includes(parsed) && parsed !== limit) setLimitState(parsed);
+    }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
   const offset = useMemo(() => (page - 1) * limit, [page, limit]);

@@ -41,6 +41,12 @@ export class GetEmployeesHandler implements IQueryHandler<GetEmployeesQuery, Pag
     if (filter?.supervisorId) {
       where.supervisorId = filter.supervisorId;
     }
+    if (filter?.personnelCategory) {
+      where.personnelCategory = filter.personnelCategory;
+    }
+    if (filter?.seaWorthy !== undefined && filter?.seaWorthy !== null) {
+      where.seaWorthy = filter.seaWorthy;
+    }
 
     // Enforce pagination limits
     const effectiveLimit = Math.min(Math.max(filter?.limit || 20, 1), 100);
@@ -48,7 +54,6 @@ export class GetEmployeesHandler implements IQueryHandler<GetEmployeesQuery, Pag
 
     const [items, total] = await this.employeeRepository.findAndCount({
       where,
-      relations: ['payrolls'],
       skip: effectiveOffset,
       take: effectiveLimit,
       order: { lastName: 'ASC', firstName: 'ASC' },

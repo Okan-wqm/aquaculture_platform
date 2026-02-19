@@ -40,12 +40,18 @@ export interface VfdCommandExecutionResult {
 export class VfdCommandService {
   private readonly logger = new Logger(VfdCommandService.name);
 
-  // Active connections cache (shared with data reader in production)
+  // Active connections cache
   private activeConnections: Map<string, {
     handle: VfdConnectionHandle;
     adapter: ReturnType<typeof createVfdAdapter>;
     lastActivity: Date;
   }> = new Map();
+
+  // Per-device connect lock: prevents concurrent calls from opening duplicate sockets
+  private connectLocks: Map<string, Promise<{
+    adapter: ReturnType<typeof createVfdAdapter>;
+    handle: VfdConnectionHandle;
+  }>> = new Map();
 
   constructor(
     private readonly vfdDeviceService: VfdDeviceService,
@@ -266,8 +272,9 @@ export class VfdCommandService {
     // Different brands use different reference scaling
     let referenceValue: number;
     if (speedRefMapping.unit === 'Hz') {
-      // Convert percentage to Hz (assuming 50Hz = 100%)
-      referenceValue = (speedPercent / 100) * 50;
+      // Use max frequency from register mapping, or default to 50Hz
+      const maxFrequency = speedRefMapping.maxValue || 50;
+      referenceValue = (speedPercent / 100) * maxFrequency;
     } else if (speedRefMapping.unit === '%') {
       referenceValue = speedPercent;
     } else {
@@ -345,30 +352,52 @@ export class VfdCommandService {
   }
 
   /**
-   * Get or create connection to a device
+   * Get or create connection to a device.
+   * Uses a per-device promise lock so concurrent callers wait for the same
+   * connect() call rather than each opening their own socket.
    */
-  private async getOrCreateConnection(device: VfdDevice): Promise<{
+  private getOrCreateConnection(device: VfdDevice): Promise<{
     adapter: ReturnType<typeof createVfdAdapter>;
     handle: VfdConnectionHandle;
   }> {
     const cached = this.activeConnections.get(device.id);
-
     if (cached && cached.handle.isConnected) {
-      cached.lastActivity = new Date();
-      return { adapter: cached.adapter, handle: cached.handle };
+      // Apply the same 60-second idle timeout as the reader service
+      const idleTime = Date.now() - cached.lastActivity.getTime();
+      if (idleTime < 60000) {
+        cached.lastActivity = new Date();
+        return Promise.resolve({ adapter: cached.adapter, handle: cached.handle });
+      }
+      // Stale connection: close asynchronously, then fall through to reconnect
+      void this.closeConnection(device.id);
     }
 
-    // Create new connection
-    const adapter = createVfdAdapter(device.protocol);
-    const handle = await adapter.connect(device.protocolConfiguration as unknown as Record<string, unknown>);
+    // If a connect is already in progress for this device, reuse that promise
+    const inflight = this.connectLocks.get(device.id);
+    if (inflight) {
+      return inflight;
+    }
 
-    this.activeConnections.set(device.id, {
-      adapter,
-      handle,
-      lastActivity: new Date(),
-    });
+    const connectPromise = (async () => {
+      try {
+        const adapter = createVfdAdapter(device.protocol);
+        const handle = await adapter.connect(device.protocolConfiguration as unknown as Record<string, unknown>);
 
-    return { adapter, handle };
+        this.activeConnections.set(device.id, {
+          adapter,
+          handle,
+          lastActivity: new Date(),
+        });
+
+        return { adapter, handle };
+      } finally {
+        // Remove the lock regardless of success or failure
+        this.connectLocks.delete(device.id);
+      }
+    })();
+
+    this.connectLocks.set(device.id, connectPromise);
+    return connectPromise;
   }
 
   /**

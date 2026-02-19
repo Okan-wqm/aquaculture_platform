@@ -4,7 +4,7 @@
  * Two-stage type selection: Category → Type
  * Dynamic specification form based on equipment type
  */
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   useEquipmentList,
   useEquipmentTypes,
@@ -27,7 +27,9 @@ import {
   DeleteConfirmationDialog,
   DeletePreviewData,
   AffectedItemGroup,
+  useToast,
 } from '@aquaculture/shared-ui';
+import { FeederCalibrationSection } from '../components/FeederCalibrationSection';
 
 // Equipment categories for two-stage selection
 // Values must match backend EquipmentCategory enum (UPPERCASE)
@@ -52,6 +54,43 @@ const statusColors: Record<string, string> = {
   FAULTY: 'bg-red-100 text-red-800',
   DECOMMISSIONED: 'bg-gray-100 text-gray-800',
 };
+
+// PERF-018: Pre-compile the camelCase regex once at module scope so it is not
+// reallocated inside the render loop on every equipment card render.
+const CAMEL_CASE_REGEX = /([A-Z])/g;
+
+/**
+ * Convert a camelCase key to a human-readable label.
+ * Defined outside the component so it is not recreated on re-renders.
+ */
+function camelCaseToLabel(key: string): string {
+  return key.replace(CAMEL_CASE_REGEX, ' $1').trim();
+}
+
+/**
+ * Render equipment specification entries.
+ * Defined outside the component to avoid re-creation on every render cycle (PERF-018).
+ */
+function renderSpecifications(specs: Record<string, unknown>): React.ReactNode[] {
+  return Object.entries(specs).map(([key, value]) => {
+    if (typeof value === 'boolean') {
+      return (
+        <div key={key} className="flex justify-between text-sm">
+          <span className="text-gray-500 capitalize">{camelCaseToLabel(key)}:</span>
+          <span className={`font-medium ${value ? 'text-green-600' : 'text-gray-500'}`}>
+            {value ? 'Yes' : 'No'}
+          </span>
+        </div>
+      );
+    }
+    return (
+      <div key={key} className="flex justify-between text-sm">
+        <span className="text-gray-500 capitalize">{camelCaseToLabel(key)}:</span>
+        <span className="text-gray-900 font-medium">{String(value)}</span>
+      </div>
+    );
+  });
+}
 
 const typeIcons: Record<string, string> = {
   'fish-tank': 'M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
@@ -123,9 +162,23 @@ export const EquipmentTab: React.FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [equipmentToDelete, setEquipmentToDelete] = useState<Equipment | null>(null);
 
+  const { toast } = useToast();
+
   // API hooks
   const { data: equipmentData, isLoading, error, refetch } = useEquipmentList();
   const { data: equipmentTypes } = useEquipmentTypes();
+
+  // BUG-014: reset type filter when equipmentTypes list changes (e.g. after initial load)
+  // so a stale selectedType value doesn't silently produce an empty filtered list
+  useEffect(() => {
+    if (equipmentTypes && equipmentTypes.length > 0 && selectedType !== 'all') {
+      const stillValid = equipmentTypes.some((t) => t.code === selectedType);
+      if (!stillValid) {
+        setSelectedType('all');
+      }
+    }
+  }, [equipmentTypes, selectedType]);
+
   const { data: sitesData } = useSiteList();
   const { data: departmentsList } = useDepartmentsBySite(formData.siteId || '');
   const { data: systemsList } = useSystemsBySite(formData.siteId || '');
@@ -205,6 +258,12 @@ export const EquipmentTab: React.FC = () => {
     return selectedEquipmentType.specificationSchema as unknown as SpecificationSchema;
   }, [selectedEquipmentType]);
 
+  // Check if current type is a feeder (for calibration section)
+  const isFeederType = useMemo(() => {
+    if (!selectedEquipmentType?.code) return false;
+    return selectedEquipmentType.code.startsWith('feeder-');
+  }, [selectedEquipmentType]);
+
   // Get equipment list from API or empty array
   const equipment = equipmentData?.items || [];
 
@@ -227,7 +286,8 @@ export const EquipmentTab: React.FC = () => {
     });
   }, [equipment, editingId, formData.siteId]);
 
-  const filteredEquipment = equipment.filter(eq => {
+  // PERF-004: memoize to avoid re-running O(n) filter on unrelated state changes
+  const filteredEquipment = useMemo(() => equipment.filter(eq => {
     const matchesSearch =
       eq.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       eq.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -237,22 +297,13 @@ export const EquipmentTab: React.FC = () => {
     const isOrphaned = (!eq.systemIds || eq.systemIds.length === 0) && (!eq.systems || eq.systems.length === 0);
     const matchesOrphanFilter = !showOrphanedOnly || isOrphaned;
     return matchesSearch && matchesType && matchesStatus && matchesOrphanFilter;
-  });
+  }), [equipment, searchTerm, selectedType, selectedStatus, showOrphanedOnly]);
 
   // Get unique types for filter from equipment types API
   const types = (equipmentTypes || []).map(type => ({
     value: type.code,
     label: type.name,
   }));
-
-  const renderSpecifications = (specs: Record<string, unknown>) => {
-    return Object.entries(specs).map(([key, value]) => (
-      <div key={key} className="flex justify-between text-sm">
-        <span className="text-gray-500 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}:</span>
-        <span className="text-gray-900 font-medium">{String(value)}</span>
-      </div>
-    ));
-  };
 
   // Handle category change - reset type and specifications
   const handleCategoryChange = useCallback((category: string) => {
@@ -290,19 +341,19 @@ export const EquipmentTab: React.FC = () => {
 
     // Validate required fields
     if (!formData.siteId) {
-      alert('Please select a site.');
+      toast({ title: 'Validation Error', description: 'Please select a site.', variant: 'error' });
       return;
     }
     if (!formData.departmentId) {
-      alert('Please select a department.');
+      toast({ title: 'Validation Error', description: 'Please select a department.', variant: 'error' });
       return;
     }
     if (formData.systemIds.length === 0) {
-      alert('Please select at least one system.');
+      toast({ title: 'Validation Error', description: 'Please select at least one system.', variant: 'error' });
       return;
     }
     if (!formData.equipmentTypeId) {
-      alert('Please select an equipment type.');
+      toast({ title: 'Validation Error', description: 'Please select an equipment type.', variant: 'error' });
       return;
     }
 
@@ -310,7 +361,11 @@ export const EquipmentTab: React.FC = () => {
     if (specificationSchema) {
       const specErrors = validateSpecifications(specificationSchema, formData.specifications);
       if (Object.keys(specErrors).length > 0) {
-        alert('Please fill in all required specification fields: ' + Object.values(specErrors).join(', '));
+        toast({
+          title: 'Validation Error',
+          description: 'Please fill in all required specification fields: ' + Object.values(specErrors).join(', '),
+          variant: 'error',
+        });
         return;
       }
     }
@@ -360,8 +415,8 @@ export const EquipmentTab: React.FC = () => {
       setFormData(initialFormData);
       setEditingId(null);
     } catch (err) {
-      console.error('Failed to save equipment:', err);
-      alert('Failed to save equipment. Please try again.');
+      if (import.meta.env.DEV) console.error('Failed to save equipment:', err);
+      toast({ title: 'Error', description: 'Failed to save equipment. Please try again.', variant: 'error' });
     }
   };
 
@@ -431,8 +486,8 @@ export const EquipmentTab: React.FC = () => {
       setDeleteDialogOpen(false);
       setEquipmentToDelete(null);
     } catch (err) {
-      console.error('Failed to delete equipment:', err);
-      alert('Failed to delete equipment. Please try again.');
+      if (import.meta.env.DEV) console.error('Failed to delete equipment:', err);
+      toast({ title: 'Error', description: 'Failed to delete equipment. Please try again.', variant: 'error' });
     }
   };
 
@@ -623,6 +678,14 @@ export const EquipmentTab: React.FC = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
                         </svg>
                         {eq.parentEquipment.name}
+                      </span>
+                    </div>
+                  )}
+                  {/* Auto Filling Badge for feeders */}
+                  {eq.equipmentType?.code?.startsWith('feeder-') && (eq.specifications as Record<string, unknown>)?.autoFilling && (
+                    <div className="flex items-center">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                        Auto Fill
                       </span>
                     </div>
                   )}
@@ -1052,6 +1115,11 @@ export const EquipmentTab: React.FC = () => {
                           onChange={handleSpecificationsChange}
                         />
                       </div>
+                    )}
+
+                    {/* Feeder Calibration Section (edit mode only) */}
+                    {editingId && isFeederType && (
+                      <FeederCalibrationSection equipmentId={editingId} />
                     )}
 
                     {/* Options */}

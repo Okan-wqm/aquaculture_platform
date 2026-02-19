@@ -43,8 +43,10 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
   constructor(
     @InjectRepository(AttendanceRecord)
     private readonly attendanceRepository: Repository<AttendanceRecord>,
-    @InjectRepository(Shift)
-    private readonly shiftRepository: Repository<Shift>,
+    // NOTE: Shift data is fetched via queryRunner.manager inside the transaction
+    // to maintain transactional consistency and tenant isolation.
+    // The injected attendanceRepository is used only for the pre-transaction record
+    // lookup optimisation; all writes use queryRunner.
     private readonly eventBus: EventBus,
     private readonly dataSource: DataSource,
   ) {}
@@ -60,9 +62,10 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
       // Current time in UTC
       const nowUtc = new Date();
 
-      // Find today's attendance record with clock-in
-      // We need to search for records that could be from today or yesterday (for overnight shifts)
-      const attendanceRecord = await this.findActiveAttendanceRecord(queryRunner, tenantId, employeeId);
+      // Find today's attendance record with clock-in.
+      // findActiveAttendanceRecord also returns the already-loaded Shift to avoid
+      // loading it a second time in the main execute path (H-3 fix).
+      const { record: attendanceRecord, shift: loadedShift } = await this.findActiveAttendanceRecord(queryRunner, tenantId, employeeId);
 
       if (!attendanceRecord) {
         throw new NotFoundException('No attendance record found for today. Please clock in first.');
@@ -98,18 +101,11 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
       // This properly handles overnight shifts since it uses direct time comparison
       const grossWorkedMinutes = AttendanceRecord.calculateWorkedMinutes(clockInTime, nowUtc, 0);
 
-      // Get shift details if available
+      // Reuse the shift already loaded by findActiveAttendanceRecord — no second DB query needed
       let earlyLeaveMinutes = 0;
       let overtimeMinutes = 0;
-      let shift: Shift | null = null;
+      const shift: Shift | null = loadedShift;
       let shiftBreakMinutes = 0;
-
-      if (attendanceRecord.shiftId) {
-        // SECURITY: Include tenantId to ensure tenant isolation
-        shift = await queryRunner.manager.findOne(Shift, {
-          where: { id: attendanceRecord.shiftId, tenantId },
-        });
-      }
 
       if (shift) {
         shiftBreakMinutes = shift.breakMinutes || 0;
@@ -188,14 +184,16 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
   }
 
   /**
-   * Find an active attendance record for the employee
-   * Handles overnight shifts by checking both today and yesterday's records
+   * Find an active attendance record for the employee.
+   * Handles overnight shifts by checking both today and yesterday's records.
+   * Returns the record together with the already-loaded Shift so the caller
+   * does not need to issue a second query for the same Shift (H-3 fix).
    */
   private async findActiveAttendanceRecord(
     queryRunner: import('typeorm').QueryRunner,
     tenantId: string,
     employeeId: string
-  ): Promise<AttendanceRecord | null> {
+  ): Promise<{ record: AttendanceRecord | null; shift: Shift | null }> {
     const now = new Date();
     const today = new Date(now);
     today.setHours(0, 0, 0, 0);
@@ -203,7 +201,7 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
 
-    // First try to find today's record
+    // First try to find today's record (with shift eagerly loaded)
     let record = await queryRunner.manager.findOne(AttendanceRecord, {
       where: {
         tenantId,
@@ -214,12 +212,12 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
       relations: ['shift'],
     });
 
-    // If found and has clock-in but no clock-out, return it
+    // If found and has clock-in but no clock-out, return it with the loaded shift
     if (record && record.clockIn && !record.clockOut) {
-      return record;
+      return { record, shift: record.shift ?? null };
     }
 
-    // Check yesterday's record for overnight shifts
+    // Check yesterday's record for overnight shifts (with shift eagerly loaded)
     const yesterdayRecord = await queryRunner.manager.findOne(AttendanceRecord, {
       where: {
         tenantId,
@@ -232,27 +230,23 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
 
     // If yesterday's record exists with clock-in but no clock-out, it's an overnight shift
     if (yesterdayRecord && yesterdayRecord.clockIn && !yesterdayRecord.clockOut) {
-      // Verify it's actually an overnight shift by checking if shift crosses midnight
-      if (yesterdayRecord.shiftId) {
-        // SECURITY: Include tenantId to ensure tenant isolation
-        const shift = await queryRunner.manager.findOne(Shift, {
-          where: { id: yesterdayRecord.shiftId, tenantId },
-        });
-        if (shift?.crossesMidnight) {
-          return yesterdayRecord;
-        }
+      // Verify it's actually an overnight shift by checking if shift crosses midnight.
+      // The shift is already loaded via the relation above — no extra query needed.
+      const shift = yesterdayRecord.shift ?? null;
+      if (shift?.crossesMidnight) {
+        return { record: yesterdayRecord, shift };
       }
       // Even if shift doesn't explicitly cross midnight, if clock-in was yesterday
       // and we're still within reasonable hours (before noon today), consider it overnight
       const clockInTime = new Date(yesterdayRecord.clockIn);
       const hoursSinceClockIn = (now.getTime() - clockInTime.getTime()) / (1000 * 60 * 60);
       if (hoursSinceClockIn < 16) { // Less than 16 hours since clock-in
-        return yesterdayRecord;
+        return { record: yesterdayRecord, shift };
       }
     }
 
     // Return today's record even if it doesn't have clock-in (will be handled by caller)
-    return record;
+    return { record: record ?? null, shift: record?.shift ?? null };
   }
 
   /**

@@ -24,6 +24,43 @@ export const EMPLOYEE_BASIC_FRAGMENT = gql`
   }
 `;
 
+/**
+ * Minimal fragment for list views — contains only display fields.
+ * Does NOT include PII (nationalId, dateOfBirth, address, bankAccountNumber, etc.).
+ * Use EMPLOYEE_FULL_FRAGMENT only for detail views and payroll-scoped queries
+ * available to authorised roles. (SEC-002)
+ */
+export const EMPLOYEE_LIST_FRAGMENT = gql`
+  fragment EmployeeList on Employee {
+    id
+    tenantId
+    employeeNumber
+    firstName
+    lastName
+    email
+    avatarUrl
+    status
+    employmentType
+    departmentId
+    department {
+      id
+      code
+      name
+      colorCode
+    }
+    positionId
+    position {
+      id
+      code
+      title
+    }
+    hireDate
+    personnelCategory
+    seaWorthy
+    isFarmWorker
+  }
+`;
+
 export const EMPLOYEE_FULL_FRAGMENT = gql`
   fragment EmployeeFull on Employee {
     ...EmployeeBasic

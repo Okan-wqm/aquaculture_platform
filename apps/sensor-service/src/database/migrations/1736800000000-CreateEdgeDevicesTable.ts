@@ -226,6 +226,7 @@ export class CreateEdgeDevicesTable1736800000000 implements MigrationInterface {
         SELECT 1
         FROM information_schema.tables
         WHERE table_name = $1
+        AND table_schema = current_schema()
       )
     `, [tableName]);
     return result[0]?.exists === true;

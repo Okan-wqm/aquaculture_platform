@@ -10,7 +10,6 @@ import {
 } from '@nestjs/graphql';
 import {
   CurrentUser,
-  TenantAdminOrHigher,
   SuperAdminOnly,
   ConsentType,
 } from '@platform/backend-common';
@@ -87,7 +86,7 @@ export class UserConsentResolver {
   @Query(() => UserConsentStatus, {
     description: 'Get current consent status for the authenticated user',
   })
-  @TenantAdminOrHigher()
+  // GDPR: Any authenticated user can check their own consent status (Article 15)
   async myConsentStatus(
     @CurrentUser('sub') userId: string,
   ): Promise<UserConsentStatus> {
@@ -101,7 +100,7 @@ export class UserConsentResolver {
   @Query(() => ConsentHistoryResponse, {
     description: 'Get consent history for the authenticated user',
   })
-  @TenantAdminOrHigher()
+  // GDPR: Any authenticated user can view their own consent history (Article 15)
   async myConsentHistory(
     @CurrentUser('sub') userId: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 50 })
@@ -123,7 +122,7 @@ export class UserConsentResolver {
   @Query(() => Boolean, {
     description: 'Check if user has given specific consent',
   })
-  @TenantAdminOrHigher()
+  // GDPR: Any authenticated user can check their own consent (Article 15)
   async hasConsent(
     @CurrentUser('sub') userId: string,
     @Args('consentType', { type: () => ConsentType }) consentType: ConsentType,
@@ -137,7 +136,7 @@ export class UserConsentResolver {
   @Query(() => String, {
     description: 'Get current consent version',
   })
-  @TenantAdminOrHigher()
+  // GDPR: Any authenticated user can check consent version
   async currentConsentVersion(): Promise<string> {
     return this.userConsentService.getCurrentVersion();
   }
@@ -148,7 +147,7 @@ export class UserConsentResolver {
   @Query(() => Boolean, {
     description: 'Check if user needs to update their consent preferences',
   })
-  @TenantAdminOrHigher()
+  // GDPR: Any authenticated user can check if their consent is outdated
   async isConsentOutdated(
     @CurrentUser('sub') userId: string,
   ): Promise<boolean> {
@@ -165,7 +164,7 @@ export class UserConsentResolver {
   @Mutation(() => RecordConsentResult, {
     description: 'Record a single consent preference',
   })
-  @TenantAdminOrHigher()
+  // GDPR: Any authenticated user can record their own consent (Article 7)
   async recordConsent(
     @CurrentUser('sub') userId: string,
     @CurrentUser('tenantId') tenantId: string | null,
@@ -187,7 +186,7 @@ export class UserConsentResolver {
   @Mutation(() => BulkConsentResult, {
     description: 'Record multiple consent preferences at once',
   })
-  @TenantAdminOrHigher()
+  // GDPR: Any authenticated user can record their own bulk consent (Article 7)
   async recordBulkConsent(
     @CurrentUser('sub') userId: string,
     @CurrentUser('tenantId') tenantId: string | null,
@@ -209,7 +208,7 @@ export class UserConsentResolver {
   @Mutation(() => WithdrawConsentResult, {
     description: 'Withdraw a previously granted consent',
   })
-  @TenantAdminOrHigher()
+  // GDPR: Any authenticated user can withdraw their own consent (Article 7(3))
   async withdrawConsent(
     @CurrentUser('sub') userId: string,
     @CurrentUser('tenantId') tenantId: string | null,

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { createElement, useState, useEffect, useCallback, useRef, createContext, useContext, ReactNode } from 'react';
 import { get, set } from 'idb-keyval';
 import { useAuth } from './useAuth';
 
@@ -19,7 +19,13 @@ interface MobileSettings {
   allowedFeatures: MobileAllowedFeatures;
 }
 
-const CACHE_KEY = 'mobile_permissions';
+interface MobilePermissionsContextValue {
+  settings: MobileSettings;
+  isLoaded: boolean;
+  isMobileEnabled: boolean;
+  canAccess: (feature: MobileFeature) => boolean;
+  refreshPermissions: () => Promise<void>;
+}
 
 const DEFAULT_SETTINGS: MobileSettings = {
   isMobileEnabled: true,
@@ -27,7 +33,7 @@ const DEFAULT_SETTINGS: MobileSettings = {
     mortality: true,
     cull: true,
     harvest: true,
-    feeding: false,
+    feeding: true,
     waterQuality: false,
     tankView: true,
     schedule: true,
@@ -43,13 +49,28 @@ const GET_MY_MOBILE_SETTINGS_QUERY = `
   }
 `;
 
-export function useMobilePermissions() {
-  const { accessToken, isAuthenticated } = useAuth();
+// SEC-04: Cache key is per-user so different users on shared devices don't share permissions.
+function getCacheKey(userId: string): string {
+  return `mobile_permissions_${userId}`;
+}
+
+const MobilePermissionsContext = createContext<MobilePermissionsContextValue | null>(null);
+
+// PERF-03: Single provider at app root — fetch happens exactly once per auth session,
+// shared via context to all consumers (FeatureRoute, MobileLayout, HomePage, TankCard).
+export function MobilePermissionsProvider({ children }: { children: ReactNode }) {
+  const { accessToken, isAuthenticated, isLoading: authLoading, user } = useAuth();
   const [settings, setSettings] = useState<MobileSettings>(DEFAULT_SETTINGS);
   const [isLoaded, setIsLoaded] = useState(false);
 
+  // BUG-16: Use ref to hold latest fetchSettings so the effect only re-runs when
+  // isAuthenticated transitions, not on every token refresh.
+  const fetchSettingsRef = useRef<() => Promise<void>>(async () => {});
+
   const fetchSettings = useCallback(async () => {
-    if (!accessToken) return;
+    if (!accessToken || !user?.id) return;
+
+    const cacheKey = getCacheKey(user.id);
 
     try {
       const response = await fetch('/graphql', {
@@ -57,9 +78,17 @@ export function useMobilePermissions() {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
+          'X-Requested-With': 'XMLHttpRequest',
         },
         body: JSON.stringify({ query: GET_MY_MOBILE_SETTINGS_QUERY }),
       });
+
+      // SEC-04: On auth error, clear stale permissions
+      if (response.status === 401) {
+        setSettings({ ...DEFAULT_SETTINGS, isMobileEnabled: false });
+        setIsLoaded(true);
+        return;
+      }
 
       const result = await response.json();
 
@@ -70,38 +99,54 @@ export function useMobilePermissions() {
           allowedFeatures: fetched.allowedFeatures,
         };
         setSettings(newSettings);
-        // Cache to IndexedDB for offline use
-        await set(CACHE_KEY, newSettings);
+        // SEC-04: Cache under per-user key with 8-hour TTL (one work shift)
+        await set(cacheKey, { settings: newSettings, expiresAt: Date.now() + 8 * 60 * 60 * 1000 });
       }
     } catch {
-      // On network error, try to load from cache
-      const cached = await get<MobileSettings>(CACHE_KEY);
-      if (cached) {
-        setSettings(cached);
+      // On network error, try to load from per-user cache
+      const cached = await get<{ settings: MobileSettings; expiresAt: number }>(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        setSettings(cached.settings);
       }
     } finally {
       setIsLoaded(true);
     }
-  }, [accessToken]);
+  }, [accessToken, user?.id]);
 
-  // Load from cache first, then fetch fresh
+  // Keep ref in sync with latest callback
   useEffect(() => {
-    if (!isAuthenticated) {
+    fetchSettingsRef.current = fetchSettings;
+  }, [fetchSettings]);
+
+  // BUG-05: Check authLoading before marking loaded with defaults.
+  // Only run effect when isAuthenticated transitions (not on every token refresh).
+  useEffect(() => {
+    // Wait for auth to finish loading before evaluating state
+    if (authLoading) return;
+
+    if (!isAuthenticated || !user?.id) {
+      // Not logged in — reset to defaults without fetching
+      setSettings(DEFAULT_SETTINGS);
       setIsLoaded(true);
       return;
     }
 
+    const cacheKey = getCacheKey(user.id);
+
     (async () => {
-      // Load cached first for instant UI
-      const cached = await get<MobileSettings>(CACHE_KEY);
-      if (cached) {
-        setSettings(cached);
+      // Load cached first for instant UI (per-user key)
+      const cached = await get<{ settings: MobileSettings; expiresAt: number }>(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        setSettings(cached.settings);
         setIsLoaded(true);
       }
-      // Then fetch fresh
-      await fetchSettings();
+      // Then fetch fresh from server
+      await fetchSettingsRef.current();
     })();
-  }, [isAuthenticated, fetchSettings]);
+  // Intentionally only depends on isAuthenticated/authLoading/user?.id to avoid
+  // re-fetching on every token refresh (BUG-16).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, authLoading, user?.id]);
 
   const canAccess = useCallback(
     (feature: MobileFeature): boolean => {
@@ -111,11 +156,27 @@ export function useMobilePermissions() {
     [settings],
   );
 
-  return {
-    settings,
-    isLoaded,
-    isMobileEnabled: settings.isMobileEnabled,
-    canAccess,
-    refreshPermissions: fetchSettings,
-  };
+  // Use createElement instead of JSX so this file can remain .ts (no .tsx extension needed).
+  return createElement(
+    MobilePermissionsContext.Provider,
+    {
+      value: {
+        settings,
+        isLoaded,
+        isMobileEnabled: settings.isMobileEnabled,
+        canAccess,
+        refreshPermissions: fetchSettings,
+      },
+    },
+    children,
+  );
+}
+
+// PERF-03: Hook reads from context — no independent fetch per consumer.
+export function useMobilePermissions(): MobilePermissionsContextValue {
+  const context = useContext(MobilePermissionsContext);
+  if (!context) {
+    throw new Error('useMobilePermissions must be used within MobilePermissionsProvider');
+  }
+  return context;
 }

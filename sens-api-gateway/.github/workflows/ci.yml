@@ -1,5 +1,9 @@
 name: CI
 
+# SEC-CI-002: All third-party actions pinned to full commit SHAs
+# ARCH-CI-018: Added defaults.run.working-directory so all cargo commands
+#              operate in sens-api-gateway/ (not the repo root)
+
 on:
   push:
     branches: [main, 'claude/**']
@@ -10,17 +14,28 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# ARCH-CI-018: Set working-directory globally so cargo commands always resolve
+# against sens-api-gateway/Cargo.toml, not a potential future root workspace.
+defaults:
+  run:
+    working-directory: sens-api-gateway
+
 jobs:
   check:
     name: Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA (was @v4)
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       # v1.2.4: Rust 2024 edition requires Rust 1.85+
-      - uses: dtolnay/rust-toolchain@master
+      # SEC-CI-002: pinned to SHA (was @master)
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e18c1f174353f47 # stable
         with:
           toolchain: "1.85"
-      - uses: Swatinem/rust-cache@v2
+      # SEC-CI-002: pinned to SHA (was @v2)
+      - uses: Swatinem/rust-cache@82a92a6e8fbeee089604da2575dc567ae9ddeaab # v2.7.5
+        with:
+          workspaces: sens-api-gateway
       # Don't use --all-features as gpio feature requires Linux-specific rppal
       - run: cargo check
 
@@ -28,8 +43,10 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      # SEC-CI-002: pinned to SHA (was @v4)
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      # SEC-CI-002: pinned to SHA (was @master)
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e18c1f174353f47 # stable
         with:
           toolchain: "1.85"
           components: rustfmt
@@ -39,12 +56,17 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      # SEC-CI-002: pinned to SHA (was @v4)
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      # SEC-CI-002: pinned to SHA (was @master)
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e18c1f174353f47 # stable
         with:
           toolchain: "1.85"
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      # SEC-CI-002: pinned to SHA (was @v2)
+      - uses: Swatinem/rust-cache@82a92a6e8fbeee089604da2575dc567ae9ddeaab # v2.7.5
+        with:
+          workspaces: sens-api-gateway
       # Run clippy without -D warnings since Cargo.toml has [lints.clippy] configured
       # Custom lints are "warn" level for developer feedback, not CI failures
       - run: cargo clippy
@@ -53,11 +75,16 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      # SEC-CI-002: pinned to SHA (was @v4)
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      # SEC-CI-002: pinned to SHA (was @master)
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e18c1f174353f47 # stable
         with:
           toolchain: "1.85"
-      - uses: Swatinem/rust-cache@v2
+      # SEC-CI-002: pinned to SHA (was @v2)
+      - uses: Swatinem/rust-cache@82a92a6e8fbeee089604da2575dc567ae9ddeaab # v2.7.5
+        with:
+          workspaces: sens-api-gateway
       # Don't use --all-features as gpio feature requires Linux-specific rppal
       # Use -- --nocapture for verbose test output on failure
       - run: cargo test -- --nocapture
@@ -67,8 +94,11 @@ jobs:
     name: Security Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
+      # SEC-CI-002: pinned to SHA (was @v4)
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      # SEC-CI-002: rustsec/audit-check already pinned in original — keeping SHA
+      # SEC-CI-002: pinned to SHA (was @v2)
+      - uses: rustsec/audit-check@d4a3e884f218bf5a9fa6cf44e0b0f60e51a2a6d1 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           # Ignore unmaintained crate warnings (not security vulnerabilities)
@@ -80,9 +110,35 @@ jobs:
     name: Cargo Deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      # SEC-CI-002: pinned to SHA (was @v4)
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      # SEC-CI-002: pinned to SHA (was @v2)
+      - uses: EmbarkStudios/cargo-deny-action@34899fc7a6308a9b9f0d7136472c50a389c38fde # v2.0.11
         with:
           command: check
           # Don't use --all-features (metrics feature pulls openssl via native-tls)
           arguments: ""
+
+  # LOW-46: Version collision guard
+  version-check:
+    name: Version Uniqueness Check
+    runs-on: ubuntu-latest
+    steps:
+      # SEC-CI-002: pinned to SHA (was @v4)
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Fetch all tags so we can compare against existing releases
+          fetch-depth: 0
+
+      - name: Check CARGO_PKG_VERSION is not already released
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "Cargo.toml version: $VERSION"
+
+          if git tag --list "v${VERSION}" | grep -q "v${VERSION}"; then
+            echo "ERROR: git tag v${VERSION} already exists."
+            echo "Bump [package].version in Cargo.toml before merging."
+            exit 1
+          fi
+
+          echo "OK: version v${VERSION} is not yet tagged."

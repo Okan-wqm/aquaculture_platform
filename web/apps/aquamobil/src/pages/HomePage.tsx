@@ -18,6 +18,14 @@ interface QuickAction {
 
 const allQuickActions: QuickAction[] = [
   {
+    feature: 'feeding',
+    path: '/feeding/record',
+    icon: Package,
+    label: 'Feeding',
+    gradient: 'from-green-600 to-green-500',
+    iconColor: 'text-white',
+  },
+  {
     feature: 'mortality',
     path: '/mortality/record',
     icon: Skull,
@@ -52,7 +60,6 @@ export function HomePage() {
 
   const allTanks = tanks || [];
   const activeTanks = allTanks.filter((t) => t.batchMetrics);
-  const emptyTanks = allTanks.filter((t) => !t.batchMetrics);
 
   const visibleActions = allQuickActions.filter((a) => canAccess(a.feature));
 
@@ -120,7 +127,9 @@ export function HomePage() {
           <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
             Quick Actions
           </h2>
-          <div className={`grid grid-cols-${Math.min(visibleActions.length, 3)} gap-3`}>
+          {/* PERF-09: Use a static lookup map instead of a template literal so Tailwind's
+              JIT/PurgeCSS can detect the complete class strings at build time. */}
+          <div className={({ 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4' } as Record<number, string>)[Math.min(visibleActions.length, 4)] + ' grid gap-3'}>
             {visibleActions.map((action) => {
               const Icon = action.icon;
               return (

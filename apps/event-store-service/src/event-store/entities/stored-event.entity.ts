@@ -5,6 +5,7 @@ import {
   Index,
   CreateDateColumn,
 } from 'typeorm';
+import { BigIntTransformer } from '../transformers/bigint.transformer';
 
 /**
  * Stored event entity for event sourcing
@@ -12,11 +13,16 @@ import {
  */
 @Entity('stored_events')
 @Index(['aggregateType', 'aggregateId', 'version'], { unique: true })
+@Index(['globalPosition'], { unique: true })
 @Index(['streamName'])
 @Index(['eventType'])
 @Index(['tenantId'])
 @Index(['occurredAt'])
 @Index(['correlationId'])
+@Index(['tenantId', 'streamName', 'version'])
+@Index(['tenantId', 'globalPosition'])
+@Index(['tenantId', 'eventType'])
+@Index(['tenantId', 'storedAt'])
 export class StoredEvent {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -30,13 +36,13 @@ export class StoredEvent {
   /**
    * Sequential position within the global event log
    */
-  @Column({ type: 'bigint' })
+  @Column({ type: 'bigint', transformer: new BigIntTransformer() })
   globalPosition!: number;
 
   /**
    * Position within the specific stream
    */
-  @Column({ type: 'bigint' })
+  @Column({ type: 'bigint', transformer: new BigIntTransformer() })
   streamPosition!: number;
 
   /**

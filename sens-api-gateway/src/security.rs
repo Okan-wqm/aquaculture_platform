@@ -216,18 +216,12 @@ pub fn check_insecure_option(option_name: &str, value: bool) -> Result<(), Strin
 // Monotonic Time for Rate Limiting (NTP-safe)
 // ============================================================================
 
-use std::sync::OnceLock;
-use std::time::Instant;
-
-static BOOT_INSTANT: OnceLock<Instant> = OnceLock::new();
-
-/// Get monotonic milliseconds since program start
+/// Get monotonic milliseconds since program start.
 ///
-/// This is NTP-safe and will not jump backwards, unlike SystemTime.
-/// Used for rate limiting to prevent bypass via time manipulation.
+/// Delegates to the single shared clock in crate::resilience to ensure all
+/// subsystems measure elapsed time from the same reference point (MED-24).
 pub fn monotonic_millis() -> u64 {
-    let boot = BOOT_INSTANT.get_or_init(Instant::now);
-    boot.elapsed().as_millis() as u64
+    crate::resilience::monotonic_millis()
 }
 
 // ============================================================================
@@ -282,13 +276,15 @@ impl std::fmt::Display for CertExpiryStatus {
     }
 }
 
-/// Check certificate expiry using openssl command
+/// Check certificate expiry by parsing the certificate in-process using x509-parser.
 ///
-/// Returns certificate expiry information including days remaining.
-/// Uses `openssl x509 -enddate` which is available on most Linux systems.
-#[cfg(unix)]
+/// Replaces the previous `openssl` subprocess approach, which had two residual risks:
+/// 1. PATH dependency — a malicious binary in PATH could be executed instead of openssl.
+/// 2. Fragile string parsing of openssl output format variations.
+///
+/// In-process parsing via `x509-parser` eliminates both risks (IEC 62443 FR3).
 pub fn check_certificate_expiry(cert_path: &str) -> CertificateExpiry {
-    use std::process::Command;
+    use x509_parser::prelude::*;
 
     let path = std::path::Path::new(cert_path);
 
@@ -303,62 +299,35 @@ pub fn check_certificate_expiry(cert_path: &str) -> CertificateExpiry {
         };
     }
 
-    // Use openssl to get expiry date
-    let output = Command::new("openssl")
-        .args(["x509", "-enddate", "-noout", "-in", cert_path])
-        .output();
-
-    match output {
-        Ok(output) if output.status.success() => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            // Output format: "notAfter=Mon DD HH:MM:SS YYYY GMT"
-            parse_openssl_enddate(&stdout, cert_path)
-        }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            CertificateExpiry {
+    // Read the PEM file and parse in-process (no subprocess spawning)
+    let pem_data = match std::fs::read(path) {
+        Ok(data) => data,
+        Err(e) => {
+            return CertificateExpiry {
                 path: cert_path.to_string(),
                 expiry_date: None,
                 days_remaining: None,
                 status: CertExpiryStatus::Unknown,
-                error: Some(format!("openssl error: {}", stderr.trim())),
-            }
+                error: Some(format!("Failed to read certificate: {}", e)),
+            };
         }
-        Err(e) => CertificateExpiry {
-            path: cert_path.to_string(),
-            expiry_date: None,
-            days_remaining: None,
-            status: CertExpiryStatus::Unknown,
-            error: Some(format!("Failed to run openssl: {}", e)),
-        },
-    }
-}
+    };
 
-#[cfg(not(unix))]
-pub fn check_certificate_expiry(cert_path: &str) -> CertificateExpiry {
-    CertificateExpiry {
-        path: cert_path.to_string(),
-        expiry_date: None,
-        days_remaining: None,
-        status: CertExpiryStatus::Unknown,
-        error: Some("Certificate expiry check only supported on Unix".to_string()),
-    }
-}
+    // Try PEM first, fall back to DER
+    let der_data: Vec<u8> = match pem::parse(&pem_data) {
+        Ok(pem_obj) => pem_obj.contents().to_vec(),
+        Err(_) => pem_data.clone(), // assume DER
+    };
 
-/// Parse openssl x509 -enddate output
-fn parse_openssl_enddate(output: &str, cert_path: &str) -> CertificateExpiry {
-    // Format: "notAfter=Mar 15 12:00:00 2025 GMT"
-    let date_str = output
-        .trim()
-        .strip_prefix("notAfter=")
-        .unwrap_or(output.trim());
+    match X509Certificate::from_der(&der_data) {
+        Ok((_, cert)) => {
+            let not_after = cert.validity().not_after;
+            // x509_parser uses ASN1Time; convert to Unix timestamp seconds
+            let expiry_ts = not_after.timestamp();
+            let now_ts = Utc::now().timestamp();
+            let days = (expiry_ts - now_ts) / 86400;
 
-    // Parse the date - openssl uses format like "Mar 15 12:00:00 2025 GMT"
-    match parse_openssl_date(date_str) {
-        Some(expiry_date) => {
-            let now = Utc::now();
-            let duration = expiry_date.signed_duration_since(now);
-            let days = duration.num_days();
+            let expiry_date = DateTime::<Utc>::from_timestamp(expiry_ts, 0);
 
             let status = if days < 0 {
                 CertExpiryStatus::Expired
@@ -374,40 +343,20 @@ fn parse_openssl_enddate(output: &str, cert_path: &str) -> CertificateExpiry {
 
             CertificateExpiry {
                 path: cert_path.to_string(),
-                expiry_date: Some(expiry_date),
+                expiry_date,
                 days_remaining: Some(days),
                 status,
                 error: None,
             }
         }
-        None => CertificateExpiry {
+        Err(e) => CertificateExpiry {
             path: cert_path.to_string(),
             expiry_date: None,
             days_remaining: None,
             status: CertExpiryStatus::Unknown,
-            error: Some(format!("Failed to parse date: {}", date_str)),
+            error: Some(format!("Failed to parse certificate: {}", e)),
         },
     }
-}
-
-/// Parse openssl date format (e.g., "Mar 15 12:00:00 2025 GMT")
-fn parse_openssl_date(date_str: &str) -> Option<DateTime<Utc>> {
-    // Try multiple formats that openssl might output
-    let formats = [
-        "%b %d %H:%M:%S %Y GMT",  // Mar 15 12:00:00 2025 GMT
-        "%b  %d %H:%M:%S %Y GMT", // Mar  5 12:00:00 2025 GMT (single digit day)
-        "%B %d %H:%M:%S %Y GMT",  // March 15 12:00:00 2025 GMT
-    ];
-
-    let trimmed = date_str.trim();
-
-    for format in formats {
-        if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(trimmed, format) {
-            return Some(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc));
-        }
-    }
-
-    None
 }
 
 /// Log certificate expiry warnings based on status
@@ -474,7 +423,6 @@ pub fn log_certificate_expiry(expiry: &CertificateExpiry) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Datelike;
 
     #[test]
     fn test_mask_secret_long() {
@@ -543,25 +491,6 @@ mod tests {
         assert_eq!(format!("{}", CertExpiryStatus::Urgent), "URGENT");
         assert_eq!(format!("{}", CertExpiryStatus::Expired), "EXPIRED");
         assert_eq!(format!("{}", CertExpiryStatus::Unknown), "UNKNOWN");
-    }
-
-    #[test]
-    fn test_parse_openssl_date() {
-        // Standard format
-        let date = parse_openssl_date("Mar 15 12:00:00 2025 GMT");
-        assert!(date.is_some());
-        let d = date.unwrap();
-        assert_eq!(d.month(), 3);
-        assert_eq!(d.day(), 15);
-        assert_eq!(d.year(), 2025);
-
-        // Single digit day with double space
-        let date2 = parse_openssl_date("Jan  5 08:30:00 2026 GMT");
-        assert!(date2.is_some());
-
-        // Invalid format
-        let invalid = parse_openssl_date("invalid date");
-        assert!(invalid.is_none());
     }
 
     #[test]

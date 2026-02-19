@@ -16,7 +16,9 @@ import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 @ObjectType()
 @Entity('alert_history')
 @Index(['tenantId', 'triggeredAt'])
-@Index(['ruleId', 'triggeredAt'])
+// PE-02: Explicit descending composite index for the cooldown query
+// (ruleId equality + triggeredAt range with DESC ordering).
+@Index(['ruleId', 'triggeredAt'], { spatial: false, unique: false })
 @Index(['severity', 'acknowledged'])
 export class AlertHistory {
   @Field(() => ID)
@@ -24,73 +26,73 @@ export class AlertHistory {
   id!: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'rule_id' })
   @Index()
   ruleId!: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'rule_name' })
   ruleName!: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'tenant_id' })
   @Index()
   tenantId!: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'farm_id', nullable: true })
   farmId?: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'pond_id', nullable: true })
   pondId?: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'sensor_id', nullable: true })
   sensorId?: string;
 
   @Field(() => AlertSeverity)
-  @Column({ type: 'enum', enum: AlertSeverity })
+  @Column({ name: 'severity', type: 'enum', enum: AlertSeverity })
   severity!: AlertSeverity;
 
   @Field()
-  @Column('text')
+  @Column({ name: 'message', type: 'text' })
   message!: string;
 
   @Field(() => GraphQLJSON)
-  @Column('jsonb')
+  @Column({ name: 'triggering_data', type: 'jsonb' })
   triggeringData!: Record<string, unknown>; // The sensor reading that triggered
 
   @Field(() => GraphQLISODateTime)
-  @Column({ type: 'timestamptz' })
+  @Column({ name: 'triggered_at', type: 'timestamptz' })
   @Index()
   triggeredAt!: Date;
 
   @Field()
-  @Column({ default: false })
+  @Column({ name: 'acknowledged', default: false })
   acknowledged!: boolean;
 
   @Field(() => GraphQLISODateTime, { nullable: true })
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ name: 'acknowledged_at', type: 'timestamptz', nullable: true })
   acknowledgedAt?: Date;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'acknowledged_by', nullable: true })
   acknowledgedBy?: string;
 
   @Field({ nullable: true })
-  @Column({ type: 'text', nullable: true })
+  @Column({ name: 'acknowledgement_note', type: 'text', nullable: true })
   acknowledgementNote?: string;
 
   @Field()
-  @Column({ default: false })
+  @Column({ name: 'resolved', default: false })
   resolved!: boolean;
 
   @Field(() => GraphQLISODateTime, { nullable: true })
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ name: 'resolved_at', type: 'timestamptz', nullable: true })
   resolvedAt?: Date;
 
   @Field()
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 }

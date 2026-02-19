@@ -24,10 +24,42 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"
     spec:
-      serviceAccountName: aquaculture-sa
+      # SEC-003: per-service service account
+      serviceAccountName: sensor-service-sa
+      # SEC-017: pull secret for GHCR private registry
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      # ARCH-004: allow time to flush buffered sensor data before shutdown
+      terminationGracePeriodSeconds: 60
+      # ARCH-006: pod anti-affinity to spread replicas across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - sensor-service
+                topologyKey: kubernetes.io/hostname
+      # ARCH-015: topology spread for AZ resilience
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: sensor-service
+      volumes:
+        # SEC-004: emptyDir for /tmp since readOnlyRootFilesystem: true
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: sensor-service
-          image: ghcr.io/aquaculture/sensor-service:latest
+          # ARCH-013: no tag here; tag set via Kustomize images transformer
+          image: ghcr.io/aquaculture/sensor-service
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
@@ -43,22 +75,44 @@ spec:
             limits:
               cpu: "1000m"
               memory: "1Gi"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          # ARCH-010: startupProbe replaces long initialDelaySeconds blind window
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            failureThreshold: 30
+            periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /health
               port: 3000
-            initialDelaySeconds: 30
+            initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /health/ready
               port: 3000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 5
             periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
           securityContext:
             runAsNonRoot: true
             runAsUser: 1001
             allowPrivilegeEscalation: false
+            # SEC-004: readOnlyRootFilesystem
+            readOnlyRootFilesystem: true
+            # SEC-006: seccompProfile and capabilities drop ALL
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
 
 ---
 apiVersion: v1
@@ -76,6 +130,7 @@ spec:
     app: sensor-service
 
 ---
+# ARCH-002: HPA with both CPU and memory metrics
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -95,3 +150,10 @@ spec:
         target:
           type: Utilization
           averageUtilization: 60
+    # ARCH-002: add memory metric — sensor ingestion is memory-bound
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75

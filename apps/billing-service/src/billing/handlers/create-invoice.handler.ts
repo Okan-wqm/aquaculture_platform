@@ -1,8 +1,9 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { CreateInvoiceCommand } from '../commands/create-invoice.command';
 import { Invoice, InvoiceStatus, InvoiceLineItem } from '../entities/invoice.entity';
+import { Subscription } from '../entities/subscription.entity';
 import { randomBytes } from 'crypto';
 
 /**
@@ -23,6 +24,19 @@ export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceComman
     const { tenantId, input, userId } = command;
 
     const invoiceRepo = this.dataSource.getRepository(Invoice);
+
+    // Validate subscription belongs to this tenant (IDOR prevention)
+    if (input.subscriptionId) {
+      const subscriptionRepo = this.dataSource.getRepository(Subscription);
+      const subscription = await subscriptionRepo.findOne({
+        where: { id: input.subscriptionId, tenantId },
+      });
+      if (!subscription) {
+        throw new NotFoundException(
+          `Subscription ${input.subscriptionId} not found for this tenant`,
+        );
+      }
+    }
 
     // Validate line items are not empty
     if (!input.lineItems || input.lineItems.length === 0) {
@@ -48,18 +62,25 @@ export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceComman
     }
 
     // Validate discount
+    // Discounts are applied to the pre-tax subtotal, consistent with MeteredBillingService.applyDiscount().
     const discount = input.discount || 0;
     if (discount < 0) {
       throw new BadRequestException('Discount cannot be negative');
     }
-    if (discount > subtotal + taxAmount) {
+    if (discount > subtotal) {
       throw new BadRequestException(
-        `Discount (${discount}) cannot exceed subtotal + tax (${subtotal + taxAmount})`,
+        `Discount (${discount}) cannot exceed subtotal (${subtotal})`,
       );
     }
 
+    // Recalculate tax on the discounted subtotal so the effective rate is applied consistently
+    const discountedSubtotal = roundCurrency(subtotal - discount);
+    if (input.tax) {
+      taxAmount = roundCurrency(discountedSubtotal * (input.tax.taxRate / 100));
+    }
+
     // Calculate total (rounded)
-    const total = roundCurrency(subtotal + taxAmount - discount);
+    const total = roundCurrency(discountedSubtotal + taxAmount);
 
     // Generate invoice number with collision-resistant approach
     const invoiceNumber = await this.generateInvoiceNumber(tenantId);
@@ -119,8 +140,9 @@ export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceComman
    * Uses timestamp + random suffix instead of count to prevent race conditions
    */
   private async generateInvoiceNumber(tenantId: string): Promise<string> {
-    const year = new Date().getFullYear();
-    const month = String(new Date().getMonth() + 1).padStart(2, '0');
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
     // Use first 4 chars of tenant ID for prefix (helps identify tenant in logs)
     const tenantPrefix = tenantId.replace(/-/g, '').substring(0, 4).toUpperCase();
     // Use timestamp (base36 for compactness) + random suffix

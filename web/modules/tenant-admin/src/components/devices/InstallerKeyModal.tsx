@@ -1,11 +1,7 @@
 import React, { useState } from 'react';
-import { X, Copy, Check, Key, AlertCircle, Loader2 } from 'lucide-react';
-
-const GRAPHQL_URL = '/graphql';
-
-const getAuthToken = (): string | null => {
-  return localStorage.getItem('access_token');
-};
+import { X, Copy, Check, Key, AlertCircle, AlertTriangle, Loader2 } from 'lucide-react';
+import { graphqlRequest } from '../../services/tenant-api.service';
+import { logError } from '../../utils/error-handling';
 
 interface InstallerKeyModalProps {
   onClose: () => void;
@@ -88,20 +84,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
   const [showExisting, setShowExisting] = useState(false);
   const [loadingKeys, setLoadingKeys] = useState(false);
 
-  const executeGraphQL = async <T,>(query: string, variables?: Record<string, unknown>): Promise<T> => {
-    const token = getAuthToken();
-    const response = await fetch(GRAPHQL_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ query, variables }),
-    });
-    const res = await response.json();
-    if (res.errors) throw new Error(res.errors[0]?.message || 'GraphQL error');
-    return res.data;
-  };
+  const executeGraphQL = graphqlRequest;
 
   const handleCreate = async () => {
     setLoading(true);
@@ -129,21 +112,15 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
     }
   };
 
+  // PERF-011: Use modern clipboard API only — execCommand is deprecated
   const handleCopy = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback
-      const el = document.createElement('textarea');
-      el.value = text;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      // clipboard API unavailable in this context; no deprecated fallback
+      setCopied(false);
     }
   };
 
@@ -154,7 +131,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
       setExistingKeys(data.tenantProvisioningKeys || []);
       setShowExisting(true);
     } catch (err) {
-      console.error('Failed to load keys:', err);
+      logError('InstallerKeyModal.loadExistingKeys', err);
     } finally {
       setLoadingKeys(false);
     }
@@ -165,7 +142,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
       await executeGraphQL(REVOKE_KEY_MUTATION, { keyId });
       setExistingKeys(prev => prev.map(k => k.id === keyId ? { ...k, isActive: false } : k));
     } catch (err) {
-      console.error('Failed to revoke key:', err);
+      logError('InstallerKeyModal.handleRevoke', err);
     }
   };
 
@@ -247,10 +224,22 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
                 className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
               />
               <div>
-                <span className="text-sm font-medium text-gray-700">Otomatik Onayla</span>
-                <p className="text-xs text-gray-500">Cihazlar direkt ACTIVE durumuna ge\u00E7er</p>
+                <span className="text-sm font-medium text-gray-700">Auto-Approve</span>
+                <p className="text-xs text-gray-500">Devices skip security review and go directly to ACTIVE state</p>
               </div>
             </label>
+
+            {/* SEC-003: Warn about auto-approve security implications */}
+            {autoApprove && (
+              <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700">
+                  <strong>Security warning:</strong> Auto-approve skips the device security review step.
+                  Any device that presents this key will be immediately activated. Set an expiry date
+                  and maximum device count to limit exposure.
+                </p>
+              </div>
+            )}
 
             <div className="flex items-center justify-between pt-2">
               <button

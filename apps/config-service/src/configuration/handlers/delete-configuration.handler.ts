@@ -8,6 +8,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { DeleteConfigurationCommand } from '../commands/delete-configuration.command';
 import { Configuration } from '../entities/configuration.entity';
+import { ConfigurationService } from '../services/configuration.service';
 
 @Injectable()
 @CommandHandler(DeleteConfigurationCommand)
@@ -16,21 +17,23 @@ export class DeleteConfigurationHandler
 {
   private readonly logger = new Logger(DeleteConfigurationHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly configurationService: ConfigurationService,
+  ) {}
 
   async execute(command: DeleteConfigurationCommand): Promise<boolean> {
     const { tenantId, configurationId, userId, hardDelete } = command;
 
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
-    await queryRunner.startTransaction();
+    await queryRunner.startTransaction('READ COMMITTED');
 
     try {
       const configRepo = queryRunner.manager.getRepository(Configuration);
 
       const configuration = await configRepo.findOne({
         where: { id: configurationId, tenantId },
-        lock: { mode: 'pessimistic_write' },
       });
 
       if (!configuration) {
@@ -38,22 +41,18 @@ export class DeleteConfigurationHandler
       }
 
       if (hardDelete) {
-        // Permanently delete
         await configRepo.remove(configuration);
-        this.logger.log(
-          `Configuration hard deleted: ${configurationId} by user ${userId}`,
-        );
+        this.logger.log(`Configuration hard deleted: ${configurationId} by user ${userId}`);
       } else {
-        // Soft delete - just deactivate
         configuration.isActive = false;
         configuration.updatedBy = userId;
         await configRepo.save(configuration);
-        this.logger.log(
-          `Configuration soft deleted: ${configurationId} by user ${userId}`,
-        );
+        this.logger.log(`Configuration soft deleted: ${configurationId} by user ${userId}`);
       }
 
       await queryRunner.commitTransaction();
+
+      this.configurationService.invalidateCache(tenantId, configuration.service, configuration.key);
 
       return true;
     } catch (error) {

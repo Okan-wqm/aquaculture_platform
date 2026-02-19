@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, BadRequestException } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { UsageAggregatorService, AggregatedUsage, AggregationPeriod } from './usage-aggregator.service';
 import { MeterType } from './usage-metering.service';
@@ -138,8 +138,9 @@ export class MeteredBillingService implements OnModuleInit {
   // Default currency
   private readonly baseCurrency = 'USD';
 
-  // Cache for billing calculations
+  // Cache for billing calculations (bounded size with TTL eviction)
   private readonly calculationCache = new Map<string, { calculation: BillingCalculation; expiresAt: Date }>();
+  private static readonly MAX_CACHE_SIZE = 1000;
 
   constructor(
     private readonly usageAggregator: UsageAggregatorService,
@@ -151,6 +152,21 @@ export class MeteredBillingService implements OnModuleInit {
     await this.initializePricingModels();
     await this.initializeTaxRates();
     await this.initializeExchangeRates();
+
+    // Periodically warn when hardcoded exchange rates have gone stale.
+    // Rates should be replaced with a live feed (e.g. Open Exchange Rates) in production.
+    setInterval(() => {
+      const now = Date.now();
+      for (const [pair, rate] of this.exchangeRates) {
+        const ageHours = (now - rate.updatedAt.getTime()) / (1000 * 60 * 60);
+        if (ageHours > 24) {
+          this.logger.warn(
+            `Exchange rate ${pair} is ${Math.floor(ageHours)}h old — update via updateExchangeRate() or integrate a live FX feed.`,
+          );
+        }
+      }
+    }, 60 * 60 * 1000); // check every hour
+
     this.logger.log('MeteredBillingService initialized successfully');
   }
 
@@ -720,6 +736,9 @@ export class MeteredBillingService implements OnModuleInit {
       calculatedAt: new Date(),
     };
 
+    // Evict expired entries before inserting
+    this.evictExpiredCacheEntries();
+
     // Cache the calculation for 5 minutes
     this.calculationCache.set(cacheKey, {
       calculation,
@@ -755,7 +774,7 @@ export class MeteredBillingService implements OnModuleInit {
 
       const tierStart = tier.minUnits;
       const tierEnd = tier.maxUnits ?? Infinity;
-      const tierCapacity = tierEnd - tierStart + 1;
+      const tierCapacity = tierEnd - tierStart;
 
       const unitsInTier = Math.min(remainingUnits, tierCapacity);
       const tierAmount = this.roundCurrency(unitsInTier * tier.pricePerUnit);
@@ -819,12 +838,14 @@ export class MeteredBillingService implements OnModuleInit {
 
     this.logger.debug(`Pro-rata factor: ${proRataFactor.toFixed(4)} (${actualDays}/${fullPeriodDays} days)`);
 
-    // Get base calculation for full period
+    // Calculate billing for the actual partial period only.
+    // Usage is queried for actualStart-actualEnd, so metered charges already reflect the shorter period.
+    // Only the base plan fee needs pro-rata adjustment.
     const fullCalculation = await this.calculateBilling(
       subscriptionId,
       tenantId,
       planTier,
-      BillingCycle.MONTHLY, // Default, will be adjusted
+      BillingCycle.MONTHLY,
       actualStart,
       actualEnd,
       basePlanFee * proRataFactor,
@@ -832,17 +853,14 @@ export class MeteredBillingService implements OnModuleInit {
       targetCurrency,
     );
 
-    // Adjust metered charges by pro-rata factor
-    const adjustment = this.roundCurrency((fullCalculation.subtotalMetered) * (1 - proRataFactor));
-
+    // No secondary adjustment on metered charges -- they are already for the actual period
     const proRataCalculation: BillingCalculation = {
       ...fullCalculation,
       proRataAdjustment: {
         reason: this.getProRataReasonDescription(reason),
         factor: proRataFactor,
-        adjustment: -adjustment,
+        adjustment: 0,
       },
-      finalTotal: this.roundCurrency(fullCalculation.finalTotal - adjustment),
     };
 
     this.eventEmitter.emit('billing.prorata.calculated', {
@@ -850,7 +868,7 @@ export class MeteredBillingService implements OnModuleInit {
       tenantId,
       reason,
       factor: proRataFactor,
-      adjustment,
+      adjustment: 0,
     });
 
     return proRataCalculation;
@@ -1054,15 +1072,16 @@ export class MeteredBillingService implements OnModuleInit {
 
     adjustedCalculation.taxes = newTaxes;
     adjustedCalculation.totalTax = newTotalTax;
-    adjustedCalculation.total = discountedSubtotal + newTotalTax;
-    adjustedCalculation.finalTotal = adjustedCalculation.total;
+    const newTotal = discountedSubtotal + newTotalTax;
+    adjustedCalculation.total = newTotal;
 
+    // Both total and finalTotal must use the same currency
     if (calculation.currency !== this.baseCurrency) {
-      adjustedCalculation.finalTotal = this.convertCurrency(
-        adjustedCalculation.total,
-        this.baseCurrency,
-        calculation.currency,
-      );
+      const converted = this.convertCurrency(newTotal, this.baseCurrency, calculation.currency);
+      adjustedCalculation.total = converted;
+      adjustedCalculation.finalTotal = converted;
+    } else {
+      adjustedCalculation.finalTotal = newTotal;
     }
 
     this.logger.log(`Applied discount ${discountCode}: ${discountAmount}, new total: ${adjustedCalculation.finalTotal}`);
@@ -1085,21 +1104,39 @@ export class MeteredBillingService implements OnModuleInit {
 
   /**
    * Get exchange rate between currencies
+   * Validates staleness: rates older than 24 hours trigger a warning, older than 72 hours block non-USD billing.
    */
   getExchangeRate(from: string, to: string): number {
     if (from === to) return 1;
 
     const key = `${from}-${to}`;
-    const rate = this.exchangeRates.get(key);
+    let rate = this.exchangeRates.get(key);
 
-    if (rate) return rate.rate;
+    if (!rate) {
+      // Try reverse
+      const reverseKey = `${to}-${from}`;
+      const reverseRate = this.exchangeRates.get(reverseKey);
+      if (reverseRate) {
+        return 1 / reverseRate.rate;
+      }
+      throw new BadRequestException(`No exchange rate found for ${from} to ${to}`);
+    }
 
-    // Try reverse
-    const reverseKey = `${to}-${from}`;
-    const reverseRate = this.exchangeRates.get(reverseKey);
-    if (reverseRate) return 1 / reverseRate.rate;
+    // Staleness check
+    const ageMs = Date.now() - rate.updatedAt.getTime();
+    const ageHours = ageMs / (1000 * 60 * 60);
 
-    throw new Error(`No exchange rate found for ${from} to ${to}`);
+    if (ageHours > 72) {
+      throw new BadRequestException(
+        `Exchange rate ${from}->${to} is stale (${Math.floor(ageHours)}h old). Cannot bill in non-base currency until rates are refreshed.`,
+      );
+    }
+
+    if (ageHours > 24) {
+      this.logger.warn(`Exchange rate ${from}->${to} is ${Math.floor(ageHours)}h old. Rates should be refreshed.`);
+    }
+
+    return rate.rate;
   }
 
   /**
@@ -1134,6 +1171,26 @@ export class MeteredBillingService implements OnModuleInit {
   }
 
   /**
+   * MED-02: Invalidate the billing calculation cache whenever a subscription changes.
+   * Without this, upgrades, downgrades, and cancellations would be invisible to the
+   * billing engine for up to 5 minutes (the cache TTL).
+   */
+  @OnEvent('subscription.cancelled')
+  @OnEvent('subscription.updated')
+  @OnEvent('subscription.created')
+  handleSubscriptionChange(event: { subscriptionId?: string; id?: string }): void {
+    const subscriptionId = event.subscriptionId ?? event.id;
+    if (subscriptionId) {
+      this.clearCache(subscriptionId);
+      this.logger.log(`Billing cache invalidated for subscription ${subscriptionId} on subscription change`);
+    } else {
+      // Clear all if no specific subscription ID is available
+      this.clearCache();
+      this.logger.log('Billing cache fully invalidated on subscription change event with no subscriptionId');
+    }
+  }
+
+  /**
    * Handle usage threshold breach event
    */
   @OnEvent('usage.threshold.breached')
@@ -1154,6 +1211,27 @@ export class MeteredBillingService implements OnModuleInit {
       ...event,
       timestamp: new Date(),
     });
+  }
+
+  /**
+   * Evict expired cache entries and enforce size limit
+   */
+  private evictExpiredCacheEntries(): void {
+    const now = new Date();
+    for (const [key, entry] of this.calculationCache) {
+      if (entry.expiresAt <= now) {
+        this.calculationCache.delete(key);
+      }
+    }
+    // Enforce size limit by removing oldest entries
+    if (this.calculationCache.size > MeteredBillingService.MAX_CACHE_SIZE) {
+      const excess = this.calculationCache.size - MeteredBillingService.MAX_CACHE_SIZE;
+      const iterator = this.calculationCache.keys();
+      for (let i = 0; i < excess; i++) {
+        const key = iterator.next().value;
+        if (key) this.calculationCache.delete(key);
+      }
+    }
   }
 
   /**
@@ -1185,7 +1263,8 @@ export class MeteredBillingService implements OnModuleInit {
       case BillingCycle.QUARTERLY:
         return AggregationPeriod.QUARTERLY;
       case BillingCycle.SEMI_ANNUAL:
-        return AggregationPeriod.QUARTERLY; // Use quarterly for semi-annual
+        // Use monthly aggregation for semi-annual and combine all 6 months in the range query
+        return AggregationPeriod.MONTHLY;
       case BillingCycle.ANNUAL:
         return AggregationPeriod.YEARLY;
       default:
@@ -1199,7 +1278,9 @@ export class MeteredBillingService implements OnModuleInit {
 
   private daysBetween(start: Date, end: Date): number {
     const msPerDay = 24 * 60 * 60 * 1000;
-    return Math.ceil((end.getTime() - start.getTime()) / msPerDay);
+    // Math.max(1, ...) ensures a same-day range is treated as 1 day, preventing
+    // a zero pro-rata factor that would zero out the entire bill.
+    return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / msPerDay));
   }
 
   private getProRataReasonDescription(reason: string): string {

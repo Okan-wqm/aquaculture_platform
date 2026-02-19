@@ -181,6 +181,13 @@ export class RateLimitGuard implements CanActivate {
   private readonly useRedis: boolean;
   private readonly failClosed: boolean;
   private readonly isProduction: boolean;
+  // Per-endpoint limits from rate-limit.config.ts
+  private readonly loginLimit: number;
+  private readonly loginWindowMs: number;
+  private readonly registerLimit: number;
+  private readonly registerWindowMs: number;
+  private readonly uploadLimit: number;
+  private readonly uploadWindowMs: number;
 
   // IP validation regex (IPv4 and IPv6)
   private readonly ipv4Regex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
@@ -209,6 +216,14 @@ export class RateLimitGuard implements CanActivate {
     );
     this.useRedis = this.configService.get<boolean>('RATE_LIMIT_USE_REDIS', false);
     this.isProduction = process.env['NODE_ENV'] === 'production';
+
+    // Per-endpoint limits (wired from rate-limit.config.ts env vars)
+    this.loginLimit = this.configService.get<number>('RATE_LIMIT_LOGIN_MAX', 5);
+    this.loginWindowMs = this.configService.get<number>('RATE_LIMIT_LOGIN_WINDOW_MS', 900000);
+    this.registerLimit = this.configService.get<number>('RATE_LIMIT_REGISTER_MAX', 3);
+    this.registerWindowMs = this.configService.get<number>('RATE_LIMIT_REGISTER_WINDOW_MS', 900000);
+    this.uploadLimit = this.configService.get<number>('RATE_LIMIT_UPLOAD_MAX', 10);
+    this.uploadWindowMs = this.configService.get<number>('RATE_LIMIT_UPLOAD_WINDOW_MS', 60000);
 
     // SECURITY: Fail closed by default in production
     // When Redis is down, deny requests rather than allowing them through
@@ -337,23 +352,35 @@ export class RateLimitGuard implements CanActivate {
   private generateKey(request: RateLimitRequest): string {
     // Priority: user > tenant > IP
     const userId = request.user?.sub ?? request.userId;
-    const tenantIdHeader = request.headers['x-tenant-id'];
-    const tenantId = request.tenantId ?? (typeof tenantIdHeader === 'string' ? tenantIdHeader : undefined);
+    // SECURITY: Only use verified JWT tenantId for key generation
+    const tenantId = request.user?.tenantId ?? request.tenantId;
 
     // IP extraction with trust proxy support
     // When trust proxy is enabled, Express populates req.ip from X-Forwarded-For
     // Otherwise, fall back to direct extraction
     const ip = this.extractClientIp(request);
 
+    // Include endpoint prefix in key so different endpoints have separate buckets
+    // This prevents dashboard polling from exhausting the same bucket as login
+    const url = request.url || '';
+    let endpointPrefix = 'default';
+    if (url.includes('/login') || url.includes('/auth/login')) {
+      endpointPrefix = 'login';
+    } else if (url.includes('/register') || url.includes('/auth/register')) {
+      endpointPrefix = 'register';
+    } else if (url.includes('/upload')) {
+      endpointPrefix = 'upload';
+    }
+
     if (userId) {
-      return `ratelimit:user:${userId}`;
+      return `ratelimit:${endpointPrefix}:user:${userId}`;
     }
 
     if (tenantId) {
-      return `ratelimit:tenant:${tenantId}:${ip}`;
+      return `ratelimit:${endpointPrefix}:tenant:${tenantId}:${ip}`;
     }
 
-    return `ratelimit:ip:${ip}`;
+    return `ratelimit:${endpointPrefix}:ip:${ip}`;
   }
 
   /**
@@ -432,9 +459,24 @@ export class RateLimitGuard implements CanActivate {
       return customConfig;
     }
 
-    // Use tenant limit if authenticated
-    const tenantId = request.tenantId ?? request.headers['x-tenant-id'];
-    if (tenantId) {
+    // SECURITY: Apply per-endpoint rate limits for sensitive operations
+    // These limits are stricter than defaults to prevent brute-force attacks
+    const url = request.url || '';
+    if (url.includes('/login') || url.includes('/auth/login')) {
+      return { limit: this.loginLimit, windowMs: this.loginWindowMs };
+    }
+    if (url.includes('/register') || url.includes('/auth/register')) {
+      return { limit: this.registerLimit, windowMs: this.registerWindowMs };
+    }
+    if (url.includes('/upload')) {
+      return { limit: this.uploadLimit, windowMs: this.uploadWindowMs };
+    }
+
+    // SECURITY: Only grant elevated tenant rate limit when the user is
+    // authenticated and the tenantId is derived from the verified JWT.
+    // Never gate rate-limit tiers on the raw x-tenant-id header, as an
+    // unauthenticated attacker can set it to claim 1000 req/min vs 20.
+    if (request.user?.tenantId) {
       return {
         limit: this.tenantLimit,
         windowMs: this.defaultWindowMs,

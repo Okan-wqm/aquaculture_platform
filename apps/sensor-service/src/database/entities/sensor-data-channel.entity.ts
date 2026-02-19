@@ -180,13 +180,13 @@ export class SensorDataChannel {
   id!: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'sensor_id' })
   @Index()
   sensorId!: string;
 
   @Field(() => Sensor)
   @ManyToOne(() => Sensor, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'sensorId' })
+  @JoinColumn({ name: 'sensor_id' })
   sensor!: Sensor;
 
   @Field()
@@ -197,11 +197,11 @@ export class SensorDataChannel {
   // === Core Identification ===
 
   @Field()
-  @Column({ length: 100 })
+  @Column({ name: 'channel_key', length: 100 })
   channelKey!: string;
 
   @Field()
-  @Column({ length: 200 })
+  @Column({ name: 'display_label', length: 200 })
   displayLabel!: string;
 
   @Field({ nullable: true })
@@ -209,7 +209,7 @@ export class SensorDataChannel {
   description?: string;
 
   @Field(() => ChannelDataType)
-  @Column({ type: 'enum', enum: ChannelDataType, default: ChannelDataType.NUMBER })
+  @Column({ name: 'data_type', type: 'enum', enum: ChannelDataType, default: ChannelDataType.NUMBER })
   dataType!: ChannelDataType;
 
   @Field({ nullable: true })
@@ -257,15 +257,15 @@ export class SensorDataChannel {
   // === Calibration Settings ===
 
   @Field()
-  @Column({ default: false })
+  @Column({ name: 'calibration_enabled', default: false })
   calibrationEnabled!: boolean;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 6, default: 1.0 })
+  @Column({ name: 'calibration_multiplier', type: 'decimal', precision: 15, scale: 6, default: 1.0 })
   calibrationMultiplier!: number;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 6, default: 0.0 })
+  @Column({ name: 'calibration_offset', type: 'decimal', precision: 15, scale: 6, default: 0.0 })
   calibrationOffset!: number;
 
   @Field({ nullable: true })
@@ -305,7 +305,7 @@ export class SensorDataChannel {
   discoveredAt?: Date;
 
   @Field(() => DiscoverySource, { nullable: true })
-  @Column({ type: 'enum', enum: DiscoverySource, nullable: true })
+  @Column({ name: 'discovery_source', type: 'enum', enum: DiscoverySource, nullable: true })
   discoverySource?: DiscoverySource;
 
   @Field(() => GraphQLJSON, { nullable: true })
@@ -315,21 +315,21 @@ export class SensorDataChannel {
   // === Status & Ordering ===
 
   @Field()
-  @Column({ default: true })
+  @Column({ name: 'is_enabled', default: true })
   isEnabled!: boolean;
 
   @Field(() => Int)
-  @Column({ type: 'int', default: 0 })
+  @Column({ name: 'display_order', type: 'int', default: 0 })
   displayOrder!: number;
 
   // === Timestamps ===
 
   @Field()
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
   @Field()
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   // === Helper Methods ===
@@ -360,10 +360,10 @@ export class SensorDataChannel {
    * Uses legacy minValue/maxValue for backward compatibility
    */
   isWithinRange(value: number): boolean {
-    if (this.minValue !== null && value < Number(this.minValue)) {
+    if (this.minValue != null && value < Number(this.minValue)) {
       return false;
     }
-    if (this.maxValue !== null && value > Number(this.maxValue)) {
+    if (this.maxValue != null && value > Number(this.maxValue)) {
       return false;
     }
     return true;

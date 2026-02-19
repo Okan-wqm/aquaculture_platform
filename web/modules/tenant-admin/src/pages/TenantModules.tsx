@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Package,
@@ -16,6 +16,10 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useAuthContext } from '@aquaculture/shared-ui';
+import { useAssignModuleManager } from '../hooks/useTenantData';
+import { useTenantUsers } from '../hooks/useTenantData';
+import { graphqlRequest } from '../services/tenant-api.service';
+import { logError } from '../utils/error-handling';
 
 // Note: TenantModule interface removed - now using AuthContext UserModule type
 
@@ -71,40 +75,6 @@ const moduleFeaturesMap: Record<string, string[]> = {
   'hydroponics': ['System Management', 'Nutrient Solutions', 'Growing Beds', 'Climate Control', 'Harvest Tracking'],
 };
 
-// GraphQL Configuration - Gateway API
-const GRAPHQL_URL = '/graphql';
-
-/**
- * Get auth token from localStorage
- */
-const getAuthToken = (): string | null => {
-  return localStorage.getItem('access_token');
-};
-
-/**
- * GraphQL query executor
- */
-const executeGraphQL = async <T,>(query: string, variables?: Record<string, unknown>): Promise<T> => {
-  const token = getAuthToken();
-
-  const response = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL error');
-  }
-
-  return result.data;
-};
-
 // Note: fetchTenantModules and formatDate removed - now using AuthContext modules
 
 /**
@@ -153,48 +123,19 @@ const AssignManagerModal: React.FC<{
   module: DisplayModule | null;
 }> = ({ isOpen, onClose, module }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [users, setUsers] = useState<Array<{ id: string; name: string; email: string }>>([]);
-  const [loading, setLoading] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [assignError, setAssignError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (isOpen) {
-      loadUsers();
-    }
-  }, [isOpen]);
+  const { data: tenantUsersData, isLoading: loading } = useTenantUsers();
+  const assignMutation = useAssignModuleManager();
 
-  const loadUsers = async () => {
-    setLoading(true);
-    try {
-      const TENANT_USERS_QUERY = `
-        query TenantUsers {
-          tenantUsers {
-            id
-            email
-            firstName
-            lastName
-          }
-        }
-      `;
-
-      const data = await executeGraphQL<{ tenantUsers: Array<{
-        id: string;
-        email: string;
-        firstName?: string;
-        lastName?: string;
-      }> }>(TENANT_USERS_QUERY);
-
-      const userList = (data.tenantUsers || []).map((u) => ({
-        id: u.id,
-        name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email,
-        email: u.email,
-      }));
-      setUsers(userList);
-    } catch (err) {
-      console.error('Failed to load users:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const users = useMemo(() => {
+    return (tenantUsersData || []).map((u) => ({
+      id: u.id,
+      name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email,
+      email: u.email,
+    }));
+  }, [tenantUsersData]);
 
   if (!isOpen || !module) return null;
 
@@ -203,6 +144,19 @@ const AssignManagerModal: React.FC<{
       user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const handleConfirm = async () => {
+    if (!selectedUserId || !module) return;
+    setAssignError(null);
+    try {
+      await assignMutation.mutateAsync({ moduleId: module.id, userId: selectedUserId });
+      setSelectedUserId(null);
+      onClose();
+    } catch (err) {
+      logError('AssignManagerModal', err);
+      setAssignError(err instanceof Error ? err.message : 'Failed to assign manager');
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -235,6 +189,12 @@ const AssignManagerModal: React.FC<{
             </div>
           </div>
 
+          {assignError && (
+            <div className="px-6 pb-2">
+              <p className="text-sm text-red-600">{assignError}</p>
+            </div>
+          )}
+
           <div className="px-6 pb-4 max-h-64 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center py-8">
@@ -245,7 +205,12 @@ const AssignManagerModal: React.FC<{
                 {filteredUsers.map((user) => (
                   <button
                     key={user.id}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-tenant-50 transition-colors text-left"
+                    onClick={() => setSelectedUserId(user.id)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-left ${
+                      selectedUserId === user.id
+                        ? 'bg-tenant-100 ring-2 ring-tenant-500'
+                        : 'hover:bg-tenant-50'
+                    }`}
                   >
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white text-sm font-medium">
                       {user.name
@@ -261,7 +226,11 @@ const AssignManagerModal: React.FC<{
                       </p>
                       <p className="text-xs text-gray-500 truncate">{user.email}</p>
                     </div>
-                    <Shield className="w-4 h-4 text-gray-400" />
+                    {selectedUserId === user.id ? (
+                      <CheckCircle className="w-4 h-4 text-tenant-600" />
+                    ) : (
+                      <Shield className="w-4 h-4 text-gray-400" />
+                    )}
                   </button>
                 ))}
                 {filteredUsers.length === 0 && !loading && (
@@ -279,6 +248,14 @@ const AssignManagerModal: React.FC<{
               className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
             >
               Cancel
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={!selectedUserId || assignMutation.isPending}
+              className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 hover:bg-tenant-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {assignMutation.isPending && <RefreshCw className="w-4 h-4 animate-spin" />}
+              Assign Manager
             </button>
           </div>
         </div>
@@ -410,11 +387,21 @@ const ModuleDetailsModal: React.FC<{
   );
 };
 
+const MY_MODULES_ID_QUERY = `
+  query MyModulesWithIds {
+    myModules {
+      id
+      code
+    }
+  }
+`;
+
 /**
  * TenantModules Page
  *
- * Uses AuthContext modules (from login) as the source of truth.
- * This is more reliable than myModules GraphQL query.
+ * Uses AuthContext modules (from login) as the source of truth for display,
+ * augmented by a myModules GraphQL call to obtain real module UUIDs needed
+ * for mutations such as assignModuleManager (BUG-019).
  */
 const TenantModules: React.FC = () => {
   const navigate = useNavigate();
@@ -425,19 +412,30 @@ const TenantModules: React.FC = () => {
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [selectedModule, setSelectedModule] = useState<DisplayModule | null>(null);
 
+  // BUG-019: Fetch real module UUIDs from GraphQL — AuthContext only carries code/name/route
+  const [moduleIdByCode, setModuleIdByCode] = useState<Record<string, string>>({});
+  useEffect(() => {
+    graphqlRequest<{ myModules: Array<{ id: string; code: string }> }>(MY_MODULES_ID_QUERY)
+      .then((data) => {
+        const map: Record<string, string> = {};
+        (data.myModules || []).forEach((m) => { if (m.code) map[m.code] = m.id; });
+        setModuleIdByCode(map);
+      })
+      .catch((err) => logError('TenantModules.fetchModuleIds', err));
+  }, []);
+
   // Transform AuthContext modules to DisplayModule format
   const modules = useMemo<DisplayModule[]>(() => {
-    console.log('[TenantModules] AuthContext modules:', authModules);
-
     if (!authModules || authModules.length === 0) {
-      console.log('[TenantModules] No modules from AuthContext');
       return [];
     }
 
-    const displayModules = authModules.map((m) => {
+    return authModules.map((m) => {
       const code = m.code || '';
       return {
-        id: `module-${code}`,
+        // BUG-019: Use real UUID from myModules query; fall back to code only when GQL hasn't
+        // returned yet — mutations will correctly re-use the real ID once it arrives.
+        id: moduleIdByCode[code] || code,
         code: code,
         name: m.name || code.charAt(0).toUpperCase() + code.slice(1),
         description: `${m.name || code} module for your tenant`,
@@ -451,10 +449,7 @@ const TenantModules: React.FC = () => {
         activatedAt: new Date().toISOString(),
       };
     });
-
-    console.log('[TenantModules] Transformed displayModules:', displayModules);
-    return displayModules;
-  }, [authModules]);
+  }, [authModules, moduleIdByCode]);
 
   const loading = authLoading;
 

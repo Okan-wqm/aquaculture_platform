@@ -1,91 +1,186 @@
 /**
  * Employee Form Page
  *
- * Personel ekleme/düzenleme formu.
+ * Create / edit employee.
+ * CRIT-2 / BUG-002: connected to real API (createEmployee / updateEmployee mutations).
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Save, User, Mail, Phone, Building2, Calendar, DollarSign } from 'lucide-react';
+import {
+  ArrowLeft,
+  Save,
+  User,
+  Mail,
+  Phone,
+  Building2,
+  Calendar,
+  AlertCircle,
+} from 'lucide-react';
+import { useEmployee, useCreateEmployee, useUpdateEmployee, useDepartments, usePositions } from '../hooks';
+import type { CreateEmployeeInput, UpdateEmployeeInput } from '../types';
 
 // ============================================================================
 // Employee Form Page
 // ============================================================================
 
 const EmployeeFormPage: React.FC = () => {
-  const { employeeId } = useParams();
+  const { employeeId } = useParams<{ employeeId: string }>();
   const navigate = useNavigate();
   const isEditing = Boolean(employeeId);
 
+  // Fetch existing employee for edit mode
+  const { data: employee, isLoading: loadingEmployee } = useEmployee(employeeId || '');
+  const { data: departments } = useDepartments();
+  const { data: positions } = usePositions();
+
+  const createMutation = useCreateEmployee();
+  const updateMutation = useUpdateEmployee();
+
+  const isSubmitting = createMutation.isPending || updateMutation.isPending;
+  const mutationError = createMutation.error || updateMutation.error;
+
   const [formData, setFormData] = useState({
-    name: '',
+    firstName: '',
+    lastName: '',
     email: '',
     phone: '',
-    department: '',
-    position: '',
-    startDate: '',
-    birthDate: '',
-    address: '',
-    emergencyContact: '',
-    salary: '',
-    manager: '',
+    departmentId: '',
+    positionId: '',
+    hireDate: '',
+    employmentType: 'full_time' as const,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Populate form when editing
+  useEffect(() => {
+    if (isEditing && employee) {
+      setFormData({
+        firstName: employee.firstName || '',
+        lastName: employee.lastName || '',
+        email: employee.email || '',
+        phone: employee.phone || '',
+        departmentId: employee.departmentId || '',
+        positionId: employee.positionId || '',
+        hireDate: employee.hireDate || '',
+        employmentType: (employee.employmentType as typeof formData.employmentType) || 'full_time',
+      });
+    }
+  }, [isEditing, employee]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // API call here
-    console.log('Form submitted:', formData);
-    navigate('/hr/employees');
+
+    if (isEditing && employeeId) {
+      const input: UpdateEmployeeInput = {
+        id: employeeId,
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        phone: formData.phone || undefined,
+      };
+      updateMutation.mutate(input, {
+        onSuccess: () => navigate(`/hr/employees/${employeeId}`),
+      });
+    } else {
+      const input: CreateEmployeeInput = {
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        email: formData.email,
+        phone: formData.phone || undefined,
+        departmentId: formData.departmentId || undefined,
+        positionId: formData.positionId || undefined,
+        hireDate: formData.hireDate || undefined,
+        employmentType: formData.employmentType,
+      };
+      createMutation.mutate(input, {
+        onSuccess: (data) => navigate(`/hr/employees/${data.createEmployee.id}`),
+      });
+    }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
+
+  if (isEditing && loadingEmployee) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
         <Link
-          to="/hr/employees"
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          to={isEditing && employeeId ? `/hr/employees/${employeeId}` : '/hr/employees'}
+          className="p-2 hover:bg-gray-100 rounded-lg transition-colors dark:hover:bg-gray-700"
         >
-          <ArrowLeft className="w-5 h-5 text-gray-600" />
+          <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {isEditing ? 'Personel Düzenle' : 'Yeni Personel'}
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            {isEditing ? 'Edit Employee' : 'New Employee'}
           </h1>
-          <p className="text-gray-500">
-            {isEditing ? 'Personel bilgilerini güncelleyin' : 'Yeni personel kaydı oluşturun'}
+          <p className="text-gray-500 dark:text-gray-400">
+            {isEditing ? 'Update employee information' : 'Create a new employee record'}
           </p>
         </div>
       </div>
 
+      {/* Error Banner */}
+      {mutationError && (
+        <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
+          <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-600" />
+          <p className="text-sm text-red-700 dark:text-red-300">
+            {mutationError.message || 'An error occurred while saving the employee.'}
+          </p>
+        </div>
+      )}
+
       {/* Form */}
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Basic Info */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Temel Bilgiler</h3>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            Basic Information
+          </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <User className="w-4 h-4 inline mr-2" />
-                Ad Soyad
+                First Name
               </label>
               <input
                 type="text"
-                name="name"
-                value={formData.name}
+                name="firstName"
+                value={formData.firstName}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                placeholder="Ad Soyad"
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                placeholder="First name"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Last Name
+              </label>
+              <input
+                type="text"
+                name="lastName"
+                value={formData.lastName}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                placeholder="Last name"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <Mail className="w-4 h-4 inline mr-2" />
                 Email
               </label>
@@ -94,155 +189,103 @@ const EmployeeFormPage: React.FC = () => {
                 name="email"
                 value={formData.email}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                disabled={isEditing} // email is immutable after creation
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:disabled:bg-gray-800"
                 placeholder="email@example.com"
-                required
+                required={!isEditing}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <Phone className="w-4 h-4 inline mr-2" />
-                Telefon
+                Phone
               </label>
               <input
                 type="tel"
                 name="phone"
                 value={formData.phone}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                placeholder="+90 5XX XXX XXXX"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Calendar className="w-4 h-4 inline mr-2" />
-                Doğum Tarihi
-              </label>
-              <input
-                type="date"
-                name="birthDate"
-                value={formData.birthDate}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                placeholder="+1 555 000 0000"
               />
             </div>
           </div>
         </div>
 
         {/* Work Info */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">İş Bilgileri</h3>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            Work Information
+          </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <Building2 className="w-4 h-4 inline mr-2" />
-                Departman
+                Department
               </label>
               <select
-                name="department"
-                value={formData.department}
+                name="departmentId"
+                value={formData.departmentId}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                required
+                disabled={isEditing}
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               >
-                <option value="">Seçiniz</option>
-                <option value="production">Üretim</option>
-                <option value="quality">Kalite Kontrol</option>
-                <option value="maintenance">Bakım</option>
-                <option value="hr">İnsan Kaynakları</option>
-                <option value="finance">Finans</option>
+                <option value="">Select department</option>
+                {departments?.map((dept) => (
+                  <option key={dept.id} value={dept.id}>
+                    {dept.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Pozisyon
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Position
               </label>
-              <input
-                type="text"
-                name="position"
-                value={formData.position}
+              <select
+                name="positionId"
+                value={formData.positionId}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                placeholder="Pozisyon"
-                required
-              />
+                disabled={isEditing}
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              >
+                <option value="">Select position</option>
+                {positions?.map((pos) => (
+                  <option key={pos.id} value={pos.id}>
+                    {pos.title}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <Calendar className="w-4 h-4 inline mr-2" />
-                İşe Başlama Tarihi
+                Hire Date
               </label>
               <input
                 type="date"
-                name="startDate"
-                value={formData.startDate}
+                name="hireDate"
+                value={formData.hireDate}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                required
+                disabled={isEditing}
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <DollarSign className="w-4 h-4 inline mr-2" />
-                Maaş (TL)
-              </label>
-              <input
-                type="number"
-                name="salary"
-                value={formData.salary}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                placeholder="0"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Yönetici
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Employment Type
               </label>
               <select
-                name="manager"
-                value={formData.manager}
+                name="employmentType"
+                value={formData.employmentType}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               >
-                <option value="">Seçiniz</option>
-                <option value="1">Fatma Şahin</option>
-                <option value="2">Ali Öztürk</option>
+                <option value="full_time">Full Time</option>
+                <option value="part_time">Part Time</option>
+                <option value="contract">Contract</option>
+                <option value="intern">Intern</option>
               </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Contact Info */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">İletişim Bilgileri</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Adres
-              </label>
-              <textarea
-                name="address"
-                value={formData.address}
-                onChange={handleChange}
-                rows={3}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                placeholder="Adres"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <Phone className="w-4 h-4 inline mr-2" />
-                Acil Durum İletişim
-              </label>
-              <input
-                type="tel"
-                name="emergencyContact"
-                value={formData.emergencyContact}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                placeholder="+90 5XX XXX XXXX"
-              />
             </div>
           </div>
         </div>
@@ -250,17 +293,22 @@ const EmployeeFormPage: React.FC = () => {
         {/* Actions */}
         <div className="flex items-center justify-end gap-4">
           <Link
-            to="/hr/employees"
-            className="px-6 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            to={isEditing && employeeId ? `/hr/employees/${employeeId}` : '/hr/employees'}
+            className="px-6 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
           >
-            İptal
+            Cancel
           </Link>
           <button
             type="submit"
-            className="flex items-center gap-2 px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
+            disabled={isSubmitting}
+            className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <Save className="w-4 h-4" />
-            {isEditing ? 'Güncelle' : 'Kaydet'}
+            {isSubmitting ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+            ) : (
+              <Save className="w-4 h-4" />
+            )}
+            {isEditing ? 'Save Changes' : 'Create Employee'}
           </button>
         </div>
       </form>

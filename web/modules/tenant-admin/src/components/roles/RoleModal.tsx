@@ -238,7 +238,7 @@ export const RoleModal: React.FC<RoleModalProps> = ({
                   }
                   placeholder="e.g., Supervisor, Technician"
                   required
-                  disabled={role?.isSystem}
+                  disabled={role?.isSystemRole}
                   className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100"
                 />
               </div>
@@ -343,8 +343,8 @@ export const RoleModal: React.FC<RoleModalProps> = ({
                   onChange={(panelPermissions) =>
                     setFormData((prev) => ({ ...prev, panelPermissions }))
                   }
-                  disabled={role?.isSystem}
-                  readOnly={role?.isSystem}
+                  disabled={role?.isSystemRole}
+                  readOnly={role?.isSystemRole}
                 />
               ) : (
                 <div className="p-8 text-center bg-gray-50 rounded-xl">
@@ -359,7 +359,7 @@ export const RoleModal: React.FC<RoleModalProps> = ({
 
           {/* Footer */}
           <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
-            {role?.isSystem && (
+            {role?.isSystemRole && (
               <p className="text-xs text-amber-600">
                 System roles cannot be modified
               </p>
@@ -374,7 +374,7 @@ export const RoleModal: React.FC<RoleModalProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={isLoading || role?.isSystem || !formData.name.trim()}
+                disabled={isLoading || role?.isSystemRole || !formData.name.trim()}
                 className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isLoading ? (

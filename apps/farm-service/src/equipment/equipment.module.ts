@@ -11,6 +11,7 @@ import { EquipmentType } from './entities/equipment-type.entity';
 import { EquipmentSystem } from './entities/equipment-system.entity';
 import { SubEquipment } from './entities/sub-equipment.entity';
 import { SubEquipmentType } from './entities/sub-equipment-type.entity';
+import { FeederCalibration } from './entities/feeder-calibration.entity';
 import { Department } from '../department/entities/department.entity';
 import { System } from '../system/entities/system.entity';
 import { SubSystem } from '../system/entities/sub-system.entity';
@@ -34,12 +35,14 @@ import { SubEquipmentResolver } from './sub-equipment.resolver';
 import { CreateEquipmentHandler } from './handlers/create-equipment.handler';
 import { UpdateEquipmentHandler } from './handlers/update-equipment.handler';
 import { DeleteEquipmentHandler } from './handlers/delete-equipment.handler';
+import { SaveFeederCalibrationsHandler } from './handlers/save-feeder-calibrations.handler';
 
 // Equipment Query Handlers
 import { GetEquipmentHandler } from './handlers/get-equipment.handler';
 import { ListEquipmentHandler } from './handlers/list-equipment.handler';
 import { GetEquipmentTypesHandler } from './handlers/get-equipment-types.handler';
 import { GetEquipmentDeletePreviewHandler } from './handlers/get-equipment-delete-preview.handler';
+import { ListFeederCalibrationsHandler } from './handlers/list-feeder-calibrations.handler';
 
 // SubEquipment Command Handlers
 import { CreateSubEquipmentHandler } from './handlers/create-sub-equipment.handler';
@@ -55,6 +58,7 @@ const CommandHandlers = [
   CreateEquipmentHandler,
   UpdateEquipmentHandler,
   DeleteEquipmentHandler,
+  SaveFeederCalibrationsHandler,
   CreateSubEquipmentHandler,
   UpdateSubEquipmentHandler,
   DeleteSubEquipmentHandler,
@@ -65,6 +69,7 @@ const QueryHandlers = [
   ListEquipmentHandler,
   GetEquipmentTypesHandler,
   GetEquipmentDeletePreviewHandler,
+  ListFeederCalibrationsHandler,
   GetSubEquipmentHandler,
   ListSubEquipmentHandler,
   GetSubEquipmentTypesHandler,
@@ -78,6 +83,7 @@ const QueryHandlers = [
       EquipmentSystem,
       SubEquipment,
       SubEquipmentType,
+      FeederCalibration,
       Department,
       System,
       SubSystem,

@@ -336,8 +336,12 @@ pub struct ModbusClient {
     unit_id: UnitId,
     /// Circuit breaker for fault tolerance
     circuit_breaker: CircuitBreaker,
-    /// Rate limiter for DoS prevention
+    /// Read rate limiter (FC1–FC4): 10 ops/sec, burst 20
     rate_limiter: RateLimiter,
+    /// Write rate limiter (FC5, FC6) — intentionally more restrictive than reads.
+    /// Limits FC5/FC6 to 2 ops/sec (burst 4) to prevent runaway scripts from
+    /// causing physical actuator damage on the factory floor (IEC 62443 SL2 FR5).
+    write_rate_limiter: RateLimiter,
 }
 
 /// Register value with metadata
@@ -376,11 +380,19 @@ impl ModbusClient {
             CIRCUIT_BREAKER_RECOVERY,
         );
 
-        // Create rate limiter from security config
+        // Read rate limiter from security config (FC1–FC4)
         let rate_limiter = RateLimiter::new(
             format!("modbus-rate-{}", config.name),
             config.security.rate_limit_burst,
             config.security.rate_limit_ops_per_sec,
+        );
+
+        // Write rate limiter (FC5, FC6) — intentionally more restrictive.
+        // 2 ops/sec with burst 4 prevents runaway scripts from overwhelming actuators.
+        let write_rate_limiter = RateLimiter::new(
+            format!("modbus-write-rate-{}", config.name),
+            4,   // burst
+            2,   // ops/sec
         );
 
         // Store registers in Arc to avoid cloning on every read
@@ -398,6 +410,7 @@ impl ModbusClient {
             unit_id,
             circuit_breaker,
             rate_limiter,
+            write_rate_limiter,
         }
     }
 
@@ -447,7 +460,7 @@ impl ModbusClient {
         }
     }
 
-    /// Try to acquire rate limiter token
+    /// Try to acquire read rate limiter token (FC1–FC4)
     ///
     /// # Security
     /// IEC 62443 SL2 FR5: Prevent resource exhaustion attacks
@@ -467,6 +480,31 @@ impl ModbusClient {
             );
             Err(anyhow::anyhow!(
                 "Rate limit exceeded for device '{}'",
+                self.config.name
+            ))
+        }
+    }
+
+    /// Try to acquire write rate limiter token (FC5, FC6)
+    ///
+    /// Write operations use a separate, more restrictive rate limiter to prevent
+    /// runaway script logic from causing physical actuator damage (IEC 62443 SL2 FR5).
+    fn acquire_write_rate_limit(&self) -> Result<()> {
+        if !self.security.enabled {
+            return Ok(());
+        }
+
+        if self.write_rate_limiter.try_acquire() {
+            Ok(())
+        } else {
+            warn!(
+                "Write rate limit exceeded for Modbus device '{}' ({}/{} tokens) — FC5/FC6 throttled",
+                self.config.name,
+                self.write_rate_limiter.available_tokens(),
+                self.write_rate_limiter.capacity()
+            );
+            Err(anyhow::anyhow!(
+                "Write rate limit exceeded for device '{}' — try again in ~500ms",
                 self.config.name
             ))
         }
@@ -711,11 +749,22 @@ impl ModbusClient {
 
     /// Read all configured registers with circuit breaker protection
     pub async fn read_all(&mut self) -> ModbusReadResult {
+        let register_count = self.registers.len();
+        // LOW-39: Pre-allocate value/error vectors to the register count to avoid
+        // incremental reallocations across the read loop on every telemetry cycle.
         let mut result = ModbusReadResult {
             device_name: self.config.name.clone(),
-            values: Vec::new(),
-            errors: Vec::new(),
+            values: Vec::with_capacity(register_count),
+            errors: Vec::with_capacity(register_count.min(MAX_ERRORS_PER_READ)),
         };
+
+        // PERF-003: Generate one RFC 3339 timestamp for the entire read cycle.
+        // Previously each read_register() call allocated a new String via
+        // Utc::now().to_rfc3339(), producing N heap allocations per cycle where N
+        // is the register count.  Sharing a single timestamp across all registers
+        // in the same read_all() call eliminates those allocations; all registers
+        // read in one cycle share the same logical capture time anyway.
+        let cycle_timestamp = chrono::Utc::now().to_rfc3339();
 
         // Check circuit breaker first
         if self.circuit_breaker.is_open() {
@@ -738,7 +787,7 @@ impl ModbusClient {
         // Use Arc reference instead of cloning (v2.0 optimization)
         let registers = Arc::clone(&self.registers);
         for register in registers.iter() {
-            match self.read_register_with_timeout(register).await {
+            match self.read_register_with_timeout(register, &cycle_timestamp).await {
                 Ok(value) => {
                     // v1.2.6: Log successful register reads at debug level
                     debug!(
@@ -777,12 +826,17 @@ impl ModbusClient {
     }
 
     /// Read a register with timeout
+    ///
+    /// `cycle_timestamp` is the RFC 3339 string generated once at the start of
+    /// the enclosing `read_all()` call and shared across all registers in this
+    /// cycle (PERF-003: eliminates per-register String allocation).
     async fn read_register_with_timeout(
         &mut self,
         register: &ModbusRegisterConfig,
+        cycle_timestamp: &str,
     ) -> Result<RegisterValue> {
         with_timeout(
-            self.read_register(register),
+            self.read_register(register, cycle_timestamp),
             MODBUS_TIMEOUT,
             &format!("Modbus read {}", register.name),
         )
@@ -799,9 +853,14 @@ impl ModbusClient {
     ///
     /// # rodbus API
     /// Uses rodbus channel for Modbus communication with native TLS support.
+    ///
+    /// `cycle_timestamp` is the RFC 3339 string generated once at the enclosing
+    /// `read_all()` boundary and shared across all registers in this cycle
+    /// (PERF-003: eliminates per-register Utc::now().to_rfc3339() allocation).
     pub async fn read_register(
         &mut self,
         register: &ModbusRegisterConfig,
+        cycle_timestamp: &str,
     ) -> Result<RegisterValue> {
         // Security checks
         self.acquire_rate_limit()?;
@@ -903,7 +962,9 @@ impl ModbusClient {
             raw_value,
             scaled_value,
             unit: register.unit.clone(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
+            // PERF-003: reuse cycle_timestamp instead of calling Utc::now().to_rfc3339()
+            // per register — eliminates N String heap allocations per telemetry cycle.
+            timestamp: cycle_timestamp.to_string(),
         })
     }
 
@@ -917,7 +978,7 @@ impl ModbusClient {
         // Security checks
         self.validate_write_allowed()?;
         self.validate_function_code(FC_WRITE_SINGLE_REGISTER)?;
-        self.acquire_rate_limit()?;
+        self.acquire_write_rate_limit()?;
 
         let channel = self
             .channel
@@ -952,7 +1013,7 @@ impl ModbusClient {
         // Security checks
         self.validate_write_allowed()?;
         self.validate_function_code(FC_WRITE_SINGLE_COIL)?;
-        self.acquire_rate_limit()?;
+        self.acquire_write_rate_limit()?;
 
         let channel = self
             .channel
@@ -1008,6 +1069,22 @@ impl ModbusClient {
             "f32" if values.len() >= 2 => {
                 let bits = self.combine_u32(values[0], values[1], byte_order);
                 f32::from_bits(bits) as f64
+            }
+            "u64" if values.len() >= 4 => {
+                let val = ((values[0] as u64) << 48)
+                    | ((values[1] as u64) << 32)
+                    | ((values[2] as u64) << 16)
+                    | (values[3] as u64);
+                val as f64
+            }
+            "i64" if values.len() >= 4 => {
+                let raw = ((values[0] as u64) << 48)
+                    | ((values[1] as u64) << 32)
+                    | ((values[2] as u64) << 16)
+                    | (values[3] as u64);
+                // Sign-extend: shift left then arithmetic right to propagate the sign bit
+                // The raw value uses 64 bits from 4 × 16-bit registers (big-endian)
+                (raw as i64) as f64
             }
             _ => values.first().copied().unwrap_or(0) as f64,
         }
@@ -1142,6 +1219,13 @@ impl ModbusManager {
     /// This provides lower overall latency when reading multiple devices,
     /// as I/O waits can overlap.
     ///
+    /// # Design note — join_all vs tokio::spawn
+    /// `rodbus` channel types are `!Send`, so the futures produced by `read_all()`
+    /// cannot be moved to another Tokio worker thread via `tokio::spawn`.
+    /// `join_all` polls all futures on the *calling* task's thread, which avoids
+    /// the `!Send` constraint while still achieving I/O concurrency through
+    /// cooperative yielding inside each future.
+    ///
     /// # Performance
     /// For N devices with T seconds read time each:
     /// - Sequential: N * T total time
@@ -1156,17 +1240,25 @@ impl ModbusManager {
                     let mut client = client_arc.lock().await;
                     let device_name = client.config.name.clone();
 
-                    // Use per-device timeout
+                    // Use per-device timeout.
+                    // IMPORTANT: the lock is dropped before record_failure() to avoid
+                    // holding it for the full timeout duration and blocking other reads.
                     let result = tokio::time::timeout(
                         Duration::from_secs(10), // Per-device timeout
                         client.read_all(),
                     )
                     .await;
 
+                    // Drop the client lock before calling record_failure() so that
+                    // concurrent reads on other devices are not blocked during the
+                    // circuit-breaker state update (atomics only; no lock needed).
+                    drop(client);
+
                     match result {
                         Ok(r) => r,
                         Err(_) => {
-                            // Record failure in circuit breaker
+                            // Re-acquire lock only to access circuit breaker
+                            let client = client_arc.lock().await;
                             client.circuit_breaker.record_failure();
                             ModbusReadResult {
                                 device_name,

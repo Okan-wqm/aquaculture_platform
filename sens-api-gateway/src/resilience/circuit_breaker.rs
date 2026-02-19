@@ -8,27 +8,19 @@
 //! without the overhead and potential deadlocks of mutexes.
 
 use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+
+// Use the single shared monotonic clock defined in crate::resilience (MED-24)
+use super::monotonic_millis;
 
 /// Circuit breaker states
 const STATE_CLOSED: u8 = 0;
 const STATE_OPEN: u8 = 1;
 const STATE_HALF_OPEN: u8 = 2;
 
-/// Get current timestamp in milliseconds since UNIX epoch
-///
-/// # v1.2.6 Note on Time Sources
-/// Uses SystemTime rather than Instant because:
-/// 1. Timestamps must be stored as u64 in atomics (Instant is opaque)
-/// 2. saturating_sub() protects against backwards time jumps (NTP sync)
-/// 3. Forward time jumps may cause early recovery (acceptable trade-off)
-///
-/// For critical timing, consider using Instant with a reference point.
+/// Alias for the shared monotonic time source.
 fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
+    monotonic_millis()
 }
 
 /// Default maximum half-open permits (v1.2.0)
@@ -39,9 +31,11 @@ const DEFAULT_MAX_HALF_OPEN_PERMITS: u32 = 1;
 const MAX_CAS_SPINS: u32 = 10;
 
 /// Maximum total loop iterations before giving up (v1.3.3)
-/// Prevents infinite loop under pathological contention scenarios
-/// If hit, circuit is treated as open (fail-safe behavior)
-const MAX_TOTAL_ITERATIONS: u32 = 100;
+/// Prevents infinite loop under pathological contention scenarios.
+/// 1000 iterations provides enough headroom for bursty concurrent access on
+/// multi-core hardware while still bounding worst-case spin time.
+/// If hit, circuit is treated as open (fail-safe behavior).
+const MAX_TOTAL_ITERATIONS: u32 = 1000;
 
 /// Thread-safe circuit breaker using only atomic operations
 ///

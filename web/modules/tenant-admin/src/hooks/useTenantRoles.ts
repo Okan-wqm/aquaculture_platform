@@ -224,7 +224,7 @@ export function usePermissionCategories(): UsePermissionCategoriesResult {
 /**
  * Generate a temporary ID for optimistic creates
  */
-const generateTempId = (): string => `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+const generateTempId = (): string => `temp-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 
 /**
  * Hook to create a new tenant role with optimistic update
@@ -252,7 +252,6 @@ export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
         color: (input as CreateTenantRoleInput & { color?: string }).color ?? '#6366F1',
         icon: (input as CreateTenantRoleInput & { icon?: string }).icon ?? 'shield',
         level: (input as CreateTenantRoleInput & { level?: number }).level ?? 50,
-        isSystem: false,
         isSystemRole: false,
         isDefault: input.isDefault || false,
         tenantId: '',

@@ -9,6 +9,7 @@ import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor } from '../database/entities/sensor.entity';
 import { EdgeDeviceModule } from '../edge-device/edge-device.module';
 
+import { BatchProcessorService } from './batch-processor.service';
 import { DataIngestionService } from './data-ingestion.service';
 import { DataProcessorService } from './data-processor.service';
 import { MqttListenerService } from './mqtt-listener.service';
@@ -32,12 +33,14 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     }),
   ],
   providers: [
+    BatchProcessorService,
     DataIngestionService,
     MqttListenerService,
     DataProcessorService,
     SensorTopicCacheService,
   ],
   exports: [
+    BatchProcessorService,
     DataIngestionService,
     MqttListenerService,
     DataProcessorService,

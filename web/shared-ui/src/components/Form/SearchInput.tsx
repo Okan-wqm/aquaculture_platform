@@ -35,6 +35,10 @@ export const SearchInput: React.FC<SearchInputProps> = ({
   const [internalValue, setInternalValue] = useState(controlledValue || '');
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const inputRef = useRef<HTMLInputElement>(null);
+  // BUG-010: Store onSearch in a ref so pending debounce timeouts always call the
+  // latest version of the callback, even if the prop changes between schedule and fire.
+  const onSearchRef = useRef(onSearch);
+  onSearchRef.current = onSearch;
 
   // Sync with controlled value
   useEffect(() => {
@@ -49,39 +53,43 @@ export const SearchInput: React.FC<SearchInputProps> = ({
       setInternalValue(newValue);
       onChange?.(newValue);
 
-      // Debounced search
-      if (onSearch) {
-        if (debounceRef.current) {
-          clearTimeout(debounceRef.current);
-        }
+      // PERF-013: Always clear previous timer before scheduling new one
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = undefined;
+      }
+      // BUG-010: Read onSearch from ref inside the timeout so it always reflects
+      // the latest prop value at fire time, not the value captured at schedule time.
+      if (onSearchRef.current) {
         debounceRef.current = setTimeout(() => {
-          onSearch(newValue);
+          onSearchRef.current?.(newValue);
         }, debounceMs);
       }
     },
-    [onChange, onSearch, debounceMs]
+    [onChange, debounceMs]
   );
 
   const handleClear = useCallback(() => {
     setInternalValue('');
     onChange?.('');
-    onSearch?.('');
+    onSearchRef.current?.('');
     inputRef.current?.focus();
-  }, [onChange, onSearch]);
+  }, [onChange]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === 'Enter' && onSearch) {
+      if (e.key === 'Enter' && onSearchRef.current) {
         if (debounceRef.current) {
           clearTimeout(debounceRef.current);
         }
-        onSearch(internalValue);
+        // BUG-010: Use ref to get latest onSearch at call time
+        onSearchRef.current(internalValue);
       }
       if (e.key === 'Escape') {
         handleClear();
       }
     },
-    [onSearch, internalValue, handleClear]
+    [internalValue, handleClear]
   );
 
   useEffect(() => {

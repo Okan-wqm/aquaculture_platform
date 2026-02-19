@@ -6,9 +6,8 @@
  */
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { gql, request } from 'graphql-request';
-
-const GRAPHQL_ENDPOINT = import.meta.env.VITE_GRAPHQL_URL || '/graphql';
+import { gql } from 'graphql-request';
+import { graphqlClient } from '@aquaculture/shared-ui';
 
 const GET_REGULATORY_SETTINGS = gql`
   query GetRegulatorySettings {
@@ -53,14 +52,6 @@ interface RegulatorySettings {
   updatedAt?: string;
 }
 
-const getAuthHeaders = (): Record<string, string> => {
-  const token = localStorage.getItem('access_token');
-  if (token) {
-    return { Authorization: `Bearer ${token}` };
-  }
-  return {};
-};
-
 export const CompanyPage: React.FC = () => {
   const queryClient = useQueryClient();
 
@@ -78,11 +69,8 @@ export const CompanyPage: React.FC = () => {
   const { data: settingsData, isLoading } = useQuery({
     queryKey: ['regulatorySettings'],
     queryFn: async () => {
-      const response = await request<{ regulatorySettings: RegulatorySettings }>(
-        GRAPHQL_ENDPOINT,
+      const response = await graphqlClient.request<{ regulatorySettings: RegulatorySettings }>(
         GET_REGULATORY_SETTINGS,
-        {},
-        getAuthHeaders()
       );
       return response.regulatorySettings;
     },
@@ -90,12 +78,7 @@ export const CompanyPage: React.FC = () => {
 
   const updateSettingsMutation = useMutation({
     mutationFn: async (input: Record<string, unknown>) => {
-      return request(
-        GRAPHQL_ENDPOINT,
-        UPDATE_REGULATORY_SETTINGS,
-        { input },
-        getAuthHeaders()
-      );
+      return graphqlClient.request(UPDATE_REGULATORY_SETTINGS, { input });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['regulatorySettings'] });

@@ -59,13 +59,24 @@ export interface AlertEscalatedEvent extends BaseEvent {
 }
 
 /**
+ * Snapshot of an alert condition for event contracts.
+ * Mirrors the relevant fields of AlertCondition from the alert-engine domain.
+ */
+export interface AlertConditionSnapshot {
+  parameter: string;
+  operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq';
+  threshold: number;
+  severity: 'info' | 'warning' | 'critical';
+}
+
+/**
  * Alert Rule Created Event
  */
 export interface AlertRuleCreatedEvent extends BaseEvent {
   eventType: 'AlertRuleCreated';
   ruleId: string;
   name: string;
-  conditions: unknown[];
+  conditions: AlertConditionSnapshot[];
   notificationChannels: string[];
 }
 
@@ -75,5 +86,20 @@ export interface AlertRuleCreatedEvent extends BaseEvent {
 export interface AlertRuleUpdatedEvent extends BaseEvent {
   eventType: 'AlertRuleUpdated';
   ruleId: string;
-  changes: Record<string, unknown>;
+  name?: string;
+  conditions?: AlertConditionSnapshot[];
+  notificationChannels?: string[];
 }
+
+// ==================== Type Union ====================
+
+/**
+ * Union type for all alert events
+ */
+export type AlertEvent =
+  | AlertTriggeredEvent
+  | AlertAcknowledgedEvent
+  | AlertResolvedEvent
+  | AlertEscalatedEvent
+  | AlertRuleCreatedEvent
+  | AlertRuleUpdatedEvent;

@@ -6,7 +6,9 @@
 
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Card } from '@aquaculture/shared-ui';
+import { Card, useAuthContext } from '@aquaculture/shared-ui';
+// PERF-L4: shared icon components — eliminates duplicate inline SVG bytes
+import { PlusIcon, SensorIcon, TaskIcon } from './icons';
 
 // ============================================================================
 // Tip Tanımlamaları
@@ -19,12 +21,15 @@ interface QuickAction {
   icon: React.ReactNode;
   path: string;
   color: string;
+  /** Minimum role required to see this action */
+  minRole?: 'TENANT_ADMIN' | 'SUPER_ADMIN';
 }
 
 // ============================================================================
 // Quick Actions Data
 // ============================================================================
 
+// PERF-L4: use shared icon components for duplicated icons; unique icons remain inline
 const quickActions: QuickAction[] = [
   {
     id: 'new-farm',
@@ -32,11 +37,7 @@ const quickActions: QuickAction[] = [
     description: 'Çiftlik ekle',
     path: '/sites/new',
     color: 'bg-blue-500',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-      </svg>
-    ),
+    icon: <PlusIcon />,
   },
   {
     id: 'add-sensor',
@@ -44,11 +45,7 @@ const quickActions: QuickAction[] = [
     description: 'Yeni sensör',
     path: '/sites/sensors/new',
     color: 'bg-green-500',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-      </svg>
-    ),
+    icon: <SensorIcon />,
   },
   {
     id: 'create-task',
@@ -56,11 +53,7 @@ const quickActions: QuickAction[] = [
     description: 'Yeni görev',
     path: '/tasks/new',
     color: 'bg-purple-500',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-      </svg>
-    ),
+    icon: <TaskIcon />,
   },
   {
     id: 'new-report',
@@ -93,6 +86,8 @@ const quickActions: QuickAction[] = [
     description: 'Kullanıcı yönet',
     path: '/admin/users',
     color: 'bg-pink-500',
+    // DASH-SEC-004: Admin route only visible to admin roles
+    minRole: 'TENANT_ADMIN',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
@@ -102,17 +97,36 @@ const quickActions: QuickAction[] = [
 ];
 
 // ============================================================================
+// Role helpers
+// ============================================================================
+
+const ROLE_ORDER = ['MODULE_USER', 'MODULE_MANAGER', 'TENANT_ADMIN', 'SUPER_ADMIN'];
+
+function roleAtLeast(userRole: string, minRole: string): boolean {
+  return ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole);
+}
+
+// ============================================================================
 // Quick Actions
 // ============================================================================
 
 const QuickActions: React.FC = () => {
+  const { user } = useAuthContext();
+  const userRole = user?.role ?? 'MODULE_USER';
+
+  // DASH-SEC-004: filter actions by role before rendering
+  const visibleActions = quickActions.filter((action) => {
+    if (!action.minRole) return true;
+    return roleAtLeast(userRole, action.minRole);
+  });
+
   return (
     <Card>
       <div className="px-4 py-3 border-b border-gray-200">
         <h3 className="text-lg font-semibold text-gray-900">Hızlı İşlemler</h3>
       </div>
       <div className="p-4 grid grid-cols-2 gap-3">
-        {quickActions.map((action) => (
+        {visibleActions.map((action) => (
           <Link
             key={action.id}
             to={action.path}
@@ -142,4 +156,4 @@ const QuickActions: React.FC = () => {
   );
 };
 
-export default QuickActions;
+export default React.memo(QuickActions);

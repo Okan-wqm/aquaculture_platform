@@ -124,7 +124,7 @@ export class EmailSenderService implements OnModuleDestroy {
    */
   private async initializeTransporter(): Promise<boolean> {
     try {
-      const config = await this.settingsService.getEmailConfig();
+      const config = await this.settingsService.getEmailConfigForSending();
 
       // Create a hash of config to detect changes
       const configHash = JSON.stringify({
@@ -230,7 +230,7 @@ export class EmailSenderService implements OnModuleDestroy {
       attempts = attempt;
 
       try {
-        const config = await this.settingsService.getEmailConfig();
+        const config = await this.settingsService.getEmailConfigForSending();
         const fromAddress = config.fromAddress || 'noreply@aquaculture.io';
         const fromName = config.fromName || 'Aquaculture Platform';
 

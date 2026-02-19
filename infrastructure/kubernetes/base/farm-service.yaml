@@ -20,10 +20,27 @@ spec:
         app: farm-service
         tier: backend
     spec:
-      serviceAccountName: aquaculture-sa
+      # SEC-003: per-service service account
+      serviceAccountName: farm-service-sa
+      # SEC-017: pull secret for GHCR private registry
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      # ARCH-015: topology spread for AZ resilience
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: farm-service
+      volumes:
+        # SEC-004: emptyDir for /tmp since readOnlyRootFilesystem: true
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: farm-service
-          image: ghcr.io/aquaculture/farm-service:latest
+          # ARCH-013: no tag here; tag set via Kustomize images transformer
+          image: ghcr.io/aquaculture/farm-service
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
@@ -39,22 +56,45 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          # ARCH-010: startupProbe replaces long initialDelaySeconds blind window
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            failureThreshold: 30
+            periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /health
               port: 3000
-            initialDelaySeconds: 30
+            initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # ARCH-007: readinessProbe uses /health/ready (separate from liveness)
           readinessProbe:
             httpGet:
               path: /health/ready
               port: 3000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 5
             periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
           securityContext:
             runAsNonRoot: true
             runAsUser: 1001
             allowPrivilegeEscalation: false
+            # SEC-004: readOnlyRootFilesystem
+            readOnlyRootFilesystem: true
+            # SEC-006: seccompProfile and capabilities drop ALL
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
 
 ---
 apiVersion: v1
@@ -70,3 +110,16 @@ spec:
       name: http
   selector:
     app: farm-service
+
+---
+# ARCH-001: PodDisruptionBudget for farm-service
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: farm-service-pdb
+  namespace: aquaculture
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: farm-service

@@ -4,6 +4,7 @@
 import { EquipmentCategory } from '../entities/equipment-type.entity';
 
 export interface EquipmentTypeFilter {
+  id?: string;
   category?: EquipmentCategory;
   isActive?: boolean;
   search?: string;

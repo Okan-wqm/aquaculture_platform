@@ -8,6 +8,12 @@
 #   docker compose -f docker-compose.droplet.yml up -d
 # =============================================================================
 
+# SEC-013: Trust boundary — all inter-service traffic (AUTH headers, GraphQL queries,
+# NATS messages) travels on the aqua-internal Docker bridge network in plain HTTP/TCP.
+# aqua-internal is marked internal: true so it cannot route to the internet.
+# If a container escape occurs, traffic on this network is readable by other containers.
+# For stronger isolation, consider a service mesh (e.g., Traefik mTLS or Consul Connect).
+
 networks:
   aqua-network:
     driver: bridge
@@ -72,7 +78,8 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      # SEC-014: Use REDISCLI_AUTH env var to avoid password in process list
+      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli ping"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -81,9 +88,15 @@ services:
     image: nats:2.10-alpine
     container_name: aqua-nats
     restart: unless-stopped
-    command: ["--jetstream", "--store_dir=/data", "-m", "8222"]
+    # ARCH-010: Use config file for explicit JetStream limits
+    # SEC-006/SEC-019: NATS is on aqua-internal (no external exposure). To enable
+    # per-service auth, see infrastructure/docker/nats/nats.conf and uncomment the
+    # authorization block, then set NATS_URL=nats://nats_service:${NATS_PASSWORD}@nats:4222
+    # in all backend service environments.
+    command: ["--config", "/etc/nats/nats.conf"]
     volumes:
       - nats_data:/data
+      - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
     networks:
       - aqua-internal
     deploy:
@@ -98,13 +111,13 @@ services:
       retries: 5
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-01-20T15-46-22Z
     container_name: aqua-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_USER:?MINIO_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?MINIO_PASSWORD is required}
     volumes:
       - minio_data:/data
     networks:
@@ -128,8 +141,6 @@ services:
     image: ghcr.io/okan-wqm/aquaculture_platform/gateway-api:latest
     container_name: aqua-gateway
     restart: unless-stopped
-    ports:
-      - "3000:3000"
     environment:
       NODE_ENV: production
       GATEWAY_PORT: 3000
@@ -155,14 +166,14 @@ services:
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: "false"
-      MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
+      MINIO_ACCESS_KEY: ${MINIO_USER:?MINIO_USER is required}
+      MINIO_SECRET_KEY: ${MINIO_PASSWORD:?MINIO_PASSWORD is required}
       MINIO_BUCKET: ${MINIO_BUCKET:-aquaculture}
       MINIO_REGION: us-east-1
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       THROTTLE_DEFAULT_LIMIT: 500
-      DATABASE_SYNC: "true"
+      DATABASE_SYNC: "false"
     depends_on:
       postgres:
         condition: service_healthy
@@ -179,7 +190,7 @@ services:
           memory: 512M
           cpus: '0.5'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -199,7 +210,7 @@ services:
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: "true"
+      DATABASE_SYNC: "false"
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
@@ -217,7 +228,7 @@ services:
           memory: 384M
           cpus: '0.5'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -237,11 +248,11 @@ services:
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: "true"
+      DATABASE_SYNC: "false"
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-default-change-me}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
     depends_on:
       - postgres
       - redis
@@ -253,7 +264,7 @@ services:
           memory: 384M
           cpus: '0.5'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -288,7 +299,7 @@ services:
           memory: 384M
           cpus: '0.5'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -309,11 +320,11 @@ services:
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: "true"
+      DATABASE_SYNC: "false"
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
     depends_on:
       - postgres
       - redis
@@ -325,7 +336,7 @@ services:
           memory: 384M
           cpus: '0.5'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -345,7 +356,7 @@ services:
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: "true"
+      DATABASE_SYNC: "false"
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
@@ -360,7 +371,7 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -380,7 +391,7 @@ services:
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: "true"
+      DATABASE_SYNC: "false"
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
@@ -395,7 +406,7 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -415,7 +426,7 @@ services:
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: "true"
+      DATABASE_SYNC: "false"
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
@@ -430,7 +441,7 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -450,10 +461,10 @@ services:
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: "true"
+      DATABASE_SYNC: "false"
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
     depends_on:
       - postgres
       - redis
@@ -465,7 +476,7 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -485,7 +496,7 @@ services:
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: "true"
+      DATABASE_SYNC: "false"
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
@@ -504,7 +515,41 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  observability-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/observability-service:latest
+    container_name: aqua-observability
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3009
+      NODE_OPTIONS: '--max-old-space-size=256'
+      # INTERNAL_API_KEY must be set; guard rejects all requests in production without it
+      INTERNAL_API_KEY: ${OBSERVABILITY_INTERNAL_API_KEY:?OBSERVABILITY_INTERNAL_API_KEY required}
+      # observability-service reads DB_* env vars (not DATABASE_*) — see app.module.ts
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${POSTGRES_USER:-aquaculture}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      # observability-service uses its own dedicated database, not the main aquaculture db
+      DB_NAME: aquaculture_observability
+    depends_on:
+      - postgres
+    # Attached to aqua-internal only — no published ports, not reachable from external network
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3009/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -518,6 +563,12 @@ services:
     image: ghcr.io/okan-wqm/aquaculture_platform/shell:latest
     container_name: aqua-shell
     restart: unless-stopped
+    # SEC-023: Read-only filesystem with tmpfs for nginx runtime dirs
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache/nginx
     networks:
       - aqua-network
     deploy:
@@ -529,6 +580,11 @@ services:
     image: ghcr.io/okan-wqm/aquaculture_platform/dashboard:latest
     container_name: aqua-dashboard
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache/nginx
     networks:
       - aqua-network
     deploy:
@@ -540,6 +596,11 @@ services:
     image: ghcr.io/okan-wqm/aquaculture_platform/farm-module:latest
     container_name: aqua-farm-module
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache/nginx
     networks:
       - aqua-network
     deploy:
@@ -551,6 +612,11 @@ services:
     image: ghcr.io/okan-wqm/aquaculture_platform/sensor-module:latest
     container_name: aqua-sensor-module
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache/nginx
     networks:
       - aqua-network
     deploy:
@@ -562,6 +628,11 @@ services:
     image: ghcr.io/okan-wqm/aquaculture_platform/admin-panel:latest
     container_name: aqua-admin-panel
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache/nginx
     networks:
       - aqua-network
     deploy:
@@ -573,6 +644,11 @@ services:
     image: ghcr.io/okan-wqm/aquaculture_platform/tenant-admin:latest
     container_name: aqua-tenant-admin
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache/nginx
     networks:
       - aqua-network
     deploy:
@@ -584,6 +660,11 @@ services:
     image: ghcr.io/okan-wqm/aquaculture_platform/hr-module:latest
     container_name: aqua-hr-module
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache/nginx
     networks:
       - aqua-network
     deploy:
@@ -595,6 +676,11 @@ services:
     image: ghcr.io/okan-wqm/aquaculture_platform/hydroponics-module:latest
     container_name: aqua-hydroponics-module
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache/nginx
     networks:
       - aqua-network
     deploy:
@@ -606,6 +692,11 @@ services:
     image: ghcr.io/okan-wqm/aquaculture_platform/aquamobil:latest
     container_name: aqua-mobile
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache/nginx
     networks:
       - aqua-network
     deploy:

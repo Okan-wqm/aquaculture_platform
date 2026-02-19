@@ -148,7 +148,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
    */
   private async restoreActiveTimers(): Promise<void> {
     try {
-      const activeIds = await this.redisService.getJson<string[]>(REDIS_KEYS.ACTIVE) || [];
+      const activeIds = await this.redisService.smembers(REDIS_KEYS.ACTIVE) || [];
 
       for (const incidentId of activeIds) {
         const state = await this.getEscalationState(incidentId);
@@ -176,7 +176,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
    */
   private async checkMissedEscalations(): Promise<void> {
     try {
-      const activeIds = await this.redisService.getJson<string[]>(REDIS_KEYS.ACTIVE) || [];
+      const activeIds = await this.redisService.smembers(REDIS_KEYS.ACTIVE) || [];
 
       for (const incidentId of activeIds) {
         const state = await this.getEscalationState(incidentId);
@@ -188,9 +188,22 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
         );
 
         if (timerInfo && new Date(timerInfo.nextEscalationAt) < new Date()) {
-          // Missed escalation - trigger it now
-          this.logger.warn(`Triggering missed escalation for incident ${incidentId}`);
-          await this.escalateToNextLevel(incidentId);
+          // Check that the incident has not been acknowledged or resolved since the timer was set
+          const incident = await this.incidentRepository.findOne({ where: { id: incidentId } });
+          if (
+            incident &&
+            incident.status !== IncidentStatus.ACKNOWLEDGED &&
+            incident.status !== IncidentStatus.RESOLVED &&
+            incident.status !== IncidentStatus.CLOSED
+          ) {
+            // Missed escalation - trigger it now
+            this.logger.warn(`Triggering missed escalation for incident ${incidentId}`);
+            await this.escalateToNextLevel(incidentId);
+          } else {
+            this.logger.log(
+              `Skipping missed escalation for incident ${incidentId} — status is ${incident?.status ?? 'not found'}`,
+            );
+          }
         }
       }
     } catch (error) {
@@ -205,14 +218,11 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     const ttl = state.isComplete ? STATE_TTL_SECONDS : undefined;
     await this.redisService.setJson(`${REDIS_KEYS.STATE}${state.incidentId}`, state, ttl);
 
-    // Update active list
-    const activeIds = await this.redisService.getJson<string[]>(REDIS_KEYS.ACTIVE) || [];
-    if (!state.isComplete && !activeIds.includes(state.incidentId)) {
-      activeIds.push(state.incidentId);
-      await this.redisService.setJson(REDIS_KEYS.ACTIVE, activeIds);
-    } else if (state.isComplete && activeIds.includes(state.incidentId)) {
-      const updatedIds = activeIds.filter(id => id !== state.incidentId);
-      await this.redisService.setJson(REDIS_KEYS.ACTIVE, updatedIds);
+    // Update active set using atomic Redis SADD/SREM to avoid TOCTOU race
+    if (!state.isComplete) {
+      await this.redisService.sadd(REDIS_KEYS.ACTIVE, state.incidentId);
+    } else {
+      await this.redisService.srem(REDIS_KEYS.ACTIVE, state.incidentId);
     }
   }
 
@@ -549,7 +559,18 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
       return false;
     }
 
-    const policy = await this.policyService.getPolicy(state.policyId, incident.tenantId);
+    let policy: EscalationPolicy;
+    try {
+      policy = await this.policyService.getPolicy(state.policyId, incident.tenantId);
+    } catch (error) {
+      this.logger.warn(
+        `Policy ${state.policyId} not found when resuming escalation for incident ${incidentId}. ` +
+        'Cannot resume without a valid policy.',
+        error,
+      );
+      return false;
+    }
+
     this.setEscalationTimeout(incidentId, policy);
 
     return true;
@@ -758,7 +779,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     let cleaned = 0;
 
     // Get all state keys
-    const stateKeys = await this.redisService.keys('escalation:state:*');
+    const stateKeys = await this.redisService.scan('escalation:state:*');
 
     for (const key of stateKeys) {
       const incidentId = key.replace('escalation:state:', '');
@@ -775,35 +796,36 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get all active escalations
+   * Get all active escalations.
+   * PE-19: Fetch all escalation states concurrently instead of sequentially.
    */
   async getActiveEscalations(): Promise<EscalationState[]> {
-    const activeIds = await this.redisService.getJson<string[]>(REDIS_KEYS.ACTIVE) || [];
-    const states: EscalationState[] = [];
+    const activeIds = await this.redisService.smembers(REDIS_KEYS.ACTIVE) || [];
+    if (activeIds.length === 0) return [];
 
-    for (const incidentId of activeIds) {
-      const state = await this.getEscalationState(incidentId);
-      if (state && !state.isComplete) {
-        states.push(state);
-      }
-    }
-
-    return states;
+    const states = await Promise.all(activeIds.map(id => this.getEscalationState(id)));
+    return states.filter((s): s is EscalationState => s !== null && !s.isComplete);
   }
 
   /**
-   * Get escalation statistics
+   * Get escalation statistics.
+   * PE-19: Fetch all states concurrently via Promise.all instead of sequential awaiting.
    */
   async getStatistics(): Promise<Record<string, number>> {
-    const stateKeys = await this.redisService.keys('escalation:state:*');
+    const stateKeys = await this.redisService.scan('escalation:state:*');
+    if (stateKeys.length === 0) {
+      return { total: 0, active: 0, completed: 0, acknowledged: 0 };
+    }
+
+    const incidentIds = stateKeys.map(k => k.replace('escalation:state:', ''));
+    const allStates = await Promise.all(incidentIds.map(id => this.getEscalationState(id)));
+
     let total = 0;
     let active = 0;
     let completed = 0;
     let acknowledged = 0;
 
-    for (const key of stateKeys) {
-      const incidentId = key.replace('escalation:state:', '');
-      const state = await this.getEscalationState(incidentId);
+    for (const state of allStates) {
       if (state) {
         total++;
         if (state.isComplete) {

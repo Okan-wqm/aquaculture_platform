@@ -95,7 +95,7 @@ export function useDeleteBatchDocument() {
       }
 
       const response = await fetch(
-        `${API_BASE_URL}/upload/batch-document/${input.entityId}/${input.documentId}/${input.filename}`,
+        `${API_BASE_URL}/upload/batch-document/${encodeURIComponent(input.entityId)}/${encodeURIComponent(input.documentId)}/${encodeURIComponent(input.filename)}`,
         {
           method: 'DELETE',
           headers: {
@@ -180,9 +180,9 @@ export function validateDocumentFile(file: File): { valid: boolean; error?: stri
     return { valid: false, error: `Invalid file type. Allowed: ${allowedExtensions.join(', ')}` };
   }
 
-  if (!allowedTypes.includes(file.type)) {
-    // Some browsers may not set correct mime type, so we check extension as fallback
-    console.warn(`MIME type ${file.type} not in allowed list, but extension ${extension} is valid`);
+  if (file.type && !allowedTypes.includes(file.type)) {
+    // Browser provided a MIME type but it is not in the allow-list — reject
+    return { valid: false, error: `Invalid file type (${file.type}). Allowed: ${allowedExtensions.join(', ')}` };
   }
 
   return { valid: true };

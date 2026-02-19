@@ -100,7 +100,10 @@ async function bootstrap() {
   await app.listen(port);
 
   logger.log(`Hydroponics Service running on port ${port}`);
-  logger.log(`GraphQL playground: http://localhost:${port}/graphql`);
+  if (!isProduction) {
+    const host = configService.get<string>('HOST', 'localhost');
+    logger.log(`GraphQL playground: http://${host}:${port}/graphql`);
+  }
 }
 
 const bootstrapLogger = new Logger('HydroponicsServiceBootstrap');

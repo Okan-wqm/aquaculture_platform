@@ -14,18 +14,19 @@ WORKDIR /app
 # Copy package files first (better layer caching)
 COPY package*.json ./
 
-# Install ALL dependencies with cache mount
-RUN --mount=type=cache,target=/root/.npm,sharing=locked \
-    npm ci --legacy-peer-deps --ignore-scripts --no-audit
+# Install ALL dependencies with cache mount (ARCH-014: sharing=shared for parallel builds)
+RUN --mount=type=cache,target=/root/.npm,sharing=shared \
+    npm ci --legacy-peer-deps --ignore-scripts --no-audit && \
+    chown -R node:node /app/node_modules
 
 # Copy configuration files
-COPY tsconfig*.json ./
-COPY nx.json ./
+COPY --chown=node:node tsconfig*.json ./
+COPY --chown=node:node nx.json ./
 
 # Copy source code (will be overridden by volume mount in dev)
-COPY apps/ ./apps/
-COPY libs/ ./libs/
-COPY platform/ ./platform/
+COPY --chown=node:node apps/ ./apps/
+COPY --chown=node:node libs/ ./libs/
+COPY --chown=node:node platform/ ./platform/
 
 # Build argument for service name
 ARG SERVICE_NAME
@@ -35,8 +36,15 @@ ENV SERVICE_NAME=${SERVICE_NAME}
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 ENV NODE_ENV=development
 
+# ARCH-005: Run as non-root user (node user exists in node:22-alpine at uid 1000)
+USER node
+
 # Expose port
 EXPOSE 3000
+
+# ARCH-005: Add healthcheck consistent with production Dockerfiles
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl --fail --silent http://127.0.0.1:3000/health/live || exit 1
 
 # Start with NX serve for hot reload
 CMD ["sh", "-c", "npx nx serve ${SERVICE_NAME} --host 0.0.0.0"]

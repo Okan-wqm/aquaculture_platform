@@ -7,11 +7,13 @@
  * OPTIMIZED: Redis caching with 4 hour TTL for expensive report calculations.
  */
 
-import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+import * as crypto from 'crypto';
+
+import { Injectable, Logger, BadRequestException, NotFoundException, NotImplementedException, Optional } from '@nestjs/common';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { RedisService } from '@platform/backend-common';
 import PDFDocument from 'pdfkit';
-import { Repository, Between, LessThan } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
 import {
@@ -129,6 +131,8 @@ export class ReportsService {
     private readonly executionRepository: Repository<ReportExecution>,
     private readonly analyticsService: AnalyticsService,
     private readonly auditLogService: AuditLogService,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     @Optional()
     private readonly redisService?: RedisService,
   ) {}
@@ -179,7 +183,12 @@ export class ReportsService {
     let summary: Record<string, unknown> = {};
 
     // OPTIMIZED: Cache expensive report computations
-    const cacheKey = `report:${request.type}:${request.startDate?.toISOString() || 'all'}:${request.endDate?.toISOString() || 'all'}`;
+    // BUG-002/BUG-019 fix: include filters in cache key to prevent stale cached results
+    // being returned for requests with different filter criteria
+    const filtersKey = request.filters
+      ? JSON.stringify(Object.fromEntries(Object.entries(request.filters).sort()))
+      : 'none';
+    const cacheKey = `report:${request.type}:${request.startDate?.toISOString() || 'all'}:${request.endDate?.toISOString() || 'all'}:${filtersKey}`;
 
     switch (request.type) {
       case 'tenant_overview': {
@@ -258,7 +267,8 @@ export class ReportsService {
     const formattedData = this.formatReportData(data, request.format);
 
     const result: ReportResult = {
-      id: `rpt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      // BUG-028 fix: use crypto.randomBytes for an unguessable ID; replace deprecated substr()
+      id: `rpt_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`,
       type: request.type,
       format: request.format,
       title,
@@ -299,18 +309,25 @@ export class ReportsService {
 
     const userCountMap = new Map(userCounts.map(u => [u.tenantId, parseInt(u.count)]));
 
-    // Get audit log counts per tenant for storage estimation
+    // HIGH-002 fix: replaced N+1 per-tenant getStatistics() calls with a single
+    // GROUP BY aggregation over all tenants at once.
     const storageMap = new Map<string, string>();
-    for (const tenant of tenants) {
-      try {
-        const stats = await this.auditLogService.getStatistics(tenant.id);
-        // Estimate storage: ~2KB per audit log + ~1KB per user
-        const userCount = userCountMap.get(tenant.id) || 0;
-        const estimatedBytes = (stats.totalLogs * 2048) + (userCount * 1024);
-        storageMap.set(tenant.id, this.formatBytes(estimatedBytes));
-      } catch {
-        storageMap.set(tenant.id, '0 KB');
+    try {
+      const auditCountRows: Array<{ tenantId: string; cnt: string }> =
+        await this.dataSource.query(
+          `SELECT "tenantId", COUNT(*) AS cnt
+           FROM   audit_logs
+           WHERE  "tenantId" IS NOT NULL
+           GROUP  BY "tenantId"`,
+        );
+      for (const row of auditCountRows) {
+        const userCount = userCountMap.get(row.tenantId) || 0;
+        const totalLogs = parseInt(row.cnt, 10);
+        const estimatedBytes = (totalLogs * 2048) + (userCount * 1024);
+        storageMap.set(row.tenantId, this.formatBytes(estimatedBytes));
       }
+    } catch {
+      // Non-critical — storage column will show '0 KB'
     }
 
     // MRR pricing by plan
@@ -421,83 +438,26 @@ export class ReportsService {
   // Financial Reports
   // ============================================================================
 
-  private async generateRevenueReport(request: ReportRequest): Promise<{
+  private async generateRevenueReport(_request: ReportRequest): Promise<{
     data: RevenueReportRow[];
     summary: Record<string, unknown>;
   }> {
-    const data: RevenueReportRow[] = [];
-    const startDate = new Date(request.startDate);
-    const endDate = new Date(request.endDate);
-    const currentDate = new Date(startDate);
-
-    while (currentDate <= endDate) {
-      const baseRevenue = 45000 + Math.random() * 5000;
-      const newSubs = Math.floor(Math.random() * 10) + 5;
-      const renewals = Math.floor(Math.random() * 50) + 30;
-      const upgrades = Math.floor(Math.random() * 5) + 2;
-      const downgrades = Math.floor(Math.random() * 3);
-      const refunds = Math.floor(Math.random() * 500);
-
-      data.push({
-        date: currentDate.toISOString().split('T')[0] || currentDate.toISOString(),
-        revenue: Math.round(baseRevenue),
-        newSubscriptions: newSubs,
-        renewals,
-        upgrades,
-        downgrades,
-        refunds,
-        netRevenue: Math.round(baseRevenue - refunds),
-      });
-
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-
-    const metrics = await this.analyticsService.getFinancialMetrics();
-
-    return {
-      data,
-      summary: {
-        totalRevenue: data.reduce((sum, r) => sum + r.revenue, 0),
-        netRevenue: data.reduce((sum, r) => sum + r.netRevenue, 0),
-        totalRefunds: data.reduce((sum, r) => sum + r.refunds, 0),
-        newSubscriptions: data.reduce((sum, r) => sum + r.newSubscriptions, 0),
-        upgrades: data.reduce((sum, r) => sum + r.upgrades, 0),
-        downgrades: data.reduce((sum, r) => sum + r.downgrades, 0),
-        mrr: metrics.mrr,
-        arr: metrics.arr,
-      },
-    };
+    // C-3 fix: Revenue report requires real invoice/subscription aggregation queries.
+    // Return 501 until real database queries are implemented.
+    throw new NotImplementedException(
+      'Revenue report is not yet implemented with real data. Requires invoice and subscription aggregation queries.',
+    );
   }
 
-  private async generatePaymentsReport(request: ReportRequest): Promise<{
+  private async generatePaymentsReport(_request: ReportRequest): Promise<{
     data: PaymentReportRow[];
     summary: Record<string, unknown>;
   }> {
-    const data: PaymentReportRow[] = [
-      { invoiceId: 'INV-2024-001', tenantName: 'Aegean Farms', amount: 499, currency: 'USD', dueDate: '2024-03-01', status: 'Paid', daysPastDue: 0 },
-      { invoiceId: 'INV-2024-002', tenantName: 'Black Sea Aqua', amount: 299, currency: 'USD', dueDate: '2024-03-05', status: 'Paid', daysPastDue: 0 },
-      { invoiceId: 'INV-2024-003', tenantName: 'Lake View Farms', amount: 299, currency: 'USD', dueDate: '2024-02-28', status: 'Overdue', daysPastDue: 15 },
-      { invoiceId: 'INV-2024-004', tenantName: 'Coastal Fisheries', amount: 299, currency: 'USD', dueDate: '2024-03-10', status: 'Pending', daysPastDue: 0 },
-      { invoiceId: 'INV-2024-005', tenantName: 'River Delta Fish', amount: 99, currency: 'USD', dueDate: '2024-03-01', status: 'Overdue', daysPastDue: 14 },
-      { invoiceId: 'INV-2024-006', tenantName: 'Mediterranean Fish', amount: 299, currency: 'USD', dueDate: '2024-03-15', status: 'Pending', daysPastDue: 0 },
-    ];
-
-    const metrics = await this.analyticsService.getFinancialMetrics();
-
-    return {
-      data,
-      summary: {
-        totalInvoices: data.length,
-        paidAmount: data.filter(p => p.status === 'Paid').reduce((sum, p) => sum + p.amount, 0),
-        pendingAmount: data.filter(p => p.status === 'Pending').reduce((sum, p) => sum + p.amount, 0),
-        overdueAmount: data.filter(p => p.status === 'Overdue').reduce((sum, p) => sum + p.amount, 0),
-        overdueCount: data.filter(p => p.status === 'Overdue').length,
-        avgDaysPastDue: Math.round(
-          data.filter(p => p.daysPastDue > 0).reduce((sum, p) => sum + p.daysPastDue, 0) /
-          Math.max(data.filter(p => p.daysPastDue > 0).length, 1)
-        ),
-      },
-    };
+    // C-3 fix: Payments report requires real invoice database queries.
+    // Return 501 until real database queries are implemented.
+    throw new NotImplementedException(
+      'Payments report is not yet implemented with real data. Requires invoice table aggregation queries.',
+    );
   }
 
   // ============================================================================
@@ -510,13 +470,17 @@ export class ReportsService {
   }> {
     const usage = await this.analyticsService.getUsageMetrics();
 
+    // C-3 fix: use actual user count instead of hardcoded 2456, remove Math.random() for trend
+    const userMetrics = await this.analyticsService.getUserMetrics();
+    const totalActiveUsers = userMetrics.active || 1; // avoid division by zero
+
     const data: ModuleUsageReportRow[] = Object.entries(usage.moduleUsage).map(([module, stats]) => ({
       module: this.formatModuleName(module),
       activeUsers: stats.activeUsers,
       totalSessions: stats.totalSessions,
       avgSessionDuration: stats.avgSessionDuration,
-      adoptionRate: Math.round((stats.activeUsers / 2456) * 100), // % of active users
-      trend: Math.random() > 0.3 ? 'up' : Math.random() > 0.5 ? 'stable' : 'down',
+      adoptionRate: Math.round((stats.activeUsers / totalActiveUsers) * 100),
+      trend: 'stable', // Trend calculation requires historical snapshot comparison
     }));
 
     return {
@@ -536,12 +500,16 @@ export class ReportsService {
   }> {
     const usage = await this.analyticsService.getUsageMetrics();
 
+    // C-3 fix: use actual user count, remove Math.random()
+    const featureUserMetrics = await this.analyticsService.getUserMetrics();
+    const featureTotalActive = featureUserMetrics.active || 1;
+
     const data: FeatureUsageReportRow[] = Object.entries(usage.featureAdoption).map(([feature, rate]) => ({
       feature: this.formatFeatureName(feature),
       adoptionRate: rate,
-      activeUsers: Math.round((rate / 100) * 2456),
-      avgUsagePerUser: Math.round(Math.random() * 20 + 5),
-      trend: rate > 60 ? 'up' : rate > 40 ? 'stable' : 'down',
+      activeUsers: Math.round((rate / 100) * featureTotalActive),
+      avgUsagePerUser: 0, // Requires real per-user usage tracking
+      trend: 'stable', // Trend calculation requires historical snapshot comparison
     }));
 
     return {
@@ -559,41 +527,15 @@ export class ReportsService {
   // Performance Report
   // ============================================================================
 
-  private async generatePerformanceReport(request: ReportRequest): Promise<{
+  private async generatePerformanceReport(_request: ReportRequest): Promise<{
     data: PerformanceReportRow[];
     summary: Record<string, unknown>;
   }> {
-    const data: PerformanceReportRow[] = [];
-    const startDate = new Date(request.startDate);
-    const endDate = new Date(request.endDate);
-    const currentDate = new Date(startDate);
-
-    while (currentDate <= endDate) {
-      data.push({
-        date: currentDate.toISOString().split('T')[0] || currentDate.toISOString(),
-        avgResponseTime: Math.round(100 + Math.random() * 100),
-        errorRate: Number((Math.random() * 0.5).toFixed(3)),
-        uptime: Number((99.5 + Math.random() * 0.5).toFixed(2)),
-        apiCalls: Math.round(800000 + Math.random() * 500000),
-        activeConnections: Math.round(200 + Math.random() * 200),
-      });
-
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-
-    const metrics = await this.analyticsService.getSystemMetrics();
-
-    return {
-      data,
-      summary: {
-        avgResponseTime: Math.round(data.reduce((sum, d) => sum + d.avgResponseTime, 0) / data.length),
-        avgErrorRate: Number((data.reduce((sum, d) => sum + d.errorRate, 0) / data.length).toFixed(3)),
-        avgUptime: Number((data.reduce((sum, d) => sum + d.uptime, 0) / data.length).toFixed(2)),
-        totalApiCalls: data.reduce((sum, d) => sum + d.apiCalls, 0),
-        peakConnections: Math.max(...data.map(d => d.activeConnections)),
-        currentStatus: metrics.uptimePercent >= 99.9 ? 'Healthy' : 'Degraded',
-      },
-    };
+    // C-3 fix: Performance report requires real infrastructure monitoring data.
+    // Return 501 until APM/metrics integration is implemented.
+    throw new NotImplementedException(
+      'System performance report is not yet implemented with real data. Requires APM and infrastructure monitoring integration.',
+    );
   }
 
   // ============================================================================
@@ -860,7 +802,7 @@ export class ReportsService {
   async getDefinition(id: string): Promise<ReportDefinition> {
     const definition = await this.definitionRepository.findOne({ where: { id } });
     if (!definition) {
-      throw new BadRequestException(`Report definition not found: ${id}`);
+      throw new NotFoundException(`Report definition not found: ${id}`);
     }
     return definition;
   }
@@ -972,7 +914,7 @@ export class ReportsService {
   async getExecution(id: string): Promise<ReportExecution> {
     const execution = await this.executionRepository.findOne({ where: { id } });
     if (!execution) {
-      throw new BadRequestException(`Report execution not found: ${id}`);
+      throw new NotFoundException(`Report execution not found: ${id}`);
     }
     return execution;
   }
@@ -1047,6 +989,17 @@ export class ReportsService {
 
       await this.executionRepository.save(execution);
 
+      // LOW-002 fix: cache the generated report payload in Redis so that
+      // getExecutionDownload() can serve it without re-running all queries.
+      if (this.redisService) {
+        const downloadCacheKey = `report:download:${execution.id}`;
+        this.redisService
+          .setJson(downloadCacheKey, reportResult.data, 24 * 60 * 60) // 24h TTL
+          .catch((err: Error) =>
+            this.logger.warn(`Failed to cache report download ${execution.id}: ${err.message}`),
+          );
+      }
+
       // Update definition run count if applicable
       if (definition) {
         definition.lastRunAt = new Date();
@@ -1087,17 +1040,32 @@ export class ReportsService {
       throw new BadRequestException('Download link has expired');
     }
 
-    // Re-generate the report data
-    const startDate = execution.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const endDate = execution.endDate || new Date();
+    // LOW-002 fix: serve from Redis cache when available to avoid re-running
+    // all data-fetch queries for every download request.
+    let reportData: unknown | null = null;
+    const downloadCacheKey = `report:download:${execution.id}`;
 
-    const reportResult = await this.generateReport({
-      type: execution.reportType,
-      format: execution.format,
-      startDate,
-      endDate,
-      filters: execution.filters,
-    });
+    if (this.redisService) {
+      try {
+        reportData = await this.redisService.getJson<unknown>(downloadCacheKey);
+      } catch {
+        // Cache miss — fall through to regeneration
+      }
+    }
+
+    if (reportData === null) {
+      const startDate = execution.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const endDate = execution.endDate || new Date();
+
+      const reportResult = await this.generateReport({
+        type: execution.reportType,
+        format: execution.format,
+        startDate,
+        endDate,
+        filters: execution.filters,
+      });
+      reportData = reportResult.data;
+    }
 
     const contentTypes: Record<ReportFormat, string> = {
       json: 'application/json',
@@ -1115,7 +1083,7 @@ export class ReportsService {
 
     return {
       execution,
-      data: reportResult.data,
+      data: reportData,
       contentType: contentTypes[execution.format],
       filename: `${execution.reportName.replace(/\s+/g, '_')}_${execution.id}.${extensions[execution.format]}`,
     };

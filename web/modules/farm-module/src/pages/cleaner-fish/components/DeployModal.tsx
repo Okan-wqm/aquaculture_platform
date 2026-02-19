@@ -4,7 +4,7 @@
  * Modal for deploying cleaner fish from a batch to a tank.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast } from '@aquaculture/shared-ui';
 import { useDeployCleanerFish, CleanerFishBatch } from '../../../hooks/useCleanerFish';
 
 interface Tank {
@@ -40,6 +40,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
 
   // Mutation
   const deployCleanerFish = useDeployCleanerFish();
+  const { toast } = useToast();
 
   // Get selected batch
   const selectedBatch = useMemo(() => {
@@ -94,8 +95,8 @@ export const DeployModal: React.FC<DeployModalProps> = ({
       onSuccess();
       onClose();
     } catch (error) {
-      console.error('Failed to deploy cleaner fish:', error);
-      alert(error instanceof Error ? error.message : 'Failed to deploy cleaner fish');
+      if (import.meta.env.DEV) console.error('Failed to deploy cleaner fish:', error);
+      toast({ title: 'Error', description: 'Failed to deploy cleaner fish. Please try again.', variant: 'error' });
     }
   };
 
@@ -238,6 +239,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
           <textarea
             id="notes"
             rows={2}
+            maxLength={2000}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"

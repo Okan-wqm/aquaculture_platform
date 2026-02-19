@@ -293,8 +293,16 @@ export function Table<T extends object = Record<string, unknown>>({
   compact = false,
   className = '',
 }: TableProps<T>): React.ReactElement {
-  // keyExtractor ve rowKey birleştirmesi - string olarak cast ediyoruz
-  const resolvedRowKey: string | ((row: T) => string) = keyExtractor || (typeof rowKey === 'string' ? rowKey : 'id');
+  // BUG-008: Handle all three cases of rowKey: function extractor (from keyExtractor or rowKey function overload),
+  // string field name, or default 'id'. Previously the rowKey function overload was silently ignored.
+  const resolvedRowKey: string | ((row: T) => string) =
+    keyExtractor
+      ? keyExtractor
+      : typeof rowKey === 'function'
+      ? rowKey
+      : typeof rowKey === 'string'
+      ? rowKey
+      : 'id';
   // Tümünü seç durumu
   const allSelected = data.length > 0 && selectedRows.length === data.length;
   const someSelected = selectedRows.length > 0 && selectedRows.length < data.length;
@@ -379,10 +387,11 @@ export function Table<T extends object = Record<string, unknown>>({
                 >
                   <div className={`flex items-center ${column.align === 'center' ? 'justify-center' : column.align === 'right' ? 'justify-end' : ''}`}>
                     {column.header || column.label}
+                    {/* BUG-014: Use String(column.key) for comparison to handle symbol/keyof T keys */}
                     {column.sortable && (
                       <SortIndicator
-                        active={sorting?.field === column.key}
-                        direction={sorting?.field === column.key ? sorting.order : undefined}
+                        active={sorting?.field === String(column.key)}
+                        direction={sorting?.field === String(column.key) ? sorting.order : undefined}
                       />
                     )}
                   </div>

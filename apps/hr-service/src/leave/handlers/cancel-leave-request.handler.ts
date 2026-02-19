@@ -4,7 +4,8 @@ import { BadRequestException, NotFoundException, ForbiddenException, Logger, Int
 import { CancelLeaveRequestCommand } from '../commands/cancel-leave-request.command';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { LeaveBalance } from '../entities/leave-balance.entity';
-import { LeaveCancelledEvent } from '../events/leave.events';
+import { Employee } from '../../hr/entities/employee.entity';
+import { createLeaveCancelledEvent } from '../events/leave.events';
 
 @CommandHandler(CancelLeaveRequestCommand)
 export class CancelLeaveRequestHandler
@@ -36,9 +37,17 @@ export class CancelLeaveRequestHandler
         throw new NotFoundException(`Leave request with ID ${leaveRequestId} not found`);
       }
 
-      // Only the employee or an approver can cancel
-      const isOwnRequest = leaveRequest.employeeId === userId || leaveRequest.createdBy === userId;
-      if (!isOwnRequest) {
+      // Resolve the canceller's employee ID from auth userId to prevent cross-namespace comparison.
+      // leaveRequest.employeeId is an HR employee UUID; userId is an auth-service user UUID.
+      // Comparing them directly would be comparing different ID spaces (Bug H-9 / cancel variant).
+      const cancellerEmployee = await queryRunner.manager.findOne(Employee, {
+        where: { userId, tenantId, isDeleted: false },
+      });
+
+      // Only the employee who owns the request or the user who created it can cancel
+      const isCreator = leaveRequest.createdBy === userId;
+      const isOwner = cancellerEmployee && leaveRequest.employeeId === cancellerEmployee.id;
+      if (!isCreator && !isOwner) {
         throw new ForbiddenException('You can only cancel your own leave requests');
       }
 
@@ -82,8 +91,9 @@ export class CancelLeaveRequestHandler
       });
 
       if (leaveBalance) {
-        if (leaveRequest.status === LeaveRequestStatus.PENDING) {
-          // Restore from pending
+        if (leaveRequest.status === LeaveRequestStatus.DRAFT || leaveRequest.status === LeaveRequestStatus.PENDING) {
+          // Restore from pending — note: pending is incremented at DRAFT creation time
+          // (CreateLeaveRequestHandler) to close the TOCTOU window on balance checks.
           leaveBalance.pending = Math.max(
             0,
             Number(leaveBalance.pending) - Number(leaveRequest.totalDays),
@@ -120,7 +130,7 @@ export class CancelLeaveRequestHandler
       await queryRunner.commitTransaction();
 
       // Publish event for notification/audit purposes
-      this.eventBus.publish(new LeaveCancelledEvent(savedRequest));
+      this.eventBus.publish(createLeaveCancelledEvent(savedRequest, userId, reason));
 
       return savedRequest;
     } catch (error) {

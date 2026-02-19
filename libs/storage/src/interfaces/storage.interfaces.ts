@@ -2,13 +2,15 @@
  * Storage Interfaces
  * @module Storage/Interfaces
  */
+import type { ModuleMetadata, InjectionToken } from '@nestjs/common';
 
 /**
  * Configuration for MinIO storage connection
  */
 export interface StorageConfig {
   endpoint: string;
-  port: number;
+  /** Port number. Optional — omit for protocol-default ports (80/443). */
+  port?: number;
   useSSL: boolean;
   accessKey: string;
   secretKey: string;
@@ -20,9 +22,12 @@ export interface StorageConfig {
  * Result of a file upload operation
  */
 export interface UploadResult {
-  /** Full URL to access the file */
-  url: string;
-  /** Storage path within the bucket */
+  /**
+   * @internal Direct MinIO internal URL (e.g., http://minio:9000/...).
+   * Not suitable for client-facing use. Use `path` with `getPresignedUrl()` instead.
+   */
+  internalUrl: string;
+  /** Storage path within the bucket — persist this value for later retrieval */
   path: string;
   /** ETag (hash) of the uploaded file */
   etag: string;
@@ -33,7 +38,8 @@ export interface UploadResult {
 }
 
 /**
- * Metadata about a stored file
+ * Metadata about a stored file.
+ * Returned by `getFileMetadata()` which reads back custom x-amz-meta-* headers.
  */
 export interface FileMetadata {
   /** Tenant owning this file */
@@ -60,7 +66,7 @@ export interface FileMetadata {
 export interface PresignedUrlOptions {
   /** URL expiry time in seconds (default: 3600 = 1 hour) */
   expirySeconds?: number;
-  /** Content-Disposition header for downloads */
+  /** Content-Disposition header for downloads (e.g., 'attachment; filename="report.pdf"') */
   responseContentDisposition?: string;
 }
 
@@ -77,8 +83,7 @@ export interface UploadOptions {
 /**
  * Storage module async options for dynamic configuration
  */
-export interface StorageModuleAsyncOptions {
-  imports?: any[];
-  useFactory: (...args: any[]) => Promise<StorageConfig> | StorageConfig;
-  inject?: any[];
+export interface StorageModuleAsyncOptions extends Pick<ModuleMetadata, 'imports'> {
+  useFactory: (...args: unknown[]) => Promise<StorageConfig> | StorageConfig;
+  inject?: InjectionToken[];
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Table,
   HardDrive,
@@ -224,8 +224,8 @@ const TenantDatabase: React.FC = () => {
   const [dataError, setDataError] = useState<string | null>(null);
   const DATA_PAGE_SIZE = 50;
 
-  // Fetch database info
-  const fetchDatabaseInfo = async () => {
+  // Fetch database info (PERF-005: wrapped in useCallback to prevent new ref each render)
+  const fetchDatabaseInfo = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -236,11 +236,11 @@ const TenantDatabase: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchDatabaseInfo();
-  }, []);
+  }, [fetchDatabaseInfo]);
 
   // Handle View Schema button click
   const handleViewSchema = async (tableName: string) => {
@@ -343,10 +343,18 @@ const TenantDatabase: React.FC = () => {
     .sort((a, b) => {
       if (sortBy === 'name') return a.name.localeCompare(b.name);
       if (sortBy === 'rows') return b.rowCount - a.rowCount;
-      return 0;
+      // PERF-013: Parse size strings (e.g. "1.2 MB") to bytes for numeric comparison
+      const parseSize = (s: string): number => {
+        const m = s.match(/^([\d.]+)\s*(B|KB|MB|GB|TB)?$/i);
+        if (!m) return 0;
+        const val = parseFloat(m[1]);
+        const units: Record<string, number> = { B: 1, KB: 1024, MB: 1048576, GB: 1073741824, TB: 1099511627776 };
+        return val * (units[(m[2] || 'B').toUpperCase()] ?? 1);
+      };
+      return parseSize(b.size) - parseSize(a.size);
     });
 
-  // Group tables by module
+  // Group tables by module — preserve the order from filteredTables (BUG-020)
   const groupedTables = useMemo(() => {
     const groups: Record<string, typeof filteredTables> = {
       farm: [],
@@ -358,11 +366,9 @@ const TenantDatabase: React.FC = () => {
     filteredTables.forEach((table) => {
       const module = getModuleFromTableName(table.name);
       groups[module].push(table);
-    });
-
-    // Sort tables within each group by name
-    Object.keys(groups).forEach((module) => {
-      groups[module].sort((a, b) => a.name.localeCompare(b.name));
+      // Do NOT re-sort within groups — filteredTables already carries the
+      // user's chosen sort order (name / rows / size) and re-sorting here
+      // would silently discard that preference.
     });
 
     return groups;

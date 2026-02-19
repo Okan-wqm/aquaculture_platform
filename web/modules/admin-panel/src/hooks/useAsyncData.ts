@@ -56,8 +56,13 @@ export interface UseAsyncDataReturn<T> extends AsyncState<T> {
   abort: () => void;
 }
 
-// Simple in-memory cache
+// Simple in-memory cache — cleared on logout/session change (SEC-015, BUG-010)
 const cache = new Map<string, { data: unknown; timestamp: number }>();
+
+// Clear all cached data when the user logs out
+if (typeof window !== 'undefined') {
+  window.addEventListener('aquaculture:logout', () => cache.clear());
+}
 
 export function useAsyncData<T>(
   fetcher: () => Promise<T>,
@@ -86,6 +91,16 @@ export function useAsyncData<T>(
   const mountedRef = useRef(true);
   const fetchIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Store fetcher in a ref so fetchData doesn't need it as a dep (PERF-001)
+  // This prevents infinite re-fetch loops when the caller passes an inline arrow function
+  const fetcherRef = useRef(fetcher);
+  // Store canRetry in a ref so the retry callback doesn't re-create on every error state
+  // change, preventing downstream re-renders in consumers that pass retry as a prop (PERF-001)
+  const canRetryRef = useRef(false);
+  useEffect(() => {
+    fetcherRef.current = fetcher;
+  }, [fetcher]);
 
   const fetchData = useCallback(
     async (showLoading = true) => {
@@ -121,16 +136,20 @@ export function useAsyncData<T>(
         setState((prev) => ({ ...prev, loading: true, error: null, canRetry: false }));
       }
 
-      // Create timeout promise
+      // Create timeout promise with a clearable timer (BUG-012)
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => {
-          reject(new Error('İstek zaman aşımına uğradı'));
+        timeoutHandle = setTimeout(() => {
+          reject(new Error('Request timed out'));
         }, timeout);
       });
 
       try {
-        // Race between fetcher and timeout
-        let result = await Promise.race([fetcher(), timeoutPromise]);
+        // Race between fetcher and timeout — use ref to avoid stale closure (PERF-001)
+        let result = await Promise.race([fetcherRef.current(), timeoutPromise]);
+
+        // Cancel the timeout timer now that fetch completed (BUG-012)
+        if (timeoutHandle !== null) clearTimeout(timeoutHandle);
 
         // Check if this fetch was superseded by a newer one
         if (fetchId !== fetchIdRef.current) {
@@ -148,6 +167,7 @@ export function useAsyncData<T>(
         }
 
         if (mountedRef.current) {
+          canRetryRef.current = false;
           setState({
             data: result,
             loading: false,
@@ -159,6 +179,9 @@ export function useAsyncData<T>(
           onSuccess?.(result);
         }
       } catch (err) {
+        // Cancel timeout on any error path too (BUG-012)
+        if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+
         // Ignore superseded or aborted requests
         if (fetchId !== fetchIdRef.current) {
           return;
@@ -173,18 +196,20 @@ export function useAsyncData<T>(
         console.error('API fetch failed:', err);
 
         if (mountedRef.current) {
-          const errorMessage = err instanceof Error ? err.message : 'Bir hata oluştu';
+          const errorMessage = err instanceof Error ? err.message : 'An error occurred';
           const errorCode = (err as { code?: string }).code;
 
           // Determine if error is retryable (network errors, timeouts, 5xx errors)
+          const errStatus = (err as { status?: number }).status;
           const isRetryable =
-            errorMessage.includes('zaman aşımı') ||
+            errorMessage.includes('timed out') ||
             errorMessage.includes('timeout') ||
             errorMessage.includes('network') ||
             errorMessage.includes('Network') ||
-            (err as { status?: number }).status === undefined || // Network error
-            ((err as { status?: number }).status ?? 0) >= 500;
+            errStatus === undefined || // Network error (no status)
+            (errStatus !== undefined && errStatus >= 500);
 
+          canRetryRef.current = isRetryable;
           setState((prev) => ({
             ...prev,
             loading: false,
@@ -197,19 +222,22 @@ export function useAsyncData<T>(
         }
       }
     },
-    [fetcher, cacheKey, cacheTTL, timeout, transform, onSuccess, onError]
+    // fetcher removed from deps — stored in ref to prevent infinite re-fetch loops (PERF-001)
+    [cacheKey, cacheTTL, timeout, transform, onSuccess, onError] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const fetch = useCallback(() => fetchData(true), [fetchData]);
   const refresh = useCallback(() => fetchData(true), [fetchData]);
   const silentRefresh = useCallback(() => fetchData(false), [fetchData]);
 
+  // Read canRetry from ref so this callback is stable and does not re-create every time
+  // an error state changes canRetry — prevents downstream re-renders when retry is passed as a prop (PERF-001)
   const retry = useCallback(() => {
-    if (state.canRetry) {
+    if (canRetryRef.current) {
       return fetchData(true);
     }
     return Promise.resolve();
-  }, [fetchData, state.canRetry]);
+  }, [fetchData]);
 
   const abort = useCallback(() => {
     // Increment fetchId so any in-flight fetch is superseded

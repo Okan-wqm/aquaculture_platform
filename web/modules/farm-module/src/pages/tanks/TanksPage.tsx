@@ -296,9 +296,27 @@ export const TanksPage: React.FC = () => {
 
   // Chart visibility settings
   const [chartVisibility, setChartVisibility] = useState<ChartVisibility>(() => {
-    const saved = localStorage.getItem('tanks-chart-visibility');
-    if (saved) {
-      return { ...defaultChartVisibility, ...JSON.parse(saved) };
+    try {
+      const saved = localStorage.getItem('tanks-chart-visibility');
+      if (saved) {
+        const parsed: unknown = JSON.parse(saved);
+        // HIGH-04: validate shape before spreading to prevent prototype pollution
+        if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          // Filter out any __proto__ / constructor keys
+          const safe = Object.assign(
+            {},
+            defaultChartVisibility,
+            Object.fromEntries(
+              Object.entries(parsed as Record<string, unknown>).filter(
+                ([k]) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'
+              )
+            )
+          );
+          return safe as ChartVisibility;
+        }
+      }
+    } catch {
+      // ignore malformed localStorage value
     }
     return defaultChartVisibility;
   });
@@ -329,7 +347,12 @@ export const TanksPage: React.FC = () => {
       // Check for saved selection in localStorage
       const saved = localStorage.getItem('tanks-chart-selected-ids');
       if (saved) {
-        const savedIds = JSON.parse(saved) as string[];
+        let parsedIds: unknown;
+        try { parsedIds = JSON.parse(saved); } catch { parsedIds = null; }
+        // HIGH-04: validate it's actually a string array before using
+        const savedIds = Array.isArray(parsedIds) && parsedIds.every(x => typeof x === 'string')
+          ? (parsedIds as string[])
+          : [];
         // Filter to only include IDs that still exist
         const validIds = savedIds.filter(id => tableData.some(t => t.id === id));
         if (validIds.length > 0) {

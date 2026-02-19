@@ -30,10 +30,12 @@ export function InstallPrompt() {
       if (Date.now() - dismissedAt < 24 * 60 * 60 * 1000) return;
     }
 
-    // Detect iOS
+    // SEC-08: Detect iOS using userAgent and maxTouchPoints only.
+    // navigator.platform is deprecated by all major browser vendors and removed.
+    // The maxTouchPoints check handles iPadOS 13+ which reports as 'MacIntel' UA.
     const ios =
       /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent));
     setIsIOS(ios);
 
     // Android/Chrome install prompt

@@ -21,13 +21,13 @@ export class GetCurrentlyOffshoreHandler implements IQueryHandler<GetCurrentlyOf
     const queryBuilder = this.rotationRepository
       .createQueryBuilder('wr')
       .leftJoinAndSelect('wr.employee', 'employee')
-      .leftJoinAndSelect('wr.workArea', 'workArea')
       .where('wr.tenantId = :tenantId', { tenantId })
       .andWhere('wr.status = :status', { status: RotationStatus.IN_PROGRESS })
       .andWhere('wr.rotationType = :rotationType', { rotationType: RotationType.OFFSHORE })
       .andWhere('wr.startDate <= :today', { today })
       .andWhere('wr.endDate >= :today', { today })
-      .andWhere('wr.isDeleted = false');
+      .andWhere('wr.isDeleted = false')
+      .andWhere('employee.isDeleted = false');
 
     if (workAreaId) {
       queryBuilder.andWhere('wr.workAreaId = :workAreaId', { workAreaId });

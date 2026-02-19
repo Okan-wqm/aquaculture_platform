@@ -1,5 +1,5 @@
 /**
- * Shell Uygulaması - Global Stiller
+ * Shell Application - Global Styles
  */
 
 @tailwind base;
@@ -37,12 +37,12 @@
    ============================================================================ */
 
 @layer components {
-  /* Sayfa container */
+  /* Page container */
   .page-container {
     @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6;
   }
 
-  /* Sayfa başlığı */
+  /* Page header */
   .page-header {
     @apply mb-6;
   }
@@ -55,7 +55,7 @@
     @apply mt-1 text-sm text-gray-500;
   }
 
-  /* Card stilleri */
+  /* Card styles */
   .card {
     @apply bg-white rounded-lg shadow-sm border border-gray-200;
   }
@@ -280,10 +280,10 @@
 }
 
 /* ============================================================================
-   Fish Background Animations - Login sayfası için
+   Fish Background Animations — for the login page
    ============================================================================ */
 
-/* Çapraz yüzme animasyonu - CSS custom properties kullanır */
+/* Diagonal swim animation — uses CSS custom properties */
 @keyframes swimDiagonal {
   0% {
     left: var(--start-x);
@@ -295,7 +295,7 @@
   }
 }
 
-/* Solungaç nefes animasyonu */
+/* Gill breath animation */
 @keyframes gillBreath {
   0%, 100% {
     transform: scaleX(1);
@@ -307,12 +307,12 @@
   }
 }
 
-/* Balık yüzme stili */
+/* Fish swimming style */
 .swimming-fish {
   animation-timing-function: linear;
 }
 
-/* Kuyruk sallama animasyonu */
+/* Tail wag animation */
 @keyframes tailWag {
   0%, 100% {
     transform: rotate(0deg) scaleX(1);
@@ -330,7 +330,7 @@
   animation: tailWag var(--tail-speed, 0.8s) ease-in-out infinite;
 }
 
-/* Kelp dalgalanma animasyonu */
+/* Kelp sway animation */
 @keyframes kelpSway {
   0%, 100% {
     transform: skewX(0deg);
@@ -353,7 +353,7 @@
   animation: kelpSway 3s ease-in-out infinite;
 }
 
-/* Auth form - cam efektli input stilleri */
+/* Auth form — frosted-glass input styles */
 .backdrop-blur-md input[type="text"],
 .backdrop-blur-md input[type="email"],
 .backdrop-blur-md input[type="password"] {

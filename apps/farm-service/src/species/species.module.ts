@@ -18,6 +18,7 @@ import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { Species } from './entities/species.entity';
+import { Batch } from '../batch/entities/batch.entity';
 
 // Handlers
 import { SpeciesHandlers } from './handlers';
@@ -27,7 +28,7 @@ import { SpeciesResolver } from './resolvers/species.resolver';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Species]),
+    TypeOrmModule.forFeature([Species, Batch]),
     CqrsModule,
   ],
   providers: [

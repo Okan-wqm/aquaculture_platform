@@ -11,7 +11,6 @@ import {
   Plus,
   Edit,
   Trash2,
-  Users,
   RefreshCw,
   AlertCircle,
   X,
@@ -20,6 +19,7 @@ import {
   Palette,
 } from 'lucide-react';
 import { PermissionCheckboxGroup } from '../components/permissions';
+import { RoleCard as SharedRoleCard } from '../components/roles/RoleCard';
 import { useFocusTrap } from '../hooks';
 import {
   useTenantRoles,
@@ -33,6 +33,7 @@ import {
   type UpdateTenantRoleInput,
   type PanelPermissions,
 } from '../hooks/useTenantRoles';
+import { logError } from '../utils/error-handling';
 
 // ============================================================================
 // Constants
@@ -208,8 +209,8 @@ const RoleModal = memo<RoleModalProps>(({
 
   // Memoize validation state
   const isSubmitDisabled = useMemo(() => {
-    return isLoading || role?.isSystem || !formData.name.trim();
-  }, [isLoading, role?.isSystem, formData.name]);
+    return isLoading || role?.isSystemRole || !formData.name.trim();
+  }, [isLoading, role?.isSystemRole, formData.name]);
 
   if (!isOpen) return null;
 
@@ -271,7 +272,7 @@ const RoleModal = memo<RoleModalProps>(({
                   onChange={handleNameChange}
                   placeholder="e.g., Supervisor, Technician"
                   required
-                  disabled={role?.isSystem}
+                  disabled={role?.isSystemRole}
                   className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100"
                 />
               </div>
@@ -349,8 +350,8 @@ const RoleModal = memo<RoleModalProps>(({
                   categories={categories}
                   value={formData.panelPermissions}
                   onChange={handlePermissionsChange}
-                  disabled={role?.isSystem}
-                  readOnly={role?.isSystem}
+                  disabled={role?.isSystemRole}
+                  readOnly={role?.isSystemRole}
                 />
               ) : (
                 <div className="p-8 text-center bg-gray-50 rounded-xl">
@@ -365,7 +366,7 @@ const RoleModal = memo<RoleModalProps>(({
 
           {/* Footer */}
           <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
-            {role?.isSystem && (
+            {role?.isSystemRole && (
               <p className="text-xs text-amber-600">
                 System roles cannot be modified
               </p>
@@ -506,95 +507,8 @@ const DeleteModal = memo<DeleteModalProps>(({
 });
 DeleteModal.displayName = 'DeleteModal';
 
-/**
- * Role card component - Memoized for performance
- */
-interface RoleCardProps {
-  role: TenantRole;
-  onEdit: (role: TenantRole) => void;
-  onDelete: (role: TenantRole) => void;
-}
-
-const RoleCard = memo<RoleCardProps>(({ role, onEdit, onDelete }) => {
-  const handleEdit = useCallback(() => {
-    onEdit(role);
-  }, [onEdit, role]);
-
-  const handleDelete = useCallback(() => {
-    onDelete(role);
-  }, [onDelete, role]);
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-100 p-5 hover:shadow-lg transition-shadow">
-      {/* Role Header */}
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div
-            className="p-2.5 rounded-xl"
-            style={{ backgroundColor: `${role.color}20` }}
-          >
-            <Shield
-              className="w-5 h-5"
-              style={{ color: role.color || '#6366F1' }}
-            />
-          </div>
-          <div>
-            <h3 className="font-semibold text-gray-900">{role.name}</h3>
-            {role.isSystem && (
-              <span className="text-xs text-amber-600 font-medium">
-                System Role
-              </span>
-            )}
-            {role.isDefault && !role.isSystem && (
-              <span className="text-xs text-green-600 font-medium flex items-center gap-1">
-                <Star className="w-3 h-3" />
-                Default
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={handleEdit}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
-            title="Edit role"
-          >
-            <Edit className="w-4 h-4" />
-          </button>
-          {!role.isSystem && (
-            <button
-              onClick={handleDelete}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-              title="Delete role"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Description */}
-      {role.description && (
-        <p className="text-sm text-gray-500 mb-4 line-clamp-2">
-          {role.description}
-        </p>
-      )}
-
-      {/* Stats */}
-      <div className="flex items-center gap-4 pt-4 border-t border-gray-100">
-        <div className="flex items-center gap-1.5 text-sm text-gray-500">
-          <Users className="w-4 h-4" />
-          <span>{role.userCount} users</span>
-        </div>
-        <div className="flex items-center gap-1.5 text-sm text-gray-500">
-          <Shield className="w-4 h-4" />
-          <span>Level {role.level}</span>
-        </div>
-      </div>
-    </div>
-  );
-});
-RoleCard.displayName = 'RoleCard';
+// PERF-009: Use shared RoleCard from components/roles instead of inline duplicate
+const RoleCard = SharedRoleCard;
 
 // ============================================================================
 // Main Component
@@ -645,7 +559,7 @@ const TenantRolesPage: React.FC = () => {
       setIsModalOpen(false);
       setEditingRole(null);
     } catch (err) {
-      console.error('Failed to save role:', err);
+      logError('TenantRolesPage.handleSave', err);
     }
   }, [editingRole, updateMutation, createMutation]);
 
@@ -656,7 +570,7 @@ const TenantRolesPage: React.FC = () => {
       await deleteMutation.mutateAsync(deletingRole.id);
       setDeletingRole(null);
     } catch (err) {
-      console.error('Failed to delete role:', err);
+      logError('TenantRolesPage.handleDelete', err);
     }
   }, [deletingRole, deleteMutation]);
 
@@ -664,7 +578,7 @@ const TenantRolesPage: React.FC = () => {
     try {
       await seedMutation.mutateAsync();
     } catch (err) {
-      console.error('Failed to seed roles:', err);
+      logError('TenantRolesPage.handleSeedRoles', err);
     }
   }, [seedMutation]);
 
@@ -755,80 +669,16 @@ const TenantRolesPage: React.FC = () => {
         </div>
       )}
 
-      {/* Roles Grid */}
+      {/* Roles Grid — PERF-009: use shared RoleCard component, no inline duplicate */}
       {roles.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {roles.map((role) => (
-            <div
+            <RoleCard
               key={role.id}
-              className="bg-white rounded-xl border border-gray-100 p-5 hover:shadow-lg transition-shadow"
-            >
-              {/* Role Header */}
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="p-2.5 rounded-xl"
-                    style={{ backgroundColor: `${role.color}20` }}
-                  >
-                    <Shield
-                      className="w-5 h-5"
-                      style={{ color: role.color || '#6366F1' }}
-                    />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{role.name}</h3>
-                    {role.isSystem && (
-                      <span className="text-xs text-amber-600 font-medium">
-                        System Role
-                      </span>
-                    )}
-                    {role.isDefault && !role.isSystem && (
-                      <span className="text-xs text-green-600 font-medium flex items-center gap-1">
-                        <Star className="w-3 h-3" />
-                        Default
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => handleOpenEdit(role)}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
-                    title="Edit role"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                  {!role.isSystem && (
-                    <button
-                      onClick={() => handleDeleteRole(role)}
-                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                      title="Delete role"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Description */}
-              {role.description && (
-                <p className="text-sm text-gray-500 mb-4 line-clamp-2">
-                  {role.description}
-                </p>
-              )}
-
-              {/* Stats */}
-              <div className="flex items-center gap-4 pt-4 border-t border-gray-100">
-                <div className="flex items-center gap-1.5 text-sm text-gray-500">
-                  <Users className="w-4 h-4" />
-                  <span>{role.userCount} users</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-sm text-gray-500">
-                  <Shield className="w-4 h-4" />
-                  <span>Level {role.level}</span>
-                </div>
-              </div>
-            </div>
+              role={role}
+              onEdit={handleOpenEdit}
+              onDelete={handleDeleteRole}
+            />
           ))}
         </div>
       ) : (

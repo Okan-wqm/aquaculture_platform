@@ -4,7 +4,7 @@
  * Shows Feed Conversion Ratio analysis across batches
  * Compares actual vs target FCR
  */
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   BarChart,
   Bar,
@@ -44,11 +44,22 @@ interface FCRAnalysisProps {
   batches: Batch[];
 }
 
+// PERF-017: Define mock historical data at module scope so it is not
+// re-created as a new array reference on every render cycle.
+const HISTORICAL_FCR_DATA = [
+  { month: 'Jan', actual: 1.18, target: 1.2 },
+  { month: 'Feb', actual: 1.22, target: 1.2 },
+  { month: 'Mar', actual: 1.15, target: 1.2 },
+  { month: 'Apr', actual: 1.19, target: 1.2 },
+  { month: 'May', actual: 1.24, target: 1.2 },
+  { month: 'Jun', actual: 1.21, target: 1.2 },
+];
+
 export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
   const [selectedMetric, setSelectedMetric] = useState<'fcr' | 'sgr'>('fcr');
 
-  // Calculate FCR for batches
-  const batchFCRData = batches.map((batch) => {
+  // Memoize FCR computations to prevent recalculation on every render (PERF-002)
+  const batchFCRData = useMemo(() => batches.map((batch) => {
     const initialBiomass = batch.weight?.initial?.totalBiomass ?? 0;
     const currentBiomass =
       batch.weight?.actual?.totalBiomass ??
@@ -74,9 +85,9 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
       currentBiomass: currentBiomass,
       fishCount: batch.currentQuantity,
     };
-  }).filter(b => b.feedConsumed > 0 || b.currentBiomass > 0);
+  }).filter(b => b.feedConsumed > 0 || b.currentBiomass > 0), [batches]);
 
-  // Calculate averages
+  // Calculate averages (memoized implicitly via batchFCRData)
   const avgActualFCR =
     batchFCRData.length > 0
       ? batchFCRData.reduce((sum, b) => sum + b.actualFCR, 0) / batchFCRData.length
@@ -100,16 +111,6 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
     if (variance <= 20) return { label: 'Below Target', color: 'text-orange-600' };
     return { label: 'Poor', color: 'text-red-600' };
   };
-
-  // Mock historical FCR data (would come from API in production)
-  const historicalData = [
-    { month: 'Jan', actual: 1.18, target: 1.2 },
-    { month: 'Feb', actual: 1.22, target: 1.2 },
-    { month: 'Mar', actual: 1.15, target: 1.2 },
-    { month: 'Apr', actual: 1.19, target: 1.2 },
-    { month: 'May', actual: 1.24, target: 1.2 },
-    { month: 'Jun', actual: 1.21, target: 1.2 },
-  ];
 
   if (batches.length === 0) {
     return (
@@ -227,7 +228,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
         <h3 className="text-lg font-medium text-gray-900 mb-4">FCR Historical Trend</h3>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={historicalData}>
+            <LineChart data={HISTORICAL_FCR_DATA}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="month" />
               <YAxis domain={[1, 1.4]} />
@@ -316,13 +317,14 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
                       {batch.targetFCR.toFixed(2)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                      {/* BUG-005: variance===0 (on-target) should be green, not gray */}
                       <span
                         className={`${
-                          batch.variance < 0
+                          batch.variance <= 0
                             ? 'text-green-600'
                             : batch.variance > 10
                             ? 'text-red-600'
-                            : 'text-gray-600'
+                            : 'text-orange-600'
                         }`}
                       >
                         {batch.variance > 0 ? '+' : ''}{batch.variance.toFixed(1)}%

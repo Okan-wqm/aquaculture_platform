@@ -139,6 +139,16 @@ const PLAN_FEATURES: Record<string, TenantFeatures> = {
     whiteLabeling: false,
     ssoEnabled: false,
   },
+  trial: {
+    advancedAnalytics: true,
+    alertEngine: true,
+    iotIntegration: true,
+    apiAccess: true,
+    customReports: false,
+    multiSite: false,
+    whiteLabeling: false,
+    ssoEnabled: false,
+  },
   starter: {
     advancedAnalytics: false,
     alertEngine: true,
@@ -184,6 +194,15 @@ const PLAN_LIMITS: Record<string, TenantLimits> = {
     maxStorageGb: 1,
     dataRetentionDays: 30,
   },
+  trial: {
+    maxUsers: 10,
+    maxFarms: 5,
+    maxPonds: 25,
+    maxSensors: 100,
+    maxApiRequests: 50000,
+    maxStorageGb: 10,
+    dataRetentionDays: 90,
+  },
   starter: {
     maxUsers: 10,
     maxFarms: 3,
@@ -222,6 +241,7 @@ export class TenantContextMiddleware implements NestMiddleware {
   private readonly logger = new Logger(TenantContextMiddleware.name);
   private readonly tenantCache = new Map<string, { tenant: TenantMetadata; expiry: number }>();
   private readonly cacheTtl: number;
+  private readonly maxCacheSize: number;
   private readonly publicPaths: string[];
 
   constructor(
@@ -229,8 +249,11 @@ export class TenantContextMiddleware implements NestMiddleware {
     @Optional() @Inject(TenantLookupService) private readonly tenantLookupService?: TenantLookupService,
   ) {
     this.cacheTtl = this.configService.get<number>('TENANT_CACHE_TTL', 300000); // 5 minutes
+    this.maxCacheSize = this.configService.get<number>('TENANT_CACHE_MAX_SIZE', 1000);
+    // SECURITY: /graphql must be public to allow login mutation via GraphQL.
+    // AuthGuard handles authentication for individual GraphQL operations.
     this.publicPaths = this.configService
-      .get<string>('TENANT_PUBLIC_PATHS', '/health,/api/v1/auth/login,/api/v1/auth/register')
+      .get<string>('TENANT_PUBLIC_PATHS', '/health,/graphql,/api/v1/auth/login,/api/v1/auth/register')
       .split(',')
       .map((p) => p.trim());
   }
@@ -284,8 +307,9 @@ export class TenantContextMiddleware implements NestMiddleware {
       tenantReq.tenantId = tenant.id;
 
       // Set response headers
+      // SECURITY: Sanitize tenant name to prevent CRLF header injection
       res.setHeader('X-Tenant-ID', tenant.id);
-      res.setHeader('X-Tenant-Name', tenant.name);
+      res.setHeader('X-Tenant-Name', tenant.name.replace(/[\r\n]/g, ''));
 
       // Run next middleware within tenant context
       tenantStorage.run(tenant, () => {
@@ -310,34 +334,55 @@ export class TenantContextMiddleware implements NestMiddleware {
 
   /**
    * Resolve tenant ID from request
+   *
+   * SECURITY: For authenticated requests, the JWT tenantId claim is the
+   * authoritative source. The X-Tenant-ID header is only used as a hint
+   * for unauthenticated/pre-auth paths where no JWT is present. This
+   * prevents tenant spoofing via header manipulation.
    */
   private resolveTenantId(req: Request): string | undefined {
-    // Priority 1: X-Tenant-ID header
-    const headerTenantId = req.headers['x-tenant-id'] as string;
-    if (headerTenantId) {
-      return headerTenantId;
-    }
+    // SECURITY: Validate UUID format to prevent injection attacks via crafted tenant IDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-    // Priority 2: JWT claim (if authenticated) - TRUSTED source
+    // Priority 1: JWT claim (if authenticated) - TRUSTED, non-spoofable source
     const user = (req as TenantContextRequest & { user?: { tenantId?: string } }).user;
     if (user?.tenantId) {
+      // Log if header disagrees with JWT for observability
+      const headerTenantId = req.headers['x-tenant-id'] as string;
+      if (headerTenantId && headerTenantId !== user.tenantId) {
+        this.logger.warn('X-Tenant-ID header mismatch with JWT claim', {
+          headerTenantId,
+          jwtTenantId: user.tenantId,
+          path: req.path,
+        });
+      }
       return user.tenantId;
     }
 
-    // SECURITY: Query parameter tenant extraction removed
-    // Allowing tenant ID from query params enables tenant spoofing attacks
-    // Tenant ID should only come from trusted sources: header (set by gateway) or JWT claim
+    // Priority 2: X-Tenant-ID header (only for unauthenticated/pre-auth requests)
+    const headerTenantId = req.headers['x-tenant-id'] as string;
+    if (headerTenantId) {
+      if (!uuidRegex.test(headerTenantId)) {
+        this.logger.warn(`Invalid X-Tenant-ID header format rejected: ${headerTenantId.substring(0, 40)}`);
+        return undefined;
+      }
+      return headerTenantId;
+    }
 
-    // Priority 3: Subdomain
+    // Priority 3: Subdomain -- not a UUID, so skip UUID validation (slug-based)
     const host = req.headers['host'] || '';
     const subdomain = this.extractSubdomain(host);
     if (subdomain && !['www', 'api', 'app'].includes(subdomain)) {
       return subdomain;
     }
 
-    // Priority 5: Path parameter
+    // Priority 4: Path parameter
     const pathMatch = req.path.match(/^\/tenants\/([^/]+)/);
-    if (pathMatch) {
+    if (pathMatch?.[1]) {
+      if (!uuidRegex.test(pathMatch[1])) {
+        this.logger.warn(`Invalid tenant ID in path rejected: ${pathMatch[1].substring(0, 40)}`);
+        return undefined;
+      }
       return pathMatch[1];
     }
 
@@ -357,17 +402,13 @@ export class TenantContextMiddleware implements NestMiddleware {
 
   /**
    * Load tenant metadata
+   * Delegates to TenantLookupService which manages its own bounded cache
+   * to avoid storing tenant metadata twice in-process.
    */
   private async loadTenant(tenantId: string): Promise<TenantMetadata | null> {
-    // Check cache
-    const cached = this.tenantCache.get(tenantId);
-    if (cached && cached.expiry > Date.now()) {
-      return cached.tenant;
-    }
-
     const isProduction = process.env['NODE_ENV'] === 'production';
 
-    // Production: Use TenantLookupService to fetch from auth-service
+    // Production: Delegate entirely to TenantLookupService (which has its own bounded cache)
     if (isProduction) {
       if (!this.tenantLookupService) {
         this.logger.error(
@@ -377,14 +418,13 @@ export class TenantContextMiddleware implements NestMiddleware {
         return null;
       }
 
-      const tenant = await this.tenantLookupService.lookupTenant(tenantId);
-      if (tenant) {
-        this.tenantCache.set(tenantId, {
-          tenant,
-          expiry: Date.now() + this.cacheTtl,
-        });
-      }
-      return tenant;
+      return this.tenantLookupService.lookupTenant(tenantId);
+    }
+
+    // Development only: use local cache for mock tenants
+    const cached = this.tenantCache.get(tenantId);
+    if (cached && cached.expiry > Date.now()) {
+      return cached.tenant;
     }
 
     // Development only: create mock tenant based on ID
@@ -395,9 +435,37 @@ export class TenantContextMiddleware implements NestMiddleware {
         tenant,
         expiry: Date.now() + this.cacheTtl,
       });
+      this.enforceCacheSizeLimit();
     }
 
     return tenant;
+  }
+
+  /**
+   * SECURITY: Enforce cache size limit to prevent unbounded memory growth.
+   * An attacker could exhaust gateway heap by sending requests with distinct random UUIDs.
+   */
+  private enforceCacheSizeLimit(): void {
+    if (this.tenantCache.size <= this.maxCacheSize) {
+      return;
+    }
+    // Remove expired entries first
+    const now = Date.now();
+    for (const [key, value] of this.tenantCache) {
+      if (value.expiry < now) {
+        this.tenantCache.delete(key);
+      }
+    }
+    // If still over limit, remove oldest entries
+    if (this.tenantCache.size > this.maxCacheSize) {
+      const entries = Array.from(this.tenantCache.entries())
+        .sort((a, b) => a[1].expiry - b[1].expiry);
+      const toRemove = entries.slice(0, entries.length - this.maxCacheSize);
+      for (const [key] of toRemove) {
+        this.tenantCache.delete(key);
+      }
+      this.logger.debug(`Tenant cache size limit enforced: removed ${toRemove.length} entries`);
+    }
   }
 
   /**

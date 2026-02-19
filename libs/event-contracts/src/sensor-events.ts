@@ -28,7 +28,7 @@ export interface SensorReadingEvent extends BaseEvent {
 export interface SensorRegisteredEvent extends BaseEvent {
   eventType: 'SensorRegistered';
   sensorId: string;
-  farmId: string;
+  farmId?: string;
   pondId?: string;
   sensorType: string;
   manufacturer?: string;
@@ -43,7 +43,6 @@ export interface SensorCalibratedEvent extends BaseEvent {
   sensorId: string;
   calibrationDate: Date;
   calibrationValues: Record<string, number>;
-  calibratedBy?: string;
   nextCalibrationDate?: Date;
 }
 
@@ -53,7 +52,7 @@ export interface SensorCalibratedEvent extends BaseEvent {
 export interface SensorOfflineEvent extends BaseEvent {
   eventType: 'SensorOffline';
   sensorId: string;
-  farmId: string;
+  farmId?: string;
   pondId?: string;
   lastReadingAt: Date;
   reason?: string;
@@ -65,7 +64,7 @@ export interface SensorOfflineEvent extends BaseEvent {
 export interface SensorOnlineEvent extends BaseEvent {
   eventType: 'SensorOnline';
   sensorId: string;
-  farmId: string;
+  farmId?: string;
   pondId?: string;
   reconnectedAt: Date;
 }
@@ -81,7 +80,6 @@ export interface SensorConnectionTestedEvent extends BaseEvent {
   latencyMs?: number;
   error?: string;
   errorCode?: string;
-  testedBy?: string;
   sampleDataReceived?: boolean;
 }
 
@@ -93,7 +91,6 @@ export interface SensorProtocolChangedEvent extends BaseEvent {
   sensorId: string;
   previousProtocol?: string;
   newProtocol: string;
-  changedBy: string;
   reason?: string;
 }
 
@@ -105,7 +102,6 @@ export interface SensorRegistrationStartedEvent extends BaseEvent {
   sensorId: string;
   sensorName: string;
   protocolCode: string;
-  registeredBy: string;
 }
 
 /**
@@ -118,7 +114,6 @@ export interface SensorRegistrationCompletedEvent extends BaseEvent {
   protocolCode: string;
   farmId?: string;
   pondId?: string;
-  registeredBy: string;
   connectionTestPassed: boolean;
 }
 
@@ -130,7 +125,6 @@ export interface SensorConfigurationUpdatedEvent extends BaseEvent {
   sensorId: string;
   protocolCode: string;
   changedFields: string[];
-  updatedBy: string;
 }
 
 /**
@@ -140,7 +134,6 @@ export interface SensorSuspendedEvent extends BaseEvent {
   eventType: 'SensorSuspended';
   sensorId: string;
   reason: string;
-  suspendedBy: string;
 }
 
 /**
@@ -149,7 +142,6 @@ export interface SensorSuspendedEvent extends BaseEvent {
 export interface SensorReactivatedEvent extends BaseEvent {
   eventType: 'SensorReactivated';
   sensorId: string;
-  reactivatedBy: string;
 }
 
 /**
@@ -159,7 +151,6 @@ export interface SensorDiscoveryStartedEvent extends BaseEvent {
   eventType: 'SensorDiscoveryStarted';
   protocolCode: string;
   networkRange?: string;
-  startedBy: string;
 }
 
 /**
@@ -175,6 +166,18 @@ export interface SensorDiscoveryCompletedEvent extends BaseEvent {
     manufacturer?: string;
     model?: string;
   }>;
+}
+
+/**
+ * Parent Reading Routed Event
+ * Published when a parent device reading is routed to child sensors
+ */
+export interface ParentReadingRoutedEvent extends BaseEvent {
+  eventType: 'ParentReadingRouted';
+  parentId: string;
+  childCount: number;
+  processedCount: number;
+  errorCount: number;
 }
 
 /**
@@ -194,4 +197,5 @@ export type SensorEvent =
   | SensorSuspendedEvent
   | SensorReactivatedEvent
   | SensorDiscoveryStartedEvent
-  | SensorDiscoveryCompletedEvent;
+  | SensorDiscoveryCompletedEvent
+  | ParentReadingRoutedEvent;

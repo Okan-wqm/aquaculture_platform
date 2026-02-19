@@ -823,9 +823,17 @@ export class AutomationService {
 
   /**
    * Unlock program
+   * Only the lock owner or a TENANT_ADMIN can unlock a program.
    */
-  async unlockProgram(id: string, tenantId: string): Promise<AutomationProgram> {
+  async unlockProgram(id: string, tenantId: string, userId?: string, isTenantAdmin?: boolean): Promise<AutomationProgram> {
     const program = await this.findByIdOrFail(id, tenantId);
+
+    // Verify the caller is the lock owner or a tenant admin performing an override
+    if (program.lockedBy && userId && program.lockedBy !== userId && !isTenantAdmin) {
+      throw new BadRequestException(
+        'Only the lock owner or a TENANT_ADMIN can unlock this program',
+      );
+    }
 
     program.isLocked = false;
     program.lockedBy = undefined;
@@ -1061,6 +1069,19 @@ export class AutomationService {
             'Target PLC address is required for Codesys PLC deployment',
           );
         }
+        // Enforce maximum ST code size to prevent MQTT/device memory exhaustion
+        if (program.structuredTextCode.length > 524288) {
+          throw new BadRequestException(
+            'Structured Text code exceeds 512 KB limit',
+          );
+        }
+        // Basic ST code validation: reject shell-like or script injection patterns
+        const dangerousPatterns = /(\bexec\b|\bsystem\b|\bimport\b|\brequire\b|<script|`|\$\()/i;
+        if (dangerousPatterns.test(program.structuredTextCode)) {
+          throw new BadRequestException(
+            'Structured Text code contains potentially unsafe patterns',
+          );
+        }
         deployCommand = {
           commandId,
           command: 'deploy_to_codesys',
@@ -1242,12 +1263,18 @@ export class AutomationService {
     ]);
 
     // Build triggers from transition conditions
-    const triggers = transitions.map((t) => ({
-      type: 'threshold',
-      source: t.conditionExpression || 'manual',
-      operator: 'eq',
-      value: true,
-    }));
+    // Validate conditionExpression against allowed sensor reference pattern
+    const SAFE_CONDITION_PATTERN = /^[a-zA-Z0-9_\-:./]+$/;
+    const triggers = transitions.map((t) => {
+      const source = t.conditionExpression || 'manual';
+      if (source !== 'manual' && !SAFE_CONDITION_PATTERN.test(source)) {
+        this.logger.warn(
+          `Transition ${t.id} has invalid conditionExpression: ${source.substring(0, 50)}... — defaulting to manual`,
+        );
+        return { type: 'threshold', source: 'manual', operator: 'eq', value: true };
+      }
+      return { type: 'threshold', source, operator: 'eq', value: true };
+    });
 
     // Build actions from steps
     const actions = steps.flatMap((step) => {
@@ -1319,8 +1346,10 @@ export class AutomationService {
   ): Array<Record<string, unknown>> {
     const functionBlocks: Array<Record<string, unknown>> = [];
 
-    // Look for timer patterns in ST code
-    const stCode = program.structuredTextCode || '';
+    // Strip IEC 61131-3 comments before applying regex to prevent comment injection
+    let stCode = program.structuredTextCode || '';
+    stCode = stCode.replace(/\(\*[\s\S]*?\*\)/g, ''); // Block comments (* ... *)
+    stCode = stCode.replace(/\/\/.*$/gm, '');           // Line comments // ...
 
     // Simple pattern matching for TON, TOF, TP
     const tonMatch = stCode.match(/(\w+)\s*:\s*TON/gi);

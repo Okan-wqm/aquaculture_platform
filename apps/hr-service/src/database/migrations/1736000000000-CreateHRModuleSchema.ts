@@ -30,7 +30,7 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
     // 3. Update employees table with new columns
     await this.updateEmployeesTable(queryRunner);
 
-    console.log('HR Module Schema created successfully');
+    // Migration complete — do not emit application-layer logs from migrations (LOW-03)
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
@@ -336,7 +336,6 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
       END $$
     `);
 
-    console.log('ENUMs created');
   }
 
   private async dropEnums(queryRunner: QueryRunner): Promise<void> {
@@ -477,7 +476,6 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
       ON "salary_structures"("tenant_id", "position_id")
     `);
 
-    console.log('Organizational tables created');
   }
 
   private async createLeaveTables(queryRunner: QueryRunner): Promise<void> {
@@ -615,7 +613,6 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
       ON "leave_requests"("tenant_id", "start_date", "end_date")
     `);
 
-    console.log('Leave tables created');
   }
 
   private async createAttendanceTables(queryRunner: QueryRunner): Promise<void> {
@@ -776,7 +773,6 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
       ON "attendance_records"("tenant_id", "status", "date")
     `);
 
-    console.log('Attendance tables created');
   }
 
   private async createTrainingTables(queryRunner: QueryRunner): Promise<void> {
@@ -992,7 +988,6 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
       ON "training_enrollments"("tenant_id", "employee_id", "status")
     `);
 
-    console.log('Training tables created');
   }
 
   private async createPerformanceTables(queryRunner: QueryRunner): Promise<void> {
@@ -1122,7 +1117,6 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
       ON "employee_kpis"("tenant_id", "employee_id")
     `);
 
-    console.log('Performance tables created');
   }
 
   private async createAquacultureTables(queryRunner: QueryRunner): Promise<void> {
@@ -1268,7 +1262,6 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
       ON "safety_training_records"("tenant_id", "valid_until") WHERE "passed" = true
     `);
 
-    console.log('Aquaculture tables created');
   }
 
   private async updateEmployeesTable(queryRunner: QueryRunner): Promise<void> {
@@ -1290,7 +1283,6 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
         await queryRunner.query(`
           ALTER TABLE "employees" ADD COLUMN "${col.name}" ${col.type}${defaultClause}
         `);
-        console.log(`Added column ${col.name} to employees table`);
       }
     }
 
@@ -1320,7 +1312,6 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
       `);
     }
 
-    console.log('Employees table updated with aquaculture fields');
   }
 
   private async columnExists(

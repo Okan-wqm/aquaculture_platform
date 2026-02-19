@@ -66,8 +66,9 @@ class SchemaLRUCache {
  * - Connection pool safety with search_path reset on response finish
  * - Fallback to shared 'hr' schema for tenants without dedicated schema
  *
- * Schema naming convention: tenant_{first8chars_of_uuid}
- * Example: tenant_4b529829 for tenantId 4b529829-ea79-48da-982c-cd6fbec8ffb7
+ * Schema naming convention: tenant_{first16chars_of_uuid_without_hyphens}
+ * Example: tenant_4b529829ea7948da for tenantId 4b529829-ea79-48da-982c-cd6fbec8ffb7
+ * Must match SchemaManagerService.getTenantSchemaName exactly.
  */
 @Injectable()
 export class TenantSchemaMiddleware implements NestMiddleware {
@@ -96,7 +97,8 @@ export class TenantSchemaMiddleware implements NestMiddleware {
         const schemaExists = await this.checkSchemaExists(tenantSchema);
 
         if (schemaExists) {
-          await this.setSearchPathSafe(tenantSchema);
+          // Include 'hr' shared schema so HR lookup tables (leave_types, etc.) are accessible
+          await this.setSearchPathSafe(tenantSchema, this.DEFAULT_SCHEMA);
           req.schemaName = tenantSchema;
         } else {
           // Fallback for existing tenants without dedicated schema
@@ -123,18 +125,28 @@ export class TenantSchemaMiddleware implements NestMiddleware {
       }
     }
 
-    // CRITICAL: Reset search_path when response finishes
-    // Prevents connection pool contamination
+    // SECURITY (MED-06): The RESET search_path calls below use the shared DataSource pool
+    // and may land on a different pooled connection than the one used for this request.
+    // Under high concurrency this can cause cross-tenant reads.
+    //
+    // Full fix: refactor to use a per-request QueryRunner (connect → SET search_path →
+    // attach to req → release on finish). That change requires updating all handlers to
+    // use req.queryRunner.manager instead of injected repositories, which is tracked as
+    // a separate refactor task.
+    //
+    // Partial mitigation applied here: issue RESET on both finish and close events so that
+    // any connection that served this request is cleaned up as quickly as possible. This
+    // does not fully eliminate the race window but reduces its duration.
     res.on('finish', () => {
       this.resetSearchPath().catch((err: unknown) => {
-        this.logger.warn(`Failed to reset search path: ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.warn(`Failed to reset search path on finish: ${err instanceof Error ? err.message : String(err)}`);
       });
     });
 
     // Also reset on connection close (client disconnect)
     res.on('close', () => {
       this.resetSearchPath().catch((err: unknown) => {
-        this.logger.warn(`Failed to reset search path: ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.warn(`Failed to reset search path on close: ${err instanceof Error ? err.message : String(err)}`);
       });
     });
 
@@ -159,15 +171,18 @@ export class TenantSchemaMiddleware implements NestMiddleware {
   }
 
   /**
-   * Set search_path with SQL injection prevention
-   * Uses parameterized query
+   * Set search_path with SQL injection prevention.
+   * Accepts one or more schema names; 'public' is always appended.
    */
-  private async setSearchPathSafe(schemaName: string): Promise<void> {
-    // Validate schema name format as additional safety
-    if (!/^[a-z0-9_]+$/.test(schemaName)) {
-      throw new BadRequestException('Invalid schema name');
+  private async setSearchPathSafe(...schemaNames: string[]): Promise<void> {
+    // Validate each schema name format as additional safety
+    for (const name of schemaNames) {
+      if (!/^[a-z0-9_]+$/.test(name)) {
+        throw new BadRequestException('Invalid schema name');
+      }
     }
-    await this.dataSource.query(`SET search_path TO "${schemaName}", public`);
+    const schemas = [...schemaNames, 'public'].map((s) => `"${s}"`).join(', ');
+    await this.dataSource.query(`SET search_path TO ${schemas}`);
   }
 
   /**

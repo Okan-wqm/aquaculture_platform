@@ -21,6 +21,7 @@ import {
   ApiType,
   S2L2ALayer,
 } from '@sentinel-hub/sentinelhub-js';
+import { graphqlClient } from '@aquaculture/shared-ui';
 
 // GraphQL query to get token from backend (proxied to avoid CORS)
 const SENTINEL_HUB_TOKEN_QUERY = `
@@ -33,46 +34,26 @@ const SENTINEL_HUB_TOKEN_QUERY = `
 `;
 
 /**
- * Request OAuth token from backend (which proxies to CDSE)
- * This avoids CORS issues since browser can't call CDSE directly
+ * Request OAuth token from backend (which proxies to CDSE).
+ * Uses graphqlClient which injects the user's auth token via shared-ui interceptors.
+ * Never reads from localStorage directly.
  */
 async function requestTokenFromBackend(): Promise<string> {
-  const authToken = localStorage.getItem('access_token');
-  if (!authToken) {
-    throw new Error('Oturum açmanız gerekiyor');
-  }
+  const data = await graphqlClient.request<{
+    sentinelHubToken: { accessToken: string; expiresIn: number };
+  }>(SENTINEL_HUB_TOKEN_QUERY);
 
-  const response = await fetch('/graphql', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${authToken}`,
-    },
-    body: JSON.stringify({ query: SENTINEL_HUB_TOKEN_QUERY }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP error: ${response.status}`);
-  }
-
-  const result = await response.json();
-
-  if (result.errors) {
-    console.error('GraphQL errors:', result.errors);
-    throw new Error(result.errors[0]?.message || 'Token alınamadı');
-  }
-
-  if (!result.data?.sentinelHubToken) {
+  if (!data.sentinelHubToken?.accessToken) {
     throw new Error('Sentinel Hub yapılandırılmamış');
   }
 
-  return result.data.sentinelHubToken.accessToken;
+  return data.sentinelHubToken.accessToken;
 }
 
-// Types
+// SentinelConfig is kept for type compatibility but the clientSecret
+// must NEVER be included — the backend proxies OAuth token exchange.
 export interface SentinelConfig {
-  clientId: string;
-  clientSecret: string;
+  clientId?: string;
 }
 
 export interface ImageParams {
@@ -338,18 +319,19 @@ async function ensureValidToken(): Promise<void> {
 }
 
 /**
- * Get satellite image for a bounding box
+ * Get satellite image for a bounding box.
+ * @param params Image request parameters
+ * @param _accessToken Optional server-issued access token (ignored — tokenManager handles auth)
  */
 export async function getSatelliteImage(
   params: ImageParams,
-  _config?: SentinelConfig  // Config is no longer needed, kept for backward compatibility
+  _accessToken?: string,
 ): Promise<Blob> {
   const cacheKey = `${params.bbox.join(',')}-${params.fromDate.toISOString()}-${params.layer}`;
 
   // Check cache
   const cached = imageCache.get(cacheKey);
   if (cached && cached.expiry > new Date()) {
-    console.log('Returning cached image for:', cacheKey);
     return cached.blob;
   }
 
@@ -389,19 +371,20 @@ export async function getSatelliteImage(
 
     return blob;
   } catch (error) {
-    console.error('Failed to get satellite image:', error);
+    if (import.meta.env.DEV) console.error('Failed to get satellite image:', error);
     throw new Error('Uydu görüntüsü alınamadı. Lütfen daha sonra tekrar deneyin.');
   }
 }
 
 /**
- * Get available satellite image dates for a location
+ * Get available satellite image dates for a location.
+ * @param _accessToken Optional — ignored, tokenManager handles auth
  */
 export async function getAvailableDates(
   bbox: [number, number, number, number],
   fromDate: Date,
   toDate: Date,
-  _config?: SentinelConfig  // Config is no longer needed, kept for backward compatibility
+  _accessToken?: string,
 ): Promise<Date[]> {
   await ensureValidToken();
 
@@ -412,7 +395,7 @@ export async function getAvailableDates(
     const dates = await layer.findDatesUTC(bboxObj, fromDate, toDate);
     return dates;
   } catch (error) {
-    console.error('Failed to get available dates:', error);
+    if (import.meta.env.DEV) console.error('Failed to get available dates:', error);
     return [];
   }
 }

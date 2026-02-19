@@ -87,9 +87,9 @@ export class SensorReading {
   quality?: number; // Data quality score 0-100
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'source', nullable: true })
   source?: string; // mqtt, http, batch
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 }

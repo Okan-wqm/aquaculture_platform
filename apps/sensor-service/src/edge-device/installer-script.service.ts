@@ -28,6 +28,8 @@ export class InstallerScriptService {
   private readonly AGENT_VERSION: string;
   private readonly MQTT_BROKER: string;
   private readonly MQTT_PORT: number;
+  /** Pinned GitHub repo — never overridden by remote config to prevent supply-chain attacks */
+  private readonly PINNED_GITHUB_REPO: string;
 
   private cachedConfig: ProvisioningConfig | null = null;
   private configCacheExpiry: Date = new Date(0);
@@ -38,11 +40,18 @@ export class InstallerScriptService {
     this.AGENT_VERSION = this.configService.get<string>('AGENT_VERSION', '1.0.0');
     this.MQTT_BROKER = this.configService.get<string>('MQTT_BROKER_HOST', 'localhost');
     this.MQTT_PORT = this.configService.get<number>('MQTT_BROKER_PORT', 1883);
+    // Pin the GitHub repo from env var to prevent the admin API from redirecting
+    // edge agent downloads to an attacker-controlled repository (MED-07)
+    this.PINNED_GITHUB_REPO = this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/sens');
   }
 
   /**
    * Get provisioning config from admin API with caching and env var fallback.
    * Cache TTL: 1 minute. If admin API is unreachable, falls back to env vars.
+   *
+   * Security: Uses a service-to-service bearer token to authenticate with the admin API.
+   * The githubRepo field from the remote response is IGNORED — the pinned env var value is
+   * always used to prevent supply-chain attacks via a compromised admin API.
    */
   async getProvisioningConfig(): Promise<ProvisioningConfig> {
     if (this.cachedConfig && this.configCacheExpiry > new Date()) {
@@ -51,9 +60,15 @@ export class InstallerScriptService {
 
     try {
       const adminApiUrl = this.configService.get<string>('ADMIN_API_URL', 'http://localhost:3010');
+      // Attach service-to-service bearer token so admin API rejects unauthenticated callers
+      const serviceToken = this.configService.get<string>('INTERNAL_SERVICE_TOKEN', '');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (serviceToken) {
+        headers['Authorization'] = `Bearer ${serviceToken}`;
+      }
       const response = await fetch(`${adminApiUrl}/system/settings/provisioning-config`, {
         signal: AbortSignal.timeout(5000),
-        headers: { 'Content-Type': 'application/json' },
+        headers,
       });
 
       if (response.ok) {
@@ -70,8 +85,9 @@ export class InstallerScriptService {
           mqttBroker: config.mqttBrokerHost ?? this.MQTT_BROKER,
           mqttPort: config.mqttBrokerPort ?? this.MQTT_PORT,
           agentVersion: config.agentDefaultVersion ?? this.AGENT_VERSION,
-          githubRepo: config.githubRepo ?? this.configService.get('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/sens'),
-          githubReleaseUrl: config.githubReleaseUrl ?? 'https://github.com/Okan-wqm/sens/releases',
+          // Always use the pinned value — never trust the remote config for the repo URL
+          githubRepo: this.PINNED_GITHUB_REPO,
+          githubReleaseUrl: `https://github.com/${this.PINNED_GITHUB_REPO}/releases`,
         };
         this.configCacheExpiry = new Date(Date.now() + this.CONFIG_CACHE_TTL_MS);
         return this.cachedConfig;
@@ -86,8 +102,9 @@ export class InstallerScriptService {
       mqttBroker: this.MQTT_BROKER,
       mqttPort: this.MQTT_PORT,
       agentVersion: this.AGENT_VERSION,
-      githubRepo: this.configService.get('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/sens'),
-      githubReleaseUrl: `https://github.com/${this.configService.get('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/sens')}/releases`,
+      // Always use the pinned repo, even in fallback path
+      githubRepo: this.PINNED_GITHUB_REPO,
+      githubReleaseUrl: `https://github.com/${this.PINNED_GITHUB_REPO}/releases`,
     };
     this.cachedConfig = fallbackConfig;
     this.configCacheExpiry = new Date(Date.now() + 15000); // 15s TTL for fallback

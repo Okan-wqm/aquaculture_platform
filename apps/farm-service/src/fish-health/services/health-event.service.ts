@@ -142,10 +142,12 @@ export class HealthEventService {
     const offset = filter?.offset ?? 0;
     query.skip(offset).take(limit);
 
-    // Apply sorting
+    // Apply sorting with allowlist to prevent SQL injection
     const sortBy = filter?.sortBy ?? 'eventDate';
     const sortDir = filter?.sortDirection ?? 'DESC';
-    query.orderBy(`he.${sortBy}`, sortDir);
+    const validSortFields = ['eventDate', 'type', 'severity', 'status', 'createdAt', 'updatedAt'];
+    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'eventDate';
+    query.orderBy(`he.${safeSortBy}`, sortDir);
 
     const items = await query.getMany();
 

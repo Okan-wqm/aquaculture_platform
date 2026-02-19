@@ -104,6 +104,10 @@ export const DAILY_FEEDING_EXECUTION_FRAGMENT = gql`
 /**
  * Yemleme programlarini listele
  * Filter ve pagination destekli
+ *
+ * MED-06: List query uses FeedingProgramBasic to avoid over-fetching sensitive
+ * feedAssignments / fcrTable / settings JSON blobs. Use FEEDING_PROGRAM_QUERY
+ * (single-item) when the full detail view is needed.
  */
 export const FEEDING_PROGRAMS_QUERY = gql`
   query FeedingPrograms(
@@ -112,7 +116,7 @@ export const FEEDING_PROGRAMS_QUERY = gql`
   ) {
     feedingPrograms(filter: $filter, pagination: $pagination) {
       items {
-        ...FeedingProgramFull
+        ...FeedingProgramBasic
         tanks {
           ...FeedingProgramTankFull
         }
@@ -123,7 +127,7 @@ export const FEEDING_PROGRAMS_QUERY = gql`
       hasMore
     }
   }
-  ${FEEDING_PROGRAM_FULL_FRAGMENT}
+  ${FEEDING_PROGRAM_BASIC_FRAGMENT}
   ${FEEDING_PROGRAM_TANK_FRAGMENT}
 `;
 

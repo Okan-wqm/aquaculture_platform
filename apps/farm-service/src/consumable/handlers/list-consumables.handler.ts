@@ -54,7 +54,10 @@ export class ListConsumablesHandler implements IQueryHandler<ListConsumablesQuer
       );
     }
 
-    queryBuilder.orderBy(`consumable.${sortBy}`, sortOrder);
+    // Apply sorting with allowlist to prevent SQL injection
+    const validSortFields = ['name', 'code', 'category', 'status', 'brand', 'createdAt', 'updatedAt'];
+    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    queryBuilder.orderBy(`consumable.${safeSortBy}`, sortOrder);
     queryBuilder.skip((page - 1) * limit);
     queryBuilder.take(limit);
 

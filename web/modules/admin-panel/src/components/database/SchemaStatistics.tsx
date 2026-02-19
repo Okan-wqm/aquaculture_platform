@@ -11,6 +11,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Alert } from '@aquaculture/shared-ui';
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 
 // ============================================================================
 // Types
@@ -53,12 +54,13 @@ interface TableCategory {
 const API_BASE = '/api/database/explorer';
 
 const getAuthHeader = (): Record<string, string> => {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
 async function fetchSchemaStatistics(schema: string): Promise<SchemaStatisticsData> {
   const response = await fetch(`${API_BASE}/schemas/${schema}/statistics`, {
+    credentials: 'include',
     headers: { ...getAuthHeader() },
   });
   if (!response.ok) {
@@ -501,8 +503,8 @@ export const SchemaStatistics: React.FC<SchemaStatisticsProps> = ({ schema, sche
   };
 
   const handleExportSchema = () => {
-    // Export schema - placeholder alert
-    alert(`Export schema functionality is not yet implemented for schema: ${schema}`);
+    // Export schema - not yet implemented
+    console.warn(`Export schema not yet implemented for schema: ${schema}`);
   };
 
   if (loading) {

@@ -1,5 +1,7 @@
 # =============================================================================
 # Aquaculture Platform - Kubernetes Namespace
+# SEC-006: Pod Security admission labels enforcing restricted profile
+# SEC-016: ResourceQuota and LimitRange
 # =============================================================================
 apiVersion: v1
 kind: Namespace
@@ -8,3 +10,59 @@ metadata:
   labels:
     app.kubernetes.io/name: aquaculture
     app.kubernetes.io/managed-by: kustomize
+    # SEC-006: enforce Pod Security Standards restricted profile
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+
+---
+# SEC-016: ResourceQuota — prevent unbounded resource consumption
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: aquaculture-quota
+  namespace: aquaculture
+spec:
+  hard:
+    # Compute
+    requests.cpu: "10"
+    requests.memory: "20Gi"
+    limits.cpu: "40"
+    limits.memory: "80Gi"
+    # Pod count
+    pods: "100"
+    # Services
+    services: "30"
+    # Storage
+    persistentvolumeclaims: "20"
+    requests.storage: "100Gi"
+    # Secrets and ConfigMaps
+    secrets: "50"
+    configmaps: "30"
+
+---
+# SEC-016: LimitRange — default requests/limits for containers without explicit values
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: aquaculture-limits
+  namespace: aquaculture
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "500m"
+        memory: "512Mi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "128Mi"
+      max:
+        cpu: "4"
+        memory: "8Gi"
+      min:
+        cpu: "10m"
+        memory: "32Mi"
+    - type: Pod
+      max:
+        cpu: "8"
+        memory: "16Gi"

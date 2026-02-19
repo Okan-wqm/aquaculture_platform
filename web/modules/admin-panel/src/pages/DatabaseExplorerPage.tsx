@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Input, Badge, Alert, Modal } from '@aquaculture/shared-ui';
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 
 // ============================================================================
 // Types
@@ -62,12 +63,13 @@ interface TableData {
 const API_BASE = '/api/database/explorer';
 
 const getAuthHeader = (): Record<string, string> => {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
 async function fetchSchemas(): Promise<string[]> {
   const response = await fetch(`${API_BASE}/schemas`, {
+    credentials: 'include',
     headers: { ...getAuthHeader() },
   });
   if (!response.ok) throw new Error('Failed to fetch schemas');
@@ -77,6 +79,7 @@ async function fetchSchemas(): Promise<string[]> {
 
 async function fetchTables(schema: string): Promise<TableInfo[]> {
   const response = await fetch(`${API_BASE}/schemas/${schema}/tables`, {
+    credentials: 'include',
     headers: { ...getAuthHeader() },
   });
   if (!response.ok) throw new Error('Failed to fetch tables');
@@ -103,7 +106,7 @@ async function fetchTableData(
 
   const response = await fetch(
     `${API_BASE}/schemas/${schema}/tables/${table}/data?${params}`,
-    { headers: { ...getAuthHeader() } }
+    { credentials: 'include', headers: { ...getAuthHeader() } }
   );
   if (!response.ok) throw new Error('Failed to fetch table data');
   const json = await response.json();
@@ -117,6 +120,7 @@ async function insertRow(
 ): Promise<Record<string, unknown>> {
   const response = await fetch(`${API_BASE}/schemas/${schema}/tables/${table}/rows`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...getAuthHeader(),
@@ -141,6 +145,7 @@ async function updateRow(
     `${API_BASE}/schemas/${schema}/tables/${table}/rows/${id}`,
     {
       method: 'PUT',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         ...getAuthHeader(),
@@ -165,6 +170,7 @@ async function deleteRow(
     `${API_BASE}/schemas/${schema}/tables/${table}/rows/${id}`,
     {
       method: 'DELETE',
+      credentials: 'include',
       headers: { ...getAuthHeader() },
     }
   );
@@ -189,7 +195,7 @@ async function exportTableData(
 
   const response = await fetch(
     `${API_BASE}/schemas/${schema}/tables/${table}/export?${params}`,
-    { headers: { ...getAuthHeader() } }
+    { credentials: 'include', headers: { ...getAuthHeader() } }
   );
 
   if (!response.ok) {
@@ -286,8 +292,21 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
   }, [isOpen, columns, row]);
 
   const handleSave = async () => {
-    setSaving(true);
     setError(null);
+
+    // Validate required fields before submitting (BUG-015)
+    if (mode === 'create') {
+      const missingFields = columns.filter(
+        (col) => !col.isNullable && !col.columnDefault && (formData[col.columnName] || '').trim() === ''
+          && !col.columnDefault?.includes('gen_random_uuid') && !col.columnDefault?.includes('nextval')
+      );
+      if (missingFields.length > 0) {
+        setError(`Required fields missing: ${missingFields.map((c) => c.columnName).join(', ')}`);
+        return;
+      }
+    }
+
+    setSaving(true);
 
     try {
       // Parse values based on data types
@@ -349,7 +368,9 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
       )}
 
       <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-        {columns.map((col) => (
+        {columns.map((col) => {
+          const isSensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
+          return (
           <div key={col.columnName}>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {col.columnName}
@@ -363,22 +384,33 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
                   FK
                 </Badge>
               )}
+              {isSensitive && (
+                <Badge variant="error" className="ml-1">
+                  Sensitive
+                </Badge>
+              )}
               {!col.isNullable && !col.columnDefault && (
                 <span className="text-red-500 ml-1">*</span>
               )}
             </label>
-            <Input
-              value={formData[col.columnName] || ''}
-              onChange={(e) =>
-                setFormData({ ...formData, [col.columnName]: e.target.value })
-              }
-              placeholder={col.columnDefault || col.dataType}
-              disabled={
-                mode === 'edit' &&
-                col.isPrimaryKey &&
-                col.columnDefault?.includes('gen_random_uuid')
-              }
-            />
+            {isSensitive ? (
+              <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-400 italic">
+                [Sensitive field — not shown for security. Clear to unset.]
+              </div>
+            ) : (
+              <Input
+                value={formData[col.columnName] || ''}
+                onChange={(e) =>
+                  setFormData({ ...formData, [col.columnName]: e.target.value })
+                }
+                placeholder={col.columnDefault || col.dataType}
+                disabled={
+                  mode === 'edit' &&
+                  col.isPrimaryKey &&
+                  col.columnDefault?.includes('gen_random_uuid')
+                }
+              />
+            )}
             <div className="flex items-center gap-2 mt-1">
               <Badge variant={getDataTypeBadgeColor(col.dataType)}>
                 {col.dataType}
@@ -393,7 +425,8 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
@@ -497,6 +530,8 @@ const DatabaseExplorerPage: React.FC = () => {
 
   // Handlers
   const handleTableSelect = (tableName: string) => {
+    // All four setState calls are inside a React event handler — React 18 batches them
+    // automatically into a single render, preventing multiple loadTableData triggers (PERF-004)
     setSelectedTable(tableName);
     setPage(1);
     setOrderBy(undefined);

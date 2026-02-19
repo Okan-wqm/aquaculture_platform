@@ -18,16 +18,32 @@ import {
   MaxFileSizeValidator,
   FileTypeValidator,
   BadRequestException,
+  UnauthorizedException,
+  ForbiddenException,
   NotFoundException,
+  InternalServerErrorException,
   Logger,
   Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { MinioClientService, UploadResult } from '@platform/storage';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiOperation,
+  ApiBody,
+  ApiParam,
+  ApiOkResponse,
+  ApiCreatedResponse,
+} from '@nestjs/swagger';
+import { MinioClientService } from '@platform/storage';
 import { Request } from 'express';
+import {
+  ApiStandardErrors,
+  ApiNotFoundError,
+} from '@platform/shared';
 
 import { AuthGuard, AuthenticatedRequest } from '../guards/auth.guard';
-
 import {
   UploadBatchDocumentDto,
   BatchDocumentCategory,
@@ -36,6 +52,53 @@ import {
   UploadChemicalDocumentDto,
   ChemicalDocumentType,
 } from './dto/upload-chemical-document.dto';
+
+/**
+ * SECURITY: Magic byte signatures for allowed file types.
+ * Validates actual file content rather than trusting client-supplied MIME type,
+ * which can be spoofed to upload malicious files (e.g., HTML with JS, PHP scripts).
+ */
+const FILE_MAGIC_BYTES: { ext: string; signatures: Buffer[] }[] = [
+  { ext: 'pdf',  signatures: [Buffer.from([0x25, 0x50, 0x44, 0x46])] }, // %PDF
+  { ext: 'png',  signatures: [Buffer.from([0x89, 0x50, 0x4E, 0x47])] }, // .PNG
+  { ext: 'jpg',  signatures: [Buffer.from([0xFF, 0xD8, 0xFF])] },       // JPEG SOI
+  { ext: 'jpeg', signatures: [Buffer.from([0xFF, 0xD8, 0xFF])] },
+  // DOC/DOCX/XLS/XLSX are OLE2 or ZIP-based (OOXML)
+  { ext: 'doc',  signatures: [Buffer.from([0xD0, 0xCF, 0x11, 0xE0])] }, // OLE2 Compound
+  { ext: 'xls',  signatures: [Buffer.from([0xD0, 0xCF, 0x11, 0xE0])] },
+  { ext: 'docx', signatures: [Buffer.from([0x50, 0x4B, 0x03, 0x04])] }, // ZIP (OOXML)
+  { ext: 'xlsx', signatures: [Buffer.from([0x50, 0x4B, 0x03, 0x04])] },
+];
+
+/**
+ * SECURITY: Validate file content matches claimed type using magic bytes.
+ * Returns true if the file buffer matches any known signature for allowed types.
+ */
+function validateFileMagicBytes(buffer: Buffer): boolean {
+  if (buffer.length < 4) return false;
+  return FILE_MAGIC_BYTES.some(({ signatures }) =>
+    signatures.some((sig) => buffer.subarray(0, sig.length).equals(sig)),
+  );
+}
+
+/**
+ * SECURITY: Sanitize filename to prevent path injection and extension confusion.
+ * - Extracts only the last extension after the final dot
+ * - Rejects null bytes and multiple extensions
+ * - Returns lowercase, alphanumeric extension only
+ */
+function sanitizeFileExtension(originalname: string): string {
+  // Reject null bytes
+  if (originalname.includes('\0')) {
+    throw new BadRequestException('Invalid filename: null bytes not allowed');
+  }
+  // Extract only the final extension
+  const parts = originalname.split('.');
+  if (parts.length < 2) return 'bin';
+  const ext = (parts.pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!ext) return 'bin';
+  return ext;
+}
 
 /**
  * Multer file interface
@@ -52,10 +115,14 @@ interface MulterFile {
 /**
  * Response for chemical document upload
  */
-interface ChemicalDocumentUploadResponse extends UploadResult {
+interface ChemicalDocumentUploadResponse {
   documentId: string;
   documentName: string;
   documentType: ChemicalDocumentType;
+  path: string;
+  etag: string;
+  size: number;
+  contentType: string;
   uploadedAt: string;
   uploadedBy: string;
 }
@@ -63,15 +130,21 @@ interface ChemicalDocumentUploadResponse extends UploadResult {
 /**
  * Response for batch document upload
  */
-interface BatchDocumentUploadResponse extends UploadResult {
+interface BatchDocumentUploadResponse {
   documentId: string;
   documentName: string;
   documentCategory: BatchDocumentCategory;
   documentNumber?: string;
+  path: string;
+  etag: string;
+  size: number;
+  contentType: string;
   uploadedAt: string;
   uploadedBy: string;
 }
 
+@ApiTags('Upload')
+@ApiBearerAuth()
 @Controller('upload')
 @UseGuards(AuthGuard)
 export class UploadController {
@@ -85,6 +158,37 @@ export class UploadController {
    */
   @Post('chemical-document')
   @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Upload a document for a chemical', description: 'Accepts PDF, DOC, DOCX, XLS, XLSX, PNG, JPG, JPEG files up to 10 MB.' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file', 'chemicalId', 'documentName', 'documentType'],
+      properties: {
+        file: { type: 'string', format: 'binary', description: 'File to upload (max 10 MB)' },
+        chemicalId: { type: 'string', format: 'uuid', description: 'UUID of the chemical this document belongs to' },
+        documentName: { type: 'string', maxLength: 255, description: 'Display name for the document' },
+        documentType: { type: 'string', enum: ['msds', 'label', 'protocol', 'certificate', 'other'], description: 'Category of the chemical document' },
+      },
+    },
+  })
+  @ApiCreatedResponse({
+    description: 'Document uploaded successfully',
+    schema: {
+      properties: {
+        documentId: { type: 'string', format: 'uuid' },
+        documentName: { type: 'string' },
+        documentType: { type: 'string' },
+        path: { type: 'string', description: 'Storage path — use with /upload/presigned-url to get a download link' },
+        etag: { type: 'string' },
+        size: { type: 'number' },
+        contentType: { type: 'string' },
+        uploadedAt: { type: 'string', format: 'date-time' },
+        uploadedBy: { type: 'string' },
+      },
+    },
+  })
+  @ApiStandardErrors()
   async uploadChemicalDocument(
     @UploadedFile(
       new ParseFilePipe({
@@ -102,14 +206,22 @@ export class UploadController {
     const user = authReq.user;
 
     if (!user) {
-      throw new BadRequestException('User not authenticated');
+      throw new UnauthorizedException('Authentication required');
     }
 
     const tenantId = user.tenantId;
     const userId = user.sub;
 
     if (!tenantId) {
-      throw new BadRequestException('Tenant context required');
+      throw new ForbiddenException('Tenant context required');
+    }
+
+    // SECURITY: Validate file content via magic bytes, not just MIME type header
+    // Client-supplied Content-Type can be spoofed to upload malicious files
+    if (!validateFileMagicBytes(file.buffer)) {
+      throw new BadRequestException(
+        'Invalid file content: file does not match any allowed type (pdf, doc, docx, xls, xlsx, png, jpg, jpeg)',
+      );
     }
 
     this.logger.log(
@@ -120,7 +232,8 @@ export class UploadController {
     const documentId = randomUUID();
 
     // Create a unique filename with the document ID
-    const fileExtension = file.originalname.split('.').pop() || 'pdf';
+    // SECURITY: Sanitize extension to prevent path injection and extension confusion
+    const fileExtension = sanitizeFileExtension(file.originalname);
     const safeDocName = body.documentName.replace(/[^a-zA-Z0-9-_]/g, '_');
     const filename = `${documentId}_${safeDocName}.${fileExtension}`;
 
@@ -151,10 +264,13 @@ export class UploadController {
       );
 
       return {
-        ...uploadResult,
         documentId,
         documentName: body.documentName,
         documentType: body.documentType,
+        path: uploadResult.path,
+        etag: uploadResult.etag,
+        size: uploadResult.size,
+        contentType: uploadResult.contentType,
         uploadedAt: now,
         uploadedBy: userId,
       };
@@ -162,15 +278,22 @@ export class UploadController {
       this.logger.error(
         `Failed to upload document for chemical ${body.chemicalId}: ${error instanceof Error ? error.message : String(error)}`,
       );
-      throw new BadRequestException('Failed to upload document');
+      throw new InternalServerErrorException('Document storage temporarily unavailable');
     }
   }
 
   /**
    * Delete a document from a chemical
-   * DELETE /upload/chemical-document/:chemicalId/:documentId
+   * DELETE /upload/chemical-document/:chemicalId/:documentId/:filename
    */
   @Delete('chemical-document/:chemicalId/:documentId/:filename')
+  @ApiOperation({ summary: 'Delete a chemical document' })
+  @ApiParam({ name: 'chemicalId', type: 'string', format: 'uuid', description: 'UUID of the chemical' })
+  @ApiParam({ name: 'documentId', type: 'string', format: 'uuid', description: 'UUID of the document to delete' })
+  @ApiParam({ name: 'filename', type: 'string', description: 'Filename as returned by the upload endpoint' })
+  @ApiOkResponse({ schema: { properties: { success: { type: 'boolean', example: true }, message: { type: 'string' } } } })
+  @ApiStandardErrors()
+  @ApiNotFoundError('Document')
   async deleteChemicalDocument(
     @Param('chemicalId') chemicalId: string,
     @Param('documentId') documentId: string,
@@ -181,13 +304,19 @@ export class UploadController {
     const user = authReq.user;
 
     if (!user) {
-      throw new BadRequestException('User not authenticated');
+      throw new UnauthorizedException('Authentication required');
     }
 
     const tenantId = user.tenantId;
 
     if (!tenantId) {
-      throw new BadRequestException('Tenant context required');
+      throw new ForbiddenException('Tenant context required');
+    }
+
+    // SECURITY: Validate filename starts with documentId to prevent
+    // deleting arbitrary files by manipulating the filename parameter
+    if (!filename.startsWith(documentId + '_')) {
+      throw new BadRequestException('Invalid filename: must match the document ID');
     }
 
     this.logger.log(
@@ -228,7 +357,7 @@ export class UploadController {
       this.logger.error(
         `Failed to delete document ${documentId} from chemical ${chemicalId}: ${error instanceof Error ? error.message : String(error)}`,
       );
-      throw new BadRequestException('Failed to delete document');
+      throw new InternalServerErrorException('Document storage temporarily unavailable');
     }
   }
 
@@ -238,6 +367,43 @@ export class UploadController {
    */
   @Post('batch-document')
   @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Upload a document for a batch', description: 'Accepts PDF, DOC, DOCX, PNG, JPG, JPEG files up to 15 MB.' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file', 'documentName', 'documentCategory'],
+      properties: {
+        file: { type: 'string', format: 'binary', description: 'File to upload (max 15 MB)' },
+        documentName: { type: 'string', description: 'Display name for the document' },
+        documentCategory: {
+          type: 'string',
+          enum: ['health_certificate', 'import_document', 'origin_certificate', 'quarantine_permit', 'transport_document', 'veterinary_certificate', 'customs_declaration', 'other'],
+          description: 'Category of the batch document',
+        },
+        documentNumber: { type: 'string', description: 'Optional reference number for the document' },
+        batchId: { type: 'string', format: 'uuid', description: 'Optional batch UUID — document is stored in temp location if omitted' },
+      },
+    },
+  })
+  @ApiCreatedResponse({
+    description: 'Document uploaded successfully',
+    schema: {
+      properties: {
+        documentId: { type: 'string', format: 'uuid' },
+        documentName: { type: 'string' },
+        documentCategory: { type: 'string' },
+        documentNumber: { type: 'string' },
+        path: { type: 'string', description: 'Storage path — use with /upload/presigned-url to get a download link' },
+        etag: { type: 'string' },
+        size: { type: 'number' },
+        contentType: { type: 'string' },
+        uploadedAt: { type: 'string', format: 'date-time' },
+        uploadedBy: { type: 'string' },
+      },
+    },
+  })
+  @ApiStandardErrors()
   async uploadBatchDocument(
     @UploadedFile(
       new ParseFilePipe({
@@ -255,14 +421,21 @@ export class UploadController {
     const user = authReq.user;
 
     if (!user) {
-      throw new BadRequestException('User not authenticated');
+      throw new UnauthorizedException('Authentication required');
     }
 
     const tenantId = user.tenantId;
     const userId = user.sub;
 
     if (!tenantId) {
-      throw new BadRequestException('Tenant context required');
+      throw new ForbiddenException('Tenant context required');
+    }
+
+    // SECURITY: Validate file content via magic bytes, not just MIME type header
+    if (!validateFileMagicBytes(file.buffer)) {
+      throw new BadRequestException(
+        'Invalid file content: file does not match any allowed type (pdf, doc, docx, png, jpg, jpeg)',
+      );
     }
 
     this.logger.log(
@@ -273,7 +446,8 @@ export class UploadController {
     const documentId = randomUUID();
 
     // Create a unique filename with the document ID
-    const fileExtension = file.originalname.split('.').pop() || 'pdf';
+    // SECURITY: Sanitize extension to prevent path injection and extension confusion
+    const fileExtension = sanitizeFileExtension(file.originalname);
     const safeDocName = body.documentName.replace(/[^a-zA-Z0-9-_]/g, '_');
     const filename = `${documentId}_${safeDocName}.${fileExtension}`;
 
@@ -308,11 +482,14 @@ export class UploadController {
       );
 
       return {
-        ...uploadResult,
         documentId,
         documentName: body.documentName,
         documentCategory: body.documentCategory,
         documentNumber: body.documentNumber,
+        path: uploadResult.path,
+        etag: uploadResult.etag,
+        size: uploadResult.size,
+        contentType: uploadResult.contentType,
         uploadedAt: now,
         uploadedBy: userId,
       };
@@ -320,7 +497,7 @@ export class UploadController {
       this.logger.error(
         `Failed to upload batch document: ${error instanceof Error ? error.message : String(error)}`,
       );
-      throw new BadRequestException('Failed to upload document');
+      throw new InternalServerErrorException('Document storage temporarily unavailable');
     }
   }
 
@@ -329,6 +506,13 @@ export class UploadController {
    * DELETE /upload/batch-document/:entityId/:documentId/:filename
    */
   @Delete('batch-document/:entityId/:documentId/:filename')
+  @ApiOperation({ summary: 'Delete a batch document' })
+  @ApiParam({ name: 'entityId', type: 'string', description: 'Batch UUID or temp entity ID from the upload response path' })
+  @ApiParam({ name: 'documentId', type: 'string', format: 'uuid', description: 'UUID of the document to delete' })
+  @ApiParam({ name: 'filename', type: 'string', description: 'Filename as returned by the upload endpoint' })
+  @ApiOkResponse({ schema: { properties: { success: { type: 'boolean', example: true }, message: { type: 'string' } } } })
+  @ApiStandardErrors()
+  @ApiNotFoundError('Document')
   async deleteBatchDocument(
     @Param('entityId') entityId: string,
     @Param('documentId') documentId: string,
@@ -339,13 +523,19 @@ export class UploadController {
     const user = authReq.user;
 
     if (!user) {
-      throw new BadRequestException('User not authenticated');
+      throw new UnauthorizedException('Authentication required');
     }
 
     const tenantId = user.tenantId;
 
     if (!tenantId) {
-      throw new BadRequestException('Tenant context required');
+      throw new ForbiddenException('Tenant context required');
+    }
+
+    // SECURITY: Validate filename starts with documentId to prevent
+    // deleting arbitrary files by manipulating the filename parameter
+    if (!filename.startsWith(documentId + '_')) {
+      throw new BadRequestException('Invalid filename: must match the document ID');
     }
 
     this.logger.log(
@@ -386,7 +576,7 @@ export class UploadController {
       this.logger.error(
         `Failed to delete batch document ${documentId}: ${error instanceof Error ? error.message : String(error)}`,
       );
-      throw new BadRequestException('Failed to delete document');
+      throw new InternalServerErrorException('Document storage temporarily unavailable');
     }
   }
 
@@ -395,6 +585,33 @@ export class UploadController {
    * POST /upload/presigned-url
    */
   @Post('presigned-url')
+  @ApiOperation({
+    summary: 'Generate a presigned download URL for a stored document',
+    description:
+      'Returns a time-limited presigned URL for client-side file download. ' +
+      'The `path` must be a storage path returned by an upload endpoint and must belong to the authenticated tenant. ' +
+      'Maximum expiry is 86400 seconds (24 hours).',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['path'],
+      properties: {
+        path: { type: 'string', description: 'Storage path as returned by the upload endpoint (format: {tenantId}/{entityType}/{entityId}/{filename})' },
+        expirySeconds: { type: 'number', minimum: 1, maximum: 86400, default: 3600, description: 'URL validity duration in seconds (default: 3600, max: 86400)' },
+      },
+    },
+  })
+  @ApiOkResponse({
+    description: 'Presigned URL generated successfully',
+    schema: {
+      properties: {
+        url: { type: 'string', format: 'uri', description: 'Time-limited presigned download URL' },
+        expiresAt: { type: 'string', format: 'date-time', description: 'UTC timestamp when the URL expires' },
+      },
+    },
+  })
+  @ApiStandardErrors()
   async getPresignedUrl(
     @Body() body: { path: string; expirySeconds?: number },
     @Req() req: Request,
@@ -403,32 +620,51 @@ export class UploadController {
     const user = authReq.user;
 
     if (!user) {
-      throw new BadRequestException('User not authenticated');
+      throw new UnauthorizedException('Authentication required');
     }
 
     const tenantId = user.tenantId;
+
+    if (!tenantId) {
+      throw new ForbiddenException('Tenant context required');
+    }
+
     const requestedPath = body.path;
 
-    // SECURITY: Path traversal prevention
-    // Block any path containing ".." to prevent directory traversal attacks
-    if (requestedPath.includes('..')) {
+    // SECURITY: URL-decode the path BEFORE traversal checks
+    // to prevent %2e%2e bypasses
+    let decodedPath: string;
+    try {
+      decodedPath = decodeURIComponent(requestedPath);
+    } catch {
+      throw new BadRequestException('Invalid path: malformed URL encoding');
+    }
+
+    // SECURITY: Block null bytes that could be used for path injection
+    if (decodedPath.includes('\0')) {
+      throw new BadRequestException('Invalid path: null bytes not allowed');
+    }
+
+    // SECURITY: Path traversal prevention (after URL-decode)
+    if (decodedPath.includes('..')) {
       this.logger.warn(
         `SECURITY: Path traversal attempt detected for tenant ${tenantId}: ${requestedPath}`,
       );
       throw new BadRequestException('Invalid path: path traversal not allowed');
     }
 
-    // SECURITY: Block null bytes that could be used for path injection
-    if (requestedPath.includes('\0')) {
-      throw new BadRequestException('Invalid path: null bytes not allowed');
-    }
+    // SECURITY: Normalize the path
+    const normalizedPath = decodedPath.replace(/\/+/g, '/').replace(/^\//, '');
 
-    // SECURITY: Normalize and validate the path
-    const normalizedPath = requestedPath.replace(/\/+/g, '/').replace(/^\//, '');
+    // SECURITY: Validate path structure matches {tenantId}/{entityType}/{entityId}/{filename}
+    const pathPattern = /^[\w-]+\/[\w-]+\/[\w-]+\/[\w._-]+$/;
+    if (!pathPattern.test(normalizedPath)) {
+      throw new BadRequestException('Invalid path: must match {tenantId}/{entityType}/{entityId}/{filename}');
+    }
 
     // Ensure the path belongs to the tenant (security check)
     if (!normalizedPath.startsWith(tenantId + '/')) {
-      throw new BadRequestException('Access denied to this resource');
+      throw new ForbiddenException('Access denied to this resource');
     }
 
     const expirySeconds = Math.min(body.expirySeconds || 3600, 86400); // Max 24 hours
@@ -443,7 +679,7 @@ export class UploadController {
       return { url, expiresAt };
     } catch (error) {
       this.logger.error(`Failed to generate presigned URL: ${error instanceof Error ? error.message : String(error)}`);
-      throw new BadRequestException('Failed to generate download URL');
+      throw new InternalServerErrorException('Failed to generate download URL');
     }
   }
 }

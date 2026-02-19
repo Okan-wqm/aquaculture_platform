@@ -18,7 +18,7 @@ export class GetLeaveTypesHandler implements IQueryHandler<GetLeaveTypesQuery> {
       .createQueryBuilder('lt')
       .where('lt.tenantId = :tenantId', { tenantId })
       .andWhere('lt.isDeleted = false')
-      .orderBy('lt.displayOrder', 'ASC')
+      .orderBy('lt.sortOrder', 'ASC')
       .addOrderBy('lt.name', 'ASC');
 
     if (isActive !== undefined) {

@@ -1,6 +1,8 @@
 import { Resolver, Query, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
+import { Roles, Role } from '@platform/backend-common';
+import { RolesGuard } from '../common/guards/roles.guard';
 import { QueryBus } from '@nestjs/cqrs';
 import { WorkArea, WorkAreaType } from './entities/work-area.entity';
 import { WorkRotation, RotationStatus } from './entities/work-rotation.entity';
@@ -49,12 +51,11 @@ class WorkRotationConnection {
   hasMore!: boolean;
 }
 
+// SECURITY: Context only exposes JWT-verified user fields.
+// Do NOT add x-tenant-id or x-user-id headers here — those are attacker-controlled
+// and must never be used directly (LOW-01).
 interface GraphQLContext {
   req: {
-    headers: {
-      'x-tenant-id'?: string;
-      'x-user-id'?: string;
-    };
     user?: {
       sub: string;
       tenantId: string;
@@ -120,6 +121,8 @@ export class AquacultureResolver {
   // Work Rotation Queries
   // =====================
   @Query(() => WorkRotationConnection, { name: 'workRotations' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getWorkRotations(
     @Context() context: GraphQLContext,
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
@@ -152,6 +155,8 @@ export class AquacultureResolver {
   }
 
   @Query(() => [Employee], { name: 'currentlyOffshore' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getCurrentlyOffshore(
     @Context() context: GraphQLContext,
     @Args('workAreaId', { type: () => ID, nullable: true }) workAreaId?: string,

@@ -143,80 +143,80 @@ export class EscalationPolicy {
   id!: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'tenant_id' })
   @Index()
   tenantId!: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'name' })
   name!: string;
 
   @Field({ nullable: true })
-  @Column({ type: 'text', nullable: true })
+  @Column({ name: 'description', type: 'text', nullable: true })
   description?: string;
 
   @Field(() => [AlertSeverity])
-  @Column('simple-array')
+  @Column({ name: 'severity', type: 'jsonb' })
   severity!: AlertSeverity[];
 
   @Field(() => [EscalationLevel])
-  @Column('jsonb')
+  @Column({ name: 'levels', type: 'jsonb' })
   levels!: EscalationLevel[];
 
   @Field(() => [OnCallSchedule], { nullable: true })
-  @Column('jsonb', { nullable: true })
+  @Column({ name: 'on_call_schedule', type: 'jsonb', nullable: true })
   onCallSchedule?: OnCallSchedule[];
 
   @Field(() => [SuppressionWindow], { nullable: true })
-  @Column('jsonb', { nullable: true })
+  @Column({ name: 'suppression_windows', type: 'jsonb', nullable: true })
   suppressionWindows?: SuppressionWindow[];
 
   @Field(() => Int)
-  @Column({ type: 'int', default: 5 })
+  @Column({ name: 'repeat_interval_minutes', type: 'int', default: 5 })
   repeatIntervalMinutes!: number;
 
   @Field(() => Int)
-  @Column({ type: 'int', default: 3 })
+  @Column({ name: 'max_repeats', type: 'int', default: 3 })
   maxRepeats!: number;
 
   @Field()
-  @Column({ default: true })
+  @Column({ name: 'is_active', default: true })
   isActive!: boolean;
 
   @Field()
-  @Column({ default: false })
+  @Column({ name: 'is_default', default: false })
   isDefault!: boolean;
 
   @Field(() => Int)
-  @Column({ type: 'int', default: 0 })
+  @Column({ name: 'priority', type: 'int', default: 0 })
   priority!: number;
 
   @Field(() => GraphQLJSON, { nullable: true })
-  @Column('jsonb', { nullable: true })
+  @Column({ name: 'conditions', type: 'jsonb', nullable: true })
   conditions?: Record<string, unknown>; // Additional conditions for policy selection
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'timezone', nullable: true })
   timezone?: string;
 
   @Field(() => [String], { nullable: true })
-  @Column('simple-array', { nullable: true })
+  @Column({ name: 'rule_ids', type: 'jsonb', nullable: true })
   ruleIds?: string[]; // Specific rules this policy applies to
 
   @Field(() => [String], { nullable: true })
-  @Column('simple-array', { nullable: true })
+  @Column({ name: 'farm_ids', type: 'jsonb', nullable: true })
   farmIds?: string[]; // Specific farms this policy applies to
 
   @Field()
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
   @Field()
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'created_by', nullable: true })
   createdBy?: string;
 
   // ============================================
@@ -228,6 +228,7 @@ export class EscalationPolicy {
   }
 
   getMaxLevel(): number {
+    if (!this.levels || this.levels.length === 0) return 0;
     return Math.max(...this.levels.map(l => l.level));
   }
 
@@ -255,11 +256,21 @@ export class EscalationPolicy {
     return schedule?.userId;
   }
 
+  /**
+   * Check whether `date` falls within any suppression window.
+   *
+   * Contract: `SuppressionWindow.startTime` and `endTime` MUST be stored and
+   * retrieved as UTC values (PostgreSQL `timestamptz` columns are always UTC).
+   * `date` defaults to `new Date()` which is always UTC-based in Node.js.
+   * Using `.getTime()` for explicit numeric comparison avoids any implicit
+   * Date coercion that could mask a timezone mismatch.
+   */
   isInSuppressionWindow(date: Date = new Date()): boolean {
     if (!this.suppressionWindows?.length) return false;
 
+    const nowMs = date.getTime();
     return this.suppressionWindows.some(
-      w => date >= w.startTime && date <= w.endTime
+      w => nowMs >= w.startTime.getTime() && nowMs <= w.endTime.getTime()
     );
   }
 

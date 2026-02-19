@@ -4,6 +4,7 @@ import {
   Get,
   Body,
   Param,
+  Query,
   Res,
   HttpStatus,
   Logger,
@@ -43,24 +44,34 @@ export class ProvisioningController {
   constructor(private readonly provisioningService: ProvisioningService) {}
 
   /**
-   * GET /install/:deviceCode
+   * GET /install/:deviceCode?token=<provisioningToken>
    *
-   * Public endpoint that returns the installer script for a device.
-   * This is called by: curl -sSL http://localhost:3000/install/{deviceCode} | sudo sh
+   * Returns the installer script for a device.
+   * This is called by: curl -sSL "http://host/install/{deviceCode}?token={token}" | sudo sh
    *
    * Returns: Shell script (text/x-shellscript)
    *
-   * SECURITY: Limited to 5 requests per minute per IP to prevent enumeration
+   * SECURITY: The provisioning token must be supplied as a query parameter.
+   * Knowing the device code alone is insufficient — the token acts as the
+   * shared secret that authorises script retrieval.
+   * Also limited to 5 requests per minute per IP to prevent brute-force.
    */
   @Get('install/:deviceCode')
   @RateLimit({ limit: 5, windowMs: 60000 })
   async getInstallerScript(
     @Param('deviceCode') deviceCode: string,
+    @Query('token') token: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
     // Validate device code format to prevent injection
     if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
       res.status(HttpStatus.BAD_REQUEST).contentType('text/plain').send('Invalid device code format');
+      return;
+    }
+
+    // Require the provisioning token to be present
+    if (!token) {
+      res.status(HttpStatus.UNAUTHORIZED).contentType('text/plain').send('Provisioning token required');
       return;
     }
 
@@ -87,8 +98,8 @@ export class ProvisioningController {
         return;
       }
 
-      // Generate installer script
-      const script = await this.provisioningService.generateInstallerScript(deviceCode);
+      // Generate installer script — token is validated inside the service
+      const script = await this.provisioningService.generateInstallerScript(deviceCode, token);
 
       this.logger.log(`Installer script generated for device: ${deviceCode}`);
 
@@ -310,7 +321,7 @@ export class ProvisioningController {
   ): string {
     // Sanitize inputs for shell safety
     const safeDeviceCode = deviceCode.replace(/[^a-zA-Z0-9._\-]/g, '');
-    const safeErrorMessage = errorMessage.replace(/[^a-zA-Z0-9._\- :()]/g, '');
+    const safeErrorMessage = errorMessage.replace(/[^a-zA-Z0-9._\- ]/g, '');
 
     return `#!/bin/bash
 # Suderra Edge Agent Installer - Error

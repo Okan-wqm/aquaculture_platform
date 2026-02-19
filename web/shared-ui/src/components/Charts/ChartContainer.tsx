@@ -23,8 +23,10 @@ const LoadingSkeleton: React.FC<{ height: number | string }> = ({ height }) => (
   </div>
 );
 
+// BUG-021: Remove hardcoded min-h-[200px] — use h-full so error state respects
+// the container height prop and doesn't overflow small charts
 const ErrorState: React.FC<{ message: string }> = ({ message }) => (
-  <div className="flex items-center justify-center h-full min-h-[200px] bg-red-50 rounded-lg">
+  <div className="flex items-center justify-center h-full w-full bg-red-50 rounded-lg">
     <div className="text-center">
       <svg className="w-12 h-12 mx-auto text-red-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -34,7 +36,9 @@ const ErrorState: React.FC<{ message: string }> = ({ message }) => (
   </div>
 );
 
-export const ChartContainer: React.FC<ChartContainerProps> = ({
+// PERF-009: Charts are typically expensive to render — memo prevents unnecessary re-renders
+// when parent dashboard state changes but chart data hasn't changed
+const ChartContainerInner: React.FC<ChartContainerProps> = ({
   title,
   subtitle,
   children,
@@ -74,5 +78,8 @@ export const ChartContainer: React.FC<ChartContainerProps> = ({
     </div>
   );
 };
+
+export const ChartContainer = React.memo(ChartContainerInner);
+ChartContainer.displayName = 'ChartContainer';
 
 export default ChartContainer;

@@ -1,11 +1,23 @@
-import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
-import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import {
+  Resolver,
+  Query,
+  Mutation,
+  Args,
+  ID,
+  Context,
+  ResolveField,
+  Parent,
+  Int,
+} from '@nestjs/graphql';
+import {
+  UnauthorizedException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import {
   Configuration,
   ConfigurationHistory,
   ConfigEnvironment,
-  ConfigValueType,
 } from './entities/configuration.entity';
 import {
   CreateConfigurationInput,
@@ -15,6 +27,7 @@ import {
 import { CreateConfigurationCommand } from './commands/create-configuration.command';
 import { UpdateConfigurationCommand } from './commands/update-configuration.command';
 import { DeleteConfigurationCommand } from './commands/delete-configuration.command';
+import { UpsertConfigurationCommand } from './commands/upsert-configuration.command';
 import {
   GetConfigurationQuery,
   GetConfigurationByIdQuery,
@@ -27,11 +40,6 @@ import {
 
 interface GraphQLContext {
   req: {
-    headers: {
-      'x-tenant-id'?: string;
-      'x-user-id'?: string;
-      'x-api-key'?: string;
-    };
     user?: {
       sub: string;
       tenantId: string;
@@ -47,32 +55,60 @@ export class ConfigurationResolver {
     private readonly queryBus: QueryBus,
   ) {}
 
+  /**
+   * Extract tenant ID exclusively from verified JWT payload.
+   * SECURITY: Never fall back to headers - JWT is the only trusted source.
+   */
   private getTenantId(context: GraphQLContext): string {
-    const tenantId =
-      context.req.user?.tenantId || context.req.headers['x-tenant-id'];
+    const tenantId = context.req.user?.tenantId;
     if (!tenantId) {
-      throw new UnauthorizedException('Tenant ID is required');
+      throw new UnauthorizedException('Authentication required - tenant ID must come from JWT');
     }
     return tenantId;
   }
 
+  /**
+   * Extract user ID exclusively from verified JWT payload.
+   * SECURITY: Never fall back to headers or 'system' literal.
+   */
   private getUserId(context: GraphQLContext): string {
-    return context.req.user?.sub || context.req.headers['x-user-id'] || 'system';
+    const userId = context.req.user?.sub;
+    if (!userId) {
+      throw new UnauthorizedException('Authentication required - user ID must come from JWT');
+    }
+    return userId;
   }
 
+  /**
+   * Check admin access from verified JWT roles.
+   */
   private checkAdminAccess(context: GraphQLContext): void {
-    const roles = context.req.user?.roles || [];
-    if (!roles.includes('admin') && !roles.includes('platform_admin')) {
-      throw new ForbiddenException('Admin access required');
+    const roles = context.req.user?.roles ?? [];
+    if (!roles.includes('admin') && !roles.includes('platform_admin') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Admin access required for this operation');
     }
   }
 
-  // Queries
+  /**
+   * Mask secret values in GraphQL responses.
+   * SECURITY: Never expose encrypted blobs or plaintext secrets.
+   */
+  @ResolveField(() => String, { name: 'value' })
+  resolveValue(@Parent() config: Configuration): string {
+    if (config.isSecret) {
+      return '[ENCRYPTED]';
+    }
+    return config.value;
+  }
+
+  // ─── Queries ──────────────────────────────────────────────────
+
   @Query(() => Configuration, { name: 'configuration' })
   async getConfiguration(
     @Args('service') service: string,
     @Args('key') key: string,
-    @Args('environment', { nullable: true }) environment: string,
+    @Args('environment', { type: () => ConfigEnvironment, nullable: true })
+    environment: ConfigEnvironment,
     @Context() context: GraphQLContext,
   ): Promise<Configuration> {
     const tenantId = this.getTenantId(context);
@@ -102,7 +138,8 @@ export class ConfigurationResolver {
   @Query(() => [Configuration], { name: 'configurationsByService' })
   async getConfigurationsByService(
     @Args('service') service: string,
-    @Args('environment', { nullable: true }) environment: string,
+    @Args('environment', { type: () => ConfigEnvironment, nullable: true })
+    environment: ConfigEnvironment,
     @Context() context: GraphQLContext,
   ): Promise<Configuration[]> {
     const tenantId = this.getTenantId(context);
@@ -114,16 +151,20 @@ export class ConfigurationResolver {
   @Query(() => [ConfigurationHistory], { name: 'configurationHistory' })
   async getConfigurationHistory(
     @Args('configurationId', { type: () => ID }) configurationId: string,
-    @Args('limit', { nullable: true }) limit: number,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 50 }) limit: number,
     @Context() context: GraphQLContext,
   ): Promise<ConfigurationHistory[]> {
     const tenantId = this.getTenantId(context);
+    this.checkAdminAccess(context);
+    // Cap limit to prevent abuse
+    const cappedLimit = Math.min(Math.max(limit, 1), 500);
     return this.queryBus.execute(
-      new GetConfigurationHistoryQuery(tenantId, configurationId, limit),
+      new GetConfigurationHistoryQuery(tenantId, configurationId, cappedLimit),
     );
   }
 
-  // Mutations
+  // ─── Mutations ────────────────────────────────────────────────
+
   @Mutation(() => Configuration)
   async createConfiguration(
     @Args('input') input: CreateConfigurationInput,
@@ -167,47 +208,29 @@ export class ConfigurationResolver {
     );
   }
 
-  // REST-style convenience mutations
+  /**
+   * Atomic upsert - uses INSERT ... ON CONFLICT DO UPDATE under the hood.
+   */
   @Mutation(() => Configuration)
   async setConfiguration(
     @Args('service') service: string,
     @Args('key') key: string,
     @Args('value') value: string,
-    @Args('environment', { nullable: true, defaultValue: ConfigEnvironment.ALL })
+    @Args('environment', {
+      type: () => ConfigEnvironment,
+      nullable: true,
+      defaultValue: ConfigEnvironment.ALL,
+    })
     environment: ConfigEnvironment,
+    @Args('isSecret', { nullable: true, defaultValue: false }) isSecret: boolean,
     @Context() context: GraphQLContext,
   ): Promise<Configuration> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
     this.checkAdminAccess(context);
 
-    // Try to find existing config
-    try {
-      const existing = await this.queryBus.execute(
-        new GetConfigurationQuery(tenantId, service, key, environment),
-      );
-
-      // Update existing
-      return this.commandBus.execute(
-        new UpdateConfigurationCommand(
-          tenantId,
-          { id: existing.id, value },
-          userId,
-        ),
-      );
-    } catch {
-      // Create new with required defaults
-      const input: CreateConfigurationInput = {
-        service,
-        key,
-        value,
-        environment,
-        valueType: ConfigValueType.STRING,
-        isSecret: false,
-      };
-      return this.commandBus.execute(
-        new CreateConfigurationCommand(tenantId, input, userId),
-      );
-    }
+    return this.commandBus.execute(
+      new UpsertConfigurationCommand(tenantId, service, key, value, environment, userId, isSecret),
+    );
   }
 }

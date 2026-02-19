@@ -135,9 +135,13 @@ import { PlcTelemetry } from './plc-control/entities/plc-telemetry.entity';
           };
         })(),
         extra: {
-          // Connection pool optimized for time-series data
-          max: configService.get<number>('DATABASE_POOL_SIZE', 30),
-          idleTimeoutMillis: 30000,
+          // Connection pool optimized for time-series / continuous ingestion (MEDIUM-006)
+          // max: 50 handles concurrent MQTT ingestion + HTTP requests + health checks
+          max: configService.get<number>('DATABASE_POOL_SIZE', 50),
+          // min: 10 keeps warm connections for continuous ingestion (avoids cold-start latency)
+          min: configService.get<number>('DATABASE_POOL_MIN', 10),
+          // 5 minutes — prevents churn during continuous MQTT ingestion
+          idleTimeoutMillis: configService.get<number>('DATABASE_IDLE_TIMEOUT_MS', 300000),
           connectionTimeoutMillis: 5000,
         },
       };
@@ -224,7 +228,7 @@ import { PlcTelemetry } from './plc-control/entities/plc-telemetry.entity';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get('JWT_SECRET', 'dev-secret'),
+        secret: configService.getOrThrow<string>('JWT_SECRET'),
         signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '1d') },
       }),
     }),

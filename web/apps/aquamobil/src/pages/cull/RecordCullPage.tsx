@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { List, ListInput, Block, BlockTitle } from 'konsta/react';
+import { List, ListInput, BlockTitle } from 'konsta/react';
 import { ArrowLeft, Scissors, CheckCircle, AlertCircle, Minus, Plus } from 'lucide-react';
 import { useTanks } from '@/hooks/useTanks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -102,8 +102,9 @@ export function RecordCullPage() {
           <CheckCircle size={48} className="text-sea-600" />
         </div>
         <h2 className="text-xl font-bold text-sea-700 dark:text-sea-300">Recorded!</h2>
+        {/* BUG-08: All submissions go through the offline queue; always show accurate message. */}
         <p className="text-sea-600 dark:text-sea-400 text-sm mt-1">
-          {isOnline ? 'Saved to server' : 'Queued for sync'}
+          Queued for sync
         </p>
       </div>
     );

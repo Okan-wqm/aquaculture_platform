@@ -410,7 +410,7 @@ export const EQUIPMENT_TYPES_SEED: EquipmentTypeSeed[] = [
     description: 'Santrifüj su pompası',
     category: EquipmentCategory.PUMP,
     icon: 'pump',
-    sortOrder: 10,
+    sortOrder: 14,
     allowedSubEquipmentTypes: ['inlet-valve', 'outlet-valve', 'pressure-gauge', 'flowmeter'],
     specificationSchema: {
       groups: [
@@ -435,7 +435,7 @@ export const EQUIPMENT_TYPES_SEED: EquipmentTypeSeed[] = [
     description: 'Dalgıç pompa',
     category: EquipmentCategory.PUMP,
     icon: 'pump',
-    sortOrder: 11,
+    sortOrder: 15,
     allowedSubEquipmentTypes: ['outlet-valve', 'pressure-gauge', 'flowmeter'],
     specificationSchema: {
       groups: [
@@ -674,6 +674,8 @@ export const EQUIPMENT_TYPES_SEED: EquipmentTypeSeed[] = [
           { value: 'remote', label: 'Remote' },
           { value: 'automatic', label: 'Automatic' },
         ]},
+        { name: 'siloVolume', label: 'Silo Volume', type: 'number', unit: 'L', required: true },
+        { name: 'autoFilling', label: 'Auto Filling', type: 'boolean', defaultValue: false, helpText: 'Otomatik dolum sistemi var mi?' },
       ],
     },
   },
@@ -694,6 +696,25 @@ export const EQUIPMENT_TYPES_SEED: EquipmentTypeSeed[] = [
           { value: 'remote', label: 'Remote' },
           { value: 'automatic', label: 'Automatic' },
         ]},
+        { name: 'siloVolume', label: 'Silo Volume', type: 'number', unit: 'L', required: true },
+        { name: 'autoFilling', label: 'Auto Filling', type: 'boolean', defaultValue: false, helpText: 'Otomatik dolum sistemi var mi?' },
+      ],
+    },
+  },
+  {
+    name: 'Semi-Automatic Feeder',
+    code: 'feeder-semi-automatic',
+    description: 'Yarı otomatik yemleme sistemi',
+    category: EquipmentCategory.FEEDING,
+    icon: 'feeder',
+    sortOrder: 52,
+    allowedSubEquipmentTypes: ['hopper', 'spreading-disc'],
+    specificationSchema: {
+      fields: [
+        { name: 'capacity', label: 'Capacity', type: 'number', unit: 'kg', required: true },
+        { name: 'feedingRate', label: 'Feeding Rate', type: 'text', placeholder: 'e.g., 1-10 kg/h' },
+        { name: 'siloVolume', label: 'Silo Volume', type: 'number', unit: 'L', required: true },
+        { name: 'autoFilling', label: 'Auto Filling', type: 'boolean', defaultValue: false, helpText: 'Otomatik dolum sistemi var mi?' },
       ],
     },
   },
@@ -707,7 +728,7 @@ export const EQUIPMENT_TYPES_SEED: EquipmentTypeSeed[] = [
     description: 'Tank su giriş borusu - su dağıtım delikleri ile',
     category: EquipmentCategory.PLUMBING,
     icon: 'inlet',
-    sortOrder: 52,
+    sortOrder: 53,
     allowedSubEquipmentTypes: ['valve', 'flowmeter'],
     specificationSchema: {
       fields: [
@@ -996,7 +1017,7 @@ export const EQUIPMENT_TYPES_SEED: EquipmentTypeSeed[] = [
     description: 'UV sterilizatör',
     category: EquipmentCategory.WATER_TREATMENT,
     icon: 'uv',
-    sortOrder: 70,
+    sortOrder: 80,
     allowedSubEquipmentTypes: ['inlet-valve', 'outlet-valve', 'uv-lamp', 'quartz-sleeve'],
     specificationSchema: {
       fields: [
@@ -1020,7 +1041,7 @@ export const EQUIPMENT_TYPES_SEED: EquipmentTypeSeed[] = [
     description: 'Ozon jeneratörü',
     category: EquipmentCategory.WATER_TREATMENT,
     icon: 'ozone',
-    sortOrder: 71,
+    sortOrder: 81,
     allowedSubEquipmentTypes: ['ozone-contactor', 'orp-controller', 'destruct-unit'],
     specificationSchema: {
       fields: [

@@ -84,13 +84,13 @@ export class SuspendTenantHandler
       });
 
       this.eventBus.publish({
+        eventId: crypto.randomUUID(),
         eventType: 'TenantSuspended',
-        payload: {
-          tenantId,
-          reason: data.reason,
-          suspendedBy,
-        },
         timestamp: new Date(),
+        tenantId,
+        reason: data.reason,
+        suspendedBy,
+        version: 1,
       });
 
       return savedTenant;
@@ -166,12 +166,12 @@ export class ActivateTenantHandler
       });
 
       this.eventBus.publish({
+        eventId: crypto.randomUUID(),
         eventType: 'TenantActivated',
-        payload: {
-          tenantId,
-          activatedBy,
-        },
         timestamp: new Date(),
+        tenantId,
+        activatedBy,
+        version: 1,
       });
 
       return savedTenant;
@@ -243,13 +243,14 @@ export class DeactivateTenantHandler
       });
 
       this.eventBus.publish({
-        eventType: 'TenantDeactivated',
-        payload: {
-          tenantId,
-          reason,
-          deactivatedBy,
-        },
+        eventId: crypto.randomUUID(),
+        eventType: 'TenantStatusChanged',
         timestamp: new Date(),
+        tenantId,
+        previousStatus,
+        newStatus: 'deactivated',
+        reason,
+        version: 1,
       });
 
       return savedTenant;
@@ -323,12 +324,12 @@ export class ArchiveTenantHandler
       });
 
       this.eventBus.publish({
+        eventId: crypto.randomUUID(),
         eventType: 'TenantArchived',
-        payload: {
-          tenantId,
-          archivedBy,
-        },
         timestamp: new Date(),
+        tenantId,
+        archivedBy,
+        version: 1,
       });
 
       return savedTenant;

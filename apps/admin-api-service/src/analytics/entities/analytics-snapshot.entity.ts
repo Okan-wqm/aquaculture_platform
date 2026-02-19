@@ -97,8 +97,9 @@ export interface UsageMetrics {
 // ============================================================================
 
 @Entity('analytics_snapshots', { schema: 'admin', synchronize: false })
-@Index(['snapshotType', 'snapshotDate'])
-@Index(['category', 'snapshotDate'])
+// LOW-005 fix: single composite index covers all common query patterns
+// (filter by category + optional snapshotType, ordered by snapshotDate)
+@Index(['category', 'snapshotType', 'snapshotDate'])
 export class AnalyticsSnapshot {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

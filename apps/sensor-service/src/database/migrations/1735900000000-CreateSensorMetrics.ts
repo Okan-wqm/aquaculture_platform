@@ -104,6 +104,20 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
         WHERE "batch_id" IS NOT NULL
       `);
 
+      // Composite covering index for DISTINCT ON (channel_id) queries ordered by time DESC
+      // Satisfies getCurrentReadings() without a separate sort step (HIGH-002)
+      await queryRunner.query(`
+        CREATE INDEX "IDX_sensor_metrics_sensor_channel_time"
+        ON "sensor_metrics" ("sensor_id", "channel_id", "time" DESC)
+      `);
+
+      // Composite covering index for DISTINCT ON (sensor_id, channel_id) in tank queries
+      await queryRunner.query(`
+        CREATE INDEX "IDX_sensor_metrics_tank_sensor_channel_time"
+        ON "sensor_metrics" ("tank_id", "sensor_id", "channel_id", "time" DESC)
+        WHERE "tank_id" IS NOT NULL
+      `);
+
       console.log('Created indexes for sensor_metrics');
 
       // 4. Enable TimescaleDB compression
@@ -192,6 +206,7 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
         SELECT 1
         FROM information_schema.tables
         WHERE table_name = $1
+        AND table_schema = current_schema()
       )
     `, [tableName]);
     return result[0]?.exists === true;
@@ -209,6 +224,7 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
         FROM information_schema.columns
         WHERE table_name = $1
         AND column_name = $2
+        AND table_schema = current_schema()
       )
     `, [tableName, columnName]);
     return result[0]?.exists === true;

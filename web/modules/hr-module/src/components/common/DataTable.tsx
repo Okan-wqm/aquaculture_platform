@@ -123,13 +123,20 @@ export function DataTable<T>({
   return (
     <div className={cn('overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700', className)}>
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+        {/* BUG-016: table role with accessible caption for screen readers */}
+        <table
+          className="min-w-full divide-y divide-gray-200 dark:divide-gray-700"
+          role="grid"
+          aria-rowcount={total}
+          aria-label={emptyMessage ? undefined : 'Data table'}
+        >
           <thead className="bg-gray-50 dark:bg-gray-800">
             <tr>
               {selectable && (
-                <th className="w-12 px-4 py-3">
+                <th className="w-12 px-4 py-3" scope="col">
                   <input
                     type="checkbox"
+                    aria-label="Select all rows"
                     checked={allSelected}
                     ref={(el) => {
                       if (el) el.indeterminate = someSelected;
@@ -142,6 +149,7 @@ export function DataTable<T>({
               {columns.map((column) => (
                 <th
                   key={column.key}
+                  scope="col"
                   className={cn(
                     'px-4 py-3 text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400',
                     column.align === 'center' && 'text-center',
@@ -150,6 +158,16 @@ export function DataTable<T>({
                   )}
                   style={{ width: column.width }}
                   onClick={() => column.sortable && onSort?.(column.key)}
+                  // BUG-018: aria-sort for screen reader sorting context
+                  aria-sort={
+                    column.sortable && sortBy === column.key
+                      ? sortOrder === 'asc'
+                        ? 'ascending'
+                        : 'descending'
+                      : column.sortable
+                      ? 'none'
+                      : undefined
+                  }
                 >
                   <div className={cn(
                     'flex items-center gap-1',

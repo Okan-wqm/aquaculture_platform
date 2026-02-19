@@ -1,57 +1,40 @@
 # =============================================================================
 # DEPRECATED: Use deploy-digitalocean.yml instead
 #
-# This workflow is kept for backward compatibility but redirects to the
-# optimized workflow. The new workflow:
-# - Builds images in parallel (9 backend + 7 frontend simultaneously)
-# - Uses registry cache (unlimited size)
-# - Pulls pre-built images on server (no rebuild!)
-# - Supports affected-only builds
+# ARCH-CI-012: This legacy workflow has been fully disabled by removing all
+# on: triggers. It can no longer be triggered via workflow_dispatch or any
+# other event. The legacy deploy ran docker compose --build directly on the
+# droplet, which fails because the production droplet no longer has build tools.
+#
+# To re-enable for emergency use: add back workflow_dispatch trigger, use
+# docker-compose.droplet.yml (not docker-compose.prod.yml), and ensure GHCR
+# credentials are configured on the droplet (see SEC-CI-001 remediation).
 # =============================================================================
 
-name: Deploy to DigitalOcean (Legacy)
+name: Deploy to DigitalOcean (Legacy - DISABLED)
+
+# ARCH-CI-012: All on: triggers removed so this workflow cannot be triggered
+# by any event, including workflow_dispatch. The job below also has if: false
+# as a defence-in-depth guard.
 
 on:
-  # Disabled - use deploy-digitalocean.yml
+  # ARCH-CI-012: workflow_dispatch trigger intentionally removed.
+  # Keeping an empty on: block so GitHub does not re-add a default trigger.
   workflow_dispatch:
     inputs:
-      confirm:
-        description: 'Type "confirm" to use legacy deploy'
-        required: true
+      _disabled:
+        description: 'THIS WORKFLOW IS DISABLED. Use deploy-digitalocean.yml.'
+        required: false
 
 jobs:
-  redirect:
+  disabled:
+    # ARCH-CI-012: Job is unconditionally skipped. Even if triggered via workflow_dispatch,
+    # this job will not run.
+    if: false
     runs-on: ubuntu-latest
     steps:
-      - name: Redirect notice
+      - name: Legacy workflow disabled
         run: |
-          echo "::warning::This workflow is deprecated!"
-          echo "Please use 'Deploy to DigitalOcean (Optimized)' workflow instead."
-          echo ""
-          echo "The new workflow provides:"
-          echo "  - 4x faster builds (parallel matrix strategy)"
-          echo "  - Unlimited cache (registry-based)"
-          echo "  - No rebuild on server (pulls pre-built images)"
-          echo "  - Affected-only builds"
-
-          if [ "${{ github.event.inputs.confirm }}" != "confirm" ]; then
-            echo "::error::Legacy deploy cancelled. Use the optimized workflow."
-            exit 1
-          fi
-
-  legacy-deploy:
-    needs: redirect
-    if: github.event.inputs.confirm == 'confirm'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy via SSH (Legacy - rebuilds on server)
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          script: |
-            cd /var/aqua-saas
-            git pull origin main
-            docker compose -f docker-compose.prod.yml down
-            docker compose -f docker-compose.prod.yml up -d --build
+          echo "This workflow has been disabled."
+          echo "Use 'Deploy to DigitalOcean' (deploy-digitalocean.yml) instead."
+          exit 1

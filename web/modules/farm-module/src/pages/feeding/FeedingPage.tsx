@@ -7,7 +7,7 @@
  * - Feed stock management with stockout predictions
  * - FCR analysis
  */
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSiteList } from '../../hooks/useSites';
 import { useBatchList } from '../../hooks/useBatches';
@@ -15,10 +15,10 @@ import { useFeedConsumptionForecast } from '../../hooks/useFeeding';
 
 // Tab Components
 import { DailyFeedPlan } from './components/DailyFeedPlan';
+import { PlannedVsActualSection } from './components/PlannedVsActualSection';
 import { GrowthForecastChart } from './components/GrowthForecastChart';
 import { FCRAnalysis } from './components/FCRAnalysis';
 import { ProtocolsTab } from './components/ProtocolsTab';
-import { GrowthTab } from '../production/tabs/GrowthTab';
 
 // ============================================================================
 // TYPES
@@ -97,15 +97,23 @@ const FeedingPage: React.FC = () => {
 
   // Data fetching
   const { data: sitesData, isLoading: sitesLoading } = useSiteList();
-  const { data: batchesData, isLoading: batchesLoading } = useBatchList({
-    siteId: selectedSiteId || undefined,
-    status: 'ACTIVE',
-  });
-  const { data: forecastData, isLoading: forecastLoading } = useFeedConsumptionForecast(
+  // Only fetch batches when on a batch-dependent tab (PERF-009)
+  const needsBatchData = activeTab === 'fcr' || activeTab === 'sampling';
+  const { data: batchesData, isLoading: batchesLoading } = useBatchList(
     {
       siteId: selectedSiteId || undefined,
-      forecastDays,
+      status: 'ACTIVE',
     },
+    { enabled: needsBatchData },
+  );
+
+  // Memoize forecast input to prevent stale-time bypass (PERF-003)
+  const forecastInput = useMemo(
+    () => ({ siteId: selectedSiteId || undefined, forecastDays }),
+    [selectedSiteId, forecastDays],
+  );
+  const { data: forecastData, isLoading: forecastLoading } = useFeedConsumptionForecast(
+    forecastInput,
     { enabled: activeTab === 'daily-plan' },
   );
 
@@ -212,17 +220,7 @@ const FeedingPage: React.FC = () => {
               </select>
             </div>
 
-            {/* Date Range (placeholder) */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Date
-              </label>
-              <input
-                type="date"
-                defaultValue={new Date().toISOString().split('T')[0]}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              />
-            </div>
+            {/* Date selection is handled per-tab by PlannedVsActualSection */}
           </div>
         </div>
       </div>
@@ -340,18 +338,24 @@ const FeedingPage: React.FC = () => {
       {/* Tab Content */}
       <div className="px-4 sm:px-6 py-6">
         {activeTab === 'daily-plan' && (
-          forecastLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            </div>
-          ) : (
-            <DailyFeedPlan
-              siteId={selectedSiteId}
-              batchId={selectedBatchId}
-              forecastDays={forecastDays}
-              forecastData={forecastData}
-            />
-          )
+          <div className="space-y-8">
+            {/* Planned vs Actual Comparison */}
+            <PlannedVsActualSection siteId={selectedSiteId || undefined} />
+
+            {/* Feed Forecast */}
+            {forecastLoading ? (
+              <div className="flex items-center justify-center h-64">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+              </div>
+            ) : (
+              <DailyFeedPlan
+                siteId={selectedSiteId}
+                batchId={selectedBatchId}
+                forecastDays={forecastDays}
+                forecastData={forecastData}
+              />
+            )}
+          </div>
         )}
         {activeTab === 'growth' && (
           <GrowthForecastChart
@@ -370,7 +374,17 @@ const FeedingPage: React.FC = () => {
         {activeTab === 'protocols' && (
           <ProtocolsTab siteId={selectedSiteId} />
         )}
-        {activeTab === 'sampling' && <GrowthTab />}
+        {/* BUG-023: Sampling tab had no dedicated component — was incorrectly rendering GrowthTab.
+            Replaced with a placeholder until a SamplingTab component is implemented. */}
+        {activeTab === 'sampling' && (
+          <div className="bg-white rounded-lg shadow p-12 text-center">
+            <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            <h3 className="text-lg font-medium text-gray-900 mb-1">Sampling</h3>
+            <p className="text-sm text-gray-500">Sampling data entry will be available in a future update.</p>
+          </div>
+        )}
       </div>
     </div>
   );

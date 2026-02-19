@@ -1,47 +1,263 @@
 # =============================================================================
 # Aquaculture Platform - RBAC Configuration
+# SEC-003: Per-service service accounts with resourceNames restrictions
+# SEC-016: ResourceQuota and LimitRange are in namespace.yaml
 # =============================================================================
 
-# Service Account
+# ---------------------------------------------------------------------------
+# Service Accounts — one per service (SEC-003)
+# ---------------------------------------------------------------------------
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: aquaculture-sa
+  name: gateway-api-sa
   namespace: aquaculture
+  annotations:
+    # imagePullSecrets for GHCR (SEC-017)
+    # Note: imagePullSecrets set at SA level apply to all pods using this SA
+automountServiceAccountToken: false
 
 ---
-# Role for reading secrets and configmaps
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: auth-service-sa
+  namespace: aquaculture
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: farm-service-sa
+  namespace: aquaculture
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sensor-service-sa
+  namespace: aquaculture
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alert-engine-sa
+  namespace: aquaculture
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: notification-service-sa
+  namespace: aquaculture
+automountServiceAccountToken: false
+
+# ---------------------------------------------------------------------------
+# Roles — per-service with resourceNames restriction (SEC-003)
+# Only 'get' verb on secrets — no 'list' or 'watch' (prevents bulk secret read)
+# ---------------------------------------------------------------------------
+
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: aquaculture-role
+  name: gateway-api-role
   namespace: aquaculture
 rules:
   - apiGroups: [""]
-    resources: ["secrets", "configmaps"]
-    verbs: ["get", "list", "watch"]
+    resources: ["configmaps"]
+    resourceNames: ["aquaculture-config"]
+    verbs: ["get"]
   - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch"]
+    resources: ["secrets"]
+    resourceNames: ["aquaculture-secrets"]
+    verbs: ["get"]
 
 ---
-# RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auth-service-role
+  namespace: aquaculture
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["aquaculture-config"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["aquaculture-secrets"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: farm-service-role
+  namespace: aquaculture
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["aquaculture-config"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["aquaculture-secrets"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sensor-service-role
+  namespace: aquaculture
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["aquaculture-config"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["aquaculture-secrets"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: alert-engine-role
+  namespace: aquaculture
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["aquaculture-config"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["aquaculture-secrets"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: notification-service-role
+  namespace: aquaculture
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["aquaculture-config"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["aquaculture-secrets", "smtp-credentials"]
+    verbs: ["get"]
+
+# ---------------------------------------------------------------------------
+# RoleBindings
+# ---------------------------------------------------------------------------
+
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: aquaculture-rolebinding
+  name: gateway-api-rolebinding
   namespace: aquaculture
 subjects:
   - kind: ServiceAccount
-    name: aquaculture-sa
+    name: gateway-api-sa
     namespace: aquaculture
 roleRef:
   kind: Role
-  name: aquaculture-role
+  name: gateway-api-role
   apiGroup: rbac.authorization.k8s.io
 
 ---
-# NetworkPolicy - Restrict traffic between services
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auth-service-rolebinding
+  namespace: aquaculture
+subjects:
+  - kind: ServiceAccount
+    name: auth-service-sa
+    namespace: aquaculture
+roleRef:
+  kind: Role
+  name: auth-service-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: farm-service-rolebinding
+  namespace: aquaculture
+subjects:
+  - kind: ServiceAccount
+    name: farm-service-sa
+    namespace: aquaculture
+roleRef:
+  kind: Role
+  name: farm-service-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sensor-service-rolebinding
+  namespace: aquaculture
+subjects:
+  - kind: ServiceAccount
+    name: sensor-service-sa
+    namespace: aquaculture
+roleRef:
+  kind: Role
+  name: sensor-service-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: alert-engine-rolebinding
+  namespace: aquaculture
+subjects:
+  - kind: ServiceAccount
+    name: alert-engine-sa
+    namespace: aquaculture
+roleRef:
+  kind: Role
+  name: alert-engine-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: notification-service-rolebinding
+  namespace: aquaculture
+subjects:
+  - kind: ServiceAccount
+    name: notification-service-sa
+    namespace: aquaculture
+roleRef:
+  kind: Role
+  name: notification-service-role
+  apiGroup: rbac.authorization.k8s.io
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy — backend services
+# SEC-007: replace 0.0.0.0/0 egress with specific known external endpoints
+# SEC-008: use kubernetes.io/metadata.name instead of custom name: label
+# ---------------------------------------------------------------------------
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -62,45 +278,71 @@ spec:
         - podSelector:
             matchLabels:
               tier: frontend
+        # SEC-008: use auto-set kubernetes.io/metadata.name label (set since k8s 1.21)
         - namespaceSelector:
             matchLabels:
-              name: ingress-nginx
+              kubernetes.io/metadata.name: ingress-nginx
       ports:
         - protocol: TCP
           port: 3000
   egress:
+    # Allow intra-cluster backend communication
     - to:
         - podSelector:
             matchLabels:
               tier: backend
+    # Allow database access
     - to:
         - namespaceSelector: {}
           podSelector:
             matchLabels:
               app: postgres
+    # Allow Redis access
     - to:
         - namespaceSelector: {}
           podSelector:
             matchLabels:
               app: redis
+    # Allow NATS messaging
     - to:
         - namespaceSelector: {}
           podSelector:
             matchLabels:
               app: nats
+    # Allow cluster DNS (kube-dns)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # SEC-007: restrict external HTTPS to specific known IP ranges only
+    # Replace these placeholder CIDRs with actual IPs of your SMTP relay,
+    # payment provider, SMS API, etc. Do NOT use 0.0.0.0/0.
+    # Example: Mailgun US region SMTP relay (replace with actual IPs)
     - to:
         - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
+            # SMTP relay (e.g., Mailgun, SendGrid) — replace with actual CIDR
+            cidr: 198.61.254.0/24
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 587
+    # Payment provider (e.g., Stripe) — replace with actual CIDR
+    - to:
+        - ipBlock:
+            cidr: 54.187.174.169/32
       ports:
         - protocol: TCP
           port: 443
 
 ---
-# NetworkPolicy for frontend
+# NetworkPolicy for frontend pods
+# SEC-008: use kubernetes.io/metadata.name label
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -114,9 +356,10 @@ spec:
     - Ingress
   ingress:
     - from:
+        # SEC-008: use auto-set kubernetes.io/metadata.name label
         - namespaceSelector:
             matchLabels:
-              name: ingress-nginx
+              kubernetes.io/metadata.name: ingress-nginx
       ports:
         - protocol: TCP
           port: 80

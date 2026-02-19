@@ -28,14 +28,14 @@ const EmailTemplatesPage: React.FC = () => {
   const [previewHtml, setPreviewHtml] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const categories = ['all', 'auth', 'billing', 'notification', 'marketing', 'system'];
 
   useEffect(() => {
     loadTemplates();
   }, []);
-
-  const [error, setError] = useState<string | null>(null);
 
   const loadTemplates = async () => {
     try {
@@ -46,7 +46,7 @@ const EmailTemplatesPage: React.FC = () => {
     } catch (err) {
       console.error('Failed to load templates:', err);
       setTemplates([]);
-      setError('E-posta şablonları yüklenemedi. Lütfen tekrar deneyin.');
+      setError('Failed to load email templates. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -79,10 +79,10 @@ const EmailTemplatesPage: React.FC = () => {
       }
       setShowEditModal(false);
       loadTemplates();
-      alert('Şablon kaydedildi!');
+      setSuccessMessage('Template saved successfully.');
     } catch (err) {
       console.error('Failed to save template:', err);
-      alert('Şablon kaydedilemedi');
+      setError('Failed to save template. Please try again.');
     }
   };
 
@@ -107,12 +107,12 @@ const EmailTemplatesPage: React.FC = () => {
 
   const getCategoryLabel = (category: string) => {
     const labels: Record<string, string> = {
-      all: 'Tümü',
-      auth: 'Kimlik Doğrulama',
-      billing: 'Faturalandırma',
-      notification: 'Bildirim',
-      marketing: 'Pazarlama',
-      system: 'Sistem',
+      all: 'All',
+      auth: 'Authentication',
+      billing: 'Billing',
+      notification: 'Notification',
+      marketing: 'Marketing',
+      system: 'System',
     };
     return labels[category] || category;
   };
@@ -141,23 +141,35 @@ const EmailTemplatesPage: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Email Şablonları</h1>
-          <p className="text-gray-500 mt-1">Sistem ve özel email şablonlarını yönetin</p>
+          <h1 className="text-2xl font-bold text-gray-900">Email Templates</h1>
+          <p className="text-gray-500 mt-1">Manage system and custom email templates</p>
         </div>
         <Button variant="primary" onClick={() => {
           setSelectedTemplate(null);
           setShowEditModal(true);
         }}>
-          Yeni Şablon
+          New Template
         </Button>
       </div>
+
+      {/* Success message */}
+      {successMessage && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
+          <span className="text-green-700">{successMessage}</span>
+          <button onClick={() => setSuccessMessage(null)} className="text-green-400 hover:text-green-600 ml-4">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center justify-between">
           <span className="text-red-700">{error}</span>
           <Button variant="secondary" size="sm" onClick={loadTemplates}>
-            Tekrar Dene
+            Retry
           </Button>
         </div>
       )}
@@ -185,7 +197,7 @@ const EmailTemplatesPage: React.FC = () => {
         <div className="flex-1 max-w-xs">
           <Input
             type="text"
-            placeholder="Şablon ara..."
+            placeholder="Search templates..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -206,19 +218,19 @@ const EmailTemplatesPage: React.FC = () => {
                   {getCategoryLabel(template.category)}
                 </Badge>
                 {template.isSystem && (
-                  <Badge variant="default">Sistem</Badge>
+                  <Badge variant="default">System</Badge>
                 )}
               </div>
             </div>
 
             <p className="text-sm text-gray-600 mb-4 line-clamp-2">
-              {template.description || 'Açıklama yok'}
+              {template.description || 'No description'}
             </p>
 
             <div className="text-sm text-gray-500 mb-4">
-              <p><strong>Konu:</strong> {template.subject}</p>
+              <p><strong>Subject:</strong> {template.subject}</p>
               <p className="mt-1">
-                <strong>Değişkenler:</strong> {template.variables.length} adet
+                <strong>Variables:</strong> {template.variables.length}
               </p>
             </div>
 
@@ -226,22 +238,22 @@ const EmailTemplatesPage: React.FC = () => {
               <div className="flex items-center">
                 <span className={`w-2 h-2 rounded-full mr-2 ${template.isActive ? 'bg-green-500' : 'bg-gray-400'}`} />
                 <span className="text-sm text-gray-500">
-                  {template.isActive ? 'Aktif' : 'Pasif'}
+                  {template.isActive ? 'Active' : 'Inactive'}
                 </span>
               </div>
               <div className="flex gap-2">
                 <Button variant="ghost" size="sm" onClick={() => handlePreview(template)}>
-                  Önizle
+                  Preview
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => handleEdit(template)}>
-                  Düzenle
+                  Edit
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => handleToggleActive(template)}
                 >
-                  {template.isActive ? 'Devre Dışı' : 'Aktifleştir'}
+                  {template.isActive ? 'Disable' : 'Enable'}
                 </Button>
               </div>
             </div>
@@ -251,7 +263,7 @@ const EmailTemplatesPage: React.FC = () => {
 
       {filteredTemplates.length === 0 && (
         <div className="text-center py-12">
-          <p className="text-gray-500">Bu kategoride şablon bulunamadı</p>
+          <p className="text-gray-500">No templates found in this category</p>
         </div>
       )}
 
@@ -260,7 +272,7 @@ const EmailTemplatesPage: React.FC = () => {
         <Modal
           isOpen={showPreviewModal}
           onClose={() => setShowPreviewModal(false)}
-          title={`Önizleme: ${selectedTemplate.name}`}
+          title={`Preview: ${selectedTemplate.name}`}
           size="lg"
         >
           <div className="space-y-4">
@@ -280,7 +292,7 @@ const EmailTemplatesPage: React.FC = () => {
             {/* Variables */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Değişkenler
+                Variables
               </label>
               <div className="flex flex-wrap gap-2">
                 {selectedTemplate.variables.map(v => (
@@ -298,7 +310,7 @@ const EmailTemplatesPage: React.FC = () => {
             {/* HTML Preview */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                İçerik Önizleme
+                Content Preview
               </label>
               <div className="border rounded-lg overflow-hidden">
                 <iframe
@@ -311,13 +323,13 @@ const EmailTemplatesPage: React.FC = () => {
 
             <div className="flex justify-end gap-3 pt-4 border-t">
               <Button variant="secondary" onClick={() => setShowPreviewModal(false)}>
-                Kapat
+                Close
               </Button>
               <Button variant="primary" onClick={() => {
                 setShowPreviewModal(false);
                 handleEdit(selectedTemplate);
               }}>
-                Düzenle
+                Edit
               </Button>
             </div>
           </div>
@@ -329,14 +341,14 @@ const EmailTemplatesPage: React.FC = () => {
         <Modal
           isOpen={showEditModal}
           onClose={() => setShowEditModal(false)}
-          title={selectedTemplate ? `Düzenle: ${selectedTemplate.name}` : 'Yeni Şablon'}
+          title={selectedTemplate ? `Edit: ${selectedTemplate.name}` : 'New Template'}
           size="xl"
         >
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Şablon Kodu
+                  Template Code
                 </label>
                 <Input
                   type="text"
@@ -348,13 +360,13 @@ const EmailTemplatesPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Şablon Adı
+                  Template Name
                 </label>
                 <Input
                   type="text"
                   value={selectedTemplate?.name || ''}
                   onChange={(e) => setSelectedTemplate(prev => prev ? { ...prev, name: e.target.value } : null)}
-                  placeholder="Hoş Geldiniz Emaili"
+                  placeholder="Welcome Email"
                 />
               </div>
             </div>
@@ -362,7 +374,7 @@ const EmailTemplatesPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Kategori
+                  Category
                 </label>
                 <select
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
@@ -376,32 +388,32 @@ const EmailTemplatesPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Açıklama
+                  Description
                 </label>
                 <Input
                   type="text"
                   value={selectedTemplate?.description || ''}
                   onChange={(e) => setSelectedTemplate(prev => prev ? { ...prev, description: e.target.value } : null)}
-                  placeholder="Şablon açıklaması..."
+                  placeholder="Template description..."
                 />
               </div>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email Konusu
+                Email Subject
               </label>
               <Input
                 type="text"
                 value={selectedTemplate?.subject || ''}
                 onChange={(e) => setSelectedTemplate(prev => prev ? { ...prev, subject: e.target.value } : null)}
-                placeholder="{{platform_name}} - Hoş Geldiniz!"
+                placeholder="{{platform_name}} - Welcome!"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                HTML İçerik
+                HTML Content
               </label>
               <textarea
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
@@ -414,7 +426,7 @@ const EmailTemplatesPage: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Değişkenler
+                Variables
               </label>
               <div className="space-y-2">
                 {selectedTemplate?.variables.map((variable, index) => (
@@ -422,7 +434,7 @@ const EmailTemplatesPage: React.FC = () => {
                     <Input
                       type="text"
                       value={variable.name}
-                      placeholder="Değişken adı"
+                      placeholder="Variable name"
                       className="flex-1"
                       onChange={(e) => {
                         const newVars = [...(selectedTemplate?.variables || [])];
@@ -433,7 +445,7 @@ const EmailTemplatesPage: React.FC = () => {
                     <Input
                       type="text"
                       value={variable.description}
-                      placeholder="Açıklama"
+                      placeholder="Description"
                       className="flex-1"
                       onChange={(e) => {
                         const newVars = [...(selectedTemplate?.variables || [])];
@@ -444,7 +456,7 @@ const EmailTemplatesPage: React.FC = () => {
                     <Input
                       type="text"
                       value={variable.defaultValue || ''}
-                      placeholder="Varsayılan"
+                      placeholder="Default"
                       className="flex-1"
                       onChange={(e) => {
                         const newVars = [...(selectedTemplate?.variables || [])];
@@ -463,7 +475,7 @@ const EmailTemplatesPage: React.FC = () => {
                         }}
                         className="h-4 w-4 text-blue-600 rounded"
                       />
-                      <span className="ml-1 text-xs">Zorunlu</span>
+                      <span className="ml-1 text-xs">Required</span>
                     </label>
                     <Button
                       variant="ghost"
@@ -474,7 +486,7 @@ const EmailTemplatesPage: React.FC = () => {
                         setSelectedTemplate(prev => prev ? { ...prev, variables: newVars } : null);
                       }}
                     >
-                      Sil
+                      Remove
                     </Button>
                   </div>
                 ))}
@@ -489,20 +501,20 @@ const EmailTemplatesPage: React.FC = () => {
                     setSelectedTemplate(prev => prev ? { ...prev, variables: newVars } : null);
                   }}
                 >
-                  + Değişken Ekle
+                  + Add Variable
                 </Button>
               </div>
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t">
               <Button variant="secondary" onClick={() => setShowEditModal(false)}>
-                İptal
+                Cancel
               </Button>
               <Button variant="ghost" onClick={() => selectedTemplate && handlePreview(selectedTemplate)}>
-                Önizle
+                Preview
               </Button>
               <Button variant="primary" onClick={handleSaveTemplate}>
-                Kaydet
+                Save
               </Button>
             </div>
           </div>

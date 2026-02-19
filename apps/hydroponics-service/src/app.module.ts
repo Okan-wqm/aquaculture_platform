@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { createHash } from 'crypto';
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -8,7 +10,6 @@ import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
-import { CqrsModule } from '@nestjs/cqrs';
 import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
@@ -17,6 +18,9 @@ import {
   CorrelationIdMiddleware,
   UserContextMiddleware,
   RolesGuard,
+  TenantGuard,
+  ThrottlerModule,
+  ThrottlerGuard,
 } from '@platform/backend-common';
 import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
 import { HydroponicsSetupModule } from './setup/setup.module';
@@ -24,6 +28,10 @@ import { HealthModule } from './health/health.module';
 
 // Entities
 import { HydroponicsConfig } from './setup/entities/hydroponics-config.entity';
+
+// Per-process cache for GraphQL complexity results keyed by document hash.
+// This avoids recomputing complexity for identical operations on every request.
+const complexityCache = new Map<string, number>();
 
 @Module({
   imports: [
@@ -53,7 +61,7 @@ import { HydroponicsConfig } from './setup/entities/hydroponics-config.entity';
         entities: [
           HydroponicsConfig,
         ],
-        synchronize: configService.get('NODE_ENV') !== 'production',
+        synchronize: configService.get('DATABASE_SYNC') === 'true' && configService.get('NODE_ENV') !== 'production',
         logging: configService.get('NODE_ENV') === 'development',
         ssl: (() => {
           const sslEnabled = configService.get('DB_SSL') === 'true';
@@ -69,63 +77,99 @@ import { HydroponicsConfig } from './setup/entities/hydroponics-config.entity';
 
           return {
             rejectUnauthorized,
-            ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
+            ...(caPath ? { ca: readFileSync(caPath) } : {}),
           };
         })(),
         extra: {
-          max: configService.get<number>('DB_POOL_SIZE', 20),
+          max: configService.get<number>('DB_POOL_SIZE', 5),
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 10000,
         },
       };
       },
     }),
-    GraphQLModule.forRoot<ApolloFederationDriverConfig>({
+    GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: {
-        federation: 2,
-      },
-      validationRules: [depthLimit(10)],
-      plugins: [
-        {
-          requestDidStart: async () => ({
-            async didResolveOperation({ request, document, schema }) {
-              const complexity = getComplexity({
-                schema,
-                operationName: request.operationName,
-                query: document,
-                variables: request.variables,
-                estimators: [fieldExtensionsEstimator(), simpleEstimator({ defaultComplexity: 1 })],
-              });
-              const maxComplexity = 1000;
-              if (complexity > maxComplexity) {
-                throw new GraphQLError(`Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`);
-              }
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const isProduction = configService.get('NODE_ENV') === 'production';
+        return {
+          autoSchemaFile: {
+            federation: 2,
+          },
+          validationRules: [depthLimit(10)],
+          plugins: [
+            {
+              requestDidStart: async () => ({
+                async didResolveOperation({ request, document, schema }) {
+                  // Cache complexity by document hash to avoid re-computation for
+                  // identical operations. The hash key incorporates the operation name
+                  // so distinct named operations in the same document are treated separately.
+                  const docSource = request.query ?? '';
+                  const opName = request.operationName ?? '';
+                  const cacheKey = createHash('sha1')
+                    .update(docSource)
+                    .update('\x00')
+                    .update(opName)
+                    .digest('hex');
+
+                  let complexity = complexityCache.get(cacheKey);
+                  if (complexity === undefined) {
+                    complexity = getComplexity({
+                      schema,
+                      operationName: request.operationName,
+                      query: document,
+                      variables: request.variables,
+                      estimators: [fieldExtensionsEstimator(), simpleEstimator({ defaultComplexity: 1 })],
+                    });
+                    complexityCache.set(cacheKey, complexity);
+                  }
+
+                  const maxComplexity = 1000;
+                  if (complexity > maxComplexity) {
+                    throw new GraphQLError(`Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`);
+                  }
+                },
+              }),
             },
-          }),
-        },
-      ],
-      playground: process.env['NODE_ENV'] !== 'production',
-      introspection: process.env['NODE_ENV'] !== 'production',
-      context: ({ req }: { req: Request }) => ({ req }),
+          ],
+          playground: !isProduction && configService.get('GRAPHQL_PLAYGROUND', 'true') === 'true',
+          introspection: !isProduction || configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true',
+          context: ({ req }: { req: Request }) => ({ req }),
+        };
+      },
     }),
-    CqrsModule.forRoot(),
+    // NOTE: CqrsModule intentionally omitted — no CQRS handlers are wired in this service yet.
+    // Re-add CqrsModule.forRoot() once actual command/query handlers are implemented.
     JwtModule.registerAsync({
       global: true,
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get('JWT_SECRET', 'dev-secret'),
+        secret: configService.getOrThrow<string>('JWT_SECRET'),
         signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '1d') },
       }),
     }),
+    // Rate limiting: applies sliding-window throttling to all GraphQL and REST endpoints.
+    // Limits are configurable via THROTTLE_DEFAULT_LIMIT, THROTTLE_DEFAULT_TTL,
+    // THROTTLE_ANONYMOUS_LIMIT, and THROTTLE_ENABLED environment variables.
+    ThrottlerModule,
     HydroponicsSetupModule,
     HealthModule,
   ],
   providers: [
     {
       provide: APP_GUARD,
+      useClass: TenantGuard,
+    },
+    {
+      provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
     },
   ],
 })
@@ -143,6 +187,7 @@ export class AppModule implements NestModule {
         TenantContextMiddleware,
         TenantSchemaMiddleware,
       )
+      .exclude('health', 'health/(.*)')
       .forRoutes('*');
   }
 }

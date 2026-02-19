@@ -1118,7 +1118,12 @@ export class DailyFeedingExecutionService {
    * Gunluk yem miktarini hesaplar.
    */
   private calculateDailyFeedAmount(biomassKg: number, feedingRatePercent: number): number {
-    if (!biomassKg || !feedingRatePercent) {
+    // Use explicit zero checks instead of falsy check to avoid
+    // short-circuiting on biomassKg === 0 (which is a valid but abnormal state)
+    if (biomassKg <= 0 || feedingRatePercent <= 0) {
+      if (biomassKg === 0) {
+        this.logger.warn('calculateDailyFeedAmount called with biomassKg=0 — possible data entry error');
+      }
       return 0;
     }
     // 2 ondalik basamaga yuvarla

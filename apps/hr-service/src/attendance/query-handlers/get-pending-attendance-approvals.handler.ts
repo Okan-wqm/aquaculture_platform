@@ -31,10 +31,19 @@ export class GetPendingAttendanceApprovalsHandler
     const effectiveLimit = Math.min(Math.max(limit, 1), 100);
     const effectiveOffset = Math.max(offset, 0);
 
-    // Get approver's details
-    const approver = await this.employeeRepository.findOne({
-      where: { id: approverId, tenantId, isDeleted: false },
-    });
+    // Only look up the approver's department when the caller has NOT supplied an explicit
+    // departmentId — avoids a wasted round-trip on every call where departmentId is known.
+    let effectiveDepartmentId = departmentId;
+    if (!effectiveDepartmentId) {
+      const approver = await this.employeeRepository.findOne({
+        where: { id: approverId, tenantId, isDeleted: false },
+        select: ['id', 'departmentHrId'],
+      });
+      if (!approver) {
+        return { items: [], total: 0, limit: effectiveLimit, offset: effectiveOffset, hasMore: false };
+      }
+      effectiveDepartmentId = approver.departmentHrId;
+    }
 
     const queryBuilder = this.attendanceRepository
       .createQueryBuilder('ar')
@@ -49,12 +58,8 @@ export class GetPendingAttendanceApprovalsHandler
       .andWhere('ar.employeeId != :approverId', { approverId })
       .orderBy('ar.date', 'DESC');
 
-    if (departmentId) {
-      queryBuilder.andWhere('ar.departmentId = :departmentId', { departmentId });
-    } else if (approver?.departmentHrId) {
-      queryBuilder.andWhere('ar.departmentId = :departmentId', {
-        departmentId: approver.departmentHrId,
-      });
+    if (effectiveDepartmentId) {
+      queryBuilder.andWhere('ar.departmentId = :departmentId', { departmentId: effectiveDepartmentId });
     }
 
     const [items, total] = await queryBuilder

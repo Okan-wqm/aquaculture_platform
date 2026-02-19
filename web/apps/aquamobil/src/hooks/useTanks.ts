@@ -44,6 +44,8 @@ async function fetchTanks(accessToken: string, tenantId: string): Promise<Tank[]
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
       'X-Tenant-Id': tenantId,
+      // SEC-06: CSRF defense header
+      'X-Requested-With': 'XMLHttpRequest',
     },
     body: JSON.stringify({
       query: TANKS_QUERY,
@@ -78,13 +80,14 @@ export function useTanks() {
       }
 
       try {
-        // Try to fetch from network
         const tanks = await fetchTanks(accessToken, tenantId);
-        // Cache for offline use
-        await cacheData('tanks', tanks, 1000 * 60 * 60); // 1 hour TTL
+        // PERF-05: Write to IndexedDB only as an offline fallback.
+        // React Query's own gcTime handles in-memory caching for the online path,
+        // eliminating the duplicate cache layer.
+        await cacheData('tanks', tanks, 1000 * 60 * 60); // 1 hour TTL for offline use
         return tanks;
       } catch (error) {
-        // Fall back to cached data
+        // Network failed — return IndexedDB cached data if available
         const cached = await getCachedData<Tank[]>('tanks');
         if (cached) {
           return cached;
@@ -93,7 +96,8 @@ export function useTanks() {
       }
     },
     enabled: isAuthenticated && !!tenantId,
-    staleTime: 1000 * 60 * 5, // 5 minutes
-    gcTime: 1000 * 60 * 60, // 1 hour
+    staleTime: 1000 * 60 * 1, // 1 minute — more accurate for live inventory data
+    gcTime: 1000 * 60 * 60, // 1 hour in-memory retention
+    refetchOnWindowFocus: true, // refresh tank data when returning to the app
   });
 }

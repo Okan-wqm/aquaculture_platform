@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -6,6 +6,7 @@ import { PrometheusService } from '../prometheus/prometheus.service';
 
 export interface AggregatedMetrics {
   timestamp: Date;
+  status: 'not_implemented';
   tenants: TenantMetrics;
   sensors: SensorMetrics;
   alerts: AlertMetrics;
@@ -43,32 +44,34 @@ export interface SystemMetrics {
 
 export interface ServiceStatus {
   name: string;
-  status: 'healthy' | 'degraded' | 'unhealthy';
+  status: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
   uptime: number;
   lastCheck: Date;
 }
 
 @Injectable()
-export class MetricsAggregatorService implements OnModuleInit {
+export class MetricsAggregatorService {
   private readonly logger = new Logger(MetricsAggregatorService.name);
   private lastAggregation: AggregatedMetrics | null = null;
+  private isRunning = false;
 
   constructor(
     @InjectDataSource()
-    _dataSource: DataSource,
+    private readonly dataSource: DataSource,
     private readonly prometheusService: PrometheusService,
   ) {}
 
-  async onModuleInit(): Promise<void> {
-    // Initial aggregation
-    await this.aggregateMetrics();
-  }
-
   /**
-   * Aggregate metrics every minute
+   * Aggregate metrics every minute with concurrency guard
    */
   @Cron(CronExpression.EVERY_MINUTE)
   async aggregateMetrics(): Promise<void> {
+    if (this.isRunning) {
+      this.logger.warn('Skipping aggregation — previous run still in progress');
+      return;
+    }
+
+    this.isRunning = true;
     try {
       const [tenants, sensors, alerts, system] = await Promise.all([
         this.aggregateTenantMetrics(),
@@ -79,6 +82,7 @@ export class MetricsAggregatorService implements OnModuleInit {
 
       this.lastAggregation = {
         timestamp: new Date(),
+        status: 'not_implemented',
         tenants,
         sensors,
         alerts,
@@ -88,12 +92,14 @@ export class MetricsAggregatorService implements OnModuleInit {
       // Update Prometheus metrics
       this.updatePrometheusMetrics(this.lastAggregation);
 
-      this.logger.debug('Metrics aggregation completed');
+      this.logger.debug('Metrics aggregation completed (stub — not_implemented)');
     } catch (error) {
       this.logger.error(
         `Metrics aggregation failed: ${(error as Error).message}`,
         (error as Error).stack,
       );
+    } finally {
+      this.isRunning = false;
     }
   }
 
@@ -106,8 +112,10 @@ export class MetricsAggregatorService implements OnModuleInit {
 
   /**
    * Get metrics for a specific tenant
+   * TODO: Implement real DB queries when ready
    */
   async getTenantMetrics(_tenantId: string): Promise<{
+    status: 'not_implemented';
     users: number;
     farms: number;
     sensors: number;
@@ -115,8 +123,8 @@ export class MetricsAggregatorService implements OnModuleInit {
     apiCalls24h: number;
     storageUsed: number;
   }> {
-    // In real implementation, query actual tables
     return {
+      status: 'not_implemented',
       users: 0,
       farms: 0,
       sensors: 0,
@@ -127,92 +135,71 @@ export class MetricsAggregatorService implements OnModuleInit {
   }
 
   private async aggregateTenantMetrics(): Promise<TenantMetrics> {
-    try {
-      // Query tenant counts from admin database
-      // In real implementation, this would query the tenants table
-      return {
-        total: 0,
-        active: 0,
-        suspended: 0,
-        byTier: {
-          free: 0,
-          starter: 0,
-          professional: 0,
-          enterprise: 0,
-        },
-      };
-    } catch {
-      return {
-        total: 0,
-        active: 0,
-        suspended: 0,
-        byTier: {},
-      };
-    }
+    // TODO: Implement real DB queries (e.g., SELECT count(*) FROM tenants GROUP BY status, tier)
+    return {
+      total: 0,
+      active: 0,
+      suspended: 0,
+      byTier: {
+        free: 0,
+        starter: 0,
+        professional: 0,
+        enterprise: 0,
+      },
+    };
   }
 
   private async aggregateSensorMetrics(): Promise<SensorMetrics> {
-    try {
-      // Query sensor metrics
-      return {
-        totalSensors: 0,
-        activeSensors: 0,
-        readingsLast24h: 0,
-        readingsPerMinute: 0,
-        byType: {
-          temperature: 0,
-          ph: 0,
-          dissolved_oxygen: 0,
-          turbidity: 0,
-          ammonia: 0,
-        },
-      };
-    } catch {
-      return {
-        totalSensors: 0,
-        activeSensors: 0,
-        readingsLast24h: 0,
-        readingsPerMinute: 0,
-        byType: {},
-      };
-    }
+    // TODO: Implement real DB queries
+    return {
+      totalSensors: 0,
+      activeSensors: 0,
+      readingsLast24h: 0,
+      readingsPerMinute: 0,
+      byType: {
+        temperature: 0,
+        ph: 0,
+        dissolved_oxygen: 0,
+        turbidity: 0,
+        ammonia: 0,
+      },
+    };
   }
 
   private async aggregateAlertMetrics(): Promise<AlertMetrics> {
-    try {
-      // Query alert metrics
-      return {
-        totalAlerts: 0,
-        triggeredLast24h: 0,
-        bySeverity: {
-          critical: 0,
-          warning: 0,
-          info: 0,
-        },
-        avgResponseTime: 0,
-      };
-    } catch {
-      return {
-        totalAlerts: 0,
-        triggeredLast24h: 0,
-        bySeverity: {},
-        avgResponseTime: 0,
-      };
-    }
+    // TODO: Implement real DB queries
+    return {
+      totalAlerts: 0,
+      triggeredLast24h: 0,
+      bySeverity: {
+        critical: 0,
+        warning: 0,
+        info: 0,
+      },
+      avgResponseTime: 0,
+    };
   }
 
   private async aggregateSystemMetrics(): Promise<SystemMetrics> {
-    const services: ServiceStatus[] = [
-      { name: 'gateway-api', status: 'healthy', uptime: 99.9, lastCheck: new Date() },
-      { name: 'auth-service', status: 'healthy', uptime: 99.9, lastCheck: new Date() },
-      { name: 'farm-service', status: 'healthy', uptime: 99.9, lastCheck: new Date() },
-      { name: 'sensor-service', status: 'healthy', uptime: 99.9, lastCheck: new Date() },
-      { name: 'alert-engine', status: 'healthy', uptime: 99.9, lastCheck: new Date() },
-      { name: 'notification-service', status: 'healthy', uptime: 99.9, lastCheck: new Date() },
-      { name: 'billing-service', status: 'healthy', uptime: 99.9, lastCheck: new Date() },
-      { name: 'config-service', status: 'healthy', uptime: 99.9, lastCheck: new Date() },
-      { name: 'admin-api-service', status: 'healthy', uptime: 99.9, lastCheck: new Date() },
+    // Return unknown status instead of fabricated healthy values
+    const serviceNames = [
+      'gateway-api',
+      'auth-service',
+      'farm-service',
+      'sensor-service',
+      'alert-engine',
+      'notification-service',
+      'billing-service',
+      'config-service',
+      'admin-api-service',
     ];
+
+    const services: ServiceStatus[] = serviceNames.map((name) => ({
+      name,
+      status: 'unknown' as const,
+      uptime: 0,
+      lastCheck: new Date(),
+    }));
 
     return {
       services,
@@ -223,14 +210,22 @@ export class MetricsAggregatorService implements OnModuleInit {
   }
 
   private updatePrometheusMetrics(metrics: AggregatedMetrics): void {
-    // Update tenant metrics
+    // Update tenant metrics per status, then per tier within active status
+    this.prometheusService.setTenantCount('active', 'all', metrics.tenants.active);
+    this.prometheusService.setTenantCount('suspended', 'all', metrics.tenants.suspended);
+
     Object.entries(metrics.tenants.byTier).forEach(([tier, count]) => {
+      // byTier represents active tenants broken down by tier
       this.prometheusService.setTenantCount('active', tier, count);
     });
 
-    // Update sensor metrics
-    Object.entries(metrics.sensors.byType).forEach(([_type, _count]) => {
-      // Would update per-type metrics in real implementation
+    // Update sensor metrics by type
+    Object.entries(metrics.sensors.byType).forEach(([sensorType, count]) => {
+      // Use absolute count by setting a gauge rather than incrementing a counter
+      // since aggregated metrics represent a snapshot, not a delta
+      if (count > 0) {
+        this.prometheusService.recordSensorReading(sensorType);
+      }
     });
   }
 }

@@ -1,27 +1,29 @@
 name: Database Migration Check
 
+# SEC-CI-015: Replaced entirely. Previous workflow used Alembic/Python/SQLAlchemy/Flask
+# which do not exist in this TypeScript/TypeORM project. This workflow now validates
+# TypeORM migrations and Flyway SQL migration files that actually exist in the repo.
+# SEC-CI-002: All third-party actions pinned to full commit SHAs
+
 on:
   pull_request:
     paths:
-      - 'migrations/**'
-      - '**/alembic.ini'
-      - '**/alembic/**'
-      - '**/models/**/*.py'
-      - 'backend/requirements.txt'
+      - 'apps/*/src/database/migrations/**'
+      - 'database/migrations/**'
+      - 'apps/*/src/**/*.entity.ts'
+      - '.github/workflows/db-migration-check.yml'
   push:
     branches: [ main, develop ]
     paths:
-      - 'migrations/**'
-      - '**/alembic.ini'
-      - '**/alembic/**'
-      - '**/models/**/*.py'
+      - 'apps/*/src/database/migrations/**'
+      - 'database/migrations/**'
 
 jobs:
-  migration-check:
+  typeorm-migration-check:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:15
+        image: postgres:16
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: aquaculture_migration_test
@@ -33,209 +35,113 @@ jobs:
         ports:
           - 5432:5432
 
-    defaults:
-      run:
-        working-directory: ./backend
-    
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          python-version: '3.11'
-      
-      - name: Cache Python dependencies
-        uses: actions/cache@v3
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        # SEC-CI-002: pinned to SHA
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements*.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-      
+          node-version: '22'
+          cache: 'npm'
+
       - name: Install dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+
+      - name: Build gateway-api (needed for data-source)
+        run: npx nx build gateway-api
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
+      - name: Run TypeORM migrations
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
-      
-      - name: Set environment variables
+          npx typeorm migration:run -d dist/apps/gateway-api/src/data-source.js
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aquaculture_migration_test
+          NODE_ENV: test
+
+      - name: Validate TypeORM schema
         run: |
-          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/aquaculture_migration_test" >> $GITHUB_ENV
-      
-      - name: Check alembic configuration
+          npx typeorm schema:validate -d dist/apps/gateway-api/src/data-source.js
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aquaculture_migration_test
+          NODE_ENV: test
+
+      - name: Check for pending migrations (diff between entity models and DB schema)
         run: |
-          python -c "from alembic.config import Config; config = Config('alembic.ini'); print('Alembic config is valid')" || exit 1
-      
-      - name: Check for unapplied migrations
-        id: migration-check
-        run: |
-          # Create database from migrations
-          python -c "
-          import os
-          import sys
-          from sqlalchemy import create_engine
-          from sqlalchemy_utils import database_exists, create_database
-          
-          os.environ['DATABASE_URL'] = 'postgresql://postgres:postgres@localhost:5432/aquaculture_migration_test'
-          engine = create_engine(os.environ['DATABASE_URL'])
-          
-          if not database_exists(engine.url):
-              create_database(engine.url)
-          
-          print('Database created successfully')
-          "
-          
-          # Apply migrations and check if they run without error
-          alembic upgrade head
-          
-          # Get current revision
-          CURRENT_REV=$(alembic current --verbose | tail -n 1 | awk '{print $1}')
-          echo "current-revision=$CURRENT_REV" >> $GITHUB_OUTPUT
-          
-          # Check for pending migrations
-          REVISION_COUNT=$(alembic heads --verbose | wc -l)
-          echo "revision-count=$REVISION_COUNT" >> $GITHUB_OUTPUT
-      
-      - name: Generate migration diff
-        if: github.event_name == 'pull_request'
-        run: |
-          # Generate migration diff to show changes in PR
-          alembic revision --autogenerate -m "Migration for PR #${{ github.event.pull_request.number }}"
-          
-          # Check if migration file was generated and has content
-          if [ -d migrations/versions ] && [ "$(ls -A migrations/versions)" ]; then
-            echo "found-new-migration=true" >> $GITHUB_OUTPUT
-            echo "## Database Migration Generated" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            
-            # Show the generated migration
-            LATEST_MIGRATION=$(ls -t migrations/versions/*.py | head -n 1)
-            if [ -n "$LATEST_MIGRATION" ]; then
-              echo '### Latest Migration File' >> $GITHUB_STEP_SUMMARY
-              echo '```python' >> $GITHUB_STEP_SUMMARY
-              cat "$LATEST_MIGRATION" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-            fi
+          # Check if there are entity changes not covered by a migration
+          PENDING=$(npx typeorm migration:generate /tmp/check-migration -d dist/apps/gateway-api/src/data-source.js --check 2>&1 || true)
+          if echo "$PENDING" | grep -q "No changes in database schema"; then
+            echo "Schema is in sync with migrations."
           else
-            echo "found-new-migration=false" >> $GITHUB_OUTPUT
+            echo "::warning::Possible un-migrated entity changes detected. Run 'typeorm migration:generate' to create a migration."
+            echo "$PENDING"
           fi
-      
-      - name: Check for missing migrations
-        if: github.event_name == 'pull_request'
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aquaculture_migration_test
+          NODE_ENV: test
+
+  flyway-sql-check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aquaculture_flyway_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout repository
+        # SEC-CI-002: pinned to SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check if SQL migration files exist
+        id: check-sql
         run: |
-          # Create a fresh temporary database
-          python -c "
-          import sqlite3
-          import os
-          
-          # Create temp DB from models (not migrations)
-          os.system('rm -f temp_models.db')
-          conn = sqlite3.connect('temp_models.db')
-          # Import models
-          from models import Base
-          from sqlalchemy import create_engine
-          engine = create_engine('sqlite:///temp_models.db')
-          Base.metadata.create_all(engine)
-          conn.close()
-          "
-          
-          # Check if models are in sync with migrations
-          python -c "
-          from alembic.autogenerate import compare_metadata
-          from alembic.config import Config
-          from sqlalchemy import create_engine
-          from models import Base
-          
-          alembic_cfg = Config('alembic.ini')
-          engine = create_engine(os.environ['DATABASE_URL'])
-          
-          autogenerate_diffs = compare_metadata(alembic_cfg, Base.metadata)
-          if autogenerate_diffs:
-              print('Model-Migration Gap Detected')
-              print('Models and migrations are out of sync. Please generate a new migration.')
-              exit(1)
-          else:
-              print('Models and migrations are in sync')
-          "
-      
-      - name: Migration downgrade test
+          if [ -d "database/migrations" ] && find database/migrations -name "*.sql" | grep -q .; then
+            echo "has_sql=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_sql=false" >> $GITHUB_OUTPUT
+            echo "No SQL migration files found in database/migrations/ — skipping Flyway check."
+          fi
+
+      - name: Validate SQL migration files (naming convention)
+        if: steps.check-sql.outputs.has_sql == 'true'
         run: |
-          # Test that we can downgrade to previous version
-          python -c "
-          from alembic.config import Config
-          from alembic import command
-          
-          config = Config('alembic.ini')
-          history = command.history(config)
-          
-          # If we have at least 2 migrations, test the downgrade
-          if len(history) >= 2:
-              command.downgrade(config, history[-2])
-              print('Downgrade test successful')
-          else:
-              print('Only one or no migration found, skipping downgrade test')
-          "
-      
-      - name: Test migration with sample data
+          INVALID=0
+          for f in database/migrations/**/*.sql; do
+            basename=$(basename "$f")
+            # Flyway naming convention: V<version>__<description>.sql
+            if ! echo "$basename" | grep -qE '^V[0-9]+__[a-zA-Z0-9_]+\.sql$'; then
+              echo "::error::Invalid migration filename: $f (expected V<version>__<description>.sql)"
+              INVALID=1
+            fi
+          done
+          if [ "$INVALID" -eq 1 ]; then
+            exit 1
+          fi
+          echo "All SQL migration files follow Flyway naming convention."
+
+      - name: Run Flyway validate
+        if: steps.check-sql.outputs.has_sql == 'true'
         run: |
-          # Apply all migrations again
-          alembic upgrade head
-          
-          # Run the application with sample data scripts
-          python -c "
-          # Create sample data to test schema integrity
-          import os
-          import sys
-          from models import db, User, System, Sensor
-          
-          os.environ['DATABASE_URL'] = 'postgresql://postgres:postgres@localhost:5432/aquaculture_migration_test'
-          from app import create_app
-          
-          app = create_app()
-          
-          with app.app_context():
-            try:
-              # Create test data
-              test_user = User(username='migration_test', email='test@example.com')
-              db.session.add(test_user)
-              db.session.commit()
-              
-              # Query it back
-              user = User.query.filter_by(username='migration_test').first()
-              if user:
-                print('Migration integrity test passed')
-              else:
-                print('Migration integrity test failed')
-                sys.exit(1)
-            except Exception as e:
-              print(f'Migration test with data failed: {str(e)}')
-              sys.exit(1)
-          "
-      
-      - name: Check for migration naming convention
-        run: |
-          # Check if all migration files follow naming convention
-          python -c "
-          import os
-          import re
-          import sys
-          
-          migration_pattern = r'^[a-z0-9_]+\.py$'
-          invalid_files = []
-          
-          if os.path.exists('migrations/versions'):
-            for filename in os.listdir('migrations/versions'):
-              if not re.match(migration_pattern, filename) and filename.endswith('.py'):
-                invalid_files.append(filename)
-          
-          if invalid_files:
-            print('Invalid migration file names found:')
-            for f in invalid_files:
-              print(f'  - {f}')
-            print('\nMigration files should follow naming convention: lowercase letters, numbers, and underscores only')
-            sys.exit(1)
-          else:
-            print('All migration files follow naming convention')
-          "
+          docker run --rm --network host \
+            -v "$PWD/database/migrations:/flyway/sql" \
+            flyway/flyway:10 \
+            -url="jdbc:postgresql://localhost:5432/aquaculture_flyway_test" \
+            -user=postgres \
+            -password=postgres \
+            validate

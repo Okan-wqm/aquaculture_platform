@@ -1,3 +1,5 @@
+import { IsArray, IsUUID, ArrayMaxSize, IsString, IsOptional, IsBoolean, MaxLength, IsEnum } from 'class-validator';
+
 import { TenantActivity, TenantNote, TenantBillingInfo } from '../entities/tenant-activity.entity';
 import { Tenant } from '../entities/tenant.entity';
 
@@ -161,10 +163,61 @@ export interface TenantListItemDto {
   createdAt: Date;
 }
 
+// Note categories allowed for tenant notes (HIGH-003 fix)
+const ALLOWED_NOTE_CATEGORIES = ['general', 'billing', 'support', 'compliance', 'technical'] as const;
+type NoteCategory = typeof ALLOWED_NOTE_CATEGORIES[number];
+
+// HIGH-003 fix: typed DTO with validation decorators to prevent oversized/malicious note content
+export class CreateTenantNoteDto {
+  @IsString()
+  @MaxLength(5000)
+  content!: string;
+
+  @IsOptional()
+  @IsEnum(ALLOWED_NOTE_CATEGORIES)
+  category?: NoteCategory;
+
+  @IsOptional()
+  @IsBoolean()
+  isPinned?: boolean;
+}
+
+export class UpdateTenantNoteDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  content?: string;
+
+  @IsOptional()
+  @IsEnum(ALLOWED_NOTE_CATEGORIES)
+  category?: NoteCategory;
+
+  @IsOptional()
+  @IsBoolean()
+  isPinned?: boolean;
+}
+
 // Bulk Operation DTOs
-export interface BulkSuspendDto {
-  tenantIds: string[];
-  reason: string;
+
+// HIGH-005 fix: typed class with ArrayMaxSize and per-element UUID validation
+export class BulkSuspendDto {
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsUUID('4', { each: true })
+  tenantIds!: string[];
+
+  @IsString()
+  @MaxLength(500)
+  reason!: string;
+}
+
+// BUG-024 fix: typed DTO with class-validator so tenantIds receives UUID format
+// validation and size limits — preventing DoS from oversized arrays.
+export class BulkActivateDto {
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsUUID('4', { each: true })
+  tenantIds!: string[];
 }
 
 export interface BulkAssignModulesDto {

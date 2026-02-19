@@ -1,5 +1,10 @@
 name: Security - Snyk
 
+# SEC-CI-002: All third-party actions pinned to full commit SHAs
+# SEC-CI-009: Snyk actions pinned to SHA (were @master)
+# SEC-CI-014: Removed snyk-backend Python job (scanned non-existent requirements.txt)
+#             Replaced with Node.js scan for the actual TypeScript/Node monorepo
+
 on:
   pull_request:
   push:
@@ -8,86 +13,71 @@ on:
     - cron: '0 2 * * *'
 
 jobs:
-  snyk-backend:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-      - name: Cache pip dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-      - name: Install pip dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
-      - name: Run Snyk to check for vulnerabilities
-        uses: snyk/actions/python@master
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: --severity-threshold=high --org=aquaculture-platform
-      - name: Upload Snyk results for PR comment
-        if: github.event_name == 'pull_request'
-        uses: snyk/actions/github@master
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: --org=aquaculture-platform
+  # SEC-CI-014: Removed Python snyk-backend job entirely.
+  # This project is a TypeScript/Node.js monorepo with no Python services.
+  # The snyk-frontend job below covers Node.js dependency scanning.
 
   snyk-frontend:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        # SEC-CI-002: pinned to SHA (was @v3)
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: '22'
+
       - name: Cache node modules
-        uses: actions/cache@v3
+        # SEC-CI-002: pinned to SHA (was @v3)
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: ~/.npm
           key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
+
       - name: Install npm dependencies
         run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+
+      # SEC-CI-009/SEC-CI-002: Pinned to SHA (was @master)
       - name: Run Snyk to check for vulnerabilities
-        uses: snyk/actions/node@master
+        uses: snyk/actions/node@b98d498629f1c5e001d9cbe42ee4bc08d6f48b4e # pinned
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           args: --severity-threshold=high --org=aquaculture-platform
+
+      # SEC-CI-009/SEC-CI-002: Pinned to SHA (was @master)
       - name: Upload Snyk results for PR comment
         if: github.event_name == 'pull_request'
-        uses: snyk/actions/github@master
+        uses: snyk/actions/node@b98d498629f1c5e001d9cbe42ee4bc08d6f48b4e # pinned
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          args: --org=aquaculture-platform
+          args: --org=aquaculture-platform --report
 
   snyk-infrastructure:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # SEC-CI-009/SEC-CI-002: Pinned to SHA (was @master)
       - name: Run Snyk to check for IaC vulnerabilities
-        uses: snyk/actions/iac@master
+        uses: snyk/actions/iac@b98d498629f1c5e001d9cbe42ee4bc08d6f48b4e # pinned
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          file: infra/
+          file: infrastructure/
           args: --severity-threshold=high --org=aquaculture-platform
+
       - name: Upload Snyk results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v2
+        # SEC-CI-002: pinned to SHA (was @v2)
+        uses: github/codeql-action/upload-sarif@45775bd8235c68ba998cffa5171334d58593da47 # v3.28.1
         with:
           sarif_file: snyk.sarif
+        if: always()

@@ -7,36 +7,38 @@ import {
 } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { Reflector } from '@nestjs/core';
-import { Request } from 'express';
-import { SKIP_TENANT_GUARD_KEY } from '../decorators/roles.decorator';
-
-/**
- * User payload structure from JWT
- */
-interface JwtUser {
-  sub: string;
-  tenantId?: string;
-  roles?: string[];
-}
-
-/**
- * Extended request with tenant and user context
- */
-interface TenantRequest extends Request {
-  user?: JwtUser;
-  tenantId?: string;
-}
+import { SKIP_TENANT_GUARD_KEY, IS_PUBLIC_KEY } from '../decorators/roles.decorator';
+import { TenantRequest } from '../types/tenant-request.interface';
 
 /**
  * Tenant Guard
- * Ensures requests have valid tenant context and user belongs to tenant
+ * Ensures requests have valid tenant context and user belongs to tenant.
+ *
+ * Skip behaviour:
+ * - `@SkipTenantGuard()` – explicitly skips tenant validation for a single route
+ *   that still requires authentication.
+ * - `@Public()` – marks the endpoint as publicly accessible; TenantGuard checks
+ *   both the `skipTenantGuard` AND the `isPublic` metadata keys so that applying
+ *   either decorator (or the combined `@Public()`) is sufficient to bypass tenant
+ *   validation. Developers do NOT need to apply `@SkipTenantGuard()` separately
+ *   when using `@Public()`.
  */
 @Injectable()
 export class TenantGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    // Check if guard should be skipped
+    // Skip if endpoint is marked public
+    const isPublic = this.reflector.getAllAndOverride<boolean>(
+      IS_PUBLIC_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+
+    if (isPublic) {
+      return true;
+    }
+
+    // Skip if explicitly annotated with @SkipTenantGuard()
     const skipGuard = this.reflector.getAllAndOverride<boolean>(
       SKIP_TENANT_GUARD_KEY,
       [context.getHandler(), context.getClass()],
@@ -62,6 +64,12 @@ export class TenantGuard implements CanActivate {
     // If no tenant ID in request, deny access
     if (!tenantId) {
       throw new BadRequestException('Tenant ID is required');
+    }
+
+    // Validate tenant ID is a valid UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(tenantId)) {
+      throw new BadRequestException('Tenant ID must be a valid UUID');
     }
 
     // If user is authenticated, verify tenant membership

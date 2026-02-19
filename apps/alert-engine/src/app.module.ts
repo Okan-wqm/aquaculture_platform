@@ -54,7 +54,7 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
         database: configService.get('DATABASE_NAME', 'aquaculture'),
         // NOTE: Do NOT set 'schema' here! Schema is managed dynamically by TenantSchemaMiddleware
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: configService.get('NODE_ENV') !== 'production',
+        synchronize: false,
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {

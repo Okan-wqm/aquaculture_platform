@@ -29,6 +29,7 @@ import {
   XCircle,
   Info,
 } from 'lucide-react';
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 import { securityApi } from '../../services/adminApi';
 
 // ============================================================================
@@ -156,8 +157,9 @@ async function fetchAuditEntries(params: {
 }
 
 async function fetchAuditSummary(): Promise<AuditStats> {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
   const response = await fetch('/api/security/audit/summary', {
+    credentials: 'include',
     headers: {
       Authorization: token ? `Bearer ${token}` : '',
       'Content-Type': 'application/json',
@@ -185,8 +187,9 @@ async function fetchRetentionPolicies(): Promise<RetentionPolicy[]> {
 }
 
 async function fetchAlertRules(): Promise<AlertRule[]> {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
   const response = await fetch('/api/security/audit/alert-rules', {
+    credentials: 'include',
     headers: {
       Authorization: token ? `Bearer ${token}` : '',
       'Content-Type': 'application/json',

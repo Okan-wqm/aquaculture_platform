@@ -1,4 +1,4 @@
-import { Field, ID, InputType, ObjectType, registerEnumType } from '@nestjs/graphql';
+import { Field, HideField, ID, InputType, ObjectType, registerEnumType } from '@nestjs/graphql';
 import { IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ConsentType } from '@platform/backend-common';
 
@@ -98,10 +98,13 @@ export class UserConsentRecord {
   @Field()
   version!: string;
 
-  @Field(() => String, { nullable: true })
+  // SECURITY: IP addresses are PII under GDPR — hidden from GraphQL response (FINDING-027)
+  // Retained in the database for audit purposes
+  @HideField()
   ipAddress?: string | null;
 
-  @Field(() => String, { nullable: true })
+  // SECURITY: User agents can be used for fingerprinting — hidden from GraphQL response
+  @HideField()
   userAgent?: string | null;
 
   @Field(() => Date)

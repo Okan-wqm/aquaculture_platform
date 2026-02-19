@@ -12,7 +12,7 @@ resources:
 commonLabels:
   environment: production
 
-# Production replicas (defined in base, can be overridden)
+# Production replicas
 replicas:
   - name: gateway-api
     count: 3
@@ -43,10 +43,53 @@ configMapGenerator:
     literals:
       - NODE_ENV=production
       - LOG_LEVEL=warn
+  # ARCH-008: production frontend-config uses production domain
+  - name: frontend-config
+    behavior: merge
+    literals:
+      - DASHBOARD_URL=https://mf.aquaculture.io/dashboard
+      - FARM_MODULE_URL=https://mf.aquaculture.io/farm-module
+      - PROCESS_EDITOR_URL=https://mf.aquaculture.io/process-editor
+      - ADMIN_PANEL_URL=https://mf.aquaculture.io/admin-panel
+
+# ARCH-005: pin all production images to immutable SHA digests.
+# These newTag values are placeholders — CI/CD pipeline must inject the
+# actual commit SHA at deploy time (e.g., sha-<git-commit-sha>).
+# Never deploy latest to production.
+images:
+  - name: ghcr.io/aquaculture/gateway-api
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
+  - name: ghcr.io/aquaculture/auth-service
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
+  - name: ghcr.io/aquaculture/farm-service
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
+  - name: ghcr.io/aquaculture/sensor-service
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
+  - name: ghcr.io/aquaculture/alert-engine
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
+  - name: ghcr.io/aquaculture/notification-service
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
+  - name: ghcr.io/aquaculture/shell
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
+  - name: ghcr.io/aquaculture/dashboard
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
+  - name: ghcr.io/aquaculture/farm-module
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
+  - name: ghcr.io/aquaculture/process-editor
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
+  - name: ghcr.io/aquaculture/admin-panel
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
 
 patches:
-  # Production resource limits
+  # ARCH-012: production resource requests and limits for all services
+  # gateway-api — high traffic entry point
   - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "512Mi"
       - op: replace
         path: /spec/template/spec/containers/0/resources/limits/cpu
         value: "2000m"
@@ -57,7 +100,14 @@ patches:
       kind: Deployment
       name: gateway-api
 
+  # sensor-service — memory-bound high-ingest service
   - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "1Gi"
       - op: replace
         path: /spec/template/spec/containers/0/resources/limits/cpu
         value: "2000m"
@@ -67,6 +117,78 @@ patches:
     target:
       kind: Deployment
       name: sensor-service
+
+  # ARCH-012: auth-service — Guaranteed QoS (requests == limits) to prevent eviction
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "200m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "512Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "512Mi"
+    target:
+      kind: Deployment
+      name: auth-service
+
+  # alert-engine — scales with sensor-service event volume
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "200m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "512Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "1000m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "1Gi"
+    target:
+      kind: Deployment
+      name: alert-engine
+
+  # farm-service
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "200m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "512Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "1000m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "1Gi"
+    target:
+      kind: Deployment
+      name: farm-service
+
+  # notification-service
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "200m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "512Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "512Mi"
+    target:
+      kind: Deployment
+      name: notification-service
 
   # Update ingress hosts for production
   - patch: |-
@@ -84,3 +206,32 @@ patches:
     target:
       kind: Ingress
       name: aquaculture-ingress
+
+  # Update MF ingress host and CORS for production
+  - patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - mf.aquaculture.io
+      - op: replace
+        path: /spec/rules/0/host
+        value: mf.aquaculture.io
+      - op: replace
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1cors-allow-origin
+        value: "https://app.aquaculture.io"
+    target:
+      kind: Ingress
+      name: aquaculture-mf-ingress
+
+  # Update auth ingress host for production
+  - patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - api.aquaculture.io
+      - op: replace
+        path: /spec/rules/0/host
+        value: api.aquaculture.io
+    target:
+      kind: Ingress
+      name: aquaculture-auth-ingress

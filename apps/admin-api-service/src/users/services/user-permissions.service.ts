@@ -103,8 +103,11 @@ export class UserPermissionsService {
   ): PanelPermissions {
     const result = JSON.parse(JSON.stringify(existing)) as PanelPermissions;
 
+    // BUG-026 fix: removed the `category in result` guard that silently dropped new
+    // permission categories. New categories (e.g. from newly added modules) are now
+    // merged in instead of being discarded.
     for (const [category, perms] of Object.entries(updates)) {
-      if (perms && typeof perms === 'object' && category in result) {
+      if (perms && typeof perms === 'object') {
         const resultRecord = result as unknown as Record<string, Record<string, boolean>>;
         const existingPerms = resultRecord[category] ?? {};
         resultRecord[category] = {

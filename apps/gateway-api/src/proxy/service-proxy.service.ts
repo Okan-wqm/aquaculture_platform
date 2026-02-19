@@ -6,7 +6,7 @@
  * Supports HTTP, WebSocket, and SSE proxying.
  */
 
-import { Injectable, Logger, BadGatewayException, GatewayTimeoutException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadGatewayException, GatewayTimeoutException, BadRequestException, NotImplementedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 
@@ -293,25 +293,16 @@ export class ServiceProxyService {
    * Proxy WebSocket connection
    */
   proxyWebSocket(
-    req: Request,
+    _req: Request,
     _socket: unknown,
     _head: Buffer,
     serviceName: string,
   ): void {
-    const instance = this.loadBalancer.getNextInstance(serviceName);
-
-    if (!instance) {
-      this.logger.error(`No available instances for WebSocket: ${serviceName}`);
-      return;
-    }
-
-    const targetUrl = `ws://${instance.host}:${instance.port}${req.path}`;
-
-    this.logger.debug(`Proxying WebSocket to ${targetUrl}`);
-
-    // WebSocket proxy implementation would go here
-    // This requires a WebSocket library like 'ws' or 'http-proxy'
-    this.logger.warn('WebSocket proxying not yet implemented');
+    // WebSocket proxying requires a dedicated library like 'ws' or 'http-proxy'.
+    // Callers must not silently assume success.
+    throw new NotImplementedException(
+      `WebSocket proxying to ${serviceName} is not yet implemented`,
+    );
   }
 
   /**
@@ -432,7 +423,7 @@ export class ServiceProxyService {
       maxAttempts: config.retries ?? serviceConfig.retries,
     };
 
-    while (retryContext.attempt <= retryContext.maxAttempts) {
+    while (retryContext.attempt < retryContext.maxAttempts) {
       try {
         const response = await this.makeRequest(config, serviceConfig, instance);
 
@@ -593,10 +584,8 @@ export class ServiceProxyService {
         throw new GatewayTimeoutException(`Request timeout after ${config.timeout || serviceConfig.timeout}ms`);
       }
 
-      throw new BadGatewayException({
-        message: 'Upstream service error',
-        error: (error as Error).message,
-      });
+      // SECURITY: Do not expose upstream error messages to client
+      throw new BadGatewayException('Upstream service error');
     }
   }
 
@@ -670,23 +659,23 @@ export class ServiceProxyService {
   private handleProxyError(res: Response, error: Error): void {
     this.logger.error('Proxy error', { error: error.message });
 
+    // SECURITY: Do not expose internal error details to the client.
+    // Error messages and stack traces can reveal upstream service structure
+    // (hostnames, ports, paths) useful for reconnaissance.
     if (error instanceof BadGatewayException) {
       res.status(502).json({
         statusCode: 502,
-        message: error.message,
-        error: 'Bad Gateway',
+        message: 'Bad Gateway',
       });
     } else if (error instanceof GatewayTimeoutException) {
       res.status(504).json({
         statusCode: 504,
-        message: error.message,
-        error: 'Gateway Timeout',
+        message: 'Gateway Timeout',
       });
     } else {
       res.status(500).json({
         statusCode: 500,
         message: 'Internal Server Error',
-        error: error.message,
       });
     }
   }

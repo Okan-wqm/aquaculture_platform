@@ -5,24 +5,22 @@
  * Includes aquaculture-specific features: crew management, offshore rotations, certifications.
  */
 
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-// Existing pages
-import HRDashboardPage from './pages/HRDashboardPage';
-import EmployeesPage from './pages/EmployeesPage';
-import EmployeeDetailPage from './pages/EmployeeDetailPage';
-import EmployeeFormPage from './pages/EmployeeFormPage';
-import DepartmentsPage from './pages/DepartmentsPage';
-import AttendancePage from './pages/AttendancePage';
-import LeavesPage from './pages/LeavesPage';
-import PayrollPage from './pages/PayrollPage';
-import PerformancePage from './pages/PerformancePage';
-import TrainingPage from './pages/TrainingPage';
-import HRAnalyticsPage from './pages/HRAnalyticsPage';
+// All pages are lazy-loaded to minimize initial chunk size (PERF-010)
+const HRDashboardPage = lazy(() => import('./pages/HRDashboardPage'));
+const EmployeeDetailPage = lazy(() => import('./pages/EmployeeDetailPage'));
+const EmployeeFormPage = lazy(() => import('./pages/EmployeeFormPage'));
+const DepartmentsPage = lazy(() => import('./pages/DepartmentsPage'));
+const AttendancePage = lazy(() => import('./pages/AttendancePage'));
+const PayrollPage = lazy(() => import('./pages/PayrollPage'));
+const PerformancePage = lazy(() => import('./pages/PerformancePage'));
+const TrainingPage = lazy(() => import('./pages/TrainingPage'));
+const HRAnalyticsPage = lazy(() => import('./pages/HRAnalyticsPage'));
 
-// New modernized pages (lazy loaded)
+// Modernized lazy-loaded pages
 const EmployeesListPage = lazy(() => import('./pages/employees/EmployeesListPage'));
 const LeavesListPage = lazy(() => import('./pages/leaves/LeavesPage'));
 const CrewAssignmentsPage = lazy(() => import('./pages/crew/CrewAssignmentsPage'));
@@ -31,18 +29,6 @@ const CertificationDashboardPage = lazy(() => import('./pages/training/Certifica
 const WeeklySchedulePage = lazy(() => import('./pages/scheduling/WeeklySchedulePage'));
 const TeamOverviewPage = lazy(() => import('./pages/scheduling/TeamOverviewPage'));
 const SchedulingSettingsPage = lazy(() => import('./pages/scheduling/SchedulingSettingsPage'));
-
-// Create a dedicated query client for the HR module
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes
-      gcTime: 30 * 60 * 1000, // 30 minutes (formerly cacheTime)
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
-  },
-});
 
 // Loading fallback
 function PageLoader() {
@@ -68,6 +54,22 @@ function PlaceholderPage({ title }: { title: string }) {
 // ============================================================================
 
 const HRModule: React.FC = () => {
+  // QueryClient created inside component so it is tied to the component lifecycle,
+  // not shared across HMR cycles or parallel module instances (PERF-002).
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 5 * 60 * 1000, // 5 minutes
+            gcTime: 10 * 60 * 1000, // 10 minutes — reduced to limit PII heap accumulation
+            retry: 1,
+            refetchOnWindowFocus: false,
+          },
+        },
+      })
+  );
+
   return (
     <QueryClientProvider client={queryClient}>
       <Suspense fallback={<PageLoader />}>
@@ -118,13 +120,13 @@ const HRModule: React.FC = () => {
           <Route path="training/certifications" element={<CertificationDashboardPage />} />
           <Route path="training/compliance" element={<PlaceholderPage title="Compliance Dashboard" />} />
 
-          {/* Aquaculture - Crew Management (NEW) */}
+          {/* Aquaculture - Crew Management */}
           <Route path="crew" element={<CrewAssignmentsPage />} />
           <Route path="crew/rotations" element={<OffshoreRotationsPage />} />
           <Route path="crew/work-areas" element={<PlaceholderPage title="Work Areas" />} />
           <Route path="crew/transport" element={<PlaceholderPage title="Transport Schedule" />} />
 
-          {/* Organization (NEW) */}
+          {/* Organization */}
           <Route path="organization" element={<PlaceholderPage title="Organization Structure" />} />
           <Route path="organization/positions" element={<PlaceholderPage title="Positions" />} />
 
@@ -132,7 +134,7 @@ const HRModule: React.FC = () => {
           <Route path="analytics" element={<HRAnalyticsPage />} />
           <Route path="reports" element={<PlaceholderPage title="HR Reports" />} />
 
-          {/* Settings (NEW) */}
+          {/* Settings */}
           <Route path="settings" element={<PlaceholderPage title="HR Settings" />} />
 
           {/* Unknown routes */}

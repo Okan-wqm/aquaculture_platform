@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
 
 // API base URL - uses environment variable or falls back to gateway
 const API_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
@@ -332,11 +333,12 @@ const DUPLICATE_PROCESS_MUTATION = `
 
 // GraphQL fetch helper
 async function graphqlFetch<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
-  const token = localStorage.getItem('access_token');
-  const tenantId = localStorage.getItem('tenant_id');
+  const token = getAccessToken();
+  const tenantId = getTenantId();
 
   const response = await fetch(API_URL, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -529,15 +531,17 @@ export function useActiveProcesses(siteId?: string) {
     setError(null);
 
     try {
-      // Fetch all processes (filter only templates out)
+      // BUG-009: do not pass an archived status filter to avoid archived processes from coming over the wire.
+      // The schema only supports a single ProcessStatus filter, so we fetch non-template processes and
+      // filter archived items client-side (but the backend still skips template entries).
       const filter: ProcessFilter = {
         isTemplate: false,
         ...(siteId ? { siteId } : {}),
       };
       const result = await graphqlFetch<{ processes: ProcessListResult }>(GET_ALL_PROCESSES_QUERY, { filter });
-      // Filter out archived processes on client side
+      // BUG-009: keep only non-archived processes (lowercase status from API)
       const nonArchivedProcesses = result.processes.items.filter(
-        (p) => p.status.toUpperCase() !== 'ARCHIVED'
+        (p) => p.status !== 'archived'
       );
       setProcesses(nonArchivedProcesses);
     } catch (err) {

@@ -8,6 +8,7 @@
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { safeRegex } from './safe-regex.util';
 
 /**
  * Operators for condition evaluation
@@ -185,6 +186,18 @@ export type ActionHandler = (
 export class JsonRulesService implements OnModuleInit {
   private readonly logger = new Logger(JsonRulesService.name);
 
+  /** Allowed event name prefixes for user-defined emit actions */
+  private static readonly ALLOWED_EVENT_PREFIXES = [
+    'rule.',
+    'alert.rule.',
+    'json-rules.',
+    'custom.',
+  ];
+
+  static isAllowedEventName(name: string): boolean {
+    return JsonRulesService.ALLOWED_EVENT_PREFIXES.some(prefix => name.startsWith(prefix));
+  }
+
   private readonly rules = new Map<string, JsonRule>();
   private readonly facts = new Map<string, FactDefinition>();
   private readonly actionHandlers = new Map<string, ActionHandler>();
@@ -219,6 +232,11 @@ export class JsonRulesService implements OnModuleInit {
 
     this.registerActionHandler('emit', async (action, almanac, event) => {
       const eventName = action.params?.event as string || event.type;
+      // Restrict to safe event prefixes to prevent event bus poisoning
+      if (!eventName || !JsonRulesService.isAllowedEventName(eventName)) {
+        this.logger.warn(`Blocked emit of disallowed event name: ${eventName}`);
+        return;
+      }
       const payload = action.params?.payload || event.params;
       this.eventEmitter.emit(eventName, payload);
     });
@@ -474,26 +492,38 @@ export class JsonRulesService implements OnModuleInit {
   }
 
   /**
-   * Check if a condition group is satisfied
+   * Check if a condition group is satisfied.
+   * Returns false for empty groups (no conditions to evaluate) to prevent
+   * vacuous truth — an empty group must not fire on every evaluation.
    */
   private isConditionGroupSatisfied(
     results: { all?: ConditionResult[]; any?: ConditionResult[]; not?: ConditionResult },
   ): boolean {
+    const hasAll = results.all && results.all.length > 0;
+    const hasAny = results.any && results.any.length > 0;
+    const hasNot = !!results.not;
+
+    // Guard: empty group — no conditions to check. Return false to avoid
+    // silently triggering rules that have no meaningful criteria.
+    if (!hasAll && !hasAny && !hasNot) {
+      return false;
+    }
+
     // Check ALL conditions (must all be true)
-    if (results.all && results.all.length > 0) {
-      const allSatisfied = results.all.every(r => r.result);
+    if (hasAll) {
+      const allSatisfied = results.all!.every(r => r.result);
       if (!allSatisfied) return false;
     }
 
     // Check ANY conditions (at least one must be true)
-    if (results.any && results.any.length > 0) {
-      const anySatisfied = results.any.some(r => r.result);
+    if (hasAny) {
+      const anySatisfied = results.any!.some(r => r.result);
       if (!anySatisfied) return false;
     }
 
     // Check NOT condition (must be true, which means original was false)
-    if (results.not) {
-      if (!results.not.result) return false;
+    if (hasNot) {
+      if (!results.not!.result) return false;
     }
 
     return true;
@@ -636,8 +666,10 @@ export class JsonRulesService implements OnModuleInit {
       case RuleOperator.ENDS_WITH:
         return String(factValue).endsWith(String(ruleValue));
 
-      case RuleOperator.MATCHES:
-        return new RegExp(String(ruleValue)).test(String(factValue));
+      case RuleOperator.MATCHES: {
+        const regex = safeRegex(String(ruleValue));
+        return regex ? regex.test(String(factValue)) : false;
+      }
 
       case RuleOperator.IN:
         if (Array.isArray(ruleValue)) {

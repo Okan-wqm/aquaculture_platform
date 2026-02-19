@@ -20,9 +20,23 @@ spec:
         app: shell
         tier: frontend
     spec:
+      # SEC-011: frontend pods have no reason to call the K8s API
+      automountServiceAccountToken: false
+      # SEC-017: pull secret for GHCR private registry
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      volumes:
+        # SEC-005: emptyDir volumes required by nginx with readOnlyRootFilesystem
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: shell
-          image: ghcr.io/aquaculture/shell:latest
+          # ARCH-013: no tag here; tag set via Kustomize images transformer
+          image: ghcr.io/aquaculture/shell
           imagePullPolicy: Always
           ports:
             - containerPort: 80
@@ -36,6 +50,13 @@ spec:
             limits:
               cpu: "200m"
               memory: "128Mi"
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+            - name: tmp
+              mountPath: /tmp
           livenessProbe:
             httpGet:
               path: /health
@@ -52,6 +73,14 @@ spec:
             runAsNonRoot: true
             runAsUser: 101
             allowPrivilegeEscalation: false
+            # SEC-005: readOnlyRootFilesystem for frontend containers
+            readOnlyRootFilesystem: true
+            # SEC-006: seccompProfile and capabilities drop ALL
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
 
 ---
 apiVersion: v1

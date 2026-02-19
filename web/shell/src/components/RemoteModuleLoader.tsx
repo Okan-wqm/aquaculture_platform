@@ -1,26 +1,24 @@
 /**
- * Remote Module Loader Bileşeni
+ * Remote Module Loader Component
  *
- * Microfrontend modülleri yüklenirken gösterilen loading ekranı.
- * Modül adına göre özelleştirilebilir.
+ * Loading screen shown while a microfrontend module is being fetched.
+ * Customizable per module name.
  */
 
 import React from 'react';
 import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
-// Tip Tanımlamaları
+// Types
 // ============================================================================
 
 interface RemoteModuleLoaderProps {
-  /** Yüklenen modül adı */
   moduleName: string;
-  /** Özel mesaj */
   message?: string;
 }
 
 // ============================================================================
-// Modül İkonları
+// Module Icons
 // ============================================================================
 
 const moduleIcons: Record<string, React.ReactNode> = {
@@ -48,7 +46,7 @@ const moduleIcons: Record<string, React.ReactNode> = {
 };
 
 // ============================================================================
-// Loader Bileşeni
+// Loader Component
 // ============================================================================
 
 const RemoteModuleLoader: React.FC<RemoteModuleLoaderProps> = ({
@@ -60,28 +58,22 @@ const RemoteModuleLoader: React.FC<RemoteModuleLoaderProps> = ({
   return (
     <div className="min-h-[400px] flex items-center justify-center">
       <div className="text-center">
-        {/* Animasyonlu ikon container */}
         <div className="relative mx-auto w-20 h-20 mb-6">
-          {/* Dış halka animasyonu */}
           <div className="absolute inset-0 rounded-full border-4 border-primary-100 animate-ping opacity-75" />
-
-          {/* İç container */}
           <div className="relative w-full h-full bg-primary-50 rounded-full flex items-center justify-center">
             <div className="text-primary-600">{icon}</div>
           </div>
         </div>
 
-        {/* Spinner ve metin */}
         <div className="flex items-center justify-center space-x-3">
           <Spinner size="sm" color="primary" />
           <span className="text-gray-600 font-medium">
-            {message || `${moduleName} modülü yükleniyor...`}
+            {message || `Loading ${moduleName}...`}
           </span>
         </div>
 
-        {/* İpucu */}
         <p className="mt-4 text-sm text-gray-400">
-          İlk yüklemede biraz zaman alabilir
+          This may take a moment on first load
         </p>
       </div>
     </div>

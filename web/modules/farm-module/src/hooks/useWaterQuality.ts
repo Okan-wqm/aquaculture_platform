@@ -366,7 +366,9 @@ export function useCriticalWaterQuality() {
       return response.criticalWaterQuality;
     },
     enabled: !!token,
-    refetchInterval: 30000, // Refresh every 30 seconds for critical data
+    // Poll at 5 min for critical data — 30 s was too aggressive and caused excess requests (PERF-006)
+    refetchInterval: 5 * 60 * 1000,
+    refetchIntervalInBackground: false,
   });
 }
 

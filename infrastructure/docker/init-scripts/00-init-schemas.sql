@@ -104,15 +104,113 @@ GRANT SELECT ON ALL TABLES IN SCHEMA billing TO aquaculture;
 ALTER DEFAULT PRIVILEGES IN SCHEMA billing GRANT SELECT ON TABLES TO aquaculture;
 
 -- ============================================================================
--- Schema ownership (optional - for stricter isolation)
--- Uncomment these if using separate database users per service
+-- Per-service database users (principle of least privilege)
+-- Each service user has access only to its own schema.
+-- The shared 'aquaculture' user is kept for backwards compatibility with
+-- the development compose but should NOT be used in production.
 -- ============================================================================
 
--- ALTER SCHEMA auth OWNER TO auth_service_user;
--- ALTER SCHEMA billing OWNER TO billing_service_user;
--- ALTER SCHEMA farm OWNER TO farm_service_user;
--- ALTER SCHEMA sensor OWNER TO sensor_service_user;
--- ALTER SCHEMA admin OWNER TO admin_service_user;
+-- Create per-service users (passwords sourced from env at init time via
+-- the POSTGRES_INITDB_ARGS mechanism or set manually after provisioning)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'auth_service') THEN
+    CREATE ROLE auth_service WITH LOGIN PASSWORD 'CHANGE_ME_AUTH_SERVICE_PASS';
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'farm_service') THEN
+    CREATE ROLE farm_service WITH LOGIN PASSWORD 'CHANGE_ME_FARM_SERVICE_PASS';
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'sensor_service') THEN
+    CREATE ROLE sensor_service WITH LOGIN PASSWORD 'CHANGE_ME_SENSOR_SERVICE_PASS';
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'billing_service') THEN
+    CREATE ROLE billing_service WITH LOGIN PASSWORD 'CHANGE_ME_BILLING_SERVICE_PASS';
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'hr_service') THEN
+    CREATE ROLE hr_service WITH LOGIN PASSWORD 'CHANGE_ME_HR_SERVICE_PASS';
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'alert_service') THEN
+    CREATE ROLE alert_service WITH LOGIN PASSWORD 'CHANGE_ME_ALERT_SERVICE_PASS';
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'admin_service') THEN
+    CREATE ROLE admin_service WITH LOGIN PASSWORD 'CHANGE_ME_ADMIN_SERVICE_PASS';
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'gateway_service') THEN
+    CREATE ROLE gateway_service WITH LOGIN PASSWORD 'CHANGE_ME_GATEWAY_SERVICE_PASS';
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'notification_service') THEN
+    CREATE ROLE notification_service WITH LOGIN PASSWORD 'CHANGE_ME_NOTIFICATION_SERVICE_PASS';
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'hydroponics_service') THEN
+    CREATE ROLE hydroponics_service WITH LOGIN PASSWORD 'CHANGE_ME_HYDROPONICS_SERVICE_PASS';
+  END IF;
+END
+$$;
+
+-- Grant each service user access only to its own schema
+GRANT USAGE ON SCHEMA auth TO auth_service;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA auth TO auth_service;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA auth TO auth_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON TABLES TO auth_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON SEQUENCES TO auth_service;
+
+GRANT USAGE ON SCHEMA farm TO farm_service;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA farm TO farm_service;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA farm TO farm_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA farm GRANT ALL ON TABLES TO farm_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA farm GRANT ALL ON SEQUENCES TO farm_service;
+
+GRANT USAGE ON SCHEMA sensor TO sensor_service;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA sensor TO sensor_service;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA sensor TO sensor_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA sensor GRANT ALL ON TABLES TO sensor_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA sensor GRANT ALL ON SEQUENCES TO sensor_service;
+
+GRANT USAGE ON SCHEMA billing TO billing_service;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA billing TO billing_service;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA billing TO billing_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA billing GRANT ALL ON TABLES TO billing_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA billing GRANT ALL ON SEQUENCES TO billing_service;
+
+GRANT USAGE ON SCHEMA hr TO hr_service;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA hr TO hr_service;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA hr TO hr_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA hr GRANT ALL ON TABLES TO hr_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA hr GRANT ALL ON SEQUENCES TO hr_service;
+
+GRANT USAGE ON SCHEMA alert TO alert_service;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA alert TO alert_service;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA alert TO alert_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA alert GRANT ALL ON TABLES TO alert_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA alert GRANT ALL ON SEQUENCES TO alert_service;
+
+GRANT USAGE ON SCHEMA admin TO admin_service;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA admin TO admin_service;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA admin TO admin_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA admin GRANT ALL ON TABLES TO admin_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA admin GRANT ALL ON SEQUENCES TO admin_service;
+-- admin_service also needs read access to auth and billing for analytics
+GRANT USAGE ON SCHEMA auth TO admin_service;
+GRANT SELECT ON ALL TABLES IN SCHEMA auth TO admin_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT SELECT ON TABLES TO admin_service;
+GRANT USAGE ON SCHEMA billing TO admin_service;
+GRANT SELECT ON ALL TABLES IN SCHEMA billing TO admin_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA billing GRANT SELECT ON TABLES TO admin_service;
+
+GRANT USAGE ON SCHEMA gateway TO gateway_service;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA gateway TO gateway_service;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA gateway TO gateway_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA gateway GRANT ALL ON TABLES TO gateway_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA gateway GRANT ALL ON SEQUENCES TO gateway_service;
+
+-- notification_service needs access to public schema for shared tables
+GRANT USAGE ON SCHEMA public TO notification_service;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO notification_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO notification_service;
+
+-- hydroponics_service
+GRANT CREATE ON DATABASE aquaculture TO hydroponics_service;
+GRANT USAGE ON SCHEMA public TO hydroponics_service;
 
 -- ============================================================================
 -- Verification query

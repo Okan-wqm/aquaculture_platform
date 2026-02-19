@@ -108,14 +108,14 @@ export class TenantUsageMetrics {
    * Tenant ID
    */
   @Field()
-  @Column('uuid')
+  @Column({ type: 'uuid', name: 'tenant_id' })
   tenantId!: string;
 
   /**
    * Module ID (null for tenant-wide metrics)
    */
   @Field({ nullable: true })
-  @Column('uuid', { nullable: true })
+  @Column({ type: 'uuid', name: 'module_id', nullable: true })
   moduleId!: string | null;
 
   /**
@@ -239,20 +239,27 @@ export class TenantUsageMetrics {
     return Math.max(0, usage - includedQty);
   }
 
+  /** Track observation count per metric for correct running mean */
+  private _observationCounts: Partial<Record<keyof ModuleUsageMetrics, number>> = {};
+
   /**
    * Update a metric's current value
    */
   updateMetric(metric: keyof ModuleUsageMetrics, value: number): void {
     if (!this.metrics[metric]) {
       this.metrics[metric] = { current: 0, peak: 0, average: 0 };
+      this._observationCounts[metric] = 0;
     }
 
     const metricData = this.metrics[metric]!;
+    const count = (this._observationCounts[metric] ?? 0) + 1;
+    this._observationCounts[metric] = count;
+
     metricData.current = value;
     metricData.peak = Math.max(metricData.peak, value);
 
-    // Simple running average (can be improved)
-    metricData.average = (metricData.average + value) / 2;
+    // Correct count-based running mean (Welford-style incremental)
+    metricData.average = metricData.average + (value - metricData.average) / count;
   }
 
   /**

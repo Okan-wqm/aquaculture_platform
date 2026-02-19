@@ -109,11 +109,16 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
   ) => {
     const generatedId = useId();
     const selectId = providedId || generatedId;
+    // BUG-013: label needs its own id to use aria-labelledby pattern with a div[role="combobox"]
+    const labelId = `${selectId}-label`;
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // Dışarı tıklandığında kapat
+    // PERF-006: Only register the document mousedown listener while the dropdown is open.
+    // This avoids N permanent global listeners when N MultiSelect instances are mounted.
     useEffect(() => {
+      if (!isOpen) return;
+
       const handleClickOutside = (event: MouseEvent) => {
         if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
           setIsOpen(false);
@@ -122,7 +127,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
 
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
+    }, [isOpen]);
 
     const handleToggle = (optionValue: string) => {
       if (disabled) return;
@@ -151,15 +156,18 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
 
     return (
       <div ref={ref} className={`${fullWidth ? 'w-full' : ''} ${className}`}>
-        {/* Etiket */}
+        {/* BUG-013: Use aria-labelledby on the combobox div instead of htmlFor, because
+            htmlFor only activates focus for native form controls, not div[role="combobox"].
+            The label's id is referenced by the combobox's aria-labelledby attribute. */}
         {label && (
-          <label
-            htmlFor={selectId}
+          <span
+            id={labelId}
             className="block text-sm font-medium text-gray-700 mb-1"
+            aria-hidden="false"
           >
             {label}
-            {required && <span className="text-red-500 ml-1">*</span>}
-          </label>
+            {required && <span className="text-red-500 ml-1" aria-hidden="true">*</span>}
+          </span>
         )}
 
         {/* Select container */}
@@ -171,6 +179,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
             aria-expanded={isOpen}
             aria-haspopup="listbox"
             aria-invalid={!!error}
+            aria-labelledby={label ? labelId : undefined}
             tabIndex={disabled ? -1 : 0}
             onClick={() => !disabled && setIsOpen(!isOpen)}
             onKeyDown={(e) => {

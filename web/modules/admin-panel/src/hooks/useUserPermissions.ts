@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 
 interface PermissionCategory {
   category: string;
@@ -42,8 +43,9 @@ export const usePermissionCategories = () => {
     const fetchCategories = async () => {
       try {
         const response = await fetch(`${API_BASE}/permission-categories`, {
+          credentials: 'include',
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Authorization': `Bearer ${getAccessToken()}`,
           },
         });
         if (!response.ok) throw new Error('Failed to fetch permission categories');
@@ -70,8 +72,9 @@ export const useTenantUsers = () => {
     setLoading(true);
     try {
       const response = await fetch(`${API_BASE}/tenant/users-with-permissions`, {
+        credentials: 'include',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${getAccessToken()}`,
         },
       });
       if (!response.ok) throw new Error('Failed to fetch users');
@@ -102,9 +105,10 @@ export const useInviteUser = () => {
     try {
       const response = await fetch(`${API_BASE}/tenant/invite`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${getAccessToken()}`,
         },
         body: JSON.stringify(data),
       });
@@ -134,9 +138,10 @@ export const useUpdateUserPermissions = () => {
     try {
       const response = await fetch(`${API_BASE}/${userId}/permissions`, {
         method: 'PUT',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${getAccessToken()}`,
         },
         body: JSON.stringify({ permissions }),
       });
@@ -171,8 +176,9 @@ export const useUserPermissions = (userId: string | null) => {
       setLoading(true);
       try {
         const response = await fetch(`${API_BASE}/${userId}/permissions`, {
+          credentials: 'include',
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Authorization': `Bearer ${getAccessToken()}`,
           },
         });
         if (!response.ok) throw new Error('Failed to fetch permissions');

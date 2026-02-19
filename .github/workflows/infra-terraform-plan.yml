@@ -1,116 +1,181 @@
 name: Infrastructure - Terraform Plan
 
+# SEC-CI-002: All third-party actions pinned to full commit SHAs
+# SEC-CI-004: AWS OIDC credentials (already applied by terraform agent)
+# SEC-CI-021: Hardcoded bucket names moved to vars (already applied)
+# ARCH-CI-009: Production plan skipped for PRs not targeting main
+
 on:
   pull_request:
     paths:
-      - 'infra/**'
+      - 'infrastructure/terraform/**'
       - '.github/workflows/infra-terraform-*.yml'
   push:
     branches: [ develop ]
     paths:
-      - 'infra/**'
-  
+      - 'infrastructure/terraform/**'
+
 jobs:
   terraform-plan:
     runs-on: ubuntu-latest
+    # ARCH-CI-009: matrix.environment cannot be used in job-level if: conditions
+    # (matrix context is not available at job evaluation time). The production-plan
+    # gate is enforced via a conditional step inside the job instead.
     strategy:
       matrix:
-        environment: [staging, production]
-    
-    defaults:
-      run:
-        working-directory: ./infra
-    
+        # ARCH-007 fix: matrix matches actual environment directories (dev, production)
+        environment: [dev, production]
+
+    permissions:
+      id-token: write   # SEC-013 / SEC-CI-004 fix: required for OIDC token request
+      contents: read
+      pull-requests: write
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: '1.5.0'
-          terraform_wrapper: false
-      
-      - name: Configure Terraform backend
+      # ARCH-CI-009: Skip the production plan on PRs that do NOT target main.
+      # matrix.environment is available inside steps (unlike job-level if: conditions).
+      - name: Skip production plan for non-main PRs
+        id: skip-check
         run: |
-          # Create backend configuration file with environment variables
-          cat > backend_override.tf <<EOF
-          terraform {
-            backend "s3" {
-              bucket = "aquaculture-platform-terraform-state"
-              key    = "${{ matrix.environment }}/terraform.tfstate"
-              region = "us-east-1"
-              dynamodb_table = "terraform-locks"
-            }
-          }
-          EOF
-      
+          if [ "${{ matrix.environment }}" = "production" ] && \
+             [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.base_ref }}" != "main" ]; then
+            echo "Skipping production Terraform plan: PR does not target main."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout repository
+        if: steps.skip-check.outputs.skip != 'true'
+        # SEC-CI-002: pinned to SHA (was @v4)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Terraform
+        if: steps.skip-check.outputs.skip != 'true'
+        # SEC-CI-002: pinned to SHA (was @v2)
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269ef065 # v3.1.2
+        with:
+          # ARCH-008 fix: pin to a specific version within 1.x range
+          terraform_version: '1.9.8'
+          terraform_wrapper: false
+
+      # SEC-013 / SEC-CI-004 fix: use OIDC federation instead of static long-lived AWS keys
+      - name: Configure AWS credentials
+        if: steps.skip-check.outputs.skip != 'true'
+        # SEC-CI-002: pinned to SHA (was @v4)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: eu-west-1
+
+      # ARCH-001 fix: working directory set per-environment; no backend_override.tf generated
+      # ARCH-002 / SEC-003 fix: backend config comes from committed backend "s3" blocks in each env
       - name: Terraform Init
+        if: steps.skip-check.outputs.skip != 'true'
+        working-directory: ./infrastructure/terraform/environments/${{ matrix.environment }}
         run: terraform init -input=false
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      
+
+      # ARCH-005 fix: warn if no .terraform.lock.hcl is committed. The lock file
+      # pins provider binary hashes so all engineers and CI use identical provider
+      # versions. After the first successful `terraform init`, commit the generated
+      # .terraform.lock.hcl file for each environment directory.
+      - name: Check for committed lock file
+        if: steps.skip-check.outputs.skip != 'true'
+        working-directory: ./infrastructure/terraform/environments/${{ matrix.environment }}
+        run: |
+          if [ ! -f ".terraform.lock.hcl" ]; then
+            echo "::warning file=infrastructure/terraform/environments/${{ matrix.environment }}/.terraform.lock.hcl::No .terraform.lock.hcl found. Run 'terraform init' and commit the generated lock file to pin provider versions."
+          else
+            echo "Lock file present."
+          fi
+
       - name: Terraform Format Check
+        if: steps.skip-check.outputs.skip != 'true'
+        working-directory: ./infrastructure/terraform/environments/${{ matrix.environment }}
         run: terraform fmt -check -diff
-      
+
       - name: Terraform Validate
+        if: steps.skip-check.outputs.skip != 'true'
+        working-directory: ./infrastructure/terraform/environments/${{ matrix.environment }}
         run: terraform validate
-      
+
       - name: Terraform Plan
+        if: steps.skip-check.outputs.skip != 'true'
+        id: plan
+        working-directory: ./infrastructure/terraform/environments/${{ matrix.environment }}
         run: |
           terraform plan \
             -input=false \
-            -out=terraform.plan \
-            -var-file="envs/${{ matrix.environment }}.tfvars"
+            -out=terraform.plan
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          TF_VAR_environment: ${{ matrix.environment }}
-          TF_VAR_db_password: ${{ secrets[format('DB_PASSWORD_{0}', matrix.environment)] }}
-          TF_VAR_api_key: ${{ secrets[format('API_KEY_{0}', matrix.environment)] }}
-      
+          # SEC-001/SEC-009 fix: CIDRs must be set via repo/environment secrets (no 0.0.0.0/0 default)
+          TF_VAR_allowed_cidrs: ${{ secrets[format('EKS_ALLOWED_CIDRS_{0}', matrix.environment)] }}
+
+      # SEC-004 fix: compute plan hash in the plan job so apply job can verify it before applying
+      - name: Compute plan artifact SHA-256
+        if: steps.skip-check.outputs.skip != 'true'
+        id: plan-hash
+        working-directory: ./infrastructure/terraform/environments/${{ matrix.environment }}
+        run: |
+          PLAN_SHA=$(sha256sum terraform.plan | cut -d ' ' -f 1)
+          echo "sha=${PLAN_SHA}" >> $GITHUB_OUTPUT
+          echo "Plan SHA-256: ${PLAN_SHA}"
+
       - name: Post Terraform Plan to PR
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v6
+        if: steps.skip-check.outputs.skip != 'true' && github.event_name == 'pull_request'
+        # SEC-CI-002: pinned to SHA (was @v6)
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           script: |
-            const fs = require('fs');
-            const plan = fs.readFileSync('./infra/terraform.plan', 'binary');
-            const planBase64 = Buffer.from(plan, 'binary').toString('base64');
-            
             const output = `### Terraform Plan for ${{ matrix.environment }}
-            
-            <details><summary>Show Plan</summary>
-            
-            \`\`\`
-            ${require('child_process').execSync('terraform show -json terraform.plan', { encoding: 'utf8' })}
-            \`\`\`
-            
+
+            <details><summary>Show Plan (text)</summary>
+
+            Plan SHA-256: \`${{ steps.plan-hash.outputs.sha }}\`
+
             </details>
-            
+
             `;
-            
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: output
             });
-      
+
       - name: Terraform Plan Summary
-        if: github.event_name == 'pull_request'
+        if: steps.skip-check.outputs.skip != 'true' && github.event_name == 'pull_request'
+        working-directory: ./infrastructure/terraform/environments/${{ matrix.environment }}
         run: |
-          terraform show -json terraform.plan > terraform-plan.json
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Terraform Plan Summary (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          terraform plan -detailed-exitcode -json terraform.plan >> $GITHUB_STEP_SUMMARY || true
-          echo '```' >> $GITHUB_STEP_SUMMARY
-      
+          echo "Plan SHA-256: ${{ steps.plan-hash.outputs.sha }}" >> $GITHUB_STEP_SUMMARY
+
       - name: Upload Terraform Plan Artifact
-        uses: actions/upload-artifact@v3
+        if: steps.skip-check.outputs.skip != 'true'
+        # SEC-CI-002: pinned to SHA (was @v3)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
         with:
           name: terraform-plan-${{ matrix.environment }}
-          path: ./infra/terraform.plan
-          retention-days: 7
+          # store the plan alongside a file containing its hash
+          path: |
+            ./infrastructure/terraform/environments/${{ matrix.environment }}/terraform.plan
+          retention-days: 1
+
+      # Store hash as a separate artifact so the apply job can verify it
+      - name: Upload Plan Hash Artifact
+        if: steps.skip-check.outputs.skip != 'true'
+        run: |
+          echo "${{ steps.plan-hash.outputs.sha }}" > /tmp/terraform-plan-${{ matrix.environment }}.sha256
+        shell: bash
+
+      - name: Upload Plan Hash
+        if: steps.skip-check.outputs.skip != 'true'
+        # SEC-CI-002: pinned to SHA (was @v3)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
+        with:
+          name: terraform-plan-hash-${{ matrix.environment }}
+          path: /tmp/terraform-plan-${{ matrix.environment }}.sha256
+          retention-days: 1

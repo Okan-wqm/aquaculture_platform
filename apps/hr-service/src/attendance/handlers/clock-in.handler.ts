@@ -14,7 +14,7 @@ import {
 } from '../entities/attendance-record.entity';
 import { Schedule, ScheduleStatus } from '../entities/schedule.entity';
 import { Shift } from '../entities/shift.entity';
-import { Employee } from '../../hr/entities/employee.entity';
+import { Employee, EmployeeStatus } from '../../hr/entities/employee.entity';
 import { EmployeeClockedInEvent } from '../events/attendance.events';
 
 /** Default timezone if none specified */
@@ -58,35 +58,57 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
   async execute(command: ClockInCommand): Promise<AttendanceRecord> {
     const { tenantId, userId, employeeId, method, location, remarks, workAreaId, timezone: commandTimezone } = command;
 
+    // Current time in UTC for storage - compute before parallel reads so all reads
+    // share the same reference point.
+    const nowUtc = new Date();
+
+    // Run all three read queries concurrently before opening the transaction.
+    // READ COMMITTED isolation means ordering these reads serially provides no
+    // additional correctness guarantee; parallelising removes ~2 round-trip latencies
+    // from the hot clock-in path.
+    const [employee, , schedule] = await Promise.all([
+      this.employeeRepository.findOne({
+        where: { id: employeeId, tenantId, isDeleted: false },
+      }),
+      // existingRecord placeholder – re-checked inside the transaction to close the TOCTOU window
+      Promise.resolve(null),
+      this.scheduleRepository.findOne({
+        where: { tenantId, employeeId, status: ScheduleStatus.ACTIVE, isDeleted: false },
+        relations: ['shift'],
+      }),
+    ]);
+
+    if (!employee) {
+      throw new NotFoundException(`Employee with ID ${employeeId} not found`);
+    }
+
+    // Prevent terminated or suspended employees from clocking in
+    if (
+      employee.status === EmployeeStatus.TERMINATED ||
+      employee.status === EmployeeStatus.SUSPENDED
+    ) {
+      throw new BadRequestException(
+        `Employee with status '${employee.status}' cannot clock in`,
+      );
+    }
+
+    // Determine timezone: use command timezone, employee timezone, or default to UTC
+    const timezone = commandTimezone && isValidTimezone(commandTimezone)
+      ? commandTimezone
+      : (employee.timezone && isValidTimezone(employee.timezone) ? employee.timezone : DEFAULT_TIMEZONE);
+
+    // Calculate today's date in the employee's local timezone for record lookup
+    const tzOffset = getTimezoneOffset(timezone, nowUtc);
+    const localNow = new Date(nowUtc.getTime() - tzOffset * 60000);
+    const today = new Date(localNow);
+    today.setHours(0, 0, 0, 0);
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      // Validate employee
-      const employee = await queryRunner.manager.findOne(Employee, {
-        where: { id: employeeId, tenantId, isDeleted: false },
-      });
-
-      if (!employee) {
-        throw new NotFoundException(`Employee with ID ${employeeId} not found`);
-      }
-
-      // Determine timezone: use command timezone, employee timezone, or default to UTC
-      const timezone = commandTimezone && isValidTimezone(commandTimezone)
-        ? commandTimezone
-        : (employee.timezone && isValidTimezone(employee.timezone) ? employee.timezone : DEFAULT_TIMEZONE);
-
-      // Current time in UTC for storage
-      const nowUtc = new Date();
-
-      // Calculate today's date in the employee's local timezone for record lookup
-      const tzOffset = getTimezoneOffset(timezone, nowUtc);
-      const localNow = new Date(nowUtc.getTime() - tzOffset * 60000);
-      const today = new Date(localNow);
-      today.setHours(0, 0, 0, 0);
-
-      // Check for existing clock-in today
+      // Re-check for existing clock-in inside the transaction to prevent double clock-in race
       const existingRecord = await queryRunner.manager.findOne(AttendanceRecord, {
         where: {
           tenantId,
@@ -99,17 +121,6 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
       if (existingRecord && existingRecord.clockIn) {
         throw new BadRequestException('Employee has already clocked in today');
       }
-
-      // Get employee's schedule for today
-      const schedule = await queryRunner.manager.findOne(Schedule, {
-        where: {
-          tenantId,
-          employeeId,
-          status: ScheduleStatus.ACTIVE,
-          isDeleted: false,
-        },
-        relations: ['shift'],
-      });
 
       let lateMinutes = 0;
       let status: AttendanceStatus = AttendanceStatus.PRESENT;

@@ -97,6 +97,20 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MqttListenerService.name);
   private readonly messageHandler: (topic: string, message: Buffer) => void;
 
+  // Channel lookup cache: sensorId -> { channels, expiresAt }
+  private readonly channelCache = new Map<string, { channels: SensorDataChannel[]; expiresAt: number }>();
+  private readonly CHANNEL_CACHE_TTL_MS = 60_000; // 60 seconds
+
+  // lastSeenAt debounce: sensorId -> last flush timestamp
+  private readonly lastSeenPending = new Map<string, Date>();
+  private lastSeenFlushTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly LAST_SEEN_FLUSH_INTERVAL_MS = 30_000; // 30 seconds
+
+  // Negative cache for topics that resolve to no sensor (HIGH-005 back-pressure)
+  // Prevents the 150+ query legacy fallback from running repeatedly for unknown topics
+  private readonly topicNegativeCache = new Map<string, number>(); // topic -> expiresAt
+  private readonly NEGATIVE_CACHE_TTL_MS = 30_000; // 30 seconds
+
   constructor(
     private readonly configService: ConfigService,
     @InjectRepository(Sensor)
@@ -146,10 +160,25 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     // Subscribe to topics
     await this.subscribeToTopics();
 
+    // Start lastSeenAt flush timer
+    this.lastSeenFlushTimer = setInterval(() => {
+      this.flushLastSeenUpdates().catch(err => {
+        this.logger.error(`Failed to flush lastSeenAt updates: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }, this.LAST_SEEN_FLUSH_INTERVAL_MS);
+
     this.logger.log('MQTT Listener initialized');
   }
 
   async onModuleDestroy(): Promise<void> {
+    // Clear lastSeenAt flush timer
+    if (this.lastSeenFlushTimer) {
+      clearInterval(this.lastSeenFlushTimer);
+      this.lastSeenFlushTimer = null;
+    }
+    // Flush any pending lastSeenAt updates
+    await this.flushLastSeenUpdates();
+
     // Unregister message handler
     if (this.mqttClient) {
       this.mqttClient.removeMessageHandler(this.messageHandler);
@@ -227,9 +256,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      // Set tenant schema for database operations
-      await this.setTenantSchema(sensor.tenantId);
-
       // Parse message payload
       const data = this.parsePayload(payload, sensor);
 
@@ -238,19 +264,13 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      const now = new Date();
+
       // Save reading
       await this.saveReading(sensor, data);
 
-      // Update sensor last seen and connection status
-      const now = new Date();
-      await this.sensorRepository.update(sensor.id, {
-        lastSeenAt: now,
-        status: SensorStatus.ACTIVE,
-        connectionStatus: {
-          isConnected: true,
-          lastTestedAt: now,
-        },
-      });
+      // Debounce lastSeenAt update (flushed every 30 seconds)
+      this.lastSeenPending.set(sensor.id, now);
 
       // Publish real-time event for WebSocket clients
       await this.publishSensorReadingEvent(sensor, data, now);
@@ -336,20 +356,15 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           eventId: randomUUID(),
           eventType: 'EdgeDeviceHeartbeat',
           timestamp: new Date(),
-          payload: {
-            deviceId: device.id,
-            deviceCode: device.deviceCode,
-            tenantId: device.tenantId,
-            isOnline: device.isOnline,
-            cpuUsage: device.cpuUsage,
-            memoryUsage: device.memoryUsage,
-            storageUsage: device.storageUsage,
-            temperatureCelsius: device.temperatureCelsius,
-          },
-          metadata: {
-            tenantId: device.tenantId,
-            source: 'mqtt-listener',
-          },
+          tenantId: device.tenantId,
+          deviceId: device.id,
+          deviceCode: device.deviceCode,
+          isOnline: device.isOnline,
+          cpuUsage: device.cpuUsage,
+          memoryUsage: device.memoryUsage,
+          storageUsage: device.storageUsage,
+          temperatureCelsius: device.temperatureCelsius,
+          version: 1,
         });
       }
     }
@@ -357,13 +372,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Handle edge device birth message (device came online)
+   * @param tenantId Optional tenantId extracted from MQTT topic for boundary enforcement
    */
-  private async handleEdgeBirth(deviceCode: string, payload: EdgeBirthPayload): Promise<void> {
+  private async handleEdgeBirth(deviceCode: string, payload: EdgeBirthPayload, tenantId?: string): Promise<void> {
     this.logger.log(`Edge device birth: ${deviceCode}`);
 
     // Update device as online with birth certificate data
+    // Include tenantId (when available from topic) so updateHeartbeat enforces tenant boundary
     const heartbeat: DeviceHeartbeat = {
       deviceCode,
+      ...(tenantId ? { tenantId } : {}),
       isOnline: true,
       firmwareVersion: payload.firmwareVersion ?? payload.properties?.firmwareVersion,
       ipAddress: payload.ipAddress ?? payload.properties?.ipAddress,
@@ -375,13 +393,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Handle edge device death message (device went offline - LWT)
+   * @param tenantId Optional tenantId extracted from MQTT topic for boundary enforcement
    */
-  private async handleEdgeDeath(deviceCode: string): Promise<void> {
+  private async handleEdgeDeath(deviceCode: string, tenantId?: string): Promise<void> {
     this.logger.warn(`Edge device death: ${deviceCode}`);
 
     // Mark device as offline
+    // Include tenantId (when available from topic) so updateHeartbeat enforces tenant boundary
     const heartbeat: DeviceHeartbeat = {
       deviceCode,
+      ...(tenantId ? { tenantId } : {}),
       isOnline: false,
     };
 
@@ -428,17 +449,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         eventId: randomUUID(),
         eventType: 'EdgeDeviceResponse',
         timestamp: new Date(),
-        payload: {
-          deviceCode,
-          commandId: payload.commandId,
-          success: payload.success,
-          command: payload.command,
-          data: payload.data,
-          error: payload.error,
-        },
-        metadata: {
-          source: 'mqtt-listener',
-        },
+        tenantId: 'system',
+        deviceCode,
+        commandId: payload.commandId,
+        success: payload.success,
+        command: payload.command,
+        data: payload.data,
+        error: payload.error,
+        version: 1,
       });
     }
   }
@@ -521,8 +539,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     payload: TenantEdgeTelemetryPayload,
   ): Promise<void> {
     // Edge Agent TelemetryMetrics uses snake_case field names
+    // Include tenantId from the MQTT topic so updateHeartbeat enforces tenant boundary
     const heartbeat: DeviceHeartbeat = {
       deviceCode,
+      tenantId,
       isOnline: true,
       cpuUsage: payload.cpu_usage_percent ?? payload.cpuUsage,
       memoryUsage: payload.memory_usage_percent ?? payload.memoryUsage,
@@ -550,22 +570,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           eventId: randomUUID(),
           eventType: 'EdgeDeviceHeartbeat',
           timestamp: new Date(),
-          payload: {
-            deviceId: device.id,
-            deviceCode: device.deviceCode,
-            tenantId: device.tenantId,
-            isOnline: device.isOnline,
-            cpuUsage: device.cpuUsage,
-            memoryUsage: device.memoryUsage,
-            storageUsage: device.storageUsage,
-            temperatureCelsius: device.temperatureCelsius,
-            uptimeSeconds: device.uptimeSeconds,
-          },
-          metadata: {
-            tenantId: device.tenantId,
-            source: 'mqtt-listener',
-            topicPattern: 'tenant-prefixed',
-          },
+          tenantId: device.tenantId,
+          deviceId: device.id,
+          deviceCode: device.deviceCode,
+          isOnline: device.isOnline,
+          cpuUsage: device.cpuUsage,
+          memoryUsage: device.memoryUsage,
+          storageUsage: device.storageUsage,
+          temperatureCelsius: device.temperatureCelsius,
+          uptimeSeconds: device.uptimeSeconds,
+          version: 1,
         });
       }
     } else {
@@ -586,10 +600,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
     if (isOnline) {
       this.logger.log(`Tenant ${tenantId} edge device online: ${deviceCode}`);
-      await this.handleEdgeBirth(deviceCode, { firmwareVersion: undefined, ipAddress: undefined });
+      // Pass tenantId so updateHeartbeat enforces tenant boundary check
+      await this.handleEdgeBirth(deviceCode, { firmwareVersion: undefined, ipAddress: undefined }, tenantId);
     } else {
       this.logger.warn(`Tenant ${tenantId} edge device offline: ${deviceCode}`);
-      await this.handleEdgeDeath(deviceCode);
+      // Pass tenantId so updateHeartbeat enforces tenant boundary check
+      await this.handleEdgeDeath(deviceCode, tenantId);
     }
   }
 
@@ -610,21 +626,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.eventBus.publish({
         eventId: randomUUID(),
-        eventType: 'SensorReadingReceived',
+        eventType: 'SensorReading',
         timestamp,
-        payload: {
-          sensorId: sensor.id,
-          sensorName: sensor.name,
-          tenantId: sensor.tenantId,
-          readings: data,
-          timestamp: timestamp.toISOString(),
-        },
-        metadata: {
-          tenantId: sensor.tenantId,
-          source: 'mqtt-listener',
-        },
+        tenantId: sensor.tenantId,
+        sensorId: sensor.id,
+        readings: data,
+        version: 1,
       });
-      this.logger.debug(`Published SensorReadingReceived event for sensor ${sensor.id}`);
+      this.logger.debug(`Published SensorReading event for sensor ${sensor.id}`);
     } catch (error) {
       this.logger.warn(`Failed to publish sensor reading event: ${(error as Error).message}`);
     }
@@ -700,31 +709,44 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Load full sensor entity from cached info
+   * Load full sensor entity from cached info.
+   * Uses a dedicated QueryRunner so the SET search_path mutation is scoped
+   * to a single connection and never leaks back to the pool (HIGH-001).
    */
   private async loadSensorFromCache(cachedInfo: CachedSensorInfo): Promise<Sensor | null> {
+    const safeSchemaName = cachedInfo.schemaName.replace(/[^a-zA-Z0-9_]/g, '');
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
     try {
-      // Set search_path to the sensor's schema
-      const safeSchemaName = cachedInfo.schemaName.replace(/[^a-zA-Z0-9_]/g, '');
-      await this.dataSource.query(`SET search_path TO "${safeSchemaName}", public`);
-
-      // Load full sensor entity
-      const sensor = await this.sensorRepository.findOne({
+      await queryRunner.query(`SET search_path TO "${safeSchemaName}", public`);
+      const sensor = await queryRunner.manager.findOne(Sensor, {
         where: { id: cachedInfo.id },
       });
-
       return sensor;
     } catch (error) {
       this.logger.error(`Error loading sensor ${cachedInfo.id} from cache: ${(error as Error).message}`);
       return null;
+    } finally {
+      // Reset search_path on this specific connection before returning it to the pool
+      try { await queryRunner.query(`RESET search_path`); } catch { /* ignore */ }
+      await queryRunner.release();
     }
   }
 
   /**
    * Legacy cross-schema sensor lookup - used when cache service is unavailable
-   * This is the original slow implementation for backward compatibility
+   * This is the original slow implementation for backward compatibility.
+   *
+   * HIGH-005: Negative cache prevents 150+ queries per message when Redis is unavailable.
+   * Unknown topics are cached for 30 seconds and immediately return null without DB queries.
    */
   private async findSensorByTopicLegacy(topic: string, parsed: ParsedTopic | null): Promise<Sensor | null> {
+    // Check negative cache before issuing any DB queries
+    const negativeCacheExpiry = this.topicNegativeCache.get(topic);
+    if (negativeCacheExpiry && negativeCacheExpiry > Date.now()) {
+      return null;
+    }
+
     try {
       // Get all tenant schemas
       const tenantSchemas: Array<{ schema_name: string }> = await this.dataSource.query(`
@@ -801,8 +823,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      // Reset to public schema if no sensor found
-      await this.dataSource.query(`SET search_path TO public`);
+      // No sensor found in any schema — populate negative cache to prevent re-querying
+      this.topicNegativeCache.set(topic, Date.now() + this.NEGATIVE_CACHE_TTL_MS);
+      this.logger.warn(`No sensor found for topic ${topic} (cached negative for ${this.NEGATIVE_CACHE_TTL_MS / 1000}s)`);
       return null;
     } catch (error) {
       this.logger.error(`Error in cross-schema sensor lookup: ${(error as Error).message}`);
@@ -883,10 +906,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private async saveReading(sensor: Sensor, data: Record<string, unknown>): Promise<void> {
     const now = new Date();
 
-    // Get all channels for this sensor
-    const channels = await this.channelRepository.find({
-      where: { sensorId: sensor.id, isEnabled: true },
-    });
+    // Get channels with cache
+    const channels = await this.getChannelsCached(sensor.id);
 
     // Collect metrics for batch insert
     const metrics: SensorMetricInput[] = [];
@@ -952,12 +973,64 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
     // Write to legacy table for backward compatibility (deprecated, will be removed)
     // Set LEGACY_SENSOR_READINGS_ENABLED=false when migration to sensor_metrics is complete
-    const legacyEnabled = this.configService.get('LEGACY_SENSOR_READINGS_ENABLED', 'true') === 'true';
+    const legacyEnabled = this.configService.get('LEGACY_SENSOR_READINGS_ENABLED', 'false') === 'true';
     if (legacyEnabled) {
+      if (this.configService.get('NODE_ENV') === 'production') {
+        this.logger.warn('LEGACY_SENSOR_READINGS_ENABLED=true in production — dual write doubles I/O. Migrate to sensor_metrics and disable.');
+      }
       await this.writeLegacyReading(sensor, data);
     }
 
     this.logger.debug(`Saved ${metrics.length} metrics for sensor ${sensor.id}`);
+  }
+
+  /**
+   * Get channels for a sensor with 60-second cache
+   */
+  private async getChannelsCached(sensorId: string): Promise<SensorDataChannel[]> {
+    const cached = this.channelCache.get(sensorId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.channels;
+    }
+
+    const channels = await this.channelRepository.find({
+      where: { sensorId, isEnabled: true },
+    });
+
+    this.channelCache.set(sensorId, {
+      channels,
+      expiresAt: Date.now() + this.CHANNEL_CACHE_TTL_MS,
+    });
+
+    return channels;
+  }
+
+  /**
+   * Flush all pending lastSeenAt updates in a single batch
+   */
+  private async flushLastSeenUpdates(): Promise<void> {
+    if (this.lastSeenPending.size === 0) return;
+
+    const entries = Array.from(this.lastSeenPending.entries());
+    this.lastSeenPending.clear();
+
+    try {
+      // Batch update using a single query with CASE
+      const ids = entries.map(([id]) => id);
+      await this.sensorRepository
+        .createQueryBuilder()
+        .update()
+        .set({
+          lastSeenAt: () => 'NOW()',
+          status: SensorStatus.ACTIVE,
+        })
+        .where('id IN (:...ids)', { ids })
+        .execute();
+
+      this.logger.debug(`Flushed lastSeenAt for ${ids.length} sensors`);
+    } catch (error) {
+      this.logger.error(`Failed to flush lastSeenAt: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /**
@@ -982,8 +1055,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Batch insert metrics using raw SQL for maximum throughput
-   * Note: UUID values are validated before insertion to prevent SQL injection
+   * Batch insert metrics using parameterized SQL for plan cache reuse and safety
    */
   private async batchInsertMetrics(metrics: SensorMetricInput[]): Promise<void> {
     if (metrics.length === 0) return;
@@ -999,40 +1071,53 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
     if (validMetrics.length === 0) return;
 
-    const values = validMetrics.map(m => `(
-      '${m.time.toISOString()}',
-      ${this.formatUUID(m.sensorId)},
-      ${this.formatUUID(m.channelId)},
-      ${this.formatUUID(m.tenantId)},
-      ${this.formatUUID(m.siteId)},
-      ${this.formatUUID(m.departmentId)},
-      ${this.formatUUID(m.systemId)},
-      ${this.formatUUID(m.equipmentId)},
-      ${this.formatUUID(m.tankId)},
-      ${this.formatUUID(m.pondId)},
-      ${this.formatUUID(m.farmId)},
-      ${Number.isFinite(m.rawValue) ? m.rawValue : 0},
-      ${Number.isFinite(m.value) ? m.value : 0},
-      ${Number.isInteger(m.qualityCode) ? m.qualityCode : 192},
-      ${Number.isInteger(m.qualityBits) ? m.qualityBits : 0},
-      'mqtt',
-      '${m.time.toISOString()}',
-      0,
-      NULL
-    )`).join(',\n');
+    // Build parameterized query for plan cache reuse
+    const params: (string | number | null | Date)[] = [];
+    const valuePlaceholders: string[] = [];
+    let paramIdx = 1;
+
+    for (const m of validMetrics) {
+      const placeholders = [];
+      for (const val of [
+        m.time.toISOString(),
+        m.sensorId,
+        m.channelId,
+        m.tenantId,
+        m.siteId || null,
+        m.departmentId || null,
+        m.systemId || null,
+        m.equipmentId || null,
+        m.tankId || null,
+        m.pondId || null,
+        m.farmId || null,
+        Number.isFinite(m.rawValue) ? m.rawValue : 0,
+        Number.isFinite(m.value) ? m.value : 0,
+        Number.isInteger(m.qualityCode) ? m.qualityCode : 192,
+        Number.isInteger(m.qualityBits) ? m.qualityBits : 0,
+        'mqtt',
+        m.time.toISOString(),
+        0,
+        null,
+      ]) {
+        placeholders.push(`$${paramIdx}`);
+        params.push(val as string | number | null);
+        paramIdx++;
+      }
+      valuePlaceholders.push(`(${placeholders.join(', ')})`);
+    }
 
     await this.dataSource.query(`
       INSERT INTO sensor_metrics (
-        time, sensor_id, channel_id, "tenantId",
+        time, sensor_id, channel_id, tenant_id,
         site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
         raw_value, value, quality_code, quality_bits,
         source_protocol, source_timestamp, ingestion_latency_ms, batch_id
-      ) VALUES ${values}
+      ) VALUES ${valuePlaceholders.join(',\n')}
       ON CONFLICT (time, sensor_id, channel_id) DO UPDATE SET
         value = EXCLUDED.value,
         raw_value = EXCLUDED.raw_value,
         quality_code = EXCLUDED.quality_code
-    `);
+    `, params);
   }
 
   /**

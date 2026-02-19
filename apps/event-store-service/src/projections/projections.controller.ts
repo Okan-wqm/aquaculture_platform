@@ -9,8 +9,9 @@ import {
   NotFoundException,
   Headers,
   UnauthorizedException,
-  UseGuards,
 } from '@nestjs/common';
+import { IsOptional, IsInt, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ProjectionsService } from './projections.service';
 import { ProjectionCheckpoint } from './entities/projection-checkpoint.entity';
 
@@ -18,12 +19,15 @@ import { ProjectionCheckpoint } from './entities/projection-checkpoint.entity';
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 class ResetProjectionDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
   position?: number;
 }
 
 /**
  * Extracts and validates tenant ID from headers
- * SECURITY: Ensures multi-tenant isolation for all projection operations
  */
 function extractTenantId(tenantIdHeader: string | undefined): string {
   if (!tenantIdHeader || typeof tenantIdHeader !== 'string') {
@@ -49,7 +53,6 @@ export class ProjectionsController {
 
   /**
    * Get all projections
-   * SECURITY: Tenant-isolated - only returns projections for the authenticated tenant
    */
   @Get()
   async getAllProjections(
@@ -61,7 +64,6 @@ export class ProjectionsController {
 
   /**
    * Get projection status
-   * SECURITY: Tenant-isolated
    */
   @Get(':name')
   async getProjectionStatus(
@@ -78,7 +80,6 @@ export class ProjectionsController {
 
   /**
    * Get projection lag
-   * SECURITY: Tenant-isolated
    */
   @Get(':name/lag')
   async getProjectionLag(
@@ -92,7 +93,6 @@ export class ProjectionsController {
 
   /**
    * Start a projection
-   * SECURITY: Tenant-isolated
    */
   @Post(':name/start')
   @HttpCode(HttpStatus.OK)
@@ -107,7 +107,6 @@ export class ProjectionsController {
 
   /**
    * Stop a projection
-   * SECURITY: Tenant-isolated
    */
   @Post(':name/stop')
   @HttpCode(HttpStatus.OK)
@@ -122,7 +121,6 @@ export class ProjectionsController {
 
   /**
    * Pause a projection
-   * SECURITY: Tenant-isolated
    */
   @Post(':name/pause')
   @HttpCode(HttpStatus.OK)
@@ -137,7 +135,6 @@ export class ProjectionsController {
 
   /**
    * Resume a paused projection
-   * SECURITY: Tenant-isolated
    */
   @Post(':name/resume')
   @HttpCode(HttpStatus.OK)
@@ -152,7 +149,6 @@ export class ProjectionsController {
 
   /**
    * Reset a projection to a specific position
-   * SECURITY: Tenant-isolated
    */
   @Post(':name/reset')
   @HttpCode(HttpStatus.OK)
@@ -170,7 +166,6 @@ export class ProjectionsController {
 
   /**
    * Process a batch manually
-   * SECURITY: Tenant-isolated
    */
   @Post(':name/process')
   @HttpCode(HttpStatus.OK)

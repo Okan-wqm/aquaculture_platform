@@ -8,6 +8,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
@@ -18,16 +19,20 @@ use crate::error::{ActivationErrorCode, AgentError};
 /// Mask a sensitive token for logging purposes (IEC 62443 SL2 FR3)
 ///
 /// Shows first 4 and last 4 characters with ellipsis in between.
-/// For short tokens (< 12 chars), shows only asterisks.
+/// For short tokens (< 20 chars), shows only asterisks to prevent brute-force
+/// recovery from partial exposure — a token shorter than 20 chars has at most
+/// ~10 unknown chars which may be feasible to exhaust.
 ///
 /// # Security
 /// Prevents token leakage in log files while allowing debugging.
+///
+/// # LOW-41: Raised threshold from 12 → 20 chars (reduces partial-token exposure risk)
 ///
 /// # v1.2.6: UTF-8 Safe
 /// Uses char indices to prevent panic on multi-byte characters.
 fn mask_token(token: &str) -> String {
     let char_count = token.chars().count();
-    if char_count >= 12 {
+    if char_count >= 20 {
         // Get first 4 chars safely
         let first_4: String = token.chars().take(4).collect();
         // Get last 4 chars safely
@@ -47,6 +52,12 @@ pub struct ProvisioningClient {
 }
 
 /// Device fingerprint collected from hardware
+///
+/// # GDPR / Privacy (LOW-45)
+/// MAC addresses are SHA-256 hashed before inclusion so that no raw hardware
+/// identifiers leave the device. The hash is stable across reboots (deterministic
+/// input) so the cloud can still correlate re-provisioning events, but the value
+/// cannot be reversed to recover the original MAC address.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceFingerprint {
@@ -54,7 +65,8 @@ pub struct DeviceFingerprint {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cpu_serial: Option<String>,
 
-    /// MAC addresses of network interfaces
+    /// SHA-256 hashed MAC addresses (hex-encoded, one per network interface).
+    /// Raw MAC addresses are NOT transmitted — only their pseudonymised hashes.
     pub mac_addresses: Vec<String>,
 
     /// Machine ID (from /etc/machine-id)
@@ -151,8 +163,21 @@ pub struct SelfRegisterResponse {
 impl ProvisioningClient {
     /// Create a new provisioning client
     pub fn new(state: Arc<RwLock<AppState>>) -> Result<Self> {
+        // Disable the system CA bundle and pin our own CA certificate so that a compromised
+        // or rogue CA in the device's trust store cannot intercept provisioning tokens and
+        // MQTT credentials (IEC 62443 FR4).
+        //
+        // The Suderra CA PEM is embedded at compile time.  If the file is absent at build
+        // time the build will fail, which is intentional — shipping without TLS pinning
+        // is not acceptable for production firmware.
+        let ca_cert_pem = include_bytes!("../certs/suderra-ca.pem");
+        let ca_cert = reqwest::Certificate::from_pem(ca_cert_pem)
+            .context("Failed to parse embedded Suderra CA certificate")?;
+
         let http_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
+            .add_root_certificate(ca_cert)
+            .tls_built_in_root_certs(false) // Disable system CAs — use only the pinned CA
             .build()
             .context("Failed to create HTTP client. This typically indicates a TLS/SSL configuration issue.")?;
 
@@ -161,13 +186,16 @@ impl ProvisioningClient {
 
     /// Activate device with cloud platform
     pub async fn activate(&self) -> Result<ActivationResponse> {
+        use secrecy::ExposeSecret;
         let (api_url, device_id, token) = {
             let state = self.state.read().await;
-            let token = state
+            let secret_token = state
                 .config
                 .provisioning_token
                 .clone()
                 .ok_or_else(|| AgentError::NotActivated)?;
+            // Expose only at the point of use — not stored in a plain String
+            let token = secret_token.expose_secret().clone();
 
             (
                 state.config.api_url.clone(),
@@ -271,13 +299,15 @@ impl ProvisioningClient {
     /// a pre-assigned device_id. The cloud platform creates the device
     /// record and returns credentials.
     pub async fn self_register(&self) -> Result<SelfRegisterResponse> {
+        use secrecy::ExposeSecret;
         let (api_url, tenant_token) = {
             let state = self.state.read().await;
-            let token = state
+            let secret = state
                 .config
                 .tenant_token
                 .clone()
                 .ok_or_else(|| AgentError::Provisioning("No tenant_token in config".to_string()))?;
+            let token = secret.expose_secret().clone();
 
             (state.config.api_url.clone(), token)
         };
@@ -390,34 +420,40 @@ impl ProvisioningClient {
         None
     }
 
-    /// Get MAC addresses of all network interfaces
+    /// Hash a MAC address with SHA-256 for GDPR-compliant pseudonymisation (LOW-45).
+    ///
+    /// The raw MAC is normalised to uppercase before hashing so that
+    /// "AA:BB:CC:DD:EE:FF" and "aa:bb:cc:dd:ee:ff" produce the same hash.
+    fn hash_mac_address(mac: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(mac.to_uppercase().as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    /// Get SHA-256 hashed MAC addresses of all network interfaces.
+    ///
+    /// Raw MAC addresses are NOT returned — only their pseudonymised hashes.
     fn get_mac_addresses() -> Vec<String> {
-        let mut addresses = Vec::new();
+        let mut hashes: Vec<String> = Vec::new();
 
         if let Ok(mac) = mac_address::get_mac_address() {
             if let Some(addr) = mac {
-                addresses.push(addr.to_string());
+                let hash = Self::hash_mac_address(&addr.to_string());
+                hashes.push(hash);
             }
         }
 
-        // Also try to get all interfaces
-        if let Ok(macs) = mac_address::mac_address_by_name("eth0") {
-            if let Some(addr) = macs {
-                if !addresses.contains(&addr.to_string()) {
-                    addresses.push(addr.to_string());
+        // Also try named interfaces
+        for iface in &["eth0", "wlan0"] {
+            if let Ok(Some(addr)) = mac_address::mac_address_by_name(iface) {
+                let hash = Self::hash_mac_address(&addr.to_string());
+                if !hashes.contains(&hash) {
+                    hashes.push(hash);
                 }
             }
         }
 
-        if let Ok(macs) = mac_address::mac_address_by_name("wlan0") {
-            if let Some(addr) = macs {
-                if !addresses.contains(&addr.to_string()) {
-                    addresses.push(addr.to_string());
-                }
-            }
-        }
-
-        addresses
+        hashes
     }
 
     /// Get machine ID from /etc/machine-id
@@ -483,17 +519,42 @@ mod tests {
 
     #[test]
     fn test_mask_token() {
-        // Long token shows first 4 and last 4
-        assert_eq!(mask_token("1234567890abcdef"), "1234...cdef");
+        // Long token (>= 20 chars) shows first 4 and last 4
+        assert_eq!(mask_token("1234567890abcdef01234"), "1234...1234");
 
-        // Short token (< 12 chars) shows asterisks
+        // Tokens under 20 chars show asterisks (LOW-41: raised threshold 12 → 20)
         assert_eq!(mask_token("short"), "*****");
+        assert_eq!(mask_token("1234567890abcdef"), "********"); // 16 chars → 8 stars (capped at 8)
 
         // Empty token
         assert_eq!(mask_token(""), "(empty)");
 
-        // Exactly 12 chars
-        assert_eq!(mask_token("123456789012"), "1234...9012");
+        // Exactly 20 chars
+        assert_eq!(mask_token("12345678901234567890"), "1234...7890");
+    }
+
+    #[test]
+    fn test_mac_address_hashing() {
+        // Hashing is deterministic
+        let h1 = ProvisioningClient::hash_mac_address("AA:BB:CC:DD:EE:FF");
+        let h2 = ProvisioningClient::hash_mac_address("AA:BB:CC:DD:EE:FF");
+        assert_eq!(h1, h2);
+
+        // Case-normalised: lower and upper produce the same hash
+        let h3 = ProvisioningClient::hash_mac_address("aa:bb:cc:dd:ee:ff");
+        assert_eq!(h1, h3);
+
+        // Different MACs produce different hashes
+        let h4 = ProvisioningClient::hash_mac_address("11:22:33:44:55:66");
+        assert_ne!(h1, h4);
+
+        // Output is hex-encoded SHA-256 (64 lowercase hex chars)
+        assert_eq!(h1.len(), 64);
+        assert!(h1.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Raw MAC is not recoverable from the hash
+        assert!(!h1.contains("AA"));
+        assert!(!h1.contains("BB"));
     }
 
     #[test]

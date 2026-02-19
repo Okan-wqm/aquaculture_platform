@@ -56,12 +56,11 @@ class PayrollConnection {
   hasMore!: boolean;
 }
 
+// SECURITY: Context only exposes JWT-verified user fields.
+// Do NOT add x-tenant-id or x-user-id headers here — those are attacker-controlled
+// and must never be used directly (LOW-01).
 interface GraphQLContext {
   req: {
-    headers: {
-      'x-tenant-id'?: string;
-      'x-user-id'?: string;
-    };
     user?: {
       sub: string;
       tenantId: string;
@@ -119,6 +118,8 @@ export class HRResolver {
   }
 
   @Query(() => [Employee], { name: 'employeesByDepartment' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async getEmployeesByDepartment(
     @Args('department', { type: () => Department }) department: Department,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
@@ -133,6 +134,8 @@ export class HRResolver {
   }
 
   @Query(() => [Employee], { name: 'activeEmployees' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async getActiveEmployees(
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
     @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset: number,

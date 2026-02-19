@@ -748,36 +748,36 @@ describe('SchemaManagerService', () => {
   });
 
   describe('setTenantSearchPath', () => {
-    it('should set search_path to tenant schema', async () => {
+    it('should set search_path to tenant schema using set_config', async () => {
       mockQuery.mockResolvedValue([]);
 
       await service.setTenantSearchPath('4b529829-ea79-48da-982c-cd6fbec8ffb7');
 
+      // Implementation uses parameterized pg_catalog.set_config (not SET search_path TO)
+      // to safely pass the schema name as a bind parameter, preventing SQL injection.
       expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining('SET search_path TO'),
-        undefined
-      );
-      expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining('tenant_4b529829ea7948da'),
-        undefined
+        expect.stringContaining('set_config'),
+        ['tenant_4b529829ea7948da']
       );
     });
   });
 
   describe('resetSearchPath', () => {
-    it('should reset search_path to public', async () => {
+    it('should reset search_path to public using set_config', async () => {
       mockQuery.mockResolvedValue([]);
 
       await service.resetSearchPath();
 
+      // Implementation uses pg_catalog.set_config (not SET search_path TO)
       expect(mockQuery).toHaveBeenCalledWith(
-        'SET search_path TO public'
+        expect.stringContaining('set_config'),
+        undefined
       );
     });
   });
 
   describe('setTenantSearchPathInTransaction', () => {
-    it('should set LOCAL search_path within transaction', async () => {
+    it('should set LOCAL search_path within transaction using set_config', async () => {
       const mockManager = {
         query: jest.fn().mockResolvedValue([]),
       };
@@ -787,11 +787,11 @@ describe('SchemaManagerService', () => {
         '4b529829-ea79-48da-982c-cd6fbec8ffb7'
       );
 
+      // Implementation uses pg_catalog.set_config with is_local=true (not SET LOCAL search_path TO)
+      // The 'true' third argument makes the change transaction-scoped.
       expect(mockManager.query).toHaveBeenCalledWith(
-        expect.stringContaining('SET LOCAL search_path TO')
-      );
-      expect(mockManager.query).toHaveBeenCalledWith(
-        expect.stringContaining('tenant_4b529829ea7948da')
+        expect.stringContaining('set_config'),
+        ['tenant_4b529829ea7948da']
       );
     });
   });

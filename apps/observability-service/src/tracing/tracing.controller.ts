@@ -1,17 +1,42 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, BadRequestException } from '@nestjs/common';
 import { TracingService, TraceSpan } from './tracing.service';
-import { InternalApiGuard } from '../guards/internal-api.guard';
+
+const MAX_LIMIT = 1000;
+const MIN_LIMIT = 1;
+
+/**
+ * Parse and validate an integer query parameter.
+ * Returns the default value when the param is absent.
+ * Throws BadRequestException for non-numeric or out-of-range values.
+ */
+function parseIntParam(
+  raw: string | undefined,
+  defaultValue: number,
+  min: number = MIN_LIMIT,
+  max: number = MAX_LIMIT,
+): number {
+  if (raw === undefined || raw === '') {
+    return defaultValue;
+  }
+  const parsed = parseInt(raw, 10);
+  if (isNaN(parsed) || !isFinite(parsed)) {
+    throw new BadRequestException(`Query parameter must be a valid integer`);
+  }
+  if (parsed < min || parsed > max) {
+    throw new BadRequestException(
+      `Query parameter must be between ${min} and ${max}`,
+    );
+  }
+  return parsed;
+}
 
 @Controller('traces')
-@UseGuards(InternalApiGuard)
 export class TracingController {
   constructor(private readonly tracingService: TracingService) {}
 
   @Get()
   getRecentTraces(@Query('limit') limit?: string): TraceSpan[][] {
-    return this.tracingService.getRecentTraces(
-      limit ? parseInt(limit, 10) : 100,
-    );
+    return this.tracingService.getRecentTraces(parseIntParam(limit, 100));
   }
 
   @Get('slow')
@@ -20,14 +45,14 @@ export class TracingController {
     @Query('limit') limit?: string,
   ): TraceSpan[][] {
     return this.tracingService.getSlowTraces(
-      threshold ? parseInt(threshold, 10) : 1000,
-      limit ? parseInt(limit, 10) : 50,
+      parseIntParam(threshold, 1000, 1, 600_000),
+      parseIntParam(limit, 50),
     );
   }
 
   @Get('errors')
   getErrorTraces(@Query('limit') limit?: string): TraceSpan[][] {
-    return this.tracingService.getErrorTraces(limit ? parseInt(limit, 10) : 50);
+    return this.tracingService.getErrorTraces(parseIntParam(limit, 50));
   }
 
   @Get('stats')

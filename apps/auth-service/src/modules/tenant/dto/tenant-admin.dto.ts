@@ -1,5 +1,5 @@
 import { InputType, Field, ObjectType, ID } from '@nestjs/graphql';
-import { IsEmail, IsNotEmpty, IsString, MinLength, IsUUID, IsInt, Min, Max, Matches, MaxLength, IsIn } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, IsUUID, IsInt, Min, Max, Matches, MaxLength, IsIn } from 'class-validator';
 
 /**
  * Input for assigning a user to a module
@@ -21,10 +21,6 @@ export class AssignUserToModuleInput {
   email!: string;
 
   @Field()
-  @MinLength(8)
-  password!: string;
-
-  @Field()
   @IsUUID()
   moduleId!: string;
 
@@ -43,6 +39,9 @@ export class UserModuleInfo {
 
   @Field()
   moduleId!: string;
+
+  @Field()
+  code!: string;
 
   @Field()
   name!: string;

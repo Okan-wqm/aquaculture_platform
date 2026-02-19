@@ -9,9 +9,8 @@
  */
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { gql, request } from 'graphql-request';
-
-const GRAPHQL_ENDPOINT = import.meta.env.VITE_GRAPHQL_URL || '/graphql';
+import { gql } from 'graphql-request';
+import { graphqlClient } from '@aquaculture/shared-ui';
 
 const GET_REGULATORY_SETTINGS = gql`
   query GetRegulatorySettings {
@@ -121,14 +120,6 @@ interface ReportSettingsModalProps {
   onClose: () => void;
 }
 
-const getAuthHeaders = (): Record<string, string> => {
-  const token = localStorage.getItem('access_token');
-  if (token) {
-    return { Authorization: `Bearer ${token}` };
-  }
-  return {};
-};
-
 const StatusBadge: React.FC<{ label: string; configured: boolean }> = ({ label, configured }) => (
   <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${configured ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
     {configured ? (
@@ -165,11 +156,8 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
   const { data: settingsData, isLoading } = useQuery({
     queryKey: ['regulatorySettings'],
     queryFn: async () => {
-      const response = await request<{ regulatorySettings: RegulatorySettings }>(
-        GRAPHQL_ENDPOINT,
+      const response = await graphqlClient.request<{ regulatorySettings: RegulatorySettings }>(
         GET_REGULATORY_SETTINGS,
-        {},
-        getAuthHeaders()
       );
       return response.regulatorySettings;
     },
@@ -179,11 +167,8 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
   const { data: statusData } = useQuery({
     queryKey: ['regulatoryConfigurationStatus'],
     queryFn: async () => {
-      const response = await request<{ regulatoryConfigurationStatus: ConfigurationStatus }>(
-        GRAPHQL_ENDPOINT,
+      const response = await graphqlClient.request<{ regulatoryConfigurationStatus: ConfigurationStatus }>(
         GET_CONFIGURATION_STATUS,
-        {},
-        getAuthHeaders()
       );
       return response.regulatoryConfigurationStatus;
     },
@@ -193,12 +178,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
   const { data: sitesData } = useQuery({
     queryKey: ['sites'],
     queryFn: async () => {
-      const response = await request<{ sites: { items: Site[] } }>(
-        GRAPHQL_ENDPOINT,
-        GET_SITES,
-        {},
-        getAuthHeaders()
-      );
+      const response = await graphqlClient.request<{ sites: { items: Site[] } }>(GET_SITES);
       return response.sites.items;
     },
     enabled: open,
@@ -206,12 +186,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
 
   const updateSettingsMutation = useMutation({
     mutationFn: async (input: Record<string, unknown>) => {
-      return request(
-        GRAPHQL_ENDPOINT,
-        UPDATE_REGULATORY_SETTINGS,
-        { input },
-        getAuthHeaders()
-      );
+      return graphqlClient.request(UPDATE_REGULATORY_SETTINGS, { input });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['regulatorySettings'] });
@@ -223,12 +198,9 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
 
   const testConnectionMutation = useMutation({
     mutationFn: async () => {
-      return request<{ testMaskinportenConnection: { success: boolean; message?: string; error?: string } }>(
-        GRAPHQL_ENDPOINT,
-        TEST_MASKINPORTEN_CONNECTION,
-        {},
-        getAuthHeaders()
-      );
+      return graphqlClient.request<{
+        testMaskinportenConnection: { success: boolean; message?: string; error?: string };
+      }>(TEST_MASKINPORTEN_CONNECTION);
     },
     onSuccess: (data) => {
       const result = data.testMaskinportenConnection;

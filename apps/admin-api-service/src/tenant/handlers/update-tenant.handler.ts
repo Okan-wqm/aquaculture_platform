@@ -164,13 +164,13 @@ export class UpdateTenantHandler
 
         // Publish domain event
         this.eventBus.publish({
+          eventId: crypto.randomUUID(),
           eventType: 'TenantUpdated',
-          payload: {
-            tenantId,
-            changes: Object.keys(changes),
-            updatedBy,
-          },
           timestamp: new Date(),
+          tenantId,
+          name: data.name,
+          userId: updatedBy,
+          version: 1,
         });
       }
 

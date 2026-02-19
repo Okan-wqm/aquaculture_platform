@@ -81,4 +81,4 @@ const QueryHandlers = [
     TypeOrmModule,
   ],
 })
-export class StorageModule {}
+export class InventoryModule {}

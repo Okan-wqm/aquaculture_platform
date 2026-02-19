@@ -118,6 +118,20 @@ interface AuthenticatedRequest {
  * SOLID Principles:
  * - Single Responsibility: Only handles IDOR validation
  * - Open/Closed: Configurable via decorators
+ *
+ * **Opt-in behaviour warning**
+ * When `IdorGuard` is registered globally (e.g. `APP_GUARD`), it will silently
+ * pass any route that does NOT carry the `@IdorCheck()` decorator. This is by
+ * design to allow incremental adoption, but it means un-annotated routes receive
+ * NO IDOR protection at all.
+ *
+ * Developers MUST do one of the following on every protected route:
+ * - Apply `@IdorCheck()` (with an appropriate config) to enable IDOR validation.
+ * - Apply `@SkipIdorCheck()` to explicitly acknowledge the route opts out.
+ *
+ * The guard emits a debug-level log for every pass-through without a decorator
+ * to assist during development and code review. Consider enabling debug logging
+ * in non-production environments to audit uncovered routes.
  */
 @Injectable()
 export class IdorGuard implements CanActivate {
@@ -142,8 +156,14 @@ export class IdorGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    // No IDOR check configured
+    // No IDOR check configured - pass through but log for visibility.
+    // Routes should use @IdorCheck() for explicit protection or
+    // @SkipIdorCheck() to explicitly opt out when IdorGuard is global.
     if (!config) {
+      this.logger.debug(
+        `No @IdorCheck() configured for ${context.getClass().name}.${context.getHandler().name}. ` +
+        `Add @IdorCheck() for IDOR protection or @SkipIdorCheck() to explicitly opt out.`,
+      );
       return true;
     }
 
@@ -285,19 +305,25 @@ export class IdorGuard implements CanActivate {
 }
 
 /**
- * Helper function to ensure tenant isolation in queries
+ * @deprecated REMOVED: ensureTenantScope was removed due to SQL injection vulnerability.
+ * Use TypeORM parameterized queries instead:
  *
  * @example
- * const query = this.repository.createQueryBuilder('entity')
- *   .where(ensureTenantScope('entity', tenantId));
+ * // Before (UNSAFE):
+ * .where(ensureTenantScope('entity', tenantId))
+ *
+ * // After (SAFE):
+ * .where('entity."tenantId" = :tenantId', { tenantId })
  */
-export function ensureTenantScope(alias: string, tenantId: string): string {
-  return `${alias}."tenantId" = '${tenantId.replace(/'/g, "''")}'`;
-}
 
 /**
- * Helper function to ensure owner isolation in queries
+ * @deprecated REMOVED: ensureOwnerScope was removed due to SQL injection vulnerability.
+ * Use TypeORM parameterized queries instead:
+ *
+ * @example
+ * // Before (UNSAFE):
+ * .where(ensureOwnerScope('entity', userId))
+ *
+ * // After (SAFE):
+ * .where('entity."userId" = :userId', { userId })
  */
-export function ensureOwnerScope(alias: string, userId: string): string {
-  return `${alias}."userId" = '${userId.replace(/'/g, "''")}'`;
-}

@@ -59,7 +59,7 @@ export class AuditLogService {
   /**
    * Log an audit event
    */
-  async log(input: AuditLogInput): Promise<AuditLog> {
+  async log(input: AuditLogInput): Promise<AuditLog | null> {
     try {
       const auditLog = this.auditLogRepository.create({
         ...input,
@@ -74,17 +74,14 @@ export class AuditLogService {
 
       return savedLog;
     } catch (error) {
-      // Don't throw - audit logging should not break main operations
-      // Return a partial log object to indicate failure but allow main operation to continue
+      // BUG-029 fix: return null instead of an unsaved entity that callers
+      // may mistakenly treat as persisted (e.g., checking .id for existence).
+      // Don't throw - audit logging should not break main operations.
       this.logger.error(
         `Failed to create audit log: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      // Return the unsaved log object instead of throwing
-      return this.auditLogRepository.create({
-        ...input,
-        severity: input.severity || this.determineSeverity(input.action),
-      });
+      return null;
     }
   }
 
@@ -96,77 +93,94 @@ export class AuditLogService {
     page = 1,
     limit = 50,
   ): Promise<PaginatedAuditLogs> {
-    const skip = (page - 1) * limit;
-    const take = Math.min(limit, 100);
+    try {
+      const skip = (page - 1) * limit;
+      const take = Math.min(limit, 100);
 
-    const queryBuilder = this.auditLogRepository
-      .createQueryBuilder('audit')
-      .orderBy('audit.createdAt', 'DESC');
+      const queryBuilder = this.auditLogRepository
+        .createQueryBuilder('audit')
+        .orderBy('audit.createdAt', 'DESC');
 
-    if (filter.action) {
-      queryBuilder.andWhere('audit.action = :action', { action: filter.action });
-    }
+      if (filter.action) {
+        queryBuilder.andWhere('audit.action = :action', { action: filter.action });
+      }
 
-    if (filter.entityType) {
-      queryBuilder.andWhere('audit.entityType = :entityType', {
-        entityType: filter.entityType,
-      });
-    }
+      if (filter.entityType) {
+        queryBuilder.andWhere('audit.entityType = :entityType', {
+          entityType: filter.entityType,
+        });
+      }
 
-    if (filter.entityId) {
-      queryBuilder.andWhere('audit.entityId = :entityId', {
-        entityId: filter.entityId,
-      });
-    }
+      if (filter.entityId) {
+        queryBuilder.andWhere('audit.entityId = :entityId', {
+          entityId: filter.entityId,
+        });
+      }
 
-    if (filter.tenantId) {
-      queryBuilder.andWhere('audit.tenantId = :tenantId', {
-        tenantId: filter.tenantId,
-      });
-    }
+      if (filter.tenantId) {
+        queryBuilder.andWhere('audit.tenantId = :tenantId', {
+          tenantId: filter.tenantId,
+        });
+      }
 
-    if (filter.performedBy) {
-      queryBuilder.andWhere('audit.performedBy = :performedBy', {
-        performedBy: filter.performedBy,
-      });
-    }
+      if (filter.performedBy) {
+        queryBuilder.andWhere('audit.performedBy = :performedBy', {
+          performedBy: filter.performedBy,
+        });
+      }
 
-    if (filter.severity) {
-      queryBuilder.andWhere('audit.severity = :severity', {
-        severity: filter.severity,
-      });
-    }
+      if (filter.severity) {
+        queryBuilder.andWhere('audit.severity = :severity', {
+          severity: filter.severity,
+        });
+      }
 
-    if (filter.startDate) {
-      queryBuilder.andWhere('audit.createdAt >= :startDate', {
-        startDate: filter.startDate,
-      });
-    }
+      if (filter.startDate) {
+        queryBuilder.andWhere('audit.createdAt >= :startDate', {
+          startDate: filter.startDate,
+        });
+      }
 
-    if (filter.endDate) {
-      queryBuilder.andWhere('audit.createdAt <= :endDate', {
-        endDate: filter.endDate,
-      });
-    }
+      if (filter.endDate) {
+        queryBuilder.andWhere('audit.createdAt <= :endDate', {
+          endDate: filter.endDate,
+        });
+      }
 
-    if (filter.search) {
-      queryBuilder.andWhere(
-        '(audit.action ILIKE :search OR audit.entityType ILIKE :search OR CAST(audit.details AS TEXT) ILIKE :search)',
-        { search: `%${filter.search}%` },
+      if (filter.search) {
+        // MED-006 fix: restrict search to safe, non-sensitive indexed fields only.
+        // Casting details::text was allowing substring matches against JSONB blobs that
+        // may contain PII, API keys, or other sensitive data stored in audit entries.
+        queryBuilder.andWhere(
+          '(audit.action ILIKE :search OR audit.entityType ILIKE :search OR audit.entityId ILIKE :search)',
+          { search: `%${filter.search}%` },
+        );
+      }
+
+      queryBuilder.skip(skip).take(take);
+
+      const [data, total] = await queryBuilder.getManyAndCount();
+
+      return {
+        data,
+        total,
+        page,
+        limit: take,
+        totalPages: Math.ceil(total / take),
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to query audit logs: ${(error as Error).message}`,
+        (error as Error).stack,
       );
+      return {
+        data: [],
+        total: 0,
+        page,
+        limit: Math.min(limit, 100),
+        totalPages: 0,
+      };
     }
-
-    queryBuilder.skip(skip).take(take);
-
-    const [data, total] = await queryBuilder.getManyAndCount();
-
-    return {
-      data,
-      total,
-      page,
-      limit: take,
-      totalPages: Math.ceil(total / take),
-    };
   }
 
   /**

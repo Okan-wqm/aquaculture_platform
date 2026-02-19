@@ -7,9 +7,11 @@
  * NO MOCK DATA - All metrics are calculated from database queries.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, MoreThanOrEqual, LessThanOrEqual, In } from 'typeorm';
+import { Repository, LessThanOrEqual, In, DataSource } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { RedisService } from '@platform/backend-common';
 
 import { AuditLogService } from '../../audit/audit.service';
 import {
@@ -25,10 +27,10 @@ import {
   TimeSeriesData,
   ChartData,
 } from '../entities/analytics-snapshot.entity';
-import { InvoiceReadOnly, InvoiceStatus } from '../entities/external/invoice.entity';
-import { SubscriptionReadOnly, SubscriptionStatus, PlanTier } from '../entities/external/subscription.entity';
-import { TenantReadOnly, TenantPlan, TenantStatus } from '../entities/external/tenant.entity';
-import { UserReadOnly, UserRole } from '../entities/external/user.entity';
+import { InvoiceReadOnly } from '../entities/external/invoice.entity';
+import { SubscriptionReadOnly, SubscriptionStatus } from '../entities/external/subscription.entity';
+import { TenantReadOnly } from '../entities/external/tenant.entity';
+import { UserReadOnly } from '../entities/external/user.entity';
 
 // ============================================================================
 // DTOs
@@ -72,6 +74,10 @@ export class AnalyticsService {
     @InjectRepository(InvoiceReadOnly)
     private readonly invoiceRepository: Repository<InvoiceReadOnly>,
     private readonly auditLogService: AuditLogService,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
+    @Optional()
+    private readonly redisService?: RedisService,
   ) {}
 
   /**
@@ -97,10 +103,31 @@ export class AnalyticsService {
   // Dashboard Summary
   // ============================================================================
 
+  /** Redis cache key and TTL for the dashboard summary (CRITICAL-002). */
+  private static readonly DASHBOARD_CACHE_KEY = 'analytics:dashboard:summary';
+  private static readonly DASHBOARD_CACHE_TTL = 300; // 5 minutes
+
   /**
-   * Get complete dashboard summary with all metrics
+   * Get complete dashboard summary with all metrics.
+   * CRITICAL-002 fix: results are cached in Redis for 5 minutes to avoid
+   * re-running 5 expensive aggregation queries on every page load.
    */
   async getDashboardSummary(): Promise<DashboardSummary> {
+    // Try Redis cache first
+    if (this.redisService) {
+      try {
+        const cached = await this.redisService.getJson<DashboardSummary>(
+          AnalyticsService.DASHBOARD_CACHE_KEY,
+        );
+        if (cached) {
+          this.logger.debug('Dashboard summary served from cache');
+          return cached;
+        }
+      } catch {
+        // Cache miss or Redis unavailable — fall through to live computation
+      }
+    }
+
     this.logger.log('Calculating dashboard summary from database...');
 
     const [tenants, users, financial, system, usage] = await Promise.all([
@@ -111,7 +138,7 @@ export class AnalyticsService {
       this.getUsageMetrics(),
     ]);
 
-    return {
+    const summary: DashboardSummary = {
       tenants,
       users,
       financial,
@@ -119,6 +146,17 @@ export class AnalyticsService {
       usage,
       generatedAt: new Date(),
     };
+
+    // Write back to cache (fire-and-forget)
+    if (this.redisService) {
+      this.redisService
+        .setJson(AnalyticsService.DASHBOARD_CACHE_KEY, summary, AnalyticsService.DASHBOARD_CACHE_TTL)
+        .catch((err: Error) =>
+          this.logger.warn(`Failed to cache dashboard summary: ${err.message}`),
+        );
+    }
+
+    return summary;
   }
 
   // ============================================================================
@@ -126,54 +164,47 @@ export class AnalyticsService {
   // ============================================================================
 
   /**
-   * Calculate tenant metrics from database
+   * Calculate tenant metrics from database using a single aggregation query.
+   * CRITICAL-001 fix: replaced full-table scan + JS filtering with SQL COUNT FILTER.
    */
   async getTenantMetrics(): Promise<TenantMetrics> {
     this.logger.debug('Calculating tenant metrics from database...');
 
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+    const rows = await this.dataSource.query(`
+      SELECT
+        COUNT(*)                                                                          AS total,
+        COUNT(*) FILTER (WHERE status = 'ACTIVE')                                        AS active,
+        COUNT(*) FILTER (WHERE status = 'SUSPENDED')                                     AS suspended,
+        COUNT(*) FILTER (WHERE status = 'PENDING')                                       AS pending,
+        COUNT(*) FILTER (WHERE status IN ('SUSPENDED','CANCELLED'))                      AS inactive,
+        COUNT(*) FILTER (WHERE plan = 'TRIAL')                                           AS trial,
+        COUNT(*) FILTER (WHERE plan = 'STARTER')                                         AS starter,
+        COUNT(*) FILTER (WHERE plan = 'PROFESSIONAL')                                    AS professional,
+        COUNT(*) FILTER (WHERE plan = 'ENTERPRISE')                                      AS enterprise,
+        COUNT(*) FILTER (WHERE "createdAt" >= date_trunc('month', NOW()))                AS new_this_month,
+        COUNT(*) FILTER (
+          WHERE status IN ('CANCELLED','SUSPENDED')
+          AND   "updatedAt" >= date_trunc('month', NOW())
+        )                                                                                 AS churned_this_month
+      FROM auth.tenants
+    `);
 
-    // Get all tenants
-    const allTenants = await this.tenantRepository.find();
-    const total = allTenants.length;
+    const r = rows[0] || {};
+    const total            = parseInt(r.total             || '0', 10);
+    const active           = parseInt(r.active            || '0', 10);
+    const suspended        = parseInt(r.suspended         || '0', 10);
+    const inactive         = parseInt(r.inactive          || '0', 10);
+    const trial            = parseInt(r.trial             || '0', 10);
+    const starter          = parseInt(r.starter           || '0', 10);
+    const professional     = parseInt(r.professional      || '0', 10);
+    const enterprise       = parseInt(r.enterprise        || '0', 10);
+    const newThisMonth     = parseInt(r.new_this_month    || '0', 10);
+    const churnedThisMonth = parseInt(r.churned_this_month || '0', 10);
 
-    // Count by status
-    const active = allTenants.filter(t => t.status === TenantStatus.ACTIVE).length;
-    const suspended = allTenants.filter(t => t.status === TenantStatus.SUSPENDED).length;
-    const pending = allTenants.filter(t => t.status === TenantStatus.PENDING).length;
-    const cancelled = allTenants.filter(t => t.status === TenantStatus.CANCELLED).length;
-    const inactive = suspended + cancelled;
-
-    // Count by plan
-    const trial = allTenants.filter(t => t.plan === TenantPlan.TRIAL).length;
-    const starter = allTenants.filter(t => t.plan === TenantPlan.STARTER).length;
-    const professional = allTenants.filter(t => t.plan === TenantPlan.PROFESSIONAL).length;
-    const enterprise = allTenants.filter(t => t.plan === TenantPlan.ENTERPRISE).length;
-
-    // New tenants this month
-    const newThisMonth = allTenants.filter(t => t.createdAt >= startOfMonth).length;
-
-    // Churned this month (cancelled or suspended this month)
-    const churnedThisMonth = allTenants.filter(t =>
-      (t.status === TenantStatus.CANCELLED || t.status === TenantStatus.SUSPENDED) &&
-      t.updatedAt >= startOfMonth
-    ).length;
-
-    // Calculate rates
-    const churnRate = total > 0 ? Number(((churnedThisMonth / total) * 100).toFixed(2)) : 0;
+    const churnRate  = total > 0 ? Number(((churnedThisMonth / total) * 100).toFixed(2)) : 0;
     const growthRate = total > 0 ? Number((((newThisMonth - churnedThisMonth) / total) * 100).toFixed(2)) : 0;
 
-    // Group by region (using slug prefix as proxy - would need real region field)
-    // For now, count all as TR since we don't have region data
-    const byRegion: Record<string, number> = {
-      'TR': total,
-      'EU': 0,
-      'US': 0,
-      'APAC': 0,
-    };
+    const byRegion: Record<string, number> = { TR: total, EU: 0, US: 0, APAC: 0 };
 
     this.logger.debug(`Tenant metrics: total=${total}, active=${active}, trial=${trial}, new=${newThisMonth}`);
 
@@ -187,12 +218,7 @@ export class AnalyticsService {
       churnedThisMonth,
       churnRate,
       growthRate,
-      byPlan: {
-        starter,
-        professional,
-        enterprise,
-        trial,
-      },
+      byPlan: { starter, professional, enterprise, trial },
       byRegion,
     };
   }
@@ -226,46 +252,45 @@ export class AnalyticsService {
   // ============================================================================
 
   /**
-   * Calculate user metrics from database
+   * Calculate user metrics from database using a single aggregation query.
+   * CRITICAL-001 fix: replaced full-table scan + JS filtering with SQL COUNT FILTER.
    */
   async getUserMetrics(): Promise<UserMetrics> {
     this.logger.debug('Calculating user metrics from database...');
 
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const [rows, tenantCount] = await Promise.all([
+      this.dataSource.query(`
+        SELECT
+          COUNT(*)                                                                           AS total,
+          COUNT(*) FILTER (WHERE "isActive" = true)                                         AS active,
+          COUNT(*) FILTER (WHERE "isActive" = false)                                        AS inactive,
+          COUNT(*) FILTER (WHERE "createdAt" >= date_trunc('month', NOW()))                 AS new_this_month,
+          COUNT(*) FILTER (WHERE "isActive" = true AND "lastLoginAt" >= NOW() - INTERVAL '24 hours')  AS active_last_day,
+          COUNT(*) FILTER (WHERE "isActive" = true AND "lastLoginAt" >= NOW() - INTERVAL '7 days')    AS active_last_week,
+          COUNT(*) FILTER (WHERE "isActive" = true AND "lastLoginAt" >= NOW() - INTERVAL '30 days')   AS active_last_month,
+          COUNT(*) FILTER (WHERE role IN ('TENANT_ADMIN','SUPER_ADMIN'))                    AS admin_count,
+          COUNT(*) FILTER (WHERE role = 'MODULE_MANAGER')                                  AS manager_count,
+          COUNT(*) FILTER (WHERE role = 'MODULE_USER')                                     AS operator_count
+        FROM auth.users
+      `),
+      this.dataSource.query(`SELECT COUNT(*) AS cnt FROM auth.tenants`),
+    ]);
 
-    // Get all users
-    const allUsers = await this.userRepository.find();
-    const total = allUsers.length;
+    const r = rows[0] || {};
+    const total          = parseInt(r.total           || '0', 10);
+    const active         = parseInt(r.active          || '0', 10);
+    const inactive       = parseInt(r.inactive        || '0', 10);
+    const newThisMonth   = parseInt(r.new_this_month  || '0', 10);
+    const activeLastDay  = parseInt(r.active_last_day || '0', 10);
+    const activeLastWeek = parseInt(r.active_last_week || '0', 10);
+    const activeLastMonth = parseInt(r.active_last_month || '0', 10);
+    const adminCount     = parseInt(r.admin_count     || '0', 10);
+    const managerCount   = parseInt(r.manager_count   || '0', 10);
+    const operatorCount  = parseInt(r.operator_count  || '0', 10);
 
-    // Active users (isActive = true)
-    const activeUsers = allUsers.filter(u => u.isActive);
-    const active = activeUsers.length;
-    const inactive = total - active;
-
-    // New users this month
-    const newThisMonth = allUsers.filter(u => u.createdAt >= startOfMonth).length;
-
-    // Active in last day/week/month (based on lastLoginAt)
-    const activeLastDay = activeUsers.filter(u => u.lastLoginAt && u.lastLoginAt >= oneDayAgo).length;
-    const activeLastWeek = activeUsers.filter(u => u.lastLoginAt && u.lastLoginAt >= oneWeekAgo).length;
-    const activeLastMonth = activeUsers.filter(u => u.lastLoginAt && u.lastLoginAt >= oneMonthAgo).length;
-
-    // Growth rate
     const growthRate = total > 0 ? Number(((newThisMonth / total) * 100).toFixed(2)) : 0;
-
-    // Get tenant count for average
-    const tenantCount = await this.tenantRepository.count();
-    const avgUsersPerTenant = tenantCount > 0 ? Number((total / tenantCount).toFixed(1)) : 0;
-
-    // Count by role
-    const admin = allUsers.filter(u => u.role === UserRole.TENANT_ADMIN || u.role === UserRole.SUPER_ADMIN).length;
-    const manager = allUsers.filter(u => u.role === UserRole.MODULE_MANAGER).length;
-    const operator = allUsers.filter(u => u.role === UserRole.MODULE_USER).length;
-    const viewer = 0; // No viewer role in current system
+    const tenantCnt = parseInt(tenantCount[0]?.cnt || '0', 10);
+    const avgUsersPerTenant = tenantCnt > 0 ? Number((total / tenantCnt).toFixed(1)) : 0;
 
     this.logger.debug(`User metrics: total=${total}, active=${active}, new=${newThisMonth}`);
 
@@ -280,10 +305,10 @@ export class AnalyticsService {
       growthRate,
       avgUsersPerTenant,
       byRole: {
-        admin,
-        manager,
-        operator,
-        viewer,
+        admin: adminCount,
+        manager: managerCount,
+        operator: operatorCount,
+        viewer: 0,
       },
     };
   }
@@ -301,8 +326,9 @@ export class AnalyticsService {
   }
 
   /**
-   * Get user activity heatmap data
-   * Analyzes audit logs to show activity patterns by day and hour
+   * Get user activity heatmap data.
+   * CRITICAL-004 fix: replaced 10 000-row fetch + JS binning with a single
+   * SQL GROUP BY (day_of_week, hour) aggregation.
    */
   async getUserActivityHeatmap(): Promise<ChartData> {
     this.logger.debug('Calculating user activity heatmap from audit logs...');
@@ -314,35 +340,34 @@ export class AnalyticsService {
     const heatmapData: number[][] = days.map(() => new Array(24).fill(0));
 
     try {
-      // Get audit logs from the last 30 days
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 30);
+      // Single aggregation query — no row fetch into Node.js memory
+      const rows: Array<{ dow: string; hour: string; cnt: string }> =
+        await this.dataSource.query(`
+          SELECT
+            -- PostgreSQL DOW: 0=Sunday..6=Saturday  →  convert to Mon=0..Sun=6
+            ((EXTRACT(DOW FROM "createdAt")::int + 6) % 7) AS dow,
+            EXTRACT(HOUR FROM "createdAt")::int             AS hour,
+            COUNT(*)                                         AS cnt
+          FROM audit_logs
+          WHERE "createdAt" >= NOW() - INTERVAL '30 days'
+          GROUP BY 1, 2
+        `);
 
-      const auditLogs = await this.auditLogService.query(
-        { startDate, endDate },
-        1,
-        10000, // Get up to 10k logs for analysis
-      );
-
-      // Analyze each log entry
-      for (const log of auditLogs.data) {
-        const date = new Date(log.createdAt);
-        const dayIndex = (date.getDay() + 6) % 7; // Convert Sunday=0 to Monday=0
-        const hour = date.getHours();
-
-        const dayData = heatmapData[dayIndex];
+      for (const row of rows) {
+        const dayIndex = parseInt(row.dow,  10);
+        const hour     = parseInt(row.hour, 10);
+        const count    = parseInt(row.cnt,  10);
+        const dayData  = heatmapData[dayIndex];
         if (dayData && dayData[hour] !== undefined) {
-          dayData[hour]++;
+          dayData[hour] = count;
         }
       }
 
-      this.logger.debug(`Analyzed ${auditLogs.data.length} audit logs for heatmap`);
+      this.logger.debug(`Heatmap built from ${rows.length} aggregate buckets`);
     } catch (error) {
       this.logger.warn(
         `Failed to fetch audit logs for heatmap: ${(error as Error).message}`,
       );
-      // Return empty heatmap on error
     }
 
     return {
@@ -396,32 +421,23 @@ export class AnalyticsService {
       }
     }
 
-    // Get all paid invoices for total revenue
-    const paidInvoices = await this.invoiceRepository.find({
-      where: { status: InvoiceStatus.PAID },
-    });
-    const totalRevenue = paidInvoices.reduce((sum, inv) => sum + Number(inv.total), 0);
-
-    // Revenue this month
-    const invoicesThisMonth = paidInvoices.filter(inv => inv.paidAt && inv.paidAt >= startOfMonth);
-    const revenueThisMonth = invoicesThisMonth.reduce((sum, inv) => sum + Number(inv.total), 0);
-
-    // Pending and overdue payments
-    const pendingInvoices = await this.invoiceRepository.find({
-      where: { status: In([InvoiceStatus.PENDING, InvoiceStatus.SENT]) },
-    });
-    const pendingPayments = pendingInvoices.reduce((sum, inv) => sum + Number(inv.amountDue), 0);
-
-    const overdueInvoices = await this.invoiceRepository.find({
-      where: { status: InvoiceStatus.OVERDUE },
-    });
-    const overduePayments = overdueInvoices.reduce((sum, inv) => sum + Number(inv.amountDue), 0);
-
-    // Refunds
-    const refundedInvoices = await this.invoiceRepository.find({
-      where: { status: InvoiceStatus.REFUNDED },
-    });
-    const refunds = refundedInvoices.reduce((sum, inv) => sum + Number(inv.total), 0);
+    // CRITICAL-003 fix: replace 4 separate invoice queries with one conditional aggregation.
+    const invoiceRows = await this.dataSource.query(`
+      SELECT
+        COALESCE(SUM(total)      FILTER (WHERE status = 'PAID'),                            0) AS total_revenue,
+        COALESCE(SUM(total)      FILTER (WHERE status = 'PAID'
+                                          AND "paidAt" >= date_trunc('month', NOW())),       0) AS revenue_this_month,
+        COALESCE(SUM("amountDue") FILTER (WHERE status IN ('PENDING','SENT')),              0) AS pending_payments,
+        COALESCE(SUM("amountDue") FILTER (WHERE status = 'OVERDUE'),                        0) AS overdue_payments,
+        COALESCE(SUM(total)      FILTER (WHERE status = 'REFUNDED'),                        0) AS refunds
+      FROM public.invoices
+    `);
+    const ir = invoiceRows[0] || {};
+    const totalRevenue     = Number(ir.total_revenue     || 0);
+    const revenueThisMonth = Number(ir.revenue_this_month || 0);
+    const pendingPayments  = Number(ir.pending_payments  || 0);
+    const overduePayments  = Number(ir.overdue_payments  || 0);
+    const refunds          = Number(ir.refunds           || 0);
 
     // Calculate ARPU and LTV
     const payingTenants = activeSubscriptions.filter(s => s.status === SubscriptionStatus.ACTIVE).length;
@@ -590,14 +606,26 @@ export class AnalyticsService {
   // ============================================================================
 
   /**
-   * Calculate usage metrics
-   * Note: Detailed usage tracking requires audit logs and session tracking
+   * Calculate usage metrics.
+   * LOW-001 fix: replaced full getUserMetrics() call (which loads all users) with
+   * a single targeted COUNT query for the only value actually used here.
    */
   async getUsageMetrics(): Promise<UsageMetrics> {
     this.logger.debug('Calculating usage metrics...');
 
-    // Get user counts for basic module usage
-    const userMetrics = await this.getUserMetrics();
+    // Single COUNT query — avoids loading all users just for this one field
+    let activeLastDay = 0;
+    try {
+      const rows = await this.dataSource.query(`
+        SELECT COUNT(*) AS cnt
+        FROM auth.users
+        WHERE "isActive" = true
+          AND "lastLoginAt" >= NOW() - INTERVAL '24 hours'
+      `);
+      activeLastDay = parseInt(rows[0]?.cnt || '0', 10);
+    } catch {
+      // Non-critical — leave as 0
+    }
 
     // Module usage - would need audit logs for real data
     // For now, return zeros with warning
@@ -605,7 +633,7 @@ export class AnalyticsService {
 
     return {
       moduleUsage: {
-        dashboard: { activeUsers: userMetrics.activeLastDay, totalSessions: 0, avgSessionDuration: 0 },
+        dashboard: { activeUsers: activeLastDay, totalSessions: 0, avgSessionDuration: 0 },
         farm_management: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
         sensor_monitoring: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
         alerts: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
@@ -623,7 +651,7 @@ export class AnalyticsService {
       },
       topFeatures: [],
       peakHours: [],
-      avgDailyActiveUsers: userMetrics.activeLastDay,
+      avgDailyActiveUsers: activeLastDay,
     };
   }
 
@@ -719,26 +747,25 @@ export class AnalyticsService {
    * Get snapshots closest to a specific date
    */
   private async getSnapshotsNear(targetDate: Date): Promise<Record<string, AnalyticsSnapshot | null>> {
-    const result: Record<string, AnalyticsSnapshot | null> = {
-      tenant: null,
-      user: null,
-      financial: null,
-      system: null,
-      usage: null,
-    };
-
     const categories: MetricCategory[] = ['tenant', 'user', 'financial', 'system', 'usage'];
 
-    for (const category of categories) {
-      const snapshot = await this.snapshotRepository.findOne({
-        where: {
-          category,
-          snapshotDate: LessThanOrEqual(targetDate),
-        },
-        order: { snapshotDate: 'DESC' },
-      });
-      result[category] = snapshot;
-    }
+    // HIGH-001 fix: parallelise snapshot lookups instead of sequential for-loop
+    const snapshots = await Promise.all(
+      categories.map(category =>
+        this.snapshotRepository.findOne({
+          where: {
+            category,
+            snapshotDate: LessThanOrEqual(targetDate),
+          },
+          order: { snapshotDate: 'DESC' },
+        }),
+      ),
+    );
+
+    const result: Record<string, AnalyticsSnapshot | null> = {};
+    categories.forEach((category, index) => {
+      result[category] = snapshots[index] ?? null;
+    });
 
     return result;
   }
@@ -941,31 +968,34 @@ export class AnalyticsService {
       },
     ];
 
-    // Get revenue by month from snapshots
-    const now = new Date();
-    const startDate = new Date(now);
-    startDate.setMonth(startDate.getMonth() - 12);
+    // MEDIUM-009 fix: push monthly grouping to the database instead of loading
+    // up to 365 daily snapshot rows into Node.js memory and grouping in JS.
+    const monthlyRows: Array<{ month: Date; avg_mrr: string }> =
+      await this.dataSource.query(`
+        SELECT
+          date_trunc('month', "snapshotDate")                        AS month,
+          AVG((metrics->>'mrr')::numeric)                            AS avg_mrr
+        FROM   admin.analytics_snapshots
+        WHERE  category       = 'financial'
+          AND  "snapshotDate" >= NOW() - INTERVAL '12 months'
+        GROUP  BY 1
+        ORDER  BY 1
+      `);
 
-    const snapshots = await this.getSnapshots('financial', { startDate, endDate: now }, 'daily');
-
-    // Group by month
-    const monthlyData = new Map<string, number>();
-    for (const snapshot of snapshots) {
-      const monthStr = snapshot.snapshotDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-      const mrr = (snapshot.metrics as FinancialMetrics)?.mrr || 0;
-      monthlyData.set(monthStr, mrr);
-    }
-
-    const revenueByMonth = Array.from(monthlyData.entries()).map(([month, revenue]) => ({
-      month,
-      revenue,
+    const revenueByMonth = monthlyRows.map(r => ({
+      month: new Date(r.month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+      revenue: Number(Number(r.avg_mrr || 0).toFixed(2)),
     }));
 
-    // Get tenant count for ARPT
-    const tenantCount = await this.tenantRepository.count({
-      where: { status: TenantStatus.ACTIVE },
-    });
-    const averageRevenuePerTenant = tenantCount > 0 ? Number((financialMetrics.mrr / tenantCount).toFixed(2)) : 0;
+    // BUG-010 fix: exclude trial tenants from ARPT denominator (they don't pay)
+    // MEDIUM-004 companion: use a targeted COUNT query instead of loading all active tenants
+    const payingCountRows = await this.dataSource.query(`
+      SELECT COUNT(*) AS cnt
+      FROM auth.tenants
+      WHERE status = 'ACTIVE' AND plan != 'TRIAL'
+    `);
+    const payingTenantCount = parseInt(payingCountRows[0]?.cnt || '0', 10);
+    const averageRevenuePerTenant = payingTenantCount > 0 ? Number((financialMetrics.mrr / payingTenantCount).toFixed(2)) : 0;
 
     return {
       totalRevenue: financialMetrics.totalRevenue,
@@ -978,7 +1008,9 @@ export class AnalyticsService {
   }
 
   /**
-   * Get revenue breakdown by plan
+   * Get revenue breakdown by plan.
+   * MEDIUM-004 fix: replaced extra tenantRepository.find() (full table scan + JS filter)
+   * with a targeted COUNT GROUP BY query.
    */
   async getRevenueByPlanAnalytics(): Promise<Array<{
     plan: string;
@@ -989,11 +1021,16 @@ export class AnalyticsService {
   }>> {
     const financialMetrics = await this.getFinancialMetrics();
 
-    // Get tenant counts by plan
-    const tenants = await this.tenantRepository.find();
-    const starterCount = tenants.filter(t => t.plan === TenantPlan.STARTER).length;
-    const professionalCount = tenants.filter(t => t.plan === TenantPlan.PROFESSIONAL).length;
-    const enterpriseCount = tenants.filter(t => t.plan === TenantPlan.ENTERPRISE).length;
+    // Single aggregation query for plan counts — no full table scan
+    const planCountRows: Array<{ plan: string; cnt: string }> = await this.dataSource.query(`
+      SELECT plan, COUNT(*) AS cnt
+      FROM auth.tenants
+      GROUP BY plan
+    `);
+    const planCountMap = new Map(planCountRows.map(r => [r.plan, parseInt(r.cnt, 10)]));
+    const starterCount      = planCountMap.get('STARTER')      || 0;
+    const professionalCount = planCountMap.get('PROFESSIONAL') || 0;
+    const enterpriseCount   = planCountMap.get('ENTERPRISE')   || 0;
 
     const starterRev = financialMetrics.byPlan['starter'] ?? 0;
     const professionalRev = financialMetrics.byPlan['professional'] ?? 0;

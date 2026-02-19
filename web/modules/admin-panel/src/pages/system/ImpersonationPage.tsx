@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Card, Button, Badge, Input, Alert, useAuthContext } from '@aquaculture/shared-ui';
 import {
   impersonationApi,
   tenantsApi,
@@ -46,8 +46,16 @@ const LoadingSkeleton: React.FC = () => (
 );
 
 export const ImpersonationPage: React.FC = () => {
+  const { user } = useAuthContext();
+  const currentAdminId = user?.id ?? '';
+
+  // Tenant list cache to avoid re-fetching 100 tenants on every page load (PERF-003)
+  const tenantCacheRef = useRef<{ data: SimpleTenant[]; fetchedAt: number } | null>(null);
+  const TENANT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
   // State
   const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<ImpersonationSession[]>([]);
   const [permissions, setPermissions] = useState<ImpersonationPermission[]>([]);
   const [tenants, setTenants] = useState<SimpleTenant[]>([]);
@@ -105,22 +113,43 @@ export const ImpersonationPage: React.FC = () => {
   // Fetch data
   const fetchData = useCallback(async () => {
     setLoading(true);
+    const now = Date.now();
+
+    // Use cached tenant list if still fresh (PERF-003)
+    const tenantsPromise: Promise<{ data: SimpleTenant[] }> =
+      tenantCacheRef.current && now - tenantCacheRef.current.fetchedAt < TENANT_CACHE_TTL
+        ? Promise.resolve({ data: tenantCacheRef.current.data })
+        : tenantsApi.search('', 100).then((res) => {
+            tenantCacheRef.current = { data: res.data, fetchedAt: Date.now() };
+            return res;
+          });
+
     try {
-      const [sessionsRes, permissionsRes, statsRes, tenantsRes] = await Promise.all([
+      const [sessionsRes, permissionsRes, statsRes, tenantsRes] = await Promise.allSettled([
         impersonationApi.getSessions(),
         impersonationApi.getPermissions(),
         impersonationApi.getImpersonationStats(),
-        tenantsApi.search('', 100),
+        tenantsPromise,
       ]);
 
-      setSessions(sessionsRes.data || []);
-      setPermissions(permissionsRes.data || []);
-      setStats(statsRes);
-      // Map full tenant objects to simplified version
-      setTenants(tenantsRes.map((t) => ({ id: t.id, name: t.name, slug: t.slug, status: t.status, tier: t.tier })));
+      const defaultStats: ImpersonationStats = {
+        activeSessions: 0,
+        totalSessions: 0,
+        activePermissions: 0,
+        topAdmins: [],
+        recentSessions: [],
+      };
+
+      setSessions(sessionsRes.status === 'fulfilled' ? (sessionsRes.value.data || []) : []);
+      setPermissions(permissionsRes.status === 'fulfilled' ? (permissionsRes.value.data || []) : []);
+      setStats(statsRes.status === 'fulfilled' ? statsRes.value : defaultStats);
+      setTenants(
+        tenantsRes.status === 'fulfilled'
+          ? tenantsRes.value.map((t) => ({ id: t.id, name: t.name, slug: t.slug, status: t.status, tier: t.tier }))
+          : []
+      );
     } catch (error) {
       console.error('Failed to fetch impersonation data:', error);
-      // Set empty state on error
       setSessions([]);
       setPermissions([]);
       setStats({
@@ -140,23 +169,22 @@ export const ImpersonationPage: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  // Computed values
-  const activeSessions = sessions.filter((s) => s.status === 'active');
-  const historySessions = sessions.filter((s) => s.status !== 'active');
-  const activePermissions = permissions.filter((p) => p.isActive);
-  const revokedPermissions = permissions.filter((p) => !p.isActive);
+  // Computed values — wrapped in useMemo to avoid recomputing on every render (PERF-002)
+  const activeSessions = useMemo(() => sessions.filter((s) => s.status === 'active'), [sessions]);
+  const historySessions = useMemo(() => sessions.filter((s) => s.status !== 'active'), [sessions]);
+  const activePermissions = useMemo(() => permissions.filter((p) => p.isActive), [permissions]);
+  const revokedPermissions = useMemo(() => permissions.filter((p) => !p.isActive), [permissions]);
 
-  // Filtered data
-  const filteredSessions = sessions.filter((session) => {
+  const filteredSessions = useMemo(() => sessions.filter((session) => {
     const matchesSearch =
       !searchQuery ||
       session.tenantName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       session.adminEmail.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || session.status === statusFilter;
     return matchesSearch && matchesStatus;
-  });
+  }), [sessions, searchQuery, statusFilter]);
 
-  const filteredPermissions = permissions.filter((permission) => {
+  const filteredPermissions = useMemo(() => permissions.filter((permission) => {
     const matchesSearch =
       !searchQuery ||
       permission.tenantName.toLowerCase().includes(searchQuery.toLowerCase());
@@ -164,14 +192,15 @@ export const ImpersonationPage: React.FC = () => {
       statusFilter === 'all' ||
       (statusFilter === 'active' ? permission.isActive : !permission.isActive);
     return matchesSearch && matchesStatus;
-  });
+  }), [permissions, searchQuery, statusFilter]);
 
   // Handlers
   const handleStartImpersonation = async () => {
+    setPageError(null);
     try {
       await impersonationApi.startSession({
         tenantId: startForm.tenantId,
-        adminId: 'current-admin', // Would come from auth context
+        adminId: currentAdminId,
         impersonatedUserId: startForm.impersonatedUserId || undefined,
         reason: startForm.reason,
       });
@@ -180,9 +209,7 @@ export const ImpersonationPage: React.FC = () => {
       fetchData();
     } catch (error) {
       console.error('Failed to start impersonation:', error);
-      // Simulate success for demo
-      setShowStartModal(false);
-      setStartForm({ tenantId: '', reason: '', impersonatedUserId: '' });
+      setPageError(error instanceof Error ? error.message : 'Failed to start impersonation session. Please try again.');
     }
   };
 
@@ -210,10 +237,11 @@ export const ImpersonationPage: React.FC = () => {
 
   const handleRevokeSession = async (sessionId: string, reason: string) => {
     try {
-      await impersonationApi.revokeSession(sessionId, 'current-admin', reason);
+      await impersonationApi.revokeSession(sessionId, currentAdminId, reason);
       fetchData();
     } catch (error) {
       console.error('Failed to revoke session:', error);
+      setPageError(error instanceof Error ? error.message : 'Failed to revoke session.');
     }
     setShowConfirmModal(false);
     setConfirmAction(null);
@@ -221,10 +249,11 @@ export const ImpersonationPage: React.FC = () => {
   };
 
   const handleGrantPermission = async () => {
+    setPageError(null);
     try {
       await impersonationApi.grantPermission({
         tenantId: permissionForm.tenantId,
-        grantedBy: 'current-admin',
+        grantedBy: currentAdminId,
         maxSessionDuration: permissionForm.maxSessionDuration,
         allowedActions: permissionForm.allowedActions,
         reason: permissionForm.reason,
@@ -241,16 +270,17 @@ export const ImpersonationPage: React.FC = () => {
       fetchData();
     } catch (error) {
       console.error('Failed to grant permission:', error);
-      setShowPermissionModal(false);
+      setPageError(error instanceof Error ? error.message : 'Failed to grant permission. Please try again.');
     }
   };
 
   const handleRevokePermission = async (permissionId: string, reason: string) => {
     try {
-      await impersonationApi.revokePermission(permissionId, 'current-admin', reason);
+      await impersonationApi.revokePermission(permissionId, currentAdminId, reason);
       fetchData();
     } catch (error) {
       console.error('Failed to revoke permission:', error);
+      setPageError(error instanceof Error ? error.message : 'Failed to revoke permission.');
     }
     setShowConfirmModal(false);
     setConfirmAction(null);
@@ -333,6 +363,13 @@ export const ImpersonationPage: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* Page-level error display */}
+      {pageError && (
+        <Alert type="error" onClose={() => setPageError(null)}>
+          {pageError}
+        </Alert>
+      )}
 
       {/* Active Session Banner */}
       {activeSessions.length > 0 && (
@@ -588,7 +625,15 @@ export const ImpersonationPage: React.FC = () => {
                     >
                       Extend
                     </Button>
-                    <Button variant="primary" size="sm">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => {
+                        // Open tenant portal in a new tab with the impersonation session's access token
+                        const tenantPortalUrl = `/tenant?impersonation_session=${session.id}`;
+                        window.open(tenantPortalUrl, '_blank', 'noopener,noreferrer');
+                      }}
+                    >
                       Open Tenant Portal
                     </Button>
                     <Button
@@ -801,62 +846,37 @@ export const ImpersonationPage: React.FC = () => {
       {activeTab === 'audit' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Sessions by Reason</h3>
-            <div className="space-y-3">
-              {[
-                { reason: 'Support Request', count: 45, percentage: 47 },
-                { reason: 'Debugging', count: 23, percentage: 24 },
-                { reason: 'Configuration', count: 12, percentage: 13 },
-                { reason: 'Onboarding Assistance', count: 8, percentage: 8 },
-                { reason: 'Security Investigation', count: 5, percentage: 5 },
-                { reason: 'Data Verification', count: 3, percentage: 3 },
-              ].map((item) => (
-                <div key={item.reason}>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-600">{item.reason}</span>
-                    <span className="font-medium">{item.count}</span>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-blue-500 rounded-full"
-                      style={{ width: `${item.percentage}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <Card className="p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Impersonating Admins</h3>
-            <div className="space-y-4">
-              {stats.topAdmins.map((admin, index) => (
-                <div key={admin.adminId} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                      index === 0 ? 'bg-yellow-100 text-yellow-700' :
-                      index === 1 ? 'bg-gray-200 text-gray-700' :
-                      index === 2 ? 'bg-orange-100 text-orange-700' :
-                      'bg-gray-100 text-gray-600'
-                    }`}>
-                      {index + 1}
+            {stats.topAdmins.length === 0 ? (
+              <p className="text-sm text-gray-500">No admin activity data available.</p>
+            ) : (
+              <div className="space-y-4">
+                {stats.topAdmins.map((admin, index) => (
+                  <div key={admin.adminId} className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                        index === 0 ? 'bg-yellow-100 text-yellow-700' :
+                        index === 1 ? 'bg-gray-200 text-gray-700' :
+                        index === 2 ? 'bg-orange-100 text-orange-700' :
+                        'bg-gray-100 text-gray-600'
+                      }`}>
+                        {index + 1}
+                      </div>
+                      <span className="text-gray-900">{admin.email}</span>
                     </div>
-                    <span className="text-gray-900">{admin.email}</span>
+                    <span className="font-medium text-gray-600">{admin.sessionCount} sessions</span>
                   </div>
-                  <span className="font-medium text-gray-600">{admin.sessionCount} sessions</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </Card>
 
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Session Status Distribution</h3>
             <div className="grid grid-cols-2 gap-4">
               {[
-                { status: 'Completed', count: 78, color: 'bg-green-500' },
-                { status: 'Expired', count: 12, color: 'bg-yellow-500' },
-                { status: 'Revoked', count: 5, color: 'bg-red-500' },
                 { status: 'Active', count: stats.activeSessions, color: 'bg-blue-500' },
+                { status: 'Total (30d)', count: stats.totalSessions, color: 'bg-green-500' },
               ].map((item) => (
                 <div key={item.status} className="flex items-center gap-3">
                   <div className={`w-3 h-3 rounded-full ${item.color}`} />
@@ -867,21 +887,26 @@ export const ImpersonationPage: React.FC = () => {
                 </div>
               ))}
             </div>
+            <p className="text-xs text-gray-400 mt-4">Detailed breakdown available via audit log export.</p>
           </Card>
 
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
-            <div className="space-y-3">
-              {stats.recentSessions.slice(0, 5).map((session) => (
-                <div key={session.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                  <div>
-                    <div className="font-medium text-gray-900">{session.tenantName}</div>
-                    <div className="text-sm text-gray-500">{session.adminEmail}</div>
+            {stats.recentSessions.length === 0 ? (
+              <p className="text-sm text-gray-500">No recent session activity.</p>
+            ) : (
+              <div className="space-y-3">
+                {stats.recentSessions.slice(0, 5).map((session) => (
+                  <div key={session.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                    <div>
+                      <div className="font-medium text-gray-900">{session.tenantName}</div>
+                      <div className="text-sm text-gray-500">{session.adminEmail}</div>
+                    </div>
+                    <Badge variant={getStatusBadge(session.status)}>{session.status}</Badge>
                   </div>
-                  <Badge variant={getStatusBadge(session.status)}>{session.status}</Badge>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </Card>
         </div>
       )}
@@ -1134,9 +1159,18 @@ export const ImpersonationPage: React.FC = () => {
                             {action.entityType}: {action.entityId}
                           </div>
                         )}
-                        {action.details && (
+                        {action.details && typeof action.details === 'object' && (
                           <pre className="text-xs text-gray-500 mt-2 bg-gray-100 p-2 rounded overflow-x-auto">
-                            {JSON.stringify(action.details, null, 2)}
+                            {JSON.stringify(
+                              // Whitelist only primitive-valued keys to prevent leaking nested objects (SEC-008)
+                              Object.fromEntries(
+                                Object.entries(action.details).filter(([, v]) =>
+                                  v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
+                                )
+                              ),
+                              null,
+                              2
+                            )}
                           </pre>
                         )}
                       </div>
@@ -1204,6 +1238,7 @@ export const ImpersonationPage: React.FC = () => {
               <div className="flex justify-end gap-3">
                 <Button
                   variant="secondary"
+                  autoFocus={confirmAction.type !== 'extend'}
                   onClick={() => {
                     setShowConfirmModal(false);
                     setConfirmAction(null);
@@ -1214,6 +1249,7 @@ export const ImpersonationPage: React.FC = () => {
                 </Button>
                 <Button
                   variant={confirmAction.type === 'extend' ? 'primary' : 'danger'}
+                  autoFocus={confirmAction.type === 'extend'}
                   onClick={() => {
                     if (confirmAction.type === 'end') {
                       handleEndSession(confirmAction.id);

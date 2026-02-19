@@ -1,206 +1,352 @@
 /**
  * Attendance Page
  *
- * Devam takibi sayfası.
+ * CRIT-4 / BUG-003: connected to real API. Mock data removed.
+ * All local type aliases replaced with canonical HR module types.
  */
 
 import React, { useState } from 'react';
-import { Clock, Calendar, Search, Filter, CheckCircle, XCircle, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface AttendanceRecord {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  date: string;
-  checkIn: string | null;
-  checkOut: string | null;
-  status: 'present' | 'absent' | 'late' | 'leave';
-  workHours: number;
-}
-
-// ============================================================================
-// Mock Data
-// ============================================================================
-
-const mockAttendance: AttendanceRecord[] = [
-  { id: '1', employeeId: '1', employeeName: 'Ahmet Yılmaz', date: '2024-01-15', checkIn: '08:30', checkOut: '17:30', status: 'present', workHours: 9 },
-  { id: '2', employeeId: '2', employeeName: 'Ayşe Kaya', date: '2024-01-15', checkIn: '08:45', checkOut: '17:30', status: 'present', workHours: 8.75 },
-  { id: '3', employeeId: '3', employeeName: 'Mehmet Demir', date: '2024-01-15', checkIn: null, checkOut: null, status: 'leave', workHours: 0 },
-  { id: '4', employeeId: '4', employeeName: 'Fatma Şahin', date: '2024-01-15', checkIn: '09:15', checkOut: '17:30', status: 'late', workHours: 8.25 },
-  { id: '5', employeeId: '5', employeeName: 'Ali Öztürk', date: '2024-01-15', checkIn: null, checkOut: null, status: 'absent', workHours: 0 },
-];
-
-// ============================================================================
-// Components
-// ============================================================================
-
-const StatusBadge: React.FC<{ status: AttendanceRecord['status'] }> = ({ status }) => {
-  const config = {
-    present: { label: 'Mevcut', icon: CheckCircle, className: 'bg-green-100 text-green-800' },
-    absent: { label: 'Yok', icon: XCircle, className: 'bg-red-100 text-red-800' },
-    late: { label: 'Geç', icon: AlertCircle, className: 'bg-yellow-100 text-yellow-800' },
-    leave: { label: 'İzinli', icon: Calendar, className: 'bg-blue-100 text-blue-800' },
-  };
-
-  const { label, icon: Icon, className } = config[status];
-
-  return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${className}`}>
-      <Icon className="w-3 h-3" />
-      {label}
-    </span>
-  );
-};
+import { Link } from 'react-router-dom';
+import { Clock, Calendar, Users, CheckCircle, Filter, Download, Search } from 'lucide-react';
+import { cn } from '@aquaculture/shared-ui';
+import {
+  useAttendanceRecords,
+  useDailyAttendanceOverview,
+  useCurrentEmployeeId,
+} from '../hooks';
+import { TimeClockWidget } from '../components/attendance/TimeClockWidget';
+import { DataTable, StatusBadge } from '../components/common';
+import type { Column } from '../components/common';
+import type { AttendanceRecord, AttendanceFilterInput, PaginationInput } from '../types';
+import { ATTENDANCE_STATUS_CONFIG } from '../types';
 
 // ============================================================================
 // Attendance Page
 // ============================================================================
 
-const AttendancePage: React.FC = () => {
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [searchTerm, setSearchTerm] = useState('');
+export function AttendancePage() {
+  const employeeId = useCurrentEmployeeId();
+  const today = new Date().toISOString().split('T')[0]!;
 
-  const stats = {
-    present: mockAttendance.filter((a) => a.status === 'present').length,
-    absent: mockAttendance.filter((a) => a.status === 'absent').length,
-    late: mockAttendance.filter((a) => a.status === 'late').length,
-    leave: mockAttendance.filter((a) => a.status === 'leave').length,
+  const [activeTab, setActiveTab] = useState<'overview' | 'records'>('overview');
+  const [filter, setFilter] = useState<AttendanceFilterInput>({});
+  const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, offset: 0 });
+  const [showFilters, setShowFilters] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const { data: overview, isLoading: loadingOverview } = useDailyAttendanceOverview(today);
+  const { data: records, isLoading: loadingRecords } = useAttendanceRecords(
+    { ...filter },
+    pagination
+  );
+
+  const handleFilterChange = (key: keyof AttendanceFilterInput, value: string | undefined) => {
+    setFilter((prev) => ({ ...prev, [key]: value || undefined }));
+    setPagination({ ...pagination, offset: 0 });
   };
 
+  const handlePageChange = (page: number) => {
+    setPagination({ ...pagination, offset: (page - 1) * (pagination.limit || 20) });
+  };
+
+  const columns: Column<AttendanceRecord>[] = [
+    {
+      key: 'employee',
+      header: 'Employee',
+      sortable: true,
+      accessor: (row) => (
+        <span className="font-medium text-gray-900 dark:text-white">
+          {row.employeeId}
+        </span>
+      ),
+    },
+    {
+      key: 'date',
+      header: 'Date',
+      sortable: true,
+      accessor: (row) => (
+        <span className="text-gray-700 dark:text-gray-300">
+          {new Date(row.date).toLocaleDateString()}
+        </span>
+      ),
+    },
+    {
+      key: 'clockIn',
+      header: 'Clock In',
+      accessor: (row) => (
+        <span className="text-gray-700 dark:text-gray-300">
+          {row.clockInTime ? new Date(row.clockInTime).toLocaleTimeString() : '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'clockOut',
+      header: 'Clock Out',
+      accessor: (row) => (
+        <span className="text-gray-700 dark:text-gray-300">
+          {row.clockOutTime ? new Date(row.clockOutTime).toLocaleTimeString() : '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'workedTime',
+      header: 'Worked',
+      accessor: (row) => (
+        <span className="text-gray-700 dark:text-gray-300">
+          {row.workedMinutes > 0
+            ? `${Math.floor(row.workedMinutes / 60)}h ${row.workedMinutes % 60}m`
+            : '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortable: true,
+      accessor: (row) => {
+        const config = ATTENDANCE_STATUS_CONFIG[row.status];
+        return config ? (
+          <StatusBadge label={config.label} variant={config.variant} size="sm" />
+        ) : (
+          <span className="text-gray-400">{row.status}</span>
+        );
+      },
+    },
+  ];
+
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Devam Takibi</h1>
-          <p className="text-gray-500 mt-1">Personel giriş-çıkış kayıtları</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Attendance</h1>
+          <p className="mt-1 text-gray-500 dark:text-gray-400">
+            Track employee time and attendance
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button className="p-2 hover:bg-gray-100 rounded-lg">
-            <ChevronLeft className="w-5 h-5 text-gray-600" />
-          </button>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+        <Link
+          to="/hr/scheduling"
+          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+        >
+          <Calendar className="h-4 w-4" />
+          Schedule
+        </Link>
+      </div>
+
+      {/* Overview Cards */}
+      {activeTab === 'overview' && (
+        <>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Present Today</p>
+                  {loadingOverview ? (
+                    <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200" />
+                  ) : (
+                    <p className="mt-1 text-2xl font-bold text-green-600">
+                      {overview?.presentCount ?? '-'}
+                    </p>
+                  )}
+                </div>
+                <div className="rounded-lg bg-green-50 p-3 dark:bg-green-900/30">
+                  <CheckCircle className="h-6 w-6 text-green-600" />
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Absent Today</p>
+                  {loadingOverview ? (
+                    <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200" />
+                  ) : (
+                    <p className="mt-1 text-2xl font-bold text-red-600">
+                      {overview?.absentCount ?? '-'}
+                    </p>
+                  )}
+                </div>
+                <div className="rounded-lg bg-red-50 p-3 dark:bg-red-900/30">
+                  <Users className="h-6 w-6 text-red-600" />
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">On Leave</p>
+                  {loadingOverview ? (
+                    <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200" />
+                  ) : (
+                    <p className="mt-1 text-2xl font-bold text-amber-600">
+                      {overview?.onLeaveCount ?? '-'}
+                    </p>
+                  )}
+                </div>
+                <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/30">
+                  <Calendar className="h-6 w-6 text-amber-600" />
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Avg Hours Today</p>
+                  {loadingOverview ? (
+                    <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200" />
+                  ) : (
+                    <p className="mt-1 text-2xl font-bold text-indigo-600">
+                      {overview?.averageWorkedHours?.toFixed(1) ?? '-'}
+                      <span className="text-sm font-normal text-gray-500">h</span>
+                    </p>
+                  )}
+                </div>
+                <div className="rounded-lg bg-indigo-50 p-3 dark:bg-indigo-900/30">
+                  <Clock className="h-6 w-6 text-indigo-600" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Time Clock Widget */}
+          {employeeId && (
+            <div className="max-w-sm">
+              <TimeClockWidget employeeId={employeeId} />
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Tab Navigation */}
+      <div className="flex gap-4 border-b border-gray-200 dark:border-gray-700">
+        <button
+          onClick={() => setActiveTab('overview')}
+          className={cn(
+            'border-b-2 pb-3 text-sm font-medium transition-colors',
+            activeTab === 'overview'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+          )}
+        >
+          Today's Overview
+        </button>
+        <button
+          onClick={() => setActiveTab('records')}
+          className={cn(
+            'border-b-2 pb-3 text-sm font-medium transition-colors',
+            activeTab === 'records'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+          )}
+        >
+          Attendance Records
+        </button>
+      </div>
+
+      {/* Records Tab */}
+      {activeTab === 'records' && (
+        <>
+          {/* Search & Filters */}
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search employees..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={cn(
+                  'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ring-1',
+                  showFilters
+                    ? 'bg-indigo-50 text-indigo-600 ring-indigo-200'
+                    : 'bg-white text-gray-700 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-600'
+                )}
+              >
+                <Filter className="h-4 w-4" />
+                Filters
+              </button>
+              <button className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-600">
+                <Download className="h-4 w-4" />
+                Export
+              </button>
+            </div>
+          </div>
+
+          {/* Filter Panel */}
+          {showFilters && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    value={filter.startDate || ''}
+                    onChange={(e) => handleFilterChange('startDate', e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    value={filter.endDate || ''}
+                    onChange={(e) => handleFilterChange('endDate', e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Status
+                  </label>
+                  <select
+                    value={filter.status || ''}
+                    onChange={(e) => handleFilterChange('status', e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">All</option>
+                    <option value="present">Present</option>
+                    <option value="absent">Absent</option>
+                    <option value="late">Late</option>
+                    <option value="on_leave">On Leave</option>
+                  </select>
+                </div>
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={() => setFilter({})}
+                  className="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
+                >
+                  Clear all filters
+                </button>
+              </div>
+            </div>
+          )}
+
+          <DataTable
+            data={records?.items || []}
+            columns={columns}
+            keyExtractor={(row) => row.id}
+            isLoading={loadingRecords}
+            emptyMessage="No attendance records found"
+            total={records?.total}
+            page={Math.floor((pagination.offset || 0) / (pagination.limit || 20)) + 1}
+            pageSize={pagination.limit || 20}
+            onPageChange={handlePageChange}
           />
-          <button className="p-2 hover:bg-gray-100 rounded-lg">
-            <ChevronRight className="w-5 h-5 text-gray-600" />
-          </button>
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <CheckCircle className="w-5 h-5 text-green-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.present}</p>
-              <p className="text-sm text-gray-500">Mevcut</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-red-100 rounded-lg">
-              <XCircle className="w-5 h-5 text-red-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.absent}</p>
-              <p className="text-sm text-gray-500">Yok</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-yellow-100 rounded-lg">
-              <AlertCircle className="w-5 h-5 text-yellow-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.late}</p>
-              <p className="text-sm text-gray-500">Geç Kalan</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <Calendar className="w-5 h-5 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.leave}</p>
-              <p className="text-sm text-gray-500">İzinli</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Search */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Personel ara..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-          />
-        </div>
-      </div>
-
-      {/* Attendance Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50 border-b border-gray-100">
-            <tr>
-              <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Personel</th>
-              <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Giriş</th>
-              <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Çıkış</th>
-              <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Çalışma Saati</th>
-              <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Durum</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {mockAttendance.map((record) => (
-              <tr key={record.id} className="hover:bg-gray-50 transition-colors">
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center">
-                      <span className="text-violet-600 font-medium">
-                        {record.employeeName.split(' ').map((n) => n[0]).join('')}
-                      </span>
-                    </div>
-                    <span className="font-medium text-gray-900">{record.employeeName}</span>
-                  </div>
-                </td>
-                <td className="px-6 py-4">
-                  <span className="text-gray-900">{record.checkIn || '-'}</span>
-                </td>
-                <td className="px-6 py-4">
-                  <span className="text-gray-900">{record.checkOut || '-'}</span>
-                </td>
-                <td className="px-6 py-4">
-                  <span className="text-gray-900">{record.workHours > 0 ? `${record.workHours} saat` : '-'}</span>
-                </td>
-                <td className="px-6 py-4">
-                  <StatusBadge status={record.status} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+        </>
+      )}
     </div>
   );
-};
+}
 
 export default AttendancePage;

@@ -14,6 +14,7 @@ export enum NotificationStatus {
   SENT = 'sent',
   FAILED = 'failed',
   RETRYING = 'retrying',
+  BOUNCED = 'bounced',
 }
 
 /**
@@ -32,50 +33,50 @@ export enum NotificationChannel {
  */
 @Entity('notification_logs')
 @Index(['tenantId', 'sentAt'])
-@Index(['status'])
 @Index(['channel', 'status'])
 export class NotificationLog {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column()
-  @Index()
+  @Column({ name: 'tenant_id' })
   tenantId!: string;
 
-  @Column({ type: 'enum', enum: NotificationChannel })
+  @Column({ name: 'channel', type: 'enum', enum: NotificationChannel })
   channel!: NotificationChannel;
 
-  @Column()
+  @Column({ name: 'recipient' })
   recipient!: string;
 
-  @Column()
+  @Column({ name: 'subject' })
   subject!: string;
 
-  @Column('text')
+  @Column({ name: 'content', type: 'text' })
   content!: string;
 
-  @Column({ type: 'enum', enum: NotificationStatus, default: NotificationStatus.PENDING })
-  @Index()
+  @Column({ name: 'status', type: 'enum', enum: NotificationStatus, default: NotificationStatus.PENDING })
   status!: NotificationStatus;
 
-  @Column({ nullable: true })
+  @Column({ name: 'external_id', nullable: true })
   externalId?: string; // ID from email/SMS provider
 
-  @Column('jsonb', { nullable: true })
+  @Column({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>; // Alert context, user preferences, etc.
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ name: 'error_message', type: 'text', nullable: true })
   errorMessage?: string;
 
-  @Column({ type: 'int', default: 0 })
+  @Column({ name: 'retry_count', type: 'int', default: 0 })
   retryCount!: number;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ name: 'next_retry_at', type: 'timestamptz', nullable: true })
+  nextRetryAt?: Date;
+
+  @Column({ name: 'sent_at', type: 'timestamptz', nullable: true })
   sentAt?: Date;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ name: 'delivered_at', type: 'timestamptz', nullable: true })
   deliveredAt?: Date;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 }

@@ -149,14 +149,15 @@ export class BillingController {
     @Query('isActive') isActive?: string,
     @Query('campaignId') campaignId?: string,
     @Query('includeExpired') includeExpired?: string,
-    @Query() pagination?: PaginationQueryDto,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     return this.discountService.findAll({
       isActive: isActive !== undefined ? isActive === 'true' : undefined,
       campaignId,
       includeExpired: includeExpired === 'true',
-      page: pagination?.page,
-      limit: pagination?.limit,
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
     });
   }
 

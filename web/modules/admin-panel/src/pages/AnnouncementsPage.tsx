@@ -30,6 +30,7 @@ import {
   RefreshCw,
   Loader2,
 } from 'lucide-react';
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 import {
   supportApi,
   type Announcement,
@@ -89,8 +90,9 @@ export const AnnouncementsPage: React.FC = () => {
     try {
       // Note: stats endpoint may not exist in supportApi, keeping direct fetch as fallback
       const response = await fetch('/api/support/announcements/stats', {
+        credentials: 'include',
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${getAccessToken()}`,
         },
       });
       if (response.ok) {
@@ -245,11 +247,11 @@ export const AnnouncementsPage: React.FC = () => {
             </div>
             <div className="bg-purple-50 rounded-lg p-3">
               <div className="text-sm text-purple-600">Total Views</div>
-              <div className="text-xl font-semibold text-purple-700">{stats.totalViews.toLocaleString()}</div>
+              <div className="text-xl font-semibold text-purple-700">{(stats.totalViews ?? 0).toLocaleString()}</div>
             </div>
             <div className="bg-indigo-50 rounded-lg p-3">
               <div className="text-sm text-indigo-600">Acknowledged</div>
-              <div className="text-xl font-semibold text-indigo-700">{stats.totalAcknowledgments.toLocaleString()}</div>
+              <div className="text-xl font-semibold text-indigo-700">{(stats.totalAcknowledgments ?? 0).toLocaleString()}</div>
             </div>
           </div>
         )}
@@ -698,7 +700,12 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
   useEffect(() => {
     const fetchAcknowledgments = async () => {
       try {
-        const response = await fetch(`/api/support/announcements/${announcement.id}/acknowledgments`);
+        const response = await fetch(`/api/support/announcements/${announcement.id}/acknowledgments`, {
+          credentials: 'include',
+          headers: {
+            Authorization: `Bearer ${getAccessToken()}`,
+          },
+        });
         if (response.ok) {
           const data = await response.json();
           setAcknowledgments(data.acknowledgments || []);

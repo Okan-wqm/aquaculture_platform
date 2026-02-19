@@ -26,19 +26,19 @@ export class GetTankCapacityHandler implements IQueryHandler<GetTankCapacityQuer
   async execute(query: GetTankCapacityQuery): Promise<TankCapacityResult> {
     const { tenantId, tankId } = query;
 
-    // Tank'ı bul
-    const tank = await this.tankRepository.findOne({
-      where: { id: tankId, tenantId, isActive: true },
-    });
+    // Tank ve TankBatch'ı paralel olarak al
+    const [tank, tankBatch] = await Promise.all([
+      this.tankRepository.findOne({
+        where: { id: tankId, tenantId, isActive: true },
+      }),
+      this.tankBatchRepository.findOne({
+        where: { tenantId, tankId },
+      }),
+    ]);
 
     if (!tank) {
       throw new NotFoundException(`Tank ${tankId} bulunamadı`);
     }
-
-    // TankBatch kaydını bul
-    const tankBatch = await this.tankBatchRepository.findOne({
-      where: { tenantId, tankId },
-    });
 
     // Mevcut değerler
     const currentQuantity = tankBatch?.currentQuantity ?? tankBatch?.totalQuantity ?? 0;

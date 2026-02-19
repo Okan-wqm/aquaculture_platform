@@ -36,6 +36,8 @@ export interface ImpactAnalysisContext {
   farmId?: string;
   sensorId?: string;
   currentValue: number;
+  /** The rule threshold value used to compute relative deviation */
+  thresholdValue?: number;
   affectedAssets?: string[];
   affectedProcesses?: string[];
 }
@@ -121,15 +123,19 @@ export class ImpactAnalyzerService {
   ) {}
 
   /**
-   * Analyze impact for an alert context
+   * Analyze impact for an alert context.
+   * PE-09: Accept an optional pre-fetched rule to avoid a duplicate DB round-trip
+   * when called from RiskCalculatorService which already holds the rule.
    */
-  async analyzeImpact(context: ImpactAnalysisContext): Promise<ImpactAnalysisResult> {
+  async analyzeImpact(context: ImpactAnalysisContext, prefetchedRule?: AlertRule | null): Promise<ImpactAnalysisResult> {
     this.logger.debug(`Analyzing impact for rule ${context.ruleId}`);
 
-    // Get rule for context
-    const rule = await this.alertRuleRepository.findOne({
-      where: { id: context.ruleId, tenantId: context.tenantId },
-    });
+    // Use the pre-fetched rule when available to avoid a redundant DB query.
+    const rule = prefetchedRule !== undefined
+      ? prefetchedRule
+      : await this.alertRuleRepository.findOne({
+          where: { id: context.ruleId, tenantId: context.tenantId },
+        });
 
     const severity = rule?.severity || AlertSeverity.MEDIUM;
     const severityWeight = SEVERITY_IMPACT_WEIGHTS[severity];
@@ -255,10 +261,15 @@ export class ImpactAnalyzerService {
       }
     }
 
-    // Value deviation impact
-    if (context.currentValue > 100) {
-      score += 10;
-      factors.push('Significant value deviation detected');
+    // Value deviation impact — use thresholdValue for relative comparison when available.
+    // The previous hardcoded threshold of 100 was sensor-type-agnostic and meaningless
+    // (e.g. dissolved oxygen of 5 mg/L is critical, yet 5 > 100 = false).
+    if (context.thresholdValue !== undefined && context.thresholdValue !== 0) {
+      const deviationRatio = Math.abs(context.currentValue - context.thresholdValue) / Math.abs(context.thresholdValue);
+      if (deviationRatio > 0.5) {
+        score += 10;
+        factors.push(`Value deviates ${Math.round(deviationRatio * 100)}% from threshold`);
+      }
     }
 
     score = Math.min(100, Math.max(0, score));

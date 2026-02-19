@@ -59,17 +59,26 @@ const BAR_HEIGHT = 12;
 const SensorWidget: React.FC<NodeProps<SensorWidgetData>> = ({ data, selected }) => {
   const [value, setValue] = useState<number>(Number(data.value) || 0);
   const etagRef = useRef<string>('');
+  // BUG-014: unique gradient ID per widget instance to prevent shared-ID color bleed
+  const gradientId = useRef<string>(
+    `barGradient-${(data.widgetName || '').replace(/\s/g, '-') || Math.random().toString(36).slice(2)}`
+  );
 
   /* ---------- MQTT Push Mode ----------------------- */
   useEffect(() => {
     if (data.mode !== 'push' || !data.mqttUrl || !data.mqttTopic) return;
 
     let client: MqttClient | null = null;
+    // BUG-006: cancelled flag prevents connecting after cleanup runs
+    let cancelled = false;
 
     // Dynamic import mqtt to avoid build issues if not installed
     const connectMqtt = async (): Promise<void> => {
       try {
         const mqtt = await import('mqtt');
+        // If cleanup already ran before the dynamic import resolved, bail out
+        if (cancelled) return;
+
         client = mqtt.connect(data.mqttUrl!, {
           protocol: 'ws',
           reconnectPeriod: 2000,
@@ -80,6 +89,7 @@ const SensorWidget: React.FC<NodeProps<SensorWidgetData>> = ({ data, selected })
         });
 
         client.on('message', (_topic: unknown, msg: unknown) => {
+          if (cancelled) return;
           const message = msg as Buffer;
           const num = parseFloat(message.toString());
           setValue(isNaN(num) ? 0 : num);
@@ -92,6 +102,7 @@ const SensorWidget: React.FC<NodeProps<SensorWidgetData>> = ({ data, selected })
     connectMqtt();
 
     return () => {
+      cancelled = true;
       if (client) {
         client.end();
       }
@@ -101,6 +112,14 @@ const SensorWidget: React.FC<NodeProps<SensorWidgetData>> = ({ data, selected })
   /* ---------- HTTP Poll Mode ----------------------- */
   useEffect(() => {
     if (data.mode !== 'poll' || !data.httpUrl) return;
+
+    // SEC-006: validate URL is https before fetching (SSRF mitigation)
+    try {
+      const parsed = new URL(data.httpUrl);
+      if (parsed.protocol !== 'https:') return;
+    } catch {
+      return;
+    }
 
     let cancelled = false;
 
@@ -128,6 +147,14 @@ const SensorWidget: React.FC<NodeProps<SensorWidgetData>> = ({ data, selected })
   /* ---------- HTTP onChange Mode ------------------- */
   useEffect(() => {
     if (data.mode !== 'onChange' || !data.httpUrl) return;
+
+    // SEC-006: validate URL is https before fetching (SSRF mitigation)
+    try {
+      const parsed = new URL(data.httpUrl);
+      if (parsed.protocol !== 'https:') return;
+    } catch {
+      return;
+    }
 
     let cancelled = false;
 
@@ -201,9 +228,9 @@ const SensorWidget: React.FC<NodeProps<SensorWidgetData>> = ({ data, selected })
         preserveAspectRatio="xMidYMid meet"
         style={{ display: 'block' }}
       >
-        {/* Background gradient */}
+        {/* Background gradient — unique ID per widget instance (BUG-014) */}
         <defs>
-          <linearGradient id="barGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+          <linearGradient id={gradientId.current} x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor={fillColor} stopOpacity={0.8} />
             <stop offset="100%" stopColor={fillColor} stopOpacity={1} />
           </linearGradient>
@@ -270,7 +297,7 @@ const SensorWidget: React.FC<NodeProps<SensorWidgetData>> = ({ data, selected })
           width={fillWidth}
           height={BAR_HEIGHT}
           rx={4}
-          fill="url(#barGradient)"
+          fill={`url(#${gradientId.current})`}
         />
 
         {/* Low threshold marker */}

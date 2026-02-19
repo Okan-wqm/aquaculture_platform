@@ -88,7 +88,7 @@ export class CreateProgramInput {
 
   @IsOptional()
   @IsString()
-  @MaxLength(1000000)
+  @MaxLength(524288) // 512 KB hard limit to prevent MQTT/device memory exhaustion
   @Field({ nullable: true })
   structuredTextCode?: string;
 
@@ -173,7 +173,7 @@ export class UpdateProgramInput {
 
   @IsOptional()
   @IsString()
-  @MaxLength(1000000)
+  @MaxLength(524288) // 512 KB hard limit to prevent MQTT/device memory exhaustion
   @Field({ nullable: true })
   structuredTextCode?: string;
 
@@ -445,7 +445,7 @@ export class CreateActionInput {
   actionType?: ActionType;
 
   @IsString()
-  @MaxLength(100000)
+  @MaxLength(4096) // Action code limit to prevent MQTT payload exhaustion on edge devices
   @Field({ description: 'IEC 61131-3 Structured Text code' })
   actionCode!: string;
 
@@ -508,7 +508,7 @@ export class UpdateActionInput {
 
   @IsOptional()
   @IsString()
-  @MaxLength(100000)
+  @MaxLength(4096) // Action code limit to prevent MQTT payload exhaustion on edge devices
   @Field({ nullable: true })
   actionCode?: string;
 
@@ -598,7 +598,7 @@ export class CreateTransitionInput {
   conditionType?: ConditionType;
 
   @IsString()
-  @MaxLength(10000)
+  @MaxLength(512) // Sensor reference expressions must be compact; prevent MQTT payload bloat
   @Field({ description: 'IEC 61131-3 ST expression' })
   conditionExpression!: string;
 
@@ -651,7 +651,7 @@ export class UpdateTransitionInput {
 
   @IsOptional()
   @IsString()
-  @MaxLength(10000)
+  @MaxLength(512) // Sensor reference expressions must be compact; prevent MQTT payload bloat
   @Field({ nullable: true })
   conditionExpression?: string;
 

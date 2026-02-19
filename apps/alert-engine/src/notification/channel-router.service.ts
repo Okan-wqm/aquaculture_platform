@@ -403,7 +403,8 @@ export class ChannelRouterService {
   }
 
   /**
-   * Apply rate limits
+   * Apply rate limits — only filters channels by current counts, does NOT
+   * increment. Call `recordDelivery` after a successful send to increment.
    */
   private applyRateLimits(
     userId: string,
@@ -417,6 +418,7 @@ export class ChannelRouterService {
     // Initialize counter if not exists
     if (!counter) {
       counter = { hourly: 0, daily: 0, hourlyResetAt: now, dailyResetAt: now };
+      this.rateLimitCounters.set(key, counter);
     }
 
     // Reset hourly counter if 1 hour has passed
@@ -445,13 +447,26 @@ export class ChannelRouterService {
         return false;
       }
 
-      // Increment counters
-      counter!.hourly++;
-      counter!.daily++;
-      this.rateLimitCounters.set(key, counter!);
-
       return true;
     });
+  }
+
+  /**
+   * Record a successful delivery for rate-limit accounting.
+   * Must be called after each notification is successfully delivered —
+   * NOT before the send attempt — so that failed sends do not consume quota.
+   */
+  recordDelivery(userId: string): void {
+    const now = new Date();
+    let counter = this.rateLimitCounters.get(userId);
+
+    if (!counter) {
+      counter = { hourly: 0, daily: 0, hourlyResetAt: now, dailyResetAt: now };
+    }
+
+    counter.hourly++;
+    counter.daily++;
+    this.rateLimitCounters.set(userId, counter);
   }
 
   /**
@@ -469,18 +484,38 @@ export class ChannelRouterService {
   }
 
   /**
-   * Check if currently in quiet hours
+   * Check if currently in quiet hours, respecting the user's timezone.
+   * Uses the IANA timezone string stored in quietHours.timezone.
    */
   private isInQuietHours(quietHours: { start: string; end: string; timezone: string }): boolean {
-    const now = new Date();
-    const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    try {
+      // Resolve current time in the user's local timezone using the built-in Intl API.
+      const formatter = new Intl.DateTimeFormat('en-GB', {
+        timeZone: quietHours.timezone,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+      const currentTime = formatter.format(new Date()); // "HH:mm"
 
-    // Simple comparison - doesn't handle timezone properly in this implementation
-    if (quietHours.start < quietHours.end) {
-      return currentTime >= quietHours.start && currentTime <= quietHours.end;
-    } else {
-      // Quiet hours span midnight
-      return currentTime >= quietHours.start || currentTime <= quietHours.end;
+      if (quietHours.start < quietHours.end) {
+        return currentTime >= quietHours.start && currentTime <= quietHours.end;
+      } else {
+        // Quiet hours span midnight (e.g. 22:00–06:00)
+        return currentTime >= quietHours.start || currentTime <= quietHours.end;
+      }
+    } catch {
+      // If the timezone string is invalid, fall back to server-local time
+      this.logger.warn(
+        `Invalid timezone "${quietHours.timezone}" in quiet hours config — falling back to server local time`,
+      );
+      const now = new Date();
+      const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+      if (quietHours.start < quietHours.end) {
+        return currentTime >= quietHours.start && currentTime <= quietHours.end;
+      } else {
+        return currentTime >= quietHours.start || currentTime <= quietHours.end;
+      }
     }
   }
 

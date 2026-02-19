@@ -57,25 +57,8 @@ export class RedisRateLimitStore implements RateLimitStore {
   async increment(key: string): Promise<number> {
     try {
       const prefixedKey = this.keyPrefix + key;
-      const data = await this.redisService.get(prefixedKey);
-
-      if (!data) {
-        return 1;
-      }
-
-      const entry = JSON.parse(data) as RateLimitEntry;
-      entry.count++;
-
-      // Calculate remaining TTL
-      const remainingMs = entry.resetTime - Date.now();
-      if (remainingMs <= 0) {
-        return 1;
-      }
-
-      const ttlSeconds = Math.ceil(remainingMs / 1000);
-      await this.redisService.set(prefixedKey, JSON.stringify(entry), ttlSeconds);
-
-      return entry.count;
+      const count = await this.redisService.incr(prefixedKey);
+      return count;
     } catch (error) {
       this.logger.error(`Failed to increment rate limit: ${error}`);
       return 1;
@@ -84,7 +67,9 @@ export class RedisRateLimitStore implements RateLimitStore {
 
   /**
    * Atomic increment-or-create operation
-   * SECURITY: Uses Redis atomic operations to prevent race conditions
+   * SECURITY: Uses Redis INCR + PEXPIRE for true atomicity under concurrent load.
+   * The previous GET-then-SET approach allowed race conditions where N parallel
+   * requests could all read the same pre-increment count and be counted as 1.
    */
   async incrementOrCreate(
     key: string,
@@ -93,33 +78,25 @@ export class RedisRateLimitStore implements RateLimitStore {
     try {
       const prefixedKey = this.keyPrefix + key;
       const now = Date.now();
-      const data = await this.redisService.get(prefixedKey);
 
-      if (data) {
-        const entry = JSON.parse(data) as RateLimitEntry;
+      // SECURITY: Atomic INCR -- Redis INCR is atomic and creates the key if
+      // it doesn't exist, returning 1 on first call. This eliminates the
+      // GET-then-SET race condition entirely.
+      const count = await this.redisService.incr(prefixedKey);
+      const isNew = count === 1;
 
-        // Check if entry is still valid
-        if (now <= entry.resetTime) {
-          entry.count++;
-
-          const remainingMs = entry.resetTime - now;
-          const ttlSeconds = Math.ceil(remainingMs / 1000);
-          await this.redisService.set(prefixedKey, JSON.stringify(entry), ttlSeconds);
-
-          return { entry, isNew: false };
-        }
+      if (isNew) {
+        // Set expiry only on first increment (new window)
+        const ttlSeconds = Math.ceil(windowMs / 1000);
+        await this.redisService.expire(prefixedKey, ttlSeconds);
       }
 
-      // Create new entry
-      const newEntry: RateLimitEntry = {
-        count: 1,
+      const entry: RateLimitEntry = {
+        count,
         resetTime: now + windowMs,
       };
 
-      const ttlSeconds = Math.ceil(windowMs / 1000);
-      await this.redisService.set(prefixedKey, JSON.stringify(newEntry), ttlSeconds);
-
-      return { entry: newEntry, isNew: true };
+      return { entry, isNew };
     } catch (error) {
       this.logger.error(`Failed to incrementOrCreate rate limit: ${error}`);
       // Return a default entry to allow the request through on error

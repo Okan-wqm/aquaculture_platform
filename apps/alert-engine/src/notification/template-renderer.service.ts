@@ -190,7 +190,7 @@ export class TemplateRendererService {
       subject: this.renderString(template.subjectTemplate, enrichedContext),
       body: this.renderString(template.bodyTemplate, enrichedContext),
       htmlBody: template.htmlTemplate
-        ? this.renderString(template.htmlTemplate, enrichedContext)
+        ? this.renderString(template.htmlTemplate, enrichedContext, true)
         : undefined,
       shortMessage: template.shortTemplate
         ? this.renderString(template.shortTemplate, enrichedContext)
@@ -290,12 +290,15 @@ export class TemplateRendererService {
   /**
    * Render template string with context
    */
-  renderString(template: string, context: Record<string, unknown>): string {
+  renderString(template: string, context: Record<string, unknown>, escapeHtml = false): string {
     let result = template;
 
-    // Handle {{json}} special case for webhooks
+    // Handle {{json}} special case for webhooks.
+    // Return only the pre-built restricted export stored in context.json, not the full context.
     if (template === '{{json}}') {
-      return JSON.stringify(context, null, 2);
+      return typeof context['json'] === 'string'
+        ? context['json']
+        : JSON.stringify(context['json'] ?? {}, null, 2);
     }
 
     // Replace {{variable}} patterns
@@ -314,10 +317,24 @@ export class TemplateRendererService {
       }
 
       const value = this.getNestedValue(context, trimmedPath);
-      return value !== undefined ? String(value) : match;
+      if (value === undefined) return match;
+      const str = String(value);
+      return escapeHtml ? this.escapeHtmlChars(str) : str;
     });
 
     return result;
+  }
+
+  /**
+   * Escape HTML special characters to prevent injection
+   */
+  private escapeHtmlChars(str: string): string {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   /**
@@ -338,6 +355,28 @@ export class TemplateRendererService {
   }
 
   /**
+   * Fields exported when {{json}} is used in a webhook template.
+   * This is an explicit allowlist — internal OPA paths, rule evaluation scores,
+   * and full sensor history must NOT be forwarded to external receivers.
+   */
+  private buildWebhookExport(context: TemplateContext): Record<string, unknown> {
+    return {
+      incident: context.incident
+        ? {
+            id: context.incident.id,
+            title: context.incident.title,
+            description: context.incident.description,
+            status: context.incident.status,
+          }
+        : undefined,
+      severity: context.severity,
+      escalationLevel: context.escalationLevel,
+      tenantName: context.tenantName,
+      farmName: context.farmName,
+    };
+  }
+
+  /**
    * Enrich context with additional data
    */
   private enrichContext(context: TemplateContext): Record<string, unknown> {
@@ -352,8 +391,8 @@ export class TemplateRendererService {
       enriched.incident = context.incident;
     }
 
-    // Add JSON representation for webhooks
-    enriched.json = JSON.stringify(context, null, 2);
+    // Add a safe, restricted JSON export for webhooks — never the full internal context.
+    enriched.json = JSON.stringify(this.buildWebhookExport(context), null, 2);
 
     return enriched;
   }
@@ -448,7 +487,7 @@ export class TemplateRendererService {
       subject: this.renderString(template.subjectTemplate, enrichedContext),
       body: this.renderString(template.bodyTemplate, enrichedContext),
       htmlBody: template.htmlTemplate
-        ? this.renderString(template.htmlTemplate, enrichedContext)
+        ? this.renderString(template.htmlTemplate, enrichedContext, true)
         : undefined,
       shortMessage: template.shortTemplate
         ? this.renderString(template.shortTemplate, enrichedContext)

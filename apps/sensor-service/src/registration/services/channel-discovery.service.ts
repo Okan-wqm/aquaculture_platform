@@ -133,7 +133,7 @@ export class ChannelDiscoveryService {
   // eslint-disable-next-line @typescript-eslint/require-await
   async discoverChannels(
     sampleData: unknown,
-    payloadFormat: 'json' | 'csv' | 'text' | 'binary' = 'json',
+    payloadFormat: 'json' | 'csv' | 'text' = 'json',
   ): Promise<DiscoveryResult> {
     try {
       let channels: DiscoveredChannel[] = [];
@@ -239,9 +239,11 @@ export class ChannelDiscoveryService {
       return channels;
     }
 
-    // Check if first line is headers
+    // Check if first line is headers.
+    // A cell is treated as a header if it is non-empty and does NOT parse as a pure
+    // finite number (rejects "25.3C", "7.4pH" as headers; treats "0","1","2" as data).
     const firstLine = lines[0].split(',').map(s => s.trim());
-    const hasHeaders = firstLine.some(v => isNaN(parseFloat(v)));
+    const hasHeaders = firstLine.some(v => v.length > 0 && !isFinite(Number(v)));
 
     if (hasHeaders && lines.length > 1 && lines[1]) {
       // Use headers as channel keys

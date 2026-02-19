@@ -107,7 +107,7 @@ export class TenantSchemaMiddleware implements NestMiddleware {
           // Fallback for existing tenants without dedicated schema
           await this.setSearchPathSafe(this.DEFAULT_SCHEMA);
           req.schemaName = this.DEFAULT_SCHEMA;
-          this.logger.debug(`Tenant ${tenantId}: using fallback schema ${this.DEFAULT_SCHEMA}`);
+          this.logger.warn(`Tenant ${tenantId}: schema "${tenantSchema}" not found, using fallback "${this.DEFAULT_SCHEMA}". Writes may target shared schema.`);
         }
       } else {
         await this.setSearchPathSafe(this.DEFAULT_SCHEMA);

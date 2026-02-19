@@ -6,7 +6,6 @@ export interface HealthStatus {
   status: 'healthy' | 'unhealthy' | 'degraded';
   timestamp: Date;
   uptime: number;
-  version: string;
   checks: {
     database: ComponentHealth;
   };
@@ -37,7 +36,6 @@ export class HealthService {
       status: overallStatus,
       timestamp: new Date(),
       uptime: Math.floor((Date.now() - this.startTime) / 1000),
-      version: process.env['APP_VERSION'] || '1.0.0',
       checks: {
         database,
       },
@@ -58,7 +56,7 @@ export class HealthService {
       return {
         status: 'unhealthy',
         responseTime: Date.now() - startTime,
-        error: (error as Error).message,
+        error: 'Database connection failed',
       };
     }
   }

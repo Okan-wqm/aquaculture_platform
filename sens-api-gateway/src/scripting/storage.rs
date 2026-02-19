@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use tokio::sync::RwLock;
+use std::sync::Arc;
+use tokio::sync::{RwLock, watch};
 use tracing::{info, warn};
 
 use super::ScriptDefinition;
@@ -167,12 +168,23 @@ pub enum ScriptStatus {
 /// # Thread Safety (v1.2.0)
 /// Uses `tokio::sync::RwLock` to allow multiple readers or one writer.
 /// All mutating methods acquire a write lock; read-only methods acquire a read lock.
+///
+/// # Active-script cache (PERF)
+/// `get_active()` is called on every scan cycle (as fast as 10ms).  To avoid cloning
+/// the full script map on each call, an `Arc<Vec<Script>>` cache is kept and rebuilt
+/// only when `active_dirty` is set by write operations.
 pub struct ScriptStorage {
     scripts_dir: PathBuf,
     /// Thread-safe script map protected by RwLock
     scripts: RwLock<HashMap<String, Script>>,
     /// Maximum number of scripts allowed (memory protection)
     max_scripts: usize,
+    /// Cached active-script list — rebuilt lazily when dirty
+    active_cache: RwLock<Option<Arc<Vec<Script>>>>,
+    /// Dirty flag sender — write operations send `true` to invalidate the cache
+    dirty_tx: watch::Sender<bool>,
+    /// Dirty flag receiver — read by get_active() to detect stale cache
+    dirty_rx: watch::Receiver<bool>,
 }
 
 impl ScriptStorage {
@@ -184,11 +196,21 @@ impl ScriptStorage {
     /// Create a new script storage with specified maximum capacity
     pub fn with_capacity(scripts_dir: Option<&str>, max_scripts: usize) -> Self {
         let dir = scripts_dir.unwrap_or(DEFAULT_SCRIPTS_DIR);
+        let (dirty_tx, dirty_rx) = watch::channel(true); // start dirty so first call rebuilds
         Self {
             scripts_dir: PathBuf::from(dir),
             scripts: RwLock::new(HashMap::with_capacity(max_scripts.min(100))),
             max_scripts,
+            active_cache: RwLock::new(None),
+            dirty_tx,
+            dirty_rx,
         }
+    }
+
+    /// Invalidate the active-script cache after any write operation.
+    fn invalidate_active_cache(&self) {
+        // Ignore send error — no receivers is fine
+        let _ = self.dirty_tx.send(true);
     }
 
     /// Get the maximum script capacity
@@ -228,6 +250,7 @@ impl ScriptStorage {
     pub async fn load_all(&self) -> Result<()> {
         let mut scripts = self.scripts.write().await;
         scripts.clear();
+        self.invalidate_active_cache();
 
         let entries = fs::read_dir(&self.scripts_dir)
             .with_context(|| format!("Failed to read scripts directory: {:?}", self.scripts_dir))?;
@@ -326,6 +349,7 @@ impl ScriptStorage {
         info!("Saved script: {} to {:?}", script.definition.id, path);
 
         scripts.insert(script.definition.id.clone(), script);
+        self.invalidate_active_cache();
         Ok(())
     }
 
@@ -393,14 +417,35 @@ impl ScriptStorage {
         scripts.values().cloned().collect()
     }
 
-    /// Get active scripts (returns cloned copies for thread safety)
-    pub async fn get_active(&self) -> Vec<Script> {
+    /// Get active scripts — cached, rebuilt only when scripts change.
+    ///
+    /// On constrained hardware the scan cycle may run at 10ms intervals.
+    /// Rather than cloning the full HashMap on every cycle, an `Arc<Vec<Script>>`
+    /// is returned from a dirty-flag cache that is invalidated by write operations.
+    pub async fn get_active(&self) -> Arc<Vec<Script>> {
+        // Fast path: return existing cache if not dirty
+        {
+            let cache = self.active_cache.read().await;
+            if cache.is_some() && !*self.dirty_rx.borrow() {
+                return cache.as_ref().unwrap().clone();
+            }
+        }
+
+        // Slow path: rebuild cache
         let scripts = self.scripts.read().await;
-        scripts
+        let active: Vec<Script> = scripts
             .values()
             .filter(|s| s.status == ScriptStatus::Active && s.definition.enabled)
             .cloned()
-            .collect()
+            .collect();
+        let arc = Arc::new(active);
+
+        let mut cache = self.active_cache.write().await;
+        *cache = Some(arc.clone());
+        // Mark as clean
+        let _ = self.dirty_tx.send(false);
+
+        arc
     }
 
     /// Delete a script
@@ -421,6 +466,7 @@ impl ScriptStorage {
             }
 
             info!("Deleted script: {}", id);
+            self.invalidate_active_cache();
             Ok(true)
         } else {
             Ok(false)
@@ -448,6 +494,7 @@ impl ScriptStorage {
             fs::write(&path, content)?;
 
             info!("Enabled script: {}", id);
+            self.invalidate_active_cache();
             Ok(true)
         } else {
             Ok(false)
@@ -475,6 +522,7 @@ impl ScriptStorage {
             fs::write(&path, content)?;
 
             info!("Disabled script: {}", id);
+            self.invalidate_active_cache();
             Ok(true)
         } else {
             Ok(false)

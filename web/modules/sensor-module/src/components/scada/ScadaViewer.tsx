@@ -6,7 +6,26 @@
 
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { ZoomIn, ZoomOut, Maximize2, Loader2 } from 'lucide-react';
-import { useScadaStore, ScadaProcess, SensorReading } from '../../store/scadaStore';
+import { useScadaStore, ScadaProcess } from '../../store/scadaStore';
+
+// Strip HTML tags from a string to prevent stored XSS via canvas node rendering
+function stripHtml(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  return value.replace(/<[^>]*>/g, '');
+}
+
+// Sanitize node/edge string fields before forwarding to the canvas iframe (SEC-009)
+function sanitizeNodes(nodes: ScadaProcess['nodes']): ScadaProcess['nodes'] {
+  return nodes.map((node) => ({
+    ...node,
+    data: {
+      ...node.data,
+      label: stripHtml(node.data?.label) as string | undefined,
+      equipmentName: stripHtml(node.data?.equipmentName) as string | undefined,
+      description: stripHtml((node.data as Record<string, unknown>)?.description) as string | undefined,
+    },
+  }));
+}
 
 // Get canvas URL
 const getCanvasUrl = () => {
@@ -41,13 +60,15 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
 
     iframeRef.current.contentWindow.postMessage(
       { type, data, source: 'scada-viewer-host' },
-      '*'
+      window.location.origin
     );
   }, []);
 
   // Handle messages from canvas
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      // SEC-002: validate origin before processing any payload content
+      if (event.origin !== window.location.origin) return;
       const { type, data, source } = event.data || {};
       if (source !== 'scada-viewer-canvas') return;
 
@@ -58,7 +79,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
           // Send initial process if available
           if (selectedProcess) {
             sendToCanvas('setProcess', {
-              nodes: selectedProcess.nodes,
+              nodes: sanitizeNodes(selectedProcess.nodes),
               edges: selectedProcess.edges,
             });
           }
@@ -87,7 +108,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
     if (!isCanvasReady || !selectedProcess) return;
 
     sendToCanvas('setProcess', {
-      nodes: selectedProcess.nodes,
+      nodes: sanitizeNodes(selectedProcess.nodes),
       edges: selectedProcess.edges,
     });
   }, [isCanvasReady, selectedProcess, sendToCanvas]);
@@ -96,13 +117,8 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
   useEffect(() => {
     if (!isCanvasReady) return;
 
-    // Convert Map to object for postMessage
-    const readingsObject: Record<string, SensorReading[]> = {};
-    sensorReadings.forEach((readings, equipmentId) => {
-      readingsObject[equipmentId] = readings;
-    });
-
-    sendToCanvas('updateAllSensorData', readingsObject);
+    // PERF-008: sensorReadings is now a plain Record — send directly without conversion
+    sendToCanvas('updateAllSensorData', sensorReadings);
   }, [isCanvasReady, sensorReadings, sendToCanvas]);
 
   // Control functions
@@ -145,7 +161,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
         src={getCanvasUrl()}
         className="w-full h-full border-0"
         title="SCADA Viewer Canvas"
-        sandbox="allow-scripts allow-same-origin"
+        sandbox="allow-scripts"
       />
 
       {/* Process info panel */}
@@ -163,7 +179,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
                   ? 'bg-green-100 text-green-700'
                   : selectedProcess.status === 'draft'
                   ? 'bg-gray-100 text-gray-700'
-                  : selectedProcess.status === 'paused'
+                  : selectedProcess.status === 'inactive'
                   ? 'bg-yellow-100 text-yellow-700'
                   : 'bg-red-100 text-red-700'
               }
@@ -173,8 +189,8 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
               ? 'Aktif'
               : selectedProcess.status === 'draft'
               ? 'Taslak'
-              : selectedProcess.status === 'paused'
-              ? 'Duraklatılmış'
+              : selectedProcess.status === 'inactive'
+              ? 'Pasif'
               : 'Arşivlenmiş'}
           </span>
           <span className="text-xs text-gray-400">

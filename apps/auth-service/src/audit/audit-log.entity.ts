@@ -17,12 +17,9 @@ export enum AuditLogSeverity {
 }
 
 @Entity('audit_logs')
-@Index('IDX_audit_tenant', ['tenantId'])
-@Index('IDX_audit_created', ['createdAt'])
-@Index('IDX_audit_action', ['action'])
-@Index('IDX_audit_severity', ['severity'])
-@Index('IDX_audit_performed_by', ['performedBy'])
-@Index('IDX_audit_entity', ['entityType', 'entityId'])
+@Index('IDX_audit_tenant_created', ['tenantId', 'createdAt'])
+@Index('IDX_audit_performer_tenant', ['performedBy', 'tenantId'])
+@Index('IDX_audit_entity', ['entityType', 'entityId', 'tenantId'])
 export class AuditLog {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

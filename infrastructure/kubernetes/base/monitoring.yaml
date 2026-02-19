@@ -1,0 +1,45 @@
+# =============================================================================
+# Aquaculture Platform - Prometheus ServiceMonitor Resources
+# ARCH-016: ServiceMonitor for Prometheus Operator discovery
+# Annotation-based scraping (prometheus.io/scrape) is silently ignored when
+# Prometheus Operator is in use. These ServiceMonitor resources provide
+# explicit discovery configuration.
+# =============================================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gateway-api-monitor
+  namespace: aquaculture
+  labels:
+    app: gateway-api
+    # Label required by Prometheus Operator's serviceMonitorSelector
+    prometheus: aquaculture
+spec:
+  selector:
+    matchLabels:
+      app: gateway-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scheme: http
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: sensor-service-monitor
+  namespace: aquaculture
+  labels:
+    app: sensor-service
+    prometheus: aquaculture
+spec:
+  selector:
+    matchLabels:
+      app: sensor-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scheme: http

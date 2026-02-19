@@ -3,6 +3,7 @@
  * Handles file uploads for batch documents (health certificates, import documents)
  */
 import React, { useRef, useState, useCallback } from 'react';
+import { useToast } from '@aquaculture/shared-ui';
 import { validateDocumentFile, formatFileSize } from '../../../hooks/useFileUpload';
 import type { BatchDocumentInput, BatchDocumentType } from '../../../hooks/useBatches';
 import type { UploadedDocument } from '../../../hooks/useFileUpload';
@@ -52,6 +53,7 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
   const [newDocName, setNewDocName] = useState('');
   const [newDocNumber, setNewDocNumber] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const { toast } = useToast();
 
   const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -60,12 +62,12 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
     const validation = validateDocumentFile(file);
 
     if (!validation.valid) {
-      alert(validation.error);
+      toast({ title: 'Invalid File', description: validation.error || 'Invalid file type or size.', variant: 'error' });
       return;
     }
 
     if (documents.length >= maxDocuments) {
-      alert(`Maximum ${maxDocuments} documents allowed`);
+      toast({ title: 'Limit Reached', description: `Maximum ${maxDocuments} documents allowed.`, variant: 'error' });
       return;
     }
 

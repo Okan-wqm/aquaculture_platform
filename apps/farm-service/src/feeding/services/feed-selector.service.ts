@@ -31,10 +31,20 @@ interface CachedFeedData {
   feeds: Map<string, any>; // feedId -> feed row
 }
 
+/** Max cache entries before eviction */
+const FEED_CACHE_MAX_SIZE = 500;
+/** Cache TTL in milliseconds (5 minutes) */
+const FEED_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface CacheEntry {
+  data: CachedFeedData;
+  expiresAt: number;
+}
+
 @Injectable()
 export class FeedSelectorService {
   private readonly logger = new Logger(FeedSelectorService.name);
-  private readonly feedCache = new Map<string, CachedFeedData>();
+  private readonly feedCache = new Map<string, CacheEntry>();
 
   constructor(
     @InjectRepository(BatchFeedAssignment)
@@ -55,8 +65,9 @@ export class FeedSelectorService {
     batchId: string,
   ): Promise<void> {
     const cacheKey = `${tenantId}:${batchId}`;
-    if (this.feedCache.has(cacheKey)) {
-      return; // Already cached
+    const existing = this.feedCache.get(cacheKey);
+    if (existing && existing.expiresAt > Date.now()) {
+      return; // Already cached and not expired
     }
 
     try {
@@ -70,7 +81,7 @@ export class FeedSelectorService {
 
       const assignment = assignmentResult?.[0];
       if (!assignment || !assignment.feedAssignments || assignment.feedAssignments.length === 0) {
-        this.feedCache.set(cacheKey, { assignments: [], feeds: new Map() });
+        this.setCacheEntry(cacheKey, { assignments: [], feeds: new Map() });
         return;
       }
 
@@ -94,12 +105,48 @@ export class FeedSelectorService {
         }
       }
 
-      this.feedCache.set(cacheKey, { assignments: feedAssignments, feeds });
+      this.setCacheEntry(cacheKey, { assignments: feedAssignments, feeds });
       this.logger.debug(`Preloaded feed data for batch ${batchId}: ${feedAssignments.length} assignments, ${feeds.size} feeds`);
     } catch (error: unknown) {
       this.logger.error(`Error preloading feed data for batch ${batchId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      this.feedCache.set(cacheKey, { assignments: [], feeds: new Map() });
+      this.setCacheEntry(cacheKey, { assignments: [], feeds: new Map() });
     }
+  }
+
+  /**
+   * Set a cache entry with TTL and evict oldest entries if over max size.
+   */
+  private setCacheEntry(key: string, data: CachedFeedData): void {
+    // Evict expired entries periodically
+    if (this.feedCache.size >= FEED_CACHE_MAX_SIZE) {
+      const now = Date.now();
+      for (const [k, v] of this.feedCache) {
+        if (v.expiresAt < now) {
+          this.feedCache.delete(k);
+        }
+      }
+      // If still over limit, evict oldest entries
+      if (this.feedCache.size >= FEED_CACHE_MAX_SIZE) {
+        const keysToDelete = [...this.feedCache.keys()].slice(0, Math.floor(FEED_CACHE_MAX_SIZE / 4));
+        for (const k of keysToDelete) {
+          this.feedCache.delete(k);
+        }
+      }
+    }
+    this.feedCache.set(key, { data, expiresAt: Date.now() + FEED_CACHE_TTL_MS });
+  }
+
+  /**
+   * Get cached data if not expired.
+   */
+  private getCacheEntry(key: string): CachedFeedData | undefined {
+    const entry = this.feedCache.get(key);
+    if (!entry) return undefined;
+    if (entry.expiresAt < Date.now()) {
+      this.feedCache.delete(key);
+      return undefined;
+    }
+    return entry.data;
   }
 
   /**
@@ -139,7 +186,7 @@ export class FeedSelectorService {
     try {
       // Check cache first (populated by preloadFeedDataForBatch)
       const cacheKey = `${tenantId}:${batchId}`;
-      const cached = this.feedCache.get(cacheKey);
+      const cached = this.getCacheEntry(cacheKey);
 
       let feedAssignments: FeedAssignmentEntry[];
       let feedLookup: (feedId: string) => Promise<any>;

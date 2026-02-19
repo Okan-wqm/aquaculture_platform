@@ -13,7 +13,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Card, Badge } from '@aquaculture/shared-ui';
+import { Card, Badge, graphqlClient } from '@aquaculture/shared-ui';
 import { MapContainer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { subMonths } from 'date-fns';
@@ -118,25 +118,8 @@ const ACTIVE_SITES_QUERY = `
 // ============================================================================
 
 const fetchSitesFromAPI = async (): Promise<Site[]> => {
-  const token = localStorage.getItem('access_token');
-
-  const response = await fetch('/graphql', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query: ACTIVE_SITES_QUERY }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    console.error('[MapViewPage] GraphQL Error:', result.errors);
-    throw new Error(result.errors[0]?.message || 'GraphQL error');
-  }
-
-  return result.data?.activeSites || [];
+  const data = await graphqlClient.request<{ activeSites: Site[] }>(ACTIVE_SITES_QUERY);
+  return data.activeSites || [];
 };
 
 // ============================================================================

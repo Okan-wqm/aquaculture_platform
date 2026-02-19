@@ -1,0 +1,20 @@
+{{/*
+=============================================================================
+Aquaculture Platform - Namespace
+=============================================================================
+Creates the application namespace so operators do not need to create it
+manually before running helm install.
+
+Usage:
+  helm install aquaculture ./aquaculture \
+    -n {{ .Values.namespace }} --create-namespace \
+    -f values-production.yaml
+=============================================================================
+*/}}
+{{- include "aquaculture.validatePasswords" . -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}

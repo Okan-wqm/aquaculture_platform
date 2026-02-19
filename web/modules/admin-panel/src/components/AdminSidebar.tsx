@@ -1,6 +1,10 @@
 /**
  * Admin Panel Sidebar Component
- * Enterprise-grade navigation with all admin routes
+ * Enterprise-grade navigation with all admin routes.
+ *
+ * NOTE: This component is used in standalone dev mode (App.tsx) only.
+ * In production, the Shell's MainLayout sidebar renders admin navigation.
+ * This component deliberately avoids auth context so it works in isolation (BUG-017).
  */
 
 import React, { useState, useCallback, useEffect } from 'react';

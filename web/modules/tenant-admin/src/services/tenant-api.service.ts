@@ -5,6 +5,7 @@
  * Uses GraphQL for data fetching.
  */
 
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 import {
   MY_TENANT_QUERY,
   TENANT_STATS_QUERY,
@@ -150,14 +151,15 @@ const API_URL = '/graphql';
 /**
  * Execute GraphQL query/mutation
  */
-async function graphqlRequest<T>(
+export async function graphqlRequest<T>(
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<T> {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
 
   const response = await fetch(API_URL, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token && { Authorization: `Bearer ${token}` }),
@@ -351,7 +353,6 @@ export interface TenantRole {
   description?: string;
   isDefault: boolean;
   isSystemRole: boolean;
-  isSystem: boolean; // Alias for isSystemRole
   tenantId: string;
   permissions?: TenantRolePermissions;
   color?: string;
@@ -479,7 +480,8 @@ export async function createTenantRole(input: CreateTenantRoleInput): Promise<Te
 }
 
 export async function updateTenantRole(roleId: string, input: UpdateTenantRoleInput): Promise<TenantRole> {
-  const data = await graphqlRequest<{ updateTenantRole: TenantRole }>(UPDATE_TENANT_ROLE_MUTATION, { id: roleId, input });
+  // BUG-005: id must be inside input — mutation only accepts $input: UpdateTenantRoleInput!
+  const data = await graphqlRequest<{ updateTenantRole: TenantRole }>(UPDATE_TENANT_ROLE_MUTATION, { input: { ...input, id: roleId } });
   return data.updateTenantRole;
 }
 

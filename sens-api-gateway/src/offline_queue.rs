@@ -23,8 +23,26 @@ use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use tracing::{debug, error, info, warn};
+
+/// Apply SQLCipher encryption key to a newly opened database connection.
+///
+/// The key is derived from the device machine-id so it is unique per device and
+/// survives reboots.  Physical access to the storage medium does not yield a
+/// readable database without knowledge of the machine-id (IEC 62443 FR4).
+///
+/// On platforms where machine-uid is unavailable the key falls back to a
+/// compile-time constant — still better than no encryption.
+fn apply_db_encryption_key(conn: &Connection) -> Result<()> {
+    let machine_id = machine_uid::get()
+        .unwrap_or_else(|_| "suderra-fallback-device-key-v1".to_string());
+    // SQLCipher PRAGMA key accepts an arbitrary passphrase
+    conn.execute_batch(&format!("PRAGMA key = '{}';", machine_id.replace('\'', "''")))
+        .context("Failed to apply SQLCipher database encryption key")?;
+    Ok(())
+}
 
 /// Acquire mutex lock with poison recovery (v1.2.3)
 ///
@@ -51,9 +69,21 @@ fn acquire_lock<T>(mutex: &Mutex<T>) -> Result<MutexGuard<'_, T>> {
 /// Acquire SQLite connection lock with poison recovery and health check (v1.3.3)
 ///
 /// After recovering from a poisoned mutex, validates that the SQLite connection
-/// is still usable by executing a simple query. If the connection is corrupted,
-/// returns an error instead of silently proceeding with a bad connection.
-fn acquire_sqlite_lock(mutex: &Mutex<Connection>) -> Result<MutexGuard<'_, Connection>> {
+/// is still usable by executing a simple query **exactly once** — on the first
+/// acquisition after the panic. Subsequent acquisitions on the still-poisoned
+/// mutex skip the health check because `health_verified` is set to `true` after
+/// the first successful validation.
+///
+/// # Why `health_verified`?
+/// `std::sync::Mutex` keeps its poisoned state permanently — every call to
+/// `.lock()` after a panic returns `Err(PoisonError)` for the lifetime of the
+/// process. Without the flag, `SELECT 1` would run on every hot-path lock
+/// acquisition (enqueue, dequeue, stats) for the rest of the process lifetime,
+/// adding unnecessary SQLite overhead in scan-cycle mode (BUG-015).
+fn acquire_sqlite_lock<'a>(
+    mutex: &'a Mutex<Connection>,
+    health_verified: &AtomicBool,
+) -> Result<MutexGuard<'a, Connection>> {
     let was_poisoned;
     let guard = match mutex.lock() {
         Ok(guard) => {
@@ -69,15 +99,18 @@ fn acquire_sqlite_lock(mutex: &Mutex<Connection>) -> Result<MutexGuard<'_, Conne
         }
     };
 
-    // If mutex was poisoned, validate SQLite connection health
-    if was_poisoned {
-        // Execute a simple query to verify the connection is still usable
+    // Run the health check only on the *first* acquisition after a poison event.
+    // `health_verified` starts false; we flip it to true after a successful check
+    // so subsequent calls skip the SELECT 1 query.
+    if was_poisoned && !health_verified.load(Ordering::Acquire) {
         match guard.execute("SELECT 1", []) {
             Ok(_) => {
                 warn!(
                     "SQLite connection validated after poison recovery. \
                     Any incomplete transaction was rolled back by SQLite."
                 );
+                // Mark as verified so subsequent poisoned-lock acquisitions skip this check.
+                health_verified.store(true, Ordering::Release);
             }
             Err(e) => {
                 error!(
@@ -181,6 +214,11 @@ pub struct OfflineQueue {
     max_age_secs: u64,
     /// Maximum disk size in bytes (v1.2.0)
     max_disk_bytes: u64,
+    /// Tracks whether the SQLite connection health check has already passed after
+    /// a mutex poison event. Prevents running SELECT 1 on every hot-path lock
+    /// acquisition for the lifetime of the process once a panic has been recovered
+    /// (BUG-015 fix).
+    poison_health_verified: AtomicBool,
 }
 
 impl OfflineQueue {
@@ -210,11 +248,17 @@ impl OfflineQueue {
         let conn = Connection::open(db_path)
             .with_context(|| format!("Failed to open queue database: {}", db_path.display()))?;
 
+        // Apply SQLCipher database key derived from the device machine-id (IEC 62443 FR4).
+        // This encrypts the database at rest so physical access to the device does not
+        // expose queued telemetry or PLC state.
+        apply_db_encryption_key(&conn)?;
+
         let queue = Self {
             conn: Mutex::new(conn),
             max_size,
             max_age_secs,
             max_disk_bytes,
+            poison_health_verified: AtomicBool::new(false),
         };
 
         queue.init_schema()?;
@@ -235,8 +279,9 @@ impl OfflineQueue {
         let queue = Self {
             conn: Mutex::new(conn),
             max_size,
-            max_age_secs: 0,   // No expiration
-            max_disk_bytes: 0, // No disk limit for in-memory
+            max_age_secs: 0,             // No expiration
+            max_disk_bytes: 0,           // No disk limit for in-memory
+            poison_health_verified: AtomicBool::new(false),
         };
 
         queue.init_schema()?;
@@ -368,10 +413,13 @@ impl OfflineQueue {
                 && current_size > 0
                 && eviction_rounds < MAX_EVICTION_ROUNDS
             {
-                // Evict 10% of messages (min 5, max 50) to reclaim disk space
-                let evict_count = (current_size / 10).max(5).min(50);
-                self.evict_for_disk_space(&conn, evict_count)?;
-                current_size = current_size.saturating_sub(evict_count);
+                // Evict 10% of messages (min 5, max 50) to reclaim disk space.
+                // Use the actual deleted count returned by evict_for_disk_space() to avoid
+                // current_size drifting below the real SQLite row count when partial
+                // deletion occurs (e.g., SQLite busy timeout, WAL lock contention).
+                let evict_target = (current_size / 10).max(5).min(50);
+                let actually_deleted = self.evict_for_disk_space(&conn, evict_target)?;
+                current_size = current_size.saturating_sub(actually_deleted);
                 db_size = self.get_db_size(&conn);
                 eviction_rounds += 1;
             }
@@ -777,18 +825,21 @@ impl OfflineQueue {
     /// queue.backup_to("/var/backups/offline_queue_2024-01-15.db")?;
     /// ```
     pub fn backup_to(&self, backup_path: &str) -> Result<u64> {
-        // v1.2.6: Validate backup path to prevent SQL injection
-        // Only allow safe characters in path: alphanumeric, /, \, _, -, .
-        // Reject paths with: ', ", ;, --, or other SQL metacharacters
+        // Strict allowlist validation to prevent SQL injection in VACUUM INTO
+        // VACUUM INTO does not support parameterized queries, so we must sanitize the path.
+        // Only allow: alphanumeric, forward slash, backslash, hyphen, underscore, dot
         if backup_path.is_empty() {
             anyhow::bail!("Backup path cannot be empty");
         }
-        if backup_path.contains('\'')
-            || backup_path.contains('"')
-            || backup_path.contains(';')
-            || backup_path.contains("--")
-        {
-            anyhow::bail!("Backup path contains invalid characters: {}", backup_path);
+        let path_is_safe = backup_path
+            .chars()
+            .all(|c| c.is_alphanumeric() || "/\\-_.".contains(c));
+        if !path_is_safe {
+            anyhow::bail!(
+                "Backup path contains characters not allowed by security policy \
+                 (only alphanumeric, /, \\, -, _, . are permitted): {}",
+                backup_path
+            );
         }
 
         let conn = self

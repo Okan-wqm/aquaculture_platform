@@ -57,7 +57,9 @@ export function useTenantStats() {
   return useQuery({
     queryKey: tenantKeys.stats(),
     queryFn: getTenantStats,
-    staleTime: 1 * 60 * 1000, // 1 minute
+    // PERF-005: staleTime < refetchInterval so cached data is served for 30s
+    // while background refetch keeps data fresh every 60s (no race condition)
+    staleTime: 30 * 1000, // 30 seconds
     refetchInterval: 60 * 1000, // Refetch every minute
   });
 }

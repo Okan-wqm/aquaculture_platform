@@ -397,7 +397,8 @@ async fn async_main() -> Result<()> {
     }
 
     // Setup graceful shutdown
-    let shutdown = match setup_shutdown_handler() {
+    // Pass state so SIGHUP can reload config in-place (SEC-010)
+    let shutdown = match setup_shutdown_handler(state.clone()) {
         Ok(rx) => rx,
         Err(e) => {
             error!("Failed to setup shutdown handler: {}", e);
@@ -558,8 +559,23 @@ fn notify_systemd_ready() -> Result<()> {
 ///
 /// # Platform Support
 /// - All platforms: Ctrl+C (SIGINT)
-/// - Unix only: SIGTERM, SIGHUP
-fn setup_shutdown_handler() -> Result<tokio::sync::watch::Receiver<bool>> {
+/// - Unix only: SIGTERM
+///
+/// # SIGHUP — Config Reload (IEC 62443 FR5, SEC-010)
+/// SIGHUP follows Unix daemon convention: it reloads configuration rather than
+/// shutting down.  `systemctl reload suderra-agent` sends SIGHUP; treating it
+/// as shutdown would cause unexpected downtime on production aquaculture equipment.
+///
+/// On SIGHUP the agent re-reads `/etc/suderra/config.yaml` (or `SUDERRA_CONFIG`),
+/// validates the new config, and atomically replaces `AppState.config` under the
+/// write lock.  Security-sensitive fields (MQTT credentials, TLS certs) take
+/// effect on the next connection attempt.
+fn setup_shutdown_handler(
+    state: Arc<RwLock<AppState>>,
+) -> Result<tokio::sync::watch::Receiver<bool>> {
+    // `state` is used only in the Unix SIGHUP config-reload handler
+    #[cfg(not(unix))]
+    let _ = &state;
     let (tx, rx) = tokio::sync::watch::channel(false);
 
     // Clone tx for the ctrlc handler
@@ -580,7 +596,6 @@ fn setup_shutdown_handler() -> Result<tokio::sync::watch::Receiver<bool>> {
     #[cfg(unix)]
     {
         let tx_term = tx.clone();
-        let tx_hup = tx;
 
         // Spawn async task to handle Unix signals
         tokio::spawn(async move {
@@ -601,7 +616,7 @@ fn setup_shutdown_handler() -> Result<tokio::sync::watch::Receiver<bool>> {
                 Ok(s) => s,
                 Err(e) => {
                     error!(
-                        "Failed to setup SIGHUP handler: {}. SIGHUP will not trigger graceful shutdown.",
+                        "Failed to setup SIGHUP handler: {}. SIGHUP config reload will be unavailable.",
                         e
                     );
                     return;
@@ -610,23 +625,56 @@ fn setup_shutdown_handler() -> Result<tokio::sync::watch::Receiver<bool>> {
 
             debug!("Unix signal handler task started successfully");
 
-            tokio::select! {
-                _ = sigterm.recv() => {
-                    info!("SIGTERM received, initiating graceful shutdown...");
-                    if tx_term.send(true).is_err() {
-                        error!("Failed to send shutdown signal via SIGTERM handler");
+            loop {
+                tokio::select! {
+                    _ = sigterm.recv() => {
+                        info!("SIGTERM received, initiating graceful shutdown...");
+                        if tx_term.send(true).is_err() {
+                            error!("Failed to send shutdown signal via SIGTERM handler");
+                        }
+                        return;
                     }
-                }
-                _ = sighup.recv() => {
-                    info!("SIGHUP received, initiating graceful shutdown...");
-                    if tx_hup.send(true).is_err() {
-                        error!("Failed to send shutdown signal via SIGHUP handler");
+                    _ = sighup.recv() => {
+                        // SEC-010 (IEC 62443 FR5): SIGHUP triggers config reload, NOT shutdown.
+                        // Treating SIGHUP as shutdown caused unexpected downtime when operators
+                        // ran `systemctl reload suderra-agent` to rotate MQTT credentials.
+                        info!("SIGHUP received — reloading configuration from disk...");
+                        match AgentConfig::load() {
+                            Ok(new_config) => {
+                                match new_config.validate() {
+                                    Ok(()) => {
+                                        let mut state_guard = state.write().await;
+                                        state_guard.config = new_config;
+                                        info!(
+                                            "Configuration reloaded successfully. \
+                                             Security-sensitive fields (MQTT credentials, \
+                                             TLS certificates) take effect on next reconnect."
+                                        );
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            "SIGHUP config reload rejected — new config failed \
+                                             validation, keeping current config: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                error!(
+                                    "SIGHUP config reload failed — could not read config file, \
+                                     keeping current config: {}",
+                                    e
+                                );
+                            }
+                        }
+                        // Do NOT send shutdown signal — continue loop to handle further signals
                     }
                 }
             }
         });
 
-        info!("Signal handlers registered: SIGINT, SIGTERM, SIGHUP");
+        info!("Signal handlers registered: SIGINT, SIGTERM, SIGHUP (config reload)");
     }
 
     #[cfg(not(unix))]
@@ -721,6 +769,11 @@ async fn run_agent(
                         state_guard.config.provisioning_token = None;
                         info!("Tenant token cleared from memory");
 
+                        // Validate that the device_id received from the server is a valid UUID
+                        // before saving to disk (MED-33).
+                        state_guard.config.validate()
+                            .context("Self-registration response contained invalid config — aborting save")?;
+
                         // Save updated config to disk
                         if let Err(e) = state_guard.config.save() {
                             error!("CRITICAL: Failed to save config after self-registration: {}. Device may re-register on restart!", e);
@@ -784,10 +837,12 @@ async fn run_agent(
                         state_guard.config.provisioning_token = None;
                         info!("Provisioning token cleared from memory");
 
-                        // Save updated config to disk
-                        if let Err(e) = state_guard.config.save() {
-                            warn!("Failed to save config after activation: {}", e);
-                        }
+                        // Save updated config to disk — failure is fatal.
+                        // If save fails, the provisioning token has been consumed by the cloud
+                        // but credentials are not persisted. On next restart the device would be
+                        // permanently unrecoverable (token already used, no credentials stored).
+                        state_guard.config.save()
+                            .context("Failed to save config after activation — device may be unrecoverable on restart")?;
 
                         last_error = None;
                         break;

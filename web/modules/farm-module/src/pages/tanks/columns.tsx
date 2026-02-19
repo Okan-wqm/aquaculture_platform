@@ -430,13 +430,18 @@ export const cleanerFishColumnGroups = [
 // ============================================================================
 
 /**
- * Get all column keys that are visible by default
+ * PERF-015: Pre-compute the default-visible column set once at module scope
+ * instead of recreating a new Set on every call.
  */
-export const getDefaultVisibleColumns = (): Set<string> => {
-  return new Set(
-    tankColumns.filter((col) => col.defaultVisible).map((col) => col.key)
-  );
-};
+export const DEFAULT_VISIBLE_COLUMNS: Set<string> = new Set(
+  tankColumns.filter((col) => col.defaultVisible).map((col) => col.key)
+);
+
+/**
+ * Get all column keys that are visible by default.
+ * @deprecated Prefer the `DEFAULT_VISIBLE_COLUMNS` constant for better performance.
+ */
+export const getDefaultVisibleColumns = (): Set<string> => DEFAULT_VISIBLE_COLUMNS;
 
 /**
  * Get all column keys

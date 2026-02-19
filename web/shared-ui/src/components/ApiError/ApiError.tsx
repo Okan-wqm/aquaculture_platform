@@ -16,9 +16,18 @@ export interface ApiErrorProps {
   onRetry?: () => void;
   /** Callback for login action */
   onLogin?: () => void;
-  /** Context for error (e.g., "batches", "users") */
+  /**
+   * SEC-010: Context for error (e.g., "batches", "users").
+   * Must be a static developer-defined string — do NOT pass user-supplied input here.
+   * The value is rendered as text via JSX interpolation (React-escaped), so XSS is
+   * prevented as long as `dangerouslySetInnerHTML` is never used at this location.
+   */
   context?: string;
-  /** Show technical details (for development) */
+  /**
+   * SEC-011: Show technical error details including stack/GraphQL errors.
+   * This prop is only honoured in non-production environments.
+   * Never set to `true` in production code.
+   */
   showDetails?: boolean;
   /** Custom class name */
   className?: string;
@@ -203,8 +212,8 @@ export const ApiError: React.FC<ApiErrorProps> = ({
           </p>
           <p className={`mt-1 text-sm ${colors.text}`}>{appError.userMessage}</p>
 
-          {/* Technical details (development only) */}
-          {showDetails && (
+          {/* Technical details (SEC-011: only shown in development — never in production) */}
+          {showDetails && process.env.NODE_ENV !== 'production' && (
             <details className="mt-2">
               <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
                 Teknik detaylar

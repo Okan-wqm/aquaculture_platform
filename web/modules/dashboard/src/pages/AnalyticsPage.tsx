@@ -6,10 +6,11 @@
 
 import React, { useState } from 'react';
 import { Card, Button, Select } from '@aquaculture/shared-ui';
+// PERF-L4: shared icon components — eliminates duplicate inline SVG bytes
+import { DownloadIcon } from '../components/icons';
 import {
-  LineChart,
+  ComposedChart,
   Line,
-  AreaChart,
   Area,
   BarChart,
   Bar,
@@ -23,6 +24,27 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+// DASH-SEC-009: allowlist for date range values — validate before using as GraphQL variable
+const VALID_DATE_RANGES = ['7days', '30days', '90days', 'year'] as const;
+type DateRange = typeof VALID_DATE_RANGES[number];
+
+function safeValidateDateRange(value: string): DateRange {
+  return (VALID_DATE_RANGES as readonly string[]).includes(value)
+    ? (value as DateRange)
+    : '30days';
+}
+
+// PERF-M1: tooltip style hoisted to module scope — prevents new object on every render
+const tooltipStyle = {
+  backgroundColor: 'white',
+  border: '1px solid #e5e7eb',
+  borderRadius: '8px',
+};
 
 // ============================================================================
 // Mock Data
@@ -65,7 +87,8 @@ const speciesData = [
 // ============================================================================
 
 const AnalyticsPage: React.FC = () => {
-  const [dateRange, setDateRange] = useState('30days');
+  // DASH-SEC-009: state typed as validated DateRange — raw e.target.value validated at set time
+  const [dateRange, setDateRange] = useState<DateRange>('30days');
 
   return (
     <div className="space-y-6">
@@ -80,7 +103,7 @@ const AnalyticsPage: React.FC = () => {
         <div className="mt-4 sm:mt-0 flex items-center space-x-3">
           <Select
             value={dateRange}
-            onChange={(e) => setDateRange(e.target.value)}
+            onChange={(e) => setDateRange(safeValidateDateRange(e.target.value))}
             options={[
               { value: '7days', label: 'Son 7 Gün' },
               { value: '30days', label: 'Son 30 Gün' },
@@ -89,9 +112,7 @@ const AnalyticsPage: React.FC = () => {
             ]}
           />
           <Button variant="outline" size="sm">
-            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
+            <DownloadIcon className="w-4 h-4 mr-2" />
             Rapor İndir
           </Button>
         </div>
@@ -105,7 +126,11 @@ const AnalyticsPage: React.FC = () => {
         </div>
         <div className="p-4">
           <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={productionData}>
+            {/*
+              PERF-M6: use ComposedChart when mixing Area and Line — correct container
+              for mixed chart types rather than AreaChart which triggers internal type detection.
+            */}
+            <ComposedChart data={productionData}>
               <defs>
                 <linearGradient id="colorUretim" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#0073e6" stopOpacity={0.8} />
@@ -115,13 +140,7 @@ const AnalyticsPage: React.FC = () => {
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="month" stroke="#6b7280" />
               <YAxis stroke="#6b7280" />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'white',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px',
-                }}
-              />
+              <Tooltip contentStyle={tooltipStyle} />
               <Legend />
               <Area
                 type="monotone"
@@ -138,7 +157,7 @@ const AnalyticsPage: React.FC = () => {
                 stroke="#94a3b8"
                 strokeDasharray="5 5"
               />
-            </AreaChart>
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       </Card>
@@ -153,22 +172,16 @@ const AnalyticsPage: React.FC = () => {
           </div>
           <div className="p-4">
             <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={sensorTrendData}>
+              <ComposedChart data={sensorTrendData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="time" stroke="#6b7280" />
                 <YAxis stroke="#6b7280" />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px',
-                  }}
-                />
+                <Tooltip contentStyle={tooltipStyle} />
                 <Legend />
                 <Line type="monotone" dataKey="ph" name="pH" stroke="#0073e6" strokeWidth={2} />
                 <Line type="monotone" dataKey="oksijen" name="Oksijen (mg/L)" stroke="#00b36b" strokeWidth={2} />
                 <Line type="monotone" dataKey="sicaklik" name="Sıcaklık (°C)" stroke="#ff8f73" strokeWidth={2} />
-              </LineChart>
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </Card>
@@ -196,7 +209,7 @@ const AnalyticsPage: React.FC = () => {
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip contentStyle={tooltipStyle} />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -215,13 +228,7 @@ const AnalyticsPage: React.FC = () => {
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis type="number" stroke="#6b7280" />
               <YAxis dataKey="species" type="category" stroke="#6b7280" width={80} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'white',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px',
-                }}
-              />
+              <Tooltip contentStyle={tooltipStyle} />
               <Bar dataKey="miktar" name="Üretim (Ton)" fill="#0073e6" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>

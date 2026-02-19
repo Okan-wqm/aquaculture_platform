@@ -289,11 +289,23 @@ export class AnalyticsController {
     @Query('endDate') endDate: string,
     @Query('snapshotType') snapshotType?: 'daily' | 'weekly' | 'monthly' | 'yearly',
   ) {
+    // BUG-023 fix: validate date strings before constructing Date objects.
+    // new Date('invalid') silently produces Invalid Date which causes DB query errors.
+    const parsedStart = new Date(startDate);
+    const parsedEnd = new Date(endDate);
+
+    if (!startDate || isNaN(parsedStart.getTime())) {
+      throw new BadRequestException('startDate must be a valid ISO 8601 date string');
+    }
+    if (!endDate || isNaN(parsedEnd.getTime())) {
+      throw new BadRequestException('endDate must be a valid ISO 8601 date string');
+    }
+
     return this.analyticsService.getSnapshots(
       category,
       {
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
+        startDate: parsedStart,
+        endDate: parsedEnd,
       },
       snapshotType,
     );

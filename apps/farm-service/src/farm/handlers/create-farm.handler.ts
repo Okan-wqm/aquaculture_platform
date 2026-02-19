@@ -61,6 +61,7 @@ export class CreateFarmHandler
       description: command.description,
       totalArea: command.totalArea,
       createdBy: command.userId,
+      updatedBy: command.userId,
       isActive: true,
     });
 
@@ -72,17 +73,12 @@ export class CreateFarmHandler
       eventId: crypto.randomUUID(),
       eventType: 'FarmCreated',
       timestamp: new Date(),
-      payload: {
-        farmId: savedFarm.id,
-        tenantId: savedFarm.tenantId,
-        name: savedFarm.name,
-        location: savedFarm.location,
-      },
-      metadata: {
-        tenantId: savedFarm.tenantId,
-        userId: command.userId,
-        source: 'farm-service',
-      },
+      tenantId: savedFarm.tenantId,
+      farmId: savedFarm.id,
+      name: savedFarm.name,
+      location: savedFarm.location,
+      userId: command.userId,
+      version: 1,
     });
 
     this.logger.log(`Farm "${savedFarm.name}" created with ID ${savedFarm.id}`);

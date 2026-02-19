@@ -51,10 +51,7 @@ export default defineConfig({
   },
   preview: { port: 3005 },
   build: {
-    modulePreload: false,
     target: 'esnext',
-    minify: false,
-    cssCodeSplit: false,
   },
   test: {
     globals: true,

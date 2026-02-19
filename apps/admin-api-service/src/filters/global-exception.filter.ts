@@ -103,6 +103,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       };
 
       // Unique constraint violation
+      // LOW-006 fix: do NOT include pgError.detail — it contains the conflicting field value
+      // (e.g. "Key (email)=(admin@example.com) already exists.") which confirms to attackers
+      // that a specific email/identifier exists in the system.
       if (pgError.code === '23505') {
         return {
           statusCode: HttpStatus.CONFLICT,
@@ -111,7 +114,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           timestamp,
           path,
           requestId,
-          details: pgError.detail,
         };
       }
 
@@ -139,9 +141,17 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         };
       }
 
+      this.logger.error(
+        `Database query failed: ${exception.message}`,
+        exception.stack,
+      );
+
       return {
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: 'Database operation failed',
+        message:
+          process.env['NODE_ENV'] === 'development'
+            ? `Database operation failed: ${exception.message}`
+            : 'Database operation failed',
         error: 'Internal Server Error',
         timestamp,
         path,

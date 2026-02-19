@@ -13,22 +13,20 @@ export interface UserInvitedEvent extends BaseEvent {
   tenantName: string;
   invitedBy?: string;
   /**
-   * Temporary password or password reset token
-   * Note: Should be handled securely and never logged
-   */
-  temporaryCredential?: string;
-  /**
-   * Whether this is a password reset token or temporary password
+   * Whether to send a password reset link or other credential type
    */
   credentialType: 'temporary_password' | 'reset_token';
   /**
-   * URL for password reset or first login
+   * URL for password reset or first login.
+   * Credentials are embedded as short-lived tokens in the URL query string.
    */
   actionUrl?: string;
 }
 
 /**
  * Notification Sent Event
+ * Represents a successfully dispatched notification.
+ * For failures, see `NotificationFailedEvent`.
  */
 export interface NotificationSentEvent extends BaseEvent {
   eventType: 'NotificationSent';
@@ -36,9 +34,7 @@ export interface NotificationSentEvent extends BaseEvent {
   channel: 'email' | 'sms' | 'push' | 'webhook';
   recipient: string;
   subject: string;
-  status: 'sent' | 'failed';
   externalId?: string;
-  errorMessage?: string;
 }
 
 /**
@@ -64,3 +60,14 @@ export interface NotificationFailedEvent extends BaseEvent {
   retryCount: number;
   willRetry: boolean;
 }
+
+// ==================== Type Union ====================
+
+/**
+ * Union type for all notification events
+ */
+export type NotificationEvent =
+  | UserInvitedEvent
+  | NotificationSentEvent
+  | NotificationDeliveredEvent
+  | NotificationFailedEvent;

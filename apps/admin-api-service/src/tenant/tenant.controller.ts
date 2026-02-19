@@ -28,6 +28,9 @@ import {
 import {
   TenantDetailDto,
   BulkSuspendDto,
+  BulkActivateDto,
+  CreateTenantNoteDto,
+  UpdateTenantNoteDto,
 } from './dto/tenant-detail.dto';
 import {
   CreateTenantDto,
@@ -164,10 +167,11 @@ export class TenantController {
   @ApiOperation({ summary: 'Bulk activate multiple tenants' })
   @HttpCode(HttpStatus.OK)
   async bulkActivate(
-    @Body('tenantIds') tenantIds: string[],
+    // BUG-024 fix: use a validated DTO instead of a raw @Body('tenantIds') extraction
+    @Body() dto: BulkActivateDto,
     @CurrentUser() user: AdminUser,
   ): Promise<{ success: string[]; failed: string[] }> {
-    return this.detailService.bulkActivate(tenantIds, user.id);
+    return this.detailService.bulkActivate(dto.tenantIds, user.id);
   }
 
   // ============================================================================
@@ -226,7 +230,7 @@ export class TenantController {
   @HttpCode(HttpStatus.CREATED)
   async createTenantNote(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { content: string; category?: string; isPinned?: boolean },
+    @Body() body: CreateTenantNoteDto, // HIGH-003 fix: typed DTO with @MaxLength(5000) and @IsEnum(categories)
     @CurrentUser() user: AdminUser,
   ): Promise<TenantNote> {
     return this.activityService.createNote({
@@ -242,19 +246,23 @@ export class TenantController {
   @Patch(':id/notes/:noteId')
   @ApiOperation({ summary: 'Update a tenant note' })
   async updateTenantNote(
+    @Param('id', ParseUUIDPipe) id: string,
     @Param('noteId', ParseUUIDPipe) noteId: string,
-    @Body() body: { content?: string; isPinned?: boolean; category?: string },
+    @Body() body: UpdateTenantNoteDto, // HIGH-003 fix: typed DTO with @MaxLength(5000) and @IsEnum(categories)
   ): Promise<TenantNote> {
-    return this.activityService.updateNote(noteId, body);
+    // HIGH-004 fix: pass tenantId to verify ownership
+    return this.activityService.updateNote(noteId, body, id);
   }
 
   @Delete(':id/notes/:noteId')
   @ApiOperation({ summary: 'Delete a tenant note' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteTenantNote(
+    @Param('id', ParseUUIDPipe) id: string,
     @Param('noteId', ParseUUIDPipe) noteId: string,
   ): Promise<void> {
-    await this.activityService.deleteNote(noteId);
+    // HIGH-004 fix: pass tenantId to verify ownership
+    await this.activityService.deleteNote(noteId, id);
   }
 
   // ============================================================================

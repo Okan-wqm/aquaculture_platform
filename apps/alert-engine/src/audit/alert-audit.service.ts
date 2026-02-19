@@ -5,6 +5,8 @@
  * Tracks rule changes, incident lifecycle, escalations, notifications, and user actions.
  */
 
+import * as crypto from 'crypto';
+import { AsyncLocalStorage } from 'async_hooks';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
@@ -215,8 +217,15 @@ export class AlertAuditService implements OnModuleInit {
 
   // In-memory storage for now - in production, use database
   private readonly entries: AuditEntry[] = [];
-  private readonly maxEntriesInMemory = 100000;
-  private correlationStack: string[] = [];
+  // TODO: Migrate to database-backed audit store. In-memory is a temporary solution.
+  // Capped at 2000 to bound heap usage — 10k entries × ~5 KB = ~50 MB worst case.
+  // Historical queries should use the database, not this in-memory window.
+  private readonly maxEntriesInMemory = 2000;
+
+  // PE-15: Use AsyncLocalStorage for request-scoped correlation IDs.
+  // A shared array (the previous approach) corrupts correlation IDs under
+  // concurrent async requests because push/pop operates on a shared stack.
+  private readonly correlationStorage = new AsyncLocalStorage<string>();
 
   // Metrics
   private metrics = {
@@ -311,9 +320,9 @@ export class AlertAuditService implements OnModuleInit {
     // Add to in-memory storage
     this.entries.push(fullEntry);
 
-    // Trim if too large
-    if (this.entries.length > this.maxEntriesInMemory) {
-      this.entries.splice(0, this.entries.length - this.maxEntriesInMemory);
+    // Trim if too large - shift oldest entries instead of O(n) splice
+    while (this.entries.length > this.maxEntriesInMemory) {
+      this.entries.shift();
     }
 
     // Update metrics
@@ -494,83 +503,86 @@ export class AlertAuditService implements OnModuleInit {
   }
 
   /**
-   * Start a correlation context
+   * Start a correlation context.
+   * PE-15: Uses AsyncLocalStorage so each async execution context gets its own
+   * isolated correlation ID, preventing cross-request ID leakage.
    */
   startCorrelation(correlationId?: string): string {
     const id = correlationId || this.generateCorrelationId();
-    this.correlationStack.push(id);
+    this.correlationStorage.enterWith(id);
     return id;
   }
 
   /**
-   * End current correlation context
+   * End current correlation context (no-op with AsyncLocalStorage - context ends
+   * automatically when the async context exits).
    */
   endCorrelation(): void {
-    this.correlationStack.pop();
+    // AsyncLocalStorage contexts are scoped to the async execution context;
+    // no explicit cleanup is needed.
   }
 
   /**
    * Get current correlation ID
    */
   private getCurrentCorrelationId(): string | undefined {
-    return this.correlationStack[this.correlationStack.length - 1];
+    return this.correlationStorage.getStore();
   }
 
   /**
    * Query audit entries
+   * PE-03: Build a predicate array and apply a single-pass filter rather than
+   * starting with a full O(n) copy of the entire entries array.
    */
   query(options: AuditQueryOptions): AuditEntry[] {
-    let results = [...this.entries];
+    // Build predicates lazily so we do a single pass over entries.
+    const predicates: Array<(e: AuditEntry) => boolean> = [];
 
-    // Apply filters
     if (options.category) {
-      results = results.filter(e => e.category === options.category);
+      predicates.push(e => e.category === options.category);
     }
-
     if (options.eventType) {
-      results = results.filter(e => e.eventType === options.eventType);
+      predicates.push(e => e.eventType === options.eventType);
     }
-
     if (options.severity) {
-      results = results.filter(e => e.severity === options.severity);
+      predicates.push(e => e.severity === options.severity);
     }
-
     if (options.entityType) {
-      results = results.filter(e => e.entityType === options.entityType);
+      predicates.push(e => e.entityType === options.entityType);
     }
-
     if (options.entityId) {
-      results = results.filter(e => e.entityId === options.entityId);
+      predicates.push(e => e.entityId === options.entityId);
     }
-
     if (options.tenantId) {
-      results = results.filter(e => e.tenantId === options.tenantId);
+      predicates.push(e => e.tenantId === options.tenantId);
     }
-
     if (options.userId) {
-      results = results.filter(e => e.userId === options.userId);
+      predicates.push(e => e.userId === options.userId);
     }
-
     if (options.startTime) {
-      results = results.filter(e => e.timestamp >= options.startTime!);
+      const st = options.startTime;
+      predicates.push(e => e.timestamp >= st);
     }
-
     if (options.endTime) {
-      results = results.filter(e => e.timestamp <= options.endTime!);
+      const et = options.endTime;
+      predicates.push(e => e.timestamp <= et);
     }
-
     if (options.correlationId) {
-      results = results.filter(e => e.correlationId === options.correlationId);
+      predicates.push(e => e.correlationId === options.correlationId);
     }
-
     if (options.tags && options.tags.length > 0) {
-      results = results.filter(
-        e => e.tags && options.tags!.some(tag => e.tags!.includes(tag)),
-      );
+      const tags = options.tags;
+      predicates.push(e => !!(e.tags && tags.some(tag => e.tags!.includes(tag))));
+    }
+    if (options.success !== undefined) {
+      predicates.push(e => e.success === options.success);
     }
 
-    if (options.success !== undefined) {
-      results = results.filter(e => e.success === options.success);
+    let results: AuditEntry[];
+    if (predicates.length === 0) {
+      results = [...this.entries];
+    } else {
+      results = this.entries.filter(e => predicates.every(p => p(e)));
     }
 
     // Sort
@@ -628,19 +640,13 @@ export class AlertAuditService implements OnModuleInit {
    * Get statistics
    */
   getStatistics(tenantId?: string, startTime?: Date, endTime?: Date): AuditStatistics {
-    let entries = [...this.entries];
-
-    if (tenantId) {
-      entries = entries.filter(e => e.tenantId === tenantId);
-    }
-
-    if (startTime) {
-      entries = entries.filter(e => e.timestamp >= startTime);
-    }
-
-    if (endTime) {
-      entries = entries.filter(e => e.timestamp <= endTime);
-    }
+    // PE-03: Single-pass filter instead of chained full-array copies.
+    const entries = this.entries.filter(e => {
+      if (tenantId && e.tenantId !== tenantId) return false;
+      if (startTime && e.timestamp < startTime) return false;
+      if (endTime && e.timestamp > endTime) return false;
+      return true;
+    });
 
     // Calculate statistics
     const entriesByCategory: Record<string, number> = {};
@@ -881,14 +887,14 @@ export class AlertAuditService implements OnModuleInit {
    * Generate unique ID
    */
   private generateId(): string {
-    return `audit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `audit_${crypto.randomUUID()}`;
   }
 
   /**
    * Generate correlation ID
    */
   private generateCorrelationId(): string {
-    return `corr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `corr_${crypto.randomUUID()}`;
   }
 
   /**
@@ -945,6 +951,9 @@ export class AlertAuditService implements OnModuleInit {
 
   /**
    * Log error
+   * NOTE: Full stack traces are intentionally excluded from audit metadata to prevent
+   * internal system structure disclosure. Stack traces are forwarded to the server-side
+   * logger only.
    */
   logError(
     error: Error,
@@ -952,6 +961,9 @@ export class AlertAuditService implements OnModuleInit {
     entityType?: string,
     entityId?: string,
   ): AuditEntry {
+    // Log the full stack trace server-side only — never store it in the audit record.
+    this.logger.error(`[logError] ${error.message}`, error.stack);
+
     return this.log({
       category: AuditCategory.SYSTEM,
       eventType: AuditEventType.ERROR,
@@ -962,7 +974,7 @@ export class AlertAuditService implements OnModuleInit {
       description: error.message,
       metadata: {
         ...context,
-        stack: error.stack,
+        // Omit error.stack — stack traces contain internal file paths and module names.
         name: error.name,
       },
       success: false,

@@ -280,19 +280,22 @@ describe('ImpactAnalyzerService', () => {
       expect(result.factors.some(f => f.includes('dependencies'))).toBe(true);
     });
 
-    it('should increase impact for significant value deviation', () => {
-      const contextHighValue: ImpactAnalysisContext = {
+    it('should increase impact for significant value deviation from threshold', () => {
+      // BUG-034: Deviation is now relative to thresholdValue, not a hardcoded 100.
+      const contextHighDeviation: ImpactAnalysisContext = {
         tenantId: 'tenant-1',
         ruleId: 'rule-1',
         currentValue: 150,
+        thresholdValue: 30, // 400% deviation
       };
       const contextNormalValue: ImpactAnalysisContext = {
         tenantId: 'tenant-1',
         ruleId: 'rule-1',
         currentValue: 35,
+        thresholdValue: 30, // ~17% deviation — below 50% threshold
       };
 
-      const highResult = service.analyzeTechnicalImpact(contextHighValue, 1.0);
+      const highResult = service.analyzeTechnicalImpact(contextHighDeviation, 1.0);
       const normalResult = service.analyzeTechnicalImpact(contextNormalValue, 1.0);
 
       expect(highResult.score).toBeGreaterThan(normalResult.score);

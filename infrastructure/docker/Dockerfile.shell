@@ -15,23 +15,20 @@ COPY infrastructure/docker/nginx/shell.conf /etc/nginx/conf.d/default.conf
 # Copy pre-built shell application
 COPY web/shell/dist /usr/share/nginx/html
 
-# Environment variables for runtime config
+# Environment variables for runtime config (defaults; overridden by compose)
 ENV DASHBOARD_URL=http://dashboard:80
 ENV FARM_MODULE_URL=http://farm-module:80
 ENV PROCESS_EDITOR_URL=http://process-editor:80
 ENV ADMIN_PANEL_URL=http://admin-panel:80
+ENV HR_MODULE_URL=http://hr-module:80
+ENV SENSOR_MODULE_URL=http://sensor-module:80
+ENV HYDROPONICS_MODULE_URL=http://hydroponics-module:80
+ENV TENANT_ADMIN_URL=http://tenant-admin:80
 
-# Create runtime config script
-RUN echo '#!/bin/sh' > /docker-entrypoint.d/40-create-runtime-config.sh && \
-    echo 'cat > /usr/share/nginx/html/config.js << EOF' >> /docker-entrypoint.d/40-create-runtime-config.sh && \
-    echo 'window.__REMOTE_URLS__ = {' >> /docker-entrypoint.d/40-create-runtime-config.sh && \
-    echo '  dashboard: "${DASHBOARD_URL}",' >> /docker-entrypoint.d/40-create-runtime-config.sh && \
-    echo '  farmModule: "${FARM_MODULE_URL}",' >> /docker-entrypoint.d/40-create-runtime-config.sh && \
-    echo '  processEditor: "${PROCESS_EDITOR_URL}",' >> /docker-entrypoint.d/40-create-runtime-config.sh && \
-    echo '  adminPanel: "${ADMIN_PANEL_URL}"' >> /docker-entrypoint.d/40-create-runtime-config.sh && \
-    echo '};' >> /docker-entrypoint.d/40-create-runtime-config.sh && \
-    echo 'EOF' >> /docker-entrypoint.d/40-create-runtime-config.sh && \
-    chmod +x /docker-entrypoint.d/40-create-runtime-config.sh
+# ARCH-011: Copy the runtime config script from repository (readable, testable,
+# avoids fragile echo-chain RUN and shell-quoting pitfalls).
+COPY infrastructure/docker/scripts/40-create-runtime-config.sh /docker-entrypoint.d/40-create-runtime-config.sh
+RUN chmod +x /docker-entrypoint.d/40-create-runtime-config.sh
 
 # Health check - use 127.0.0.1 to avoid IPv6 issues
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

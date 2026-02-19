@@ -1,7 +1,10 @@
-import { UseGuards, UnauthorizedException } from '@nestjs/common';
+import { UseGuards, UnauthorizedException, ForbiddenException, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
+import { Request, Response } from 'express';
 import { CurrentUser, Public } from '@platform/backend-common';
 
+import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
 import { AcceptInvitationInput } from '../dto/accept-invitation.dto';
 import {
   AuthPayload,
@@ -17,33 +20,126 @@ import { User } from '../entities/user.entity';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { AuthenticationService } from '../services/authentication.service';
 
+/**
+ * GraphQL context with req/res for cookie operations
+ */
+interface GqlContext {
+  req: Request;
+  res: Response;
+}
 
 @Resolver(() => User)
 export class AuthResolver {
-  constructor(private readonly authService: AuthenticationService) {}
+  private readonly logger = new Logger(AuthResolver.name);
+  private readonly registrationEnabled: boolean;
+  private readonly isProduction: boolean;
+  private readonly refreshTokenExpiryDays: number;
 
+  constructor(
+    private readonly authService: AuthenticationService,
+    private readonly configService: ConfigService,
+  ) {
+    this.registrationEnabled = this.configService.get<string>('REGISTRATION_ENABLED', 'true') === 'true';
+    this.isProduction = this.configService.get<string>('NODE_ENV', 'development') === 'production';
+    this.refreshTokenExpiryDays = this.configService.get<number>(
+      'REFRESH_TOKEN_EXPIRY_DAYS',
+      SECURITY_CONSTANTS.DEFAULT_REFRESH_TOKEN_EXPIRY_DAYS,
+    );
+    if (!this.registrationEnabled) {
+      this.logger.log('Self-registration is DISABLED via REGISTRATION_ENABLED=false');
+    }
+  }
+
+  /**
+   * SECURITY: Set refresh token as httpOnly cookie.
+   * - httpOnly: prevents JavaScript access (XSS protection)
+   * - secure: cookie only sent over HTTPS in production
+   * - sameSite=lax: CSRF protection while allowing OAuth redirects
+   * - path=/: sent on all routes so gateway can forward it
+   */
+  private setRefreshTokenCookie(res: Response, token: string): void {
+    res.cookie('refresh_token', token, {
+      httpOnly: true,
+      secure: this.isProduction,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: this.refreshTokenExpiryDays * 24 * 60 * 60 * 1000,
+    });
+  }
+
+  private clearRefreshTokenCookie(res: Response): void {
+    res.clearCookie('refresh_token', {
+      httpOnly: true,
+      secure: this.isProduction,
+      sameSite: 'lax',
+      path: '/',
+    });
+  }
+
+  /**
+   * Strip refresh token from response body (it's in the httpOnly cookie instead)
+   */
+  private stripRefreshToken(result: AuthPayload): AuthPayload {
+    return { ...result, refreshToken: '' };
+  }
+
+  /**
+   * Self-registration mutation.
+   *
+   * SECURITY:
+   * - Can be disabled via REGISTRATION_ENABLED=false environment variable
+   * - Rate limited at gateway level (RateLimitGuard as global APP_GUARD)
+   *   - Anonymous requests: 20/min default, configure stricter limits via
+   *     RATE_LIMIT_REGISTER_MAX and RATE_LIMIT_REGISTER_WINDOW_MS
+   * - Input validated via class-validator (email format, password complexity)
+   * - Generic error messages prevent email enumeration
+   * - Refresh token is set as httpOnly cookie, not returned in body
+   */
   @Public()
   @Mutation(() => AuthPayload)
-  async register(@Args('input') input: RegisterInput): Promise<AuthPayload> {
-    return this.authService.register(input);
+  async register(
+    @Args('input') input: RegisterInput,
+    @Context() context: GqlContext,
+  ): Promise<AuthPayload> {
+    if (!this.registrationEnabled) {
+      this.logger.warn(`Blocked registration attempt (registration disabled): ${input.email}`);
+      throw new ForbiddenException('Self-registration is not available. Please contact your administrator.');
+    }
+    const result = await this.authService.register(input);
+    this.setRefreshTokenCookie(context.res, result.refreshToken);
+    return this.stripRefreshToken(result);
   }
 
   @Public()
   @Mutation(() => AuthPayload)
   async login(
     @Args('input') input: LoginInput,
-    @Context() context: { req: Request & { ip?: string; headers: Record<string, string> } },
+    @Context() context: GqlContext,
   ): Promise<AuthPayload> {
     const request = context.req;
-    const ipAddress = request.ip || request.headers['x-forwarded-for'];
-    const userAgent = request.headers['user-agent'];
-    return this.authService.login(input, ipAddress, userAgent);
+    const forwarded = request.headers['x-forwarded-for'];
+    const ipAddress = request.ip || (Array.isArray(forwarded) ? forwarded[0] : forwarded);
+    const userAgent = request.headers['user-agent'] as string | undefined;
+    const result = await this.authService.login(input, ipAddress, userAgent);
+    this.setRefreshTokenCookie(context.res, result.refreshToken);
+    return this.stripRefreshToken(result);
   }
 
   @Public()
   @Mutation(() => AuthPayload)
-  async refreshToken(@Args('input') input: RefreshTokenInput): Promise<AuthPayload> {
-    return this.authService.refreshToken(input.refreshToken);
+  async refreshToken(
+    @Args('input') input: RefreshTokenInput,
+    @Context() context: GqlContext,
+  ): Promise<AuthPayload> {
+    // SECURITY: Prefer httpOnly cookie, fall back to body for backward compatibility
+    const token = context.req.cookies?.refresh_token || input.refreshToken;
+    if (!token) {
+      throw new UnauthorizedException('No refresh token provided');
+    }
+    const result = await this.authService.refreshToken(token);
+    // Rotate the refresh token cookie
+    this.setRefreshTokenCookie(context.res, result.refreshToken);
+    return this.stripRefreshToken(result);
   }
 
   /**
@@ -54,16 +150,19 @@ export class AuthResolver {
   @Mutation(() => AuthPayload)
   async acceptInvitation(
     @Args('input') input: AcceptInvitationInput,
-    @Context() context?: { req: Request & { ip?: string; headers: Record<string, string> } },
+    @Context() context: GqlContext,
   ): Promise<AuthPayload> {
-    const ipAddress = context?.req?.ip || context?.req?.headers?.['x-forwarded-for'];
-    return this.authService.acceptInvitation(
+    const forwarded = context.req?.headers?.['x-forwarded-for'];
+    const ipAddress = context.req?.ip || (Array.isArray(forwarded) ? forwarded[0] : forwarded);
+    const result = await this.authService.acceptInvitation(
       input.token,
       input.password,
       input.firstName,
       input.lastName,
       ipAddress,
     );
+    this.setRefreshTokenCookie(context.res, result.refreshToken);
+    return this.stripRefreshToken(result);
   }
 
   /**
@@ -77,8 +176,17 @@ export class AuthResolver {
 
   @UseGuards(JwtAuthGuard)
   @Mutation(() => LogoutResponse)
-  async logout(@CurrentUser('sub') userId: string): Promise<LogoutResponse> {
-    const success = await this.authService.logout(userId);
+  async logout(
+    @CurrentUser('sub') userId: string,
+    @CurrentUser('jti') jti: string | undefined,
+    @CurrentUser('exp') exp: number | undefined,
+    @Context() context: GqlContext,
+  ): Promise<LogoutResponse> {
+    // SECURITY: Pass jti and exp so the access token can be blacklisted until it expires
+    const accessTokenExpiry = exp ? new Date(exp * 1000) : undefined;
+    const success = await this.authService.logout(userId, jti, accessTokenExpiry);
+    // SECURITY: Clear refresh token cookie on logout
+    this.clearRefreshTokenCookie(context.res);
     return { success, message: success ? 'Logged out successfully' : 'Logout failed' };
   }
 
@@ -105,7 +213,7 @@ export class AuthResolver {
     return user;
   }
 
-  @Public()
+  @UseGuards(JwtAuthGuard)
   @Query(() => TokenValidationResponse)
   async validateToken(@Args('token') token: string): Promise<TokenValidationResponse> {
     const result = await this.authService.validateToken(token);

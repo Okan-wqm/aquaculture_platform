@@ -1,0 +1,403 @@
+{{/*
+=============================================================================
+Aquaculture Platform - NetworkPolicy
+=============================================================================
+Requires a CNI that supports NetworkPolicy (Calico, Cilium, Weave).
+AWS VPC CNI does not support NetworkPolicy natively — use Calico or Cilium
+as a secondary CNI on EKS if NetworkPolicy enforcement is required.
+
+Policy design:
+  - Default-deny all ingress within the namespace.
+  - Gateway-api: accepts ingress from outside the namespace (ingress controller).
+  - Backend services: accept ingress only from gateway-api.
+  - All pods: allow egress to DNS (port 53), PostgreSQL, Redis, NATS.
+=============================================================================
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+
+{{- /* Default-deny all ingress in the namespace */}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-default-deny-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+{{- /* Gateway API — allow ingress from anywhere (nginx ingress controller) */}}
+{{- if .Values.gatewayApi.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-gateway-api-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: gateway-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: {{ .Values.gatewayApi.service.targetPort }}
+          protocol: TCP
+  egress:
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Backend services
+    - to:
+        - podSelector:
+            matchLabels:
+              tier: backend
+      ports:
+        - port: 3000
+          protocol: TCP
+    # PostgreSQL
+    - ports:
+        - port: 5432
+          protocol: TCP
+    # Redis
+    - ports:
+        - port: 6379
+          protocol: TCP
+    # NATS
+    - ports:
+        - port: 4222
+          protocol: TCP
+{{- end }}
+
+{{- /* Auth Service — allow ingress from gateway-api only */}}
+{{- if .Values.authService.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-auth-service-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: auth-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway-api
+      ports:
+        - port: {{ .Values.authService.service.targetPort }}
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 5432
+          protocol: TCP
+    - ports:
+        - port: 6379
+          protocol: TCP
+    - ports:
+        - port: 4222
+          protocol: TCP
+{{- end }}
+
+{{- /* Farm Service */}}
+{{- if .Values.farmService.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-farm-service-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: farm-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway-api
+      ports:
+        - port: {{ .Values.farmService.service.targetPort }}
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 5432
+          protocol: TCP
+    - ports:
+        - port: 6379
+          protocol: TCP
+    - ports:
+        - port: 4222
+          protocol: TCP
+{{- end }}
+
+{{- /* Sensor Service */}}
+{{- if .Values.sensorService.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-sensor-service-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: sensor-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway-api
+      ports:
+        - port: {{ .Values.sensorService.service.targetPort }}
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 5432
+          protocol: TCP
+    - ports:
+        - port: 6379
+          protocol: TCP
+    - ports:
+        - port: 4222
+          protocol: TCP
+{{- end }}
+
+{{- /* Alert Engine — event-driven, no ingress from gateway required */}}
+{{- if .Values.alertEngine.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-alert-engine-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: alert-engine
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway-api
+      ports:
+        - port: {{ .Values.alertEngine.service.targetPort }}
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 5432
+          protocol: TCP
+    - ports:
+        - port: 6379
+          protocol: TCP
+    - ports:
+        - port: 4222
+          protocol: TCP
+{{- end }}
+
+{{- /* Notification Service */}}
+{{- if .Values.notificationService.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-notification-service-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: notification-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway-api
+      ports:
+        - port: {{ .Values.notificationService.service.targetPort }}
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 5432
+          protocol: TCP
+    - ports:
+        - port: 6379
+          protocol: TCP
+    - ports:
+        - port: 4222
+          protocol: TCP
+{{- end }}
+
+{{- /* Billing Service */}}
+{{- if .Values.billingService.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-billing-service-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: billing-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway-api
+      ports:
+        - port: {{ .Values.billingService.service.targetPort }}
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 5432
+          protocol: TCP
+    - ports:
+        - port: 6379
+          protocol: TCP
+    - ports:
+        - port: 4222
+          protocol: TCP
+{{- end }}
+
+{{- /* HR Service */}}
+{{- if .Values.hrService.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-hr-service-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: hr-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway-api
+      ports:
+        - port: {{ .Values.hrService.service.targetPort }}
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 5432
+          protocol: TCP
+    - ports:
+        - port: 6379
+          protocol: TCP
+    - ports:
+        - port: 4222
+          protocol: TCP
+{{- end }}
+
+{{- /* Frontend services — allow ingress from ingress controller, egress to DNS only */}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-frontend-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      tier: frontend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: 80
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+{{- end }}{{/* end networkPolicy.enabled */}}

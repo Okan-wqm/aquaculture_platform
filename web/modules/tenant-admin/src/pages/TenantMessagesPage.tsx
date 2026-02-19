@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { messagingApi, type MessageThread, type Message } from '../services/tenantApi';
 import { useAuthContext } from '@aquaculture/shared-ui';
+import { logError } from '../utils/error-handling';
 
 // ============================================================================
 // Types
@@ -45,6 +46,7 @@ const TenantMessagesPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Fetch threads from backend
@@ -55,7 +57,7 @@ const TenantMessagesPage: React.FC = () => {
       const result = await messagingApi.getThreads();
       setThreads(result.data || []);
     } catch (err) {
-      console.error('Failed to fetch threads:', err);
+      logError('TenantMessagesPage.fetchThreads', err);
       setError(err instanceof Error ? err.message : 'Failed to load messages');
     } finally {
       setLoading(false);
@@ -63,19 +65,19 @@ const TenantMessagesPage: React.FC = () => {
   };
 
   // Fetch messages for selected thread
+  // PERF-008: Fetch messages and mark-as-read in parallel, then refresh threads
   const fetchMessages = async (threadId: string) => {
     try {
       setMessagesLoading(true);
-      const msgs = await messagingApi.getThreadMessages(threadId);
+      const [msgs] = await Promise.all([
+        messagingApi.getThreadMessages(threadId),
+        messagingApi.markAsRead(threadId).catch(() => null),
+      ]);
       setMessages(msgs || []);
-      
-      // Mark as read
-      await messagingApi.markAsRead(threadId);
-      
-      // Refresh threads to update unread count
+      // Refresh threads to update unread count (fire-and-forget)
       fetchThreads();
     } catch (err) {
-      console.error('Failed to fetch messages:', err);
+      logError('TenantMessagesPage.fetchMessages', err);
     } finally {
       setMessagesLoading(false);
     }
@@ -89,7 +91,8 @@ const TenantMessagesPage: React.FC = () => {
     if (selectedThread) {
       fetchMessages(selectedThread.id);
     }
-  }, [selectedThread]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedThread?.id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -107,22 +110,23 @@ const TenantMessagesPage: React.FC = () => {
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !selectedThread) return;
 
+    setSendError(null);
     try {
-      const userName = user?.firstName && user?.lastName 
-        ? `${user.firstName} ${user.lastName}` 
+      const userName = user?.firstName && user?.lastName
+        ? `${user.firstName} ${user.lastName}`
         : user?.email || 'You';
-      
+
       await messagingApi.sendMessage(selectedThread.id, newMessage, userName);
       setNewMessage('');
-      
-      // Refresh messages
-      await fetchMessages(selectedThread.id);
-      
-      // Refresh threads to update last message
-      fetchThreads();
+
+      // Refresh messages and threads in parallel (PERF-008)
+      await Promise.all([
+        fetchMessages(selectedThread.id),
+        fetchThreads(),
+      ]);
     } catch (err) {
-      console.error('Failed to send message:', err);
-      alert('Failed to send message. Please try again.');
+      // BUG-014: Use inline error state instead of alert()
+      setSendError(err instanceof Error ? err.message : 'Failed to send message. Please try again.');
     }
   };
 
@@ -357,7 +361,8 @@ const TenantMessagesPage: React.FC = () => {
                           {formatTime(message.createdAt)}
                         </span>
                       </div>
-                      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                      {/* SEC-008: Use whitespace-pre-line (newlines only) not pre-wrap to avoid tab/space injection layout attacks */}
+                      <p className="text-sm whitespace-pre-line">{message.content}</p>
 
                       {/* Read Status */}
                       {message.senderType === 'tenant_admin' && (
@@ -407,7 +412,15 @@ const TenantMessagesPage: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                  <div className="text-xs text-gray-400 mt-2">Press Ctrl+Enter to send</div>
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="text-xs text-gray-400">Press Ctrl+Enter to send</div>
+                    {sendError && (
+                      <div className="flex items-center gap-1 text-xs text-red-600">
+                        <AlertCircle size={12} />
+                        {sendError}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -444,12 +457,12 @@ const TenantMessagesPage: React.FC = () => {
               
               await messagingApi.createThread(subject, content, userName);
               setShowNewThreadModal(false);
-              
+
               // Refresh threads
               await fetchThreads();
             } catch (err) {
-              console.error('Failed to create thread:', err);
-              alert('Failed to create conversation. Please try again.');
+              // Re-throw so NewThreadModal can show inline error
+              throw err;
             }
           }}
         />
@@ -462,22 +475,25 @@ const TenantMessagesPage: React.FC = () => {
 // Sub-components
 // ============================================================================
 
-const NewThreadModal: React.FC<{ 
+const NewThreadModal: React.FC<{
   onClose: () => void;
   onSubmit: (subject: string, content: string) => Promise<void>;
 }> = ({ onClose, onSubmit }) => {
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     if (!subject.trim() || !message.trim()) return;
-    
+
+    setSubmitError(null);
     try {
       setSubmitting(true);
       await onSubmit(subject, message);
     } catch (err) {
-      // Error handled by parent
+      // BUG-014: Show inline error instead of alert()
+      setSubmitError(err instanceof Error ? err.message : 'Failed to create conversation. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -517,6 +533,14 @@ const NewThreadModal: React.FC<{
           </div>
         </div>
 
+        {submitError && (
+          <div className="px-6 pb-2">
+            <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+              <AlertCircle size={16} className="flex-shrink-0" />
+              {submitError}
+            </div>
+          </div>
+        )}
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200">
           <button
             onClick={onClose}

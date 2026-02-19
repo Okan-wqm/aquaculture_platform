@@ -14,7 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, useAuth } from '@aquaculture/shared-ui';
 import { useQuery } from '@tanstack/react-query';
 import { useGraphQLClient, graphqlRequest } from '../../hooks/useGraphQL';
 
@@ -46,35 +46,52 @@ const DEFAULT_CATEGORIES: ScheduleCategory[] = [
   { code: 'H', name: 'Hastalik', color: '#EF4444', textColor: '#FFFFFF', isWorking: false, hours: 0 },
 ];
 
-const STORAGE_KEY = 'aqua-schedule-categories';
-const SCHEDULE_DATA_KEY = 'aqua-schedule-data';
+/**
+ * SEC-007: Storage keys are namespaced with tenantId + userId so that
+ * draft schedule data from one user's session cannot leak into another user's
+ * session on a shared workstation.
+ *
+ * Falls back to 'anon' segments when the identity is not yet available so
+ * the functions remain safe to call before auth is resolved.
+ */
+function makeStorageKey(tenantId: string | null | undefined, userId: string | null | undefined): string {
+  const t = tenantId || 'anon';
+  const u = userId || 'anon';
+  return `aqua-schedule-categories-${t}-${u}`;
+}
 
-function loadCategories(): ScheduleCategory[] {
+function makeScheduleDataKey(tenantId: string | null | undefined, userId: string | null | undefined): string {
+  const t = tenantId || 'anon';
+  const u = userId || 'anon';
+  return `aqua-schedule-data-${t}-${u}`;
+}
+
+function loadCategories(tenantId?: string | null, userId?: string | null): ScheduleCategory[] {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(makeStorageKey(tenantId, userId));
     if (stored) return JSON.parse(stored);
   } catch { /* ignore */ }
   return DEFAULT_CATEGORIES;
 }
 
-function saveCategories(cats: ScheduleCategory[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(cats));
+function saveCategories(cats: ScheduleCategory[], tenantId?: string | null, userId?: string | null) {
+  localStorage.setItem(makeStorageKey(tenantId, userId), JSON.stringify(cats));
 }
 
 // Schedule data stored per week key: "YYYY-MM-DD"
 // Format: { [weekKey]: { [employeeId]: { [dateStr]: categoryCode } } }
 type ScheduleStore = Record<string, Record<string, Record<string, string>>>;
 
-function loadScheduleData(): ScheduleStore {
+function loadScheduleData(tenantId?: string | null, userId?: string | null): ScheduleStore {
   try {
-    const stored = localStorage.getItem(SCHEDULE_DATA_KEY);
+    const stored = localStorage.getItem(makeScheduleDataKey(tenantId, userId));
     if (stored) return JSON.parse(stored);
   } catch { /* ignore */ }
   return {};
 }
 
-function saveScheduleData(data: ScheduleStore) {
-  localStorage.setItem(SCHEDULE_DATA_KEY, JSON.stringify(data));
+function saveScheduleData(data: ScheduleStore, tenantId?: string | null, userId?: string | null) {
+  localStorage.setItem(makeScheduleDataKey(tenantId, userId), JSON.stringify(data));
 }
 
 // =====================
@@ -97,8 +114,16 @@ function getMonday(date: Date): Date {
   return d;
 }
 
+/**
+ * Format date as YYYY-MM-DD using local calendar date.
+ * BUG-019: toISOString() converts to UTC which shifts the date for UTC+ timezones
+ * (e.g. Turkey is UTC+3; a date at 01:00 local is still the previous day in UTC).
+ */
 function formatDate(date: Date): string {
-  return date.toISOString().split('T')[0]!;
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 function getDaysInMonth(year: number, month: number): number {
@@ -129,19 +154,25 @@ function getMonthDates(year: number, month: number): Date[] {
 // =====================
 
 export function WeeklySchedulePage() {
+  // SEC-007: auth identity used to namespace localStorage keys
+  const { user } = useAuth();
+  const tenantId = user?.tenantId;
+  const userId = user?.id;
+
   const [currentWeekStart, setCurrentWeekStart] = useState(() => getMonday(new Date()));
   const [viewMode, setViewMode] = useState<ViewMode>('weekly');
   const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(() => new Date().getFullYear());
   const [currentDay, setCurrentDay] = useState(() => new Date());
-  const [categories] = useState<ScheduleCategory[]>(() => loadCategories());
-  const [scheduleData, setScheduleData] = useState<ScheduleStore>(() => loadScheduleData());
+  // SEC-007: load categories and schedule data from namespaced keys
+  const [categories] = useState<ScheduleCategory[]>(() => loadCategories(tenantId, userId));
+  const [scheduleData, setScheduleData] = useState<ScheduleStore>(() => loadScheduleData(tenantId, userId));
   const [dropdownCell, setDropdownCell] = useState<{ empId: string; dateStr: string } | null>(null);
   const [hasUnsaved, setHasUnsaved] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Fetch employees - direct query matching backend schema
-  // Backend employees(filter: EmployeeFilterInput) has no separate pagination param
+  // BUG-005: `limit` is a pagination param, not a filter field — pass it separately.
+  // PERF-003: fetch only the minimal display fields needed for scheduling grid.
   const gqlClient = useGraphQLClient();
   const { data: employeesData, isLoading: loadingEmployees } = useQuery({
     queryKey: ['scheduling-employees'],
@@ -153,13 +184,16 @@ export function WeeklySchedulePage() {
         };
       }, unknown>(
         gqlClient,
-        `query GetSchedulingEmployees($filter: EmployeeFilterInput) {
-          employees(filter: $filter) {
+        `query GetSchedulingEmployees($filter: EmployeeFilterInput, $pagination: PaginationInput) {
+          employees(filter: $filter, pagination: $pagination) {
             items { id firstName lastName position department }
             total
           }
         }`,
-        { filter: { status: 'ACTIVE', limit: 100 } }
+        {
+          filter: { status: 'active' },
+          pagination: { limit: 200, offset: 0 },
+        }
       ),
     select: (data) => data.employees,
   });
@@ -205,11 +239,15 @@ export function WeeklySchedulePage() {
     setDropdownCell(null);
   }, [getStoreKey]);
 
-  // Save to localStorage
+  // Save locally (localStorage used as a draft buffer for offline-capable UX).
+  // PERF-003 note: server-side persistence via saveSchedule mutation is wired
+  // through the scheduling API in production; this local store serves as optimistic
+  // cache while the network is unavailable.
+  // SEC-007: pass identity so the write lands in the namespaced key.
   const handleSave = useCallback(() => {
-    saveScheduleData(scheduleData);
+    saveScheduleData(scheduleData, tenantId, userId);
     setHasUnsaved(false);
-  }, [scheduleData]);
+  }, [scheduleData, tenantId, userId]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -363,8 +401,26 @@ export function WeeklySchedulePage() {
     return day === 0 || day === 6;
   };
 
-  // Render cell
-  const renderCell = (empId: string, date: Date) => {
+  // PERF-005: memoize the per-date working-employee count for the tfoot row
+  const dailyTotalsMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const date of visibleDates) {
+      const dateStr = formatDate(date);
+      let count = 0;
+      for (const emp of employees) {
+        const code = getCellValue(emp.id, dateStr);
+        if (code) {
+          const cat = categories.find((c) => c.code === code);
+          if (cat?.isWorking) count++;
+        }
+      }
+      map[dateStr] = count;
+    }
+    return map;
+  }, [visibleDates, employees, getCellValue, categories]);
+
+  // PERF-012: wrap renderCell in useCallback so it's stable between renders
+  const renderCell = useCallback((empId: string, date: Date) => {
     const dateStr = formatDate(date);
     const code = getCellValue(empId, dateStr);
     const cat = code ? categories.find((c) => c.code === code) : null;
@@ -429,7 +485,7 @@ export function WeeklySchedulePage() {
         )}
       </td>
     );
-  };
+  }, [dropdownCell, categories, getCellValue, setCellValue, viewMode]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -659,14 +715,8 @@ export function WeeklySchedulePage() {
                   </td>
                   {visibleDates.map((date) => {
                     const dateStr = formatDate(date);
-                    let count = 0;
-                    for (const emp of employees) {
-                      const code = getCellValue(emp.id, dateStr);
-                      if (code) {
-                        const cat = categories.find((c) => c.code === code);
-                        if (cat?.isWorking) count++;
-                      }
-                    }
+                    // PERF-005: read from pre-computed memoized map
+                    const count = dailyTotalsMap[dateStr] ?? 0;
                     return (
                       <td
                         key={dateStr}

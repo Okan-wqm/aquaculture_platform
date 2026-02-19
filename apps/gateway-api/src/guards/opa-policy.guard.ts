@@ -149,7 +149,18 @@ export class OpaPolicyGuard implements CanActivate {
       'OPA_URL',
       'http://localhost:8181',
     );
-    this.enabled = this.configService.get<boolean>('OPA_ENABLED', false);
+    // SECURITY: In production, OPA defaults to enabled for defense-in-depth.
+    // Set OPA_ENABLED=false explicitly to disable (with a mandatory warning).
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    const opaEnabledRaw = this.configService.get<string>('OPA_ENABLED');
+
+    if (isProduction && opaEnabledRaw === undefined) {
+      // Production without explicit config: default to enabled
+      this.enabled = true;
+    } else {
+      this.enabled = this.configService.get<boolean>('OPA_ENABLED', false);
+    }
+
     this.failOpen = this.configService.get<boolean>('OPA_FAIL_OPEN', false);
     this.timeout = this.configService.get<number>('OPA_TIMEOUT_MS', 5000);
     this.cacheTtl = this.configService.get<number>('OPA_CACHE_TTL_MS', 30000);
@@ -159,6 +170,15 @@ export class OpaPolicyGuard implements CanActivate {
     // SECURITY: Set up automatic cache cleanup
     // This ensures stale permissions are eventually removed
     this.cleanupInterval = setInterval(() => this.cleanupExpiredEntries(), this.cacheTtl);
+
+    // SECURITY: Warn loudly if OPA is disabled in production
+    if (isProduction && !this.enabled) {
+      this.logger.error(
+        'SECURITY WARNING: OPA policy enforcement is DISABLED in production. ' +
+        'This means fine-grained authorization is not enforced. ' +
+        'Set OPA_ENABLED=true and configure OPA_URL to enable policy enforcement.',
+      );
+    }
 
     this.logger.log(
       `OpaPolicyGuard initialized: enabled=${this.enabled}, url=${this.opaUrl}`,
@@ -335,7 +355,6 @@ export class OpaPolicyGuard implements CanActivate {
     const user = request.user ?? {};
     const handler = context.getHandler();
     const className = context.getClass().name;
-    const forwardedFor = request.headers?.['x-forwarded-for'];
     const tenantIdHeader = request.headers?.['x-tenant-id'];
     const correlationId = request.headers?.['x-correlation-id'];
 
@@ -356,10 +375,9 @@ export class OpaPolicyGuard implements CanActivate {
       action: handler.name,
       context: {
         timestamp: new Date().toISOString(),
-        ip:
-          request.ip ??
-          (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0] : undefined) ??
-          request.connection?.remoteAddress,
+        // SECURITY: Use req.ip which respects trust proxy setting;
+        // do not fall back to x-forwarded-for which is client-spoofable
+        ip: request.ip ?? request.connection?.remoteAddress,
         path: request.url,
         method: request.method,
         correlationId: typeof correlationId === 'string' ? correlationId : undefined,
@@ -451,6 +469,11 @@ export class OpaPolicyGuard implements CanActivate {
   /**
    * Build cache key for decision
    */
+  /**
+   * Build cache key for decision
+   * SECURITY: Uses pipe delimiter with length-prefixed parts to prevent
+   * key collision when resource IDs or policy names contain the delimiter.
+   */
   private buildCacheKey(config: OpaPolicyConfig, input: OpaInput): string {
     const keyParts = [
       config.policy,
@@ -462,7 +485,8 @@ export class OpaPolicyGuard implements CanActivate {
       input.action,
     ];
 
-    return keyParts.join(':');
+    // Length-prefix each part to prevent ambiguity
+    return keyParts.map(p => `${p.length}:${p}`).join('|');
   }
 
   /**

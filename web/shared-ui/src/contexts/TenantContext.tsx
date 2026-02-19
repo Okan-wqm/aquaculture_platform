@@ -80,41 +80,11 @@ export const TenantProvider: React.FC<TenantProviderProps> = ({
     tenant: initialTenant ?? null,
   });
 
-  const switchTenant = useCallback(async (tenantId: string): Promise<void> => {
-    dispatch({ type: 'TENANT_LOADING' });
-
-    try {
-      // API çağrısı - şimdilik mock
-      const mockTenant: Tenant = {
-        id: tenantId,
-        name: 'Mock Tenant',
-        slug: 'mock-tenant',
-        tier: 'professional',
-        status: 'active',
-        settings: {
-          timezone: 'Europe/Istanbul',
-          locale: 'tr-TR',
-          currency: 'TRY',
-          dateFormat: 'DD.MM.YYYY',
-          measurementSystem: 'metric',
-        },
-        limits: {
-          maxUsers: 50,
-          maxFarms: 10,
-          maxPonds: 100,
-          maxSensors: 500,
-          maxAlertRules: 50,
-          dataRetentionDays: 365,
-          apiRateLimit: 1000,
-        },
-        createdAt: new Date(),
-      };
-
-      dispatch({ type: 'TENANT_LOADED', payload: mockTenant });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Tenant yüklenemedi';
-      dispatch({ type: 'TENANT_ERROR', payload: message });
-    }
+  // CRIT-5/BUG-004/PERF-008: switchTenant is not yet implemented.
+  // Throw a clear error rather than silently returning fabricated mock data.
+  // When implementing: make a real API call, dispatch TENANT_LOADED with real data.
+  const switchTenant = useCallback(async (_tenantId: string): Promise<void> => {
+    throw new Error('switchTenant: not implemented. Provide a real tenant fetch before calling this.');
   }, []);
 
   const clearTenant = useCallback(() => {

@@ -137,30 +137,30 @@ export class SystemMetricsService {
    */
   async getPlatformMetrics(): Promise<PlatformMetrics> {
     try {
+      // H-2 fix: removed dead query for active users (results[3]) that was fetched but never used
       const results = await Promise.all([
-        this.countEntities('tenants'),
-        this.countEntities('tenants', "status = 'active'"),
-        this.countEntities('users'),
-        this.countEntities('users', '"isActive" = true'),
-        this.safeCountEntities('farms'),
-        this.safeCountEntities('sensors'),
-        this.safeCountEntities('sensors', 'is_active = true'),
-        this.safeCountEntities('alert_rules'),
-        this.safeCountEntities('alert_rules', 'is_active = true'),
-        this.countAuditLogsLast24h(),
+        this.countEntities('tenants'),           // 0: totalTenants
+        this.countEntities('tenants', "status = 'active'"), // 1: activeTenants
+        this.countEntities('users'),             // 2: totalUsers
+        this.safeCountEntities('farms'),         // 3: totalFarms
+        this.safeCountEntities('sensors'),       // 4: totalSensors
+        this.safeCountEntities('sensors', 'is_active = true'), // 5: activeSensors
+        this.safeCountEntities('alert_rules'),   // 6: totalAlertRules
+        this.safeCountEntities('alert_rules', 'is_active = true'), // 7: activeAlertRules
+        this.countAuditLogsLast24h(),            // 8: eventsLast24h
       ]);
 
       return {
         totalTenants: results[0],
         activeTenants: results[1],
         totalUsers: results[2],
-        totalFarms: results[4],
-        totalSensors: results[5],
-        activeSensors: results[6],
-        totalAlertRules: results[7],
-        activeAlertRules: results[8],
-        eventsLast24h: results[9],
-        apiCallsLast24h: results[9], // Using audit logs as proxy
+        totalFarms: results[3],
+        totalSensors: results[4],
+        activeSensors: results[5],
+        totalAlertRules: results[6],
+        activeAlertRules: results[7],
+        eventsLast24h: results[8],
+        apiCallsLast24h: results[8], // Using audit logs as proxy
       };
     } catch (error) {
       this.logger.error(
@@ -227,13 +227,30 @@ export class SystemMetricsService {
       { name: 'config-service', url: 'http://config-service:3007/api/v1/health' },
     ];
 
-    // In real implementation, these would make actual HTTP calls
+    // C-3 fix: Report status as 'degraded' with a note instead of falsely claiming 'healthy'.
+    // Real implementation requires actual HTTP health check calls.
     for (const endpoint of serviceEndpoints) {
-      services.push({
-        name: endpoint.name,
-        status: 'healthy', // Would be determined by actual health check
-        lastCheck: new Date(),
-      });
+      try {
+        // Attempt a real health check via HTTP
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        const response = await fetch(endpoint.url, { signal: controller.signal }).catch(() => null);
+        clearTimeout(timeout);
+
+        services.push({
+          name: endpoint.name,
+          status: response?.ok ? 'healthy' : 'degraded',
+          lastCheck: new Date(),
+          details: response ? { statusCode: response.status } : { error: 'unreachable' },
+        });
+      } catch {
+        services.push({
+          name: endpoint.name,
+          status: 'degraded',
+          lastCheck: new Date(),
+          details: { error: 'Health check not available' },
+        });
+      }
     }
 
     return services;
@@ -244,43 +261,12 @@ export class SystemMetricsService {
    */
   async getMetricTrends(
     _metric: string,
-    interval: '1h' | '24h' | '7d' | '30d',
+    _interval: '1h' | '24h' | '7d' | '30d',
   ): Promise<{ timestamp: Date; value: number }[]> {
-    // In real implementation, this would query a time-series database
-    // or aggregated metrics table
-    const now = new Date();
-    const points: { timestamp: Date; value: number }[] = [];
-
-    let intervalMs: number;
-    let numPoints: number;
-
-    switch (interval) {
-      case '1h':
-        intervalMs = 5 * 60 * 1000; // 5 minutes
-        numPoints = 12;
-        break;
-      case '24h':
-        intervalMs = 60 * 60 * 1000; // 1 hour
-        numPoints = 24;
-        break;
-      case '7d':
-        intervalMs = 6 * 60 * 60 * 1000; // 6 hours
-        numPoints = 28;
-        break;
-      case '30d':
-        intervalMs = 24 * 60 * 60 * 1000; // 1 day
-        numPoints = 30;
-        break;
-    }
-
-    for (let i = numPoints - 1; i >= 0; i--) {
-      points.push({
-        timestamp: new Date(now.getTime() - i * intervalMs),
-        value: Math.random() * 100, // Placeholder - would be actual metric value
-      });
-    }
-
-    return points;
+    // C-3 fix: Return empty array instead of fabricated Math.random() data.
+    // Real implementation requires time-series database or aggregated metrics table.
+    this.logger.warn('getMetricTrends requires time-series database integration - returning empty data');
+    return [];
   }
 
   private async checkDatabaseHealth(): Promise<ServiceHealth> {
@@ -304,11 +290,38 @@ export class SystemMetricsService {
     }
   }
 
+  // H-3 fix: whitelist table names to prevent SQL injection
+  private static readonly ALLOWED_TABLES = new Set([
+    'tenants', 'users', 'farms', 'sensors', 'alert_rules', 'audit_logs',
+  ]);
+
+  // H-3 fix: whitelist conditions to prevent SQL injection
+  private static readonly ALLOWED_CONDITIONS = new Set([
+    "status = 'active'",
+    '"isActive" = true',
+    'is_active = true',
+  ]);
+
+  /**
+   * HIGH-006 fix: cache table-existence results at first use to avoid an
+   * information_schema round-trip on every safeCountEntities() call.
+   */
+  private readonly tableExistsCache = new Map<string, boolean>();
+
   private async countEntities(
     table: string,
     condition?: string,
   ): Promise<number> {
     try {
+      if (!SystemMetricsService.ALLOWED_TABLES.has(table)) {
+        this.logger.warn(`countEntities called with disallowed table: ${table}`);
+        return 0;
+      }
+      if (condition && !SystemMetricsService.ALLOWED_CONDITIONS.has(condition)) {
+        this.logger.warn(`countEntities called with disallowed condition: ${condition}`);
+        return 0;
+      }
+
       const query = condition
         ? `SELECT count(*) as count FROM ${table} WHERE ${condition}`
         : `SELECT count(*) as count FROM ${table}`;
@@ -325,16 +338,20 @@ export class SystemMetricsService {
     condition?: string,
   ): Promise<number> {
     try {
-      // Check if table exists first
-      const tableExists = await this.dataSource.query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables
-          WHERE table_schema = 'public'
-          AND table_name = $1
-        )
-      `, [table]);
+      // HIGH-006 fix: serve table-existence from the in-process cache so we
+      // avoid an information_schema round-trip on every call.
+      if (!this.tableExistsCache.has(table)) {
+        const tableExistsRows = await this.dataSource.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_schema = 'public'
+            AND table_name = $1
+          ) AS exists
+        `, [table]);
+        this.tableExistsCache.set(table, tableExistsRows[0]?.exists === true);
+      }
 
-      if (!tableExists[0]?.exists) {
+      if (!this.tableExistsCache.get(table)) {
         return 0;
       }
 

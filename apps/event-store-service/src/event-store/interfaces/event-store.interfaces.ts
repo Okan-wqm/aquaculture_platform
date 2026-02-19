@@ -115,39 +115,6 @@ export interface ConcurrencyCheckResult {
 }
 
 /**
- * Event upcaster for schema evolution
- */
-export interface EventUpcaster {
-  eventType: string;
-  fromVersion: number;
-  toVersion: number;
-  upcast(event: DomainEvent): DomainEvent;
-}
-
-/**
- * Subscription configuration
- */
-export interface SubscriptionConfig {
-  streamName?: string;
-  eventTypes?: string[];
-  aggregateTypes?: string[];
-  fromPosition?: number;
-  consumerGroup?: string;
-  batchSize?: number;
-  maxRetries?: number;
-}
-
-/**
- * Subscription checkpoint
- */
-export interface SubscriptionCheckpoint {
-  subscriptionId: string;
-  consumerGroup: string;
-  position: number;
-  lastProcessedAt: Date;
-}
-
-/**
  * Event handler callback type
  */
 export type EventHandler = (event: PersistedEvent) => Promise<void>;

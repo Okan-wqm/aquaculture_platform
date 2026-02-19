@@ -478,117 +478,11 @@ export class FeedingCronService {
     timeZone: 'Europe/Istanbul',
   })
   async updateTemperatureReadings(): Promise<void> {
-    const context = this.createJobContext('update-temperature-readings');
-    this.logJobStart(context, 'Updating temperature readings for active feeding plans...');
-
-    // Try to acquire distributed lock
-    const lockAcquired = await this.tryAcquireAdvisoryLock(context.jobName);
-    if (!lockAcquired) {
-      this.logger.debug('Another instance is running this job, skipping', {
-        jobId: context.jobId,
-      });
-      return;
-    }
-
-    try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      // Process pending executions in batches with pagination
-      let offset = 0;
-      let hasMore = true;
-      let totalProcessed = 0;
-      const executionsByTenant = new Map<string, DailyFeedingExecution[]>();
-
-      while (hasMore) {
-        const batch = await this.executionRepo.find({
-          where: {
-            executionDate: today,
-            status: ExecutionStatus.PLANNED,
-          },
-          relations: ['feedingProgramTank'],
-          order: { tenantId: 'ASC', id: 'ASC' },
-          skip: offset,
-          take: BATCH_SIZE,
-        });
-
-        if (batch.length === 0) {
-          hasMore = false;
-          break;
-        }
-
-        // Group by tenant for batch processing
-        for (const execution of batch) {
-          const executions = executionsByTenant.get(execution.tenantId) || [];
-          executions.push(execution);
-          executionsByTenant.set(execution.tenantId, executions);
-        }
-
-        offset += batch.length;
-        hasMore = batch.length === BATCH_SIZE;
-      }
-
-      if (executionsByTenant.size === 0) {
-        this.logger.debug('No pending executions to update', { jobId: context.jobId });
-        return;
-      }
-
-      // Process each tenant's executions
-      for (const [tenantId, executions] of executionsByTenant) {
-        try {
-          for (const execution of executions) {
-            const tank = execution.feedingProgramTank;
-            if (!tank?.temperatureSensorId) {
-              continue; // No sensor assigned
-            }
-
-            // TODO: Implement temperature sensor integration
-            // This requires the sensor-service to be available and connected.
-            // When implemented:
-            // 1. Fetch latest temperature from sensor service
-            // 2. Compare with current execution.calculations.waterTempC
-            // 3. If changed, call executionService.recalculateExecution()
-            //
-            // Example implementation:
-            // const latestTemp = await this.sensorService.getLatestReading(
-            //   tenantId,
-            //   tank.temperatureSensorId,
-            // );
-            //
-            // if (latestTemp && execution.calculations.waterTempC !== latestTemp.value) {
-            //   await this.executionService.recalculateExecution(
-            //     execution.id,
-            //     { waterTempC: latestTemp.value },
-            //   );
-            //   totalProcessed++;
-            // }
-
-            this.logger.debug(
-              `Skipping temperature update for execution ${execution.id} - sensor integration not implemented`,
-              { jobId: context.jobId, tenantId, executionId: execution.id },
-            );
-          }
-        } catch (error) {
-          const err = error instanceof Error ? error : new Error(String(error));
-          this.logger.error(
-            `Failed to update temperatures for tenant ${tenantId}`,
-            err.stack,
-            { jobId: context.jobId, tenantId, errorMessage: err.message },
-          );
-        }
-      }
-
-      this.logJobEnd(context, {
-        tenantsProcessed: executionsByTenant.size,
-        totalRecords: totalProcessed,
-      });
-
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logJobError(context, 'Temperature update failed', err);
-    } finally {
-      await this.releaseAdvisoryLock(context.jobName);
-    }
+    // Early-return: sensor integration is not yet implemented.
+    // Loading 25,000+ ORM objects every hour for a no-op wastes memory and GC cycles.
+    // TODO: Remove this guard when sensor-service integration is available.
+    this.logger.debug('Temperature update skipped - sensor integration not yet implemented');
+    return;
   }
 
   // ==========================================================================
@@ -635,7 +529,7 @@ export class FeedingCronService {
           .createQueryBuilder('e')
           .where('e.executionDate = :today', { today })
           .andWhere('e.status = :status', { status: ExecutionStatus.PLANNED })
-          .andWhere("e.calculations @> :jsonPattern", { jsonPattern: '{"transitionWarning": {}}' })
+          .andWhere("e.calculations::jsonb ? :jsonKey", { jsonKey: 'transitionWarning' })
           .orderBy('e.tenantId', 'ASC')
           .addOrderBy('e.id', 'ASC')
           .skip(offset)
@@ -732,14 +626,16 @@ export class FeedingCronService {
       const oneYearAgo = new Date();
       oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
-      // SECURITY FIX: Process cleanup per tenant to maintain tenant isolation
-      // First, get all distinct tenant IDs that have old executions
-      const tenantsWithOldData = await this.dataSource.query(
-        `SELECT DISTINCT "tenantId" FROM daily_feeding_executions
-         WHERE "executionDate" < $1
-         AND status = ANY($2)`,
-        [oneYearAgo, [ExecutionStatus.COMPLETED, ExecutionStatus.SKIPPED]],
-      );
+      // Get all distinct tenant IDs that have old executions
+      // Use the ORM repository (which respects search_path) with tenantId grouping
+      const tenantsWithOldData = await this.executionRepo
+        .createQueryBuilder('e')
+        .select('DISTINCT e.tenantId', 'tenantId')
+        .where('e.executionDate < :cutoff', { cutoff: oneYearAgo })
+        .andWhere('e.status IN (:...statuses)', {
+          statuses: [ExecutionStatus.COMPLETED, ExecutionStatus.SKIPPED],
+        })
+        .getRawMany();
 
       if (!tenantsWithOldData || tenantsWithOldData.length === 0) {
         this.logger.log('No old execution records to clean up', { jobId: context.jobId });
@@ -754,39 +650,49 @@ export class FeedingCronService {
       let totalDeleted = 0;
       const deletedByTenant: Record<string, number> = {};
 
-      // Process each tenant separately to maintain isolation
+      // Process each tenant separately with proper schema context
       for (const row of tenantsWithOldData) {
         const tenantId = row.tenantId;
         let tenantDeleted = 0;
         let deleted = 0;
         let iterations = 0;
-        const maxIterations = 100; // Per-tenant safety limit
+        const maxIterations = 100;
 
-        // Batch delete for this specific tenant
-        do {
-          const result = await this.dataSource.query(
-            `DELETE FROM daily_feeding_executions
-             WHERE id IN (
-               SELECT id FROM daily_feeding_executions
-               WHERE "tenantId" = $1
-               AND "executionDate" < $2
-               AND status = ANY($3)
-               LIMIT $4
-             )`,
-            [tenantId, oneYearAgo, [ExecutionStatus.COMPLETED, ExecutionStatus.SKIPPED], CLEANUP_BATCH_SIZE],
-          );
+        // Use a dedicated queryRunner with proper search_path for tenant isolation
+        const schemaName = `tenant_${tenantId.replace(/-/g, '').substring(0, 16).toLowerCase()}`;
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
 
-          // PostgreSQL returns { rowCount: number } for DELETE queries
-          deleted = result?.rowCount ?? (Array.isArray(result) ? 0 : result?.affected ?? 0);
-          tenantDeleted += deleted;
-          iterations++;
+        try {
+          await queryRunner.query(`SET search_path TO "${schemaName}", farm, public`);
 
-          // Small delay between batches to reduce database load
-          if (deleted === CLEANUP_BATCH_SIZE) {
-            await this.sleep(100);
-          }
+          // Batch delete for this specific tenant
+          do {
+            const result = await queryRunner.query(
+              `DELETE FROM daily_feeding_executions
+               WHERE id IN (
+                 SELECT id FROM daily_feeding_executions
+                 WHERE "tenantId" = $1
+                 AND "executionDate" < $2
+                 AND status = ANY($3)
+                 LIMIT $4
+               )`,
+              [tenantId, oneYearAgo, [ExecutionStatus.COMPLETED, ExecutionStatus.SKIPPED], CLEANUP_BATCH_SIZE],
+            );
 
-        } while (deleted === CLEANUP_BATCH_SIZE && iterations < maxIterations);
+            deleted = result?.rowCount ?? (Array.isArray(result) ? 0 : result?.affected ?? 0);
+            tenantDeleted += deleted;
+            iterations++;
+
+            if (deleted === CLEANUP_BATCH_SIZE) {
+              await this.sleep(100);
+            }
+
+          } while (deleted === CLEANUP_BATCH_SIZE && iterations < maxIterations);
+        } finally {
+          await queryRunner.query('RESET search_path').catch(() => {});
+          await queryRunner.release();
+        }
 
         if (tenantDeleted > 0) {
           deletedByTenant[tenantId] = tenantDeleted;

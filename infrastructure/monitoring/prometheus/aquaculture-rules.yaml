@@ -26,11 +26,16 @@ spec:
             description: "Service {{ $labels.app }} in namespace {{ $labels.namespace }} has been down for more than 1 minute."
 
         - alert: HighErrorRate
+          # ARCH-NM-007: and clause guards against false positives on low-traffic services
           expr: |
-            sum(rate(http_request_duration_seconds_count{namespace="aquaculture",status=~"5.."}[5m])) by (app)
-            /
-            sum(rate(http_request_duration_seconds_count{namespace="aquaculture"}[5m])) by (app)
-            > 0.05
+            (
+              sum(rate(http_request_duration_seconds_count{namespace="aquaculture",status=~"5.."}[5m])) by (app)
+              /
+              sum(rate(http_request_duration_seconds_count{namespace="aquaculture"}[5m])) by (app)
+              > 0.05
+            ) and (
+              sum(rate(http_request_duration_seconds_count{namespace="aquaculture"}[5m])) by (app) > 1
+            )
           for: 5m
           labels:
             severity: warning
@@ -39,11 +44,16 @@ spec:
             description: "Service {{ $labels.app }} has error rate above 5% for 5 minutes."
 
         - alert: CriticalErrorRate
+          # ARCH-NM-007: and clause guards against false positives on low-traffic services
           expr: |
-            sum(rate(http_request_duration_seconds_count{namespace="aquaculture",status=~"5.."}[5m])) by (app)
-            /
-            sum(rate(http_request_duration_seconds_count{namespace="aquaculture"}[5m])) by (app)
-            > 0.10
+            (
+              sum(rate(http_request_duration_seconds_count{namespace="aquaculture",status=~"5.."}[5m])) by (app)
+              /
+              sum(rate(http_request_duration_seconds_count{namespace="aquaculture"}[5m])) by (app)
+              > 0.10
+            ) and (
+              sum(rate(http_request_duration_seconds_count{namespace="aquaculture"}[5m])) by (app) > 1
+            )
           for: 2m
           labels:
             severity: critical
@@ -125,6 +135,15 @@ spec:
     - name: aquaculture.sensors
       rules:
         - alert: SensorDataIngestionLag
+          # ARCH-NM-012: This alert requires sensor-service to export the
+          # 'sensor_reading_timestamp' gauge metric (Unix timestamp of last reading per
+          # sensor_type label). If this metric is not implemented the alert will never fire.
+          # Implementation required in sensor-service Prometheus instrumentation:
+          #   const sensorReadingTimestamp = new Gauge({
+          #     name: 'sensor_reading_timestamp',
+          #     help: 'Unix timestamp of the last sensor reading received',
+          #     labelNames: ['sensor_type'],
+          #   });
           expr: |
             time() - max(sensor_reading_timestamp{namespace="aquaculture"}) by (sensor_type)
             > 300
@@ -165,11 +184,15 @@ spec:
             description: "Database connection pool is at 90% capacity."
 
         - alert: SlowQueries
+          # ARCH-NM-008: Fixed metric names to match standard postgres_exporter output.
+          # pg_stat_statements_total_time is in milliseconds; threshold > 1000 = 1 second.
+          # Old names (pg_stat_statements_seconds_total, pg_stat_statements_calls_total)
+          # are non-standard and will never match any exported series.
           expr: |
-            rate(pg_stat_statements_seconds_total{namespace="aquaculture"}[5m])
+            rate(pg_stat_statements_total_time{namespace="aquaculture"}[5m])
             /
-            rate(pg_stat_statements_calls_total{namespace="aquaculture"}[5m])
-            > 1
+            rate(pg_stat_statements_calls{namespace="aquaculture"}[5m])
+            > 1000
           for: 10m
           labels:
             severity: warning

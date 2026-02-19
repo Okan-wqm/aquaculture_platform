@@ -125,14 +125,14 @@ export class RiskCalculatorService {
     const severityFactor = this.calculateSeverityFactor(context, rule);
     factors.push(severityFactor);
 
-    // Calculate impact factor
+    // PE-09: Pass the already-fetched rule to avoid a second DB round-trip inside analyzeImpact.
     const impactResult = await this.impactAnalyzer.analyzeImpact({
       tenantId: context.tenantId,
       ruleId: context.ruleId,
       farmId: context.farmId,
       sensorId: context.sensorId,
       currentValue: context.currentValue,
-    });
+    }, rule);
     const impactFactor = this.createImpactFactor(impactResult);
     factors.push(impactFactor);
 
@@ -153,7 +153,7 @@ export class RiskCalculatorService {
     const normalizedScore = totalScore / 100;
 
     // Determine severity based on score
-    const severity = this.severityClassifier.classifyBySCore(totalScore, this.thresholds);
+    const severity = this.severityClassifier.classifyByScore(totalScore, this.thresholds);
 
     // Calculate confidence
     const confidence = this.calculateConfidence(factors, context);
@@ -468,9 +468,11 @@ export class RiskCalculatorService {
       confidence += 0.1;
     }
 
-    // Factor coverage
-    const validFactors = factors.filter(f => f.value > 0 && f.value < 100);
-    confidence += (validFactors.length / factors.length) * 0.1;
+    // Factor coverage — guard against division by zero when factors is empty
+    if (factors.length > 0) {
+      const validFactors = factors.filter(f => f.value > 0 && f.value < 100);
+      confidence += (validFactors.length / factors.length) * 0.1;
+    }
 
     return Math.min(1, confidence);
   }

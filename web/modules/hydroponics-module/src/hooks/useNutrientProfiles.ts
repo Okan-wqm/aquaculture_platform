@@ -1,0 +1,130 @@
+import { useState, useCallback, useEffect } from 'react';
+import type { NutrientProfile } from '../types/modes.types';
+// PERF-HYD-007: Do NOT statically import getDefaultProfilesWithIds here.
+// The dynamic import below in importDefaults() ensures the full DEFAULT_NUTRIENT_PROFILES
+// dataset is tree-shaken from the initial bundle and only loaded on demand.
+
+const STORAGE_KEY = 'nutrient_profiles';
+
+// SEC-HYD-001: Runtime schema guard — reject any profile that does not conform to
+// the expected shape with numeric fields within agronomically plausible bounds.
+function isValidProfile(p: unknown): p is NutrientProfile {
+  if (typeof p !== 'object' || p === null) return false;
+  const profile = p as Record<string, unknown>;
+  return (
+    typeof profile.id === 'string' && profile.id.length > 0 &&
+    typeof profile.species === 'string' && profile.species.length > 0 &&
+    typeof profile.cultivationStage === 'string' && profile.cultivationStage.length > 0 &&
+    typeof profile.season === 'string' && profile.season.length > 0 &&
+    typeof profile.ec === 'number' && isFinite(profile.ec) && profile.ec >= 0 && profile.ec <= 20 &&
+    typeof profile.ph === 'number' && isFinite(profile.ph) && profile.ph >= 0 && profile.ph <= 14 &&
+    typeof profile.kRatio === 'number' && isFinite(profile.kRatio) && profile.kRatio >= 0 && profile.kRatio <= 1 &&
+    typeof profile.caRatio === 'number' && isFinite(profile.caRatio) && profile.caRatio >= 0 && profile.caRatio <= 1 &&
+    typeof profile.mgRatio === 'number' && isFinite(profile.mgRatio) && profile.mgRatio >= 0 && profile.mgRatio <= 1 &&
+    typeof profile.nkRatio === 'number' && isFinite(profile.nkRatio) && profile.nkRatio >= 0 && profile.nkRatio <= 10 &&
+    typeof profile.nh4Ratio === 'number' && isFinite(profile.nh4Ratio) && profile.nh4Ratio >= 0 && profile.nh4Ratio <= 1 &&
+    typeof profile.p === 'number' && isFinite(profile.p) && profile.p >= 0 && profile.p <= 50 &&
+    typeof profile.cl === 'number' && isFinite(profile.cl) && profile.cl >= 0 && profile.cl <= 50 &&
+    typeof profile.si === 'number' && isFinite(profile.si) && profile.si >= 0 && profile.si <= 50 &&
+    typeof profile.minSO4 === 'number' && isFinite(profile.minSO4) && profile.minSO4 >= 0 && profile.minSO4 <= 50 &&
+    typeof profile.fe === 'number' && isFinite(profile.fe) && profile.fe >= 0 && profile.fe <= 1000 &&
+    typeof profile.mn === 'number' && isFinite(profile.mn) && profile.mn >= 0 && profile.mn <= 1000 &&
+    typeof profile.zn === 'number' && isFinite(profile.zn) && profile.zn >= 0 && profile.zn <= 1000 &&
+    typeof profile.cu === 'number' && isFinite(profile.cu) && profile.cu >= 0 && profile.cu <= 100 &&
+    typeof profile.b === 'number' && isFinite(profile.b) && profile.b >= 0 && profile.b <= 1000 &&
+    typeof profile.mo === 'number' && isFinite(profile.mo) && profile.mo >= 0 && profile.mo <= 100
+  );
+}
+
+function loadProfiles(): NutrientProfile[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    // SEC-HYD-001: Only accept records that pass the schema guard
+    return parsed.filter(isValidProfile);
+  } catch {
+    return [];
+  }
+}
+
+function persistProfiles(profiles: NutrientProfile[]): void {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(profiles));
+}
+
+export function useNutrientProfiles() {
+  const [profiles, setProfiles] = useState<NutrientProfile[]>(loadProfiles);
+
+  useEffect(() => {
+    persistProfiles(profiles);
+  }, [profiles]);
+
+  const getProfile = useCallback(
+    (species: string, stage: string, season: string): NutrientProfile | null => {
+      return (
+        profiles.find(
+          (p) => p.species === species && p.cultivationStage === stage && p.season === season
+        ) ?? null
+      );
+    },
+    [profiles]
+  );
+
+  const saveProfile = useCallback((profile: NutrientProfile) => {
+    setProfiles((prev) => {
+      // BUG-HYD-003: Match by id first (authoritative key), then fall back to
+      // business key for imported profiles that may not yet have an id match.
+      let idx = prev.findIndex((p) => p.id === profile.id);
+      if (idx < 0) {
+        idx = prev.findIndex(
+          (p) =>
+            p.species === profile.species &&
+            p.cultivationStage === profile.cultivationStage &&
+            p.season === profile.season
+        );
+      }
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = profile;
+        return updated;
+      }
+      return [...prev, profile];
+    });
+  }, []);
+
+  const deleteProfile = useCallback((id: string) => {
+    setProfiles((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
+  const importDefaults = useCallback(async () => {
+    // PERF-HYD-007: Dynamically import the defaults dataset only when the user
+    // explicitly requests it, so the full profile data is not bundled into the
+    // main chunk and does not load on every page render.
+    const { getDefaultProfilesWithIds } = await import('../data/nutrient-defaults');
+    const defaults = getDefaultProfilesWithIds();
+    setProfiles((prev) => {
+      const merged = [...prev];
+      for (const d of defaults) {
+        // BUG-HYD-003: Match by id first when merging defaults
+        let idx = merged.findIndex((p) => p.id === d.id);
+        if (idx < 0) {
+          idx = merged.findIndex(
+            (p) =>
+              p.species === d.species &&
+              p.cultivationStage === d.cultivationStage &&
+              p.season === d.season
+          );
+        }
+        if (idx >= 0) {
+          merged[idx] = d;
+        } else {
+          merged.push(d);
+        }
+      }
+      return merged;
+    });
+  }, []);
+
+  return { profiles, getProfile, saveProfile, deleteProfile, importDefaults };
+}

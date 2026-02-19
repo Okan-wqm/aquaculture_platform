@@ -61,33 +61,6 @@ export class CreateLeaveRequestHandler
       throw new NotFoundException(`Leave type with ID ${leaveTypeId} not found or inactive`);
     }
 
-    // Check leave balance
-    const currentYear = new Date().getFullYear();
-    const leaveBalance = await this.leaveBalanceRepository.findOne({
-      where: {
-        tenantId,
-        employeeId,
-        leaveTypeId,
-        year: currentYear,
-        isDeleted: false,
-      },
-    });
-
-    if (leaveType.isAccrued) {
-      if (!leaveBalance) {
-        throw new BadRequestException(
-          `No leave balance found for employee ${employeeId} and leave type ${leaveType.name}`,
-        );
-      }
-
-      const availableBalance = leaveBalance.availableBalance;
-      if (availableBalance < totalDays) {
-        throw new BadRequestException(
-          `Insufficient leave balance. Available: ${availableBalance}, Requested: ${totalDays}`,
-        );
-      }
-    }
-
     // Validate date range (can be done outside transaction)
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -108,11 +81,10 @@ export class CreateLeaveRequestHandler
       }
     }
 
-    // Use transaction with SERIALIZABLE isolation to prevent race condition
-    // between overlap check and insert
+    // Use transaction with READ COMMITTED + pessimistic locks to prevent race conditions
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
-    await queryRunner.startTransaction('SERIALIZABLE');
+    await queryRunner.startTransaction('READ COMMITTED');
 
     try {
       // Check for overlapping leave requests (within transaction)
@@ -139,6 +111,39 @@ export class CreateLeaveRequestHandler
         throw new BadRequestException(
           `Leave request overlaps with existing request ${overlappingRequest.requestNumber}`,
         );
+      }
+
+      // Check leave balance INSIDE the transaction to prevent TOCTOU race
+      // Use the leave request's start year, not the current year
+      const leaveYear = start.getFullYear();
+      if (leaveType.isAccrued) {
+        const leaveBalance = await queryRunner.manager.findOne(LeaveBalance, {
+          where: {
+            tenantId,
+            employeeId,
+            leaveTypeId,
+            year: leaveYear,
+            isDeleted: false,
+          },
+        });
+
+        if (!leaveBalance) {
+          throw new BadRequestException(
+            `No leave balance found for employee ${employeeId} and leave type ${leaveType.name}`,
+          );
+        }
+
+        const availableBalance = leaveBalance.availableBalance;
+        if (availableBalance < totalDays) {
+          throw new BadRequestException(
+            `Insufficient leave balance. Available: ${availableBalance}, Requested: ${totalDays}`,
+          );
+        }
+
+        // Increment pending at draft-creation time to close the TOCTOU window
+        leaveBalance.pending = Number(leaveBalance.pending) + Number(totalDays);
+        leaveBalance.updatedBy = userId;
+        await queryRunner.manager.save(LeaveBalance, leaveBalance);
       }
 
       // Create the leave request (within transaction)

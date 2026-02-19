@@ -4,7 +4,7 @@
  * Gruplandırma, validation ve çeşitli field tipleri destekler
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { Input, Textarea } from './Input';
 import { Select } from './Select';
 import { NumberInput } from './NumberInput';
@@ -77,26 +77,34 @@ export interface DynamicSpecificationFormProps {
  *   errors={validationErrors}
  * />
  */
-export const DynamicSpecificationForm: React.FC<DynamicSpecificationFormProps> = ({
+// PERF-011: Wrap in React.memo so parent form re-renders don't cascade here
+// unless values/schema/errors actually change
+export const DynamicSpecificationForm: React.FC<DynamicSpecificationFormProps> = React.memo(function DynamicSpecificationForm({
   schema,
   values,
   onChange,
   errors = {},
   disabled = false,
   className = '',
-}) => {
+}) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
-  // Değer güncelleme
+  // PERF-004/PERF-011: Use a ref to hold latest values so handleFieldChange does NOT
+  // need values in its dep array — prevents re-creating the callback (and re-rendering
+  // all N field components) on every single keystroke
+  const valuesRef = React.useRef(values);
+  valuesRef.current = values;
+
   const handleFieldChange = useCallback((fieldName: string, fieldValue: unknown) => {
     onChange({
-      ...values,
+      ...valuesRef.current,
       [fieldName]: fieldValue,
     });
-  }, [values, onChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- valuesRef is always current; onChange is the only real dep
+  }, [onChange]);
 
-  // Grup toggle
-  const toggleGroup = (groupName: string) => {
+  // Grup toggle — stable, no deps on values
+  const toggleGroup = useCallback((groupName: string) => {
     setCollapsedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(groupName)) {
@@ -106,7 +114,22 @@ export const DynamicSpecificationForm: React.FC<DynamicSpecificationFormProps> =
       }
       return next;
     });
-  };
+  }, []);
+
+  // PERF-011: Memoize field grouping — only recompute when schema changes
+  const { groupedFields, ungroupedFields } = useMemo(() => {
+    const grouped: Record<string, SpecificationField[]> = {};
+    const ungrouped: SpecificationField[] = [];
+    (schema?.fields ?? []).forEach((field) => {
+      if (field.group) {
+        if (!grouped[field.group]) grouped[field.group] = [];
+        grouped[field.group].push(field);
+      } else {
+        ungrouped.push(field);
+      }
+    });
+    return { groupedFields: grouped, ungroupedFields: ungrouped };
+  }, [schema]);
 
   // Schema yoksa mesaj göster
   if (!schema || !schema.fields || schema.fields.length === 0) {
@@ -116,21 +139,6 @@ export const DynamicSpecificationForm: React.FC<DynamicSpecificationFormProps> =
       </div>
     );
   }
-
-  // Alanları gruplara ayır
-  const groupedFields: Record<string, SpecificationField[]> = {};
-  const ungroupedFields: SpecificationField[] = [];
-
-  schema.fields.forEach((field) => {
-    if (field.group) {
-      if (!groupedFields[field.group]) {
-        groupedFields[field.group] = [];
-      }
-      groupedFields[field.group].push(field);
-    } else {
-      ungroupedFields.push(field);
-    }
-  });
 
   // Alan render fonksiyonu
   const renderField = (field: SpecificationField) => {
@@ -200,18 +208,20 @@ export const DynamicSpecificationForm: React.FC<DynamicSpecificationFormProps> =
           />
         );
 
-      case 'date':
-        // Convert string value to Date if needed
-        const dateValue = fieldValue
+      case 'date': {
+        // BUG-012: Append T00:00:00 when parsing YYYY-MM-DD string to avoid UTC-midnight
+        // timezone shift that would display the prior day in negative-offset timezones.
+        const rawDate = fieldValue
           ? typeof fieldValue === 'string'
-            ? new Date(fieldValue)
+            ? new Date(fieldValue.includes('T') ? fieldValue : `${fieldValue}T00:00:00`)
             : fieldValue as Date
           : null;
+        const dateValue = rawDate instanceof Date && !isNaN(rawDate.getTime()) ? rawDate : null;
         return (
           <DatePicker
             key={field.name}
             label={field.label}
-            value={dateValue instanceof Date && !isNaN(dateValue.getTime()) ? dateValue : null}
+            value={dateValue}
             onChange={(date) => handleFieldChange(field.name, date ? date.toISOString().split('T')[0] : '')}
             helperText={field.helpText}
             error={fieldError}
@@ -219,6 +229,7 @@ export const DynamicSpecificationForm: React.FC<DynamicSpecificationFormProps> =
             disabled={disabled}
           />
         );
+      }
 
       case 'textarea':
         return (
@@ -295,10 +306,24 @@ export const DynamicSpecificationForm: React.FC<DynamicSpecificationFormProps> =
     );
   };
 
+  // BUG-009: Compute orphan group keys — groups referenced by fields but not in schema.groups
+  const definedGroupNames = new Set((schema.groups ?? []).map((g) => g.name));
+  const orphanGroupKeys = Object.keys(groupedFields).filter((key) => !definedGroupNames.has(key));
+
   return (
     <div className={`space-y-4 ${className}`}>
       {/* Gruplar */}
       {schema.groups?.map((group) => renderGroup(group))}
+
+      {/* BUG-009: Render orphan group fields that reference unknown group names */}
+      {orphanGroupKeys.map((groupKey) => (
+        <div key={groupKey} className="border border-gray-200 rounded-lg p-4">
+          <p className="text-xs text-gray-400 mb-3 uppercase">{groupKey}</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {groupedFields[groupKey].map((field) => renderField(field))}
+          </div>
+        </div>
+      ))}
 
       {/* Gruplanmamış alanlar */}
       {ungroupedFields.length > 0 && (
@@ -308,6 +333,8 @@ export const DynamicSpecificationForm: React.FC<DynamicSpecificationFormProps> =
       )}
     </div>
   );
-};
+});
+
+DynamicSpecificationForm.displayName = 'DynamicSpecificationForm';
 
 export default DynamicSpecificationForm;

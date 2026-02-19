@@ -52,7 +52,7 @@ export const ApiErrorResponseSchema = {
         details: { type: 'object' },
         timestamp: { type: 'string', format: 'date-time' },
         path: { type: 'string' },
-        requestId: { type: 'string' },
+        correlationId: { type: 'string' },
       },
     },
   },
@@ -97,10 +97,17 @@ export function ApiStandardResponse<TModel extends Type>(model: TModel, descript
       description: description || 'Successful operation',
       schema: {
         allOf: [
-          { $ref: getSchemaPath(ApiSuccessResponseSchema as unknown as Type) },
           {
             properties: {
+              success: { type: 'boolean', example: true },
               data: { $ref: getSchemaPath(model) },
+              meta: {
+                type: 'object',
+                properties: {
+                  timestamp: { type: 'string', format: 'date-time' },
+                  requestId: { type: 'string' },
+                },
+              },
             },
           },
         ],
@@ -238,6 +245,39 @@ export function ApiStandardErrors() {
         },
       },
     }),
+    ApiNotFoundResponse({
+      description: 'Resource not found',
+      schema: {
+        properties: {
+          success: { type: 'boolean', example: false },
+          error: {
+            type: 'object',
+            properties: {
+              code: { type: 'string', example: 'RESOURCE_NOT_FOUND' },
+              message: { type: 'string', example: 'Resource not found' },
+              timestamp: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 429,
+      description: 'Too many requests',
+      schema: {
+        properties: {
+          success: { type: 'boolean', example: false },
+          error: {
+            type: 'object',
+            properties: {
+              code: { type: 'string', example: 'RATE_LIMIT_EXCEEDED' },
+              message: { type: 'string', example: 'Too many requests' },
+              timestamp: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    }),
     ApiInternalServerErrorResponse({
       description: 'Internal server error',
       schema: {
@@ -284,7 +324,7 @@ export function ApiNotFoundError(resource: string) {
 /**
  * Conflict error response decorator
  */
-export function ApiConflictError(description: string) {
+export function ApiConflictError(description: string, exampleCode?: string) {
   return applyDecorators(
     ApiConflictResponse({
       description,
@@ -294,7 +334,7 @@ export function ApiConflictError(description: string) {
           error: {
             type: 'object',
             properties: {
-              code: { type: 'string', example: 'CONFLICT' },
+              code: { type: 'string', example: exampleCode || 'RESOURCE_CONFLICT' },
               message: { type: 'string', example: description },
               timestamp: { type: 'string', format: 'date-time' },
             },

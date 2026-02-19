@@ -1,8 +1,8 @@
 /**
- * Auth Layout Bileşeni
+ * Auth Layout Component
  *
- * Login, Register ve şifre sıfırlama sayfaları için layout.
- * Minimal, temiz tasarım.
+ * Layout for login, register, and password reset pages.
+ * Minimal, clean design.
  */
 
 import React from 'react';
@@ -10,14 +10,15 @@ import { Outlet, Navigate } from 'react-router-dom';
 import { useAuthContext } from '@aquaculture/shared-ui';
 import FishBackground from '../components/FishBackground';
 
+const CURRENT_YEAR = new Date().getFullYear();
+
 // ============================================================================
-// Layout Bileşeni
+// Layout Component
 // ============================================================================
 
 const AuthLayout: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuthContext();
 
-  // Yüklenme durumu
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-600 to-secondary-600">
@@ -26,27 +27,27 @@ const AuthLayout: React.FC = () => {
     );
   }
 
-  // Zaten giriş yapmış kullanıcıyı dashboard'a yönlendir
+  // Redirect authenticated users through RoleBasedRedirect at "/"
   if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/" replace />;
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-600 to-secondary-600 flex flex-col">
-      {/* Dekoratif arka plan elementleri */}
+      {/* Decorative background elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-white/10 rounded-full blur-3xl" />
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-white/10 rounded-full blur-3xl" />
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-white/5 rounded-full blur-3xl" />
       </div>
 
-      {/* Animasyonlu balık arkaplanı */}
+      {/* Animated fish background */}
       <FishBackground fishCount={14} />
 
-      {/* İçerik Alanı - Logo ve Form Birleşik */}
+      {/* Content area — logo and form combined */}
       <main className="relative z-10 flex-1 flex items-center justify-center p-4">
         <div className="w-full max-w-md">
-          {/* Card Container - Logo + Form Birleşik */}
+          {/* Card Container — logo and form combined */}
           <div className="backdrop-blur-md bg-white/65 border border-white/70 rounded-2xl shadow-2xl p-8 animate-fade-in">
             {/* Logo */}
             <div className="flex flex-col items-center mb-4">
@@ -78,7 +79,7 @@ const AuthLayout: React.FC = () => {
 
       {/* Footer */}
       <footer className="relative z-10 py-4 text-center text-sm text-white/60">
-        <p>&copy; {new Date().getFullYear()} Aquaculture Platform. All rights reserved.</p>
+        <p>&copy; {CURRENT_YEAR} Aquaculture Platform. All rights reserved.</p>
       </footer>
     </div>
   );

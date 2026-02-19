@@ -3,7 +3,6 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
-  ForbiddenException,
   Optional,
   Inject,
 } from '@nestjs/common';
@@ -42,15 +41,11 @@ export class CreatePondHandler
 
     // Verify farm exists and belongs to tenant
     const farm = await this.farmRepository.findOne({
-      where: { id: command.farmId },
+      where: { id: command.farmId, tenantId: command.tenantId },
     });
 
     if (!farm) {
       throw new NotFoundException(`Farm with ID ${command.farmId} not found`);
-    }
-
-    if (farm.tenantId !== command.tenantId) {
-      throw new ForbiddenException('Access denied to this farm');
     }
 
     // Check for duplicate pond name within farm

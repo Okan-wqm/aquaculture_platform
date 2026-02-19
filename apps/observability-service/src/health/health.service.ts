@@ -5,6 +5,9 @@ import { DataSource } from 'typeorm';
 @Injectable()
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
+  private cachedDbHealthy: boolean | null = null;
+  private cacheTimestamp = 0;
+  private readonly cacheTtlMs = 5000;
 
   constructor(
     @InjectDataSource()
@@ -12,15 +15,21 @@ export class HealthService {
   ) {}
 
   async checkDatabase(): Promise<boolean> {
+    const now = Date.now();
+    if (this.cachedDbHealthy !== null && now - this.cacheTimestamp < this.cacheTtlMs) {
+      return this.cachedDbHealthy;
+    }
     try {
       await this.dataSource.query('SELECT 1');
-      return true;
+      this.cachedDbHealthy = true;
     } catch (error) {
       this.logger.error(
         `Database health check failed: ${(error as Error).message}`,
       );
-      return false;
+      this.cachedDbHealthy = false;
     }
+    this.cacheTimestamp = now;
+    return this.cachedDbHealthy;
   }
 
   async getMetrics() {

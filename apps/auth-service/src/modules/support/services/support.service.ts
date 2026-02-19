@@ -281,24 +281,29 @@ export class SupportService {
 
     const savedComment = await this.commentRepository.save(comment);
 
-    // Update ticket
-    ticket.commentCount += 1;
+    // SECURITY: Use atomic increment for commentCount to prevent race conditions
+    await this.ticketRepository.increment(
+      { id: ticket.id },
+      'commentCount',
+      1,
+    );
 
     // If SuperAdmin replies, update firstResponseAt
     if (isSuperAdmin && !ticket.firstResponseAt && !input.isInternal) {
       ticket.firstResponseAt = new Date();
+      await this.ticketRepository.save(ticket);
     }
 
     // Update status if needed
     if (!input.isInternal) {
       if (isSuperAdmin && ticket.status === TicketStatus.OPEN) {
         ticket.status = TicketStatus.IN_PROGRESS;
+        await this.ticketRepository.save(ticket);
       } else if (!isSuperAdmin && ticket.status === TicketStatus.WAITING_CUSTOMER) {
         ticket.status = TicketStatus.IN_PROGRESS;
+        await this.ticketRepository.save(ticket);
       }
     }
-
-    await this.ticketRepository.save(ticket);
 
     this.logger.log(`Comment added to ticket ${ticket.ticketNumber}`);
     return savedComment;

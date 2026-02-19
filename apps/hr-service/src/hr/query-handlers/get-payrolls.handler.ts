@@ -33,9 +33,10 @@ export class GetPayrollsHandler implements IQueryHandler<GetPayrollsQuery, Pagin
       where.status = filter.status;
     }
 
-    // Handle date range filtering
+    // Handle date range filtering — find payrolls active during the period
     if (filter?.startDate && filter?.endDate) {
-      where.payPeriodStart = Between(filter.startDate, filter.endDate);
+      where.payPeriodStart = LessThanOrEqual(filter.endDate);
+      where.payPeriodEnd = MoreThanOrEqual(filter.startDate);
     } else if (filter?.startDate) {
       where.payPeriodStart = MoreThanOrEqual(filter.startDate);
     } else if (filter?.endDate) {

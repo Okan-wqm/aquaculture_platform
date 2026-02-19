@@ -62,11 +62,27 @@ export function useFilters<T extends Record<string, unknown>>(
     Object.keys(initialFilters).forEach((key) => {
       const urlValue = searchParams.get(key);
       if (urlValue !== null) {
-        // Try to parse as JSON for objects/arrays, otherwise use string
-        try {
-          (urlFilters as Record<string, unknown>)[key] = JSON.parse(urlValue);
-        } catch {
+        const expectedType = typeof initialFilters[key as keyof T];
+        // Only parse as JSON if the initial value type matches (SEC-010: type validation after JSON.parse)
+        if (expectedType === 'string' || expectedType === 'undefined') {
+          // String filters: use URL value directly, no JSON.parse needed
           (urlFilters as Record<string, unknown>)[key] = urlValue;
+        } else {
+          try {
+            const parsed = JSON.parse(urlValue);
+            // Reject parsed values whose type does not match the expected filter type
+            if (typeof parsed === expectedType || (expectedType === 'number' && !isNaN(parsed))) {
+              (urlFilters as Record<string, unknown>)[key] = parsed;
+            } else if (Array.isArray(parsed) && Array.isArray(initialFilters[key as keyof T])) {
+              // Only accept primitive-element arrays
+              if (parsed.every((v) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')) {
+                (urlFilters as Record<string, unknown>)[key] = parsed;
+              }
+            }
+            // Otherwise, silently ignore the malformed URL param
+          } catch {
+            // Invalid JSON — ignore and use initial value
+          }
         }
       }
     });
@@ -102,7 +118,10 @@ export function useFilters<T extends Record<string, unknown>>(
     [syncUrl, searchParams, setSearchParams, initialFilters]
   );
 
-  // Debounce effect
+  // Track which keys were updated immediately (non-debounced) so we don't call onChange twice (BUG-007, PERF-008)
+  const immediateUpdateRef = useRef(false);
+
+  // Debounce effect — only calls onChange for debounced keys; immediate keys already called it in setFilter
   useEffect(() => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
@@ -110,7 +129,11 @@ export function useFilters<T extends Record<string, unknown>>(
 
     debounceTimerRef.current = setTimeout(() => {
       setDebouncedFilters(filters);
-      onChange?.(filters);
+      // Only fire onChange here if this was a debounced-key change
+      if (!immediateUpdateRef.current) {
+        onChange?.(filters);
+      }
+      immediateUpdateRef.current = false;
     }, debounceDelay);
 
     return () => {
@@ -126,10 +149,12 @@ export function useFilters<T extends Record<string, unknown>>(
         const newFilters = { ...prev, [key]: value };
         updateUrl(newFilters);
 
-        // If not a debounced key, update immediately
+        // If not a debounced key, update debouncedFilters immediately and fire onChange once
         if (!debounceKeys.includes(key)) {
           setDebouncedFilters(newFilters);
           onChange?.(newFilters);
+          // Mark as immediate so the debounce effect doesn't re-fire onChange (BUG-007)
+          immediateUpdateRef.current = true;
         }
 
         return newFilters;

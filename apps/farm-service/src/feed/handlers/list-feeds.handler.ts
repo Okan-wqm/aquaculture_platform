@@ -102,8 +102,10 @@ export class ListFeedsHandler implements IQueryHandler<ListFeedsQuery> {
       );
     }
 
-    // Apply sorting
-    queryBuilder.orderBy(`feed.${sortBy}`, sortOrder);
+    // Apply sorting with allowlist to prevent SQL injection
+    const validSortFields = ['name', 'code', 'type', 'status', 'pelletSize', 'manufacturer', 'createdAt', 'updatedAt'];
+    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    queryBuilder.orderBy(`feed.${safeSortBy}`, sortOrder);
 
     // Apply pagination
     queryBuilder.skip((page - 1) * limit);

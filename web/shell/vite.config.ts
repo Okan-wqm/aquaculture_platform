@@ -48,7 +48,7 @@ export default defineConfig(({ command }) => {
           },
           '@aquaculture/shared-ui': {
             singleton: true,
-            import: true,
+            requiredVersion: '^1.0.0',
           },
           zustand: {
             singleton: true,
@@ -69,16 +69,19 @@ export default defineConfig(({ command }) => {
     server: {
       port: 3000,
       strictPort: true,
-      cors: true,
+      // SH-SEC-14: Restrict CORS to localhost only (not wildcard *).
+      // Prevents pages on other origins from reading dev-server responses while
+      // a developer is authenticated against the dev backend.
+      cors: {
+        origin: ['http://localhost:3000', 'http://localhost:8080'],
+        credentials: true,
+      },
     },
     preview: {
       port: 3000,
     },
     build: {
-      modulePreload: false,
       target: 'esnext',
-      minify: false,
-      cssCodeSplit: false,
     },
   };
 });

@@ -196,7 +196,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (exception instanceof Error) {
       return {
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: exception.message,
+        // SECURITY: In production, always return generic message for plain Error
+        // instances to prevent leaking implementation details (column names,
+        // property paths, internal class names, etc.)
+        message: this.isProduction
+          ? 'An internal error occurred'
+          : exception.message,
         errorType: 'Internal Server Error',
         details: this.isProduction ? undefined : exception.stack,
       };

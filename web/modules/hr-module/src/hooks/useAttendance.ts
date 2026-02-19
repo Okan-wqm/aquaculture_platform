@@ -183,6 +183,7 @@ export function useTodaysAttendance(departmentId?: string) {
       ),
     select: (data) => data.todaysAttendance,
     refetchInterval: 60000, // Refresh every minute
+    refetchIntervalInBackground: false, // PERF-003: don't poll when tab is hidden
   });
 }
 

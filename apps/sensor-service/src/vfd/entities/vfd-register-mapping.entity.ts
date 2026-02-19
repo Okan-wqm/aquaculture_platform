@@ -37,15 +37,15 @@ export class VfdRegisterMapping {
   brand!: VfdBrand;
 
   @Field(() => String, { nullable: true })
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'varchar', name: 'model_series', length: 100, nullable: true })
   modelSeries?: string | null;
 
   @Field()
-  @Column({ type: 'varchar', length: 100 })
+  @Column({ type: 'varchar', name: 'parameter_name', length: 100 })
   parameterName!: string;
 
   @Field()
-  @Column({ type: 'varchar', length: 255 })
+  @Column({ type: 'varchar', name: 'display_name', length: 255 })
   displayName!: string;
 
   @Field(() => String, { nullable: true })
@@ -61,19 +61,19 @@ export class VfdRegisterMapping {
   registerAddress!: number;
 
   @Field(() => Int)
-  @Column({ type: 'int', default: 1 })
+  @Column({ type: 'int', name: 'register_count', default: 1 })
   registerCount!: number;
 
   @Field(() => Int)
-  @Column({ type: 'int', default: 3 })
+  @Column({ type: 'int', name: 'function_code', default: 3 })
   functionCode!: number;
 
   @Field(() => VfdDataType)
-  @Column({ type: 'varchar', length: 50, default: VfdDataType.UINT16 })
+  @Column({ type: 'varchar', name: 'data_type', length: 50, default: VfdDataType.UINT16 })
   dataType!: VfdDataType;
 
   @Field(() => Float)
-  @Column({ type: 'float', default: 1 })
+  @Column({ type: 'float', name: 'scaling_factor', default: 1 })
   scalingFactor!: number;
 
   @Field(() => Float)
@@ -85,51 +85,51 @@ export class VfdRegisterMapping {
   unit?: string | null;
 
   @Field(() => ByteOrder)
-  @Column({ type: 'varchar', length: 10, default: ByteOrder.BIG })
+  @Column({ type: 'varchar', name: 'byte_order', length: 10, default: ByteOrder.BIG })
   byteOrder!: ByteOrder;
 
   @Field(() => ByteOrder)
-  @Column({ type: 'varchar', length: 10, default: ByteOrder.BIG })
+  @Column({ type: 'varchar', name: 'word_order', length: 10, default: ByteOrder.BIG })
   wordOrder!: ByteOrder;
 
   @Field()
-  @Column({ type: 'boolean', default: false })
+  @Column({ type: 'boolean', name: 'is_bit_field', default: false })
   isBitField!: boolean;
 
   @Field(() => GraphQLJSON, { nullable: true })
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'jsonb', name: 'bit_definitions', nullable: true })
   bitDefinitions?: BitDefinition[] | null;
 
   @Field()
-  @Column({ type: 'boolean', default: true })
+  @Column({ type: 'boolean', name: 'is_readable', default: true })
   isReadable!: boolean;
 
   @Field()
-  @Column({ type: 'boolean', default: false })
+  @Column({ type: 'boolean', name: 'is_writable', default: false })
   isWritable!: boolean;
 
   @Field(() => Int)
-  @Column({ type: 'int', default: 500 })
+  @Column({ type: 'int', name: 'recommended_poll_interval_ms', default: 500 })
   recommendedPollIntervalMs!: number;
 
   @Field(() => Int)
-  @Column({ type: 'int', default: 0 })
+  @Column({ type: 'int', name: 'display_order', default: 0 })
   displayOrder!: number;
 
   @Field()
-  @Column({ type: 'boolean', default: true })
+  @Column({ type: 'boolean', name: 'is_active', default: true })
   isActive!: boolean;
 
   @Field()
-  @Column({ type: 'boolean', default: false })
+  @Column({ type: 'boolean', name: 'is_critical', default: false })
   isCritical!: boolean;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'float', nullable: true })
+  @Column({ type: 'float', name: 'min_value', nullable: true })
   minValue?: number | null;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'float', nullable: true })
+  @Column({ type: 'float', name: 'max_value', nullable: true })
   maxValue?: number | null;
 
   @Field(() => GraphQLJSON, { nullable: true })

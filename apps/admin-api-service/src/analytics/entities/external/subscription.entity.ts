@@ -39,8 +39,8 @@ export interface PlanPricing {
   currency: string;
 }
 
-// Read from public schema (shared database) - read-only reference
-@Entity('subscriptions', { schema: 'public', synchronize: false })
+// C-6 fix: billing-service stores subscriptions in the 'billing' schema, not 'public'
+@Entity('subscriptions', { schema: 'billing', synchronize: false })
 export class SubscriptionReadOnly {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

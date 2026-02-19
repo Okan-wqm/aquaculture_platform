@@ -1,23 +1,6 @@
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { createParamDecorator, ExecutionContext, BadRequestException } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { Request } from 'express';
-
-/**
- * User payload structure from JWT
- */
-interface JwtUser {
-  sub: string;
-  tenantId?: string;
-  roles?: string[];
-}
-
-/**
- * Extended request with tenant and user context
- */
-interface TenantRequest extends Request {
-  user?: JwtUser;
-  tenantId?: string;
-}
+import { TenantRequest } from '../types/tenant-request.interface';
 
 /**
  * Tenant Context Decorator
@@ -65,7 +48,7 @@ function extractTenantId(request: TenantRequest): string {
     return bodyTenantId;
   }
 
-  throw new Error('Tenant ID not found in request context');
+  throw new BadRequestException('Tenant ID not found in request context');
 }
 
 /**
@@ -102,3 +85,11 @@ function extractTenantIdSafe(request: TenantRequest): string | undefined {
     (typeof bodyTenantId === 'string' ? bodyTenantId : undefined)
   );
 }
+
+/**
+ * @deprecated Use `Tenant` instead.
+ * `CurrentTenant` is an alias kept only for backward compatibility with existing
+ * callers. Migrate usages to `Tenant` and this alias will be removed in a future
+ * major release.
+ */
+export { Tenant as CurrentTenant };

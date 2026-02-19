@@ -105,4 +105,4 @@ secrets/
 sens-repo-temp/
 sens-repo/
 
-vite.config.*.timestamp*
+vite.config.*.timestamp*NUL

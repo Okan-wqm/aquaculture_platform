@@ -99,12 +99,12 @@ export const RoleCard: React.FC<RoleCardProps> = ({
           </div>
           <div>
             <h3 className="font-semibold text-gray-900">{role.name}</h3>
-            {role.isSystem && (
+            {role.isSystemRole && (
               <span className="text-xs text-amber-600 font-medium">
                 System Role
               </span>
             )}
-            {role.isDefault && !role.isSystem && (
+            {role.isDefault && !role.isSystemRole && (
               <span className="text-xs text-green-600 font-medium flex items-center gap-1">
                 <Star className="w-3 h-3" aria-hidden="true" />
                 Default
@@ -123,7 +123,7 @@ export const RoleCard: React.FC<RoleCardProps> = ({
           >
             <Edit className="w-4 h-4" />
           </button>
-          {!role.isSystem && (
+          {!role.isSystemRole && (
             <button
               onClick={() => onDelete(role)}
               className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"

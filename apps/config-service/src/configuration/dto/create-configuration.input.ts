@@ -1,4 +1,4 @@
-import { InputType, Field } from '@nestjs/graphql';
+import { InputType, Field, ID, Int } from '@nestjs/graphql';
 import {
   IsString,
   IsEnum,
@@ -10,6 +10,10 @@ import {
   Matches,
   IsArray,
   ValidateNested,
+  IsUUID,
+  IsInt,
+  Min,
+  Max,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { ConfigValueType, ConfigEnvironment } from '../entities/configuration.entity';
@@ -65,8 +69,8 @@ export class CreateConfigurationInput {
   @IsNotEmpty({ message: 'Configuration key is required' })
   @MinLength(2, { message: 'Key must be at least 2 characters' })
   @MaxLength(255, { message: 'Key must be at most 255 characters' })
-  @Matches(/^[a-z][a-z0-9_]*[a-z0-9]$/, {
-    message: 'Key must be lowercase with underscores (e.g., max_login_attempts)',
+  @Matches(/^[a-z][a-z0-9_.]*[a-z0-9]$/, {
+    message: 'Key must be lowercase with underscores or dots (e.g., max_login_attempts, feeding.default_ration)',
   })
   @Transform(({ value }) => value?.toLowerCase().trim())
   key!: string;
@@ -131,9 +135,8 @@ export class CreateConfigurationInput {
  */
 @InputType()
 export class UpdateConfigurationInput {
-  @Field()
-  @IsString()
-  @IsNotEmpty({ message: 'Configuration ID is required' })
+  @Field(() => ID)
+  @IsUUID('4', { message: 'Configuration ID must be a valid UUID' })
   id!: string;
 
   @Field({ nullable: true })
@@ -238,16 +241,18 @@ export class ConfigurationFilterInput {
   @IsArray()
   @IsString({ each: true })
   tags?: string[];
+
+  @Field(() => Int, { nullable: true, defaultValue: 100 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  limit?: number = 100;
+
+  @Field(() => Int, { nullable: true, defaultValue: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  offset?: number = 0;
 }
 
-/**
- * Bulk Configuration Input DTO
- */
-@InputType()
-export class BulkConfigurationInput {
-  @Field(() => [CreateConfigurationInput])
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => CreateConfigurationInput)
-  configurations!: CreateConfigurationInput[];
-}

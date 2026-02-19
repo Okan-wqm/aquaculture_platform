@@ -42,21 +42,13 @@ export function SchedulingKeyboardProvider({ children }: { children: React.React
   const [isKeyboardMode, setIsKeyboardMode] = useState(false);
   const announcerRef = useRef<HTMLDivElement>(null);
 
-  const selectShift = useCallback((shift: SelectedShift) => {
-    setSelectedShift(shift);
-    setIsKeyboardMode(true);
+  // PERF-007: keep a ref so the Escape handler never needs to be re-registered
+  // when selectedShift changes.
+  const selectedShiftRef = useRef<SelectedShift | null>(null);
+  selectedShiftRef.current = selectedShift;
 
-    // Announce to screen reader
-    const name = shift.isOffDay ? 'Tatil' : (shift.shiftName || 'Vardiya');
-    announce(`${name} secildi. Hucreye gitmek icin Tab, uygulamak icin Enter basin.`);
-  }, []);
-
-  const clearSelection = useCallback(() => {
-    setSelectedShift(null);
-    setFocusedCellIndex(null);
-    announce('Secim temizlendi.');
-  }, []);
-
+  // BUG-003 + ordering fix: define announce before clearSelection so both can
+  // appear in each other's dependency arrays without hoisting issues.
   const announce = useCallback((message: string) => {
     if (announcerRef.current) {
       // Clear then set to trigger re-announcement
@@ -69,22 +61,43 @@ export function SchedulingKeyboardProvider({ children }: { children: React.React
     }
   }, []);
 
-  // Global Escape key handler
+  // BUG-003: announce is now declared before clearSelection, so it can be
+  // listed as a dependency without a stale-closure problem.
+  const clearSelection = useCallback(() => {
+    setSelectedShift(null);
+    setFocusedCellIndex(null);
+    announce('Secim temizlendi.');
+  }, [announce]);
+
+  const selectShift = useCallback((shift: SelectedShift) => {
+    setSelectedShift(shift);
+    setIsKeyboardMode(true);
+
+    // Announce to screen reader
+    const name = shift.isOffDay ? 'Tatil' : (shift.shiftName || 'Vardiya');
+    announce(`${name} secildi. Hucreye gitmek icin Tab, uygulamak icin Enter basin.`);
+  }, [announce]);
+
+  // PERF-007: register Escape handler once; read current shift via ref so the
+  // effect never needs to be torn down and re-registered on each shift change.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && selectedShift) {
+      if (e.key === 'Escape' && selectedShiftRef.current) {
         clearSelection();
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [selectedShift, clearSelection]);
+  }, [clearSelection]); // clearSelection is stable (no deps change)
 
-  // Detect mouse usage to exit keyboard mode
+  // Detect mouse usage to exit keyboard mode.
+  // PERF-007: guard with the functional-update form of setState so the handler
+  // is stable (no captured `isKeyboardMode` closure) and only triggers a state
+  // update when actually transitioning from keyboard → mouse mode.
   useEffect(() => {
     const handleMouseDown = () => {
-      setIsKeyboardMode(false);
+      setIsKeyboardMode((prev) => (prev ? false : prev));
     };
 
     document.addEventListener('mousedown', handleMouseDown);

@@ -1,51 +1,51 @@
 /**
- * Sidebar Bileşeni
- * Uygulama yan navigasyonu - Menü öğeleri, modül erişimi
+ * Sidebar Component
+ * Application side navigation — menu items, module access
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import type { NavigationItem, UserRole } from '../../types';
 
 // Alias for backward compatibility
 type NavItem = NavigationItem;
 
 // ============================================================================
-// Tip Tanımlamaları
+// Type Definitions
 // ============================================================================
 
 /**
- * Tema türleri - Farklı roller için farklı renkler
+ * Theme types — different colour schemes per role
  */
 export type SidebarTheme = 'default' | 'admin' | 'tenant';
 
 export interface SidebarProps {
-  /** Navigasyon öğeleri */
+  /** Navigation items */
   items: NavItem[];
-  /** Aktif path */
+  /** Active path */
   activePath?: string;
-  /** Navigasyon işleyicisi */
+  /** Navigation handler */
   onNavigate: (path: string) => void;
-  /** Kullanıcı rolleri (yetkilendirme için) */
+  /** User roles (for access checks) */
   userRoles?: UserRole[];
-  /** Logo elementi */
+  /** Logo element */
   logo?: React.ReactNode;
-  /** Daraltılmış durum */
+  /** Collapsed state */
   collapsed?: boolean;
-  /** Daraltma değişikliği */
+  /** Collapsed state change handler */
   onCollapsedChange?: (collapsed: boolean) => void;
-  /** Footer içeriği */
+  /** Footer content */
   footer?: React.ReactNode;
-  /** Tema (admin=mor/indigo, tenant=yeşil/teal, default=mavi) */
+  /** Theme (admin=indigo, tenant=emerald, default=blue) */
   theme?: SidebarTheme;
   className?: string;
 }
 
 // ============================================================================
-// İkon Bileşenleri
+// Icon Components
 // ============================================================================
 
 /**
- * Varsayılan ikonlar (string icon adlarına göre)
+ * Default icons (keyed by icon name string)
  */
 const defaultIcons: Record<string, React.ReactNode> = {
   dashboard: (
@@ -94,7 +94,7 @@ const defaultIcons: Record<string, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   ),
-  // Admin Panel için ek ikonlar
+  // Additional icons for Admin Panel
   analytics: (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -166,10 +166,34 @@ const defaultIcons: Record<string, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
     </svg>
   ),
+  sprout: (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 22V12M12 12C12 12 8 8 4 8c0 4 4 8 8 8zM12 12c0 0 4-4 8-4c0 4-4 8-8 8z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c0-2-1-4-4-6c0 3 1 5 4 6zM12 8c0-2 1-4 4-6c0 3-1 5-4 6z" />
+    </svg>
+  ),
+  activity: (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M22 12h-4l-3 9L9 3l-3 9H2" />
+    </svg>
+  ),
+  cpu: (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <rect x="4" y="4" width="16" height="16" rx="2" strokeWidth={2} />
+      <rect x="9" y="9" width="6" height="6" strokeWidth={2} />
+      <path strokeLinecap="round" strokeWidth={2} d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3" />
+    </svg>
+  ),
+  calendar: (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <rect x="3" y="4" width="18" height="18" rx="2" strokeWidth={2} />
+      <path strokeLinecap="round" strokeWidth={2} d="M16 2v4M8 2v4M3 10h18" />
+    </svg>
+  ),
 };
 
 /**
- * İkon adından React node'a dönüştürme
+ * Resolve an icon name string to a React node
  */
 const getIcon = (icon?: string): React.ReactNode => {
   if (!icon) return null;
@@ -177,11 +201,11 @@ const getIcon = (icon?: string): React.ReactNode => {
 };
 
 // ============================================================================
-// Alt Bileşenler
+// Sub-components
 // ============================================================================
 
 /**
- * Tema renk sınıfları
+ * Theme colour classes
  */
 const themeClasses = {
   default: {
@@ -202,7 +226,7 @@ const themeClasses = {
 };
 
 /**
- * Menü öğesi bileşeni
+ * Menu item component
  */
 const MenuItem: React.FC<{
   item: NavItem;
@@ -216,22 +240,18 @@ const MenuItem: React.FC<{
   const [isExpanded, setIsExpanded] = useState(false);
   const hasChildren = item.children && item.children.length > 0;
 
-  // Yetki kontrolü
-  const hasAccess = useCallback(() => {
-    if (!item.requiredRoles || item.requiredRoles.length === 0) return true;
-    return item.requiredRoles.some((role) => userRoles.includes(role));
-  }, [item.requiredRoles, userRoles]);
-
-  if (!hasAccess()) return null;
+  // Access check — computed as a boolean (no useCallback overhead for a sync value)
+  const hasAccess = !item.requiredRoles?.length ||
+    item.requiredRoles.some((role) => userRoles.includes(role));
 
   const isActive = item.path === activePath;
   const isChildActive = item.children?.some(
     (child) => child.path === activePath
   );
 
-  const handleClick = () => {
+  const handleClick = useCallback(() => {
     if (hasChildren) {
-      setIsExpanded(!isExpanded);
+      setIsExpanded(prev => !prev);
     } else if (item.path) {
       if (item.isExternal) {
         window.open(item.path, '_blank', 'noopener,noreferrer');
@@ -239,7 +259,13 @@ const MenuItem: React.FC<{
         onNavigate(item.path);
       }
     }
-  };
+  }, [hasChildren, item.path, item.isExternal, onNavigate]);
+
+  if (!hasAccess) return null;
+
+  // BUG-020: If no path and no children, item is inert — render as span to avoid
+  // misleading interactive affordance (a button with no action)
+  const isInert = !hasChildren && !item.path;
 
   const colors = themeClasses[theme];
   const baseClasses = `
@@ -256,49 +282,61 @@ const MenuItem: React.FC<{
     ${depth > 0 ? 'ml-4' : ''}
   `;
 
+  const itemContent = (
+    <>
+      <div className="flex items-center min-w-0">
+        {/* Icon */}
+        {item.icon && (
+          <span className={`flex-shrink-0 ${!collapsed ? 'mr-3' : ''}`}>
+            {getIcon(item.icon)}
+          </span>
+        )}
+        {/* Label */}
+        {!collapsed && (
+          <span className="truncate">{item.label}</span>
+        )}
+      </div>
+
+      {/* Badge and chevron */}
+      {!collapsed && (
+        <div className="flex items-center space-x-2">
+          {item.badge !== undefined && (
+            <span className={`px-2 py-0.5 text-xs font-semibold ${colors.badge} rounded-full`}>
+              {item.badge}
+            </span>
+          )}
+          {hasChildren && (
+            <svg
+              className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          )}
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div>
+      {isInert ? (
+        <span className={`${baseClasses} cursor-default`} aria-disabled="true" title={collapsed ? item.label : undefined}>
+          {itemContent}
+        </span>
+      ) : (
       <button
         onClick={handleClick}
         className={baseClasses}
         title={collapsed ? item.label : undefined}
       >
-        <div className="flex items-center min-w-0">
-          {/* İkon */}
-          {item.icon && (
-            <span className={`flex-shrink-0 ${!collapsed ? 'mr-3' : ''}`}>
-              {getIcon(item.icon)}
-            </span>
-          )}
-          {/* Etiket */}
-          {!collapsed && (
-            <span className="truncate">{item.label}</span>
-          )}
-        </div>
-
-        {/* Badge ve chevron */}
-        {!collapsed && (
-          <div className="flex items-center space-x-2">
-            {item.badge !== undefined && (
-              <span className={`px-2 py-0.5 text-xs font-semibold ${colors.badge} rounded-full`}>
-                {item.badge}
-              </span>
-            )}
-            {hasChildren && (
-              <svg
-                className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            )}
-          </div>
-        )}
+        {itemContent}
       </button>
+      )}
 
-      {/* Alt menü */}
+      {/* Sub-menu */}
       {hasChildren && isExpanded && !collapsed && (
         <div className="mt-1 space-y-1">
           {item.children!.map((child) => (
@@ -320,11 +358,11 @@ const MenuItem: React.FC<{
 };
 
 // ============================================================================
-// Sidebar Bileşeni
+// Sidebar Component
 // ============================================================================
 
 /**
- * Sidebar bileşeni
+ * Sidebar component
  *
  * @example
  * <Sidebar
@@ -336,7 +374,7 @@ const MenuItem: React.FC<{
  * />
  */
 /**
- * Sidebar tema stilleri
+ * Sidebar theme styles
  */
 const sidebarThemeStyles = {
   default: {
@@ -380,14 +418,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ${className}
       `}
     >
-      {/* Logo ve daraltma butonu */}
+      {/* Logo and collapse button */}
       <div className={`h-16 flex items-center ${collapsed ? 'justify-center' : 'justify-between px-4'} border-b ${themeStyle.border}`}>
         {!collapsed && logo}
         {onCollapsedChange && (
           <button
             onClick={() => onCollapsedChange(!collapsed)}
             className={`p-2 text-gray-500 hover:text-gray-700 ${themeStyle.toggleHover} rounded-lg`}
-            title={collapsed ? 'Genişlet' : 'Daralt'}
+            title={collapsed ? 'Expand' : 'Collapse'}
           >
             <svg
               className={`w-5 h-5 transition-transform ${collapsed ? 'rotate-180' : ''}`}
@@ -401,7 +439,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
-      {/* Navigasyon menüsü */}
+      {/* Navigation menu */}
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">
         {items.map((item) => (
           <MenuItem
@@ -416,7 +454,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ))}
       </nav>
 
-      {/* Footer */}
+      {/* Footer content */}
       {footer && (
         <div className={`p-4 border-t ${themeStyle.border} ${collapsed ? 'hidden' : ''}`}>
           {footer}

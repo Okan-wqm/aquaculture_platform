@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { Injectable, NotFoundException, NotImplementedException, Optional } from '@nestjs/common';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { RedisService } from '@platform/backend-common';
@@ -122,8 +122,11 @@ export class ListTenantsHandler
       'maxUsers',
     ];
 
+    // H-4 fix: enforce safe sort order to prevent injection
+    const safeSortOrder = sortOrder === 'ASC' ? 'ASC' : 'DESC';
+
     if (allowedSortFields.includes(sortField)) {
-      queryBuilder.orderBy(`tenant.${sortField}`, sortOrder);
+      queryBuilder.orderBy(`tenant.${sortField}`, safeSortOrder);
     } else {
       queryBuilder.orderBy('tenant.createdAt', 'DESC');
     }
@@ -293,14 +296,12 @@ export class GetTenantsApproachingLimitsHandler
     private readonly tenantRepository: Repository<Tenant>,
   ) {}
 
-  async execute(query: GetTenantsApproachingLimitsQuery): Promise<Tenant[]> {
-    // Get active tenants
-    const tenants = await this.tenantRepository.find({
-      where: { status: TenantStatus.ACTIVE },
-    });
-
-    // For now, return all active tenants (limit checking requires user count)
-    return tenants;
+  async execute(_query: GetTenantsApproachingLimitsQuery): Promise<Tenant[]> {
+    // C-9 fix: Block endpoint with 501 until actual limit checking is implemented.
+    // Previous implementation returned ALL active tenants unconditionally.
+    throw new NotImplementedException(
+      'Tenants approaching limits endpoint is not yet implemented. Requires JOIN against users table for actual limit checking.',
+    );
   }
 }
 

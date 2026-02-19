@@ -6,6 +6,7 @@
  * Implements connection pooling, retry logic, and circuit breaker patterns.
  */
 
+import * as crypto from 'crypto';
 import { EventEmitter } from 'events';
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
@@ -111,12 +112,14 @@ export class OpaClientService extends EventEmitter implements OnModuleInit, OnMo
     lastCheck: new Date(),
   };
 
-  // Decision cache for performance
+  // Decision cache for performance (bounded to prevent unbounded memory growth)
   private readonly decisionCache = new Map<
     string,
     { result: OpaResult; expiry: number }
   >();
   private readonly cacheTtl: number;
+  private readonly maxCacheSize: number;
+  private cacheCleanupInterval?: ReturnType<typeof setInterval>;
 
   constructor(private readonly configService: ConfigService) {
     super();
@@ -133,11 +136,22 @@ export class OpaClientService extends EventEmitter implements OnModuleInit, OnMo
     };
 
     this.cacheTtl = this.configService.get<number>('OPA_CACHE_TTL', 60000);
+    this.maxCacheSize = this.configService.get<number>('OPA_CACHE_MAX_SIZE', 5000);
   }
 
   async onModuleInit(): Promise<void> {
     // Initial health check
     await this.checkHealth();
+
+    // Fetch OPA version once at startup (it doesn't change while OPA is running)
+    try {
+      const versionResponse = await this.httpGet<{ version: string }>(
+        `${this.config.baseUrl}/v1/status`,
+      );
+      this.currentHealth.version = versionResponse.version;
+    } catch {
+      // Version endpoint might not be available -- optional
+    }
 
     // Start periodic health checks
     this.healthCheckInterval = setInterval(() => {
@@ -146,12 +160,20 @@ export class OpaClientService extends EventEmitter implements OnModuleInit, OnMo
       });
     }, 30000);
 
+    // Start periodic cache cleanup to evict expired entries and enforce size limit
+    this.cacheCleanupInterval = setInterval(() => {
+      this.cleanupDecisionCache();
+    }, this.cacheTtl);
+
     this.logger.log('OPA Client initialized', { baseUrl: this.config.baseUrl });
   }
 
   onModuleDestroy(): void {
     if (this.healthCheckInterval) {
       clearInterval(this.healthCheckInterval);
+    }
+    if (this.cacheCleanupInterval) {
+      clearInterval(this.cacheCleanupInterval);
     }
   }
 
@@ -186,11 +208,12 @@ export class OpaClientService extends EventEmitter implements OnModuleInit, OnMo
         return response;
       });
 
-      // Cache the result
+      // Cache the result and enforce size limit
       this.decisionCache.set(cacheKey, {
         result,
         expiry: Date.now() + this.cacheTtl,
       });
+      this.enforceCacheSizeLimit();
 
       // Record success
       this.recordSuccess();
@@ -308,16 +331,8 @@ export class OpaClientService extends EventEmitter implements OnModuleInit, OnMo
 
       const responseTime = Date.now() - startTime;
 
-      // Get version info
-      let version: string | undefined;
-      try {
-        const versionResponse = await this.httpGet<{ version: string }>(
-          `${this.config.baseUrl}/v1/status`,
-        );
-        version = versionResponse.version;
-      } catch {
-        // Version endpoint might not be available
-      }
+      // Version is fetched once at startup in onModuleInit() and cached
+      // in this.currentHealth.version. No need for a second HTTP call per cycle.
 
       const pluginsStatus: Record<string, string> = {};
       if (response.plugins) {
@@ -328,7 +343,7 @@ export class OpaClientService extends EventEmitter implements OnModuleInit, OnMo
 
       this.currentHealth = {
         status: 'healthy',
-        version,
+        version: this.currentHealth.version, // preserve cached version from init
         bundlesLoaded: true,
         pluginsStatus,
         lastCheck: new Date(),
@@ -476,6 +491,47 @@ export class OpaClientService extends EventEmitter implements OnModuleInit, OnMo
   }
 
   /**
+   * Periodically clean up expired entries from the decision cache
+   * Prevents unbounded memory growth from stale entries that are never re-accessed
+   */
+  private cleanupDecisionCache(): void {
+    const now = Date.now();
+    let cleaned = 0;
+    for (const [key, entry] of this.decisionCache) {
+      if (entry.expiry < now) {
+        this.decisionCache.delete(key);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      this.logger.debug(`Cleaned up ${cleaned} expired decision cache entries`);
+    }
+  }
+
+  /**
+   * Enforce maximum cache size to prevent unbounded memory growth
+   * Evicts oldest entries when cache exceeds maxCacheSize
+   */
+  private enforceCacheSizeLimit(): void {
+    if (this.decisionCache.size <= this.maxCacheSize) {
+      return;
+    }
+    // Remove expired entries first
+    this.cleanupDecisionCache();
+    // If still over limit, remove oldest entries (by insertion order)
+    if (this.decisionCache.size > this.maxCacheSize) {
+      const toRemove = this.decisionCache.size - this.maxCacheSize;
+      let removed = 0;
+      for (const key of this.decisionCache.keys()) {
+        if (removed >= toRemove) break;
+        this.decisionCache.delete(key);
+        removed++;
+      }
+      this.logger.debug(`Evicted ${removed} decision cache entries to enforce size limit`);
+    }
+  }
+
+  /**
    * Build cache key for decision
    */
   private buildCacheKey(policyPath: string, input: Record<string, unknown>): string {
@@ -484,17 +540,14 @@ export class OpaClientService extends EventEmitter implements OnModuleInit, OnMo
   }
 
   /**
-   * Simple hash function for objects
+   * Hash function for objects using SHA-256 to prevent cache key collisions.
+   * SECURITY: A 32-bit djb2 hash has high collision probability at ~6,500
+   * entries (birthday paradox), which could return a cached allow/deny
+   * decision for the wrong principal. SHA-256 eliminates this risk.
    */
   private hashObject(obj: Record<string, unknown>): string {
     const str = JSON.stringify(obj, Object.keys(obj).sort());
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = (hash << 5) - hash + char;
-      hash = hash & hash;
-    }
-    return hash.toString(36);
+    return crypto.createHash('sha256').update(str).digest('hex');
   }
 
   /**

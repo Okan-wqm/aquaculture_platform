@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users,
@@ -12,40 +12,9 @@ import {
   MoreVertical,
   RefreshCw,
 } from 'lucide-react';
-
-// GraphQL Configuration - Gateway API
-const GRAPHQL_URL = '/graphql';
-
-/**
- * Get auth token from localStorage
- */
-const getAuthToken = (): string | null => {
-  return localStorage.getItem('access_token');
-};
-
-/**
- * GraphQL query executor
- */
-const executeGraphQL = async <T,>(query: string, variables?: Record<string, unknown>): Promise<T> => {
-  const token = getAuthToken();
-
-  const response = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL error');
-  }
-
-  return result.data;
-};
+import { graphqlRequest } from '../services/tenant-api.service';
+import { useMyTenant, useTenantStats } from '../hooks/useTenantData';
+import { logError } from '../utils/error-handling';
 
 /**
  * Stat card data type
@@ -217,6 +186,61 @@ const StatusBadge: React.FC<{ status: ModuleStatus['status'] }> = ({
   );
 };
 
+const MY_MODULES_QUERY = `
+  query MyModules {
+    myModules {
+      id
+      moduleId
+      name
+      description
+      icon
+      color
+      isEnabled
+      defaultRoute
+    }
+  }
+`;
+
+const TENANT_USERS_QUERY = `
+  query TenantUsers {
+    tenantUsers {
+      id
+      email
+      firstName
+      lastName
+      role
+      isActive
+      lastLoginAt
+      createdAt
+    }
+  }
+`;
+
+const MY_SUBSCRIPTION_QUERY = `
+  query MySubscription {
+    subscription {
+      id
+      status
+      planTier
+      planName
+      billingCycle
+      currentPeriodStart
+      currentPeriodEnd
+      trialEndDate
+      pricing {
+        basePrice
+        currency
+      }
+      moduleItems {
+        moduleId
+        moduleCode
+        moduleName
+        monthlyPrice
+      }
+    }
+  }
+`;
+
 /**
  * TenantDashboard Page
  */
@@ -229,83 +253,17 @@ const TenantDashboard: React.FC = () => {
   const [activities, setActivities] = useState<RecentActivity[]>([]);
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
 
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
+  // Use TanStack Query for stats (PERF-001)
+  const { data: tenantStats } = useTenantStats();
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
 
-    const token = getAuthToken();
-
-    if (!token) {
-      setError('Authentication required');
-      setLoading(false);
-      return;
-    }
-
     try {
-      // GraphQL queries for tenant admin
-      const MY_MODULES_QUERY = `
-        query MyModules {
-          myModules {
-            id
-            moduleId
-            name
-            description
-            icon
-            color
-            isEnabled
-            defaultRoute
-          }
-        }
-      `;
-
-      const TENANT_USERS_QUERY = `
-        query TenantUsers {
-          tenantUsers {
-            id
-            email
-            firstName
-            lastName
-            role
-            isActive
-            lastLoginAt
-            createdAt
-          }
-        }
-      `;
-
-      // Query for subscription info
-      const MY_SUBSCRIPTION_QUERY = `
-        query MySubscription {
-          subscription {
-            id
-            status
-            planTier
-            planName
-            billingCycle
-            currentPeriodStart
-            currentPeriodEnd
-            trialEndDate
-            pricing {
-              basePrice
-              currency
-            }
-            moduleItems {
-              moduleId
-              moduleCode
-              moduleName
-              monthlyPrice
-            }
-          }
-        }
-      `;
-
-      // Fetch modules, users, and subscription in parallel via GraphQL
+      // Fetch modules, users, and subscription in parallel via graphqlRequest (HIGH-001)
       const [modulesData, usersData, subscriptionData] = await Promise.all([
-        executeGraphQL<{ myModules: Array<{
+        graphqlRequest<{ myModules: Array<{
           id: string;
           moduleId: string;
           name: string;
@@ -315,8 +273,8 @@ const TenantDashboard: React.FC = () => {
           isEnabled: boolean;
           defaultRoute?: string;
         }> }>(MY_MODULES_QUERY),
-        executeGraphQL<{ tenantUsers: User[] }>(TENANT_USERS_QUERY),
-        executeGraphQL<{ subscription: SubscriptionInfo | null }>(MY_SUBSCRIPTION_QUERY).catch(() => ({ subscription: null })),
+        graphqlRequest<{ tenantUsers: User[] }>(TENANT_USERS_QUERY),
+        graphqlRequest<{ subscription: SubscriptionInfo | null }>(MY_SUBSCRIPTION_QUERY).catch(() => ({ subscription: null })),
       ]);
 
       // Process modules
@@ -361,18 +319,26 @@ const TenantDashboard: React.FC = () => {
       setSubscription(subscriptionData.subscription);
 
     } catch (err) {
-      console.error('Failed to load dashboard data:', err);
+      if (signal?.aborted) return;
+      logError('TenantDashboard.loadDashboardData', err);
       setError((err as Error).message);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  };
+  }, []);
 
-  // Calculate stats
-  const activeUsers = users.filter(u => u.isActive).length;
-  const totalUsers = users.length;
-  const activeModules = modules.filter(m => m.status === 'active').length;
-  const totalModules = modules.length;
+  // PERF-004: Cancel in-flight fetches on unmount to prevent state updates after unmount
+  useEffect(() => {
+    const controller = new AbortController();
+    loadDashboardData(controller.signal);
+    return () => controller.abort();
+  }, [loadDashboardData]);
+
+  // Calculate stats — prefer TanStack Query stats if available (PERF-001)
+  const activeUsers = tenantStats?.activeUsers ?? users.filter(u => u.isActive).length;
+  const totalUsers = tenantStats?.totalUsers ?? users.length;
+  const activeModules = tenantStats?.activeModules ?? modules.filter(m => m.status === 'active').length;
+  const totalModules = tenantStats?.totalModules ?? modules.length;
 
   const statsData: StatCard[] = [
     {
@@ -394,7 +360,7 @@ const TenantDashboard: React.FC = () => {
     {
       id: 'activity',
       title: 'Active Sessions',
-      value: activeUsers,
+      value: tenantStats?.activeSessions ?? activeUsers,
       changeLabel: 'users online',
       icon: <Activity className="w-6 h-6" />,
       color: 'yellow',

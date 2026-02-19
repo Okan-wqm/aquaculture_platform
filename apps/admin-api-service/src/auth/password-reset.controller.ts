@@ -171,12 +171,21 @@ export class PasswordResetController {
     // Hash new password
     const hashedPassword = await bcrypt.hash(dto.newPassword, 12);
 
-    // Update password and clear reset token
+    // HIGH-001 fix: Update password, clear reset token, AND invalidate all refresh tokens
+    // to terminate any existing sessions (session invalidation on password reset).
     await this.dataSource.query(
       `UPDATE auth.users
        SET password = $1, "passwordResetToken" = NULL, "passwordResetExpires" = NULL, "updatedAt" = NOW()
        WHERE id = $2`,
       [hashedPassword, user.id],
+    );
+
+    // HIGH-001 fix: Invalidate all existing refresh tokens so active sessions are terminated.
+    await this.dataSource.query(
+      `UPDATE auth.refresh_tokens
+       SET "isRevoked" = true, "revokedAt" = NOW(), "revokedReason" = 'password_reset'
+       WHERE "userId" = $1 AND "isRevoked" = false`,
+      [user.id],
     );
 
     this.logger.log(`Password reset successfully for user ${user.email}`);

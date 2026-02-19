@@ -217,28 +217,28 @@ export function validateRule(rule: AlertRule): ValidationError[] {
 
   // Name validation
   if (!rule.name.trim()) {
-    errors.push({ field: 'name', message: 'Kural adı zorunludur' });
+    errors.push({ field: 'name', message: 'Rule name is required' });
   } else if (rule.name.length < 3) {
-    errors.push({ field: 'name', message: 'Kural adı en az 3 karakter olmalıdır' });
+    errors.push({ field: 'name', message: 'Rule name must be at least 3 characters' });
   } else if (rule.name.length > 100) {
-    errors.push({ field: 'name', message: 'Kural adı en fazla 100 karakter olabilir' });
+    errors.push({ field: 'name', message: 'Rule name cannot exceed 100 characters' });
   }
 
   // Description validation
   if (rule.description && rule.description.length > 500) {
-    errors.push({ field: 'description', message: 'Açıklama en fazla 500 karakter olabilir' });
+    errors.push({ field: 'description', message: 'Description cannot exceed 500 characters' });
   }
 
   // Condition groups validation
   if (rule.conditionGroups.length === 0) {
-    errors.push({ field: 'conditionGroups', message: 'En az bir koşul grubu gereklidir' });
+    errors.push({ field: 'conditionGroups', message: 'At least one condition group is required' });
   }
 
   rule.conditionGroups.forEach((group, groupIndex) => {
     if (group.conditions.length === 0) {
       errors.push({
         field: `conditionGroups.${groupIndex}.conditions`,
-        message: `Grup ${groupIndex + 1} en az bir koşul içermelidir`,
+        message: `Group ${groupIndex + 1} must contain at least one condition`,
       });
     }
 
@@ -246,7 +246,7 @@ export function validateRule(rule: AlertRule): ValidationError[] {
       if (condition.value === undefined || condition.value === null) {
         errors.push({
           field: `conditionGroups.${groupIndex}.conditions.${condIndex}.value`,
-          message: `Koşul değeri zorunludur`,
+          message: `Condition value is required`,
         });
       }
 
@@ -254,12 +254,12 @@ export function validateRule(rule: AlertRule): ValidationError[] {
         if (condition.secondValue === undefined || condition.secondValue === null) {
           errors.push({
             field: `conditionGroups.${groupIndex}.conditions.${condIndex}.secondValue`,
-            message: `İkinci değer zorunludur`,
+            message: `Second value is required`,
           });
         } else if (condition.secondValue <= condition.value) {
           errors.push({
             field: `conditionGroups.${groupIndex}.conditions.${condIndex}.secondValue`,
-            message: `İkinci değer birinci değerden büyük olmalıdır`,
+            message: `Second value must be greater than first value`,
           });
         }
       }
@@ -267,7 +267,7 @@ export function validateRule(rule: AlertRule): ValidationError[] {
       if (condition.duration !== undefined && condition.duration < 0) {
         errors.push({
           field: `conditionGroups.${groupIndex}.conditions.${condIndex}.duration`,
-          message: `Süre negatif olamaz`,
+          message: `Duration cannot be negative`,
         });
       }
     });
@@ -275,15 +275,15 @@ export function validateRule(rule: AlertRule): ValidationError[] {
 
   // Cooldown validation
   if (rule.cooldownMinutes < 0) {
-    errors.push({ field: 'cooldownMinutes', message: 'Bekleme süresi negatif olamaz' });
+    errors.push({ field: 'cooldownMinutes', message: 'Cooldown period cannot be negative' });
   } else if (rule.cooldownMinutes > 1440) {
-    errors.push({ field: 'cooldownMinutes', message: 'Bekleme süresi en fazla 24 saat olabilir' });
+    errors.push({ field: 'cooldownMinutes', message: 'Cooldown period cannot exceed 24 hours' });
   }
 
   // Notification channels validation
   const hasEnabledChannel = rule.notificationChannels.some(ch => ch.enabled);
   if (!hasEnabledChannel) {
-    errors.push({ field: 'notificationChannels', message: 'En az bir bildirim kanalı aktif olmalıdır' });
+    errors.push({ field: 'notificationChannels', message: 'At least one notification channel must be active' });
   }
 
   return errors;
@@ -306,7 +306,7 @@ export function formatCondition(condition: RuleCondition): string {
   const unit = sensor?.unit || '';
 
   if (['between', 'outside'].includes(condition.operator)) {
-    const action = condition.operator === 'between' ? 'arasında' : 'dışında';
+    const action = condition.operator === 'between' ? 'between' : 'outside';
     return `${sensor?.label} ${condition.value}${unit} - ${condition.secondValue}${unit} ${action}`;
   }
 

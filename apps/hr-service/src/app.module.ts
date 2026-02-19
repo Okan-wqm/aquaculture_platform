@@ -9,7 +9,7 @@ import {
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
 import { CqrsModule } from '@nestjs/cqrs';
-import { GraphQLError } from 'graphql';
+import { GraphQLError, GraphQLFormattedError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import {
@@ -56,7 +56,7 @@ import { WeeklyPlanEntry } from './scheduling/entities/weekly-plan-entry.entity'
 import { Holiday } from './scheduling/entities/holiday.entity';
 
 // Nested ObjectTypes for orphanedTypes registration
-import { ContactInfo, Address, BankDetails, NextOfKin, EmergencyInfo } from './hr/entities/employee.entity';
+import { ContactInfo, Address, NextOfKin, EmergencyInfo } from './hr/entities/employee.entity';
 import { GeoCoordinates } from './aquaculture/entities/work-area.entity';
 import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquaculture/entities/work-rotation.entity';
 
@@ -116,7 +116,7 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
           WeeklyPlanEntry,
           Holiday,
         ],
-        synchronize: configService.get('NODE_ENV') !== 'production',
+        synchronize: false,
         logging: configService.get('NODE_ENV') === 'development',
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {
@@ -128,7 +128,8 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
           const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
 
           if (isProduction && !rejectUnauthorized && !caPath) {
-            console.warn('⚠️  WARNING: SSL certificate verification disabled in production!');
+            // SECURITY: Hard-fail in production if SSL certificate verification is disabled (LOW-02)
+            throw new Error('SECURITY: DATABASE_SSL_REJECT_UNAUTHORIZED must be enabled in production');
           }
 
           return {
@@ -153,7 +154,6 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
         orphanedTypes: [
           ContactInfo,
           Address,
-          BankDetails,
           NextOfKin,
           EmergencyInfo,
           GeoCoordinates,
@@ -182,6 +182,16 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
           }),
         },
       ],
+      formatError: (formattedError: GraphQLFormattedError) => {
+        if (process.env['NODE_ENV'] === 'production') {
+          const extensions = { ...formattedError.extensions };
+          if (extensions && extensions['exception']) {
+            delete (extensions['exception'] as Record<string, unknown>).stacktrace;
+          }
+          return { ...formattedError, extensions };
+        }
+        return formattedError;
+      },
       playground: process.env['NODE_ENV'] !== 'production',
       introspection: process.env['NODE_ENV'] !== 'production',
       context: ({ req }: { req: Request }) => ({ req }),
@@ -193,7 +203,7 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get('JWT_SECRET', 'dev-secret'),
+        secret: configService.getOrThrow<string>('JWT_SECRET'),
         signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '1d') },
       }),
     }),

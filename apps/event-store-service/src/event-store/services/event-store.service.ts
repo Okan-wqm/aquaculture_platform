@@ -3,6 +3,7 @@ import {
   Logger,
   ConflictException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, MoreThan, FindOptionsWhere } from 'typeorm';
@@ -21,9 +22,14 @@ import {
   SnapshotData,
 } from '../interfaces/event-store.interfaces';
 
+const ALLOWED_SORT_FIELDS = new Set(['occurredAt', 'storedAt', 'globalPosition']);
+const AGGREGATE_TYPE_PATTERN = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
+const MAX_LOAD_AGGREGATE_EVENTS = 1000;
+
 @Injectable()
 export class EventStoreService {
   private readonly logger = new Logger(EventStoreService.name);
+  private readonly statsCache = new Map<string, { data: unknown; expiresAt: number }>();
 
   constructor(
     @InjectRepository(StoredEvent)
@@ -46,11 +52,12 @@ export class EventStoreService {
     events: DomainEvent[],
     expectedVersion: number,
   ): Promise<AppendResult> {
+    this.validateAggregateType(aggregateType);
     const streamName = this.buildStreamName(aggregateType, aggregateId);
     const queryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
-    await queryRunner.startTransaction('SERIALIZABLE');
+    await queryRunner.startTransaction('READ COMMITTED');
 
     try {
       // Get or create stream with lock
@@ -58,6 +65,11 @@ export class EventStoreService {
         where: { streamName, tenantId },
         lock: { mode: 'pessimistic_write' },
       });
+
+      // Reject appends to soft-deleted streams
+      if (stream?.isDeleted) {
+        throw new ConflictException(`Stream ${streamName} has been deleted`);
+      }
 
       const currentVersion = stream?.currentVersion ?? 0;
 
@@ -84,20 +96,24 @@ export class EventStoreService {
       const globalPositions: number[] = [];
       let newVersion = currentVersion;
 
-      // Get the current max global position
-      const maxPositionResult = await queryRunner.manager
-        .createQueryBuilder(StoredEvent, 'e')
-        .select('MAX(e.globalPosition)', 'maxPosition')
-        .getRawOne();
+      // Use PostgreSQL sequence for atomic global position assignment
+      const positionResults = await queryRunner.manager.query(
+        `SELECT nextval('stored_events_global_position_seq') as pos FROM generate_series(1, $1)`,
+        [events.length],
+      );
 
-      let nextGlobalPosition = (parseInt(maxPositionResult?.maxPosition || '0', 10)) + 1;
+      const positions: number[] = positionResults.map((r: { pos: string }) =>
+        parseInt(r.pos, 10),
+      );
 
-      // Append each event
-      for (const event of events) {
+      // Build all events for bulk insert
+      const storedEvents: Array<Record<string, unknown>> = [];
+      for (let i = 0; i < events.length; i++) {
+        const event = events[i]!;
         newVersion++;
-        const globalPosition = nextGlobalPosition++;
+        const globalPosition = positions[i]!;
 
-        const storedEvent = queryRunner.manager.create(StoredEvent, {
+        storedEvents.push({
           streamName,
           globalPosition,
           streamPosition: newVersion,
@@ -115,14 +131,18 @@ export class EventStoreService {
           schemaVersion: event.schemaVersion || 1,
         });
 
-        const savedEvent = await queryRunner.manager.save(storedEvent);
-        eventIds.push(savedEvent.id);
         globalPositions.push(globalPosition);
+      }
+
+      // Bulk insert all events
+      const insertResult = await queryRunner.manager.insert(StoredEvent, storedEvents as any);
+      for (const row of insertResult.identifiers) {
+        eventIds.push(row.id);
       }
 
       // Update stream metadata
       stream.currentVersion = newVersion;
-      stream.eventCount = Number(stream.eventCount) + events.length;
+      stream.eventCount = stream.eventCount + events.length;
       stream.lastEventAt = new Date();
       await queryRunner.manager.save(stream);
 
@@ -141,6 +161,18 @@ export class EventStoreService {
       };
     } catch (error) {
       await queryRunner.rollbackTransaction();
+
+      // Retry on serialization failure (PostgreSQL error code 40001)
+      const pgError = error as { code?: string };
+      if (pgError.code === '40001') {
+        this.logger.warn(
+          `Serialization failure on stream ${streamName}, caller should retry`,
+        );
+        throw new ConflictException(
+          'Concurrent write conflict, please retry the operation',
+        );
+      }
+
       this.logger.error(
         `Failed to append events to stream ${streamName}: ${(error as Error).message}`,
         (error as Error).stack,
@@ -164,7 +196,7 @@ export class EventStoreService {
     const { fromVersion = 0, maxCount = 100, direction = 'forward' } = options;
 
     const stream = await this.streamRepository.findOne({
-      where: { streamName, tenantId },
+      where: { streamName, tenantId, isDeleted: false },
     });
 
     if (!stream) {
@@ -262,21 +294,13 @@ export class EventStoreService {
 
     const persistedEvents = events.map((e) => this.toPersistedEvent(e));
     const lastEvent = events[events.length - 1];
-    const lastPosition = lastEvent ? Number(lastEvent.globalPosition) : fromPosition;
-
-    // Check if we've reached the end
-    const countAfter = await this.eventRepository.count({
-      where: {
-        tenantId,
-        globalPosition: MoreThan(lastPosition),
-      },
-    });
+    const lastPosition = lastEvent ? lastEvent.globalPosition : fromPosition;
 
     return {
       events: persistedEvents,
       fromPosition,
       nextPosition: lastPosition,
-      isEndOfAll: countAfter === 0,
+      isEndOfAll: events.length < maxCount,
     };
   }
 
@@ -333,7 +357,7 @@ export class EventStoreService {
   }
 
   /**
-   * Create a snapshot
+   * Create a snapshot with atomic upsert and version validation
    */
   async createSnapshot(
     tenantId: string,
@@ -343,27 +367,47 @@ export class EventStoreService {
     state: Record<string, unknown>,
     schemaVersion: number = 1,
   ): Promise<Snapshot> {
-    // Delete existing snapshot if any
-    await this.snapshotRepository.delete({
-      aggregateType,
-      aggregateId,
-      tenantId,
+    // Verify stream exists and version is valid
+    const streamName = this.buildStreamName(aggregateType, aggregateId);
+    const stream = await this.streamRepository.findOne({
+      where: { streamName, tenantId, isDeleted: false },
     });
 
-    const snapshot = this.snapshotRepository.create({
-      aggregateType,
-      aggregateId,
-      version,
-      state,
-      tenantId,
-      schemaVersion,
+    if (!stream) {
+      throw new NotFoundException(
+        `Stream ${aggregateType}/${aggregateId} not found`,
+      );
+    }
+
+    if (version > stream.currentVersion) {
+      throw new BadRequestException(
+        `Snapshot version ${version} exceeds stream current version ${stream.currentVersion}`,
+      );
+    }
+
+    // Atomic upsert instead of delete+insert
+    await this.snapshotRepository.upsert(
+      {
+        aggregateType,
+        aggregateId,
+        tenantId,
+        version,
+        state: state as any,
+        schemaVersion,
+      },
+      {
+        conflictPaths: ['aggregateType', 'aggregateId', 'tenantId'],
+      },
+    );
+
+    const snapshot = await this.snapshotRepository.findOneOrFail({
+      where: { aggregateType, aggregateId, tenantId },
     });
 
-    const saved = await this.snapshotRepository.save(snapshot);
     this.logger.log(
       `Created snapshot for ${aggregateType}/${aggregateId} at version ${version}`,
     );
-    return saved;
+    return snapshot;
   }
 
   /**
@@ -394,7 +438,7 @@ export class EventStoreService {
   }
 
   /**
-   * Load aggregate from snapshot + events
+   * Load aggregate from snapshot + events with pagination ceiling
    */
   async loadAggregate(
     tenantId: string,
@@ -410,8 +454,15 @@ export class EventStoreService {
 
     const slice = await this.readStream(tenantId, aggregateType, aggregateId, {
       fromVersion,
-      maxCount: 10000,
+      maxCount: MAX_LOAD_AGGREGATE_EVENTS,
     });
+
+    if (slice.events.length === MAX_LOAD_AGGREGATE_EVENTS) {
+      this.logger.warn(
+        `loadAggregate for ${aggregateType}/${aggregateId} hit the ${MAX_LOAD_AGGREGATE_EVENTS} event ceiling. ` +
+          `Consider creating a snapshot to reduce replay size.`,
+      );
+    }
 
     return {
       snapshot,
@@ -421,7 +472,7 @@ export class EventStoreService {
   }
 
   /**
-   * Delete a stream (soft delete)
+   * Delete a stream (soft delete) and cascade to snapshots
    */
   async deleteStream(
     tenantId: string,
@@ -440,11 +491,18 @@ export class EventStoreService {
     stream.isDeleted = true;
     await this.streamRepository.save(stream);
 
-    this.logger.log(`Soft deleted stream ${streamName}`);
+    // Cascade: delete associated snapshot
+    await this.snapshotRepository.delete({
+      aggregateType,
+      aggregateId,
+      tenantId,
+    });
+
+    this.logger.log(`Soft deleted stream ${streamName} and associated snapshot`);
   }
 
   /**
-   * Get event store statistics
+   * Get event store statistics (with TTL cache)
    */
   async getStatistics(tenantId: string): Promise<{
     totalEvents: number;
@@ -454,6 +512,12 @@ export class EventStoreService {
     eventsByType: Record<string, number>;
     eventsByAggregate: Record<string, number>;
   }> {
+    const cacheKey = `stats:${tenantId}`;
+    const cached = this.statsCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data as Awaited<ReturnType<EventStoreService['getStatistics']>>;
+    }
+
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
 
@@ -487,20 +551,31 @@ export class EventStoreService {
         .getRawMany(),
     ]);
 
-    return {
+    const result = {
       totalEvents,
       totalStreams,
       totalSnapshots,
       eventsLast24h,
       eventsByType: eventsByType.reduce(
-        (acc, row) => ({ ...acc, [row.eventType]: parseInt(row.count, 10) }),
+        (acc: Record<string, number>, row: { eventType: string; count: string }) => ({
+          ...acc,
+          [row.eventType]: parseInt(row.count, 10),
+        }),
         {},
       ),
       eventsByAggregate: eventsByAggregate.reduce(
-        (acc, row) => ({ ...acc, [row.aggregateType]: parseInt(row.count, 10) }),
+        (acc: Record<string, number>, row: { aggregateType: string; count: string }) => ({
+          ...acc,
+          [row.aggregateType]: parseInt(row.count, 10),
+        }),
         {},
       ),
     };
+
+    // Cache for 60 seconds
+    this.statsCache.set(cacheKey, { data: result, expiresAt: Date.now() + 60_000 });
+
+    return result;
   }
 
   /**
@@ -526,6 +601,11 @@ export class EventStoreService {
     limit: number;
     totalPages: number;
   }> {
+    // Validate sort field against allowlist to prevent SQL injection
+    if (!ALLOWED_SORT_FIELDS.has(sorting.field)) {
+      throw new BadRequestException(`Invalid sort field: ${sorting.field}`);
+    }
+
     const where: FindOptionsWhere<StoredEvent> = { tenantId };
 
     if (criteria.eventType) {
@@ -579,6 +659,17 @@ export class EventStoreService {
   }
 
   /**
+   * Validate aggregate type against an allowlist pattern
+   */
+  private validateAggregateType(aggregateType: string): void {
+    if (!AGGREGATE_TYPE_PATTERN.test(aggregateType)) {
+      throw new BadRequestException(
+        `Invalid aggregate type: ${aggregateType}. Must match pattern: ^[A-Za-z][A-Za-z0-9]{0,63}$`,
+      );
+    }
+  }
+
+  /**
    * Build stream name from aggregate type and id
    */
   private buildStreamName(aggregateType: string, aggregateId: string): string {
@@ -592,8 +683,8 @@ export class EventStoreService {
     return {
       id: event.id,
       streamName: event.streamName,
-      globalPosition: Number(event.globalPosition),
-      streamPosition: Number(event.streamPosition),
+      globalPosition: event.globalPosition,
+      streamPosition: event.streamPosition,
       aggregateType: event.aggregateType,
       aggregateId: event.aggregateId,
       version: event.version,

@@ -3,7 +3,7 @@
  * Features: Trend indicators, sparklines, comparison values, loading states
  */
 
-import React from 'react';
+import React, { useId } from 'react';
 
 // ============================================================================
 // Types
@@ -110,11 +110,16 @@ const TrendIndicator: React.FC<{
   );
 };
 
-const MiniSparkline: React.FC<{ data: number[]; color?: string; height?: number }> = ({
+// PERF-009: Wrap in React.memo — sparkline re-renders are expensive due to SVG coordinate math
+const MiniSparkline = React.memo(function MiniSparkline({
   data,
   color = '#3B82F6',
   height = 32,
-}) => {
+}: { data: number[]; color?: string; height?: number }) {
+  // BUG-009: useId() ensures gradient ID is unique per instance — prevents collision when
+  // multiple KpiCards with sparklines render on the same page
+  const uid = useId().replace(/:/g, '');
+
   if (!data || data.length < 2) return null;
 
   const width = 80;
@@ -134,21 +139,22 @@ const MiniSparkline: React.FC<{ data: number[]; color?: string; height?: number 
   // Area fill
   const areaPoints = [...points, `${width - padding},${height - padding}`, `${padding},${height - padding}`];
   const areaD = `M${areaPoints.join(' L')}Z`;
+  const gradientId = `sparkline-gradient-${uid}`;
 
   return (
     <svg width={width} height={height} className="overflow-visible">
       <defs>
-        <linearGradient id={`gradient-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.3" />
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
-      <path d={areaD} fill={`url(#gradient-${color.replace('#', '')})`} />
+      <path d={areaD} fill={`url(#${gradientId})`} />
       <path d={pathD} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       <circle cx={points[points.length - 1].split(',')[0]} cy={points[points.length - 1].split(',')[1]} r="3" fill={color} />
     </svg>
   );
-};
+});
 
 const ProgressBar: React.FC<{
   current: number;
@@ -157,7 +163,9 @@ const ProgressBar: React.FC<{
   showPercentage?: boolean;
   variant?: CardVariant;
 }> = ({ current, max, label, showPercentage = true, variant = 'default' }) => {
-  const percentage = Math.min(Math.round((current / max) * 100), 100);
+  // BUG-010: Guard against NaN (max=0) and Infinity (max negative)
+  const rawRatio = max > 0 ? current / max : 0;
+  const percentage = Number.isFinite(rawRatio) ? Math.min(Math.max(Math.round(rawRatio * 100), 0), 100) : 0;
 
   const colors = {
     default: 'bg-blue-500',
@@ -204,7 +212,9 @@ const LoadingSkeleton: React.FC<{ size: CardSize }> = ({ size }) => {
 // Main Component
 // ============================================================================
 
-export const KpiCard: React.FC<KpiCardProps> = ({
+// PERF-010: KpiCard is typically used in grids of multiple cards — memo prevents
+// full subtree re-renders when only unrelated parent state changes
+const KpiCardInner: React.FC<KpiCardProps> = ({
   title,
   value,
   subtitle,
@@ -369,5 +379,9 @@ export const KpiCard: React.FC<KpiCardProps> = ({
     </div>
   );
 };
+
+// PERF-010: memo wrapping — prevents unnecessary re-renders in KPI dashboard grids
+export const KpiCard = React.memo(KpiCardInner);
+KpiCard.displayName = 'KpiCard';
 
 export default KpiCard;

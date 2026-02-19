@@ -67,8 +67,10 @@ export class ListSubEquipmentHandler implements IQueryHandler<ListSubEquipmentQu
       );
     }
 
-    // Apply sorting
-    queryBuilder.orderBy(`subEquipment.${sortBy}`, sortOrder);
+    // Apply sorting with allowlist to prevent SQL injection
+    const validSortFields = ['name', 'code', 'status', 'serialNumber', 'createdAt', 'updatedAt'];
+    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    queryBuilder.orderBy(`subEquipment.${safeSortBy}`, sortOrder);
 
     // Apply pagination
     queryBuilder.skip((page - 1) * limit);

@@ -161,8 +161,9 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
         )}
 
         {/* Kart İçeriği */}
+        {/* BUG-015: Conditionally omit className when padding="none" to avoid empty class attribute */}
         {(children || isLoading) && (
-          <div className={paddingStyles[padding]}>
+          <div className={paddingStyles[padding] || undefined}>
             {isLoading ? <CardSkeleton /> : children}
           </div>
         )}

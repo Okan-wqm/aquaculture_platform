@@ -102,15 +102,22 @@ export const DebugToolsPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [entriesResponse, statsResponse] = await Promise.all([
+      const [entriesResponse, statsResponse] = await Promise.allSettled([
         debugApi.getCacheEntries({ limit: 100, keyPattern: cacheFilter || undefined }),
         debugApi.getCacheStats(),
       ]);
-      setCacheEntries(entriesResponse.data || []);
-      setCacheStats(statsResponse);
+      setCacheEntries(entriesResponse.status === 'fulfilled' ? (entriesResponse.value.data || []) : []);
+      setCacheStats(statsResponse.status === 'fulfilled' ? statsResponse.value : null);
+      if (entriesResponse.status === 'rejected' && statsResponse.status === 'rejected') {
+        setError('Cache service unavailable');
+      } else if (entriesResponse.status === 'rejected') {
+        setError('Cache service unavailable');
+      } else if (statsResponse.status === 'rejected') {
+        setError('Cache stats unavailable');
+      }
     } catch (err) {
       console.error('Failed to load cache data:', err);
-      setError('Failed to load cache data');
+      setError('Cache service unavailable');
       setCacheEntries([]);
       setCacheStats(null);
     } finally {
@@ -172,17 +179,22 @@ export const DebugToolsPage: React.FC = () => {
     }
   }, [configCategory, configSearch]);
 
+  // Split per-tab effects so unrelated dep changes (e.g. logSearch typing) don't re-trigger other tabs (PERF-012)
   useEffect(() => {
-    if (activeTab === 'cache') {
-      loadCacheData();
-    } else if (activeTab === 'logs') {
-      loadLogs();
-    } else if (activeTab === 'database') {
-      loadDatabaseData();
-    } else if (activeTab === 'config') {
-      loadConfig();
-    }
-  }, [activeTab, loadCacheData, loadLogs, loadDatabaseData, loadConfig]);
+    if (activeTab === 'cache') loadCacheData();
+  }, [activeTab, loadCacheData]);
+
+  useEffect(() => {
+    if (activeTab === 'logs') loadLogs();
+  }, [activeTab, loadLogs]);
+
+  useEffect(() => {
+    if (activeTab === 'database') loadDatabaseData();
+  }, [activeTab, loadDatabaseData]);
+
+  useEffect(() => {
+    if (activeTab === 'config') loadConfig();
+  }, [activeTab, loadConfig]);
 
   // ============================================================================
   // Handlers
@@ -575,9 +587,13 @@ export const DebugToolsPage: React.FC = () => {
                   value={queryInput}
                   onChange={(e) => setQueryInput(e.target.value)}
                   rows={4}
+                  maxLength={10000}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Enter SQL query..."
                 />
+                <div className="text-xs text-gray-400 text-right mt-1">
+                  {queryInput.length} / 10,000 characters
+                </div>
               </div>
               <div className="flex justify-between items-center">
                 <div className="text-sm text-yellow-600 flex items-center gap-2">
@@ -729,14 +745,17 @@ export const DebugToolsPage: React.FC = () => {
                   ...configCategories.map((cat) => ({ value: cat, label: cat })),
                 ]}
               />
-              <label className="flex items-center gap-2 cursor-pointer px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+              <label
+                className="flex items-center gap-2 cursor-pointer px-4 py-2 border border-yellow-300 bg-yellow-50 rounded-lg hover:bg-yellow-100"
+                title="Security note: secret values are loaded into browser memory when this tab is viewed — this toggle only controls visual display"
+              >
                 <input
                   type="checkbox"
                   checked={showSecrets}
                   onChange={(e) => setShowSecrets(e.target.checked)}
                   className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
-                <span className="text-sm text-gray-700">Show Secrets</span>
+                <span className="text-sm text-yellow-800">Show Secrets (visual only)</span>
               </label>
             </div>
           </Card>

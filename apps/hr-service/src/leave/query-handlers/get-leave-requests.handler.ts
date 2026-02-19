@@ -27,9 +27,11 @@ export class GetLeaveRequestsHandler implements IQueryHandler<GetLeaveRequestsQu
       leaveTypeId,
       startDate,
       endDate,
-      limit = 20,
-      offset = 0,
     } = query;
+
+    // Enforce pagination limits
+    const limit = Math.min(Math.max(query.limit || 20, 1), 100);
+    const offset = Math.max(query.offset || 0, 0);
 
     const queryBuilder = this.leaveRequestRepository
       .createQueryBuilder('lr')

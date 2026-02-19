@@ -195,7 +195,7 @@ describe('useAsyncData', () => {
         expect(result.current.loading).toBe(false);
       });
 
-      expect(result.current.error).toContain('zaman aşımı');
+      expect(result.current.error).toContain('timed out');
       expect(result.current.canRetry).toBe(true);
     });
   });
@@ -555,7 +555,7 @@ describe('useAsyncData', () => {
         expect(result.current.loading).toBe(false);
       });
 
-      expect(result.current.error).toBe('Bir hata oluştu');
+      expect(result.current.error).toBe('An error occurred');
     });
 
     it('should handle undefined/null data', async () => {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Users,
   Search,
@@ -16,40 +16,9 @@ import {
 } from 'lucide-react';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
 import { useTenantRoles } from '../hooks/useTenantRoles';
-
-// GraphQL Configuration - Gateway API
-const GRAPHQL_URL = '/graphql';
-
-/**
- * Get auth token from localStorage
- */
-const getAuthToken = (): string | null => {
-  return localStorage.getItem('access_token');
-};
-
-/**
- * GraphQL query executor
- */
-const executeGraphQL = async <T,>(query: string, variables?: Record<string, unknown>): Promise<T> => {
-  const token = getAuthToken();
-
-  const response = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL error');
-  }
-
-  return result.data;
-};
+import { graphqlRequest } from '../services/tenant-api.service';
+import { logError } from '../utils/error-handling';
+import { DeleteConfirmModal } from '../components/common';
 
 /**
  * Format relative time
@@ -95,13 +64,8 @@ interface User {
   role: 'TENANT_ADMIN' | 'MODULE_MANAGER' | 'MODULE_USER' | 'SUPER_ADMIN';
   status: 'active' | 'inactive' | 'pending';
   modules: string[];
-  profileImageUrl?: string | null;
-  phoneNumber?: string | null;
-  preferredLanguage?: string | null;
-  mfaEnabled?: boolean;
   lastLogin: string;
   createdAt: string;
-  updatedAt?: string;
 }
 
 /**
@@ -109,34 +73,16 @@ interface User {
  */
 const RoleBadge: React.FC<{ role: User['role'] }> = ({ role }) => {
   const roleConfig: Record<string, { bg: string; text: string; label: string }> = {
-    SUPER_ADMIN: {
-      bg: 'bg-red-100',
-      text: 'text-red-700',
-      label: 'Super Admin',
-    },
-    TENANT_ADMIN: {
-      bg: 'bg-purple-100',
-      text: 'text-purple-700',
-      label: 'Tenant Admin',
-    },
-    MODULE_MANAGER: {
-      bg: 'bg-blue-100',
-      text: 'text-blue-700',
-      label: 'Module Manager',
-    },
-    MODULE_USER: {
-      bg: 'bg-gray-100',
-      text: 'text-gray-700',
-      label: 'Module User',
-    },
+    SUPER_ADMIN: { bg: 'bg-red-100', text: 'text-red-700', label: 'Super Admin' },
+    TENANT_ADMIN: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Tenant Admin' },
+    MODULE_MANAGER: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Module Manager' },
+    MODULE_USER: { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Module User' },
   };
 
   const config = roleConfig[role] || roleConfig.MODULE_USER;
 
   return (
-    <span
-      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}
-    >
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
       <Shield className="w-3 h-3 mr-1" />
       {config.label}
     </span>
@@ -148,29 +94,15 @@ const RoleBadge: React.FC<{ role: User['role'] }> = ({ role }) => {
  */
 const StatusBadge: React.FC<{ status: User['status'] }> = ({ status }) => {
   const statusConfig = {
-    active: {
-      bg: 'bg-green-100',
-      text: 'text-green-700',
-      icon: <CheckCircle className="w-3 h-3" />,
-    },
-    inactive: {
-      bg: 'bg-gray-100',
-      text: 'text-gray-700',
-      icon: <XCircle className="w-3 h-3" />,
-    },
-    pending: {
-      bg: 'bg-yellow-100',
-      text: 'text-yellow-700',
-      icon: <Clock className="w-3 h-3" />,
-    },
+    active: { bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
+    inactive: { bg: 'bg-gray-100', text: 'text-gray-700', icon: <XCircle className="w-3 h-3" /> },
+    pending: { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: <Clock className="w-3 h-3" /> },
   };
 
   const config = statusConfig[status];
 
   return (
-    <span
-      className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}
-    >
+    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
       {config.icon}
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
@@ -180,27 +112,12 @@ const StatusBadge: React.FC<{ status: User['status'] }> = ({ status }) => {
 /**
  * User avatar component
  */
-const UserAvatar: React.FC<{ name: string; size?: 'sm' | 'md' | 'lg' }> = ({
-  name,
-  size = 'md',
-}) => {
-  const initials = name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-
-  const sizeClasses = {
-    sm: 'w-8 h-8 text-xs',
-    md: 'w-10 h-10 text-sm',
-    lg: 'w-12 h-12 text-base',
-  };
+const UserAvatar: React.FC<{ name: string; size?: 'sm' | 'md' | 'lg' }> = ({ name, size = 'md' }) => {
+  const initials = name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
+  const sizeClasses = { sm: 'w-8 h-8 text-xs', md: 'w-10 h-10 text-sm', lg: 'w-12 h-12 text-base' };
 
   return (
-    <div
-      className={`${sizeClasses[size]} rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white font-medium`}
-    >
+    <div className={`${sizeClasses[size]} rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white font-medium`}>
       {initials || '??'}
     </div>
   );
@@ -223,17 +140,67 @@ function transformUser(apiUser: ApiUser): User {
     email: apiUser.email,
     role: apiUser.role as User['role'],
     status,
-    modules: [], // Would need separate API call to get module assignments
+    modules: [],
     lastLogin: formatRelativeTime(apiUser.lastLoginAt || null),
     createdAt: apiUser.createdAt,
   };
 }
+
+const TENANT_USERS_QUERY = `
+  query TenantUsers {
+    tenantUsers {
+      id
+      email
+      firstName
+      lastName
+      role
+      isActive
+      isEmailVerified
+      lastLoginAt
+      createdAt
+    }
+  }
+`;
+
+const UPDATE_USER_MUTATION = `
+  mutation UpdateTenantUser($userId: ID!, $input: UpdateTenantUserInput!) {
+    updateTenantUser(userId: $userId, input: $input) {
+      id
+      email
+      firstName
+      lastName
+      role
+      isActive
+    }
+  }
+`;
+
+const DELETE_USER_MUTATION = `
+  mutation DeleteTenantUser($userId: ID!) {
+    deleteTenantUser(userId: $userId)
+  }
+`;
+
+const CREATE_TENANT_USER_MUTATION = `
+  mutation CreateTenantUser($input: CreateTenantUserInput!) {
+    createTenantUser(input: $input) {
+      userId
+      email
+      firstName
+      lastName
+      roleAssignment { id roleId roleName }
+      invitationSent
+      createdAt
+    }
+  }
+`;
 
 /**
  * TenantUsers Page
  */
 const TenantUsers: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -246,87 +213,80 @@ const TenantUsers: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Edit state
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+
+  // Delete state
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   // Roles for the modal
   const { data: roles = [], isLoading: rolesLoading } = useTenantRoles();
 
+  // Debounce search query (PERF-003)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    loadUsers();
-  }, []);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [searchQuery]);
 
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     setLoading(true);
     setError(null);
-
-    const token = getAuthToken();
-
-    if (!token) {
-      setError('Authentication required');
-      setLoading(false);
-      return;
-    }
-
     try {
-      const TENANT_USERS_QUERY = `
-        query TenantUsers {
-          tenantUsers {
-            id
-            email
-            firstName
-            lastName
-            role
-            isActive
-            isEmailVerified
-            lastLoginAt
-            createdAt
-          }
-        }
-      `;
-
-      const data = await executeGraphQL<{ tenantUsers: ApiUser[] }>(TENANT_USERS_QUERY);
-      const apiUsers = data.tenantUsers || [];
-      const transformedUsers = apiUsers.map(transformUser);
-      setUsers(transformedUsers);
+      const data = await graphqlRequest<{ tenantUsers: ApiUser[] }>(TENANT_USERS_QUERY);
+      setUsers((data.tenantUsers || []).map(transformUser));
     } catch (err) {
-      console.error('Failed to load users:', err);
+      logError('TenantUsers.loadUsers', err);
       setError((err as Error).message);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  // Handle save from AddEditUserModal
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  // Handle save from AddEditUserModal (create or edit)
   const handleSaveUser = async (data: UserFormData) => {
     setIsSaving(true);
     setSaveError(null);
 
     try {
-      const CREATE_TENANT_USER_MUTATION = `
-        mutation CreateTenantUser($input: CreateTenantUserInput!) {
-          createTenantUser(input: $input) {
-            userId
-            email
-            firstName
-            lastName
-            roleAssignment { id roleId roleName }
-            invitationSent
-            createdAt
-          }
-        }
-      `;
-
-      await executeGraphQL(CREATE_TENANT_USER_MUTATION, {
-        input: {
-          firstName: data.firstName,
-          lastName: data.lastName,
-          email: data.email,
-          roleId: data.roleId,
-          sendInvitation: data.sendInvitation ?? true,
-        },
-      });
+      if (editingUser) {
+        // Update existing user
+        await graphqlRequest(UPDATE_USER_MUTATION, {
+          userId: editingUser.id,
+          input: {
+            firstName: data.firstName,
+            lastName: data.lastName,
+            roleId: data.roleId,
+          },
+        });
+      } else {
+        // Create new user
+        await graphqlRequest(CREATE_TENANT_USER_MUTATION, {
+          input: {
+            firstName: data.firstName,
+            lastName: data.lastName,
+            email: data.email,
+            roleId: data.roleId,
+            sendInvitation: data.sendInvitation ?? true,
+          },
+        });
+      }
 
       setIsModalOpen(false);
-      loadUsers();
+      setEditingUser(null);
+      // Refresh user list to avoid stale data (BUG-020)
+      await loadUsers();
     } catch (err) {
+      logError('TenantUsers.handleSaveUser', err);
       setSaveError((err as Error).message);
       throw err;
     } finally {
@@ -334,26 +294,39 @@ const TenantUsers: React.FC = () => {
     }
   };
 
+  // Confirm and execute delete (BUG-003/BUG-004)
+  const handleConfirmDelete = async () => {
+    if (!deletingUser) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await graphqlRequest(DELETE_USER_MUTATION, { userId: deletingUser.id });
+      setDeletingUser(null);
+      await loadUsers();
+    } catch (err) {
+      logError('TenantUsers.handleDelete', err);
+      setDeleteError((err as Error).message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // Filter users based on search and filters
   const filteredUsers = users.filter((user) => {
     const matchesSearch =
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase());
+      user.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      user.email.toLowerCase().includes(debouncedSearch.toLowerCase());
     const matchesRole = roleFilter === 'all' || user.role === roleFilter;
     const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
     return matchesSearch && matchesRole && matchesStatus;
   });
 
-  // Toggle user selection
   const toggleUserSelection = (userId: string) => {
     setSelectedUsers((prev) =>
-      prev.includes(userId)
-        ? prev.filter((id) => id !== userId)
-        : [...prev, userId]
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
     );
   };
 
-  // Toggle all users selection
   const toggleAllSelection = () => {
     if (selectedUsers.length === filteredUsers.length) {
       setSelectedUsers([]);
@@ -376,9 +349,7 @@ const TenantUsers: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Users</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Manage users and their access to modules
-          </p>
+          <p className="text-sm text-gray-500 mt-1">Manage users and their access to modules</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -393,7 +364,7 @@ const TenantUsers: React.FC = () => {
             Export
           </button>
           <button
-            onClick={() => { setSaveError(null); setIsModalOpen(true); }}
+            onClick={() => { setSaveError(null); setEditingUser(null); setIsModalOpen(true); }}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
           >
             <UserPlus className="w-4 h-4" />
@@ -410,10 +381,7 @@ const TenantUsers: React.FC = () => {
             <p className="text-sm font-medium text-red-800">Failed to load users</p>
             <p className="text-sm text-red-600">{error}</p>
           </div>
-          <button
-            onClick={loadUsers}
-            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
-          >
+          <button onClick={loadUsers} className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors">
             Retry
           </button>
         </div>
@@ -422,7 +390,6 @@ const TenantUsers: React.FC = () => {
       {/* Filters and Search */}
       <div className="bg-white rounded-xl border border-gray-100 p-4">
         <div className="flex flex-col md:flex-row md:items-center gap-4">
-          {/* Search */}
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -433,8 +400,6 @@ const TenantUsers: React.FC = () => {
               className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
             />
           </div>
-
-          {/* Role Filter */}
           <select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
@@ -445,8 +410,6 @@ const TenantUsers: React.FC = () => {
             <option value="MODULE_MANAGER">Module Manager</option>
             <option value="MODULE_USER">Module User</option>
           </select>
-
-          {/* Status Filter */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -460,18 +423,17 @@ const TenantUsers: React.FC = () => {
         </div>
       </div>
 
-      {/* Bulk Actions */}
+      {/* Bulk Actions (SEC-013: no unimplemented actions exposed) */}
       {selectedUsers.length > 0 && (
         <div className="bg-tenant-50 rounded-xl p-4 flex items-center justify-between">
-          <span className="text-sm text-tenant-700">
-            {selectedUsers.length} user(s) selected
-          </span>
+          <span className="text-sm text-tenant-700">{selectedUsers.length} user(s) selected</span>
           <div className="flex items-center gap-2">
-            <button className="px-3 py-1.5 text-sm text-tenant-700 hover:bg-tenant-100 rounded-lg transition-colors">
+            <button
+              disabled
+              title="Coming soon"
+              className="px-3 py-1.5 text-sm text-tenant-400 bg-tenant-100 rounded-lg cursor-not-allowed opacity-50"
+            >
               Deactivate
-            </button>
-            <button className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-              Delete
             </button>
           </div>
         </div>
@@ -486,37 +448,21 @@ const TenantUsers: React.FC = () => {
                 <th className="px-6 py-3 text-left">
                   <input
                     type="checkbox"
-                    checked={
-                      selectedUsers.length === filteredUsers.length &&
-                      filteredUsers.length > 0
-                    }
+                    checked={selectedUsers.length === filteredUsers.length && filteredUsers.length > 0}
                     onChange={toggleAllSelection}
                     className="rounded border-gray-300 text-tenant-600 focus:ring-tenant-500"
                   />
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  User
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Role
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Last Login
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Login</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredUsers.map((user) => (
-                <tr
-                  key={user.id}
-                  className="hover:bg-gray-50 transition-colors"
-                >
+                <tr key={user.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4">
                     <input
                       type="checkbox"
@@ -529,9 +475,7 @@ const TenantUsers: React.FC = () => {
                     <div className="flex items-center gap-3">
                       <UserAvatar name={user.name} />
                       <div>
-                        <p className="text-sm font-medium text-gray-900">
-                          {user.name}
-                        </p>
+                        <p className="text-sm font-medium text-gray-900">{user.name}</p>
                         <p className="text-xs text-gray-500">{user.email}</p>
                       </div>
                     </div>
@@ -548,12 +492,14 @@ const TenantUsers: React.FC = () => {
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
+                        onClick={() => { setEditingUser(user); setSaveError(null); setIsModalOpen(true); }}
                         className="p-1.5 rounded-lg text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
                         title="Edit user"
                       >
                         <Edit className="w-4 h-4" />
                       </button>
                       <button
+                        onClick={() => { setDeletingUser(user); setDeleteError(null); }}
                         className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
                         title="Delete user"
                       >
@@ -590,9 +536,7 @@ const TenantUsers: React.FC = () => {
 
         {/* Pagination */}
         <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-          <p className="text-sm text-gray-500">
-            Showing {filteredUsers.length} of {users.length} users
-          </p>
+          <p className="text-sm text-gray-500">Showing {filteredUsers.length} of {users.length} users</p>
           <div className="flex items-center gap-2">
             <button className="px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50" disabled>
               Previous
@@ -604,16 +548,30 @@ const TenantUsers: React.FC = () => {
         </div>
       </div>
 
-      {/* Add User Modal */}
+      {/* Add/Edit User Modal */}
       <AddEditUserModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => { setIsModalOpen(false); setEditingUser(null); }}
+        user={editingUser}
         roles={roles}
         rolesLoading={rolesLoading}
         onSave={handleSaveUser}
         isLoading={isSaving}
         error={saveError}
       />
+
+      {/* Delete Confirmation Modal (BUG-004) */}
+      {deletingUser && (
+        <DeleteConfirmModal
+          isOpen={!!deletingUser}
+          onClose={() => setDeletingUser(null)}
+          onConfirm={handleConfirmDelete}
+          title="Delete User"
+          message={`Are you sure you want to delete "${deletingUser.name}"? This action cannot be undone.`}
+          warningMessage={deleteError ?? undefined}
+          isLoading={isDeleting}
+        />
+      )}
     </div>
   );
 };

@@ -2,32 +2,25 @@
 # Aquaculture Platform - RDS Module (PostgreSQL)
 # =============================================================================
 
-terraform {
-  required_version = ">= 1.0"
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.0"
-    }
-  }
-}
+# ARCH-009 fix: removed terraform {} block from child module — provider constraints
+# are advisory only in child modules; the environment root module governs versions.
 
 # =============================================================================
 # Random Password
+# SEC-011 fix: master_password variable removed entirely (see variables.tf).
+# Passwords are always generated via random_password — never accepted as input.
+# SEC-022 fix: special = true with safe override_special to avoid characters that
+# break PostgreSQL connection string parsing (@ / : ? # [ ] space).
 # =============================================================================
 
 resource "random_password" "master" {
-  count   = var.master_password == "" ? 1 : 0
-  length  = 32
-  special = false
+  length           = 32
+  special          = true
+  override_special = "!$%^&*()-_=+[]{}<>"
 }
 
 locals {
-  master_password = var.master_password != "" ? var.master_password : random_password.master[0].result
+  master_password = random_password.master.result
 }
 
 # =============================================================================
@@ -99,10 +92,16 @@ resource "aws_db_parameter_group" "main" {
 resource "aws_kms_key" "rds" {
   count                   = var.storage_encrypted && var.kms_key_id == "" ? 1 : 0
   description             = "RDS encryption key for ${var.identifier}"
-  deletion_window_in_days = 7
+  # SEC-006 fix: extended from 7 to 30 days to allow adequate incident response time
+  deletion_window_in_days = 30
   enable_key_rotation     = true
 
   tags = var.tags
+
+  # ARCH-018 fix: prevent accidental destruction of the RDS KMS key
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_kms_alias" "rds" {
@@ -152,7 +151,9 @@ resource "aws_db_instance" "main" {
   backup_window             = var.backup_window
   maintenance_window        = var.maintenance_window
   copy_tags_to_snapshot     = true
-  delete_automated_backups  = true
+  # SEC-018 fix: changed from true to false — prevents automated backups from being
+  # purged immediately if deletion protection is ever lifted.
+  delete_automated_backups  = false
   skip_final_snapshot       = var.skip_final_snapshot
   final_snapshot_identifier = var.skip_final_snapshot ? null : "${var.identifier}-final-snapshot"
 
@@ -206,7 +207,12 @@ resource "aws_iam_role_policy_attachment" "rds_monitoring" {
 }
 
 # =============================================================================
-# Store Password in Secrets Manager
+# Store Credentials in Secrets Manager
+# SEC-007 fix: removed the 'url' field that embedded the plaintext password in a
+# connection string. Applications should compose the connection URL at runtime
+# from the separate host/port/username/password fields to avoid leaking the
+# credential through log output.
+# SEC-010 fix: added aws_secretsmanager_secret_rotation resource.
 # =============================================================================
 
 resource "aws_secretsmanager_secret" "rds" {
@@ -224,6 +230,18 @@ resource "aws_secretsmanager_secret_version" "rds" {
     host     = aws_db_instance.main.address
     port     = var.port
     database = var.database_name
-    url      = "postgres://${var.master_username}:${local.master_password}@${aws_db_instance.main.address}:${var.port}/${var.database_name}"
   })
+}
+
+# SEC-010 fix: enable automatic rotation using the AWS-managed single-user
+# rotation Lambda for PostgreSQL. The Lambda updates the RDS password and the
+# secret value automatically every 30 days.
+resource "aws_secretsmanager_secret_rotation" "rds" {
+  count               = var.enable_secret_rotation ? 1 : 0
+  secret_id           = aws_secretsmanager_secret.rds.id
+  rotation_lambda_arn = var.rotation_lambda_arn
+
+  rotation_rules {
+    automatically_after_days = 30
+  }
 }

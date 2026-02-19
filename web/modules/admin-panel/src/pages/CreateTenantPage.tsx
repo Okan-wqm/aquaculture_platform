@@ -99,64 +99,24 @@ const isBasePrice = (metricType: string | PricingMetricType): boolean => {
   return metricType === 'BASE_PRICE' || metricType === PricingMetricType.BASE_PRICE;
 };
 
-// Helper to get metric label (handles both string and enum keys)
-const getMetricLabel = (metricType: string | PricingMetricType): string => {
-  const labels: Record<string, string> = {
-    'BASE_PRICE': 'Temel Ucret',
-    'PER_USER': 'Kullanici Basina',
-    'PER_FARM': 'Ciftlik Basina',
-    'PER_POND': 'Havuz Basina',
-    'PER_SENSOR': 'Sensor Basina',
-    'PER_DEVICE': 'Cihaz Basina',
-    'PER_GB_STORAGE': 'GB Depolama',
-    'PER_API_CALL': 'API Cagrisi',
-    'PER_ALERT': 'Alarm Basina',
-    'PER_REPORT': 'Rapor Basina',
-    'PER_SMS': 'SMS Basina',
-    'PER_EMAIL': 'E-posta Basina',
-    'PER_INTEGRATION': 'Entegrasyon Basina',
-  };
-  return labels[metricType] || metricType;
-};
-
-// Helper to get quantity field for metric type
-const getQuantityField = (metricType: string | PricingMetricType): keyof ModuleQuantities | null => {
-  const mapping: Record<string, keyof ModuleQuantities | null> = {
-    'BASE_PRICE': null,
-    'PER_USER': 'users',
-    'PER_FARM': 'farms',
-    'PER_POND': 'ponds',
-    'PER_SENSOR': 'sensors',
-    'PER_DEVICE': 'devices',
-    'PER_GB_STORAGE': 'storageGb',
-    'PER_API_CALL': 'apiCalls',
-    'PER_ALERT': 'alerts',
-    'PER_REPORT': 'reports',
-    'PER_SMS': null,
-    'PER_EMAIL': null,
-    'PER_INTEGRATION': 'integrations',
-  };
-  return mapping[metricType] || null;
-};
-
-// Metric labels for display
+// Single source of truth for metric labels (BUG-018: removed duplicate getMetricLabel)
 const metricLabels: Record<PricingMetricType, string> = {
-  [PricingMetricType.BASE_PRICE]: 'Temel Ucret',
-  [PricingMetricType.PER_USER]: 'Kullanici Basina',
-  [PricingMetricType.PER_FARM]: 'Ciftlik Basina',
-  [PricingMetricType.PER_POND]: 'Havuz Basina',
-  [PricingMetricType.PER_SENSOR]: 'Sensor Basina',
-  [PricingMetricType.PER_DEVICE]: 'Cihaz Basina',
-  [PricingMetricType.PER_GB_STORAGE]: 'GB Depolama',
-  [PricingMetricType.PER_API_CALL]: 'API Cagrisi',
-  [PricingMetricType.PER_ALERT]: 'Alarm Basina',
-  [PricingMetricType.PER_REPORT]: 'Rapor Basina',
-  [PricingMetricType.PER_SMS]: 'SMS Basina',
-  [PricingMetricType.PER_EMAIL]: 'E-posta Basina',
-  [PricingMetricType.PER_INTEGRATION]: 'Entegrasyon Basina',
+  [PricingMetricType.BASE_PRICE]: 'Base Price',
+  [PricingMetricType.PER_USER]: 'Per User',
+  [PricingMetricType.PER_FARM]: 'Per Farm',
+  [PricingMetricType.PER_POND]: 'Per Pond',
+  [PricingMetricType.PER_SENSOR]: 'Per Sensor',
+  [PricingMetricType.PER_DEVICE]: 'Per Device',
+  [PricingMetricType.PER_GB_STORAGE]: 'Per GB Storage',
+  [PricingMetricType.PER_API_CALL]: 'Per API Call',
+  [PricingMetricType.PER_ALERT]: 'Per Alert',
+  [PricingMetricType.PER_REPORT]: 'Per Report',
+  [PricingMetricType.PER_SMS]: 'Per SMS',
+  [PricingMetricType.PER_EMAIL]: 'Per Email',
+  [PricingMetricType.PER_INTEGRATION]: 'Per Integration',
 };
 
-// Map metric type to quantity field
+// Single source of truth for metric → quantity field mapping (BUG-018: removed duplicate getQuantityField)
 const metricToQuantityField: Record<PricingMetricType, keyof ModuleQuantities | null> = {
   [PricingMetricType.BASE_PRICE]: null,
   [PricingMetricType.PER_USER]: 'users',
@@ -168,10 +128,17 @@ const metricToQuantityField: Record<PricingMetricType, keyof ModuleQuantities | 
   [PricingMetricType.PER_API_CALL]: 'apiCalls',
   [PricingMetricType.PER_ALERT]: 'alerts',
   [PricingMetricType.PER_REPORT]: 'reports',
-  [PricingMetricType.PER_SMS]: null, // SMS için ayrı field yok
-  [PricingMetricType.PER_EMAIL]: null, // Email için ayrı field yok
+  [PricingMetricType.PER_SMS]: null,
+  [PricingMetricType.PER_EMAIL]: null,
   [PricingMetricType.PER_INTEGRATION]: 'integrations',
 };
+
+// Derived helpers that use the single source of truth
+const getMetricLabel = (metricType: string | PricingMetricType): string =>
+  metricLabels[metricType as PricingMetricType] || metricType;
+
+const getQuantityField = (metricType: string | PricingMetricType): keyof ModuleQuantities | null =>
+  metricToQuantityField[metricType as PricingMetricType] ?? null;
 
 // ============================================================================
 // Step Indicator Component
@@ -406,9 +373,9 @@ const CreateTenantPage: React.FC = () => {
             }
           }
 
-          // Set defaults from includedQuantity in pricing metrics
+          // Set defaults from includedQuantity in pricing metrics (BUG-020: typed instead of any)
           if (metrics && Array.isArray(metrics)) {
-            metrics.forEach((metric: any) => {
+            (metrics as Array<{ type: string; includedQuantity?: number; price?: number }>).forEach((metric) => {
               const field = getQuantityField(metric.type);
               if (field && metric.includedQuantity && metric.includedQuantity > 0) {
                 defaultQuantities[field] = metric.includedQuantity;
@@ -454,29 +421,7 @@ const CreateTenantPage: React.FC = () => {
     loadData();
   }, []);
 
-  // Calculate price locally from module pricings
-  const calculateLocalPrice = useCallback((enabledConfigs: ModuleConfig[]): number => {
-    let total = 0;
-    enabledConfigs.forEach((config) => {
-      const pricing = modulePricings.find((p) => p.moduleId === config.moduleId);
-      if (pricing?.pricingMetrics && Array.isArray(pricing.pricingMetrics)) {
-        pricing.pricingMetrics.forEach((metric) => {
-          if (isBasePrice(metric.type)) {
-            total += metric.price || 0;
-          } else {
-            const field = getQuantityField(metric.type);
-            if (field) {
-              const qty = config.quantities[field] || 0;
-              const included = metric.includedQuantity || 0;
-              const billable = Math.max(0, qty - included);
-              total += billable * (metric.price || 0);
-            }
-          }
-        });
-      }
-    });
-    return total;
-  }, [modulePricings]);
+  // NOTE: calculateLocalPrice removed — use the calculatedTotal useMemo below instead (PERF-006: eliminates duplicate computation)
 
   // Calculate price when modules/quantities change
   const calculatePrice = useCallback(async () => {
@@ -488,8 +433,26 @@ const CreateTenantPage: React.FC = () => {
 
     setCalculatingPrice(true);
 
-    // Always calculate locally first (most reliable)
-    const localTotal = calculateLocalPrice(enabledModules);
+    // Calculate locally first (most reliable) — use the same logic as calculatedTotal useMemo
+    let localTotal = 0;
+    enabledModules.forEach((config) => {
+      const pricing = modulePricings.find((p) => p.moduleId === config.moduleId);
+      if (pricing?.pricingMetrics && Array.isArray(pricing.pricingMetrics)) {
+        pricing.pricingMetrics.forEach((metric: { type: string; price?: number; includedQuantity?: number }) => {
+          if (isBasePrice(metric.type)) {
+            localTotal += metric.price || 0;
+          } else {
+            const field = getQuantityField(metric.type);
+            if (field) {
+              const qty = config.quantities[field] || 0;
+              const included = metric.includedQuantity || 0;
+              const billable = Math.max(0, qty - included);
+              localTotal += billable * (metric.price || 0);
+            }
+          }
+        });
+      }
+    });
 
     // Set local calculation immediately
     const localCalculation: PricingCalculation = {
@@ -542,7 +505,7 @@ const CreateTenantPage: React.FC = () => {
     } finally {
       setCalculatingPrice(false);
     }
-  }, [formData.moduleConfigs, formData.pricingTier, calculateLocalPrice]);
+  }, [formData.moduleConfigs, formData.pricingTier, modulePricings]);
 
   // Debounced price calculation
   useEffect(() => {
@@ -599,10 +562,22 @@ const CreateTenantPage: React.FC = () => {
     }));
   }, []);
 
+  // Validate slug format (BUG-009)
+  const validateSlug = (slug: string): string | null => {
+    if (slug.length < 3) return 'Slug must be at least 3 characters';
+    if (slug.length > 63) return 'Slug must be at most 63 characters (hostname limit)';
+    if (slug.startsWith('-') || slug.endsWith('-')) return 'Slug cannot start or end with a hyphen';
+    if (/--/.test(slug)) return 'Slug cannot contain consecutive hyphens';
+    if (!/^[a-z0-9-]+$/.test(slug)) return 'Slug may only contain lowercase letters, numbers, and hyphens';
+    return null;
+  };
+
   const validateStep = (step: number): boolean => {
     switch (step) {
-      case 0:
-        return formData.name.trim().length >= 2 && formData.slug.trim().length >= 2;
+      case 0: {
+        const slugError = validateSlug(formData.slug.trim());
+        return formData.name.trim().length >= 2 && !slugError;
+      }
       case 1:
         return (
           formData.primaryContact.name.trim().length >= 2 &&
@@ -623,9 +598,12 @@ const CreateTenantPage: React.FC = () => {
       setError(null);
     } else {
       if (currentStep === 2) {
-        setError('En az bir modul secmelisiniz');
+        setError('Please select at least one module');
+      } else if (currentStep === 0) {
+        const slugError = validateSlug(formData.slug.trim());
+        setError(slugError || 'Please fill in all required fields');
       } else {
-        setError('Lutfen gerekli alanlari doldurun');
+        setError('Please fill in all required fields');
       }
     }
   };

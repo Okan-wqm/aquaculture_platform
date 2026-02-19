@@ -1,15 +1,40 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
-import { useMobilePermissions, type MobileFeature } from './hooks/useMobilePermissions';
+import { MobilePermissionsProvider, useMobilePermissions, type MobileFeature } from './hooks/useMobilePermissions';
 import { MobileLayout } from './layouts/MobileLayout';
 import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
-import { RecordMortalityPage } from './pages/mortality/RecordMortalityPage';
-import { RecordCullPage } from './pages/cull/RecordCullPage';
-import { RecordHarvestPage } from './pages/harvest/RecordHarvestPage';
-import { SyncStatusPage } from './pages/sync/SyncStatusPage';
-import { MySchedulePage } from './pages/schedule/MySchedulePage';
 import { InstallPrompt } from './components/InstallPrompt';
+
+// PERF-02: Lazy-load page components so the initial bundle only contains the
+// login and home pages. Feature pages are code-split and loaded on demand.
+const RecordMortalityPage = lazy(() =>
+  import('./pages/mortality/RecordMortalityPage').then((m) => ({ default: m.RecordMortalityPage }))
+);
+const RecordCullPage = lazy(() =>
+  import('./pages/cull/RecordCullPage').then((m) => ({ default: m.RecordCullPage }))
+);
+const RecordHarvestPage = lazy(() =>
+  import('./pages/harvest/RecordHarvestPage').then((m) => ({ default: m.RecordHarvestPage }))
+);
+const RecordFeedingPage = lazy(() =>
+  import('./pages/feeding/RecordFeedingPage').then((m) => ({ default: m.RecordFeedingPage }))
+);
+const SyncStatusPage = lazy(() =>
+  import('./pages/sync/SyncStatusPage').then((m) => ({ default: m.SyncStatusPage }))
+);
+const MySchedulePage = lazy(() =>
+  import('./pages/schedule/MySchedulePage').then((m) => ({ default: m.MySchedulePage }))
+);
+
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center min-h-[50vh]">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-aqua-500" />
+    </div>
+  );
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -30,14 +55,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function FeatureRoute({ feature, children }: { feature: MobileFeature; children: React.ReactNode }) {
+  // PERF-03: Reads from context — no independent fetch per FeatureRoute instance.
+  // BUG-05: isLoaded is only true after auth has resolved (authLoading guard in provider).
   const { canAccess, isLoaded } = useMobilePermissions();
 
   if (!isLoaded) {
-    return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-aqua-500" />
-      </div>
-    );
+    return <PageLoader />;
   }
 
   if (!canAccess(feature)) {
@@ -50,83 +73,105 @@ function FeatureRoute({ feature, children }: { feature: MobileFeature; children:
 export function App() {
   return (
     <>
-    <InstallPrompt />
-    <Routes>
-      {/* Public routes */}
-      <Route path="/login" element={<LoginPage />} />
+      <InstallPrompt />
+      {/* PERF-03: MobilePermissionsProvider wraps all protected routes so permissions
+          are fetched exactly once and shared to all consumers via context. */}
+      <MobilePermissionsProvider>
+        <Routes>
+          {/* Public routes */}
+          <Route path="/login" element={<LoginPage />} />
 
-      {/* Protected routes with mobile layout */}
-      <Route
-        path="/*"
-        element={
-          <ProtectedRoute>
-            <MobileLayout>
-              <Routes>
-                <Route path="/" element={<HomePage />} />
-                <Route
-                  path="/mortality/record"
-                  element={
-                    <FeatureRoute feature="mortality">
-                      <RecordMortalityPage />
-                    </FeatureRoute>
-                  }
-                />
-                <Route
-                  path="/mortality/record/:tankId"
-                  element={
-                    <FeatureRoute feature="mortality">
-                      <RecordMortalityPage />
-                    </FeatureRoute>
-                  }
-                />
-                <Route
-                  path="/cull/record"
-                  element={
-                    <FeatureRoute feature="cull">
-                      <RecordCullPage />
-                    </FeatureRoute>
-                  }
-                />
-                <Route
-                  path="/cull/record/:tankId"
-                  element={
-                    <FeatureRoute feature="cull">
-                      <RecordCullPage />
-                    </FeatureRoute>
-                  }
-                />
-                <Route
-                  path="/harvest/record"
-                  element={
-                    <FeatureRoute feature="harvest">
-                      <RecordHarvestPage />
-                    </FeatureRoute>
-                  }
-                />
-                <Route
-                  path="/harvest/record/:tankId"
-                  element={
-                    <FeatureRoute feature="harvest">
-                      <RecordHarvestPage />
-                    </FeatureRoute>
-                  }
-                />
-                <Route
-                  path="/schedule"
-                  element={
-                    <FeatureRoute feature="schedule">
-                      <MySchedulePage />
-                    </FeatureRoute>
-                  }
-                />
-                <Route path="/sync" element={<SyncStatusPage />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </MobileLayout>
-          </ProtectedRoute>
-        }
-      />
-    </Routes>
+          {/* Protected routes with mobile layout */}
+          <Route
+            path="/*"
+            element={
+              <ProtectedRoute>
+                <MobileLayout>
+                  <Suspense fallback={<PageLoader />}>
+                    <Routes>
+                      <Route path="/" element={<HomePage />} />
+                      <Route
+                        path="/mortality/record"
+                        element={
+                          <FeatureRoute feature="mortality">
+                            <RecordMortalityPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/mortality/record/:tankId"
+                        element={
+                          <FeatureRoute feature="mortality">
+                            <RecordMortalityPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/cull/record"
+                        element={
+                          <FeatureRoute feature="cull">
+                            <RecordCullPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/cull/record/:tankId"
+                        element={
+                          <FeatureRoute feature="cull">
+                            <RecordCullPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/harvest/record"
+                        element={
+                          <FeatureRoute feature="harvest">
+                            <RecordHarvestPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/harvest/record/:tankId"
+                        element={
+                          <FeatureRoute feature="harvest">
+                            <RecordHarvestPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/feeding/record"
+                        element={
+                          <FeatureRoute feature="feeding">
+                            <RecordFeedingPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/feeding/record/:tankId"
+                        element={
+                          <FeatureRoute feature="feeding">
+                            <RecordFeedingPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/schedule"
+                        element={
+                          <FeatureRoute feature="schedule">
+                            <MySchedulePage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route path="/sync" element={<SyncStatusPage />} />
+                      <Route path="*" element={<Navigate to="/" replace />} />
+                    </Routes>
+                  </Suspense>
+                </MobileLayout>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </MobilePermissionsProvider>
     </>
   );
 }

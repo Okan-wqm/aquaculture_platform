@@ -60,7 +60,11 @@ export function WeeklyCalendarGrid({
 
   // Calculate dates for each day
   const dayDates = useMemo(() => {
-    const startDate = new Date(plan.weekStartDate);
+    // PERF-011: new Date('YYYY-MM-DD') parses as UTC midnight which shifts the
+    // calendar date for UTC+ timezones.  Append T00:00:00 to parse as local time.
+    const startDate = new Date(plan.weekStartDate.includes('T')
+      ? plan.weekStartDate
+      : `${plan.weekStartDate}T00:00:00`);
     const dates: Record<WeekDay, string> = {} as Record<WeekDay, string>;
     WEEKDAYS.forEach((day, index) => {
       const date = new Date(startDate);

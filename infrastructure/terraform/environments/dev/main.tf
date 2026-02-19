@@ -3,15 +3,26 @@
 # =============================================================================
 
 terraform {
-  required_version = ">= 1.0"
+  # ARCH-008 fix: bounded version constraint prevents accidental upgrade to Terraform 2.x
+  required_version = ">= 1.5, < 2.0"
 
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
   }
 
+  # ARCH-002 / SEC-003 fix: backend is the single source of truth — no override
+  # generated in CI/CD. Matches bucket/region/table provisioned by bootstrap config.
   backend "s3" {
     bucket         = "aquaculture-terraform-state"
     key            = "dev/terraform.tfstate"
@@ -75,8 +86,13 @@ module "eks" {
 
   vpc_id     = module.networking.vpc_id
   subnet_ids = module.networking.private_subnet_ids
+  # SEC-012 fix: pass VPC CIDR so the module can scope cluster SG egress to the VPC
+  vpc_cidr   = module.networking.vpc_cidr
 
   endpoint_public_access = true
+  # SEC-009 fix: explicit CIDR allowlist required — value supplied via
+  # TF_VAR_allowed_cidrs in CI/CD (e.g. company VPN CIDR or developer IPs).
+  public_access_cidrs = var.allowed_cidrs
 
   node_groups = {
     general = {
@@ -156,6 +172,9 @@ module "elasticache" {
 
 # =============================================================================
 # Outputs
+# ARCH-011 fix: added rds_secret_arn and redis_secret_arn outputs to match the
+# production environment's output interface for External Secrets Operator and
+# any automation that consumes secret ARNs.
 # =============================================================================
 
 output "vpc_id" {
@@ -178,4 +197,12 @@ output "rds_endpoint" {
 output "redis_endpoint" {
   value     = module.elasticache.primary_endpoint
   sensitive = true
+}
+
+output "rds_secret_arn" {
+  value = module.rds.secret_arn
+}
+
+output "redis_secret_arn" {
+  value = module.elasticache.secret_arn
 }

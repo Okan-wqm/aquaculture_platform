@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Card, Badge, formatNumber, formatPercent } from '@aquaculture/shared-ui';
+import { Card, Badge, formatNumber } from '@aquaculture/shared-ui';
 import {
   LineChart,
   Line,
@@ -36,6 +36,30 @@ const waterQualityData = {
   salinity: { value: 32.1, status: 'normal', min: 28.0, max: 36.0 },
 };
 
+// PERF-H4, PERF-M3: Hoist constant objects to module scope — prevents per-render allocations
+const waterQualityEntries = Object.entries(waterQualityData);
+
+const waterQualityLabels: Record<string, string> = {
+  ph: 'pH',
+  oxygen: 'Oksijen',
+  temperature: 'Sıcaklık',
+  salinity: 'Tuzluluk',
+};
+
+const waterQualityUnits: Record<string, string> = {
+  ph: '',
+  oxygen: 'mg/L',
+  temperature: '°C',
+  salinity: 'ppt',
+};
+
+// PERF-M1: Tooltip style hoisted to module scope to avoid new object on every render
+const tooltipStyle = {
+  backgroundColor: 'white',
+  border: '1px solid #e5e7eb',
+  borderRadius: '8px',
+};
+
 // ============================================================================
 // Overview Widgets
 // ============================================================================
@@ -56,12 +80,20 @@ const OverviewWidgets: React.FC = () => {
           <LineChart data={productionTrend}>
             <XAxis dataKey="day" hide />
             <YAxis hide domain={['dataMin - 10', 'dataMax + 10']} />
-            <Tooltip
+            {/*
+                DASH-SEC-003 policy: Chart tooltip content functions MUST only use plain text
+                JSX interpolation. Never use dangerouslySetInnerHTML inside tooltip renderers.
+                When live API data replaces mock data, ensure label strings are sanitized to
+                plain text before being stored in chart data arrays.
+              */}
+              <Tooltip
+              contentStyle={tooltipStyle}
               content={({ active, payload }) => {
                 if (active && payload && payload.length) {
                   return (
                     <div className="bg-white shadow-lg rounded-lg px-3 py-2 text-sm">
-                      <p className="font-medium">{payload[0].payload.day}</p>
+                      {/* String() ensures non-string values (objects, null) don't reach JSX */}
+                      <p className="font-medium">{String(payload[0].payload.day)}</p>
                       <p className="text-primary-600">{payload[0].value} kg</p>
                     </div>
                   );
@@ -88,27 +120,20 @@ const OverviewWidgets: React.FC = () => {
           <Badge variant="warning">1 Uyarı</Badge>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          {Object.entries(waterQualityData).map(([key, data]) => {
-            const labels: Record<string, string> = {
-              ph: 'pH',
-              oxygen: 'Oksijen',
-              temperature: 'Sıcaklık',
-              salinity: 'Tuzluluk',
-            };
-            const units: Record<string, string> = {
-              ph: '',
-              oxygen: 'mg/L',
-              temperature: '°C',
-              salinity: 'ppt',
-            };
-            const progress = ((data.value - data.min) / (data.max - data.min)) * 100;
+          {/* PERF-H4, PERF-M3: use pre-computed entries and label/unit maps */}
+          {waterQualityEntries.map(([key, data]) => {
+            // BUG-M4: clamp progress to [0, 100] — negative values are possible
+            const progress = Math.max(
+              0,
+              Math.min(((data.value - data.min) / (data.max - data.min)) * 100, 100)
+            );
 
             return (
               <div key={key} className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-500">{labels[key]}</span>
+                  <span className="text-gray-500">{waterQualityLabels[key]}</span>
                   <span className={`font-medium ${data.status === 'warning' ? 'text-yellow-600' : 'text-gray-900'}`}>
-                    {data.value} {units[key]}
+                    {data.value} {waterQualityUnits[key]}
                   </span>
                 </div>
                 <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
@@ -116,7 +141,7 @@ const OverviewWidgets: React.FC = () => {
                     className={`h-full rounded-full transition-all ${
                       data.status === 'warning' ? 'bg-yellow-500' : 'bg-green-500'
                     }`}
-                    style={{ width: `${Math.min(progress, 100)}%` }}
+                    style={{ width: `${progress}%` }}
                   />
                 </div>
               </div>
@@ -129,9 +154,14 @@ const OverviewWidgets: React.FC = () => {
       <Card className="p-4">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-medium text-gray-500">Aktif Görevler</h3>
-          <span className="text-xs text-primary-600 font-medium cursor-pointer hover:underline">
+          {/* BUG-M3: replaced <span> fake link with an accessible <button> */}
+          <button
+            type="button"
+            className="text-xs text-primary-600 font-medium hover:underline"
+            onClick={() => { /* TODO: navigate to /tasks */ }}
+          >
             Tümünü Gör
-          </span>
+          </button>
         </div>
         <div className="space-y-3">
           {[
@@ -200,4 +230,5 @@ const OverviewWidgets: React.FC = () => {
   );
 };
 
-export default OverviewWidgets;
+// PERF-M4: React.memo prevents re-render when parent re-renders due to context changes
+export default React.memo(OverviewWidgets);

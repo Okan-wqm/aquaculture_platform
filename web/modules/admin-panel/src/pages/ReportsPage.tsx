@@ -8,6 +8,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { Card, Button, Badge, Modal, Input } from '@aquaculture/shared-ui';
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 import { useAsyncData } from '../hooks/useAsyncData';
 
 // ============================================================================
@@ -18,9 +19,10 @@ const API_BASE_URL = import.meta.env.VITE_ADMIN_API_URL || '/api';
 
 // Simple fetch wrapper
 const apiFetch = async <T,>(endpoint: string, options?: RequestInit): Promise<T> => {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -223,7 +225,7 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, onGenerate }) => {
           </div>
           <p className="text-sm text-gray-500 mb-4">{report.description}</p>
           <Button variant="primary" size="sm" onClick={() => onGenerate(report.type)}>
-            Rapor Olustur
+            Generate Report
           </Button>
         </div>
       </div>
@@ -254,17 +256,17 @@ const ReportHistoryItem: React.FC<ReportHistoryItemProps> = ({ report, onDownloa
         <div className="flex items-center gap-2">
           <span className="font-medium text-gray-900">{report.title}</span>
           <Badge variant={statusColors[report.status] as 'success' | 'warning' | 'error'}>
-            {report.status === 'pending' ? 'Hazirlaniyor' : report.status === 'ready' ? 'Hazir' : 'Basarisiz'}
+            {report.status === 'pending' ? 'Generating' : report.status === 'ready' ? 'Ready' : 'Failed'}
           </Badge>
         </div>
         <p className="text-sm text-gray-500">
-          {new Date(report.generatedAt).toLocaleString('tr-TR')}
+          {new Date(report.generatedAt).toLocaleString()}
         </p>
       </div>
       {report.status === 'ready' && (
         <div className="flex gap-2">
           <Button variant="ghost" size="sm" onClick={() => onView(report)}>
-            Goruntule
+            View
           </Button>
           <Button variant="ghost" size="sm" onClick={() => onDownload(report, 'csv')}>
             CSV
@@ -299,6 +301,7 @@ const ReportsPage: React.FC = () => {
   const [selectedFormat, setSelectedFormat] = useState<ReportFormat>('json');
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   const categories = ['all', 'Tenant', 'Financial', 'Usage', 'System'];
 
@@ -349,7 +352,7 @@ const ReportsPage: React.FC = () => {
       setSelectedReportType(null);
     } catch (err) {
       console.error('Failed to generate report:', err);
-      setError(err instanceof Error ? err.message : 'Rapor olusturulamadi');
+      setError(err instanceof Error ? err.message : 'Failed to generate report');
     } finally {
       setGenerating(false);
     }
@@ -376,7 +379,7 @@ const ReportsPage: React.FC = () => {
       setGeneratedReports(prev => [newReport, ...prev]);
     } catch (err) {
       console.error('Failed to generate quick report:', err);
-      alert(`Rapor olusturulamadi: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`);
+      setError(`Failed to generate report: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }, []);
 
@@ -412,9 +415,10 @@ const ReportsPage: React.FC = () => {
         try {
           const csvExportUrl = `${API_BASE_URL}/reports/export/csv?type=${getReportTypeForExport(report.type)}`;
           window.open(csvExportUrl, '_blank');
+          setInfoMessage('Downloading as CSV (Excel export not natively supported).');
           return;
         } catch {
-          alert('Excel formatı için CSV indirme kullanılıyor.');
+          setError('Failed to initiate CSV download for Excel format.');
           return;
         }
       case 'pdf':
@@ -424,7 +428,7 @@ const ReportsPage: React.FC = () => {
           window.open(pdfExportUrl, '_blank');
           return;
         } catch {
-          alert('PDF formatı için sunucu tarafli islem gereklidir.');
+          setError('PDF export requires server-side processing. Please try again later.');
           return;
         }
       default:
@@ -452,10 +456,40 @@ const ReportsPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Raporlar</h1>
-          <p className="text-gray-500 mt-1">Detayli raporlar olusturun ve indirin</p>
+          <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
+          <p className="text-gray-500 mt-1">Generate and download detailed reports</p>
         </div>
       </div>
+
+      {/* Info message */}
+      {infoMessage && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
+          <svg className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+          </svg>
+          <p className="text-sm text-blue-700 flex-1">{infoMessage}</p>
+          <button onClick={() => setInfoMessage(null)} className="text-blue-400 hover:text-blue-600">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Error message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+          <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+          </svg>
+          <p className="text-sm text-red-700 flex-1">{error}</p>
+          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Category Tabs */}
       <div className="flex flex-wrap gap-2">
@@ -469,7 +503,7 @@ const ReportsPage: React.FC = () => {
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
-            {cat === 'all' ? 'Tumunu Goster' : cat}
+            {cat === 'all' ? 'All' : cat}
           </button>
         ))}
       </div>
@@ -487,7 +521,7 @@ const ReportsPage: React.FC = () => {
 
       {/* Generated Reports History */}
       {generatedReports.length > 0 && (
-        <Card title="Son Olusturulan Raporlar">
+        <Card title="Recently Generated Reports">
           <div className="divide-y">
             {generatedReports.map(report => (
               <ReportHistoryItem
@@ -502,7 +536,7 @@ const ReportsPage: React.FC = () => {
       )}
 
       {/* Quick Export Section */}
-      <Card title="Hizli Export">
+      <Card title="Quick Export">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <button
             onClick={() => handleQuickReport('tenant_overview', 'csv')}
@@ -520,7 +554,7 @@ const ReportsPage: React.FC = () => {
             <svg className="w-8 h-8 mx-auto text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <p className="text-sm font-medium text-gray-700">Gelir CSV</p>
+            <p className="text-sm font-medium text-gray-700">Revenue CSV</p>
           </button>
           <button
             onClick={() => handleQuickReport('usage_modules', 'csv')}
@@ -529,7 +563,7 @@ const ReportsPage: React.FC = () => {
             <svg className="w-8 h-8 mx-auto text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
-            <p className="text-sm font-medium text-gray-700">Kullanim CSV</p>
+            <p className="text-sm font-medium text-gray-700">Usage CSV</p>
           </button>
           <button
             onClick={() => handleQuickReport('system_performance', 'csv')}
@@ -538,7 +572,7 @@ const ReportsPage: React.FC = () => {
             <svg className="w-8 h-8 mx-auto text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
             </svg>
-            <p className="text-sm font-medium text-gray-700">Performans CSV</p>
+            <p className="text-sm font-medium text-gray-700">Performance CSV</p>
           </button>
         </div>
       </Card>
@@ -548,7 +582,7 @@ const ReportsPage: React.FC = () => {
         <Modal
           isOpen={showGenerateModal}
           onClose={() => setShowGenerateModal(false)}
-          title="Rapor Olustur"
+          title="Generate Report"
         >
           <div className="space-y-4">
             {error && (
@@ -559,7 +593,7 @@ const ReportsPage: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Rapor Turu
+                Report Type
               </label>
               <p className="text-gray-900 font-medium">
                 {reportDefinitions.find(r => r.type === selectedReportType)?.name}
@@ -572,7 +606,7 @@ const ReportsPage: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Baslangic Tarihi
+                  Start Date
                 </label>
                 <Input
                   type="date"
@@ -582,7 +616,7 @@ const ReportsPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Bitis Tarihi
+                  End Date
                 </label>
                 <Input
                   type="date"
@@ -615,10 +649,10 @@ const ReportsPage: React.FC = () => {
 
             <div className="flex justify-end gap-3 pt-4 border-t">
               <Button variant="secondary" onClick={() => setShowGenerateModal(false)}>
-                Iptal
+                Cancel
               </Button>
               <Button variant="primary" onClick={handleGenerateReport} disabled={generating}>
-                {generating ? 'Olusturuluyor...' : 'Rapor Olustur'}
+                {generating ? 'Generating...' : 'Generate Report'}
               </Button>
             </div>
           </div>
@@ -630,14 +664,14 @@ const ReportsPage: React.FC = () => {
         <Modal
           isOpen={showPreviewModal}
           onClose={() => setShowPreviewModal(false)}
-          title={`Rapor: ${selectedReport.title}`}
+          title={`Report: ${selectedReport.title}`}
           size="xl"
         >
           <div className="space-y-4">
             {/* Summary */}
             {selectedReport.summary && Object.keys(selectedReport.summary).length > 0 && (
               <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-2">Ozet</h4>
+                <h4 className="text-sm font-medium text-gray-700 mb-2">Summary</h4>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {Object.entries(selectedReport.summary).map(([key, value]) => (
                     <div key={key} className="p-3 bg-gray-50 rounded-lg">
@@ -653,7 +687,7 @@ const ReportsPage: React.FC = () => {
 
             {/* Data Table */}
             <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-2">Veri</h4>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Data</h4>
               <div className="overflow-x-auto border rounded-lg">
                 {Array.isArray(selectedReport.data) && selectedReport.data.length > 0 ? (
                   <table className="min-w-full divide-y divide-gray-200">
@@ -682,22 +716,22 @@ const ReportsPage: React.FC = () => {
                     </tbody>
                   </table>
                 ) : (
-                  <p className="p-4 text-gray-500 text-center">Veri bulunamadi</p>
+                  <p className="p-4 text-gray-500 text-center">No data available</p>
                 )}
               </div>
               {Array.isArray(selectedReport.data) && selectedReport.data.length > 10 && (
                 <p className="text-sm text-gray-500 mt-2">
-                  Ilk 10 kayit gosteriliyor. Tumu icin raporu indirin.
+                  Showing first 10 records. Download the report for all data.
                 </p>
               )}
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t">
               <Button variant="secondary" onClick={() => setShowPreviewModal(false)}>
-                Kapat
+                Close
               </Button>
               <Button variant="primary" onClick={() => handleDownload(selectedReport, 'csv')}>
-                CSV Indir
+                Download CSV
               </Button>
             </div>
           </div>

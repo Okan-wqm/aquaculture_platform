@@ -3,7 +3,7 @@
  * Tum kullanicilari yonetme - SUPER_ADMIN icin
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Card,
   Button,
@@ -40,6 +40,7 @@ const UserManagementPage: React.FC = () => {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [totalUsers, setTotalUsers] = useState(0);
   const [page, setPage] = useState(1);
   const [limit] = useState(20);
@@ -112,13 +113,29 @@ const UserManagementPage: React.FC = () => {
     }
   }, [searchTerm, roleFilter, statusFilter, tenantFilter, page, limit]);
 
-  // Fetch stats and tenants
+  // Cache tenant list in a module-scoped ref to avoid re-fetching 100 tenants on every mount (PERF-003)
+  const tenantCacheRef = useRef<{ data: Tenant[]; fetchedAt: number } | null>(null);
+  const TENANT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
   const fetchInitialData = useCallback(async () => {
     try {
+      const now = Date.now();
+      const statsPromise = usersApi.getStats();
+      const rolesPromise = usersApi.getRoleTemplates();
+
+      // Use cache for tenant list if still fresh
+      const tenantsPromise: Promise<{ data: Tenant[] }> =
+        tenantCacheRef.current && now - tenantCacheRef.current.fetchedAt < TENANT_CACHE_TTL
+          ? Promise.resolve({ data: tenantCacheRef.current.data })
+          : tenantsApi.list({ limit: 100 }).then((result) => {
+              tenantCacheRef.current = { data: result.data, fetchedAt: Date.now() };
+              return result;
+            });
+
       const [statsResult, tenantsResult, rolesResult] = await Promise.allSettled([
-        usersApi.getStats(),
-        tenantsApi.list({ limit: 100 }),
-        usersApi.getRoleTemplates(),
+        statsPromise,
+        tenantsPromise,
+        rolesPromise,
       ]);
       if (statsResult.status === 'fulfilled') setStats(statsResult.value);
       else setStats(null);
@@ -160,7 +177,7 @@ const UserManagementPage: React.FC = () => {
       } else {
         // Create
         if (!formData.password) {
-          setFormError('Sifre zorunludur');
+          setFormError('Password is required');
           setSaving(false);
           return;
         }
@@ -215,9 +232,9 @@ const UserManagementPage: React.FC = () => {
   const handleForceLogout = async (user: User) => {
     try {
       await usersApi.forceLogout(user.id);
-      alert('Kullanici tum oturumlardan cikarildi');
+      setSuccessMessage('User has been logged out of all sessions.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Islem basarisiz');
+      setError(err instanceof Error ? err.message : 'Operation failed');
     }
   };
 
@@ -229,13 +246,13 @@ const UserManagementPage: React.FC = () => {
 
     try {
       if (!inviteFormData.email) {
-        setInviteError('E-posta adresi zorunludur');
+        setInviteError('Email address is required');
         setInviting(false);
         return;
       }
 
       if (!inviteFormData.tenantId) {
-        setInviteError('Tenant secimi zorunludur');
+        setInviteError('Tenant selection is required');
         setInviting(false);
         return;
       }
@@ -458,6 +475,12 @@ const UserManagementPage: React.FC = () => {
         </Alert>
       )}
 
+      {successMessage && (
+        <Alert type="success" dismissible onDismiss={() => setSuccessMessage(null)}>
+          {successMessage}
+        </Alert>
+      )}
+
       {/* Stats */}
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -611,14 +634,13 @@ const UserManagementPage: React.FC = () => {
           )}
 
           <Select
-            label="Rol"
+            label="Role"
             value={formData.role}
             onChange={(e) => setFormData({ ...formData, role: e.target.value })}
             options={[
-              { value: 'SUPER_ADMIN', label: 'Super Admin' },
               { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
-              { value: 'MODULE_MANAGER', label: 'Modul Yoneticisi' },
-              { value: 'MODULE_USER', label: 'Kullanici' },
+              { value: 'MODULE_MANAGER', label: 'Module Manager' },
+              { value: 'MODULE_USER', label: 'Module User' },
             ]}
           />
 

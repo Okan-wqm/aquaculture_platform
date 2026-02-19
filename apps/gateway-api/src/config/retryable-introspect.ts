@@ -29,24 +29,28 @@ export class RetryableIntrospectAndCompose extends IntrospectAndCompose {
   // Override the initialize method to add retry logic
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   public override async initialize(args: any): Promise<{ supergraphSdl: string; cleanup: () => Promise<void> }> {
-    let attempts = 0;
-    while (attempts < this.maxRetries) {
+    let lastError: Error | undefined;
+
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
         return await super.initialize(args);
       } catch (error) {
-        attempts++;
+        lastError = error as Error;
         this.logger.error(
-          `Supergraph composition failed (attempt ${attempts}/${this.maxRetries}): ${(error as Error).message}`,
+          `Supergraph composition failed (attempt ${attempt}/${this.maxRetries}): ${lastError.message}`,
         );
 
-        if (attempts >= this.maxRetries) {
+        if (attempt >= this.maxRetries) {
           this.logger.error('Max retries reached. Gateway startup failed.');
-          throw error;
+          throw lastError;
         }
 
-        await new Promise((resolve) => setTimeout(resolve, this.retryDelayMs));
+        // Add jitter to prevent thundering herd on retry
+        const jitter = Math.random() * this.retryDelayMs * 0.3;
+        await new Promise((resolve) => setTimeout(resolve, this.retryDelayMs + jitter));
       }
     }
-    throw new Error('Unreachable');
+    // This line is only reached if maxRetries <= 0
+    throw lastError ?? new Error('No retry attempts configured');
   }
 }

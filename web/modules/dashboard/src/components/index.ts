@@ -4,5 +4,5 @@
 
 export { default as OverviewWidgets } from './OverviewWidgets';
 export { default as RecentActivityList } from './RecentActivityList';
-export { default as AlertsSummary } from './AlertsSummary';
+// BUG-M1: AlertsSummary removed — use AlertSummaryWidget from widgets/ instead
 export { default as QuickActions } from './QuickActions';

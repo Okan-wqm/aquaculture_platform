@@ -240,7 +240,15 @@ const ACTIVE_TANKS_QUERY = `
 // ============================================================================
 
 /**
- * Hook to run growth simulation
+ * Hook to run growth simulation.
+ *
+ * PERF-008: The `input` object is used directly as part of the React Query key.
+ * React Query performs deep equality on keys, so structurally identical objects
+ * will correctly deduplicate requests. However, to avoid surprising re-fetches,
+ * callers MUST memoize the `input` object with `useMemo` before passing it in.
+ * Example:
+ *   const input = useMemo(() => ({ tankId, currentWeightG, ... }), [deps]);
+ *   const { data } = useGrowthSimulation(input);
  */
 export function useGrowthSimulation(
   input: GrowthSimulationInput | null,
@@ -396,15 +404,20 @@ export function daysToTargetWeight(currentWeightG: number, targetWeightG: number
   return Math.ceil(Math.log(targetWeightG / currentWeightG) / (sgr / 100));
 }
 
+// PERF-016: Cache the DateTimeFormat instance at module scope to avoid allocating
+// a new Intl object on every call, and use the runtime locale instead of the
+// hardcoded Turkish locale so dates render correctly for all users.
+const _dateFormatter = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+});
+
 /**
- * Format date for display
+ * Format date for display using the user's runtime locale.
  */
 export function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('tr-TR', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
+  return _dateFormatter.format(new Date(dateString));
 }
 
 /**

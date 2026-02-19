@@ -26,12 +26,11 @@ import { AttendanceSummary } from './query-handlers/get-attendance-summary.handl
 import { PaginatedShifts } from './query-handlers/get-shifts.handler';
 import { PaginatedPendingAttendanceApprovals } from './query-handlers/get-pending-attendance-approvals.handler';
 
+// SECURITY: Context only exposes JWT-verified user fields.
+// Do NOT add x-tenant-id or x-user-id headers here — those are attacker-controlled
+// and must never be used directly (LOW-01).
 interface GraphQLContext {
   req: {
-    headers: {
-      'x-tenant-id'?: string;
-      'x-user-id'?: string;
-    };
     user?: {
       sub: string;
       tenantId: string;
@@ -138,6 +137,8 @@ export class AttendanceResolver {
   // Attendance Queries
   // =====================
   @Query(() => AttendanceRecordConnection, { name: 'attendanceRecords' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getAttendanceRecords(
     @Context() context: GraphQLContext,
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
@@ -191,6 +192,8 @@ export class AttendanceResolver {
   }
 
   @Query(() => AttendanceSummary, { name: 'attendanceSummary' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getAttendanceSummary(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Args('month', { type: () => Int }) month: number,
@@ -217,6 +220,8 @@ export class AttendanceResolver {
   }
 
   @Query(() => PendingAttendanceApprovalsConnection, { name: 'pendingAttendanceApprovals' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getPendingAttendanceApprovals(
     @Context() context: GraphQLContext,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,

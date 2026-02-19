@@ -62,8 +62,10 @@ export class ListFeedingProtocolsHandler implements IQueryHandler<ListFeedingPro
       );
     }
 
-    // Apply sorting
-    queryBuilder.orderBy(`protocol.${sortBy}`, sortOrder);
+    // Apply sorting with allowlist to prevent SQL injection
+    const validSortFields = ['name', 'stage', 'species', 'createdAt', 'updatedAt'];
+    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    queryBuilder.orderBy(`protocol.${safeSortBy}`, sortOrder);
 
     // Apply pagination
     queryBuilder.skip((page - 1) * limit);

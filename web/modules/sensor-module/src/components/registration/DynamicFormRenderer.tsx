@@ -16,10 +16,11 @@ interface FieldRendererProps {
   onChange: (value: unknown) => void;
   error?: string;
   disabled?: boolean;
+  schema?: JSONSchema;
 }
 
 // Individual field renderer
-function FieldRenderer({ name, property, value, onChange, error, disabled }: FieldRendererProps) {
+function FieldRenderer({ name, property, value, onChange, error, disabled, schema }: FieldRendererProps) {
   const inputClassName = `w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
     error ? 'border-red-500' : 'border-gray-300'
   } ${disabled ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`;
@@ -60,7 +61,7 @@ function FieldRenderer({ name, property, value, onChange, error, disabled }: Fie
       );
     }
 
-    // Handle password
+    // Handle password — SEC-008: suppress browser autocomplete for protocol credentials
     if (property['ui:widget'] === 'password' || property.format === 'password') {
       return (
         <input
@@ -70,6 +71,7 @@ function FieldRenderer({ name, property, value, onChange, error, disabled }: Fie
           placeholder={property['ui:placeholder'] || ''}
           className={inputClassName}
           disabled={disabled}
+          autoComplete="new-password"
         />
       );
     }
@@ -174,8 +176,8 @@ function FieldRenderer({ name, property, value, onChange, error, disabled }: Fie
   );
 }
 
-// Use schema in FieldRenderer for required check
-const schema: JSONSchema = { type: 'object' };
+// BUG-007: The module-scope `const schema` that used to live here shadowed the `schema` prop,
+// causing required-field indicators (*) to never appear. It has been removed.
 
 export function DynamicFormRenderer({
   schema,
@@ -240,6 +242,7 @@ export function DynamicFormRenderer({
                   onChange={(value) => handleFieldChange(name, value)}
                   error={errors[name]}
                   disabled={disabled}
+                  schema={schema}
                 />
               </div>
             ))}
@@ -261,6 +264,7 @@ export function DynamicFormRenderer({
                   onChange={(value) => handleFieldChange(name, value)}
                   error={errors[name]}
                   disabled={disabled}
+                  schema={schema}
                 />
               </div>
             ))}

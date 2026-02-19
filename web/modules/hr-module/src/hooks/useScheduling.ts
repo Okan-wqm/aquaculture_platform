@@ -33,6 +33,7 @@ import type {
   UpdateSchedulingSettingsInput,
   WeeklyPlanFilter,
   WeeklyPlanStatus,
+  WeekDay,
 } from '../types/scheduling.types';
 
 // Query Keys
@@ -148,8 +149,9 @@ export function useOvertimeSummary(
         { month, year, employeeId, departmentId }
       ),
     select: (data) => data.overtimeSummary,
-    // Note: month can be 0 (January), so use explicit undefined check
-    enabled: month !== undefined && month !== null && !!year,
+    // BUG-013: !!year is falsy for year=0 which won't happen in practice, but use
+    // explicit null checks so month=0 (January) is correctly handled
+    enabled: month != null && year != null && year > 0,
   });
 }
 
@@ -310,26 +312,36 @@ export function formatMinutesAsHours(minutes: number): string {
 
 /**
  * Get Monday of the week for a given date
+ * BUG-009: avoid redundant new Date() wrapper; mutate a single copy.
  */
 export function getWeekMonday(date: Date): Date {
   const d = new Date(date);
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(d.setDate(diff));
+  d.setDate(diff);
+  return d;
 }
 
 /**
- * Format date as ISO string (YYYY-MM-DD)
+ * Format date as ISO string (YYYY-MM-DD) using local calendar date.
+ * BUG-019: toISOString() converts to UTC which shifts the date for UTC+ timezones.
  */
 export function formatDateISO(date: Date): string {
-  return date.toISOString().split('T')[0]!;
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
+
+// BUG-010: re-export WeekDay from the canonical types module so callers get
+// the proper union type rather than plain string.
+export type { WeekDay } from '../types/scheduling.types';
 
 /**
  * Get weekday name in Turkish
  */
-export function getWeekdayNameTR(day: string): string {
-  const names: Record<string, string> = {
+export function getWeekdayNameTR(day: WeekDay): string {
+  const names: Record<WeekDay, string> = {
     monday: 'Pazartesi',
     tuesday: 'Salı',
     wednesday: 'Çarşamba',
@@ -338,14 +350,14 @@ export function getWeekdayNameTR(day: string): string {
     saturday: 'Cumartesi',
     sunday: 'Pazar',
   };
-  return names[day] || day;
+  return names[day];
 }
 
 /**
  * Get short weekday name in Turkish
  */
-export function getWeekdayShortTR(day: string): string {
-  const names: Record<string, string> = {
+export function getWeekdayShortTR(day: WeekDay): string {
+  const names: Record<WeekDay, string> = {
     monday: 'Pzt',
     tuesday: 'Sal',
     wednesday: 'Çar',
@@ -354,5 +366,5 @@ export function getWeekdayShortTR(day: string): string {
     saturday: 'Cts',
     sunday: 'Paz',
   };
-  return names[day] || day;
+  return names[day];
 }

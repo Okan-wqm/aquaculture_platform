@@ -49,6 +49,26 @@ export class TokenBlacklistService implements ITokenBlacklist, OnModuleDestroy {
     // Cleanup every 5 minutes
     this.cleanupInterval = setInterval(() => this.cleanup(), 300000);
 
+    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+    if (!this.useRedis && nodeEnv === 'production') {
+      this.logger.error(
+        'TokenBlacklistService is using in-memory storage in production. ' +
+        'Logout and token invalidation will NOT work across multiple instances. ' +
+        'Set TOKEN_BLACKLIST_USE_REDIS=true and provide a Redis connection.',
+      );
+      throw new Error(
+        'TokenBlacklistService requires Redis in production. ' +
+        'Set TOKEN_BLACKLIST_USE_REDIS=true and provide a Redis connection.',
+      );
+    }
+
+    if (!this.useRedis) {
+      this.logger.warn(
+        'TokenBlacklistService is using in-memory storage. ' +
+        'This is only suitable for single-instance development/test environments.',
+      );
+    }
+
     this.logger.log(
       `Token blacklist initialized (storage: ${this.useRedis ? 'Redis' : 'in-memory'})`,
     );
@@ -200,6 +220,29 @@ export class TokenBlacklistService implements ITokenBlacklist, OnModuleDestroy {
     if (!entry) return false;
 
     return tokenIssuedAt.getTime() < entry.blacklistedAt;
+  }
+
+  /**
+   * Composite check: validates a token is not individually blacklisted
+   * AND the user's tokens have not been bulk-invalidated.
+   *
+   * Auth guards should call this single method to ensure both checks
+   * are always performed.
+   *
+   * @returns true if the token is valid (not blacklisted), false if invalid
+   */
+  async isValidToken(jti: string, userId: string, issuedAt: Date): Promise<boolean> {
+    if (!jti || !userId) return false;
+
+    // Check individual token blacklist
+    const tokenBlacklisted = await this.isBlacklisted(jti);
+    if (tokenBlacklisted) return false;
+
+    // Check user-level blacklist
+    const userBlacklisted = await this.isUserBlacklisted(userId, issuedAt);
+    if (userBlacklisted) return false;
+
+    return true;
   }
 
   /**

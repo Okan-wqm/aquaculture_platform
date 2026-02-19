@@ -152,7 +152,8 @@ export class Invitation {
   }
 
   canBeAccepted(): boolean {
-    return this.isPending() && !this.isExpired();
+    // SECURITY: Accept both PENDING and RESENT statuses — resent invitations must be usable
+    return (this.isPending() || this.status === InvitationStatus.RESENT) && !this.isExpired();
   }
 
   canBeResent(): boolean {

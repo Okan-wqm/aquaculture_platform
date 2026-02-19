@@ -47,7 +47,7 @@ import { SupplierModule } from './supplier/supplier.module';
 import { ChemicalModule } from './chemical/chemical.module';
 import { ConsumableModule } from './consumable/consumable.module';
 import { FeedModule } from './feed/feed.module';
-import { StorageModule } from './storage/storage.module';
+import { InventoryModule } from './storage/storage.module';
 import { WorkerModule } from './worker/worker.module';
 import { SystemModule } from './system/system.module';
 import { SentinelHubModule } from './sentinel-hub/sentinel-hub.module';
@@ -117,7 +117,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
         })(),
         extra: {
           // Connection pool settings for multi-tenant
-          max: configService.get<number>('DATABASE_POOL_SIZE', 20),
+          max: configService.get<number>('DATABASE_POOL_SIZE', 50),
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 5000,
         },
@@ -180,7 +180,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get('JWT_SECRET', 'dev-secret'),
+        secret: configService.getOrThrow<string>('JWT_SECRET'),
         signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '1d') },
       }),
     }),
@@ -220,7 +220,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     ChemicalModule,
     ConsumableModule,
     FeedModule,
-    StorageModule,
+    InventoryModule,
     WorkerModule,
     SystemModule,
     SentinelHubModule,

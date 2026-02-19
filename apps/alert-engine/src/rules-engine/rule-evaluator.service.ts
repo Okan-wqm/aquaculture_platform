@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AlertRule, AlertCondition, AlertOperator } from '../database/entities/alert-rule.entity';
+import { safeRegex } from './safe-regex.util';
 
 /**
  * Logical operator for combining conditions
@@ -146,21 +147,20 @@ export class RuleEvaluatorService {
   }
 
   /**
-   * Evaluate complex nested conditions
+   * Evaluate complex nested conditions.
+   * PE-20: All evaluation is synchronous; removed async/await and Promise.all
+   * to avoid unnecessary microtask queue scheduling for CPU-bound work.
    */
-  async evaluateComplex(
+  evaluateComplex(
     conditions: ComplexCondition,
     context: EvaluationContext,
-  ): Promise<boolean> {
+  ): boolean {
     if (conditions.type === 'simple' && conditions.condition) {
-      const result = this.evaluateCondition(conditions.condition, context);
-      return result.matched;
+      return this.evaluateCondition(conditions.condition, context).matched;
     }
 
     if (conditions.type === 'group' && conditions.children) {
-      const childResults = await Promise.all(
-        conditions.children.map(child => this.evaluateComplex(child, context)),
-      );
+      const childResults = conditions.children.map(child => this.evaluateComplex(child, context));
 
       switch (conditions.operator) {
         case LogicalOperator.AND:
@@ -184,13 +184,15 @@ export class RuleEvaluatorService {
   evaluateCondition(condition: AlertCondition, context: EvaluationContext): ConditionResult {
     const { parameter, operator, threshold } = condition;
 
-    // Get the actual value from context
-    let actualValue = this.resolveValue(parameter, context);
-
-    // Handle special parameters
+    // Handle special computed parameters before falling through to raw context lookup.
+    // rate_of_change_ parameters must be computed — never read directly from context
+    // values, even if a key with that literal name happens to exist in context.values.
+    let actualValue: number | null | undefined;
     if (parameter.startsWith('rate_of_change_')) {
       const baseParam = parameter.replace('rate_of_change_', '');
       actualValue = this.calculateRateOfChange(baseParam, context);
+    } else {
+      actualValue = this.resolveValue(parameter, context);
     }
 
     // Handle null/undefined values
@@ -349,13 +351,12 @@ export class RuleEvaluatorService {
    * Evaluate regex pattern matching
    */
   evaluateRegex(value: string, pattern: string): boolean {
-    try {
-      const regex = new RegExp(pattern);
-      return regex.test(value);
-    } catch {
-      this.logger.warn(`Invalid regex pattern: ${pattern}`);
+    const regex = safeRegex(pattern);
+    if (!regex) {
+      this.logger.warn(`Rejected unsafe or invalid regex pattern: ${pattern}`);
       return false;
     }
+    return regex.test(value);
   }
 
   /**
@@ -474,15 +475,39 @@ export class RuleEvaluatorService {
     return null;
   }
 
+  private static readonly BLOCKED_PATH_SEGMENTS = new Set([
+    '__proto__', 'constructor', 'prototype',
+  ]);
+
   private resolveNestedValue(
     path: string,
     context: EvaluationContext,
   ): number | string | boolean | null {
     const parts = path.split('.');
+
+    // Restrict traversal depth and block prototype pollution vectors
+    if (parts.length > 3) {
+      this.logger.warn(`Dot-notation path too deep (max 3): ${path}`);
+      return null;
+    }
+
+    for (const part of parts) {
+      if (RuleEvaluatorService.BLOCKED_PATH_SEGMENTS.has(part)) {
+        this.logger.warn(`Blocked prototype pollution path segment: ${part}`);
+        return null;
+      }
+    }
+
     let current: unknown = context;
 
     for (const part of parts) {
       if (current === null || current === undefined) {
+        return null;
+      }
+      if (typeof current !== 'object') {
+        return null;
+      }
+      if (!Object.prototype.hasOwnProperty.call(current, part)) {
         return null;
       }
       current = (current as Record<string, unknown>)[part];

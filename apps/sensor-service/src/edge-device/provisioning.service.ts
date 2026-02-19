@@ -103,18 +103,10 @@ export class ProvisioningService {
     input: CreateProvisionedDeviceInput,
     createdBy?: string,
   ): Promise<ProvisionedDeviceResponse> {
-    // Generate unique device code
-    let deviceCode = this.generateDeviceCode(input.deviceModel);
-
-    // Ensure device code is unique
-    let attempts = 0;
-    while (await this.deviceRepository.findOne({ where: { deviceCode } })) {
-      deviceCode = this.generateDeviceCode(input.deviceModel);
-      attempts++;
-      if (attempts > 10) {
-        throw new ConflictException('Unable to generate unique device code');
-      }
-    }
+    // Generate a device code. Uniqueness is enforced by the DB unique constraint
+    // (caught as a 23505 error below). A pre-check loop would create a TOCTOU race
+    // without providing meaningful safety.
+    const deviceCode = this.generateDeviceCode(input.deviceModel);
 
     // Generate provisioning token
     const provisioningToken = this.generateProvisioningToken();
@@ -203,9 +195,16 @@ export class ProvisioningService {
   }
 
   /**
-   * Generate installer script for a device
+   * Generate installer script for a device.
+   *
+   * SECURITY: The caller must supply the provisioning token so that knowing the device
+   * code alone is insufficient to retrieve the plaintext token embedded in the script.
+   * The token acts as a shared secret that authorises script generation.
+   *
+   * @param deviceCode         - Public device identifier
+   * @param provisioningToken  - Plaintext token issued at device creation (acts as auth credential)
    */
-  async generateInstallerScript(deviceCode: string): Promise<string> {
+  async generateInstallerScript(deviceCode: string, provisioningToken: string): Promise<string> {
     // Find device by code (cross-tenant lookup for public endpoint)
     const device = await this.deviceRepository.findOne({
       where: { deviceCode },
@@ -218,6 +217,11 @@ export class ProvisioningService {
     // Check if token is valid
     if (!device.provisioningToken) {
       throw new BadRequestException('Device has no provisioning token');
+    }
+
+    // Require the caller to present the correct provisioning token
+    if (device.provisioningToken !== provisioningToken) {
+      throw new UnauthorizedException('Invalid provisioning token');
     }
 
     if (device.tokenUsedAt) {
@@ -359,11 +363,14 @@ export class ProvisioningService {
   }
 
   /**
-   * Build provisioning response
+   * Build provisioning response.
+   * The plaintext token is returned exactly once so the admin can store it
+   * (similar to an API key). The token is also required to download the
+   * installer script, preventing unauthenticated script retrieval.
    */
   private async buildProvisioningResponse(
     device: EdgeDevice,
-    _token: string,
+    token: string,
   ): Promise<ProvisionedDeviceResponse> {
     return {
       deviceId: device.id,
@@ -372,6 +379,7 @@ export class ProvisioningService {
       installerCommand: await this.installerScriptService.buildInstallerCommand(device.deviceCode),
       tokenExpiresAt: device.tokenExpiresAt ?? new Date(),
       status: device.lifecycleState,
+      provisioningToken: token,
     };
   }
 

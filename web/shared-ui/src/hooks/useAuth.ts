@@ -109,12 +109,13 @@ export function useAuth(): UseAuthReturn {
     [user]
   );
 
-  // Tüm roller kontrolü - tek rol olduğu için listede tek eleman varsa karşılaştır
+  // CRIT-4/BUG-003: The system uses a single-role-per-user model.
+  // hasAllRoles(roles) returns true if the user's single role is present in the roles list,
+  // which is the meaningful "has all required roles" check in a single-role model.
   const hasAllRoles = useCallback(
     (roles: UserRole[]): boolean => {
       if (!user) return false;
-      // Tek rol olduğu için, kullanıcının rolünün listede olup olmadığını kontrol et
-      return roles.length === 1 && roles[0] === user.role;
+      return roles.includes(user.role);
     },
     [user]
   );
@@ -142,12 +143,20 @@ export function useAuth(): UseAuthReturn {
     [hasRole]
   );
 
+  // PERF-005: Memoize token/tenantId reads gated on isAuthenticated to avoid
+  // calling localStorage on every render of every consumer component.
+  const token = useMemo(() => (isAuthenticated ? getAccessToken() : null), [isAuthenticated]);
+  const tenantId = useMemo(
+    () => (user?.tenantId ?? (isAuthenticated ? getTenantId() : null)),
+    [user, isAuthenticated]
+  );
+
   return {
     user,
-    tenantId: user?.tenantId ?? getTenantId(),
+    tenantId,
     isAuthenticated,
     isLoading,
-    token: getAccessToken(),
+    token,
     login,
     logout,
     refreshAuth,
@@ -168,8 +177,13 @@ export function useAuth(): UseAuthReturn {
  * Kimlik doğrulama gerektiren sayfalar için hook
  * Otomatik yönlendirme yapmaz, sadece durum döner
  *
+ * PERF-012: Pass a stable array reference for requiredRoles (defined outside the component
+ * or wrapped in useMemo) to avoid recomputing isAuthorized on every render.
+ *
  * @example
- * const { isAuthorized, isLoading } = useRequireAuth(['MODULE_MANAGER', 'MODULE_USER']);
+ * // Stable reference — define outside component or with useMemo
+ * const REQUIRED_ROLES: UserRole[] = ['MODULE_MANAGER', 'MODULE_USER'];
+ * const { isAuthorized, isLoading } = useRequireAuth(REQUIRED_ROLES);
  *
  * if (isLoading) return <LoadingSpinner />;
  * if (!isAuthorized) return <AccessDenied />;
@@ -181,11 +195,15 @@ export function useRequireAuth(requiredRoles?: UserRole[]): {
 } {
   const { user, isAuthenticated, isLoading, hasAnyRole } = useAuth();
 
+  // PERF-012: Stringify roles for stable memo key — avoids recompute when caller passes inline array
+  const rolesKey = requiredRoles ? requiredRoles.slice().sort().join(',') : '';
+
   const isAuthorized = useMemo(() => {
     if (!isAuthenticated) return false;
     if (!requiredRoles || requiredRoles.length === 0) return true;
     return hasAnyRole(requiredRoles);
-  }, [isAuthenticated, requiredRoles, hasAnyRole]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- rolesKey is the stable proxy for requiredRoles
+  }, [isAuthenticated, rolesKey, hasAnyRole]);
 
   return {
     isAuthorized,

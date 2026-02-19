@@ -194,7 +194,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     },
     ref
   ) => {
-    // loading ve isLoading'i birleştir
+    // BUG-017: Warn in development if both loading aliases are supplied
+    if (process.env.NODE_ENV !== 'production' && isLoadingProp && loading) {
+      console.warn('Button: Both `isLoading` and `loading` props are set. Use `isLoading` — `loading` is deprecated.');
+    }
     const isLoading = isLoadingProp || loading;
     // Devre dışı durumu (yükleniyor veya disabled prop'u)
     const isDisabled = disabled || isLoading;

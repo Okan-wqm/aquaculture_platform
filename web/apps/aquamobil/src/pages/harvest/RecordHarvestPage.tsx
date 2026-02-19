@@ -139,8 +139,9 @@ export function RecordHarvestPage() {
           <CheckCircle size={48} className="text-sea-600" />
         </div>
         <h2 className="text-xl font-bold text-sea-700 dark:text-sea-300">Recorded!</h2>
+        {/* BUG-08: All submissions go through the offline queue; always show accurate message. */}
         <p className="text-sea-600 dark:text-sea-400 text-sm mt-1">
-          {isOnline ? 'Saved to server' : 'Queued for sync'}
+          Queued for sync
         </p>
       </div>
     );
@@ -224,8 +225,8 @@ export function RecordHarvestPage() {
           error={errors.avgWeight}
         />
       </List>
-      {errors.quantity && <p className="text-red-500 text-sm px-4 -mt-2">{errors.quantity}</p>}
-      {errors.avgWeight && <p className="text-red-500 text-sm px-4 -mt-2">{errors.avgWeight}</p>}
+      {/* BUG-10: Removed duplicate error paragraphs. ListInput's error prop already
+          displays inline errors; these duplicate <p> elements created double display. */}
 
       {/* Biomass Display */}
       {quantityNum > 0 && avgWeightNum > 0 && (

@@ -10,11 +10,10 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Role, SchemaManagerService } from '@platform/backend-common';
 import { IEventBus } from '@platform/event-bus';
 import { TenantCreatedEvent, TenantUpdatedEvent, UserInvitedEvent } from '@platform/event-contracts';
-import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 
-import { SECURITY_CONSTANTS, TENANT_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.constants';
+import { TENANT_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.constants';
 import { User } from '../../authentication/entities/user.entity';
 import { Module } from '../../system-module/entities/module.entity';
 import { CreateTenantInput, UpdateTenantInput, AssignModulesToTenantInput } from '../dto/create-tenant.dto';
@@ -200,6 +199,7 @@ export class TenantService {
       tenantId: saved.id,
       name: saved.name,
       slug: saved.slug,
+      version: 1,
     };
 
     await this.eventBus.publish(event);
@@ -225,15 +225,16 @@ export class TenantService {
       // Generate password reset token (user will set their own password)
       // SECURITY: Use crypto.randomBytes for unpredictable tokens (256 bits of entropy)
       const resetToken = crypto.randomBytes(32).toString('hex');
-      const resetTokenPasswordHash = await bcrypt.hash(resetToken, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS);
       // SECURITY: Hash reset token with SHA256 before storage to prevent token leakage
       // Plain token is sent to user, hash is stored in DB for verification
       const resetTokenStorageHash = crypto.createHash('sha256').update(resetToken).digest('hex');
 
       // Create admin user with pending password reset
+      // SECURITY: Do NOT set password — use invitation flow exclusively.
+      // Setting a bcrypt-hashed reset token as password would allow login with the reset token.
       const adminUser = this.userRepository.create({
         email,
-        password: resetTokenPasswordHash, // Temporary hash, user must reset
+        password: undefined, // No password — user must set via invitation flow
         firstName: 'Admin',
         lastName: tenant.name,
         role: Role.TENANT_ADMIN,
@@ -248,7 +249,10 @@ export class TenantService {
       this.logger.log(`Created admin user ${email} for tenant ${tenant.id}`);
 
       // Publish UserInvitedEvent for notification service to send welcome email
-      const baseUrl = process.env['APP_URL'] || 'https://app.aquaculture-platform.com';
+      const baseUrl = process.env['APP_URL'];
+      if (!baseUrl) {
+        throw new Error('APP_URL environment variable is not configured');
+      }
       const actionUrl = `${baseUrl}/auth/set-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
 
       const userInvitedEvent: UserInvitedEvent = {
@@ -264,6 +268,7 @@ export class TenantService {
         tenantName: tenant.name,
         credentialType: 'reset_token',
         actionUrl,
+        version: 1,
       };
 
       // Publish event - notification service will handle email sending
@@ -332,6 +337,7 @@ export class TenantService {
       timestamp: new Date(),
       tenantId: saved.id,
       name: input.name,
+      version: 1,
     };
 
     await this.eventBus.publish(event);
@@ -387,19 +393,26 @@ export class TenantService {
       throw new NotFoundException('One or more modules not found');
     }
 
-    // Remove existing module assignments
-    await this.tenantModuleRepository.delete({ tenantId: tenant.id });
+    // SECURITY: Wrap delete + re-create in a transaction to prevent
+    // zero-assignment state on save failure (H-10/M-06)
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const tmRepo = manager.getRepository(TenantModule);
 
-    // Create new assignments
-    const assignments = modules.map(mod =>
-      this.tenantModuleRepository.create({
-        tenantId: tenant.id,
-        moduleId: mod.id,
-        isEnabled: true,
-      }),
-    );
+      // Remove existing module assignments
+      await tmRepo.delete({ tenantId: tenant.id });
 
-    const saved = await this.tenantModuleRepository.save(assignments);
+      // Create new assignments
+      const assignments = modules.map(mod =>
+        tmRepo.create({
+          tenantId: tenant.id,
+          moduleId: mod.id,
+          isEnabled: true,
+        }),
+      );
+
+      return tmRepo.save(assignments);
+    });
+
     this.logger.log(`Assigned ${saved.length} modules to tenant ${tenant.name}`);
 
     return saved;
@@ -439,21 +452,39 @@ export class TenantService {
     // Validate tenant exists (throws NotFoundException if not found)
     await this.findById(tenantId);
 
-    // Count users by status
-    const [users, activeModules] = await Promise.all([
-      this.userRepository.find({ where: { tenantId } }),
+    // PERF: Use SQL COUNT with FILTER instead of loading all users into memory (HIGH-02)
+    // Avoids loading up to 500 full User entities (including password hashes) into heap
+    interface UserStatsRow {
+      total_users: string;
+      active_users: string;
+      pending_users: string;
+      inactive_users: string;
+    }
+
+    const [userStatsResult, activeModules] = await Promise.all([
+      this.dataSource.query<UserStatsRow[]>(
+        `SELECT
+          COUNT(*) AS total_users,
+          COUNT(*) FILTER (WHERE "isActive" = true AND "invitationToken" IS NULL) AS active_users,
+          COUNT(*) FILTER (WHERE "invitationToken" IS NOT NULL) AS pending_users,
+          COUNT(*) FILTER (WHERE "isActive" = false) AS inactive_users
+        FROM auth.users WHERE "tenantId" = $1`,
+        [tenantId],
+      ),
       this.tenantModuleRepository.count({ where: { tenantId, isEnabled: true } }),
     ]);
 
-    const activeUsers = users.filter(u => u.isActive && !u.isPendingInvitation()).length;
-    const pendingUsers = users.filter(u => u.isPendingInvitation()).length;
-    const inactiveUsers = users.filter(u => !u.isActive).length;
+    const stats = userStatsResult[0];
+    const totalUsers = parseInt(stats?.total_users ?? '0') || 0;
+    const activeUsers = parseInt(stats?.active_users ?? '0') || 0;
+    const pendingUsers = parseInt(stats?.pending_users ?? '0') || 0;
+    const inactiveUsers = parseInt(stats?.inactive_users ?? '0') || 0;
 
     // Calculate monthly growth (simplified - would need historical data in production)
     const monthlyGrowthPercent = 15; // Placeholder
 
     return {
-      totalUsers: users.length,
+      totalUsers,
       activeUsers,
       pendingUsers,
       inactiveUsers,
@@ -547,14 +578,16 @@ export class TenantService {
       WHERE schemaname = $1
     `;
 
-    const connectionQuery = `SELECT count(*) as active FROM pg_stat_activity WHERE state = 'active'`;
+    // SECURITY: Scope connection count to tenant's schema only (FINDING-019)
+    // Do not expose global connection count — it leaks cross-tenant operational intelligence
+    const connectionQuery = `SELECT count(*) as active FROM pg_stat_activity WHERE state = 'active' AND query LIKE '%' || $1 || '%'`;
     const versionQuery = `SELECT version()`;
 
     try {
       const results = await Promise.all([
         this.dataSource.query(tablesQuery, [tenantSchemaName]),
         this.dataSource.query(schemaSizeQuery, [tenantSchemaName]),
-        this.dataSource.query(connectionQuery),
+        this.dataSource.query(connectionQuery, [tenantSchemaName]),
         this.dataSource.query(versionQuery),
       ]);
       const tableResults = results[0] as TableQueryRow[];
@@ -562,38 +595,37 @@ export class TenantService {
       const connResult = results[2] as ConnectionQueryRow[];
       const versionResult = results[3] as VersionQueryRow[];
 
-      // Get actual row counts for important tables (pg_stat may be stale)
+      // PERF: Use n_live_tup from pg_stat_user_tables (already fetched) instead of
+      // issuing N sequential COUNT(*) queries which cause full table scans (CRIT-02)
       const tables: TableInfo[] = [];
-      for (const row of tableResults) {
-        let rowCount = parseInt(row.row_count) || 0;
-        let size = row.size;
 
-        // Get exact row count for all tables (pg_stat n_live_tup is often stale)
-        try {
-          const countResult: CountQueryRow[] = await this.dataSource.query(
-            `SELECT COUNT(*) as cnt FROM "${tenantSchemaName}"."${row.name}"`
-          );
-          rowCount = parseInt(countResult[0]?.cnt ?? '0') || 0;
-        } catch (err) {
-          this.logger.debug(`Could not count ${row.name}: ${(err as Error).message}`);
-        }
+      // Batch hypertable size queries in parallel for sensor tables
+      const hypertableNames = tableResults
+        .filter(row => ['sensor_readings', 'sensor_metrics'].includes(row.name))
+        .map(row => row.name);
 
-        // For TimescaleDB hypertables, get proper size including chunks
-        if (['sensor_readings', 'sensor_metrics'].includes(row.name)) {
-          try {
-            const hypertableSizeResult: HypertableSizeRow[] = await this.dataSource.query(
-              `SELECT pg_size_pretty(total_bytes) as size
-               FROM hypertable_detailed_size($1)`,
-              [`${tenantSchemaName}.${row.name}`]
+      const hypertableSizes = new Map<string, string>();
+      if (hypertableNames.length > 0) {
+        const sizeResults = await Promise.allSettled(
+          hypertableNames.map(async (name) => {
+            const result: HypertableSizeRow[] = await this.dataSource.query(
+              `SELECT pg_size_pretty(total_bytes) as size FROM hypertable_detailed_size($1)`,
+              [`${tenantSchemaName}.${name}`],
             );
-            if (hypertableSizeResult[0]?.size) {
-              size = hypertableSizeResult[0].size;
-            }
-          } catch (err) {
-            // Not a hypertable or TimescaleDB not available - use original size
-            this.logger.debug(`Could not get hypertable size for ${row.name}: ${(err as Error).message}`);
+            return { name, size: result[0]?.size };
+          }),
+        );
+        for (const result of sizeResults) {
+          if (result.status === 'fulfilled' && result.value.size) {
+            hypertableSizes.set(result.value.name, result.value.size);
           }
         }
+      }
+
+      for (const row of tableResults) {
+        // Use n_live_tup approximation — avoids expensive COUNT(*) full table scans
+        const rowCount = parseInt(row.row_count) || 0;
+        const size = hypertableSizes.get(row.name) || row.size;
 
         tables.push({
           name: `${tenantSchemaName}.${row.name}`,
@@ -612,7 +644,8 @@ export class TenantService {
       const dbVersion = versionMatch ? `PostgreSQL ${versionMatch[1]}` : 'PostgreSQL';
 
       return {
-        databaseName: this.dataSource.options.database as string,
+        // SECURITY: Do not expose real database name to tenants (FINDING-019)
+        databaseName: tenantSchemaName,
         schemaName: tenantSchemaName,
         totalSize: sizeResult[0]?.total_size || '0 bytes',
         tableCount: tables.length,
@@ -629,7 +662,7 @@ export class TenantService {
     } catch (error) {
       this.logger.error('Failed to get database info', error);
       return {
-        databaseName: `aquaculture_${tenant.slug}`,
+        databaseName: tenantSchemaName,
         schemaName: tenantSchemaName,
         totalSize: 'Unknown',
         tableCount: 0,
@@ -669,8 +702,9 @@ export class TenantService {
     // Get tenant's dedicated schema name
     const tenantSchemaName = this.getTenantSchemaName(tenantId);
 
-    // Allowed schemas: tenant's own schema + auth + tenant's module schemas
-    const allowedSchemas = [tenantSchemaName, 'auth', ...moduleSchemas];
+    // Allowed schemas: tenant's own schema + tenant's module schemas
+    // SECURITY: 'auth' schema excluded — contains passwords, MFA secrets, invitation tokens
+    const allowedSchemas = [tenantSchemaName, ...moduleSchemas];
 
     // Validate schema access
     if (!allowedSchemas.includes(schemaName)) {

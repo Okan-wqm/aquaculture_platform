@@ -94,114 +94,114 @@ export class AlertIncident {
   id!: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'tenant_id' })
   @Index()
   tenantId!: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'rule_id' })
   @Index()
   ruleId!: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'title' })
   title!: string;
 
   @Field({ nullable: true })
-  @Column({ type: 'text', nullable: true })
+  @Column({ name: 'description', type: 'text', nullable: true })
   description?: string;
 
   @Field(() => AlertSeverity)
-  @Column({ type: 'enum', enum: AlertSeverity, default: AlertSeverity.WARNING })
+  @Column({ name: 'severity', type: 'enum', enum: AlertSeverity, default: AlertSeverity.WARNING })
   severity!: AlertSeverity;
 
   @Field(() => IncidentStatus)
-  @Column({ type: 'enum', enum: IncidentStatus, default: IncidentStatus.NEW })
+  @Column({ name: 'status', type: 'enum', enum: IncidentStatus, default: IncidentStatus.NEW })
   status!: IncidentStatus;
 
   @Field(() => Int)
-  @Column({ type: 'int', default: 0 })
+  @Column({ name: 'risk_score', type: 'int', default: 0 })
   riskScore!: number;
 
   @Field(() => GraphQLJSON)
-  @Column('jsonb')
+  @Column({ name: 'trigger_data', type: 'jsonb' })
   triggerData!: Record<string, unknown>;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'farm_id', nullable: true })
   farmId?: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'pond_id', nullable: true })
   pondId?: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'sensor_id', nullable: true })
   sensorId?: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'assigned_to', nullable: true })
   @Index()
   assignedTo?: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'acknowledged_by', nullable: true })
   acknowledgedBy?: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'acknowledged_at', nullable: true })
   acknowledgedAt?: Date;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'resolved_by', nullable: true })
   resolvedBy?: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'resolved_at', nullable: true })
   resolvedAt?: Date;
 
   @Field({ nullable: true })
-  @Column({ type: 'text', nullable: true })
+  @Column({ name: 'resolution_notes', type: 'text', nullable: true })
   resolutionNotes?: string;
 
   @Field(() => Int)
-  @Column({ type: 'int', default: 0 })
+  @Column({ name: 'escalation_level', type: 'int', default: 0 })
   escalationLevel!: number;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'last_escalated_at', nullable: true })
   lastEscalatedAt?: Date;
 
   @Field(() => [IncidentTimelineEvent])
-  @Column('jsonb', { default: [] })
+  @Column({ name: 'timeline', type: 'jsonb', default: [] })
   timeline!: IncidentTimelineEvent[];
 
   @Field(() => [String])
-  @Column('simple-array', { default: '' })
+  @Column({ name: 'related_incident_ids', type: 'jsonb', default: [] })
   relatedIncidentIds!: string[];
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'parent_incident_id', nullable: true })
   parentIncidentId?: string;
 
   @Field(() => Int)
-  @Column({ type: 'int', default: 1 })
+  @Column({ name: 'occurrence_count', type: 'int', default: 1 })
   occurrenceCount!: number;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'last_occurred_at', nullable: true })
   lastOccurredAt?: Date;
 
   @Field(() => GraphQLJSON, { nullable: true })
-  @Column('jsonb', { nullable: true })
+  @Column({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
   @Field()
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
   @Field()
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   // ============================================
@@ -209,7 +209,7 @@ export class AlertIncident {
   // ============================================
 
   @ManyToOne(() => AlertRule, { onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'ruleId' })
+  @JoinColumn({ name: 'rule_id' })
   rule?: AlertRule;
 
   // ============================================
@@ -239,7 +239,7 @@ export class AlertIncident {
   addTimelineEvent(event: Omit<IncidentTimelineEvent, 'id' | 'timestamp'> & { data?: Record<string, unknown> }): void {
     this.timeline.push({
       ...event,
-      id: `evt-${Date.now()}-${crypto.randomBytes(6).toString('hex')}`,
+      id: `evt-${crypto.randomUUID()}`,
       timestamp: new Date(),
       metadata: event.data,
     });

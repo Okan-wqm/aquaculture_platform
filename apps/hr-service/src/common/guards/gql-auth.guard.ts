@@ -104,8 +104,19 @@ export class GqlAuthGuard implements CanActivate {
   private async validateRequest(
     request: AuthenticatedRequest,
   ): Promise<boolean> {
-    // If user is already set by gateway, trust it
-    if (request.user && request.user.sub && request.user.tenantId) {
+    // SECURITY (HIGH-04): request.user is set by UserContextMiddleware which parses the
+    // x-user-payload header injected by the gateway. This is trusted only because the
+    // gateway is assumed to be the sole entry point (network-level isolation).
+    // Defence-in-depth: require that a pre-set user also carries a non-empty roles array,
+    // which is always present in a genuine gateway-injected JWT payload but absent if an
+    // attacker crafts a minimal x-user-payload header manually.
+    if (
+      request.user &&
+      request.user.sub &&
+      request.user.tenantId &&
+      Array.isArray((request.user as JwtPayload).roles) &&
+      (request.user as JwtPayload).roles.length > 0
+    ) {
       this.logger.debug(
         `User ${request.user.sub} pre-authenticated for tenant ${request.user.tenantId}`,
       );

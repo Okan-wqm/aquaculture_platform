@@ -62,6 +62,26 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
     // Cleanup every 5 minutes
     this.cleanupInterval = setInterval(() => this.cleanupExpiredSessions(), 300000);
 
+    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+    if (!this.useRedis && nodeEnv === 'production') {
+      this.logger.error(
+        'SessionManagerService is using in-memory storage in production. ' +
+        'Session limits and revocation will NOT work across multiple instances. ' +
+        'Set SESSION_USE_REDIS=true and provide a Redis connection.',
+      );
+      throw new Error(
+        'SessionManagerService requires Redis in production. ' +
+        'Set SESSION_USE_REDIS=true and provide a Redis connection.',
+      );
+    }
+
+    if (!this.useRedis) {
+      this.logger.warn(
+        'SessionManagerService is using in-memory storage. ' +
+        'This is only suitable for single-instance development/test environments.',
+      );
+    }
+
     this.logger.log(
       `Session manager initialized (max sessions: ${this.maxSessionsPerUser}, ` +
       `TTL: ${this.sessionTtlMs / 1000 / 60} minutes, ` +

@@ -1,0 +1,69 @@
+Aquaculture Platform {{ .Chart.AppVersion }} has been deployed.
+
+===========================================================================
+REQUIRED CREDENTIALS — verify these are set correctly before going live
+===========================================================================
+
+The following values have no safe defaults and MUST be set explicitly:
+
+  secrets.jwtSecret        — JWT signing secret (min 64 chars, externally generated)
+  secrets.databaseUrl      — PostgreSQL connection URL with credentials
+  secrets.redisUrl         — Redis connection URL with credentials
+  secrets.natsUrl          — NATS URL including auth token
+  postgresql.auth.password — PostgreSQL password for the sub-chart (if enabled)
+  redis.auth.password      — Redis password for the sub-chart (if enabled)
+
+If any of the above were not set, the chart would have failed to render
+(required guards are enforced). Confirm secrets are rotated on first deploy.
+
+===========================================================================
+ACCESS URLS
+===========================================================================
+
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+Ingress is disabled. Access services via kubectl port-forward:
+
+  kubectl port-forward -n {{ .Values.namespace }} \
+    svc/{{ include "aquaculture.fullname" . }}-gateway-api 3000:80
+
+  kubectl port-forward -n {{ .Values.namespace }} \
+    svc/{{ include "aquaculture.fullname" . }}-shell 8080:80
+{{- end }}
+
+===========================================================================
+VERIFICATION STEPS
+===========================================================================
+
+1. Check all pods are Running:
+   kubectl get pods -n {{ .Values.namespace }}
+
+2. Confirm probes are healthy:
+   kubectl describe pods -n {{ .Values.namespace }} | grep -A5 "Liveness\|Readiness"
+
+3. View gateway logs:
+   kubectl logs -n {{ .Values.namespace }} \
+     -l app=gateway-api --tail=50
+
+4. If sub-chart dependencies are missing, run:
+   helm dependency update ./aquaculture
+
+===========================================================================
+ENVIRONMENT OVERLAYS
+===========================================================================
+
+Use environment-specific values files for staging/production:
+
+  helm upgrade aquaculture ./aquaculture \
+    -n {{ .Values.namespace }} \
+    -f values-production.yaml \
+    --set secrets.jwtSecret=$JWT_SECRET \
+    --set postgresql.auth.password=$PG_PASSWORD \
+    --set redis.auth.password=$REDIS_PASSWORD
+
+Example overlay files are provided in the chart directory:
+  values-production.yaml
+  values-staging.yaml

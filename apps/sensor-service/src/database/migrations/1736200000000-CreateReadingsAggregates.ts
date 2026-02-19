@@ -60,8 +60,8 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
         WITH (timescaledb.continuous) AS
         SELECT
           time_bucket('15 minutes', timestamp) AS bucket,
-          "tenantId" AS tenant_id,
-          "sensorId" AS sensor_id,
+          tenant_id,
+          sensor_id,
 
           -- Count
           COUNT(*) AS sample_count,
@@ -95,7 +95,7 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
           AVG(quality) AS avg_quality
 
         FROM sensor_readings
-        GROUP BY bucket, "tenantId", "sensorId"
+        GROUP BY bucket, tenant_id, sensor_id
         WITH NO DATA
       `);
       console.log('Created readings_15min continuous aggregate');
@@ -272,16 +272,16 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
     try {
       await queryRunner.query(`
         CREATE OR REPLACE VIEW current_sensor_readings AS
-        SELECT DISTINCT ON ("sensorId")
-          "sensorId" AS sensor_id,
-          "tenantId" AS tenant_id,
+        SELECT DISTINCT ON (sensor_id)
+          sensor_id,
+          tenant_id,
           timestamp AS last_reading_at,
           readings,
           quality,
           source
         FROM sensor_readings
         WHERE timestamp > NOW() - INTERVAL '30 minutes'
-        ORDER BY "sensorId", timestamp DESC
+        ORDER BY sensor_id, timestamp DESC
       `);
       console.log('Created current_sensor_readings view');
     } catch (error) {

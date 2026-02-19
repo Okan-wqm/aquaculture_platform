@@ -127,22 +127,54 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     const subscription = this.subscription;
     if (!subscription) return;
 
-    void (async () => {
+    // SECURITY: Attach .catch() to prevent unhandled rejection on iterator error.
+    // Without this, any thrown error becomes an unhandled rejection and the
+    // subscription loop terminates silently -- all WebSocket clients stop
+    // receiving real-time data permanently until gateway restart.
+    (async () => {
       for await (const msg of subscription) {
         try {
           const data = this.sc.decode(msg.data);
           const event = JSON.parse(data) as NatsEvent;
+
+          // Runtime schema validation: ensure required fields are present
+          // JSON.parse + `as NatsEvent` is only a type cast, not validation.
+          if (!this.isValidNatsEvent(event)) {
+            this.logger.warn('NATS message failed schema validation, dropping');
+            continue;
+          }
 
           this.handleSensorReadingEvent(event);
         } catch (error) {
           this.logger.warn(`Failed to process NATS message: ${(error as Error).message}`);
         }
       }
-    })();
+      this.logger.warn('NATS subscription iterator ended');
+    })().catch((error) => {
+      this.logger.error(`NATS subscription loop error: ${(error as Error).message}`);
+    });
   }
 
   private handleSensorReadingEvent(event: NatsEvent): void {
     if (event.eventType !== 'SensorReadingReceived') {
+      return;
+    }
+
+    // SECURITY: Validate metadata.tenantId matches payload.tenantId
+    // A crafted event from any publisher could inject data into the wrong tenant's feed
+    if (event.metadata?.tenantId && event.payload?.tenantId &&
+        event.metadata.tenantId !== event.payload.tenantId) {
+      this.logger.warn(
+        `SECURITY: NATS event tenant ID mismatch - metadata: ${event.metadata.tenantId}, ` +
+        `payload: ${event.payload.tenantId}. Dropping event.`,
+      );
+      return;
+    }
+
+    // SECURITY: Validate tenantId is a valid UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!event.payload?.tenantId || !uuidRegex.test(event.payload.tenantId)) {
+      this.logger.warn('NATS event with invalid tenantId format, dropping');
       return;
     }
 
@@ -160,7 +192,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     if (!this.connection) return;
 
     const connection = this.connection;
-    void (async () => {
+    (async () => {
       for await (const status of connection.status()) {
         const statusType = status.type as string;
         switch (statusType) {
@@ -168,14 +200,19 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
             this.logger.warn('NATS disconnected');
             break;
           case 'reconnect':
-            this.logger.log('NATS reconnected');
+            this.logger.log('NATS reconnected - re-subscribing to sensor events');
+            // Re-subscribe after reconnect; the previous subscription's
+            // async iterator terminates on disconnect.
+            this.subscribeToSensorEvents();
             break;
           case 'error':
             this.logger.error(`NATS error: ${String(status.data)}`);
             break;
         }
       }
-    })();
+    })().catch((error) => {
+      this.logger.error(`NATS status loop error: ${(error as Error).message}`);
+    });
   }
 
   private async disconnect(): Promise<void> {
@@ -187,6 +224,26 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
       await this.connection.drain();
       this.logger.log('NATS connection closed');
     }
+  }
+
+  /**
+   * Validate that a parsed NATS event has all required fields.
+   * JSON.parse + `as NatsEvent` is only a type cast, not runtime validation.
+   */
+  private isValidNatsEvent(event: NatsEvent): boolean {
+    return (
+      typeof event === 'object' &&
+      event !== null &&
+      typeof event.eventType === 'string' &&
+      typeof event.payload === 'object' &&
+      event.payload !== null &&
+      typeof event.payload.sensorId === 'string' &&
+      typeof event.payload.tenantId === 'string' &&
+      typeof event.payload.timestamp === 'string' &&
+      typeof event.metadata === 'object' &&
+      event.metadata !== null &&
+      typeof event.metadata.tenantId === 'string'
+    );
   }
 
   /**

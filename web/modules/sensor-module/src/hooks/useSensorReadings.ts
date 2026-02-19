@@ -7,9 +7,13 @@ import { useEffect, useCallback, useRef, useState } from 'react';
 import { useScadaStore, SensorReading, SensorType, SensorStatus, ScadaProcess } from '../store/scadaStore';
 import { EquipmentNodeData, ScadaNode, ScadaEdge } from '../types/scada-types';
 import { useSensorList, RegisteredSensor } from './useSensorList';
+import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
 
-// GraphQL API for fetching real readings
-const API_URL = 'http://localhost:3000/graphql';
+// GraphQL API for fetching real readings (SEC-003: use runtime/env config, not hardcoded localhost)
+const API_URL =
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL) ||
+  (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__?.API_URL) ||
+  'http://localhost:3000/graphql';
 
 interface SensorReadings {
   temperature?: number;
@@ -23,22 +27,25 @@ interface SensorReadings {
   waterLevel?: number;
 }
 
-interface LatestReadingResponse {
-  latestReading: {
-    id: string;
-    sensorId: string;
-    timestamp: string;
-    readings: SensorReadings;
-  } | null;
+interface LatestReadingItem {
+  id: string;
+  sensorId: string;
+  timestamp: string;
+  readings: SensorReadings;
 }
 
-async function fetchLatestReading(sensorId: string): Promise<LatestReadingResponse['latestReading']> {
+// PERF-003: batch query for all sensor IDs in a single request instead of N individual fetches
+async function fetchLatestReadingsBatch(sensorIds: string[]): Promise<Map<string, LatestReadingItem>> {
+  const result = new Map<string, LatestReadingItem>();
+  if (sensorIds.length === 0) return result;
+
   try {
-    const token = localStorage.getItem('access_token');
-    const tenantId = localStorage.getItem('tenant_id');
+    const token = getAccessToken();
+    const tenantId = getTenantId();
 
     const response = await fetch(API_URL, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         ...(token && { Authorization: `Bearer ${token}` }),
@@ -46,8 +53,8 @@ async function fetchLatestReading(sensorId: string): Promise<LatestReadingRespon
       },
       body: JSON.stringify({
         query: `
-          query GetLatestReading($sensorId: ID!) {
-            latestReading(sensorId: $sensorId) {
+          query GetLatestReadingsBatch($sensorIds: [ID!]!) {
+            latestReadingsBatch(sensorIds: $sensorIds) {
               id
               sensorId
               timestamp
@@ -65,20 +72,21 @@ async function fetchLatestReading(sensorId: string): Promise<LatestReadingRespon
             }
           }
         `,
-        variables: { sensorId },
+        variables: { sensorIds },
       }),
     });
 
-    const result = await response.json();
-    if (result.errors) {
-      console.warn(`Error fetching reading for sensor ${sensorId}:`, result.errors[0]?.message);
-      return null;
+    const data = await response.json();
+    if (data.errors) {
+      console.warn('Error fetching batch readings:', data.errors[0]?.message);
+      return result;
     }
-    return result.data?.latestReading || null;
+    const items: LatestReadingItem[] = data.data?.latestReadingsBatch || [];
+    items.forEach((item) => result.set(item.sensorId, item));
   } catch (error) {
-    console.warn(`Failed to fetch reading for sensor ${sensorId}:`, error);
-    return null;
+    console.warn('Failed to fetch batch readings:', error);
   }
+  return result;
 }
 
 // Type mapping from API sensor types to SCADA types
@@ -152,25 +160,9 @@ function sensorToReading(sensor: RegisteredSensor): SensorReading {
     criticalHigh: ranges.criticalHigh,
     timestamp: new Date(sensor.updatedAt || sensor.createdAt),
     trend: 'stable' as const,
-    history: generateInitialHistory(value, ranges.min, ranges.max),
+    // Start with empty history — fake random-walk data must not be shown to operators (BUG-002 / CRIT-4)
+    history: [],
   };
-}
-
-// Generate initial history data
-function generateInitialHistory(baseValue: number, min: number, max: number, count: number = 30): { timestamp: Date; value: number }[] {
-  const history: { timestamp: Date; value: number }[] = [];
-  let value = baseValue;
-
-  for (let i = count; i > 0; i--) {
-    const timestamp = new Date(Date.now() - i * 60000);
-    const variance = 0.05;
-    const change = (Math.random() - 0.5) * 2 * variance * value;
-    value = Math.max(min, Math.min(max, value + change));
-    value = Math.round(value * 100) / 100;
-    history.push({ timestamp, value });
-  }
-
-  return history;
 }
 
 // Create dynamic process from sensors
@@ -278,7 +270,7 @@ export function useSensorReadings(refreshInterval: number = 10000) {
     });
   }, [isInitialized, sensors, setSensorReadings]);
 
-  // Fetch real readings from API
+  // Fetch real readings from API — uses a single batch request (PERF-003)
   const fetchRealReadings = useCallback(async () => {
     if (sensors.length === 0) return;
 
@@ -295,27 +287,22 @@ export function useSensorReadings(refreshInterval: number = 10000) {
       'WATER_LEVEL': 'waterLevel',
     };
 
-    // Fetch latest readings for all sensors in parallel
-    const readingPromises = sensors.map(async (sensor) => {
-      const latestReading = await fetchLatestReading(sensor.id);
-      if (latestReading?.readings) {
-        const existingReadings = sensorReadings.get(sensor.id);
-        if (existingReadings && existingReadings.length > 0) {
-          // Get the correct value based on sensor type
-          const typeKey = sensor.type?.toUpperCase() || 'TEMPERATURE';
-          const readingsKey = typeToReadingsKey[typeKey] || 'temperature';
-          const value = latestReading.readings[readingsKey];
+    const sensorIds = sensors.map((s) => s.id);
+    const batchResults = await fetchLatestReadingsBatch(sensorIds);
 
-          if (value !== undefined && value !== null) {
-            // Update with real value from API
-            updateSensorReading(sensor.id, sensor.id, value);
-          }
+    sensors.forEach((sensor) => {
+      const latestReading = batchResults.get(sensor.id);
+      if (latestReading?.readings) {
+        const typeKey = sensor.type?.toUpperCase() || 'TEMPERATURE';
+        const readingsKey = typeToReadingsKey[typeKey] || 'temperature';
+        const value = latestReading.readings[readingsKey];
+
+        if (value !== undefined && value !== null) {
+          updateSensorReading(sensor.id, sensor.id, value);
         }
       }
     });
-
-    await Promise.all(readingPromises);
-  }, [sensors, sensorReadings, updateSensorReading]);
+  }, [sensors, updateSensorReading]);
 
   // Live updates with configurable refresh interval
   useEffect(() => {
@@ -347,18 +334,16 @@ export function useSensorReadings(refreshInterval: number = 10000) {
   // Get readings for specific equipment/sensor
   const getEquipmentReadings = useCallback(
     (equipmentId: string): SensorReading[] => {
-      return sensorReadings.get(equipmentId) || [];
+      // PERF-008: sensorReadings is now a plain Record — use bracket access
+      return sensorReadings[equipmentId] || [];
     },
     [sensorReadings]
   );
 
   // Get all readings as flat array
   const getAllReadings = useCallback((): SensorReading[] => {
-    const allReadings: SensorReading[] = [];
-    sensorReadings.forEach((readings) => {
-      allReadings.push(...readings);
-    });
-    return allReadings;
+    // PERF-008: use Object.values() instead of Map.forEach()
+    return Object.values(sensorReadings).flat();
   }, [sensorReadings]);
 
   // Get stats

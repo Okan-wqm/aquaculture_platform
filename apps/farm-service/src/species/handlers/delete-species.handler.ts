@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { NotFoundException, Logger, ConflictException } from '@nestjs/common';
 import { DeleteSpeciesCommand } from '../commands/delete-species.command';
 import { Species } from '../entities/species.entity';
+import { Batch } from '../../batch/entities/batch.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 
@@ -20,6 +21,8 @@ export class DeleteSpeciesHandler
   constructor(
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
+    @InjectRepository(Batch)
+    private readonly batchRepository: Repository<Batch>,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -37,17 +40,16 @@ export class DeleteSpeciesHandler
       throw new NotFoundException(`Species with id "${id}" not found`);
     }
 
-    // TODO: Check for dependencies (batches, feeding protocols, etc.)
-    // This should be uncommented when Batch entity has speciesId
-    // const batchCount = await this.batchRepository.count({
-    //   where: { tenantId, speciesId: id },
-    // });
-    //
-    // if (batchCount > 0) {
-    //   throw new ConflictException(
-    //     `Cannot delete species "${existing.scientificName}". It has ${batchCount} associated batch(es).`,
-    //   );
-    // }
+    // Check for active batches referencing this species
+    const batchCount = await this.batchRepository.count({
+      where: { tenantId, speciesId: id },
+    });
+
+    if (batchCount > 0) {
+      throw new ConflictException(
+        `Cannot delete species "${existing.scientificName}". It has ${batchCount} associated batch(es).`,
+      );
+    }
 
     // Soft delete - mark as deleted AND inactive
     existing.isDeleted = true;

@@ -6,8 +6,10 @@
  * repeater, retry, timeout), and leaf nodes (action, condition).
  */
 
+import * as crypto from 'crypto';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { safeRegex } from './safe-regex.util';
 
 /**
  * Status of a behavior tree node execution
@@ -209,8 +211,19 @@ export class BehaviorTreeService implements OnModuleInit {
     this.registerAction('emit', async (context, params) => {
       const start = Date.now();
       const event = params.event as string;
-      const payload = params.payload || context.data;
 
+      // Restrict to safe event prefixes to prevent event bus poisoning
+      const ALLOWED_PREFIXES = ['rule.', 'alert.rule.', 'behavior-tree.', 'custom.'];
+      if (!event || !ALLOWED_PREFIXES.some(prefix => event.startsWith(prefix))) {
+        this.logger.warn(`Blocked emit of disallowed event name: ${event}`);
+        return {
+          status: NodeStatus.FAILURE,
+          data: { error: 'Disallowed event name' },
+          executionTimeMs: Date.now() - start,
+        };
+      }
+
+      const payload = params.payload || context.data;
       this.eventEmitter.emit(event, payload);
 
       return {
@@ -222,7 +235,8 @@ export class BehaviorTreeService implements OnModuleInit {
 
     this.registerAction('wait', async (context, params) => {
       const start = Date.now();
-      const durationMs = (params.durationMs as number) || 1000;
+      const MAX_WAIT_MS = 30_000; // 30 seconds max
+      const durationMs = Math.min((params.durationMs as number) || 1000, MAX_WAIT_MS);
 
       await new Promise(resolve => setTimeout(resolve, durationMs));
 
@@ -274,8 +288,8 @@ export class BehaviorTreeService implements OnModuleInit {
     this.registerCondition('matches', async (context, params) => {
       const value = String(this.resolveValue(params.value, context));
       const pattern = params.pattern as string;
-      const regex = new RegExp(pattern);
-      return regex.test(value);
+      const regex = safeRegex(pattern);
+      return regex ? regex.test(value) : false;
     });
 
     this.registerCondition('exists', async (context, params) => {
@@ -758,7 +772,13 @@ export class BehaviorTreeService implements OnModuleInit {
   }
 
   /**
-   * Execute TIMEOUT decorator - fails if child takes too long
+   * Execute TIMEOUT decorator - fails if child takes too long.
+   *
+   * BUG-014: The underlying child execution Promise cannot be cancelled in JS
+   * (no AbortController support in the built-in action/condition handlers).
+   * We mitigate side-effects by marking the context with a `timedOut` flag so
+   * that long-running children can observe it and bail early. The timer is also
+   * cleared promptly when the child finishes first to avoid a leaked handle.
    */
   private async executeTimeout(
     node: BehaviorNode,
@@ -771,9 +791,12 @@ export class BehaviorTreeService implements OnModuleInit {
     }
 
     const timeoutMs = node.timeoutMs ?? 5000;
+    let timerHandle: ReturnType<typeof setTimeout> | null = null;
 
     const timeoutPromise = new Promise<NodeResult>(resolve => {
-      setTimeout(() => {
+      timerHandle = setTimeout(() => {
+        // Signal to any cooperative child that it has been cancelled.
+        context.metadata['timedOut'] = true;
         resolve({
           status: NodeStatus.FAILURE,
           error: `Timeout after ${timeoutMs}ms`,
@@ -782,7 +805,14 @@ export class BehaviorTreeService implements OnModuleInit {
       }, timeoutMs);
     });
 
-    const executionPromise = this.executeNode(node.children[0]!, context);
+    const executionPromise = this.executeNode(node.children[0]!, context).then(result => {
+      // Child finished first — cancel the pending timer to avoid a leaked handle.
+      if (timerHandle !== null) {
+        clearTimeout(timerHandle);
+        timerHandle = null;
+      }
+      return result;
+    });
 
     return Promise.race([executionPromise, timeoutPromise]);
   }
@@ -1060,7 +1090,7 @@ export class BehaviorTreeService implements OnModuleInit {
     }
 
     const cloned: BehaviorTree = {
-      ...JSON.parse(JSON.stringify(original)),
+      ...structuredClone(original),
       id: newId,
       name: newName || `${original.name} (Copy)`,
       createdAt: new Date(),
@@ -1081,7 +1111,7 @@ export class BehaviorTreeService implements OnModuleInit {
     idMap: Map<string, string>,
   ): void {
     const oldId = node.id;
-    const newId = `${node.type.toLowerCase()}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const newId = `${node.type.toLowerCase()}_${crypto.randomUUID()}`;
 
     idMap.set(oldId, newId);
     node.id = newId;

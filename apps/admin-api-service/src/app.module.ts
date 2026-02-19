@@ -52,7 +52,10 @@ import { UsersModule } from './users/users.module';
         database: configService.get<string>('DATABASE_NAME', 'aquaculture'),
         schema: configService.get<string>('DATABASE_SCHEMA', 'admin'),
         autoLoadEntities: true,
-        synchronize: configService.get<string>('NODE_ENV') === 'development',
+        // LOW-004 fix: synchronize:true is disabled unconditionally — even in development it
+        // risks data loss on shared databases and produces unpredictable cross-schema side effects.
+        // Use explicit TypeORM migrations for all schema changes.
+        synchronize: false,
         logging: configService.get<string>('NODE_ENV') === 'development',
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {
@@ -73,7 +76,10 @@ import { UsersModule } from './users/users.module';
           };
         })(),
         extra: {
-          max: configService.get<number>('DB_POOL_SIZE', 20),
+          // MEDIUM-007 fix: raised default pool size from 20 → 40.
+          // The admin-api-service fans out to 5 parallel metric queries on every
+          // dashboard call; 20 connections exhausted under concurrent usage.
+          max: configService.get<number>('DB_POOL_SIZE', 40),
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 10000,
         },

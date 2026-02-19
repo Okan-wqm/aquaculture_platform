@@ -484,11 +484,17 @@ export class Tank {
     const depth = Number(this.depth) || 0;
 
     switch (this.tankType) {
-      case TankType.CIRCULAR:
-      case TankType.OVAL:
+      case TankType.CIRCULAR: {
         const diameter = Number(this.diameter) || 0;
         // V = π × r² × h
         return Math.PI * Math.pow(diameter / 2, 2) * depth;
+      }
+      case TankType.OVAL: {
+        // Oval tank uses ellipse area: V = π × (length/2) × (width/2) × h
+        const ovalLength = Number(this.length) || 0;
+        const ovalWidth = Number(this.width) || 0;
+        return Math.PI * (ovalLength / 2) * (ovalWidth / 2) * depth;
+      }
 
       case TankType.RECTANGULAR:
       case TankType.SQUARE:
@@ -519,10 +525,15 @@ export class Tank {
     const waterDepth = Number(this.waterDepth) || 0;
 
     switch (this.tankType) {
-      case TankType.CIRCULAR:
-      case TankType.OVAL:
+      case TankType.CIRCULAR: {
         const diameter = Number(this.diameter) || 0;
         return Math.PI * Math.pow(diameter / 2, 2) * waterDepth;
+      }
+      case TankType.OVAL: {
+        const ovalLength = Number(this.length) || 0;
+        const ovalWidth = Number(this.width) || 0;
+        return Math.PI * (ovalLength / 2) * (ovalWidth / 2) * waterDepth;
+      }
 
       case TankType.RECTANGULAR:
       case TankType.SQUARE:
@@ -599,9 +610,10 @@ export class Tank {
         TankStatus.HARVESTING,
         TankStatus.MAINTENANCE,
         TankStatus.QUARANTINE,
+        TankStatus.FALLOW,
       ],
       [TankStatus.HARVESTING]: [TankStatus.CLEANING],
-      [TankStatus.CLEANING]: [TankStatus.PREPARING, TankStatus.MAINTENANCE],
+      [TankStatus.CLEANING]: [TankStatus.PREPARING, TankStatus.MAINTENANCE, TankStatus.FALLOW],
       [TankStatus.MAINTENANCE]: [TankStatus.PREPARING, TankStatus.INACTIVE],
       [TankStatus.FALLOW]: [TankStatus.PREPARING],
       [TankStatus.QUARANTINE]: [TankStatus.ACTIVE, TankStatus.CLEANING],

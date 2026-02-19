@@ -9,6 +9,7 @@ import { ChildSensorFormModal } from './ChildSensorFormModal';
 import { useSensorRegistration } from '../../hooks/useSensorRegistration';
 import {
   ProtocolInfo,
+  ProtocolDetails,
   ConnectionTestResult,
   ParentDeviceInfo,
   ChildSensorConfig,
@@ -68,8 +69,19 @@ export function SensorRegistrationWizard({
       switch (step) {
         case 0:
           return !!selectedProtocol;
-        case 1:
-          return Object.keys(protocolConfig).length > 0;
+        case 1: {
+          // BUG-008: validate all required fields from the protocol schema, not just non-empty object
+          // ProtocolDetails (which extends ProtocolInfo) holds the schema as `configurationSchema`
+          const required: string[] = (selectedProtocolInfo as ProtocolDetails | null)?.configurationSchema?.required || [];
+          if (required.length === 0) {
+            // No schema-required fields — accept any non-empty config
+            return Object.keys(protocolConfig).length > 0;
+          }
+          return required.every((field) => {
+            const val = protocolConfig[field];
+            return val !== undefined && val !== '' && val !== null;
+          });
+        }
         case 2:
           return true; // Connection test is optional but recommended
         case 3:

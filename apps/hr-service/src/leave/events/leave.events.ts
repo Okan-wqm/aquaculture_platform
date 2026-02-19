@@ -1,68 +1,79 @@
+import { createBaseEvent } from '@app/event-contracts';
+import type {
+  LeaveRequestSubmittedEvent,
+  LeaveApprovedEvent,
+  LeaveRejectedEvent,
+  LeaveCancelledEvent,
+} from '@app/event-contracts';
 import { LeaveRequest } from '../entities/leave-request.entity';
 
 /**
- * Base class for leave request events
+ * Create a flat LeaveRequestSubmittedEvent conforming to the event-contracts interface.
+ * eventType is PascalCase per the BaseEvent contract.
  */
-export abstract class LeaveRequestEvent {
-  constructor(public readonly leaveRequest: LeaveRequest) {}
-
-  get requestId(): string {
-    return this.leaveRequest.id;
-  }
-
-  get employeeId(): string {
-    return this.leaveRequest.employeeId;
-  }
-
-  get tenantId(): string {
-    return this.leaveRequest.tenantId;
-  }
+export function createLeaveRequestSubmittedEvent(
+  leaveRequest: LeaveRequest,
+): LeaveRequestSubmittedEvent {
+  return {
+    ...createBaseEvent<LeaveRequestSubmittedEvent>(
+      'LeaveRequestSubmitted',
+      leaveRequest.tenantId,
+    ),
+    leaveRequestId: leaveRequest.id,
+    employeeId: leaveRequest.employeeId,
+    leaveTypeId: leaveRequest.leaveTypeId,
+    leaveTypeName: leaveRequest.leaveType?.name ?? 'Unknown',
+    startDate: leaveRequest.startDate,
+    endDate: leaveRequest.endDate,
+    totalDays: Number(leaveRequest.totalDays),
+  };
 }
 
 /**
- * Event published when a leave request is submitted for approval
+ * Create a flat LeaveApprovedEvent conforming to the event-contracts interface.
  */
-export class LeaveRequestSubmittedEvent extends LeaveRequestEvent {
-  readonly eventType = 'leave.request.submitted';
+export function createLeaveApprovedEvent(
+  leaveRequest: LeaveRequest,
+  approvedBy: string,
+): LeaveApprovedEvent {
+  return {
+    ...createBaseEvent<LeaveApprovedEvent>('LeaveApproved', leaveRequest.tenantId),
+    leaveId: leaveRequest.id,
+    employeeId: leaveRequest.employeeId,
+    approvedBy,
+  };
 }
 
 /**
- * Event published when a leave request is approved
+ * Create a flat LeaveRejectedEvent conforming to the event-contracts interface.
  */
-export class LeaveApprovedEvent extends LeaveRequestEvent {
-  readonly eventType = 'leave.request.approved';
-
-  get approvedBy(): string | undefined {
-    return this.leaveRequest.approvedBy;
-  }
+export function createLeaveRejectedEvent(
+  leaveRequest: LeaveRequest,
+  rejectedBy: string,
+  reason: string,
+): LeaveRejectedEvent {
+  return {
+    ...createBaseEvent<LeaveRejectedEvent>('LeaveRejected', leaveRequest.tenantId),
+    leaveRequestId: leaveRequest.id,
+    employeeId: leaveRequest.employeeId,
+    rejectedBy,
+    reason,
+  };
 }
 
 /**
- * Event published when a leave request is rejected
+ * Create a flat LeaveCancelledEvent conforming to the event-contracts interface.
  */
-export class LeaveRejectedEvent extends LeaveRequestEvent {
-  readonly eventType = 'leave.request.rejected';
-
-  get rejectedBy(): string | undefined {
-    return this.leaveRequest.rejectedBy;
-  }
-
-  get rejectionReason(): string | undefined {
-    return this.leaveRequest.rejectionReason;
-  }
-}
-
-/**
- * Event published when a leave request is cancelled
- */
-export class LeaveCancelledEvent extends LeaveRequestEvent {
-  readonly eventType = 'leave.request.cancelled';
-
-  get cancelledBy(): string | undefined {
-    return this.leaveRequest.cancelledBy;
-  }
-
-  get cancellationReason(): string | undefined {
-    return this.leaveRequest.cancellationReason;
-  }
+export function createLeaveCancelledEvent(
+  leaveRequest: LeaveRequest,
+  cancelledBy: string,
+  reason?: string,
+): LeaveCancelledEvent {
+  return {
+    ...createBaseEvent<LeaveCancelledEvent>('LeaveCancelled', leaveRequest.tenantId),
+    leaveRequestId: leaveRequest.id,
+    employeeId: leaveRequest.employeeId,
+    cancelledBy,
+    reason,
+  };
 }

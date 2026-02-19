@@ -10,6 +10,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { RedisService } from '@aquaculture/backend-common';
+import { randomUUID } from 'crypto';
 
 /**
  * Types of metered resources
@@ -91,7 +92,7 @@ export interface MeterReading {
 interface TenantMeterState {
   tenantId: string;
   meters: Map<MeterType, MeterReading>;
-  processedEvents: Set<string>; // Idempotency tracking
+  processedEvents: Map<string, number>; // Idempotency key -> timestamp
   lastResetAt: Date;
 }
 
@@ -143,6 +144,11 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
   private redisWriteInterval: NodeJS.Timeout | null = null;
   private dirtyTenants = new Set<string>(); // Track which tenants need Redis sync
 
+  // Exponential backoff state for failed Redis syncs — prevents tight retry loops under outages
+  private readonly syncRetryState = new Map<string, { attempts: number; nextRetryAt: number }>();
+  private static readonly SYNC_RETRY_BASE_DELAY_MS = 1_000;
+  private static readonly SYNC_RETRY_MAX_DELAY_MS = 5 * 60 * 1_000; // 5 minutes cap
+
   // Metrics
   private metrics = {
     totalEventsReceived: 0,
@@ -160,9 +166,19 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    // HIGH-04: Redis is required for metering durability. Without Redis, in-memory
+    // metering state is lost on any restart/crash, allowing tenants to consume metered
+    // resources without those usages being billed (revenue loss).
+    if (!this.redisService) {
+      throw new Error(
+        'SECURITY: RedisService is required for UsageMeteringService. ' +
+          'Configure REDIS_URL/REDIS_HOST and ensure the Redis connection is available.',
+      );
+    }
+
     this.initializeDefaultConfigs();
 
-    // Load existing state from Redis if available
+    // Load existing state from Redis
     await this.loadFromRedis();
 
     // Start periodic flush
@@ -218,39 +234,51 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
     if (!this.redisService) return;
 
     try {
-      // Get all meter state keys
+      // RedisService.keys() already uses SCAN internally — no blocking KEYS command
       const keys = await this.redisService.keys('metering:tenant:*');
-      let loadedCount = 0;
+      if (keys.length === 0) return;
 
-      for (const key of keys) {
+      // Fire all reads concurrently instead of N sequential awaits
+      const rawValues = await Promise.all(keys.map((key) => this.redisService!.getJson<TenantMeterStateJson>(key)));
+
+      let loadedCount = 0;
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i]!;
+        const data = rawValues[i];
+        if (!data) continue;
+
         try {
           const tenantId = key.replace('metering:tenant:', '');
-          const data = await this.redisService.getJson<TenantMeterStateJson>(key);
 
-          if (data) {
-            // Reconstruct the state with proper types
-            const meters = new Map<MeterType, MeterReading>();
-            for (const [meterType, reading] of Object.entries(data.meters)) {
-              meters.set(meterType as MeterType, {
-                ...reading,
-                periodStart: new Date(reading.periodStart),
-                periodEnd: new Date(reading.periodEnd),
-                lastUpdated: new Date(reading.lastUpdated),
-              });
-            }
-
-            const state: TenantMeterState = {
-              tenantId: data.tenantId,
-              meters,
-              processedEvents: new Set(data.processedEvents.slice(-1000)), // Keep last 1000 for idempotency
-              lastResetAt: new Date(data.lastResetAt),
-            };
-
-            this.tenantStates.set(tenantId, state);
-            loadedCount++;
+          // Reconstruct the state with proper types
+          const meters = new Map<MeterType, MeterReading>();
+          for (const [meterType, reading] of Object.entries(data.meters)) {
+            meters.set(meterType as MeterType, {
+              ...reading,
+              periodStart: new Date(reading.periodStart),
+              periodEnd: new Date(reading.periodEnd),
+              lastUpdated: new Date(reading.lastUpdated),
+            });
           }
+
+          // Reconstruct processedEvents as Map<string, number> from the serialized array
+          const processedEvents = new Map<string, number>();
+          const now = Date.now();
+          for (const evtKey of data.processedEvents.slice(-1000)) {
+            processedEvents.set(evtKey, now);
+          }
+
+          const state: TenantMeterState = {
+            tenantId: data.tenantId,
+            meters,
+            processedEvents,
+            lastResetAt: new Date(data.lastResetAt),
+          };
+
+          this.tenantStates.set(tenantId, state);
+          loadedCount++;
         } catch (err) {
-          this.logger.warn(`Failed to load state for key ${key}: ${(err as Error).message}`);
+          this.logger.warn(`Failed to parse state for key ${key}: ${(err as Error).message}`);
         }
       }
 
@@ -268,12 +296,24 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
   private async syncToRedis(): Promise<void> {
     if (!this.redisService || this.dirtyTenants.size === 0) return;
 
+    const now = Date.now();
     const tenantIds = Array.from(this.dirtyTenants);
     this.dirtyTenants.clear();
 
     for (const tenantId of tenantIds) {
+      // Exponential backoff: skip tenants that are not yet due for retry
+      const retryState = this.syncRetryState.get(tenantId);
+      if (retryState && retryState.nextRetryAt > now) {
+        // Not ready for retry yet — re-queue but don't attempt
+        this.dirtyTenants.add(tenantId);
+        continue;
+      }
+
       const state = this.tenantStates.get(tenantId);
-      if (!state) continue;
+      if (!state) {
+        this.syncRetryState.delete(tenantId);
+        continue;
+      }
 
       try {
         // Convert to JSON-serializable format
@@ -285,14 +325,22 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
         const data: TenantMeterStateJson = {
           tenantId: state.tenantId,
           meters: metersObj,
-          processedEvents: Array.from(state.processedEvents).slice(-1000), // Keep last 1000
+          processedEvents: Array.from(state.processedEvents.keys()).slice(-1000), // Keep last 1000 keys
           lastResetAt: state.lastResetAt.toISOString(),
         };
 
         await this.redisService.setJson(`metering:tenant:${tenantId}`, data);
+        // Success — clear backoff state
+        this.syncRetryState.delete(tenantId);
       } catch (err) {
         this.logger.warn(`Failed to sync tenant ${tenantId} to Redis: ${(err as Error).message}`);
-        // Re-add to dirty set for retry
+        // Exponential backoff before next retry
+        const attempts = (retryState?.attempts ?? 0) + 1;
+        const delay = Math.min(
+          UsageMeteringService.SYNC_RETRY_BASE_DELAY_MS * Math.pow(2, attempts - 1),
+          UsageMeteringService.SYNC_RETRY_MAX_DELAY_MS,
+        );
+        this.syncRetryState.set(tenantId, { attempts, nextRetryAt: now + delay });
         this.dirtyTenants.add(tenantId);
       }
     }
@@ -422,6 +470,8 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
         this.logger.debug(`Duplicate event skipped: ${event.idempotencyKey}`);
         return fullEvent;
       }
+      // Record with timestamp for age-based eviction
+      state.processedEvents.set(event.idempotencyKey, Date.now());
     }
 
     // Add to buffer
@@ -472,9 +522,9 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
     try {
       const state = this.getOrCreateTenantState(event.tenantId);
 
-      // Track idempotency
-      if (event.idempotencyKey) {
-        state.processedEvents.add(event.idempotencyKey);
+      // Track idempotency (already recorded in recordUsage, but ensure it's set for direct processEvent calls)
+      if (event.idempotencyKey && !state.processedEvents.has(event.idempotencyKey)) {
+        state.processedEvents.set(event.idempotencyKey, Date.now());
       }
 
       // Get or create meter reading
@@ -567,7 +617,7 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
       state = {
         tenantId,
         meters: new Map(),
-        processedEvents: new Set(),
+        processedEvents: new Map(),
         lastResetAt: new Date(),
       };
       this.tenantStates.set(tenantId, state);
@@ -731,7 +781,7 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
     }
 
     state.lastResetAt = new Date();
-    state.processedEvents.clear();
+    state.processedEvents = new Map();
 
     this.logger.log(`All meters reset for tenant: ${tenantId}`);
   }
@@ -784,30 +834,38 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Cleanup old idempotency keys
+   * Cleanup old idempotency keys by age (evict keys older than 1 hour)
    */
   private cleanupOldIdempotencyKeys(): void {
+    const maxAgeMs = 60 * 60 * 1000; // 1 hour
+    const cutoff = Date.now() - maxAgeMs;
+
     for (const state of this.tenantStates.values()) {
-      // Keep only recent keys (clear if over limit)
-      if (state.processedEvents.size > 100000) {
-        state.processedEvents.clear();
-        this.logger.debug(`Cleared idempotency keys for tenant: ${state.tenantId}`);
+      let evicted = 0;
+      for (const [key, timestamp] of state.processedEvents) {
+        if (timestamp < cutoff) {
+          state.processedEvents.delete(key);
+          evicted++;
+        }
+      }
+      if (evicted > 0) {
+        this.logger.debug(`Evicted ${evicted} old idempotency keys for tenant: ${state.tenantId}`);
       }
     }
   }
 
   /**
-   * Generate event ID
+   * Generate event ID using cryptographically secure random
    */
   private generateEventId(): string {
-    return `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `evt_${randomUUID()}`;
   }
 
   /**
-   * Generate batch ID
+   * Generate batch ID using cryptographically secure random
    */
   private generateBatchId(): string {
-    return `batch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `batch_${randomUUID()}`;
   }
 
   /**

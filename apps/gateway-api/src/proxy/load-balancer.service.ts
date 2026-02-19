@@ -161,6 +161,7 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
   private readonly roundRobinCounters = new Map<string, number>();
   private readonly stickySessionMap = new Map<string, { instanceId: string; expiry: number }>();
   private healthCheckIntervals: Map<string, ReturnType<typeof setInterval>> = new Map();
+  private stickySessionCleanupInterval?: ReturnType<typeof setInterval>;
 
   constructor(private readonly configService: ConfigService) {
     super();
@@ -169,6 +170,18 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
   onModuleInit(): void {
     // Load default services from config
     this.loadServicesFromConfig();
+
+    // Periodically clean up expired sticky session entries to prevent unbounded Map growth.
+    // Sessions for disconnected clients that never reconnect would otherwise leak memory.
+    this.stickySessionCleanupInterval = setInterval(() => {
+      const now = Date.now();
+      for (const [key, value] of this.stickySessionMap) {
+        if (value.expiry < now) {
+          this.stickySessionMap.delete(key);
+        }
+      }
+    }, 60000);
+
     this.logger.log('Load Balancer Service initialized');
   }
 
@@ -178,6 +191,11 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
       clearInterval(interval);
     }
     this.healthCheckIntervals.clear();
+
+    // Clear sticky session cleanup interval
+    if (this.stickySessionCleanupInterval) {
+      clearInterval(this.stickySessionCleanupInterval);
+    }
   }
 
   /**

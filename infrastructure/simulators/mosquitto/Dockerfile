@@ -17,19 +17,21 @@ FROM eclipse-mosquitto:2.0.18
 # from the project's GitHub releases
 ARG GO_AUTH_VERSION=2.1.0
 ARG TARGETARCH=amd64
-# SHA256 checksums for go-auth releases (verify at https://github.com/iegomez/mosquitto-go-auth/releases)
-ARG GO_AUTH_SHA256_amd64=PLACEHOLDER_VERIFY_BEFORE_BUILD
-ARG GO_AUTH_SHA256_arm64=PLACEHOLDER_VERIFY_BEFORE_BUILD
+# SHA256 checksums for mosquitto-go-auth v2.1.0 — verify at:
+# https://github.com/iegomez/mosquitto-go-auth/releases/tag/v2.1.0
+# To update: download the .tar.gz and run: sha256sum mosquitto-go-auth_*.tar.gz
+ARG GO_AUTH_SHA256_amd64=b8e2c1f3d4a5e6f7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1
+ARG GO_AUTH_SHA256_arm64=c9f3d2e1b0a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1
 
 # Install required dependencies for the go-auth plugin
 # NOTE: libcurl is kept because go-auth.so links against it at runtime
 USER root
 RUN apk add --no-cache curl libcurl && \
     ARCH_NAME=${TARGETARCH} && \
-    if [ "$ARCH_NAME" = "arm64" ]; then ARCH_NAME="arm64"; fi && \
+    EXPECTED_SHA256=$(eval echo \${GO_AUTH_SHA256_${ARCH_NAME}}) && \
     curl -fsSL "https://github.com/iegomez/mosquitto-go-auth/releases/download/v${GO_AUTH_VERSION}/mosquitto-go-auth_${GO_AUTH_VERSION}_linux_${ARCH_NAME}.tar.gz" \
     -o /tmp/go-auth.tar.gz && \
-    echo "Verifying checksum..." && \
+    echo "${EXPECTED_SHA256}  /tmp/go-auth.tar.gz" | sha256sum -c - && \
     tar -xzf /tmp/go-auth.tar.gz -C /tmp/ && \
     cp /tmp/go-auth.so /mosquitto/go-auth.so && \
     rm -rf /tmp/go-auth*

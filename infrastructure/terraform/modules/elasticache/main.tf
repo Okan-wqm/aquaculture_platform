@@ -2,28 +2,20 @@
 # Aquaculture Platform - ElastiCache Module (Redis)
 # =============================================================================
 
-terraform {
-  required_version = ">= 1.0"
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.0"
-    }
-  }
-}
+# ARCH-009 fix: removed terraform {} block from child module — provider constraints
+# are advisory only in child modules; the environment root module governs versions.
 
 # =============================================================================
 # Auth Token
+# SEC-022 fix: special = true with safe override_special. Characters excluded are
+# those that break Redis connection string or AUTH command parsing (@ / : space).
 # =============================================================================
 
 resource "random_password" "auth_token" {
-  count   = var.transit_encryption_enabled && var.auth_token == "" ? 1 : 0
-  length  = 64
-  special = false
+  count            = var.transit_encryption_enabled && var.auth_token == "" ? 1 : 0
+  length           = 64
+  special          = true
+  override_special = "!$%^&*()-_=+[]{}<>"
 }
 
 locals {
@@ -106,9 +98,9 @@ resource "aws_elasticache_replication_group" "main" {
   auth_token                 = local.auth_token
 
   # Maintenance
-  maintenance_window       = var.maintenance_window
-  snapshot_window          = var.snapshot_window
-  snapshot_retention_limit = var.snapshot_retention_limit
+  maintenance_window         = var.maintenance_window
+  snapshot_window            = var.snapshot_window
+  snapshot_retention_limit   = var.snapshot_retention_limit
   auto_minor_version_upgrade = var.auto_minor_version_upgrade
 
   # Notifications
@@ -118,13 +110,20 @@ resource "aws_elasticache_replication_group" "main" {
     Name = var.cluster_id
   })
 
+  # ARCH-018 fix: prevent accidental destruction of the Redis replication group
   lifecycle {
-    ignore_changes = [auth_token]
+    prevent_destroy = true
+    ignore_changes  = [auth_token]
   }
 }
 
 # =============================================================================
 # Store Credentials in Secrets Manager
+# SEC-008 fix: removed the 'url' field that embedded the auth_token in a Redis
+# connection URL string. Applications must compose the connection URL at runtime
+# from the separate host/port/auth_token fields to avoid credential exposure
+# through application log output.
+# SEC-010 fix: added aws_secretsmanager_secret_rotation resource.
 # =============================================================================
 
 resource "aws_secretsmanager_secret" "redis" {
@@ -140,8 +139,20 @@ resource "aws_secretsmanager_secret_version" "redis" {
     host       = aws_elasticache_replication_group.main.primary_endpoint_address
     port       = var.port
     auth_token = local.auth_token
-    url        = var.transit_encryption_enabled ? "rediss://:${local.auth_token}@${aws_elasticache_replication_group.main.primary_endpoint_address}:${var.port}" : "redis://${aws_elasticache_replication_group.main.primary_endpoint_address}:${var.port}"
   })
+}
+
+# SEC-010 fix: automatic rotation for the Redis auth token secret.
+# Note: ElastiCache auth token rotation requires a custom Lambda — set
+# enable_secret_rotation = true and provide rotation_lambda_arn when available.
+resource "aws_secretsmanager_secret_rotation" "redis" {
+  count               = var.enable_secret_rotation ? 1 : 0
+  secret_id           = aws_secretsmanager_secret.redis.id
+  rotation_lambda_arn = var.rotation_lambda_arn
+
+  rotation_rules {
+    automatically_after_days = 30
+  }
 }
 
 # =============================================================================

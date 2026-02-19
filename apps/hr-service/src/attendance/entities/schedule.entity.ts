@@ -37,6 +37,8 @@ registerEnumType(ScheduleStatus, { name: 'ScheduleStatus' });
 @Index(['tenantId', 'employeeId', 'startDate', 'endDate'])
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'departmentId', 'startDate'])
+// Composite index for clock-in active-schedule lookup: (tenantId, employeeId, status)
+@Index(['tenantId', 'employeeId', 'status'])
 export class Schedule {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

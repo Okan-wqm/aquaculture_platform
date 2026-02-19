@@ -35,6 +35,14 @@ pub struct ScriptContext {
     /// User-defined variables
     pub variables: HashMap<String, Value>,
 
+    /// RETAIN variables separate from ordinary variables (LOW-40).
+    ///
+    /// Stored as `"script_id:var_name" -> value` so that `save_retain_variables()`
+    /// can flush only the RETAIN subset without scanning the full `variables` map.
+    /// Both maps are written on a RETAIN assignment; only this map is flushed on
+    /// graceful shutdown.
+    pub retain_variables: HashMap<String, Value>,
+
     /// System metrics
     pub system: SystemContext,
 
@@ -53,6 +61,7 @@ impl Default for ScriptContext {
             sensors: HashMap::new(),
             gpio: HashMap::new(),
             variables: HashMap::new(),
+            retain_variables: HashMap::new(),
             system: SystemContext::default(),
             timestamp: Utc::now().timestamp(),
             timezone_offset_secs: 0, // Default: UTC

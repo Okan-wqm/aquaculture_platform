@@ -5,7 +5,7 @@
  * Shows active alerts with severity filtering, acknowledgment, and quick actions.
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Card, Badge, Button, formatRelativeTime } from '@aquaculture/shared-ui';
 
 // ============================================================================
@@ -39,6 +39,10 @@ export interface AlertItem {
   currentValue?: number;
   threshold?: number;
   unit?: string;
+  /**
+   * DASH-SEC-010: metadata carries arbitrary server-controlled JSON.
+   * NEVER render metadata values directly — they must be sanitized before display.
+   */
   metadata?: Record<string, unknown>;
 }
 
@@ -57,10 +61,6 @@ export interface AlertSummaryWidgetProps {
   onViewDetails?: (alert: AlertItem) => void;
   /** Callback when "View All" is clicked */
   onViewAll?: () => void;
-  /** Enable auto-refresh */
-  autoRefresh?: boolean;
-  /** Auto-refresh interval in ms */
-  refreshInterval?: number;
   /** Maximum alerts to display */
   maxAlerts?: number;
   /** Filter by severity */
@@ -103,7 +103,7 @@ export const severityConfig: Record<
     borderColor: 'border-orange-200',
     iconColor: 'text-orange-600',
     badgeVariant: 'warning',
-    label: 'Yuksek',
+    label: 'Yüksek',
     priority: 4,
   },
   medium: {
@@ -119,7 +119,7 @@ export const severityConfig: Record<
     borderColor: 'border-blue-200',
     iconColor: 'text-blue-600',
     badgeVariant: 'info',
-    label: 'Dusuk',
+    label: 'Düşük',
     priority: 2,
   },
   info: {
@@ -131,6 +131,11 @@ export const severityConfig: Record<
     priority: 1,
   },
 };
+
+// BUG-L6: severity keys sorted by explicit priority field, not insertion order
+const SEVERITY_KEYS_BY_PRIORITY = (Object.keys(severityConfig) as AlertSeverity[]).sort(
+  (a, b) => severityConfig[b].priority - severityConfig[a].priority
+);
 
 // ============================================================================
 // Helper Functions
@@ -260,6 +265,14 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const config = severityConfig[alert.severity];
 
+  // BUG-H5: unmount guard prevents setState on unmounted component
+  const isMounted = useRef(true);
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   const handleAcknowledge = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!onAcknowledge || isProcessing) return;
@@ -268,7 +281,7 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
     try {
       await onAcknowledge(alert.id);
     } finally {
-      setIsProcessing(false);
+      if (isMounted.current) setIsProcessing(false);
     }
   };
 
@@ -280,7 +293,7 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
     try {
       await onResolve(alert.id);
     } finally {
-      setIsProcessing(false);
+      if (isMounted.current) setIsProcessing(false);
     }
   };
 
@@ -318,8 +331,8 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
 
           {!compact && alert.currentValue !== undefined && (
             <p className="text-xs text-gray-500 mt-1">
-              Deger: {alert.currentValue}
-              {alert.unit} (Esik: {alert.threshold}
+              Değer: {alert.currentValue}
+              {alert.unit} (Eşik: {alert.threshold}
               {alert.unit})
             </p>
           )}
@@ -333,7 +346,7 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
 
           {alert.occurrenceCount > 1 && (
             <span className="text-xs text-orange-600 mt-1 inline-block">
-              {alert.occurrenceCount} kez tekrarlandi
+              {alert.occurrenceCount} kez tekrarlandı
             </span>
           )}
         </div>
@@ -349,7 +362,7 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
               disabled={isProcessing}
               data-testid={`acknowledge-btn-${alert.id}`}
             >
-              {isProcessing ? 'Isleniyor...' : 'Onayla'}
+              {isProcessing ? 'İşleniyor...' : 'Onayla'}
             </Button>
           )}
           {onResolve && (
@@ -360,7 +373,7 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
               disabled={isProcessing}
               data-testid={`resolve-btn-${alert.id}`}
             >
-              {isProcessing ? 'Isleniyor...' : 'Coz'}
+              {isProcessing ? 'İşleniyor...' : 'Çöz'}
             </Button>
           )}
           {onViewDetails && (
@@ -403,7 +416,8 @@ export const SeverityFilter: React.FC<SeverityFilterProps> = ({
 
   return (
     <div className="flex flex-wrap gap-1" data-testid="severity-filter">
-      {(Object.keys(severityConfig) as AlertSeverity[]).map((severity) => {
+      {/* BUG-L6: use explicit priority-sorted keys, not insertion order */}
+      {SEVERITY_KEYS_BY_PRIORITY.map((severity) => {
         const config = severityConfig[severity];
         const isSelected = selectedSeverities.includes(severity);
         const count = alertCounts[severity];
@@ -433,7 +447,7 @@ interface EmptyStateProps {
 }
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
-  message = 'Aktif uyari bulunmuyor',
+  message = 'Aktif uyarı bulunmuyor',
 }) => (
   <div className="p-8 text-center" data-testid="empty-state">
     <div className="mx-auto w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-3">
@@ -473,6 +487,41 @@ export const LoadingState: React.FC<LoadingStateProps> = ({ count = 3 }) => (
   </div>
 );
 
+// DASH-SEC-007: Map error codes/messages to safe, generic user-facing strings.
+// Never render raw backend error strings — they may contain stack traces,
+// SQL fragments, or internal IDs. Accept either a code or an arbitrary message
+// and return a known safe display string.
+const SAFE_ERROR_MESSAGES: Record<string, string> = {
+  UNAUTHENTICATED: 'Oturum süreniz doldu. Lütfen tekrar giriş yapın.',
+  FORBIDDEN: 'Bu işlem için yetkiniz bulunmamaktadır.',
+  NOT_FOUND: 'İstenen kaynak bulunamadı.',
+  NETWORK_ERROR: 'Sunucuya bağlanılamadı. Lütfen bağlantınızı kontrol edin.',
+  TIMEOUT: 'İstek zaman aşımına uğradı. Lütfen tekrar deneyin.',
+  GRAPHQL_ERROR: 'Veri yüklenirken bir hata oluştu.',
+  REFRESH_FAILED: 'Oturum yenilenemedi. Lütfen tekrar giriş yapın.',
+};
+
+const GENERIC_ERROR_MESSAGE = 'Uyarılar yüklenirken bir hata oluştu. Lütfen tekrar deneyin.';
+
+/**
+ * Return a safe, user-facing display string for an error.
+ * The input may be a backend error code (matched against SAFE_ERROR_MESSAGES)
+ * or an arbitrary message string — in either case we never show it raw.
+ */
+function toSafeErrorMessage(raw: string): string {
+  // Check if the raw value is a known error code key
+  if (Object.prototype.hasOwnProperty.call(SAFE_ERROR_MESSAGES, raw)) {
+    return SAFE_ERROR_MESSAGES[raw];
+  }
+  // Check if the raw value contains a known code keyword
+  for (const [code, safeMsg] of Object.entries(SAFE_ERROR_MESSAGES)) {
+    if (raw.toUpperCase().includes(code)) {
+      return safeMsg;
+    }
+  }
+  return GENERIC_ERROR_MESSAGE;
+}
+
 interface ErrorStateProps {
   message: string;
   onRetry?: () => void;
@@ -495,7 +544,8 @@ export const ErrorState: React.FC<ErrorStateProps> = ({ message, onRetry }) => (
         />
       </svg>
     </div>
-    <p className="text-sm text-red-600 mb-2">{message}</p>
+    {/* DASH-SEC-007: never render raw backend error string — map to safe message */}
+    <p className="text-sm text-red-600 mb-2">{toSafeErrorMessage(message)}</p>
     {onRetry && (
       <Button variant="ghost" size="sm" onClick={onRetry}>
         Tekrar Dene
@@ -537,16 +587,11 @@ export const AlertSummaryWidget: React.FC<AlertSummaryWidgetProps> = ({
   // Count by severity for filter display
   const severityCounts = useMemo(() => countBySeverity(alerts), [alerts]);
 
-  // Count active vs acknowledged
-  const activeCount = useMemo(
-    () => alerts.filter((a) => a.status === 'active').length,
-    [alerts]
-  );
-
-  const acknowledgedCount = useMemo(
-    () => alerts.filter((a) => a.status === 'acknowledged').length,
-    [alerts]
-  );
+  // PERF-M2: derive active/acknowledged counts from a single countByStatus memo
+  // instead of two separate O(n) filter passes
+  const statusCounts = useMemo(() => countByStatus(alerts), [alerts]);
+  const activeCount = statusCounts.active;
+  const acknowledgedCount = statusCounts.acknowledged;
 
   const criticalCount = severityCounts.critical;
   const highCount = severityCounts.high;
@@ -560,7 +605,7 @@ export const AlertSummaryWidget: React.FC<AlertSummaryWidgetProps> = ({
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-200">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Aktif Uyarilar</h3>
+          <h3 className="text-lg font-semibold text-gray-900">Aktif Uyarılar</h3>
           <div className="flex items-center space-x-2">
             {criticalCount > 0 && (
               <Badge variant="error" data-testid="critical-count">
@@ -569,7 +614,7 @@ export const AlertSummaryWidget: React.FC<AlertSummaryWidgetProps> = ({
             )}
             {highCount > 0 && (
               <Badge variant="warning" data-testid="high-count">
-                {highCount} Yuksek
+                {highCount} Yüksek
               </Badge>
             )}
             {activeCount === 0 && acknowledgedCount === 0 && (
@@ -602,8 +647,8 @@ export const AlertSummaryWidget: React.FC<AlertSummaryWidgetProps> = ({
           <EmptyState
             message={
               selectedSeverities.length > 0
-                ? 'Secili kriterlere uygun uyari bulunamadi'
-                : 'Aktif uyari bulunmuyor'
+                ? 'Seçili kriterlere uygun uyarı bulunamadı'
+                : 'Aktif uyarı bulunmuyor'
             }
           />
         ) : (
@@ -625,8 +670,8 @@ export const AlertSummaryWidget: React.FC<AlertSummaryWidgetProps> = ({
         <div className="px-4 py-3 border-t border-gray-100 bg-gray-50">
           <div className="flex items-center justify-between">
             <span className="text-xs text-gray-500">
-              Toplam: {alerts.length} uyari ({activeCount} aktif, {acknowledgedCount}{' '}
-              onayli)
+              Toplam: {alerts.length} uyarı ({activeCount} aktif, {acknowledgedCount}{' '}
+              onaylı)
             </span>
             {onViewAll && (
               <Button
@@ -635,7 +680,7 @@ export const AlertSummaryWidget: React.FC<AlertSummaryWidgetProps> = ({
                 onClick={onViewAll}
                 data-testid="view-all-btn"
               >
-                Tumunu Goruntule
+                Tümünü Görüntüle
               </Button>
             )}
           </div>

@@ -1,4 +1,4 @@
-import { ObjectType, Field, ID, HideField, registerEnumType } from '@nestjs/graphql';
+import { ObjectType, Field, ID, HideField, registerEnumType, Directive } from '@nestjs/graphql';
 import { Role } from '@platform/backend-common';
 import * as bcrypt from 'bcryptjs';
 import {
@@ -89,14 +89,16 @@ export class User {
   @Column({ type: 'varchar', length: 128, nullable: true })
   invitationToken?: string | null;
 
-  @Field(() => Date, { nullable: true })
+  // SECURITY: Hidden from GraphQL — reveals whether invitation is active (SEC-AUTH-003)
+  @HideField()
   @Column({ type: 'timestamp', nullable: true })
   invitationExpiresAt?: Date | null;
 
   /**
    * User ID who invited this user
    */
-  @Field(() => String, { nullable: true })
+  // SECURITY: Hidden from GraphQL — reveals internal user ID relationships (SEC-AUTH-003)
+  @HideField()
   @Column({ type: 'uuid', nullable: true })
   invitedBy?: string | null;
 
@@ -108,7 +110,8 @@ export class User {
   @Column({ type: 'varchar', length: 500, nullable: true })
   profileImageUrl?: string | null;
 
-  @Field(() => String, { nullable: true })
+  // SECURITY: Hidden from GraphQL — PII under GDPR (SEC-AUTH-003)
+  @HideField()
   @Column({ type: 'varchar', length: 20, nullable: true })
   phoneNumber?: string | null;
 
@@ -135,7 +138,8 @@ export class User {
   @Column({ type: 'timestamp', nullable: true })
   lastLoginAt?: Date | null;
 
-  @Field(() => String, { nullable: true })
+  // SECURITY: Hidden from GraphQL — IP addresses are PII under GDPR Article 4(1) (SEC-AUTH-003)
+  @HideField()
   @Column({ type: 'varchar', length: 50, nullable: true })
   lastLoginIp?: string | null;
 
@@ -172,8 +176,11 @@ export class User {
   @BeforeInsert()
   @BeforeUpdate()
   async hashPassword(): Promise<void> {
-    // Only hash if password exists and is not already hashed
-    if (this.password && !this.password.startsWith('$2')) {
+    // Only hash if password exists and is not already a bcrypt hash.
+    // SECURITY: Use proper bcrypt hash regex instead of startsWith('$2')
+    // to avoid false positives on passwords that happen to start with '$2'.
+    const bcryptHashPattern = /^\$2[aby]?\$\d{2}\$/;
+    if (this.password && !bcryptHashPattern.test(this.password)) {
       const salt = await bcrypt.genSalt(12);
       this.password = await bcrypt.hash(this.password, salt);
     }
@@ -194,7 +201,9 @@ export class User {
   }
 
   isPendingInvitation(): boolean {
-    return this.invitationToken !== null && !this.password;
+    // SECURITY: Use truthiness check instead of !== null to also catch undefined.
+    // A freshly created user object may have invitationToken = undefined (not null).
+    return !!this.invitationToken && !this.password;
   }
 
   isInvitationExpired(): boolean {

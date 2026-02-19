@@ -76,16 +76,25 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
 
     const savedBatch = await this.batchRepository.save(batch);
 
-    // Domain event yayınla
-    // await this.eventBus.publish(new BatchStatusChangedEvent({
-    //   tenantId,
-    //   batchId: savedBatch.id,
-    //   batchNumber: savedBatch.batchNumber,
-    //   previousStatus,
-    //   newStatus,
-    //   reason,
-    //   changedBy: updatedBy,
-    // }));
+    // Publish domain event
+    if (this.eventBus) {
+      try {
+        await this.eventBus.publish({
+          eventId: crypto.randomUUID(),
+          eventType: 'BatchStatusChanged',
+          timestamp: new Date(),
+          tenantId,
+          batchId: savedBatch.id,
+          previousStatus,
+          newStatus,
+          reason,
+          userId: updatedBy,
+          version: 1,
+        });
+      } catch (eventError) {
+        // Log but don't fail for event publishing errors
+      }
+    }
 
     return savedBatch;
   }

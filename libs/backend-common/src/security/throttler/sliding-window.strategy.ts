@@ -41,6 +41,15 @@ export class SlidingWindowStrategy implements IRateLimiterStrategy, OnModuleDest
 
     // Cleanup expired entries every minute
     this.cleanupInterval = setInterval(() => this.cleanup(), 60000);
+
+    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+    if (nodeEnv === 'production') {
+      this.logger.warn(
+        'SlidingWindowStrategy is using in-memory storage. ' +
+        'Rate limits will NOT be enforced across multiple instances. ' +
+        'Configure a Redis-backed rate limiter for production deployments.',
+      );
+    }
   }
 
   onModuleDestroy(): void {
@@ -200,17 +209,14 @@ export class SlidingWindowStrategy implements IRateLimiterStrategy, OnModuleDest
   }
 
   /**
-   * Extract limit from key if encoded
-   * Key format: prefix:limit:identifier
+   * Get the rate limit for a given key.
+   *
+   * The key format from ThrottlerGuard is 'throttle:{type}:{identifier}'
+   * (e.g., 'throttle:ip:1.2.3.4'), which does not encode a numeric limit.
+   * Always returns the configured default limit. Per-route limits should
+   * use consumeWithConfig() which accepts the limit explicitly.
    */
-  private extractLimitFromKey(key: string): number {
-    const parts = key.split(':');
-    if (parts.length >= 2) {
-      const limit = parseInt(parts[1]!, 10);
-      if (!isNaN(limit) && limit > 0) {
-        return limit;
-      }
-    }
+  private extractLimitFromKey(_key: string): number {
     return this.defaultLimit;
   }
 

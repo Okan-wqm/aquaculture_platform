@@ -575,7 +575,10 @@ export class TenantUserManagementService {
     user: User,
     invitationToken: string,
   ): Promise<void> {
-    const baseUrl = process.env['APP_URL'] || 'https://app.aquaculture-platform.com';
+    const baseUrl = process.env['APP_URL'];
+    if (!baseUrl) {
+      throw new Error('APP_URL environment variable is not configured');
+    }
     const actionUrl = `${baseUrl}/auth/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(user.email)}`;
 
     const event: UserInvitedEvent = {
@@ -591,8 +594,8 @@ export class TenantUserManagementService {
       tenantName: tenant.name,
       invitedBy: user.invitedBy || undefined,
       credentialType: 'reset_token',
-      temporaryCredential: invitationToken,
       actionUrl,
+      version: 1,
     };
 
     await this.eventBus.publish(event);

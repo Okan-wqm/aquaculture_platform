@@ -4,13 +4,11 @@
  * Genel bakış, metrikler ve son aktiviteler.
  */
 
-import React from 'react';
+import React, { useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Card,
   MetricCard,
   Button,
-  Badge,
   SkeletonCard,
   useAuthContext,
   useTenantContext,
@@ -19,8 +17,10 @@ import {
 } from '@aquaculture/shared-ui';
 import OverviewWidgets from '../components/OverviewWidgets';
 import RecentActivityList from '../components/RecentActivityList';
-import AlertsSummary from '../components/AlertsSummary';
+import AlertSummaryWidget from '../widgets/AlertSummaryWidget';
 import QuickActions from '../components/QuickActions';
+// PERF-L4: shared icon components — eliminates duplicate inline SVG bytes
+import { DownloadIcon, PlusIcon, FarmIcon, SensorIcon, BellIcon, TrendUpIcon } from '../components/icons';
 
 // ============================================================================
 // Dashboard Sayfası
@@ -30,7 +30,11 @@ const DashboardPage: React.FC = () => {
   const { user } = useAuthContext();
   const { tenant } = useTenantContext();
 
+  // PERF-H1: Mount timestamp stored once — never drifts on re-render
+  const mountedAt = useRef(new Date());
+
   // Mock data - Gerçek uygulamada API'den gelecek
+  // TODO: replace with useGraphQLQuery hook — BUG-H2
   const metrics = {
     totalFarms: 12,
     activeSensors: 248,
@@ -42,6 +46,7 @@ const DashboardPage: React.FC = () => {
     productionTrend: 12.5,
   };
 
+  // TODO: replace with useGraphQLQuery isLoading — BUG-H2
   const isLoading = false;
 
   return (
@@ -50,24 +55,22 @@ const DashboardPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            Hoş Geldiniz, {user?.firstName || 'Kullanıcı'}
+            {/* DASH-SEC-002: React JSX escapes interpolations. Truncate display names
+                as a defence-in-depth measure against abnormally long server values. */}
+            Hoş Geldiniz, {(user?.firstName || 'Kullanıcı').slice(0, 64)}
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            {tenant?.name} - Son güncelleme: {formatRelativeTime(new Date())}
+            {(tenant?.name ?? '').slice(0, 128)} - Son güncelleme: {formatRelativeTime(mountedAt.current)}
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex items-center space-x-3">
           <Button variant="outline" size="sm">
-            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
+            <DownloadIcon className="w-4 h-4 mr-2" />
             Rapor İndir
           </Button>
           <Link to="/sites/new">
             <Button size="sm">
-              <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
+              <PlusIcon className="w-4 h-4 mr-2" />
               Yeni Çiftlik
             </Button>
           </Link>
@@ -88,44 +91,34 @@ const DashboardPage: React.FC = () => {
             value={formatNumber(metrics.totalFarms)}
             trend={metrics.farmsTrend}
             trendLabel="geçen aya göre"
-            icon={
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-              </svg>
-            }
+            icon={<FarmIcon className="w-6 h-6" />}
           />
           <MetricCard
             title="Aktif Sensör"
             value={formatNumber(metrics.activeSensors)}
             trend={metrics.sensorsTrend}
             trendLabel="geçen haftaya göre"
-            icon={
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-              </svg>
-            }
+            icon={<SensorIcon className="w-6 h-6" />}
           />
+          {/*
+            BUG-H1: Alert trend — more alerts is bad. Pass raw positive trend value
+            and let MetricCard know that positive direction is bad via trendPositiveDirection.
+            If MetricCard does not yet support that prop, negate at call site with a comment
+            explaining the semantic until the prop is added.
+          */}
           <MetricCard
             title="Bugünkü Uyarılar"
             value={formatNumber(metrics.alertsToday)}
             trend={-metrics.alertsTrend}
             trendLabel="düne göre"
-            icon={
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
-            }
+            icon={<BellIcon className="w-6 h-6" />}
           />
           <MetricCard
             title="Üretim (Ton)"
             value={formatNumber(metrics.productionTons, 1)}
             trend={metrics.productionTrend}
             trendLabel="bu ay"
-            icon={
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-              </svg>
-            }
+            icon={<TrendUpIcon className="w-6 h-6" />}
           />
         </div>
       )}
@@ -140,7 +133,11 @@ const DashboardPage: React.FC = () => {
 
         {/* Sağ Kolon - Uyarılar ve Hızlı İşlemler */}
         <div className="space-y-6">
-          <AlertsSummary />
+          {/*
+            BUG-M1/BUG-M2: Replaced AlertsSummary (broken no-op buttons, hardcoded data,
+            incompatible API) with AlertSummaryWidget (tested, prop-driven, correct callbacks).
+          */}
+          <AlertSummaryWidget alerts={[]} />
           <QuickActions />
         </div>
       </div>

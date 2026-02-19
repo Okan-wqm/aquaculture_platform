@@ -5,35 +5,40 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Shield,
-  AlertTriangle,
-  Activity,
-  RefreshCw,
-  Eye,
-  Search,
-  Filter,
-  Download,
-  Play,
-  Pause,
-  Clock,
-  MapPin,
-  Globe,
-  Server,
-  Lock,
-  Unlock,
-  AlertCircle,
-  CheckCircle2,
-  XCircle,
-  Zap,
-  Target,
-  BarChart3,
-  TrendingUp,
-  TrendingDown,
-  Users,
-  X,
-} from 'lucide-react';
 import { securityApi } from '../../services/adminApi';
+
+// Inline SVG icon components to match module pattern (replaces lucide-react dependency, PERF-011)
+const Icon: React.FC<{ path: string; className?: string }> = ({ path, className = 'w-5 h-5' }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={path} />
+  </svg>
+);
+const Shield = (p: { className?: string }) => <Icon path="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" {...p} />;
+const AlertTriangle = (p: { className?: string }) => <Icon path="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" {...p} />;
+const Activity = (p: { className?: string }) => <Icon path="M22 12h-4l-3 9L9 3l-3 9H2" {...p} />;
+const RefreshCw = (p: { className?: string }) => <Icon path="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" {...p} />;
+const Eye = (p: { className?: string }) => <Icon path="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" {...p} />;
+const Search = (p: { className?: string }) => <Icon path="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" {...p} />;
+const Filter = (p: { className?: string }) => <Icon path="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" {...p} />;
+const Download = (p: { className?: string }) => <Icon path="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" {...p} />;
+const Play = (p: { className?: string }) => <Icon path="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const Pause = (p: { className?: string }) => <Icon path="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const Clock = (p: { className?: string }) => <Icon path="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const MapPin = (p: { className?: string }) => <Icon path="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z" {...p} />;
+const Globe = (p: { className?: string }) => <Icon path="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" {...p} />;
+const Server = (p: { className?: string }) => <Icon path="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" {...p} />;
+const Lock = (p: { className?: string }) => <Icon path="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" {...p} />;
+const Unlock = (p: { className?: string }) => <Icon path="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" {...p} />;
+const AlertCircle = (p: { className?: string }) => <Icon path="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const CheckCircle2 = (p: { className?: string }) => <Icon path="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const XCircle = (p: { className?: string }) => <Icon path="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
+const Zap = (p: { className?: string }) => <Icon path="M13 10V3L4 14h7v7l9-11h-7z" {...p} />;
+const Target = (p: { className?: string }) => <Icon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" {...p} />;
+const BarChart3 = (p: { className?: string }) => <Icon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" {...p} />;
+const TrendingUp = (p: { className?: string }) => <Icon path="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" {...p} />;
+const TrendingDown = (p: { className?: string }) => <Icon path="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" {...p} />;
+const Users = (p: { className?: string }) => <Icon path="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" {...p} />;
+const X = (p: { className?: string }) => <Icon path="M6 18L18 6M6 6l12 12" {...p} />;
 
 // ============================================================================
 // Types
@@ -140,28 +145,11 @@ interface DashboardData {
 }
 
 // ============================================================================
-// API Service - Using centralized securityApi with auth headers
+// API Service - All calls via centralized securityApi (SEC-005, BUG-013)
 // ============================================================================
 
-const getAuthHeaders = (): HeadersInit => {
-  const token = localStorage.getItem('access_token');
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  return headers;
-};
-
 async function fetchDashboardData(): Promise<DashboardData> {
-  const response = await fetch('/api/security/monitoring/dashboard', {
-    headers: getAuthHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to fetch dashboard data');
-  }
-  return response.json();
+  return securityApi.getMonitoringDashboard() as Promise<DashboardData>;
 }
 
 async function fetchSecurityEvents(params: {
@@ -218,13 +206,8 @@ async function fetchThreatIndicators(): Promise<ThreatIndicator[]> {
 }
 
 async function fetchHealthScore(): Promise<{ score: number; status: string; details: HealthMetric[] }> {
-  const response = await fetch('/api/security/monitoring/health-score', {
-    headers: getAuthHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to fetch health score');
-  }
-  return response.json();
+  const result = await securityApi.getHealthScore();
+  return result as { score: number; status: string; details: HealthMetric[] };
 }
 
 // ============================================================================
@@ -443,11 +426,20 @@ const EventDetailModal: React.FC<{
           )}
 
           {/* Details */}
-          {event.details && Object.keys(event.details).length > 0 && (
+          {event.details && typeof event.details === 'object' && Object.keys(event.details).length > 0 && (
             <div>
               <label className="text-sm font-medium text-gray-500">Additional Details</label>
               <pre className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg overflow-auto mt-1">
-                {JSON.stringify(event.details, null, 2)}
+                {JSON.stringify(
+                  // Whitelist primitive-valued keys only to guard against attacker-controlled nested objects (SEC-008)
+                  Object.fromEntries(
+                    Object.entries(event.details).filter(([, v]) =>
+                      v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
+                    )
+                  ),
+                  null,
+                  2
+                )}
               </pre>
             </div>
           )}
@@ -514,12 +506,14 @@ export const SecurityDashboardPage: React.FC = () => {
     loadData();
   }, [loadData]);
 
-  // Auto refresh every 30 seconds
+  // Auto refresh every 30 seconds — pause when browser tab is hidden (PERF-005)
   useEffect(() => {
     if (!autoRefresh) return;
 
     const interval = setInterval(() => {
-      loadData();
+      if (!document.hidden) {
+        loadData();
+      }
     }, 30000);
 
     return () => clearInterval(interval);

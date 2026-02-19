@@ -38,19 +38,14 @@ export class HarvestBatchHandler
   async execute(command: HarvestBatchCommand): Promise<PondBatch> {
     this.logger.log(`Harvesting batch ${command.batchId}`);
 
-    // Find the batch
+    // Find the batch with tenant isolation in WHERE clause
     const batch = await this.batchRepository.findOne({
-      where: { id: command.batchId },
+      where: { id: command.batchId, tenantId: command.tenantId },
       relations: ['pond'],
     });
 
     if (!batch) {
       throw new NotFoundException(`Batch with ID ${command.batchId} not found`);
-    }
-
-    // Verify tenant access
-    if (batch.tenantId !== command.tenantId) {
-      throw new ForbiddenException('Access denied to this batch');
     }
 
     // Check batch status
@@ -87,6 +82,16 @@ export class HarvestBatchHandler
       batch.notes = batch.notes
         ? `${batch.notes}\n\nHarvest Notes: ${command.notes}`
         : `Harvest Notes: ${command.notes}`;
+    }
+
+    // Update pond biomass - decrement by harvested weight
+    if (pond && command.harvestedWeight) {
+      pond.currentBiomass = Math.max(
+        0,
+        (Number(pond.currentBiomass) || 0) - command.harvestedWeight,
+      );
+      pond.updatedBy = command.userId;
+      await this.pondRepository.save(pond);
     }
 
     // Save changes

@@ -20,14 +20,22 @@ resources:
   - notification-service.yaml
   # Frontend services
   - shell.yaml
-  - frontend-modules.yaml
+  # ARCH-014: split from frontend-modules.yaml into per-module files
+  - dashboard.yaml
+  - farm-module.yaml
+  - process-editor.yaml
+  - admin-panel.yaml
   # Networking
   - ingress.yaml
+  # Observability — ARCH-016: ServiceMonitor resources for Prometheus Operator
+  - monitoring.yaml
 
 commonLabels:
   app.kubernetes.io/part-of: aquaculture-platform
   app.kubernetes.io/managed-by: kustomize
 
+# ARCH-013: images transformer is the single source of tag configuration.
+# Deployment manifests use image name only (no tag). Overlays override newTag.
 images:
   - name: ghcr.io/aquaculture/gateway-api
     newTag: latest

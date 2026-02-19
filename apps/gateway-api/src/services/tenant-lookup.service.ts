@@ -160,6 +160,8 @@ export class TenantLookupService {
   private readonly timeout: number;
   private readonly cache = new Map<string, { tenant: TenantMetadata; expiry: number }>();
   private readonly cacheTtl: number;
+  private readonly maxCacheSize: number;
+  private readonly internalServiceSecret: string | undefined;
 
   constructor(private readonly configService: ConfigService) {
     this.authServiceUrl = this.configService.get<string>(
@@ -168,12 +170,30 @@ export class TenantLookupService {
     );
     this.timeout = this.configService.get<number>('TENANT_LOOKUP_TIMEOUT_MS', 5000);
     this.cacheTtl = this.configService.get<number>('TENANT_CACHE_TTL_MS', 300000); // 5 minutes
+    this.maxCacheSize = this.configService.get<number>('TENANT_CACHE_MAX_SIZE', 1000);
+    this.internalServiceSecret = this.configService.get<string>('INTERNAL_SERVICE_SECRET');
+
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    if (isProduction && !this.internalServiceSecret) {
+      this.logger.error(
+        'SECURITY WARNING: INTERNAL_SERVICE_SECRET is not configured in production. ' +
+        'Internal service calls use only X-Internal-Service header which is spoofable.',
+      );
+    }
   }
 
   /**
    * Lookup tenant by ID from auth-service
+   * SECURITY: Validates tenantId format to prevent SSRF/path-injection via crafted IDs.
    */
   async lookupTenant(tenantId: string): Promise<TenantMetadata | null> {
+    // SECURITY: Validate tenantId is a valid UUID to prevent path injection
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(tenantId)) {
+      this.logger.warn(`Invalid tenant ID format rejected: ${tenantId.substring(0, 40)}`);
+      return null;
+    }
+
     // Check cache first
     const cached = this.cache.get(tenantId);
     if (cached && cached.expiry > Date.now()) {
@@ -184,14 +204,19 @@ export class TenantLookupService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Internal-Service': 'gateway-api',
+      };
+      if (this.internalServiceSecret) {
+        headers['X-Internal-Service-Secret'] = this.internalServiceSecret;
+      }
+
       const response = await fetch(
         `${this.authServiceUrl}/api/v1/internal/tenants/${tenantId}`,
         {
           method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Internal-Service': 'gateway-api',
-          },
+          headers,
           signal: controller.signal,
         },
       );
@@ -210,11 +235,12 @@ export class TenantLookupService {
       const data = (await response.json()) as TenantApiResponse;
       const tenant = this.mapToTenantMetadata(data);
 
-      // Cache the result
+      // Cache the result with size limit enforcement
       this.cache.set(tenantId, {
         tenant,
         expiry: Date.now() + this.cacheTtl,
       });
+      this.enforceCacheSizeLimit();
 
       return tenant;
     } catch (error) {
@@ -275,6 +301,31 @@ export class TenantLookupService {
       expired: TenantStatus.EXPIRED,
     };
     return statusMap[status.toLowerCase()] ?? TenantStatus.PENDING;
+  }
+
+  /**
+   * Enforce cache size limit to prevent unbounded memory growth
+   */
+  private enforceCacheSizeLimit(): void {
+    if (this.cache.size <= this.maxCacheSize) {
+      return;
+    }
+    // Remove expired entries first
+    const now = Date.now();
+    for (const [key, value] of this.cache) {
+      if (value.expiry < now) {
+        this.cache.delete(key);
+      }
+    }
+    // If still over limit, remove oldest entries
+    if (this.cache.size > this.maxCacheSize) {
+      const entries = Array.from(this.cache.entries())
+        .sort((a, b) => a[1].expiry - b[1].expiry);
+      const toRemove = entries.slice(0, entries.length - this.maxCacheSize);
+      for (const [key] of toRemove) {
+        this.cache.delete(key);
+      }
+    }
   }
 
   /**

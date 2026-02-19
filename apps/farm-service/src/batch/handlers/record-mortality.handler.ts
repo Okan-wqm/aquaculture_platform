@@ -174,17 +174,28 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       await this.equipmentRepository.save(tank);
     }
 
-    // Domain event yayınla
-    // await this.eventBus.publish(new MortalityRecordedEvent({
-    //   tenantId,
-    //   batchId,
-    //   batchNumber: batch.batchNumber,
-    //   tankId: payload.tankId,
-    //   quantity: payload.quantity,
-    //   reason: payload.reason,
-    //   newMortalityRate: batch.getMortalityRate(),
-    //   recordedBy,
-    // }));
+    // Publish domain event
+    if (this.eventBus) {
+      try {
+        await this.eventBus.publish({
+          eventId: crypto.randomUUID(),
+          eventType: 'MortalityRecorded',
+          timestamp: new Date(),
+          tenantId,
+          batchId,
+          tankId: payload.tankId,
+          quantity: payload.quantity,
+          reason: payload.reason,
+          mortalityDate: payload.observedAt,
+          newTotalMortality: batch.totalMortality,
+          newMortalityRate: batch.getMortalityRate(),
+          userId: recordedBy,
+          version: 1,
+        });
+      } catch (eventError) {
+        // Log but don't fail for event publishing errors
+      }
+    }
 
     // Return the updated batch (GraphQL expects Batch, not MortalityRecord)
     return batch;

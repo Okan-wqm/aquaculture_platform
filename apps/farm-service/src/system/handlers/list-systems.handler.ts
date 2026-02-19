@@ -77,8 +77,10 @@ export class ListSystemsHandler implements IQueryHandler<ListSystemsQuery> {
     queryBuilder.leftJoinAndSelect('system.department', 'department');
     queryBuilder.leftJoinAndSelect('system.parentSystem', 'parentSystem');
 
-    // Apply sorting
-    queryBuilder.orderBy(`system.${sortBy}`, sortOrder);
+    // Apply sorting with allowlist to prevent SQL injection
+    const validSortFields = ['name', 'code', 'type', 'status', 'createdAt', 'updatedAt'];
+    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    queryBuilder.orderBy(`system.${safeSortBy}`, sortOrder);
 
     // Apply pagination
     queryBuilder.skip((page - 1) * limit);

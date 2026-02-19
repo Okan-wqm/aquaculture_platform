@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { InternalApiKeyGuard } from './guards/internal-api-key.guard';
 import helmet from 'helmet';
 
 async function bootstrap() {
@@ -18,7 +19,7 @@ async function bootstrap() {
   app.enableCors({
     origin: process.env['CORS_ORIGINS']?.split(',') || ['http://localhost:3000'],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Id', 'X-Request-Id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Id', 'X-Request-Id', 'X-Internal-Api-Key'],
     credentials: true,
     maxAge: 3600,
   });
@@ -34,6 +35,9 @@ async function bootstrap() {
       },
     }),
   );
+
+  // Global internal API key guard for service-to-service authentication
+  app.useGlobalGuards(new InternalApiKeyGuard());
 
   // API prefix
   app.setGlobalPrefix('api/v1');

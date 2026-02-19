@@ -42,7 +42,10 @@ export class ListStorageLocationsHandler implements IQueryHandler<ListStorageLoc
       );
     }
 
-    qb.orderBy(`loc.${sortBy}`, sortOrder);
+    // Apply sorting with allowlist to prevent SQL injection
+    const validSortFields = ['name', 'code', 'type', 'createdAt', 'updatedAt'];
+    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    qb.orderBy(`loc.${safeSortBy}`, sortOrder);
     qb.skip((page - 1) * limit);
     qb.take(limit);
 

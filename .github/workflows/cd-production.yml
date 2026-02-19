@@ -1,26 +1,45 @@
 # =============================================================================
-# CD - Production (Optimized)
+# CD - Production (Kubernetes path - CURRENTLY INACTIVE)
 #
-# Features:
-# - Parallel Docker builds with matrix strategy (9 backend + 7 frontend)
-# - Registry cache (unlimited size, no 10GB GHA limit)
-# - Nx Cloud remote caching
-# - Security scanning before deployment
-# - Zero-downtime rolling deployment
-# - Automatic rollback on failure
+# ARCH-CI-002: This workflow's push/tag triggers have been disabled because
+# this project runs on a DigitalOcean droplet, not Kubernetes. Enabling both
+# this workflow and deploy-digitalocean.yml on every push caused shared
+# GHCR buildcache tags to be overwritten, corrupting build caches.
+#
+# This workflow remains for future K8s migration. Re-enable the `on:` trigger
+# block below once a Kubernetes cluster is provisioned.
+#
+# Fixes applied in this file:
+# - ARCH-CI-002: Triggers disabled (if: false guard on all jobs)
+# - ARCH-CI-002: buildcache tags namespaced with -release suffix
+# - SEC-CI-002: All third-party actions pinned to full commit SHAs
+# - SEC-CI-008: Trivy exit-code set to '1' (was non-blocking)
+# - SEC-CI-010: kubeconfig file deleted in if:always() cleanup step
+# - ARCH-CI-006: github.sha removed from NX cache key
+# - ARCH-CI-017: || true removed from migration step
 # =============================================================================
 
 name: CD - Production
 
+# ARCH-CI-002: Triggers disabled until K8s cluster is provisioned.
+# To re-enable: uncomment the on: block below and remove the if: false guards.
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to deploy (e.g., v1.0.0)'
+        description: 'Tag to deploy (e.g., v1.0.0) - INACTIVE until K8s is provisioned'
         required: true
+
+# Uncomment when K8s is provisioned:
+# on:
+#   push:
+#     tags:
+#       - 'v*'
+#   workflow_dispatch:
+#     inputs:
+#       tag:
+#         description: 'Tag to deploy (e.g., v1.0.0)'
+#         required: true
 
 env:
   REGISTRY: ghcr.io
@@ -31,11 +50,14 @@ jobs:
   # Validate Tag
   # ===========================================================================
   validate:
+    # ARCH-CI-002: Disabled until K8s is provisioned
+    if: false
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Extract tag
         id: tag
@@ -61,25 +83,30 @@ jobs:
   # ===========================================================================
   build-and-test:
     needs: validate
+    # ARCH-CI-002: Disabled until K8s is provisioned
+    if: false
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: '22'
           cache: 'npm'
 
+      # ARCH-CI-006: Removed github.sha from NX cache key
       - name: Cache Nx
-        uses: actions/cache@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .nx/cache
-          key: nx-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}-${{ github.sha }}
+          key: nx-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
-            nx-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}-
             nx-${{ runner.os }}-
 
       - name: Install dependencies
@@ -88,15 +115,18 @@ jobs:
       - name: Run all tests
         run: npx nx run-many -t lint test --all --parallel=3
         env:
-          NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
 
       - name: Build all (production)
         run: npx nx run-many -t build --all --parallel=4 --configuration=production
         env:
-          NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
         with:
           name: dist
           path: dist/
@@ -107,6 +137,8 @@ jobs:
   # ===========================================================================
   build-backend:
     needs: [validate, build-and-test]
+    # ARCH-CI-002: Disabled until K8s is provisioned
+    if: false
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -126,24 +158,29 @@ jobs:
           - notification-service
           - admin-api-service
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           name: dist
           path: dist/
 
-      - uses: docker/setup-buildx-action@v3
+      # SEC-CI-002: pinned to SHA
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
-      - uses: docker/login-action@v3
+      # SEC-CI-002: pinned to SHA
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push ${{ matrix.service }}
-        uses: docker/build-push-action@v6
+        # SEC-CI-002: pinned to SHA
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b2a4 # v6.15.0
         with:
           context: .
           file: infrastructure/docker/Dockerfile.backend.simple
@@ -152,14 +189,17 @@ jobs:
             ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ needs.validate.outputs.tag }}
             ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
           build-args: SERVICE_NAME=${{ matrix.service }}
-          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:buildcache,mode=max
+          # ARCH-CI-002: Namespaced buildcache tag to avoid collision with deploy-digitalocean.yml
+          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:buildcache-release
+          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:buildcache-release,mode=max
 
   # ===========================================================================
   # Build Frontend Images (Parallel Matrix)
   # ===========================================================================
   build-frontend:
     needs: [validate, build-and-test]
+    # ARCH-CI-002: Disabled until K8s is provisioned
+    if: false
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -191,24 +231,29 @@ jobs:
             dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
             module_path: web/modules/tenant-admin
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           name: dist
           path: dist/
 
-      - uses: docker/setup-buildx-action@v3
+      # SEC-CI-002: pinned to SHA
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
-      - uses: docker/login-action@v3
+      # SEC-CI-002: pinned to SHA
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push ${{ matrix.module }}
-        uses: docker/build-push-action@v6
+        # SEC-CI-002: pinned to SHA
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b2a4 # v6.15.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -217,26 +262,34 @@ jobs:
             ${{ env.IMAGE_PREFIX }}/${{ matrix.module }}:${{ needs.validate.outputs.tag }}
             ${{ env.IMAGE_PREFIX }}/${{ matrix.module }}:latest
           build-args: MODULE_PATH=${{ matrix.module_path }}
-          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.module }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.module }}:buildcache,mode=max
+          # ARCH-CI-002: Namespaced buildcache tag to avoid collision with deploy-digitalocean.yml
+          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.module }}:buildcache-release
+          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.module }}:buildcache-release,mode=max
 
   # ===========================================================================
   # Security Scan
   # ===========================================================================
   security-scan:
     needs: [validate, build-backend]
+    # ARCH-CI-002: Disabled until K8s is provisioned
+    if: false
     runs-on: ubuntu-latest
     steps:
+      # SEC-CI-008: exit-code '1' makes scan blocking (was non-blocking)
+      # SEC-CI-002: pinned to SHA (was @master)
       - name: Run Trivy on critical services
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@18bd52d7b82b166b39e4e73c2a93e4f0a5be01d2 # v0.20.0
         with:
           image-ref: ${{ env.IMAGE_PREFIX }}/gateway-api:${{ needs.validate.outputs.tag }}
           format: 'sarif'
           output: 'trivy-results.sarif'
+          exit-code: '1'
+          ignore-unfixed: true
           severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@v3
+        # SEC-CI-002: pinned to SHA
+        uses: github/codeql-action/upload-sarif@45775bd8235c68ba998cffa5171334d58593da47 # v3.28.1
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
@@ -246,18 +299,23 @@ jobs:
   # ===========================================================================
   deploy:
     needs: [validate, build-backend, build-frontend, security-scan]
+    # ARCH-CI-002: Disabled until K8s is provisioned
+    if: false
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup kubectl
-        uses: azure/setup-kubectl@v3
+        # SEC-CI-002: pinned to SHA (was @v3)
+        uses: azure/setup-kubectl@776a8e6b4aef30da69c3b5e05a40e4edca87e552 # v4.0.1
         with:
           version: 'v1.28.0'
 
       - name: Configure kubectl
         run: |
+          # SEC-CI-010: Write kubeconfig to file; will be cleaned up in cleanup step below
           echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > kubeconfig
           export KUBECONFIG=$PWD/kubeconfig
 
@@ -289,17 +347,24 @@ jobs:
           # Wait for rollouts
           kubectl rollout status deployment -n aquaculture-prod --timeout=10m
 
+      # ARCH-CI-017: Removed || true so migration failures block the deploy
       - name: Run database migrations
         run: |
           export KUBECONFIG=$PWD/kubeconfig
-          # Run migrations via gateway-api pod
-          kubectl exec -n aquaculture-prod deployment/gateway-api -- npx typeorm migration:run -d dist/data-source.js || true
+          kubectl exec -n aquaculture-prod deployment/gateway-api -- npx typeorm migration:run -d dist/data-source.js
+
+      # SEC-CI-010: Always clean up kubeconfig file from disk
+      - name: Cleanup kubeconfig
+        if: always()
+        run: rm -f kubeconfig
 
   # ===========================================================================
   # Post-Deploy Verification
   # ===========================================================================
   verify:
     needs: [validate, deploy]
+    # ARCH-CI-002: Disabled until K8s is provisioned
+    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Health check
@@ -311,41 +376,36 @@ jobs:
           curl -sf https://app.aquaculture-platform.com/health || echo "Health endpoint not available"
 
       - name: Create GitHub Release
-        uses: actions/create-release@v1
+        # SEC-CI-002: pinned to SHA (was deprecated actions/create-release@v1)
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ needs.validate.outputs.tag }}
-          release_name: Release ${{ needs.validate.outputs.tag }}
+          name: Release ${{ needs.validate.outputs.tag }}
           body: |
             ## Production Deployment
 
             **Version:** ${{ needs.validate.outputs.tag }}
-            **Deployed:** ${{ github.event.head_commit.timestamp }}
             **Commit:** ${{ github.sha }}
 
             ### Services Updated
             - All 9 backend microservices
             - All 7 frontend modules
 
-            ### Build Optimizations Used
-            - Parallel matrix builds (4 concurrent)
-            - Registry cache (unlimited)
-            - Nx Cloud remote caching
-          draft: false
-          prerelease: false
-
   # ===========================================================================
   # Notifications
   # ===========================================================================
   notify:
     needs: [validate, verify]
-    if: always()
+    # ARCH-CI-002: Disabled until K8s is provisioned
+    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack
         continue-on-error: true
-        uses: 8398a7/action-slack@v3
+        # SEC-CI-002: pinned to SHA (was @v3)
+        uses: 8398a7/action-slack@1eb2f4ead5f2a36c3119f7bd2b99f7c15bfee1ee # v3.18.0
         with:
           status: ${{ needs.verify.result }}
           channel: '#deployments'

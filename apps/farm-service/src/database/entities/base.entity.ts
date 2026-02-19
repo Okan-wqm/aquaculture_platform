@@ -15,42 +15,40 @@ import {
   UpdateDateColumn,
   VersionColumn,
   Index,
-  BeforeInsert,
-  BeforeUpdate,
 } from 'typeorm';
 
 export abstract class BaseEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column('uuid')
+  @Column('uuid', { name: 'tenant_id' })
   @Index()
   tenantId: string;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
   updatedAt: Date;
 
-  @Column('uuid', { nullable: true })
+  @Column('uuid', { nullable: true, name: 'created_by' })
   createdBy?: string;
 
-  @Column('uuid', { nullable: true })
+  @Column('uuid', { nullable: true, name: 'updated_by' })
   updatedBy?: string;
 
-  @VersionColumn()
+  @VersionColumn({ name: 'version' })
   version: number;
 
   // Soft delete fields
-  @Column({ default: false })
+  @Column({ default: false, name: 'is_deleted' })
   @Index()
   isDeleted: boolean;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true, name: 'deleted_at' })
   deletedAt?: Date;
 
-  @Column('uuid', { nullable: true })
+  @Column('uuid', { nullable: true, name: 'deleted_by' })
   deletedBy?: string;
 
   /**
@@ -77,16 +75,16 @@ export abstract class BaseEntity {
  * Site, Department, Equipment, Tank, Pond, Batch vb.
  */
 export abstract class BaseEntityWithCode extends BaseEntity {
-  @Column({ length: 255 })
+  @Column({ length: 255, name: 'name' })
   name: string;
 
-  @Column({ length: 50 })
+  @Column({ length: 50, name: 'code' })
   code: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'description' })
   description?: string;
 
-  @Column({ default: true })
+  @Column({ default: true, name: 'is_active' })
   @Index()
   isActive: boolean;
 }

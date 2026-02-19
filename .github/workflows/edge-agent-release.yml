@@ -1,5 +1,8 @@
 name: Edge Agent Release
 
+# ARCH-CI-016: cross binary now cached in ~/.cargo/bin to avoid recompiling on every run
+# SEC-CI-022: Release artifacts signed with cosign (sigstore) for edge device provenance verification
+
 on:
   push:
     tags:
@@ -53,6 +56,8 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
+      # ARCH-CI-016: Added ~/.cargo/bin/cross to cache path so cross binary is not
+      # recompiled on every release run (saves 2-5 minutes per matrix job)
       - name: Cache Cargo dependencies
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
@@ -60,13 +65,21 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ~/.cargo/bin/cross
             sens-api-gateway/target/
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('sens-api-gateway/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-cross0.2.5-${{ hashFiles('sens-api-gateway/Cargo.lock') }}
           restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-cross0.2.5-
             ${{ runner.os }}-cargo-${{ matrix.target }}-
 
-      - name: Install cross
-        run: cargo install cross --version 0.2.5 --locked
+      - name: Install cross (if not cached)
+        run: |
+          if [ ! -f "$HOME/.cargo/bin/cross" ]; then
+            echo "cross binary not cached, compiling..."
+            cargo install cross --version 0.2.5 --locked
+          else
+            echo "cross binary found in cache, skipping install"
+          fi
 
       - name: Audit dependencies
         working-directory: sens-api-gateway
@@ -117,6 +130,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      # SEC-CI-022: id-token required for keyless cosign signing via sigstore OIDC
+      id-token: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
@@ -135,6 +150,25 @@ jobs:
           else
             echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
+
+      # SEC-CI-022: Install cosign for artifact signing
+      - name: Install cosign
+        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
+
+      # SEC-CI-022: Sign all release tarballs with cosign keyless signing (OIDC-backed)
+      # This creates .sig and .pem files alongside each artifact so edge devices can
+      # verify binary provenance: cosign verify-blob --certificate-identity ...
+      - name: Sign release artifacts with cosign
+        run: |
+          for tarball in artifacts/*.tar.gz; do
+            echo "Signing ${tarball}..."
+            cosign sign-blob \
+              --yes \
+              --output-certificate "${tarball}.pem" \
+              --output-signature "${tarball}.sig" \
+              "${tarball}"
+            echo "Signed: ${tarball}"
+          done
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.1
@@ -165,6 +199,17 @@ jobs:
             sha256sum -c suderra-agent-armv7-linux.tar.gz.sha256
             ```
 
+            ### Verify signatures (cosign keyless / sigstore)
+
+            ```bash
+            cosign verify-blob \
+              --certificate suderra-agent-x86_64-linux.tar.gz.pem \
+              --signature suderra-agent-x86_64-linux.tar.gz.sig \
+              --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/edge-agent-release.yml@${{ github.ref }}" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              suderra-agent-x86_64-linux.tar.gz
+            ```
+
             ### Install
 
             ```bash
@@ -175,3 +220,5 @@ jobs:
           files: |
             artifacts/*.tar.gz
             artifacts/*.sha256
+            artifacts/*.sig
+            artifacts/*.pem

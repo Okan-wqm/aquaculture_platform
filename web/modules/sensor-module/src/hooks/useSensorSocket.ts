@@ -8,9 +8,13 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { create } from 'zustand';
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 
-// WebSocket server URL - uses same host as API
-const WS_URL = 'http://localhost:3000/sensors';
+// WebSocket server URL — BUG-021 / SEC-003: use runtime/env config, not hardcoded localhost
+const WS_URL =
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_WS_URL) ||
+  (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__?.WS_URL) ||
+  'http://localhost:3000/sensors';
 
 export interface SensorReading {
   sensorId: string;
@@ -83,7 +87,7 @@ const MAX_RECONNECT_ATTEMPTS = 10;
  * Initialize WebSocket connection
  */
 function initializeSocket(): Socket | null {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
 
   if (!token) {
     return null;
@@ -92,8 +96,6 @@ function initializeSocket(): Socket | null {
   if (socketInstance && socketInstance.connected) {
     return socketInstance;
   }
-
-  console.log('[SensorSocket] Initializing WebSocket connection');
 
   socketInstance = io(WS_URL, {
     auth: { token },
@@ -105,13 +107,11 @@ function initializeSocket(): Socket | null {
   });
 
   socketInstance.on('connect', () => {
-    console.log('[SensorSocket] Connected');
     connectionAttempts = 0;
     useSensorStore.getState().setConnected(true);
   });
 
-  socketInstance.on('disconnect', (reason) => {
-    console.log('[SensorSocket] Disconnected:', reason);
+  socketInstance.on('disconnect', (_reason) => {
     useSensorStore.getState().setConnected(false);
   });
 
@@ -125,7 +125,6 @@ function initializeSocket(): Socket | null {
   });
 
   socketInstance.on('sensorReading', (reading: SensorReading) => {
-    console.debug('[SensorSocket] Received reading:', reading.sensorId);
     useSensorStore.getState().updateReading(reading);
   });
 
@@ -156,11 +155,7 @@ function subscribeToSensors(sensorIds: string[]): void {
     return;
   }
 
-  socket.emit('subscribe', { sensorIds }, (response: { success: boolean; subscribedTo: string[] }) => {
-    if (response.success) {
-      console.log('[SensorSocket] Subscribed to sensors:', response.subscribedTo);
-    }
-  });
+  socket.emit('subscribe', { sensorIds });
 }
 
 /**

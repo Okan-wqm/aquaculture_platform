@@ -13,6 +13,7 @@ import {
   ForbiddenException,
   Logger,
   SetMetadata,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
@@ -134,21 +135,51 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
  * Enforces permission-based access control
  */
 @Injectable()
-export class PermissionGuard implements CanActivate {
+export class PermissionGuard implements CanActivate, OnModuleDestroy {
   private readonly logger = new Logger(PermissionGuard.name);
   private readonly permissionCache = new Map<
     string,
     { permissions: string[]; expiry: number }
   >();
   private readonly cacheTtl: number;
+  private readonly maxCacheSize: number;
   private readonly enableAuditLog: boolean;
+  private readonly cleanupInterval: NodeJS.Timeout;
 
   constructor(
     private readonly reflector: Reflector,
     private readonly configService: ConfigService,
   ) {
     this.cacheTtl = this.configService.get<number>('PERMISSION_CACHE_TTL', 300000);
+    this.maxCacheSize = this.configService.get<number>('PERMISSION_CACHE_MAX_SIZE', 10000);
     this.enableAuditLog = this.configService.get<boolean>('PERMISSION_AUDIT_LOG', true);
+
+    this.cleanupInterval = setInterval(() => this.cleanupExpiredEntries(), this.cacheTtl);
+  }
+
+  onModuleDestroy(): void {
+    clearInterval(this.cleanupInterval);
+  }
+
+  private cleanupExpiredEntries(): void {
+    const now = Date.now();
+    for (const [key, value] of this.permissionCache) {
+      if (value.expiry < now) {
+        this.permissionCache.delete(key);
+      }
+    }
+  }
+
+  private enforceCacheSizeLimit(): void {
+    if (this.permissionCache.size <= this.maxCacheSize) {
+      return;
+    }
+    const entries = Array.from(this.permissionCache.entries())
+      .sort((a, b) => a[1].expiry - b[1].expiry);
+    const toRemove = entries.slice(0, entries.length - this.maxCacheSize);
+    for (const [key] of toRemove) {
+      this.permissionCache.delete(key);
+    }
   }
 
   canActivate(context: ExecutionContext): boolean {
@@ -301,11 +332,12 @@ export class PermissionGuard implements CanActivate {
 
     const effectivePermissions = Array.from(permissions);
 
-    // Cache the result
+    // Cache the result with size limit enforcement
     this.permissionCache.set(cacheKey, {
       permissions: effectivePermissions,
       expiry: Date.now() + this.cacheTtl,
     });
+    this.enforceCacheSizeLimit();
 
     return effectivePermissions;
   }

@@ -84,16 +84,18 @@ export class TenantActivityService {
       });
     }
 
-    const total = await query.getCount();
-
-    if (options?.offset) {
+    // MEDIUM-006 fix: getManyAndCount() issues a single SQL round-trip.
+    // TypeORM's count sub-query ignores skip/take so `total` always reflects
+    // all matching records, preserving the BUG-003 correctness requirement.
+    // Use !== undefined so offset=0 is applied correctly (truthy check would skip it).
+    if (options?.offset !== undefined) {
       query.skip(options.offset);
     }
-    if (options?.limit) {
+    if (options?.limit !== undefined) {
       query.take(options.limit);
     }
 
-    const data = await query.getMany();
+    const [data, total] = await query.getManyAndCount();
     return { data, total };
   }
 
@@ -147,7 +149,18 @@ export class TenantActivityService {
   async updateNote(
     noteId: string,
     updates: { content?: string; isPinned?: boolean; category?: string },
+    tenantId?: string,
   ): Promise<TenantNote> {
+    // HIGH-004 fix: verify tenant ownership if tenantId is provided
+    if (tenantId) {
+      const existing = await this.noteRepository.findOne({ where: { id: noteId } });
+      if (!existing) {
+        throw new Error(`Note not found: ${noteId}`);
+      }
+      if (existing.tenantId !== tenantId) {
+        throw new Error('Note does not belong to the specified tenant');
+      }
+    }
     await this.noteRepository.update(noteId, updates);
     const note = await this.noteRepository.findOneOrFail({
       where: { id: noteId },
@@ -155,7 +168,17 @@ export class TenantActivityService {
     return note;
   }
 
-  async deleteNote(noteId: string): Promise<void> {
+  async deleteNote(noteId: string, tenantId?: string): Promise<void> {
+    // HIGH-004 fix: verify tenant ownership if tenantId is provided
+    if (tenantId) {
+      const existing = await this.noteRepository.findOne({ where: { id: noteId } });
+      if (!existing) {
+        throw new Error(`Note not found: ${noteId}`);
+      }
+      if (existing.tenantId !== tenantId) {
+        throw new Error('Note does not belong to the specified tenant');
+      }
+    }
     await this.noteRepository.delete(noteId);
   }
 
@@ -186,6 +209,7 @@ export class TenantActivityService {
   // Helper Methods for Common Activities
   // ============================================================================
 
+  // BUG-032 fix: use English for activity log titles (audit/compliance data)
   async logTenantCreated(
     tenantId: string,
     tenantName: string,
@@ -194,8 +218,8 @@ export class TenantActivityService {
     await this.logActivity({
       tenantId,
       activityType: ActivityType.CREATED,
-      title: 'Tenant olusturuldu',
-      description: `${tenantName} tenant'i olusturuldu`,
+      title: 'Tenant created',
+      description: `Tenant "${tenantName}" was created`,
       performedBy,
     });
   }
@@ -209,8 +233,8 @@ export class TenantActivityService {
     await this.logActivity({
       tenantId,
       activityType: ActivityType.PLAN_CHANGED,
-      title: 'Plan degistirildi',
-      description: `Plan ${previousPlan} -> ${newPlan} olarak guncellendi`,
+      title: 'Plan changed',
+      description: `Plan changed from ${previousPlan} to ${newPlan}`,
       previousValue: { plan: previousPlan },
       newValue: { plan: newPlan },
       performedBy,
@@ -225,8 +249,8 @@ export class TenantActivityService {
     await this.logActivity({
       tenantId,
       activityType: ActivityType.MODULE_ASSIGNED,
-      title: 'Modul atandi',
-      description: `${moduleName} modulu atandi`,
+      title: 'Module assigned',
+      description: `Module "${moduleName}" was assigned`,
       metadata: { moduleName },
       performedBy,
     });
@@ -240,8 +264,8 @@ export class TenantActivityService {
     await this.logActivity({
       tenantId,
       activityType: ActivityType.MODULE_REMOVED,
-      title: 'Modul kaldirildi',
-      description: `${moduleName} modulu kaldirildi`,
+      title: 'Module removed',
+      description: `Module "${moduleName}" was removed`,
       metadata: { moduleName },
       performedBy,
     });
@@ -263,8 +287,8 @@ export class TenantActivityService {
     await this.logActivity({
       tenantId,
       activityType: activityTypeMap[newStatus] || ActivityType.SETTINGS_UPDATED,
-      title: `Durum degistirildi: ${newStatus}`,
-      description: reason || `Durum ${previousStatus} -> ${newStatus}`,
+      title: `Status changed: ${newStatus}`,
+      description: reason || `Status changed from ${previousStatus} to ${newStatus}`,
       previousValue: { status: previousStatus },
       newValue: { status: newStatus },
       performedBy,

@@ -19,8 +19,8 @@ export enum InvoiceStatus {
   REFUNDED = 'refunded',
 }
 
-// Read from public schema (shared database) - read-only reference
-@Entity('invoices', { schema: 'public', synchronize: false })
+// C-6 fix: billing-service stores invoices in the 'billing' schema, not 'public'
+@Entity('invoices', { schema: 'billing', synchronize: false })
 export class InvoiceReadOnly {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

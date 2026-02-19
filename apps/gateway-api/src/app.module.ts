@@ -36,14 +36,19 @@ import { HealthModule } from './health/health.module';
 import { RequestLoggingInterceptor } from './interceptors/request-logging.interceptor';
 import { UploadModule } from './upload/upload.module';
 import { WebSocketModule } from './websocket/websocket.module';
+import { createAliasLimitPlugin } from './plugins/graphql-alias-limit.plugin';
 
 // JwtPayload is imported from auth.guard.ts for consistency
+
+// Module-level logger to avoid re-instantiation per GraphQL operation
+const queryComplexityLogger = new Logger('QueryComplexity');
 
 /**
  * Request headers structure
  */
 interface RequestHeaders {
   authorization?: string;
+  cookie?: string;
   'x-tenant-id'?: string;
   'x-correlation-id'?: string;
   [key: string]: string | undefined;
@@ -55,6 +60,7 @@ interface RequestHeaders {
 interface RequestWithUser {
   headers: RequestHeaders;
   user?: JwtPayload;
+  cookies?: Record<string, string>;
 }
 
 /**
@@ -62,6 +68,7 @@ interface RequestWithUser {
  */
 interface GatewayContext {
   req: RequestWithUser;
+  res: import('express').Response;
 }
 
 /**
@@ -104,6 +111,12 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
     const authorization = req.headers.authorization;
     if (authorization) {
       httpRequest.headers.set('authorization', authorization);
+    }
+
+    // SECURITY: Forward cookies to subgraphs (needed for httpOnly refresh token)
+    const cookie = req.headers.cookie;
+    if (cookie) {
+      httpRequest.headers.set('cookie', cookie);
     }
 
     // Forward tenant ID - prefer JWT tenantId, fallback to header
@@ -198,10 +211,10 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
             );
           }
 
-          console.warn(
-            '\\n⚠️  WARNING: Using DEV_JWT_SECRET for development only.\\n' +
-            '   This is NOT secure for production use.\\n' +
-            '   Set JWT_SECRET environment variable for production.\\n',
+          const jwtLogger = new Logger('JwtModule');
+          jwtLogger.warn(
+            'Using DEV_JWT_SECRET for development only. ' +
+            'This is NOT secure for production use. Set JWT_SECRET environment variable for production.',
           );
           return {
             secret: devSecret,
@@ -264,22 +277,31 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
                 name: 'hydroponics',
                 url: configService.get('HYDROPONICS_SERVICE_URL', 'http://localhost:4007/graphql'),
               },
+              {
+                name: 'config',
+                url: configService.get('CONFIG_SERVICE_URL', 'http://localhost:3007/graphql'),
+              },
               // NOTE: notification-service doesn't expose GraphQL - it's event-driven only
               // {
               //   name: 'notification',
               //   url: configService.get('NOTIFICATION_SERVICE_URL', 'http://localhost:3007/graphql'),
               // },
             ],
-            pollIntervalInMs: 30000, // Poll for schema changes every 30 seconds
+            pollIntervalInMs: 300000, // Poll for schema changes every 5 minutes
           }),
           buildService({ url }) {
             return new AuthenticatedDataSource({ url });
           },
         },
         server: {
+          // SECURITY: Disable batched HTTP requests to prevent rate-limit bypass
+          // A single HTTP request with many batched operations would count as 1 request
+          allowBatchedHttpRequests: false,
           playground: configService.get('NODE_ENV') !== 'production',
           // SECURITY: Disable introspection in production to prevent schema discovery attacks
-          introspection: configService.get('NODE_ENV') !== 'production',
+          // Explicit env var allows overriding independently of NODE_ENV
+          introspection: configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true' ||
+            configService.get('NODE_ENV') !== 'production',
           // SECURITY: Hide stack traces in production error responses (C-4)
           includeStacktraceInErrorResponses: configService.get('NODE_ENV') !== 'production',
           // SECURITY: Strip internal details from error responses in production
@@ -296,10 +318,13 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
           validationRules: [depthLimit(10)],
           // SECURITY: Query complexity limiting to prevent expensive query DoS attacks
           plugins: [
+            // SECURITY: Alias brute-force protection (H-2)
+            createAliasLimitPlugin(),
             {
+              // Hoist Logger out of per-request closure to avoid re-instantiation per operation
               requestDidStart: async () => ({
                 async didResolveOperation({ request, document, schema }) {
-                  const logger = new Logger('QueryComplexity');
+                  const logger = queryComplexityLogger;
                   const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
 
                   try {
@@ -338,33 +363,64 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
               }),
             },
           ],
-          context: ({ req }: { req: RequestWithUser }): GatewayContext => {
+          context: ({ req, res }: { req: RequestWithUser; res: import('express').Response }): GatewayContext => {
             // SECURITY: req.user is set by JwtMiddleware which runs before context creation.
             // JwtMiddleware verifies the JWT signature and decodes the payload.
             // This ensures req.user is available when willSendRequest forwards headers.
             //
             // AuthGuard still runs as an additional validation layer and handles
             // token blacklist checks, but JwtMiddleware ensures headers are forwarded.
+            //
+            // res is passed through so auth-service can set httpOnly cookies via the gateway.
 
-            return { req };
+            return { req, res };
           },
         },
       }),
     }),
 
     // MinIO Storage Module for file uploads
+    // SECURITY: No default credentials - must be explicitly configured
     StorageModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        endpoint: configService.get('MINIO_ENDPOINT', 'localhost'),
-        port: parseInt(configService.get('MINIO_PORT', '9000'), 10),
-        useSSL: configService.get('MINIO_USE_SSL', 'false') === 'true',
-        accessKey: configService.get('MINIO_ACCESS_KEY', 'minioadmin'),
-        secretKey: configService.get('MINIO_SECRET_KEY', 'minioadmin'),
-        bucket: configService.get('MINIO_BUCKET', 'aquaculture'),
-        region: configService.get('MINIO_REGION', 'us-east-1'),
-      }),
+      useFactory: (configService: ConfigService) => {
+        const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+        const isProduction = nodeEnv === 'production';
+        const accessKey = configService.get<string>('MINIO_ACCESS_KEY', '');
+        const secretKey = configService.get<string>('MINIO_SECRET_KEY', '');
+
+        // SECURITY: Fail fast in production if MinIO credentials are not configured
+        // Prevents silent fallback to well-known default credentials
+        if (isProduction && (!accessKey || !secretKey)) {
+          throw new Error(
+            'CRITICAL: MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be explicitly configured in production. ' +
+            'Application startup aborted to prevent use of default credentials.',
+          );
+        }
+
+        // In development, use defaults only if not explicitly set
+        const resolvedAccessKey = accessKey || 'minioadmin';
+        const resolvedSecretKey = secretKey || 'minioadmin';
+
+        if (!accessKey || !secretKey) {
+          const minioLogger = new Logger('StorageModule');
+          minioLogger.warn(
+            'Using default MinIO credentials for development. ' +
+            'Set MINIO_ACCESS_KEY and MINIO_SECRET_KEY for production.',
+          );
+        }
+
+        return {
+          endpoint: configService.get('MINIO_ENDPOINT', 'localhost'),
+          port: parseInt(configService.get('MINIO_PORT', '9000'), 10),
+          useSSL: configService.get('MINIO_USE_SSL', 'false') === 'true',
+          accessKey: resolvedAccessKey,
+          secretKey: resolvedSecretKey,
+          bucket: configService.get('MINIO_BUCKET', 'aquaculture'),
+          region: configService.get('MINIO_REGION', 'us-east-1'),
+        };
+      },
     }),
 
     // Health check module

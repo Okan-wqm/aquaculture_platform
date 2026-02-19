@@ -8,11 +8,13 @@
  * - Arrow keys: Navigate between cells (handled by parent grid)
  */
 
-import React, { useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Coffee, Calendar, GraduationCap, Umbrella } from 'lucide-react';
 import { cn } from '@aquaculture/shared-ui';
 import type { WeeklyPlanEntry, WeeklyPlanEntryType } from '../../types/scheduling.types';
 import { useOptionalSchedulingKeyboard } from './SchedulingKeyboardContext';
+// SEC-006: sanitize API-sourced color codes before interpolation into inline styles
+import { sanitizeColor } from '../leave/LeaveBalanceWidget';
 
 interface ShiftCellProps {
   entry?: WeeklyPlanEntry;
@@ -48,20 +50,24 @@ export function ShiftCell({
 }: ShiftCellProps) {
   const keyboardCtx = useOptionalSchedulingKeyboard();
 
+  // BUG-012: use React state instead of classList mutations to track drag-over
+  // so we stay inside the React virtual DOM reconciliation cycle.
+  const [isDragOver, setIsDragOver] = useState(false);
+
   const handleDragOver = (e: React.DragEvent) => {
     if (isEditable) {
       e.preventDefault();
-      e.currentTarget.classList.add('ring-2', 'ring-indigo-400');
+      setIsDragOver(true);
     }
   };
 
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.currentTarget.classList.remove('ring-2', 'ring-indigo-400');
+  const handleDragLeave = () => {
+    setIsDragOver(false);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    e.currentTarget.classList.remove('ring-2', 'ring-indigo-400');
+    setIsDragOver(false);
 
     if (!isEditable || !onDrop) return;
 
@@ -155,7 +161,8 @@ export function ShiftCell({
           isEditable && 'cursor-pointer hover:bg-gray-50',
           isEditable && 'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
           isSelected && 'ring-2 ring-indigo-500',
-          hasKeyboardSelection && 'border-indigo-300 bg-indigo-50/30'
+          hasKeyboardSelection && 'border-indigo-300 bg-indigo-50/30',
+          isDragOver && 'ring-2 ring-indigo-400'
         )}
         onClick={onSelect}
         onDragOver={handleDragOver}
@@ -181,7 +188,8 @@ export function ShiftCell({
           isEditable && 'cursor-pointer hover:opacity-80',
           isEditable && 'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
           isSelected && 'ring-2 ring-indigo-500',
-          hasKeyboardSelection && 'ring-1 ring-indigo-300'
+          hasKeyboardSelection && 'ring-1 ring-indigo-300',
+          isDragOver && 'ring-2 ring-indigo-400'
         )}
         onClick={onSelect}
         onDragOver={handleDragOver}
@@ -207,7 +215,8 @@ export function ShiftCell({
           isEditable && 'cursor-pointer hover:opacity-80',
           isEditable && 'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
           isSelected && 'ring-2 ring-indigo-500',
-          hasKeyboardSelection && 'ring-1 ring-indigo-300'
+          hasKeyboardSelection && 'ring-1 ring-indigo-300',
+          isDragOver && 'ring-2 ring-indigo-400'
         )}
         onClick={onSelect}
         onDragOver={handleDragOver}
@@ -223,8 +232,9 @@ export function ShiftCell({
   }
 
   // Work day with shift
+  // SEC-006: sanitize colorCode from the API before using in inline style
   const shift = entry.shift;
-  const shiftColor = shift?.colorCode || '#3B82F6';
+  const shiftColor = sanitizeColor(shift?.colorCode, '#3B82F6');
 
   return (
     <div
@@ -234,7 +244,8 @@ export function ShiftCell({
         isEditable && 'cursor-pointer hover:opacity-80',
         isEditable && 'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
         isSelected && 'ring-2 ring-indigo-500',
-        hasKeyboardSelection && 'ring-1 ring-indigo-300'
+        hasKeyboardSelection && 'ring-1 ring-indigo-300',
+        isDragOver && 'ring-2 ring-indigo-400'
       )}
       style={{ backgroundColor: `${shiftColor}20` }}
       onClick={onSelect}

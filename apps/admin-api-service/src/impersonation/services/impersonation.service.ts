@@ -169,7 +169,8 @@ export class ImpersonationService {
         maxConcurrentSessions: data.maxConcurrentSessions || 3,
         requireReason: data.requireReason ?? true,
         requireTicketReference: data.requireTicketReference ?? false,
-        notifyTenantAdmin: data.notifyTenantAdmin ?? true,
+        // LOW-003 fix: default to false since notification is not yet implemented
+        notifyTenantAdmin: data.notifyTenantAdmin ?? false,
         grantedAt: new Date(),
       });
     }
@@ -367,7 +368,9 @@ export class ImpersonationService {
 
     // Generate secure tokens
     const originalSessionToken = this.generateSecureToken();
-    const impersonationToken = this.generateSecureToken();
+    const rawImpersonationToken = this.generateSecureToken();
+    // C-5 fix: store SHA-256 hash of impersonation token, not plaintext
+    const impersonationToken = this.hashToken(rawImpersonationToken);
 
     // Merge permissions
     const defaultPerms: ImpersonationPermissions = {
@@ -430,7 +433,10 @@ export class ImpersonationService {
       `Started impersonation: ${request.superAdminEmail} -> ${request.targetTenantName || request.targetTenantId}`,
     );
 
-    return saved;
+    // C-5 fix: Return raw token to caller (only time it's available in plaintext).
+    // The DB stores the hash. Override the hashed value on the returned object only.
+    const result = { ...saved, impersonationToken: rawImpersonationToken };
+    return result as ImpersonationSession;
   }
 
   async endImpersonation(
@@ -496,9 +502,10 @@ export class ImpersonationService {
   // ============================================================================
 
   async validateSession(token: string): Promise<ImpersonationContext | null> {
-    // Find session by token
+    // C-5 fix: compare by hash since we store SHA-256(token) in DB
+    const tokenHash = this.hashToken(token);
     const session = await this.sessionRepo.findOne({
-      where: { impersonationToken: token, status: ImpersonationStatus.ACTIVE },
+      where: { impersonationToken: tokenHash, status: ImpersonationStatus.ACTIVE },
     });
 
     if (!session) {
@@ -534,8 +541,10 @@ export class ImpersonationService {
   }
 
   async getSessionByToken(token: string): Promise<ImpersonationSession | null> {
+    // C-5 fix: compare by hash
+    const tokenHash = this.hashToken(token);
     return this.sessionRepo.findOne({
-      where: { impersonationToken: token },
+      where: { impersonationToken: tokenHash },
     });
   }
 
@@ -783,6 +792,11 @@ export class ImpersonationService {
     return crypto.randomBytes(32).toString('hex');
   }
 
+  /** C-5 fix: Hash a token with SHA-256 for secure storage */
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
   private async notifyTenantAdmin(session: ImpersonationSession): Promise<void> {
     // In production, this would send email/notification to tenant admin
     this.logger.log(
@@ -795,10 +809,23 @@ export class ImpersonationService {
   // ============================================================================
 
   getActiveSessions(): ImpersonationSession[] {
-    return Array.from(this.activeSessions.values());
+    // LOW-005 fix: filter out sessions that have expired in-memory before returning,
+    // so callers are not misled by stale session entries after restart or clock drift.
+    const now = new Date();
+    const active: ImpersonationSession[] = [];
+    for (const [sessionId, session] of this.activeSessions.entries()) {
+      if (new Date(session.expiresAt) <= now) {
+        // Evict expired sessions from cache on access to prevent stale reads
+        this.activeSessions.delete(sessionId);
+      } else {
+        active.push(session);
+      }
+    }
+    return active;
   }
 
   getActiveSessionCount(): number {
-    return this.activeSessions.size;
+    // LOW-005 fix: return accurate count by evicting expired sessions first
+    return this.getActiveSessions().length;
   }
 }

@@ -1,4 +1,4 @@
-import { BaseEvent } from './base-event';
+import { BaseEvent, PlanTier } from './base-event';
 
 /**
  * Subscription Created Event
@@ -6,8 +6,9 @@ import { BaseEvent } from './base-event';
 export interface SubscriptionCreatedEvent extends BaseEvent {
   eventType: 'SubscriptionCreated';
   subscriptionId: string;
-  tier: 'basic' | 'pro' | 'enterprise';
+  tier: PlanTier;
   monthlyPrice: number;
+  currency: string;
   startDate: Date;
   features: Record<string, unknown>;
 }
@@ -18,7 +19,11 @@ export interface SubscriptionCreatedEvent extends BaseEvent {
 export interface SubscriptionUpdatedEvent extends BaseEvent {
   eventType: 'SubscriptionUpdated';
   subscriptionId: string;
-  changes: Record<string, unknown>;
+  tier?: PlanTier;
+  monthlyPrice?: number;
+  currency?: string;
+  startDate?: Date;
+  features?: Record<string, unknown>;
 }
 
 /**
@@ -33,6 +38,18 @@ export interface SubscriptionCancelledEvent extends BaseEvent {
 }
 
 /**
+ * Subscription Provisioning Failed Event
+ * Published when the billing service fails to create a subscription
+ * from a TenantSubscriptionRequested event.
+ */
+export interface SubscriptionProvisioningFailedEvent extends BaseEvent {
+  eventType: 'SubscriptionProvisioningFailed';
+  error: string;
+  tier?: PlanTier;
+  moduleIds?: string[];
+}
+
+/**
  * Invoice Generated Event
  */
 export interface InvoiceGeneratedEvent extends BaseEvent {
@@ -43,6 +60,7 @@ export interface InvoiceGeneratedEvent extends BaseEvent {
   subtotal: number;
   tax: number;
   total: number;
+  currency: string;
   dueDate: Date;
   billingPeriodStart: Date;
   billingPeriodEnd: Date;
@@ -56,6 +74,7 @@ export interface PaymentReceivedEvent extends BaseEvent {
   paymentId: string;
   invoiceId: string;
   amount: number;
+  currency: string;
   paymentMethod: string;
   transactionId?: string;
   paidAt: Date;
@@ -69,6 +88,7 @@ export interface PaymentFailedEvent extends BaseEvent {
   paymentId: string;
   invoiceId: string;
   amount: number;
+  currency: string;
   paymentMethod: string;
   failureReason: string;
   retryCount: number;
@@ -83,6 +103,22 @@ export interface InvoiceOverdueEvent extends BaseEvent {
   invoiceId: string;
   invoiceNumber: string;
   amount: number;
+  currency: string;
   dueDate: Date;
   daysOverdue: number;
 }
+
+// ==================== Type Union ====================
+
+/**
+ * Union type for all billing events
+ */
+export type BillingEvent =
+  | SubscriptionCreatedEvent
+  | SubscriptionUpdatedEvent
+  | SubscriptionCancelledEvent
+  | SubscriptionProvisioningFailedEvent
+  | InvoiceGeneratedEvent
+  | PaymentReceivedEvent
+  | PaymentFailedEvent
+  | InvoiceOverdueEvent;

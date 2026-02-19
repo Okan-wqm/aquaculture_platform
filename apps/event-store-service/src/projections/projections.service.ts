@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import {
   ProjectionCheckpoint,
@@ -9,14 +9,31 @@ import {
 import { StoredEvent } from '../event-store/entities/stored-event.entity';
 import { EventHandler, RetryPolicy } from '../event-store/interfaces/event-store.interfaces';
 
+const MAX_ERROR_LENGTH = 500;
+const EMA_ALPHA = 0.1;
+
+/**
+ * Number of idle batches (no events returned) between full checkpoint DB re-reads.
+ * During idle periods the status check polls the DB every N skipped batches to
+ * detect external pauses/stops without issuing a query on every 100 ms tick.
+ */
+const IDLE_STATUS_RECHECK_BATCHES = 10;
+
 interface ProjectionRegistration {
   name: string;
   handler: EventHandler;
   eventTypes?: string[];
   aggregateTypes?: string[];
-  tenantId?: string;
+  tenantId: string;
   batchSize: number;
   retryPolicy: RetryPolicy;
+  /**
+   * Cached checkpoint entity.  Avoids a DB read on every processBatch call.
+   * Populated on first batch; invalidated on reset/stop/pause.
+   */
+  cachedCheckpoint?: ProjectionCheckpoint;
+  /** Counts consecutive idle batches since the last DB status re-read. */
+  idleBatchCount: number;
 }
 
 @Injectable()
@@ -30,8 +47,6 @@ export class ProjectionsService {
     private readonly checkpointRepository: Repository<ProjectionCheckpoint>,
     @InjectRepository(StoredEvent)
     private readonly eventRepository: Repository<StoredEvent>,
-    @InjectDataSource()
-    _dataSource: DataSource,
     private readonly schedulerRegistry: SchedulerRegistry,
   ) {}
 
@@ -45,11 +60,11 @@ export class ProjectionsService {
       description?: string;
       eventTypes?: string[];
       aggregateTypes?: string[];
-      tenantId?: string;
+      tenantId: string;
       batchSize?: number;
       retryPolicy?: Partial<RetryPolicy>;
       startFromPosition?: number;
-    } = {},
+    },
   ): Promise<ProjectionCheckpoint> {
     const registration: ProjectionRegistration = {
       name,
@@ -64,13 +79,14 @@ export class ProjectionsService {
         maxDelayMs: options.retryPolicy?.maxDelayMs ?? 30000,
         backoffMultiplier: options.retryPolicy?.backoffMultiplier ?? 2,
       },
+      idleBatchCount: 0,
     };
 
     this.registeredProjections.set(name, registration);
 
     // Create or update checkpoint
     let checkpoint = await this.checkpointRepository.findOne({
-      where: { projectionName: name },
+      where: { projectionName: name, tenantId: options.tenantId },
     });
 
     if (!checkpoint) {
@@ -92,30 +108,19 @@ export class ProjectionsService {
 
   /**
    * Start processing a projection
-   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async startProjection(name: string, tenantId?: string): Promise<void> {
+  async startProjection(name: string, tenantId: string): Promise<void> {
     const registration = this.registeredProjections.get(name);
     if (!registration) {
       throw new NotFoundException(`Projection ${name} not found`);
     }
 
-    const whereClause: Record<string, unknown> = { projectionName: name };
-    if (tenantId) {
-      whereClause.tenantId = tenantId;
-    }
-
     const checkpoint = await this.checkpointRepository.findOne({
-      where: whereClause,
+      where: { projectionName: name, tenantId },
     });
 
     if (!checkpoint) {
       throw new NotFoundException(`Checkpoint for projection ${name} not found`);
-    }
-
-    // SECURITY: Verify tenant isolation
-    if (tenantId && checkpoint.tenantId && checkpoint.tenantId !== tenantId) {
-      throw new NotFoundException(`Projection ${name} not found`);
     }
 
     checkpoint.status = ProjectionStatus.RUNNING;
@@ -129,64 +134,35 @@ export class ProjectionsService {
 
   /**
    * Stop a projection
-   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async stopProjection(name: string, tenantId?: string): Promise<void> {
-    const whereClause: Record<string, unknown> = { projectionName: name };
-    if (tenantId) {
-      whereClause.tenantId = tenantId;
-    }
-
+  async stopProjection(name: string, tenantId: string): Promise<void> {
     const checkpoint = await this.checkpointRepository.findOne({
-      where: whereClause,
+      where: { projectionName: name, tenantId },
     });
 
     if (!checkpoint) {
       throw new NotFoundException(`Checkpoint for projection ${name} not found`);
-    }
-
-    // SECURITY: Verify tenant isolation
-    if (tenantId && checkpoint.tenantId && checkpoint.tenantId !== tenantId) {
-      throw new NotFoundException(`Projection ${name} not found`);
     }
 
     checkpoint.status = ProjectionStatus.STOPPED;
     await this.checkpointRepository.save(checkpoint);
 
     // Stop processing loop
-    try {
-      const intervalName = `projection-${name}`;
-      if (this.schedulerRegistry.doesExist('interval', intervalName)) {
-        this.schedulerRegistry.deleteInterval(intervalName);
-      }
-    } catch {
-      // Interval may not exist
-    }
+    this.clearProjectionInterval(name);
 
     this.logger.log(`Stopped projection: ${name}`);
   }
 
   /**
    * Pause a projection
-   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async pauseProjection(name: string, tenantId?: string): Promise<void> {
-    const whereClause: Record<string, unknown> = { projectionName: name };
-    if (tenantId) {
-      whereClause.tenantId = tenantId;
-    }
-
+  async pauseProjection(name: string, tenantId: string): Promise<void> {
     const checkpoint = await this.checkpointRepository.findOne({
-      where: whereClause,
+      where: { projectionName: name, tenantId },
     });
 
     if (!checkpoint) {
       throw new NotFoundException(`Checkpoint for projection ${name} not found`);
-    }
-
-    // SECURITY: Verify tenant isolation
-    if (tenantId && checkpoint.tenantId && checkpoint.tenantId !== tenantId) {
-      throw new NotFoundException(`Projection ${name} not found`);
     }
 
     checkpoint.status = ProjectionStatus.PAUSED;
@@ -197,25 +173,14 @@ export class ProjectionsService {
 
   /**
    * Resume a paused projection
-   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async resumeProjection(name: string, tenantId?: string): Promise<void> {
-    const whereClause: Record<string, unknown> = { projectionName: name };
-    if (tenantId) {
-      whereClause.tenantId = tenantId;
-    }
-
+  async resumeProjection(name: string, tenantId: string): Promise<void> {
     const checkpoint = await this.checkpointRepository.findOne({
-      where: whereClause,
+      where: { projectionName: name, tenantId },
     });
 
     if (!checkpoint) {
       throw new NotFoundException(`Checkpoint for projection ${name} not found`);
-    }
-
-    // SECURITY: Verify tenant isolation
-    if (tenantId && checkpoint.tenantId && checkpoint.tenantId !== tenantId) {
-      throw new NotFoundException(`Projection ${name} not found`);
     }
 
     if (checkpoint.status !== ProjectionStatus.PAUSED) {
@@ -230,25 +195,14 @@ export class ProjectionsService {
 
   /**
    * Reset a projection to a specific position
-   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async resetProjection(name: string, position: number = 0, tenantId?: string): Promise<void> {
-    const whereClause: Record<string, unknown> = { projectionName: name };
-    if (tenantId) {
-      whereClause.tenantId = tenantId;
-    }
-
+  async resetProjection(name: string, position: number = 0, tenantId: string): Promise<void> {
     const checkpoint = await this.checkpointRepository.findOne({
-      where: whereClause,
+      where: { projectionName: name, tenantId },
     });
 
     if (!checkpoint) {
       throw new NotFoundException(`Checkpoint for projection ${name} not found`);
-    }
-
-    // SECURITY: Verify tenant isolation
-    if (tenantId && checkpoint.tenantId && checkpoint.tenantId !== tenantId) {
-      throw new NotFoundException(`Projection ${name} not found`);
     }
 
     checkpoint.position = position;
@@ -258,94 +212,76 @@ export class ProjectionsService {
     checkpoint.lastErrorAt = undefined;
     await this.checkpointRepository.save(checkpoint);
 
+    // Invalidate in-memory checkpoint cache so the next processBatch re-reads
+    // from the DB and picks up the new position.
+    const registration = this.registeredProjections.get(name);
+    if (registration) {
+      registration.cachedCheckpoint = undefined;
+      registration.idleBatchCount = 0;
+    }
+
     this.logger.log(`Reset projection ${name} to position ${position}`);
   }
 
   /**
    * Get projection status
-   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async getProjectionStatus(name: string, tenantId?: string): Promise<ProjectionCheckpoint | null> {
-    const whereClause: Record<string, unknown> = { projectionName: name };
-    if (tenantId) {
-      whereClause.tenantId = tenantId;
-    }
-
-    const checkpoint = await this.checkpointRepository.findOne({
-      where: whereClause,
+  async getProjectionStatus(name: string, tenantId: string): Promise<ProjectionCheckpoint | null> {
+    return this.checkpointRepository.findOne({
+      where: { projectionName: name, tenantId },
     });
-
-    // SECURITY: Verify tenant isolation
-    if (checkpoint && tenantId && checkpoint.tenantId && checkpoint.tenantId !== tenantId) {
-      return null;
-    }
-
-    return checkpoint;
   }
 
   /**
-   * Get all projections
-   * SECURITY: tenantId parameter ensures tenant isolation
+   * Get all projections for a tenant
    */
-  async getAllProjections(tenantId?: string): Promise<ProjectionCheckpoint[]> {
-    const whereClause: Record<string, unknown> = {};
-    if (tenantId) {
-      whereClause.tenantId = tenantId;
-    }
-
+  async getAllProjections(tenantId: string): Promise<ProjectionCheckpoint[]> {
     return this.checkpointRepository.find({
-      where: whereClause,
+      where: { tenantId },
       order: { projectionName: 'ASC' },
     });
   }
 
   /**
-   * Get projection lag (events behind)
-   * SECURITY: tenantId parameter ensures tenant isolation
+   * Get projection lag (events behind) scoped to the tenant
    */
-  async getProjectionLag(name: string, tenantId?: string): Promise<number> {
-    const whereClause: Record<string, unknown> = { projectionName: name };
-    if (tenantId) {
-      whereClause.tenantId = tenantId;
-    }
-
+  async getProjectionLag(name: string, tenantId: string): Promise<number> {
     const checkpoint = await this.checkpointRepository.findOne({
-      where: whereClause,
+      where: { projectionName: name, tenantId },
     });
 
     if (!checkpoint) {
       throw new NotFoundException(`Checkpoint for projection ${name} not found`);
     }
 
-    // SECURITY: Verify tenant isolation
-    if (tenantId && checkpoint.tenantId && checkpoint.tenantId !== tenantId) {
-      throw new NotFoundException(`Projection ${name} not found`);
-    }
-
+    // Filter by tenantId to avoid leaking cross-tenant event count
     const latestEvent = await this.eventRepository
       .createQueryBuilder('e')
       .select('MAX(e.globalPosition)', 'maxPosition')
+      .where('e.tenantId = :tenantId', { tenantId })
       .getRawOne();
 
     const maxPosition = parseInt(latestEvent?.maxPosition || '0', 10);
-    return maxPosition - Number(checkpoint.position);
+    return maxPosition - checkpoint.position;
   }
 
   /**
    * Process a batch of events for a projection
-   * SECURITY: tenantId parameter ensures tenant isolation
    */
-  async processBatch(name: string, tenantId?: string): Promise<{
+  async processBatch(name: string, tenantId: string): Promise<{
     processed: number;
     failed: number;
     newPosition: number;
   }> {
+    // Key lock on name:tenantId for proper tenant isolation
+    const lockKey = `${name}:${tenantId}`;
+
     // Check if already processing
-    if (this.processingLocks.get(name)) {
+    if (this.processingLocks.get(lockKey)) {
       return { processed: 0, failed: 0, newPosition: 0 };
     }
 
-    this.processingLocks.set(name, true);
+    this.processingLocks.set(lockKey, true);
 
     try {
       const registration = this.registeredProjections.get(name);
@@ -353,26 +289,43 @@ export class ProjectionsService {
         throw new Error(`Projection ${name} not registered`);
       }
 
-      const checkpoint = await this.checkpointRepository.findOne({
-        where: { projectionName: name },
-      });
+      // Load checkpoint from DB only on first call (cache cold) or periodically
+      // during idle runs to detect external stop/pause/reset commands.
+      // When events are being processed the checkpoint is re-read on every batch
+      // to reflect any position changes that may have been applied externally.
+      const needsDbRead =
+        registration.cachedCheckpoint === undefined ||
+        registration.idleBatchCount >= IDLE_STATUS_RECHECK_BATCHES;
 
-      if (!checkpoint || checkpoint.status !== ProjectionStatus.RUNNING) {
-        return { processed: 0, failed: 0, newPosition: 0 };
+      let checkpoint: ProjectionCheckpoint | null;
+
+      if (needsDbRead) {
+        checkpoint = await this.checkpointRepository.findOne({
+          where: { projectionName: name, tenantId },
+        });
+
+        if (!checkpoint || checkpoint.status !== ProjectionStatus.RUNNING) {
+          // Evict stale cache so the next batch re-reads once the projection restarts
+          registration.cachedCheckpoint = undefined;
+          registration.idleBatchCount = 0;
+          return { processed: 0, failed: 0, newPosition: 0 };
+        }
+
+        // Refresh the cache
+        registration.cachedCheckpoint = checkpoint;
+        registration.idleBatchCount = 0;
+      } else {
+        // Use the cached entity — avoid a DB round-trip entirely
+        checkpoint = registration.cachedCheckpoint!;
       }
 
-      // Build query for events
+      // Build query for events starting after the cached checkpoint position
       const queryBuilder = this.eventRepository
         .createQueryBuilder('e')
         .where('e.globalPosition > :position', { position: checkpoint.position })
+        .andWhere('e.tenantId = :tenantId', { tenantId: registration.tenantId })
         .orderBy('e.globalPosition', 'ASC')
         .take(registration.batchSize);
-
-      if (registration.tenantId) {
-        queryBuilder.andWhere('e.tenantId = :tenantId', {
-          tenantId: registration.tenantId,
-        });
-      }
 
       if (registration.eventTypes && registration.eventTypes.length > 0) {
         queryBuilder.andWhere('e.eventType IN (:...eventTypes)', {
@@ -389,16 +342,21 @@ export class ProjectionsService {
       const events = await queryBuilder.getMany();
 
       if (events.length === 0) {
+        // Track idle batches for periodic status re-read throttling
+        registration.idleBatchCount++;
         return {
           processed: 0,
           failed: 0,
-          newPosition: Number(checkpoint.position),
+          newPosition: checkpoint.position,
         };
       }
 
+      // Events found — reset idle counter so we stay in fast-path
+      registration.idleBatchCount = 0;
+
       let processed = 0;
       let failed = 0;
-      let lastPosition = Number(checkpoint.position);
+      let lastPosition = checkpoint.position;
       const processingTimes: number[] = [];
 
       for (const event of events) {
@@ -410,8 +368,8 @@ export class ProjectionsService {
             {
               id: event.id,
               streamName: event.streamName,
-              globalPosition: Number(event.globalPosition),
-              streamPosition: Number(event.streamPosition),
+              globalPosition: event.globalPosition,
+              streamPosition: event.streamPosition,
               aggregateType: event.aggregateType,
               aggregateId: event.aggregateId,
               version: event.version,
@@ -430,7 +388,7 @@ export class ProjectionsService {
           );
 
           processed++;
-          lastPosition = Number(event.globalPosition);
+          lastPosition = event.globalPosition;
           processingTimes.push(Date.now() - startTime);
         } catch (error) {
           failed++;
@@ -438,33 +396,48 @@ export class ProjectionsService {
             `Failed to process event ${event.id} in projection ${name}: ${(error as Error).message}`,
           );
 
-          // Update checkpoint with error
-          checkpoint.lastError = (error as Error).message;
+          // Truncate error message before storing
+          const errorMsg = (error as Error).message || 'Unknown error';
+          checkpoint.lastError = errorMsg.length > MAX_ERROR_LENGTH
+            ? errorMsg.substring(0, MAX_ERROR_LENGTH)
+            : errorMsg;
           checkpoint.lastErrorAt = new Date();
 
-          // If configured to stop on error, mark as faulted
-          if (failed >= registration.retryPolicy.maxRetries) {
+          // Any event that exhausts retries faults the projection
+          if (failed >= 1) {
             checkpoint.status = ProjectionStatus.FAULTED;
             await this.checkpointRepository.save(checkpoint);
+            // Stop the interval when transitioning to FAULTED
+            this.clearProjectionInterval(name);
             break;
           }
         }
       }
 
-      // Update checkpoint
+      // Update checkpoint — only persist to DB when position actually advanced.
+      // The in-memory cachedCheckpoint is mutated in place so the next batch
+      // reads the correct position without a DB round-trip.
+      const positionAdvanced = lastPosition !== checkpoint.position;
+
       checkpoint.position = lastPosition;
-      checkpoint.eventsProcessed = Number(checkpoint.eventsProcessed) + processed;
-      checkpoint.eventsFailed = Number(checkpoint.eventsFailed) + failed;
+      checkpoint.eventsProcessed = checkpoint.eventsProcessed + processed;
+      checkpoint.eventsFailed = checkpoint.eventsFailed + failed;
       checkpoint.lastProcessedAt = new Date();
 
+      // Use exponential moving average (EMA) for processing time
       if (processingTimes.length > 0) {
         const avgTime =
           processingTimes.reduce((a, b) => a + b, 0) / processingTimes.length;
         checkpoint.avgProcessingTimeMs =
-          (checkpoint.avgProcessingTimeMs + avgTime) / 2;
+          EMA_ALPHA * avgTime + (1 - EMA_ALPHA) * checkpoint.avgProcessingTimeMs;
       }
 
-      await this.checkpointRepository.save(checkpoint);
+      // Persist durably only when position advances; stats (eventsProcessed etc.)
+      // are best-effort counters that catch up on the next persist.
+      if (positionAdvanced) {
+        await this.checkpointRepository.save(checkpoint);
+        // Keep cachedCheckpoint pointing at the same mutated entity (already up to date)
+      }
 
       return {
         processed,
@@ -472,7 +445,8 @@ export class ProjectionsService {
         newPosition: lastPosition,
       };
     } finally {
-      this.processingLocks.set(name, false);
+      const lockKey = `${name}:${tenantId}`;
+      this.processingLocks.set(lockKey, false);
     }
   }
 
@@ -508,12 +482,75 @@ export class ProjectionsService {
   }
 
   /**
-   * Start the processing loop for a projection
+   * Start the processing loop for a projection with adaptive back-off
    */
   private startProcessingLoop(name: string): void {
     const intervalName = `projection-${name}`;
 
-    // Remove existing interval if any
+    this.clearProjectionInterval(name);
+
+    let currentDelay = 100;
+    const minDelay = 100;
+    const maxDelay = 5000;
+    const backoffMultiplier = 2;
+
+    const scheduleNext = () => {
+      const jitter = 1 + (Math.random() * 0.4 - 0.2); // +/- 20%
+      const actualDelay = Math.round(currentDelay * jitter);
+
+      const timeout = setTimeout(async () => {
+        try {
+          const result = await this.processBatch(name, this.getProjectionTenantId(name));
+
+          // Adaptive back-off: if no events processed, increase delay
+          if (result.processed === 0) {
+            currentDelay = Math.min(currentDelay * backoffMultiplier, maxDelay);
+          } else {
+            currentDelay = minDelay;
+          }
+        } catch (error) {
+          this.logger.error(
+            `Error in projection ${name} processing loop: ${(error as Error).message}`,
+          );
+        }
+
+        // Schedule next iteration if interval still registered
+        try {
+          if (this.schedulerRegistry.doesExist('interval', intervalName)) {
+            scheduleNext();
+          }
+        } catch {
+          // Interval was removed, stop scheduling
+        }
+      }, actualDelay);
+
+      // Store as interval for compatibility with scheduler registry
+      try {
+        if (this.schedulerRegistry.doesExist('interval', intervalName)) {
+          this.schedulerRegistry.deleteInterval(intervalName);
+        }
+      } catch {
+        // OK
+      }
+      this.schedulerRegistry.addInterval(intervalName, timeout as unknown as ReturnType<typeof setInterval>);
+    };
+
+    scheduleNext();
+  }
+
+  /**
+   * Get the tenantId for a registered projection
+   */
+  private getProjectionTenantId(name: string): string {
+    const registration = this.registeredProjections.get(name);
+    return registration?.tenantId ?? '';
+  }
+
+  /**
+   * Clear the processing interval for a projection
+   */
+  private clearProjectionInterval(name: string): void {
+    const intervalName = `projection-${name}`;
     try {
       if (this.schedulerRegistry.doesExist('interval', intervalName)) {
         this.schedulerRegistry.deleteInterval(intervalName);
@@ -521,19 +558,6 @@ export class ProjectionsService {
     } catch {
       // Interval may not exist
     }
-
-    // Create new processing interval (every 100ms)
-    const interval = setInterval(async () => {
-      try {
-        await this.processBatch(name);
-      } catch (error) {
-        this.logger.error(
-          `Error in projection ${name} processing loop: ${(error as Error).message}`,
-        );
-      }
-    }, 100);
-
-    this.schedulerRegistry.addInterval(intervalName, interval);
   }
 
   private sleep(ms: number): Promise<void> {

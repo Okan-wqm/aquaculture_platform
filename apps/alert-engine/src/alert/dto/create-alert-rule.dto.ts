@@ -90,7 +90,7 @@ export class CreateAlertRuleInput {
   @Field(() => Int, { nullable: true, defaultValue: 5 })
   @IsNumber()
   @IsOptional()
-  @Min(0)
+  @Min(1)
   cooldownMinutes?: number;
 }
 
@@ -136,7 +136,7 @@ export class UpdateAlertRuleInput {
   @Field(() => Int, { nullable: true })
   @IsNumber()
   @IsOptional()
-  @Min(0)
+  @Min(1)
   cooldownMinutes?: number;
 
   @Field({ nullable: true })

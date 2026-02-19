@@ -22,41 +22,11 @@ import {
   Warehouse,
   ClipboardList,
   Cpu,
+  Sprout,
+  Shield,
 } from 'lucide-react';
-
-// GraphQL Configuration - Gateway API
-const GRAPHQL_URL = '/graphql';
-
-/**
- * Get auth token from localStorage
- */
-const getAuthToken = (): string | null => {
-  return localStorage.getItem('access_token');
-};
-
-/**
- * GraphQL query executor
- */
-const executeGraphQL = async <T,>(query: string, variables?: Record<string, unknown>): Promise<T> => {
-  const token = getAuthToken();
-
-  const response = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL error');
-  }
-
-  return result.data;
-};
+import { graphqlRequest } from '../services/tenant-api.service';
+import { logError } from '../utils/error-handling';
 
 /**
  * Navigation item type
@@ -84,6 +54,7 @@ interface NavSection {
 interface TenantModule {
   id: string;
   moduleId: string;
+  code: string;
   name: string;
   description?: string;
   icon?: string;
@@ -110,6 +81,7 @@ const getModuleIcon = (code: string): React.ReactNode => {
     'farm': <Fish className="w-5 h-5" />,
     'sensor': <Activity className="w-5 h-5" />,
     'hr': <UserCog className="w-5 h-5" />,
+    'hydroponics': <Sprout className="w-5 h-5" />,
   };
   return iconMap[code] || <Package className="w-5 h-5" />;
 };
@@ -122,6 +94,7 @@ const getModuleRoute = (code: string): string => {
     'farm': '/sites',
     'sensor': '/sensor',
     'hr': '/hr',
+    'hydroponics': '/hydroponics',
   };
   return routeMap[code] || `/${code}`;
 };
@@ -221,6 +194,12 @@ const staticNavigationSections: NavSection[] = [
     label: 'System',
     items: [
       {
+        id: 'roles',
+        label: 'Roles & Permissions',
+        icon: <Shield className="w-5 h-5" />,
+        path: '/tenant/roles',
+      },
+      {
         id: 'edge-devices',
         label: 'Edge Devices',
         icon: <Cpu className="w-5 h-5" />,
@@ -260,36 +239,31 @@ export const TenantAdminSidebar: React.FC<TenantAdminSidebarProps> = ({
     loadModules();
   }, []);
 
+  const MY_MODULES_QUERY = `
+    query MyModules {
+      myModules {
+        id
+        moduleId
+        code
+        name
+        description
+        icon
+        color
+        isEnabled
+        defaultRoute
+      }
+    }
+  `;
+
   const loadModules = async () => {
     setLoadingModules(true);
-    const token = getAuthToken();
-
-    if (!token) {
-      setLoadingModules(false);
-      return;
-    }
 
     try {
-      const MY_MODULES_QUERY = `
-        query MyModules {
-          myModules {
-            id
-            moduleId
-            name
-            description
-            icon
-            color
-            isEnabled
-            defaultRoute
-          }
-        }
-      `;
-
-      const data = await executeGraphQL<{ myModules: TenantModule[] }>(MY_MODULES_QUERY);
+      const data = await graphqlRequest<{ myModules: TenantModule[] }>(MY_MODULES_QUERY);
       const modulesList = (data.myModules || []).filter(m => m.isEnabled);
       setModules(modulesList);
     } catch (err) {
-      console.error('Failed to load modules for sidebar:', err);
+      logError('TenantAdminSidebar.loadModules', err);
     } finally {
       setLoadingModules(false);
     }
@@ -299,19 +273,12 @@ export const TenantAdminSidebar: React.FC<TenantAdminSidebarProps> = ({
   const modulesSection: NavSection | null = modules.length > 0 ? {
     id: 'assigned-modules',
     label: 'My Modules',
-    items: modules.map((m) => {
-      // Derive code from module name
-      const code = m.name?.toLowerCase().includes('farm') ? 'farm'
-        : m.name?.toLowerCase().includes('hr') || m.name?.toLowerCase().includes('insan') ? 'hr'
-        : m.name?.toLowerCase().includes('sensor') || m.name?.toLowerCase().includes('sens') ? 'sensor'
-        : 'default';
-      return {
-        id: `module-${m.moduleId}`,
-        label: m.name,
-        icon: getModuleIcon(code),
-        path: m.defaultRoute || getModuleRoute(code),
-      };
-    }),
+    items: modules.map((m) => ({
+      id: `module-${m.moduleId}`,
+      label: m.name,
+      icon: getModuleIcon(m.code),
+      path: m.defaultRoute || getModuleRoute(m.code),
+    })),
   } : null;
 
   // Combine static and dynamic sections

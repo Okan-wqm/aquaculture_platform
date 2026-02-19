@@ -1,6 +1,7 @@
+import * as crypto from 'crypto';
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, MoreThan, DataSource } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import {
   AlertRule,
   AlertCondition,
@@ -9,6 +10,7 @@ import {
 } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
 import { IEventBus } from '@platform/event-bus';
+import { RedisService } from '@platform/backend-common';
 
 /**
  * Sensor reading data structure
@@ -27,9 +29,20 @@ export interface SensorReadingData {
  * Evaluates sensor readings against alert rules
  * Implements cooldown to prevent alert spam
  */
+/** Short-lived cache entry for applicable rules */
+interface CachedRuleSet {
+  rules: AlertRule[];
+  expiresAt: number;
+}
+
 @Injectable()
 export class AlertEvaluationService {
   private readonly logger = new Logger(AlertEvaluationService.name);
+
+  // PE-16: Short-lived in-process cache for applicable rules so that rapid
+  // sensor readings for the same sensor don't hit the DB every time.
+  private readonly ruleCache = new Map<string, CachedRuleSet>();
+  private static readonly RULE_CACHE_TTL_MS = 30_000; // 30 seconds
 
   constructor(
     @InjectRepository(AlertRule)
@@ -38,8 +51,7 @@ export class AlertEvaluationService {
     private readonly historyRepository: Repository<AlertHistory>,
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
+    private readonly redisService: RedisService,
   ) {}
 
   /**
@@ -59,19 +71,20 @@ export class AlertEvaluationService {
         `Found ${rules.length} applicable rules for sensor ${reading.sensorId}`,
       );
 
-      for (const rule of rules) {
-        const triggeredCondition = this.checkConditions(
-          rule.conditions,
-          reading.readings,
-        );
+      // PE-04: Evaluate all conditions synchronously first (no I/O), then
+      // fire all cooldown checks + alert triggers in parallel.
+      const triggered = rules
+        .map(rule => ({
+          rule,
+          condition: this.checkConditions(rule.conditions, reading.readings),
+        }))
+        .filter((r): r is { rule: AlertRule; condition: AlertCondition } => r.condition !== null);
 
-        if (triggeredCondition) {
-          // SECURITY FIX: Use atomic cooldown check and alert creation
-          // to prevent race condition where multiple alerts could be triggered
-          // if concurrent requests both pass cooldown check before either creates alert
-          await this.atomicCheckCooldownAndTrigger(rule, reading, triggeredCondition);
-        }
-      }
+      await Promise.all(
+        triggered.map(({ rule, condition }) =>
+          this.atomicCheckCooldownAndTrigger(rule, reading, condition),
+        ),
+      );
     } catch (error) {
       this.logger.error(
         `Error evaluating sensor reading: ${(error as Error).message}`,
@@ -81,7 +94,10 @@ export class AlertEvaluationService {
   }
 
   /**
-   * Find all active rules that apply to this sensor reading
+   * Find all active rules that apply to this sensor reading.
+   * PE-16: Results are cached for RULE_CACHE_TTL_MS per unique
+   * (tenantId, sensorId, farmId, pondId) combination to avoid a DB query
+   * on every high-frequency sensor reading event.
    */
   private async findApplicableRules(
     tenantId: string,
@@ -89,6 +105,12 @@ export class AlertEvaluationService {
     farmId?: string,
     pondId?: string,
   ): Promise<AlertRule[]> {
+    const cacheKey = `${tenantId}:${sensorId}:${farmId ?? ''}:${pondId ?? ''}`;
+    const cached = this.ruleCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.rules;
+    }
+
     const query = this.ruleRepository
       .createQueryBuilder('rule')
       .where('rule.tenantId = :tenantId', { tenantId })
@@ -98,11 +120,15 @@ export class AlertEvaluationService {
         { sensorId },
       );
 
+    // Always apply farm/pond filters to prevent cross-scope rule leakage.
+    // When farmId is undefined, only return rules that are not scoped to any farm.
     if (farmId) {
       query.andWhere(
         '(rule.farmId IS NULL OR rule.farmId = :farmId)',
         { farmId },
       );
+    } else {
+      query.andWhere('rule.farmId IS NULL');
     }
 
     if (pondId) {
@@ -110,18 +136,41 @@ export class AlertEvaluationService {
         '(rule.pondId IS NULL OR rule.pondId = :pondId)',
         { pondId },
       );
+    } else {
+      query.andWhere('rule.pondId IS NULL');
     }
 
-    return await query.getMany();
+    const rules = await query.getMany();
+
+    this.ruleCache.set(cacheKey, {
+      rules,
+      expiresAt: Date.now() + AlertEvaluationService.RULE_CACHE_TTL_MS,
+    });
+
+    return rules;
   }
 
   /**
-   * Check if any condition is met
+   * Severity ranking for comparison (higher = more severe)
+   */
+  private static readonly SEVERITY_RANK: Record<string, number> = {
+    [AlertSeverity.INFO]: 0,
+    [AlertSeverity.LOW]: 1,
+    [AlertSeverity.MEDIUM]: 2,
+    [AlertSeverity.WARNING]: 3,
+    [AlertSeverity.HIGH]: 4,
+    [AlertSeverity.CRITICAL]: 5,
+  };
+
+  /**
+   * Check all conditions and return the most severe match
    */
   private checkConditions(
     conditions: AlertCondition[],
     readings: Record<string, number>,
   ): AlertCondition | null {
+    let mostSevere: AlertCondition | null = null;
+
     for (const condition of conditions) {
       const value = readings[condition.parameter];
 
@@ -152,244 +201,136 @@ export class AlertEvaluationService {
       }
 
       if (triggered) {
-        return condition;
+        if (!mostSevere) {
+          mostSevere = condition;
+        } else {
+          const currentRank = AlertEvaluationService.SEVERITY_RANK[condition.severity] ?? 0;
+          const bestRank = AlertEvaluationService.SEVERITY_RANK[mostSevere.severity] ?? 0;
+          if (currentRank > bestRank) {
+            mostSevere = condition;
+          }
+        }
       }
     }
 
-    return null;
+    return mostSevere;
   }
 
   /**
-   * SECURITY FIX: Atomic cooldown check and alert trigger
-   * Uses database transaction with row-level locking to prevent race condition
-   * where concurrent requests could both pass cooldown check
+   * PE-01: Atomic cooldown check and alert trigger using Redis SET NX EX.
+   * Replaces the previous SERIALIZABLE DB transaction + FOR UPDATE lock pattern
+   * which serialised all concurrent rule evaluations for the same rule.
+   *
+   * Redis SET NX is atomic by design: only the first caller for a given
+   * (tenantId, ruleId) window will succeed; all others are rejected until the
+   * TTL expires (= cooldownMinutes).  This removes the DB round-trip from the
+   * hot path entirely for the cooldown check.
    */
   private async atomicCheckCooldownAndTrigger(
     rule: AlertRule,
     reading: SensorReadingData,
     condition: AlertCondition,
   ): Promise<void> {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction('SERIALIZABLE');
-
     try {
-      // Check cooldown with FOR UPDATE lock to prevent concurrent reads
-      const canTrigger = await this.checkCooldownInTransaction(
-        queryRunner,
-        rule.id,
-        rule.cooldownMinutes,
-      );
-
-      if (!canTrigger) {
-        this.logger.debug(`Alert for rule ${rule.id} is in cooldown period`);
-        await queryRunner.rollbackTransaction();
-        return;
-      }
-
-      // Trigger alert within same transaction
-      await this.triggerAlertInTransaction(queryRunner, rule, reading, condition);
-
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      // Log but don't throw - we don't want to fail other rule evaluations
-      this.logger.error(
-        `Failed to trigger alert for rule ${rule.id}: ${(error as Error).message}`,
-      );
-    } finally {
-      await queryRunner.release();
-    }
-  }
-
-  /**
-   * Check cooldown within a transaction with row locking
-   */
-  private async checkCooldownInTransaction(
-    queryRunner: import('typeorm').QueryRunner,
-    ruleId: string,
-    cooldownMinutes: number,
-  ): Promise<boolean> {
-    if (cooldownMinutes === 0) {
-      return true;
-    }
-
-    const cooldownDate = new Date();
-    cooldownDate.setMinutes(cooldownDate.getMinutes() - cooldownMinutes);
-
-    // Use FOR UPDATE to lock any recent alert rows and prevent concurrent inserts
-    const recentAlert = await queryRunner.manager
-      .createQueryBuilder(AlertHistory, 'history')
-      .where('history.ruleId = :ruleId', { ruleId })
-      .andWhere('history.triggeredAt > :cooldownDate', { cooldownDate })
-      .orderBy('history.triggeredAt', 'DESC')
-      .setLock('pessimistic_write')
-      .getOne();
-
-    return !recentAlert;
-  }
-
-  /**
-   * Trigger alert within a transaction
-   */
-  private async triggerAlertInTransaction(
-    queryRunner: import('typeorm').QueryRunner,
-    rule: AlertRule,
-    reading: SensorReadingData,
-    condition: AlertCondition,
-  ): Promise<void> {
-    const currentValue = reading.readings[condition.parameter];
-    const message = `Alert: ${rule.name} - ${condition.parameter} is ${this.formatOperator(condition.operator)} ${condition.threshold}. Current value: ${currentValue}`;
-
-    this.logger.log(`Triggering alert for rule ${rule.id}: ${message}`);
-
-    // Create alert history record
-    const history = queryRunner.manager.create(AlertHistory, {
-      ruleId: rule.id,
-      ruleName: rule.name,
-      tenantId: reading.tenantId,
-      farmId: reading.farmId,
-      pondId: reading.pondId,
-      sensorId: reading.sensorId,
-      severity: condition.severity,
-      message,
-      triggeringData: {
-        sensorId: reading.sensorId,
-        readings: reading.readings,
-        timestamp: reading.timestamp,
-        condition: {
-          parameter: condition.parameter,
-          operator: condition.operator,
-          threshold: condition.threshold,
-          actualValue: currentValue,
-        },
-      },
-      triggeredAt: reading.timestamp,
-    });
-
-    const savedHistory = await queryRunner.manager.save(history);
-
-    // Publish alert event (outside transaction to avoid blocking)
-    // Event publishing is queued and will be processed after transaction commits
-    setImmediate(async () => {
-      try {
-        await this.eventBus.publish({
-          eventId: crypto.randomUUID(),
-          eventType: 'AlertTriggered',
-          timestamp: new Date(),
-          payload: {
-            alertId: savedHistory.id,
-            ruleId: rule.id,
-            ruleName: rule.name,
-            tenantId: reading.tenantId,
-            severity: condition.severity,
-            message,
-            channels: rule.notificationChannels || [],
-            recipients: rule.recipients || [],
-            triggeringData: savedHistory.triggeringData,
-          },
-          metadata: {
-            tenantId: reading.tenantId,
-            source: 'alert-engine',
-          },
-        });
-      } catch (error) {
-        this.logger.error(
-          `Failed to publish alert event: ${(error as Error).message}`,
+      // Attempt to acquire the cooldown lock atomically.
+      // SET NX succeeds (returns 'OK') only if the key does not exist.
+      if (rule.cooldownMinutes > 0) {
+        const cooldownKey = `cooldown:${reading.tenantId}:${rule.id}`;
+        const acquired = await this.redisService.set(
+          cooldownKey,
+          '1',
+          'EX',
+          rule.cooldownMinutes * 60,
+          'NX',
         );
+        if (acquired !== 'OK') {
+          this.logger.debug(`Alert for rule ${rule.id} is in cooldown period`);
+          return;
+        }
       }
-    });
-  }
 
-  /**
-   * Check if cooldown period has passed (non-transactional, for backwards compatibility)
-   * @deprecated Use atomicCheckCooldownAndTrigger instead
-   */
-  private async checkCooldown(
-    ruleId: string,
-    cooldownMinutes: number,
-  ): Promise<boolean> {
-    if (cooldownMinutes === 0) {
-      return true;
-    }
+      // Cooldown cleared – save the alert history record.
+      const currentValue = reading.readings[condition.parameter];
+      const message = `Alert: ${rule.name} - ${condition.parameter} is ${this.formatOperator(condition.operator)} ${condition.threshold}. Current value: ${currentValue}`;
 
-    const cooldownDate = new Date();
-    cooldownDate.setMinutes(cooldownDate.getMinutes() - cooldownMinutes);
-
-    const recentAlert = await this.historyRepository.findOne({
-      where: {
-        ruleId,
-        triggeredAt: MoreThan(cooldownDate),
-      },
-      order: { triggeredAt: 'DESC' },
-    });
-
-    return !recentAlert;
-  }
-
-  /**
-   * Trigger an alert and publish event
-   */
-  private async triggerAlert(
-    rule: AlertRule,
-    reading: SensorReadingData,
-    condition: AlertCondition,
-  ): Promise<void> {
-    const currentValue = reading.readings[condition.parameter];
-    const message = `Alert: ${rule.name} - ${condition.parameter} is ${this.formatOperator(condition.operator)} ${condition.threshold}. Current value: ${currentValue}`;
-
-    this.logger.log(
-      `Triggering alert for rule ${rule.id}: ${message}`,
-    );
-
-    // Create alert history record
-    const history = this.historyRepository.create({
-      ruleId: rule.id,
-      ruleName: rule.name,
-      tenantId: reading.tenantId,
-      farmId: reading.farmId,
-      pondId: reading.pondId,
-      sensorId: reading.sensorId,
-      severity: condition.severity,
-      message,
-      triggeringData: {
-        sensorId: reading.sensorId,
-        readings: reading.readings,
-        timestamp: reading.timestamp,
-        condition: {
-          parameter: condition.parameter,
-          operator: condition.operator,
-          threshold: condition.threshold,
-          actualValue: currentValue,
-        },
-      },
-      triggeredAt: reading.timestamp,
-    });
-
-    const savedHistory = await this.historyRepository.save(history);
-
-    // Publish alert event for notification service
-    await this.eventBus.publish({
-      eventId: crypto.randomUUID(),
-      eventType: 'AlertTriggered',
-      timestamp: new Date(),
-      payload: {
-        alertId: savedHistory.id,
+      const history = this.historyRepository.create({
         ruleId: rule.id,
         ruleName: rule.name,
         tenantId: reading.tenantId,
+        farmId: reading.farmId,
+        pondId: reading.pondId,
+        sensorId: reading.sensorId,
+        severity: condition.severity,
+        message,
+        triggeringData: {
+          sensorId: reading.sensorId,
+          readings: reading.readings,
+          timestamp: reading.timestamp,
+          condition: {
+            parameter: condition.parameter,
+            operator: condition.operator,
+            threshold: condition.threshold,
+            actualValue: currentValue,
+          },
+        },
+        triggeredAt: reading.timestamp,
+      });
+
+      const savedHistory = await this.historyRepository.save(history);
+
+      // Publish event after the DB write succeeds.
+      await this.publishAlertEvent(rule, reading, condition, savedHistory.id, message);
+    } catch (error) {
+      // Log but don't throw – we don't want to fail other rule evaluations.
+      this.logger.error(
+        `Failed to trigger alert for rule ${rule.id}: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Publish AlertTriggered event
+   */
+  private async publishAlertEvent(
+    rule: AlertRule,
+    reading: SensorReadingData,
+    condition: AlertCondition,
+    alertId: string,
+    message: string,
+  ): Promise<void> {
+    try {
+      await this.eventBus.publish({
+        eventId: crypto.randomUUID(),
+        eventType: 'AlertTriggered',
+        timestamp: new Date(),
+        tenantId: reading.tenantId,
+        alertId,
+        ruleId: rule.id,
+        ruleName: rule.name,
         severity: condition.severity,
         message,
         channels: rule.notificationChannels || [],
         recipients: rule.recipients || [],
-        triggeringData: savedHistory.triggeringData,
-      },
-      metadata: {
-        tenantId: reading.tenantId,
-        source: 'alert-engine',
-      },
-    });
+        triggeringData: {
+          sensorId: reading.sensorId,
+          readings: reading.readings,
+          timestamp: reading.timestamp,
+          condition: {
+            parameter: condition.parameter,
+            operator: condition.operator,
+            threshold: condition.threshold,
+            actualValue: reading.readings[condition.parameter],
+          },
+        },
+        version: 1,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to publish alert event: ${(error as Error).message}`,
+      );
+    }
   }
+
 
   /**
    * Format operator for human-readable message

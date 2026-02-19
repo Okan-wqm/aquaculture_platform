@@ -8,10 +8,16 @@ import { Configuration, ConfigurationHistory } from './entities/configuration.en
 // Resolver
 import { ConfigurationResolver } from './configuration.resolver';
 
+// Services
+import { ConfigurationService } from './services/configuration.service';
+import { EncryptionService } from './services/encryption.service';
+import { ConfigurationValidationService } from './services/configuration-validation.service';
+
 // Command Handlers
 import { CreateConfigurationHandler } from './handlers/create-configuration.handler';
 import { UpdateConfigurationHandler } from './handlers/update-configuration.handler';
 import { DeleteConfigurationHandler } from './handlers/delete-configuration.handler';
+import { UpsertConfigurationHandler } from './handlers/upsert-configuration.handler';
 
 // Query Handlers
 import {
@@ -24,13 +30,11 @@ import {
   GetConfigurationHistoryHandler,
 } from './query-handlers/get-configurations.handler';
 
-// Services
-import { ConfigurationService } from './services/configuration.service';
-
 const CommandHandlers = [
   CreateConfigurationHandler,
   UpdateConfigurationHandler,
   DeleteConfigurationHandler,
+  UpsertConfigurationHandler,
 ];
 
 const QueryHandlers = [
@@ -49,9 +53,10 @@ const QueryHandlers = [
   providers: [
     ConfigurationResolver,
     ConfigurationService,
+    EncryptionService,
+    ConfigurationValidationService,
     ...CommandHandlers,
     ...QueryHandlers,
   ],
-  exports: [ConfigurationService],
 })
 export class ConfigurationModule {}

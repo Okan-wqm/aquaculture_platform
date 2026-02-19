@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, FindOptionsWhere } from 'typeorm';
 import {
   GetConfigurationQuery,
   GetConfigurationByIdQuery,
@@ -20,35 +20,35 @@ export class GetConfigurationHandler
 
   async execute(query: GetConfigurationQuery): Promise<Configuration> {
     const { tenantId, service, key, environment } = query;
+    const env = (environment as ConfigEnvironment) || ConfigEnvironment.ALL;
 
-    // Try to find tenant-specific config first
-    let configuration = await this.configRepository.findOne({
-      where: {
-        tenantId,
+    // Single query with both tenant-specific and global fallback
+    const whereConditions: FindOptionsWhere<Configuration>[] = [
+      { tenantId, service, key, environment: env, isActive: true },
+    ];
+
+    if (tenantId !== 'global') {
+      whereConditions.push({
+        tenantId: 'global',
         service,
         key,
-        environment: environment as ConfigEnvironment || ConfigEnvironment.ALL,
+        environment: env,
         isActive: true,
-      },
-    });
-
-    // Fall back to global config if tenant-specific not found
-    if (!configuration && tenantId !== 'global') {
-      configuration = await this.configRepository.findOne({
-        where: {
-          tenantId: 'global',
-          service,
-          key,
-          environment: environment as ConfigEnvironment || ConfigEnvironment.ALL,
-          isActive: true,
-        },
       });
     }
 
+    const configurations = await this.configRepository.find({
+      where: whereConditions,
+      take: 2,
+    });
+
+    // Prefer tenant-specific over global
+    const configuration =
+      configurations.find((c) => c.tenantId === tenantId) ||
+      configurations.find((c) => c.tenantId === 'global');
+
     if (!configuration) {
-      throw new NotFoundException(
-        `Configuration not found: ${service}/${key}`,
-      );
+      throw new NotFoundException(`Configuration not found: ${service}/${key}`);
     }
 
     return configuration;
@@ -69,7 +69,7 @@ export class GetConfigurationByIdHandler
     const { tenantId, id } = query;
 
     const configuration = await this.configRepository.findOne({
-      where: { id, tenantId },
+      where: { id, tenantId, isActive: true },
     });
 
     if (!configuration) {

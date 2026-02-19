@@ -3,7 +3,7 @@
  * Displays employee avatar with fallback to initials
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { cn } from '@aquaculture/shared-ui';
 
 interface EmployeeAvatarProps {
@@ -76,7 +76,8 @@ export function EmployeeAvatar({
 }: EmployeeAvatarProps) {
   const initials = getInitials(firstName, lastName);
   const fullName = `${firstName || ''} ${lastName || ''}`.trim();
-  const bgColor = getAvatarColor(fullName);
+  // PERF-008: memoize color hash — stable per employee name, no need to recompute
+  const bgColor = useMemo(() => getAvatarColor(fullName), [fullName]);
 
   return (
     <div className={cn('relative inline-flex', className)}>
@@ -90,7 +91,11 @@ export function EmployeeAvatar({
           )}
         />
       ) : (
+        // BUG-015: initials fallback needs accessible label so screen readers
+        // can announce the employee name rather than the two-letter abbreviation.
         <div
+          role="img"
+          aria-label={fullName || 'Employee'}
           className={cn(
             'flex items-center justify-center rounded-full font-medium text-white',
             bgColor,

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { NotificationChannel } from '../database/entities/escalation-policy.entity';
 import { AlertIncident } from '../database/entities/alert-incident.entity';
@@ -125,19 +125,39 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
 };
 
 @Injectable()
-export class NotificationDispatcherService {
+export class NotificationDispatcherService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NotificationDispatcherService.name);
   private channelHandlers: Map<NotificationChannel, ChannelHandler> = new Map();
   private pendingQueue: Map<string, NotificationRequest> = new Map();
   private processingQueue: Set<string> = new Set();
   private retryConfig: RetryConfig = { ...DEFAULT_RETRY_CONFIG };
-  private requestCounter = 0;
+  // PE-14: Timer that automatically drains the pending queue every second.
+  private queueDrainInterval: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly channelRouter: ChannelRouterService,
     private readonly templateRenderer: TemplateRendererService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  onModuleInit(): void {
+    // PE-14: Automatically drain the pending queue every second so that items
+    // added via queueNotification() are not silently forgotten.
+    this.queueDrainInterval = setInterval(() => {
+      if (this.pendingQueue.size > 0) {
+        this.processQueue().catch(err =>
+          this.logger.error(`Queue drain error: ${(err as Error).message}`),
+        );
+      }
+    }, 1000);
+  }
+
+  onModuleDestroy(): void {
+    if (this.queueDrainInterval) {
+      clearInterval(this.queueDrainInterval);
+      this.queueDrainInterval = null;
+    }
+  }
 
   /**
    * Send notification
@@ -292,52 +312,65 @@ export class NotificationDispatcherService {
         return notificationResult;
       } else {
         // Attempt retry
-        return this.handleFailure(requestId, userId, channel, context, severity, result.error, metadata);
+        return this.handleFailureWithRetry(requestId, userId, channel, context, severity, result.error, metadata);
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return this.handleFailure(requestId, userId, channel, context, severity, errorMessage, metadata);
+      return this.handleFailureWithRetry(requestId, userId, channel, context, severity, errorMessage, metadata);
     }
   }
 
   /**
-   * Handle notification failure
+   * Handle notification failure with iterative retry loop (replaces recursive retry chain)
    */
-  private async handleFailure(
+  private async handleFailureWithRetry(
     requestId: string,
     userId: string,
     channel: NotificationChannel,
     context: TemplateContext,
     severity: AlertSeverity,
-    error?: string,
+    initialError?: string,
     metadata?: Record<string, unknown>,
-    retryCount = 0,
   ): Promise<NotificationResult> {
-    this.logger.error(`Notification failed for user ${userId} on channel ${channel}: ${error}`);
+    this.logger.error(`Notification failed for user ${userId} on channel ${channel}: ${initialError}`);
 
-    if (retryCount < this.retryConfig.maxRetries) {
-      // Schedule retry
+    let lastError = initialError;
+
+    for (let attempt = 1; attempt <= this.retryConfig.maxRetries; attempt++) {
       const delay = Math.min(
-        this.retryConfig.initialDelayMs * Math.pow(this.retryConfig.backoffMultiplier, retryCount),
+        this.retryConfig.initialDelayMs * Math.pow(this.retryConfig.backoffMultiplier, attempt - 1),
         this.retryConfig.maxDelayMs,
       );
 
-      this.logger.log(`Scheduling retry ${retryCount + 1} for ${requestId} in ${delay}ms`);
+      this.logger.log(`Scheduling retry ${attempt} for ${requestId} in ${delay}ms`);
+      await new Promise(resolve => setTimeout(resolve, delay));
 
-      return new Promise(resolve => {
-        setTimeout(async () => {
-          const result = await this.retryNotification(
+      const handler = this.channelHandlers.get(channel);
+      if (!handler) {
+        lastError = `No handler for channel ${channel}`;
+        break;
+      }
+
+      try {
+        const rendered = this.templateRenderer.render(channel, context);
+        const result = await handler.send(userId, rendered, metadata);
+
+        if (result.success) {
+          return {
             requestId,
             userId,
             channel,
-            context,
-            severity,
-            metadata,
-            retryCount + 1,
-          );
-          resolve(result);
-        }, delay);
-      });
+            status: NotificationStatus.SENT,
+            sentAt: new Date(),
+            retryCount: attempt,
+            metadata: { messageId: result.messageId },
+          };
+        }
+
+        lastError = result.error;
+      } catch (error: unknown) {
+        lastError = error instanceof Error ? error.message : String(error);
+      }
     }
 
     const failureResult: NotificationResult = {
@@ -345,80 +378,13 @@ export class NotificationDispatcherService {
       userId,
       channel,
       status: NotificationStatus.FAILED,
-      error,
-      retryCount,
+      error: lastError,
+      retryCount: this.retryConfig.maxRetries,
     };
 
     this.eventEmitter.emit(NOTIFICATION_EVENTS.FAILED, failureResult);
 
     return failureResult;
-  }
-
-  /**
-   * Retry notification
-   */
-  private async retryNotification(
-    requestId: string,
-    userId: string,
-    channel: NotificationChannel,
-    context: TemplateContext,
-    severity: AlertSeverity,
-    metadata?: Record<string, unknown>,
-    retryCount = 0,
-  ): Promise<NotificationResult> {
-    const handler = this.channelHandlers.get(channel);
-
-    if (!handler) {
-      return {
-        requestId,
-        userId,
-        channel,
-        status: NotificationStatus.FAILED,
-        error: `No handler for channel ${channel}`,
-        retryCount,
-      };
-    }
-
-    const rendered = this.templateRenderer.render(channel, context);
-
-    try {
-      const result = await handler.send(userId, rendered, metadata);
-
-      if (result.success) {
-        return {
-          requestId,
-          userId,
-          channel,
-          status: NotificationStatus.SENT,
-          sentAt: new Date(),
-          retryCount,
-          metadata: { messageId: result.messageId },
-        };
-      } else {
-        return this.handleFailure(
-          requestId,
-          userId,
-          channel,
-          context,
-          severity,
-          result.error,
-          metadata,
-          retryCount,
-        );
-      }
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return this.handleFailure(
-        requestId,
-        userId,
-        channel,
-        context,
-        severity,
-        errorMessage,
-        metadata,
-        retryCount,
-      );
-    }
   }
 
   /**
@@ -546,8 +512,7 @@ export class NotificationDispatcherService {
    * Generate unique request ID
    */
   private generateRequestId(): string {
-    this.requestCounter++;
-    return `notif-${Date.now()}-${this.requestCounter}`;
+    return `notif-${crypto.randomUUID()}`;
   }
 
   /**
@@ -569,6 +534,9 @@ export class NotificationDispatcherService {
     userId: string,
     context?: TemplateContext,
   ): Promise<NotificationResult> {
+    if (process.env['NODE_ENV'] === 'production') {
+      throw new Error('testSend is disabled in production');
+    }
     const testContext: TemplateContext = context || {
       incident: {
         id: 'test-incident',

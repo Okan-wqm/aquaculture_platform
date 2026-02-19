@@ -7,7 +7,7 @@
  * - MODULE_MANAGER/USER -> Module's defaultRoute
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Button,
@@ -18,6 +18,7 @@ import {
   email as emailValidator,
   minLength,
   validateField,
+  clearTokens,
 } from '@aquaculture/shared-ui';
 
 // ============================================================================
@@ -83,8 +84,12 @@ const LoginForm: React.FC = () => {
           password: formData.password,
         });
 
-        // Navigate to the appropriate dashboard
-        navigate(redirectPath);
+        // Validate that redirectPath is a relative path to prevent open redirect
+        const safePath =
+          redirectPath.startsWith('/') && !redirectPath.startsWith('//')
+            ? redirectPath
+            : '/';
+        navigate(safePath);
       } catch {
         // Auth context handles error display
       } finally {
@@ -319,6 +324,9 @@ const AcceptInvitationForm: React.FC = () => {
           throw new Error(result.errors[0]?.message || 'Failed to accept invitation');
         }
 
+        // Clear any existing session before redirecting to login
+        // so the user must authenticate fresh with their new credentials
+        clearTokens();
         navigate('/login');
       } catch (err) {
         setErrors({
@@ -328,7 +336,7 @@ const AcceptInvitationForm: React.FC = () => {
         setIsSubmitting(false);
       }
     },
-    [formData, navigate]
+    [formData, navigate, token]
   );
 
   if (isValidating) {
@@ -448,7 +456,14 @@ const ForgotPasswordForm: React.FC = () => {
       try {
         const response = await fetch('/api/auth/forgot-password', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            // SH-SEC-07: X-Requested-With marks this as an XHR/fetch call.
+            // Servers can reject requests that lack this header as a CSRF mitigation,
+            // since cross-origin forms cannot set custom headers.
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'include',
           body: JSON.stringify({ email }),
         });
 
@@ -577,7 +592,14 @@ const ResetPasswordForm: React.FC = () => {
       try {
         const response = await fetch('/api/auth/reset-password', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            // SH-SEC-07: X-Requested-With marks this as an XHR/fetch call.
+            // Servers can reject requests that lack this header as a CSRF mitigation,
+            // since cross-origin forms cannot set custom headers.
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'include',
           body: JSON.stringify({ token, newPassword: formData.password }),
         });
 
@@ -588,7 +610,6 @@ const ResetPasswordForm: React.FC = () => {
         }
 
         setSuccess(true);
-        setTimeout(() => navigate('/login'), 3000);
       } catch (err) {
         setErrors({
           password: err instanceof Error ? err.message : 'An error occurred',
@@ -597,8 +618,15 @@ const ResetPasswordForm: React.FC = () => {
         setIsSubmitting(false);
       }
     },
-    [formData, token, navigate]
+    [formData, token]
   );
+
+  // Navigate to login after success with cleanup on unmount
+  useEffect(() => {
+    if (!success) return;
+    const id = setTimeout(() => navigate('/login'), 3000);
+    return () => clearTimeout(id);
+  }, [success, navigate]);
 
   if (success) {
     return (

@@ -77,7 +77,39 @@ export class CorrelationIdMiddleware implements NestMiddleware {
   }
 
   /**
+   * SECURITY: Maximum allowed length for correlation/request IDs.
+   * Prevents log flooding via oversized header values.
+   */
+  private static readonly MAX_ID_LENGTH = 128;
+
+  /**
+   * SECURITY: Regex to validate correlation/request ID format.
+   * Allows alphanumeric characters, hyphens, underscores, dots, and colons.
+   * Rejects control characters, newlines (log injection), and other special chars.
+   */
+  private static readonly VALID_ID_PATTERN = /^[a-zA-Z0-9._:/-]+$/;
+
+  /**
+   * SECURITY: Validate a client-provided ID to prevent log injection and flooding.
+   * Returns the ID if valid, or undefined if it should be regenerated.
+   */
+  private validateId(value: string): string | undefined {
+    if (
+      value.length > CorrelationIdMiddleware.MAX_ID_LENGTH ||
+      !CorrelationIdMiddleware.VALID_ID_PATTERN.test(value)
+    ) {
+      this.logger.warn(
+        `Invalid correlation/request ID rejected (length=${value.length}, ` +
+        `preview=${value.substring(0, 40).replace(/[^\x20-\x7E]/g, '?')})`,
+      );
+      return undefined;
+    }
+    return value;
+  }
+
+  /**
    * Extract correlation ID from headers or generate new one
+   * SECURITY: Validates format and length to prevent log injection/flooding
    */
   private extractOrGenerateCorrelationId(req: Request): string {
     // Check for existing correlation ID
@@ -87,7 +119,8 @@ export class CorrelationIdMiddleware implements NestMiddleware {
       req.headers[TRACE_ID_HEADER];
 
     if (existingId && typeof existingId === 'string') {
-      return existingId;
+      const validated = this.validateId(existingId);
+      if (validated) return validated;
     }
 
     // Generate new UUID v4
@@ -96,12 +129,14 @@ export class CorrelationIdMiddleware implements NestMiddleware {
 
   /**
    * Extract request ID from headers or generate new one
+   * SECURITY: Validates format and length to prevent log injection/flooding
    */
   private extractOrGenerateRequestId(req: Request): string {
     const existingId = req.headers[REQUEST_ID_HEADER];
 
     if (existingId && typeof existingId === 'string') {
-      return existingId;
+      const validated = this.validateId(existingId);
+      if (validated) return validated;
     }
 
     return randomUUID();

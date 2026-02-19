@@ -11,6 +11,7 @@ import {
   IsUUID,
   IsArray,
   IsBoolean,
+  IsEnum,
   Min,
   Max,
   MaxLength,
@@ -18,6 +19,7 @@ import {
   ArrayMinSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { FeedingMethod } from '../entities/feeding-record.entity';
 
 // ============================================================================
 // SINGLE RECORD INPUT
@@ -44,6 +46,16 @@ export class RecordDailyFeedingInput {
   @IsString()
   @MaxLength(1000)
   notes?: string;
+
+  @Field(() => ID, { nullable: true, description: 'SubEquipment feeder ID (for automatic feeders)' })
+  @IsOptional()
+  @IsUUID()
+  feederEquipmentId?: string;
+
+  @Field(() => FeedingMethod, { nullable: true, description: 'Feeding method used' })
+  @IsOptional()
+  @IsEnum(FeedingMethod)
+  feedingMethod?: FeedingMethod;
 }
 
 /**

@@ -172,7 +172,13 @@ export class LookupTableCalibrationStrategy implements ICalibrationStrategy {
       };
     }
 
-    const table = [...config.lookupTable].sort((a, b) => a.raw - b.raw);
+    // MEDIUM-004: Sort is done once when the table is first used (ascending raw values).
+    // The config object is mutated in-place so subsequent calls reuse the sorted array.
+    if (!config['_sorted']) {
+      config.lookupTable.sort((a, b) => a.raw - b.raw);
+      (config as Record<string, unknown>)['_sorted'] = true;
+    }
+    const table = config.lookupTable;
 
     // Ensure table has at least 2 entries for interpolation
     if (table.length < 2) {
@@ -344,6 +350,15 @@ export class CalibrationService implements ICalibrationService {
     } else {
       this.channelCache.clear();
     }
+  }
+
+  /**
+   * Directly warm the channel cache for a sensor with pre-fetched channels.
+   * Called by SensorIngestionService.prefetchCalibrationConfigs() to avoid
+   * N sequential DB queries during batch prefetch (MEDIUM-003).
+   */
+  warmChannelCache(sensorId: string, channels: SensorDataChannel[]): void {
+    this.channelCache.set(sensorId, channels);
   }
 
   private async getChannelsForSensor(sensorId: string): Promise<SensorDataChannel[]> {

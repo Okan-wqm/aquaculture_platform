@@ -60,6 +60,9 @@ export class CodeGeneratorService {
     await queryRunner.startTransaction();
 
     try {
+      // Set search_path to tenant schema so code_sequences resolves to the correct tenant schema
+      await queryRunner.query(`SET LOCAL search_path TO "tenant_${options.tenantId.replace(/-/g, '').substring(0, 16).toLowerCase()}", farm, public`);
+
       // Lock ile sequence kaydını bul veya oluştur
       let sequence = await queryRunner.manager.findOne(CodeSequence, {
         where: {

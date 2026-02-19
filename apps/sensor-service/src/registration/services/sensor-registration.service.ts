@@ -473,9 +473,10 @@ export class SensorRegistrationService {
     if (filter?.systemId) where.systemId = filter.systemId;
     if (filter?.equipmentId) where.equipmentId = filter.equipmentId;
 
-    // Handle search (name)
+    // Handle search (name) — escape LIKE special chars to prevent wildcard injection
     if (filter?.search) {
-      where.name = Like(`%${filter.search}%`);
+      const escaped = filter.search.replace(/[\\%_]/g, '\\$&');
+      where.name = Like(`%${escaped}%`);
     }
 
     const [items, total] = await this.sensorRepository.findAndCount({
@@ -511,7 +512,9 @@ export class SensorRegistrationService {
   }
 
   /**
-   * Get sensor statistics
+   * Get sensor statistics using a single aggregated SQL query (HIGH-007).
+   * Previously loaded all entities into memory for JS-side aggregation.
+   * Now uses GROUP BY for O(1) heap usage regardless of sensor count.
    */
   async getSensorStats(tenantId: string): Promise<{
     total: number;
@@ -522,13 +525,26 @@ export class SensorRegistrationService {
     byType: Record<string, number>;
     byProtocol: Record<string, number>;
   }> {
-    const sensors = await this.sensorRepository.find({
-      where: { tenantId },
-      relations: ['protocol'],
-    });
+    interface StatRow {
+      registration_status: string;
+      type: string;
+      protocol_code: string | null;
+      cnt: string;
+    }
+
+    const rows: StatRow[] = await this.dataSource.query(
+      `SELECT s.registration_status, s.type,
+              p.code AS protocol_code,
+              COUNT(*) AS cnt
+       FROM sensors s
+       LEFT JOIN sensor_protocols p ON s.protocol_id = p.id
+       WHERE s.tenant_id = $1
+       GROUP BY s.registration_status, s.type, p.code`,
+      [tenantId],
+    );
 
     const stats = {
-      total: sensors.length,
+      total: 0,
       active: 0,
       inactive: 0,
       testing: 0,
@@ -537,31 +553,31 @@ export class SensorRegistrationService {
       byProtocol: {} as Record<string, number>,
     };
 
-    for (const sensor of sensors) {
-      // Status counts
-      switch (sensor.registrationStatus) {
+    for (const row of rows) {
+      const count = parseInt(row.cnt, 10) || 0;
+      stats.total += count;
+
+      switch (row.registration_status) {
         case SensorRegistrationStatus.ACTIVE:
-          stats.active++;
+          stats.active += count;
           break;
         case SensorRegistrationStatus.SUSPENDED:
         case SensorRegistrationStatus.DRAFT:
-          stats.inactive++;
+          stats.inactive += count;
           break;
         case SensorRegistrationStatus.TESTING:
         case SensorRegistrationStatus.PENDING_TEST:
-          stats.testing++;
+          stats.testing += count;
           break;
         case SensorRegistrationStatus.TEST_FAILED:
-          stats.failed++;
+          stats.failed += count;
           break;
       }
 
-      // Type counts
-      stats.byType[sensor.type] = (stats.byType[sensor.type] || 0) + 1;
+      stats.byType[row.type] = (stats.byType[row.type] || 0) + count;
 
-      // Protocol counts
-      const protocolCode = sensor.protocol?.code || 'unknown';
-      stats.byProtocol[protocolCode] = (stats.byProtocol[protocolCode] || 0) + 1;
+      const protocolCode = row.protocol_code || 'unknown';
+      stats.byProtocol[protocolCode] = (stats.byProtocol[protocolCode] || 0) + count;
     }
 
     return stats;
@@ -927,7 +943,10 @@ export class SensorRegistrationService {
     if (filter?.departmentId) where.departmentId = filter.departmentId;
     if (filter?.systemId) where.systemId = filter.systemId;
     if (filter?.equipmentId) where.equipmentId = filter.equipmentId;
-    if (filter?.search) where.name = Like(`%${filter.search}%`);
+    if (filter?.search) {
+      const escaped = filter.search.replace(/[\\%_]/g, '\\$&');
+      where.name = Like(`%${escaped}%`);
+    }
 
     const [items, total] = await this.sensorRepository.findAndCount({
       where,

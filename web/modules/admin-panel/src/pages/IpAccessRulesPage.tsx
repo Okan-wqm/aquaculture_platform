@@ -35,6 +35,7 @@ const IpAccessRulesPage: React.FC = () => {
   const [rules, setRules] = useState<IpAccessRule[]>([]);
   const [stats, setStats] = useState<IpAccessStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'whitelist' | 'blacklist'>('whitelist');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -74,7 +75,7 @@ const IpAccessRulesPage: React.FC = () => {
       console.error('Failed to load data:', err);
       setRules([]);
       setStats(null);
-      setError('IP erişim kuralları yüklenemedi. Lütfen tekrar deneyin.');
+      setError('Failed to load IP access rules. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -82,7 +83,7 @@ const IpAccessRulesPage: React.FC = () => {
 
   const handleAddRule = async () => {
     if (!newRule.ipAddress) {
-      alert('IP adresi gerekli');
+      setError('IP address is required');
       return;
     }
     try {
@@ -96,20 +97,20 @@ const IpAccessRulesPage: React.FC = () => {
       setShowAddModal(false);
       setNewRule({ ruleType: activeTab, isActive: true });
       loadData();
-      alert('Kural eklendi!');
+      setSuccessMessage('Rule added successfully.');
     } catch (err) {
       console.error('Failed to add rule:', err);
-      alert('Kural eklenemedi');
+      setError(err instanceof Error ? err.message : 'Failed to add rule');
     }
   };
 
   const handleBulkAdd = async () => {
+    const ips = bulkIps.split('\n').filter(ip => ip.trim());
+    if (ips.length === 0) {
+      setError('Please enter at least one IP address.');
+      return;
+    }
     try {
-      const ips = bulkIps.split('\n').filter(ip => ip.trim());
-      if (ips.length === 0) {
-        alert('En az bir IP adresi girin');
-        return;
-      }
       // Add each IP rule
       for (const ip of ips) {
         await settingsApi.createIpAccessRule({
@@ -121,21 +122,21 @@ const IpAccessRulesPage: React.FC = () => {
       setShowBulkModal(false);
       setBulkIps('');
       loadData();
-      alert(`${ips.length} kural eklendi!`);
+      setSuccessMessage(`${ips.length} rule(s) added successfully.`);
     } catch (err) {
       console.error('Failed to bulk add rules:', err);
-      alert('Kurallar eklenemedi');
+      setError(err instanceof Error ? err.message : 'Failed to add rules');
     }
   };
 
   const handleDeleteRule = async (id: string) => {
-    if (!confirm('Bu kuralı silmek istediğinizden emin misiniz?')) return;
+    if (!window.confirm('Are you sure you want to delete this rule?')) return;
     try {
       await settingsApi.deleteIpAccessRule(id);
       setRules(rules.filter(r => r.id !== id));
     } catch (err) {
       console.error('Failed to delete rule:', err);
-      alert('Kural silinemedi');
+      setError(err instanceof Error ? err.message : 'Failed to delete rule');
     }
   };
 
@@ -147,7 +148,7 @@ const IpAccessRulesPage: React.FC = () => {
       ));
     } catch (err) {
       console.error('Failed to toggle rule:', err);
-      alert('Kural durumu değiştirilemedi');
+      setError(err instanceof Error ? err.message : 'Failed to update rule status');
     }
   };
 
@@ -158,17 +159,17 @@ const IpAccessRulesPage: React.FC = () => {
       if (result.allowed) {
         setCheckResult({
           allowed: true,
-          reason: result.matchedRule ? 'Whitelist kuralı ile eşleşti' : 'Kısıtlama yok'
+          reason: result.matchedRule ? 'Matched whitelist rule' : 'No restrictions'
         });
       } else {
         setCheckResult({
           allowed: false,
-          reason: result.matchedRule ? 'Blacklist kuralı ile engellendi' : 'IP engellendi'
+          reason: result.matchedRule ? 'Blocked by blacklist rule' : 'IP blocked'
         });
       }
     } catch (err) {
       console.error('Failed to check IP:', err);
-      alert('IP kontrol edilemedi');
+      setError('Failed to check IP address. Please try again.');
     }
   };
 
@@ -207,8 +208,23 @@ const IpAccessRulesPage: React.FC = () => {
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center justify-between">
           <span className="text-red-700">{error}</span>
-          <Button variant="secondary" size="sm" onClick={loadData}>
-            Tekrar Dene
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" onClick={loadData}>
+              Retry
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setError(null)}>
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Success */}
+      {successMessage && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
+          <span className="text-green-700">{successMessage}</span>
+          <Button variant="secondary" size="sm" onClick={() => setSuccessMessage(null)}>
+            Dismiss
           </Button>
         </div>
       )}

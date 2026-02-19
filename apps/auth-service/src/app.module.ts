@@ -51,6 +51,12 @@ import { TenantModule } from './modules/tenant/tenant.module';
         autoLoadEntities: true,
         synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
+        // Connection pool configuration
+        extra: {
+          max: configService.get<number>('DATABASE_POOL_MAX', 20),
+          min: configService.get<number>('DATABASE_POOL_MIN', 5),
+          idleTimeoutMillis: configService.get<number>('DATABASE_POOL_IDLE_TIMEOUT', 30000),
+        },
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {
           const sslEnabled = configService.get('DATABASE_SSL', 'false') === 'true';
@@ -79,15 +85,22 @@ import { TenantModule } from './modules/tenant/tenant.module';
     }),
 
     // GraphQL Federation
-    GraphQLModule.forRoot<ApolloFederationDriverConfig>({
+    GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: {
-        federation: 2,
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const isProduction = configService.get<string>('NODE_ENV') === 'production';
+        return {
+          autoSchemaFile: {
+            federation: 2,
+          },
+          playground: !isProduction,
+          // SECURITY: Disable introspection in production to prevent schema discovery
+          introspection: !isProduction,
+          context: ({ req, res }: { req: Request; res: Response }) => ({ req, res }),
+        };
       },
-      playground: process.env['NODE_ENV'] !== 'production',
-      // SECURITY: Disable introspection in production to prevent schema discovery
-      introspection: process.env['NODE_ENV'] !== 'production',
-      context: ({ req }: { req: Request }) => ({ req }),
     }),
 
     // Global JWT module
@@ -138,6 +151,7 @@ import { TenantModule } from './modules/tenant/tenant.module';
             signOptions: {
               expiresIn: configService.get('JWT_EXPIRES_IN', SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN),
               issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
+              audience: configService.get('JWT_AUDIENCE', 'aquaculture-platform'),
             },
           };
         }
@@ -154,6 +168,7 @@ import { TenantModule } from './modules/tenant/tenant.module';
           signOptions: {
             expiresIn: configService.get('JWT_EXPIRES_IN', SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN),
             issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
+            audience: configService.get('JWT_AUDIENCE', 'aquaculture-platform'),
           },
         };
       },

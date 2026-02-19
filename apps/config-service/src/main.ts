@@ -7,8 +7,9 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const logger = new Logger('ConfigService');
 
+  const isProduction = process.env['NODE_ENV'] === 'production';
   const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+    logger: isProduction ? ['error', 'warn', 'log'] : ['error', 'warn', 'log', 'debug', 'verbose'],
   });
 
   const configService = app.get(ConfigService);
@@ -27,7 +28,7 @@ async function bootstrap() {
   const isWildcard = corsOrigins === '*';
 
   if (isWildcard && configService.get('NODE_ENV') === 'production') {
-    logger.warn('SECURITY WARNING: CORS_ORIGINS is set to "*" in production');
+    throw new Error('SECURITY: CORS_ORIGINS must not be "*" in production. Set to specific allowed origins.');
   }
 
   app.enableCors({
@@ -36,7 +37,6 @@ async function bootstrap() {
     allowedHeaders: [
       'Content-Type',
       'Authorization',
-      'x-tenant-id',
       'x-correlation-id',
       'x-api-key',
     ],
@@ -60,8 +60,10 @@ async function bootstrap() {
     }),
   );
 
-  // API prefix
-  app.setGlobalPrefix('api/v1');
+  // API prefix excluding health endpoints
+  app.setGlobalPrefix('api/v1', {
+    exclude: ['health', 'health/live', 'health/ready'],
+  });
 
   // Graceful shutdown
   app.enableShutdownHooks();

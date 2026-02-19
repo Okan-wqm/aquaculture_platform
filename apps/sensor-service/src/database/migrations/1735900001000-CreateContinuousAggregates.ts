@@ -69,6 +69,16 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
       `);
       console.log('Created metrics_1min continuous aggregate');
 
+      // Enable real-time query pass-through so the open (un-materialized) bucket is
+      // included in results without waiting for the next aggregate refresh (MEDIUM-007)
+      try {
+        await queryRunner.query(`
+          ALTER MATERIALIZED VIEW metrics_1min SET (timescaledb.materialized_only = false)
+        `);
+      } catch (error) {
+        console.warn('Could not set materialized_only=false on metrics_1min:', error);
+      }
+
       // Refresh policy: every 1 minute, starting from 3 minutes ago
       await queryRunner.query(`
         SELECT add_continuous_aggregate_policy('metrics_1min',
@@ -106,8 +116,19 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
           MIN(min_value) AS min_value,
           MAX(max_value) AS max_value,
 
-          -- Weighted standard deviation approximation
-          SQRT(AVG(POWER(COALESCE(stddev_value, 0), 2))) AS stddev_value,
+          -- Pooled standard deviation (corrects for across-bucket variance):
+          -- σ = SQRT( Σ n_i*(σ_i² + μ_i²) / Σ n_i  -  μ_total² )
+          SQRT(
+            GREATEST(
+              SUM(sample_count * (POWER(COALESCE(stddev_value, 0), 2) + POWER(COALESCE(avg_value, 0), 2)))
+              / NULLIF(SUM(sample_count), 0)
+              - POWER(
+                  SUM(sample_count * COALESCE(avg_value, 0)) / NULLIF(SUM(sample_count), 0),
+                  2
+                ),
+              0
+            )
+          ) AS stddev_value,
 
           -- First/Last
           FIRST(first_value, bucket) AS first_value,
@@ -130,6 +151,15 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
         WITH NO DATA
       `);
       console.log('Created metrics_1hour continuous aggregate');
+
+      // Enable real-time query pass-through (MEDIUM-007)
+      try {
+        await queryRunner.query(`
+          ALTER MATERIALIZED VIEW metrics_1hour SET (timescaledb.materialized_only = false)
+        `);
+      } catch (error) {
+        console.warn('Could not set materialized_only=false on metrics_1hour:', error);
+      }
 
       // Refresh policy: every 1 hour
       await queryRunner.query(`
@@ -167,7 +197,18 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
           AVG(avg_value) AS avg_value,
           MIN(min_value) AS min_value,
           MAX(max_value) AS max_value,
-          SQRT(AVG(POWER(COALESCE(stddev_value, 0), 2))) AS stddev_value,
+          -- Pooled standard deviation (same formula as metrics_1hour)
+          SQRT(
+            GREATEST(
+              SUM(sample_count * (POWER(COALESCE(stddev_value, 0), 2) + POWER(COALESCE(avg_value, 0), 2)))
+              / NULLIF(SUM(sample_count), 0)
+              - POWER(
+                  SUM(sample_count * COALESCE(avg_value, 0)) / NULLIF(SUM(sample_count), 0),
+                  2
+                ),
+              0
+            )
+          ) AS stddev_value,
 
           -- Open/Close for trend analysis (like stock charts)
           FIRST(first_value, bucket) AS open_value,
@@ -186,6 +227,15 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
         WITH NO DATA
       `);
       console.log('Created metrics_1day continuous aggregate');
+
+      // Enable real-time query pass-through (MEDIUM-007)
+      try {
+        await queryRunner.query(`
+          ALTER MATERIALIZED VIEW metrics_1day SET (timescaledb.materialized_only = false)
+        `);
+      } catch (error) {
+        console.warn('Could not set materialized_only=false on metrics_1day:', error);
+      }
 
       // Refresh policy: every 1 day
       await queryRunner.query(`
@@ -242,7 +292,6 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
           quality_code,
           source_protocol
         FROM sensor_metrics
-        WHERE time > NOW() - INTERVAL '10 minutes'
         ORDER BY sensor_id, channel_id, time DESC
       `);
       console.log('Created current_readings view');

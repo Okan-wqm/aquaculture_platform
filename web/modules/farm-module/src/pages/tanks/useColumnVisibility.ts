@@ -2,9 +2,9 @@
  * useColumnVisibility Hook
  * Manages column visibility state with localStorage persistence
  */
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { COLUMN_VISIBILITY_STORAGE_KEY, TankColumn } from './types';
-import { getDefaultVisibleColumns, getAllColumnKeys, tankColumns, cleanerFishColumns } from './columns';
+import { DEFAULT_VISIBLE_COLUMNS, getAllColumnKeys, tankColumns, cleanerFishColumns } from './columns';
 
 export interface UseColumnVisibilityReturn {
   visibleColumns: Set<string>;
@@ -27,39 +27,61 @@ export function useColumnVisibility(
   storageKey: string = COLUMN_VISIBILITY_STORAGE_KEY,
   columns: TankColumn[] = tankColumns
 ): UseColumnVisibilityReturn {
-  // Get column keys and defaults for the provided columns
+  // Get column keys and defaults for the provided columns.
+  // PERF-015: When using the default tankColumns, reuse the pre-computed
+  // DEFAULT_VISIBLE_COLUMNS constant instead of creating a new Set each render.
   const columnKeys = useMemo(() => columns.map(c => c.key), [columns]);
-  const defaultVisible = useMemo(() => new Set(columns.filter(c => c.defaultVisible).map(c => c.key)), [columns]);
+  const defaultVisible = useMemo(
+    () => columns === tankColumns
+      ? DEFAULT_VISIBLE_COLUMNS
+      : new Set(columns.filter(c => c.defaultVisible).map(c => c.key)),
+    [columns],
+  );
 
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem(storageKey);
       if (saved) {
-        const parsed = JSON.parse(saved) as string[];
+        const parsed: unknown = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Filter to only include valid column keys
-          const validKeys = parsed.filter(k => columnKeys.includes(k));
+          // Filter to only include valid, known column keys
+          const validKeys = (parsed as string[]).filter(k => columnKeys.includes(k));
           if (validKeys.length > 0) {
-            return new Set(validKeys);
+            // BUG-020: After a code update that adds new columns, users who had saved prefs
+            // would not see the new columns. Merge saved keys with any defaultVisible columns
+            // not in the saved set (i.e. newly added columns).
+            const newColumnsToAdd = Array.from(defaultVisible).filter(
+              k => !parsed.includes(k) && columnKeys.includes(k)
+            );
+            return new Set([...validKeys, ...newColumnsToAdd]);
           }
         }
       }
     } catch (error) {
-      console.error('Failed to load column visibility settings:', error);
+      if (import.meta.env.DEV) console.error('Failed to load column visibility settings:', error);
     }
     return defaultVisible;
   });
 
-  // Persist to localStorage when visibility changes
+  // PERF-007: skip the first mount write — the value was just read from localStorage,
+  // so there's no need to immediately write it back.
+  // PERF-014: Defer the serialization + write via setTimeout so toggling a column
+  // does not block the main thread synchronously on each click.
+  const isMounted = useRef(false);
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify(Array.from(visibleColumns))
-      );
-    } catch (error) {
-      console.error('Failed to save column visibility settings:', error);
+    if (!isMounted.current) {
+      isMounted.current = true;
+      return;
     }
+    const serialized = JSON.stringify(Array.from(visibleColumns));
+    const timerId = setTimeout(() => {
+      try {
+        localStorage.setItem(storageKey, serialized);
+      } catch (error) {
+        if (import.meta.env.DEV) console.error('Failed to save column visibility settings:', error);
+      }
+    }, 0);
+    return () => clearTimeout(timerId);
   }, [visibleColumns, storageKey]);
 
   /**

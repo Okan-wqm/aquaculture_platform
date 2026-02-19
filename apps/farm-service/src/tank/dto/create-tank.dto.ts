@@ -64,6 +64,7 @@ export class TankLocationInput {
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   notes?: string;
 }
 
@@ -83,6 +84,8 @@ export class WaterFlowInput {
   @Field(() => Float, { nullable: true })
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(100)
   exchangeRate?: number;
 
   @Field(() => Int, { nullable: true })
@@ -318,5 +321,6 @@ export class CreateTankInput {
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   notes?: string;
 }

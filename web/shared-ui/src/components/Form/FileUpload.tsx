@@ -3,7 +3,7 @@
  * Drag and drop file upload with preview
  */
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 
 export interface UploadedFile {
   id: string;
@@ -21,6 +21,13 @@ export interface FileUploadProps {
   value?: UploadedFile[];
   onChange?: (files: UploadedFile[]) => void;
   onUpload?: (file: File) => Promise<void>;
+  /**
+   * SEC-007: The `accept` attribute is client-side only and is trivially bypassed.
+   * It is provided for UX convenience only — do NOT rely on it for security.
+   * Always validate file types server-side. The component performs a basic MIME type
+   * check against this list as an additional hint, but it cannot be trusted as a
+   * security boundary.
+   */
   accept?: string;
   maxSize?: number; // in bytes
   maxFiles?: number;
@@ -42,7 +49,13 @@ const formatFileSize = (bytes: number): string => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-const generateId = () => Math.random().toString(36).substr(2, 9);
+// SEC-012: Use crypto.randomUUID() for unpredictable file IDs
+const generateId = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).substr(2, 9);
+};
 
 export const FileUpload: React.FC<FileUploadProps> = ({
   value = [],
@@ -62,6 +75,16 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // BUG-007: Revoke all object URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      value.forEach((f) => {
+        if (f.preview) URL.revokeObjectURL(f.preview);
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run only on unmount
+  }, []);
 
   const handleFiles = useCallback(
     async (fileList: FileList) => {

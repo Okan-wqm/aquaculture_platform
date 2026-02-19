@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /**
- * Health check result for a single service
+ * Health check result for a single service (internal use)
  */
 export interface ServiceHealth {
   name: string;
@@ -14,7 +14,7 @@ export interface ServiceHealth {
 }
 
 /**
- * Overall health status
+ * Overall health status (internal - full details)
  */
 export interface HealthStatus {
   status: 'healthy' | 'unhealthy' | 'degraded';
@@ -31,6 +31,16 @@ export interface HealthStatus {
 }
 
 /**
+ * Public health status (sanitized - no internal details)
+ * SECURITY: Only exposes overall status, no individual service breakdown.
+ * Service-level details are available on the authenticated /health/detail endpoint.
+ */
+export interface PublicHealthStatus {
+  status: 'healthy' | 'unhealthy' | 'degraded';
+  timestamp: Date;
+}
+
+/**
  * Health Service
  * Monitors health of all downstream services
  * Provides comprehensive health checks for kubernetes probes
@@ -41,13 +51,23 @@ export class HealthService {
   private readonly startTime = Date.now();
   private readonly serviceUrls: Map<string, string>;
   private readonly healthCheckTimeout: number;
+  private cachedResults: ServiceHealth[] | null = null;
+  private cacheExpiry = 0;
+  private readonly cacheTtlMs: number;
 
   constructor(private readonly configService: ConfigService) {
     this.healthCheckTimeout = this.configService.get<number>(
       'HEALTH_CHECK_TIMEOUT_MS',
       5000,
     );
+    this.cacheTtlMs = this.configService.get<number>(
+      'HEALTH_CHECK_CACHE_TTL_MS',
+      5000,
+    );
 
+    // NOTE: notification-service is event-driven only (no GraphQL/HTTP endpoint).
+    // Including it causes the health endpoint to permanently report 'degraded',
+    // masking genuine failures and misleading Kubernetes probes.
     this.serviceUrls = new Map([
       [
         'auth',
@@ -88,13 +108,6 @@ export class HealthService {
           'http://localhost:3006/graphql',
         ),
       ],
-      [
-        'notification',
-        this.configService.get(
-          'NOTIFICATION_SERVICE_URL',
-          'http://localhost:3007/graphql',
-        ),
-      ],
     ]);
   }
 
@@ -123,25 +136,12 @@ export class HealthService {
   }
 
   /**
-   * Get comprehensive health status
+   * Get comprehensive health status (internal - requires auth)
    */
   async getHealth(): Promise<HealthStatus> {
     const services = await this.checkAllServices();
     const memoryUsage = process.memoryUsage();
-
-    const unhealthyCount = services.filter(
-      (s) => s.status === 'unhealthy',
-    ).length;
-    const degradedCount = services.filter((s) => s.status === 'degraded').length;
-
-    let overallStatus: 'healthy' | 'unhealthy' | 'degraded' = 'healthy';
-    if (unhealthyCount > 0) {
-      // If more than half services are unhealthy, overall is unhealthy
-      overallStatus =
-        unhealthyCount > services.length / 2 ? 'unhealthy' : 'degraded';
-    } else if (degradedCount > 0) {
-      overallStatus = 'degraded';
-    }
+    const overallStatus = this.computeOverallStatus(services);
 
     return {
       status: overallStatus,
@@ -159,14 +159,59 @@ export class HealthService {
   }
 
   /**
+   * Get sanitized health status (public - no sensitive details)
+   * SECURITY: Only returns overall status. Does not expose individual service
+   * names, statuses, URLs, memory, uptime, version, or errors.
+   * Exposing per-service status reveals architecture details and confirms
+   * which subsystems are degraded, aiding targeted attacks.
+   */
+  async getPublicHealth(): Promise<PublicHealthStatus> {
+    const services = await this.checkAllServices();
+    const overallStatus = this.computeOverallStatus(services);
+
+    return {
+      status: overallStatus,
+      timestamp: new Date(),
+    };
+  }
+
+  private computeOverallStatus(
+    services: ServiceHealth[],
+  ): 'healthy' | 'unhealthy' | 'degraded' {
+    const unhealthyCount = services.filter(
+      (s) => s.status === 'unhealthy',
+    ).length;
+    const degradedCount = services.filter((s) => s.status === 'degraded').length;
+
+    if (unhealthyCount > 0) {
+      return unhealthyCount > services.length / 2 ? 'unhealthy' : 'degraded';
+    }
+    if (degradedCount > 0) {
+      return 'degraded';
+    }
+    return 'healthy';
+  }
+
+  /**
    * Check health of all services
+   * Results are cached for 5 seconds to avoid 7+ parallel HTTP calls per probe invocation
+   * across multiple replicas (reduces ~504 upstream calls/min to ~36).
    */
   private async checkAllServices(): Promise<ServiceHealth[]> {
+    const now = Date.now();
+    if (this.cachedResults && now < this.cacheExpiry) {
+      return this.cachedResults;
+    }
+
     const checks = Array.from(this.serviceUrls.keys()).map((name) =>
       this.checkService(name),
     );
 
-    return Promise.all(checks);
+    const results = await Promise.all(checks);
+    this.cachedResults = results;
+    this.cacheExpiry = now + this.cacheTtlMs;
+
+    return results;
   }
 
   /**

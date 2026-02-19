@@ -8,12 +8,12 @@ import {
   Body,
   Param,
   Query,
+  Req,
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
   BadRequestException,
   UseGuards,
-  Req,
   NotFoundException,
   Logger,
 } from '@nestjs/common';
@@ -158,10 +158,6 @@ export class InviteUserRequestDto {
   @IsString()
   @MaxLength(1000)
   message?: string;
-
-  @IsString()
-  @MinLength(1)
-  invitedBy!: string;
 }
 
 // Query DTO for list users with validation
@@ -392,7 +388,10 @@ export class UsersController {
    */
   @Post('invite')
   @HttpCode(HttpStatus.CREATED)
-  async inviteUser(@Body() dto: InviteUserRequestDto) {
+  async inviteUser(
+    @Body() dto: InviteUserRequestDto,
+    @Req() req: { user: { id: string } },
+  ) {
     const result = await this.userProvisioningService.inviteUser({
       tenantId: dto.tenantId,
       email: dto.email,
@@ -401,7 +400,7 @@ export class UsersController {
       role: dto.role,
       moduleIds: dto.moduleIds,
       primaryModuleId: dto.primaryModuleId,
-      invitedBy: dto.invitedBy || 'system',
+      invitedBy: req.user.id,
       message: dto.message,
     });
 

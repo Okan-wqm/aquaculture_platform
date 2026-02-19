@@ -37,6 +37,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useAuthContext } from '@aquaculture/shared-ui';
+import { logError } from '../utils/error-handling';
 import {
   ticketsApi,
   SupportTicket as ApiSupportTicket,
@@ -100,139 +101,6 @@ interface TicketStats {
   avgResponseMinutes: number;
 }
 
-// ============================================================================
-// Mock Data (kept for future reference/testing)
-// ============================================================================
-
-export const _mockTickets: SupportTicket[] = [
-  {
-    id: 'ticket-001',
-    ticketNumber: 'TKT-2024-001234',
-    subject: 'Unable to access dashboard after update',
-    description: 'After the latest update, we are unable to access the main dashboard. Getting a 500 error.',
-    category: 'technical',
-    priority: 'critical',
-    status: 'in_progress',
-    assignedToName: 'John Support',
-    reportedBy: 'user-001',
-    reportedByName: 'Alex Johnson',
-    commentCount: 5,
-    slaResponseDeadline: new Date(Date.now() + 1000 * 60 * 15).toISOString(),
-    slaResolutionDeadline: new Date(Date.now() + 1000 * 60 * 60 * 4).toISOString(),
-    firstResponseAt: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
-    tags: ['dashboard', 'urgent'],
-    createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    updatedAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-  },
-  {
-    id: 'ticket-002',
-    ticketNumber: 'TKT-2024-001233',
-    subject: 'Billing discrepancy for November',
-    description: 'We noticed an extra charge on our November invoice. Please review.',
-    category: 'billing',
-    priority: 'high',
-    status: 'waiting_customer',
-    assignedToName: 'Sarah Finance',
-    reportedBy: 'user-001',
-    reportedByName: 'Alex Johnson',
-    commentCount: 3,
-    slaResponseDeadline: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-    slaResolutionDeadline: new Date(Date.now() + 1000 * 60 * 60 * 8).toISOString(),
-    firstResponseAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-    tags: ['billing', 'invoice'],
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
-    updatedAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-  },
-  {
-    id: 'ticket-003',
-    ticketNumber: 'TKT-2024-001232',
-    subject: 'Feature Request: Export to Excel',
-    description: 'It would be great if we could export our reports directly to Excel format.',
-    category: 'feature_request',
-    priority: 'low',
-    status: 'open',
-    reportedBy: 'user-001',
-    reportedByName: 'Alex Johnson',
-    commentCount: 1,
-    slaResponseDeadline: new Date(Date.now() + 1000 * 60 * 60 * 8).toISOString(),
-    slaResolutionDeadline: new Date(Date.now() + 1000 * 60 * 60 * 48).toISOString(),
-    tags: ['feature', 'export'],
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-  },
-  {
-    id: 'ticket-004',
-    ticketNumber: 'TKT-2024-001230',
-    subject: 'How to set up automated alerts',
-    description: 'Need help configuring automated alerts for water temperature.',
-    category: 'general',
-    priority: 'medium',
-    status: 'resolved',
-    assignedToName: 'John Support',
-    reportedBy: 'user-001',
-    reportedByName: 'Alex Johnson',
-    commentCount: 4,
-    firstResponseAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
-    resolvedAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-    satisfactionRating: 5,
-    tags: ['alerts', 'setup'],
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 72).toISOString(),
-    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-  },
-];
-
-export const _mockComments: TicketComment[] = [
-  {
-    id: 'comment-001',
-    ticketId: 'ticket-001',
-    authorId: 'user-001',
-    authorName: 'Alex Johnson',
-    authorType: 'tenant',
-    content: 'After the latest update, we are unable to access the main dashboard. Getting a 500 error. This is affecting our operations.',
-    attachments: [
-      { id: 'att-001', filename: 'error_screenshot.png', url: '/attachments/error.png', size: 245000 },
-    ],
-    createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-  },
-  {
-    id: 'comment-002',
-    ticketId: 'ticket-001',
-    authorId: 'admin-001',
-    authorName: 'John Support',
-    authorType: 'admin',
-    content: 'Thank you for reporting this. I am looking into it now. Could you please try clearing your browser cache?',
-    attachments: [],
-    createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-  },
-  {
-    id: 'comment-004',
-    ticketId: 'ticket-001',
-    authorId: 'user-001',
-    authorName: 'Alex Johnson',
-    authorType: 'tenant',
-    content: 'Cleared the cache but still having the same issue.',
-    attachments: [],
-    createdAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-  },
-  {
-    id: 'comment-005',
-    ticketId: 'ticket-001',
-    authorId: 'admin-001',
-    authorName: 'John Support',
-    authorType: 'admin',
-    content: 'We have identified the issue and our development team is working on a fix. Expected resolution within 2 hours.',
-    attachments: [],
-    createdAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-  },
-];
-
-export const _mockStats: TicketStats = {
-  total: 12,
-  open: 2,
-  inProgress: 3,
-  resolved: 7,
-  avgResponseMinutes: 35,
-};
 
 // ============================================================================
 // Components
@@ -458,6 +326,7 @@ export const TenantSupportPage: React.FC = () => {
   const [ticketToRate, setTicketToRate] = useState<SupportTicket | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Fetch tickets from API
   const fetchTickets = useCallback(async () => {
@@ -496,10 +365,10 @@ export const TenantSupportPage: React.FC = () => {
         open,
         inProgress,
         resolved,
-        avgResponseMinutes: 35, // Would come from backend stats endpoint
+        avgResponseMinutes: 0, // TODO: fetch from a dedicated support stats endpoint
       });
     } catch (err) {
-      console.error('Failed to fetch tickets:', err);
+      logError('TenantSupportPage.fetchTickets', err);
       setError(err instanceof Error ? err.message : 'Failed to load tickets');
     } finally {
       setLoading(false);
@@ -533,7 +402,7 @@ export const TenantSupportPage: React.FC = () => {
           }));
           setComments(mappedComments);
         } catch (err) {
-          console.error('Failed to fetch comments:', err);
+          logError('TenantSupportPage.fetchComments', err);
           setComments([]);
         }
       };
@@ -649,8 +518,8 @@ export const TenantSupportPage: React.FC = () => {
       await fetchTickets();
       setNewTicketOpen(false);
     } catch (err) {
-      console.error('Failed to create ticket:', err);
-      alert(err instanceof Error ? err.message : 'Failed to create ticket');
+      logError('TenantSupportPage.createTicket', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to create ticket');
     }
   };
 
@@ -693,8 +562,8 @@ export const TenantSupportPage: React.FC = () => {
         )
       );
     } catch (err) {
-      console.error('Failed to add comment:', err);
-      alert(err instanceof Error ? err.message : 'Failed to add comment');
+      logError('TenantSupportPage.addComment', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to add comment');
     }
   };
 
@@ -717,8 +586,8 @@ export const TenantSupportPage: React.FC = () => {
       setRatingModalOpen(false);
       setTicketToRate(null);
     } catch (err) {
-      console.error('Failed to rate ticket:', err);
-      alert(err instanceof Error ? err.message : 'Failed to submit rating');
+      logError('TenantSupportPage.rateTicket', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to submit rating');
     }
   };
 
@@ -732,13 +601,22 @@ export const TenantSupportPage: React.FC = () => {
             <p className="text-gray-500 mt-1">Get help from our support team</p>
           </div>
           <button
-            onClick={() => setNewTicketOpen(true)}
+            onClick={() => { setNewTicketOpen(true); setActionError(null); }}
             className="inline-flex items-center gap-2 px-4 py-2 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 transition-colors"
           >
             <Plus className="w-4 h-4" />
             New Ticket
           </button>
         </div>
+        {actionError && (
+          <div className="mt-3 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            {actionError}
+            <button onClick={() => setActionError(null)} className="ml-auto text-red-500 hover:text-red-700">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-5 gap-3 mt-4">
@@ -1007,16 +885,23 @@ export const TenantSupportPage: React.FC = () => {
                   <p className="text-sm text-gray-700 whitespace-pre-wrap">{comment.content}</p>
                   {comment.attachments.length > 0 && (
                     <div className="mt-3 space-y-2">
-                      {comment.attachments.map((att) => (
-                        <a
-                          key={att.id}
-                          href={att.url}
-                          className="flex items-center gap-2 p-2 bg-white rounded border border-gray-200 hover:bg-gray-50 text-sm"
-                        >
-                          <FileText size={14} className="text-gray-400" />
-                          <span className="text-gray-700">{att.filename}</span>
-                        </a>
-                      ))}
+                      {comment.attachments.map((att) => {
+                        // SEC-009: Only allow https:// URLs to prevent javascript: / data: injection
+                        const safeUrl = att.url.startsWith('https://') ? att.url : null;
+                        return (
+                          <a
+                            key={att.id}
+                            href={safeUrl ?? '#'}
+                            rel="noopener noreferrer"
+                            target="_blank"
+                            onClick={safeUrl ? undefined : (e) => e.preventDefault()}
+                            className="flex items-center gap-2 p-2 bg-white rounded border border-gray-200 hover:bg-gray-50 text-sm"
+                          >
+                            <FileText size={14} className="text-gray-400" />
+                            <span className="text-gray-700">{att.filename}</span>
+                          </a>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

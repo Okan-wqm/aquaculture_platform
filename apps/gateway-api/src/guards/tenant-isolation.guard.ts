@@ -86,7 +86,8 @@ export class TenantIsolationGuard implements CanActivate {
     }
 
     // Admin users can access any tenant if it's an admin endpoint
-    if (isAdminEndpoint && user.role === 'admin') {
+    // SECURITY: Check user.roles (array from JWT), not user.role (singular, may be undefined)
+    if (isAdminEndpoint && (user.roles?.includes('admin') || user.role === 'admin')) {
       return true;
     }
 
@@ -231,7 +232,11 @@ export class TenantIsolationGuard implements CanActivate {
    */
   private hasCrossTenantAccess(user: AuthenticatedUser, targetTenantId: string): boolean {
     // Platform admins can access any tenant
-    if (user.role === 'platform_admin' || user.role === 'super_admin') {
+    // Check both user.roles (array from JWT) and user.role (singular fallback)
+    const roles = user.roles ?? [];
+    const singleRole = user.role;
+    if (roles.includes('platform_admin') || roles.includes('super_admin') ||
+        singleRole === 'platform_admin' || singleRole === 'super_admin') {
       return true;
     }
 
@@ -241,7 +246,7 @@ export class TenantIsolationGuard implements CanActivate {
     }
 
     // Check partner/reseller access
-    if (user.role === 'partner' && user.managedTenants) {
+    if ((roles.includes('partner') || singleRole === 'partner') && user.managedTenants) {
       return user.managedTenants.includes(targetTenantId);
     }
 

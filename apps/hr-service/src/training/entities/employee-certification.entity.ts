@@ -192,7 +192,10 @@ export class EmployeeCertification {
   generateCertificationNumber(): void {
     if (!this.certificationNumber) {
       const year = new Date().getFullYear();
-      const random = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
+      // SECURITY: Use cryptographically secure random bytes instead of Math.random()
+      // to prevent enumeration attacks on certification IDs (MED-01).
+      const randomBytes = require('crypto').randomBytes(3);
+      const random = (randomBytes.readUIntBE(0, 3) % 100000).toString().padStart(5, '0');
       this.certificationNumber = `CERT-${year}-${random}`;
     }
   }

@@ -2,12 +2,17 @@ import { Controller, Get, HttpCode, HttpException, HttpStatus } from '@nestjs/co
 
 import { Public } from '../guards/auth.guard';
 
-import { HealthService, HealthStatus } from './health.service';
+import { HealthService, HealthStatus, PublicHealthStatus } from './health.service';
 
 /**
  * Health Controller
  * Provides health check endpoints for kubernetes probes
- * All endpoints are public (no auth required)
+ *
+ * /health/live  - Public (K8s liveness probe)
+ * /health/ready - Public (K8s readiness probe)
+ * /health/ping  - Public (connectivity check)
+ * /health       - Public but sanitized (no internal URLs, memory, uptime)
+ * /health/detail - Auth required (full internal details for monitoring)
  */
 @Controller('health')
 export class HealthController {
@@ -45,14 +50,26 @@ export class HealthController {
   }
 
   /**
-   * Comprehensive health check endpoint
-   * Returns detailed health status of all services
-   * Used for monitoring dashboards and debugging
+   * Public health check endpoint (sanitized)
+   * Returns overall status and service names only
+   * Does NOT expose: URLs, memory, uptime, version, error details
    */
   @Get()
   @Public()
   @HttpCode(HttpStatus.OK)
-  async health(): Promise<HealthStatus> {
+  async health(): Promise<PublicHealthStatus> {
+    return this.healthService.getPublicHealth();
+  }
+
+  /**
+   * Detailed health check endpoint (auth required)
+   * Returns full internal details including service URLs, memory, uptime
+   * For monitoring dashboards and debugging only
+   * No @Public() decorator = requires authentication via global AuthGuard
+   */
+  @Get('detail')
+  @HttpCode(HttpStatus.OK)
+  async healthDetail(): Promise<HealthStatus> {
     return this.healthService.getHealth();
   }
 

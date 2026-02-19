@@ -77,7 +77,19 @@ export function CertificationExpiryAlert({
   }
 
   const allCerts = [
-    ...(showExpired && expiredCerts ? expiredCerts.map((c) => ({ ...c, daysUntilExpiry: -c.daysSinceExpiry })) : []),
+    ...(showExpired && expiredCerts
+      ? expiredCerts.map((c) => {
+          // BUG-015: daysSinceExpiry may be undefined → NaN; compute from expiryDate
+          // as the authoritative source so the negative value is always valid.
+          const sinceExpiry =
+            c.daysSinceExpiry != null
+              ? c.daysSinceExpiry
+              : c.expiryDate
+              ? Math.floor((Date.now() - new Date(c.expiryDate).getTime()) / 86400000)
+              : 0;
+          return { ...c, daysUntilExpiry: -sinceExpiry };
+        })
+      : []),
     ...(expiringCerts || []),
   ].slice(0, maxItems);
 

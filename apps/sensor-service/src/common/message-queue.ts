@@ -126,8 +126,12 @@ export class MessageQueue<T> {
   private totalProcessed = 0;
   private totalDropped = 0;
   private totalErrors = 0;
-  private processingTimes: number[] = [];
-  private readonly processingTimesWindow = 100; // Keep last 100 for average
+  // LOW-001: Circular buffer replaces Array.shift() O(N) with O(1) writes
+  private readonly processingTimesWindow = 100;
+  private readonly processingTimes = new Float64Array(100);
+  private processingTimesHead = 0;
+  private processingTimesFilled = 0;
+  private processingTimesSum = 0;
   private processedInLastSecond = 0;
   private lastRateCalculation = Date.now();
 
@@ -426,12 +430,18 @@ export class MessageQueue<T> {
   }
 
   /**
-   * Record processing time for metrics
+   * Record processing time for metrics.
+   * LOW-001: Uses a circular Float64Array buffer (O(1)) instead of Array.shift() (O(N)).
    */
   private recordProcessingTime(timeMs: number): void {
-    this.processingTimes.push(timeMs);
-    if (this.processingTimes.length > this.processingTimesWindow) {
-      this.processingTimes.shift();
+    const idx = this.processingTimesHead;
+    // Subtract the value being overwritten from the running sum
+    this.processingTimesSum -= this.processingTimes[idx] ?? 0;
+    this.processingTimes[idx] = timeMs;
+    this.processingTimesSum += timeMs;
+    this.processingTimesHead = (idx + 1) % this.processingTimesWindow;
+    if (this.processingTimesFilled < this.processingTimesWindow) {
+      this.processingTimesFilled++;
     }
   }
 
@@ -439,9 +449,8 @@ export class MessageQueue<T> {
    * Calculate average processing time
    */
   private calculateAvgProcessingTime(): number {
-    if (this.processingTimes.length === 0) return 0;
-    const sum = this.processingTimes.reduce((a, b) => a + b, 0);
-    return Math.round(sum / this.processingTimes.length);
+    if (this.processingTimesFilled === 0) return 0;
+    return Math.round(this.processingTimesSum / this.processingTimesFilled);
   }
 
   /**

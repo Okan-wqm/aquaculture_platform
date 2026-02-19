@@ -22,6 +22,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS, Transport};
 use secrecy::ExposeSecret;
+use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
@@ -116,10 +117,13 @@ pub struct TelemetryMetrics {
     pub disk_total_gb: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature_celsius: Option<f32>,
+    // LOW-42: Network counters in MB to avoid u64 precision issues in JSON parsers
+    // that use 64-bit floats (IEEE 754 double has 53-bit mantissa; raw byte counters
+    // on busy interfaces can exceed 2^53 after ~9PB of traffic, causing rounding).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub network_rx_bytes: Option<u64>,
+    pub network_rx_mb: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub network_tx_bytes: Option<u64>,
+    pub network_tx_mb: Option<f64>,
 
     // Hardware metrics (PLC/Sensors via Modbus)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -208,9 +212,15 @@ impl MqttClient {
             .ok_or_else(|| AgentError::Mqtt("Tenant ID not configured".into()))?;
         let topics = config.mqtt.topics.resolve(tenant_id, &config.device_id);
 
+        // Generate a unique client_id that includes the username and a random UUID component.
+        // Using the username alone as client_id allows an attacker who knows the device_id
+        // to force-disconnect the legitimate session by connecting with the same client_id
+        // (MQTT 3.1.1 section 3.1.4 — broker disconnects the older session).
+        let client_id = format!("{}-{}", username, Uuid::new_v4().simple());
+
         // Create MQTT options
         let mut options = MqttOptions::new(
-            username, // Use username as client ID
+            &client_id,
             broker,
             config.mqtt.port,
         );
@@ -294,7 +304,18 @@ impl MqttClient {
         let mut consecutive_errors: u32 = 0;
 
         loop {
-            match eventloop.poll().await {
+            // Poll the event loop or detect that the message receiver has been dropped
+            // (which indicates the owning MqttClient was disconnected/dropped).
+            // Using tokio::select! avoids spinning forever after disconnect (LOW-36).
+            let poll_result = tokio::select! {
+                result = eventloop.poll() => result,
+                _ = message_tx.closed() => {
+                    // All receivers dropped — owner has shut down, exit loop cleanly
+                    debug!("MQTT event loop: message channel closed, exiting");
+                    return;
+                }
+            };
+            match poll_result {
                 Ok(Event::Incoming(Packet::Publish(publish))) => {
                     consecutive_errors = 0; // Reset on success
                     // v1.2.6: Enhanced logging with message details
@@ -458,18 +479,26 @@ impl MqttClient {
 
     /// Publish telemetry data
     pub async fn publish_telemetry(&self, metrics: TelemetryMetrics) -> Result<()> {
+        // Generate a single timestamp for the entire telemetry message so that all
+        // fields in the payload share exactly one wall-clock observation.
+        // Calling Utc::now() once avoids microsecond skew between fields (MED-27).
+        let now_ts = Utc::now().to_rfc3339();
+
         let message = TelemetryMessage {
             device_id: self.device_id.clone(),
             device_code: self.device_code.clone(),
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: now_ts,
             metrics,
         };
 
         let payload = serde_json::to_vec(&message)?;
         let payload_len = payload.len();
 
+        // QoS::AtLeastOnce (1) ensures telemetry is acknowledged by the broker.
+        // QoS 0 ("fire-and-forget") drops silently during broker reconnect, causing
+        // data gaps in TimescaleDB that are invisible to the monitoring stack.
         self.client
-            .publish(&self.topics.telemetry, QoS::AtMostOnce, false, payload)
+            .publish(&self.topics.telemetry, QoS::AtLeastOnce, false, payload)
             .await
             .context("Failed to publish telemetry")?;
 
@@ -699,30 +728,39 @@ impl FailoverMqttClient {
         Ok(client)
     }
 
-    /// Start message proxy task that forwards messages from inner client
+    /// Start message proxy task that forwards messages from inner client.
+    ///
+    /// Uses `recv().await` instead of `try_recv()` + sleep to avoid the
+    /// busy-wait pattern that generated ~100 Tokio wakeups/second at idle
+    /// on constrained ARM hardware.
     fn start_message_proxy(&self) {
         let inner = self.inner.clone();
         let message_tx = self.message_tx.clone();
 
         tokio::spawn(async move {
             loop {
-                // Try to receive from inner client
+                // Await a message from the currently active inner client.
+                // recv().await suspends the task until a message is available,
+                // eliminating the 10ms sleep busy-wait pattern.
                 let msg = {
                     let mut guard = inner.write().await;
                     if let Some(ref mut client) = *guard {
-                        client.try_recv()
+                        client.recv().await
                     } else {
-                        None
+                        // No client yet — yield briefly and retry
+                        drop(guard);
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        continue;
                     }
                 };
 
-                if let Some(msg) = msg {
-                    if message_tx.send(msg).await.is_err() {
-                        break; // Receiver dropped
+                match msg {
+                    Some(m) => {
+                        if message_tx.send(m).await.is_err() {
+                            break; // Receiver dropped — shut down proxy
+                        }
                     }
-                } else {
-                    // No message available, wait a bit
-                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    None => break, // Channel closed — shut down proxy
                 }
             }
         });

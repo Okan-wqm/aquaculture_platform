@@ -114,7 +114,7 @@ interface ParameterConfig {
 const parameters: ParameterConfig[] = [
   {
     key: 'temperature',
-    label: 'Sicaklik',
+    label: 'Sıcaklık',
     unit: '°C',
     optimalMin: 12,
     optimalMax: 18,
@@ -172,7 +172,8 @@ function getParameterStatus(
   value: number | undefined,
   config: ParameterConfig,
 ): WaterQualityStatus {
-  if (value === undefined || value === null) return 'UNKNOWN';
+  // BUG-L4: type is number | undefined; null check is dead code — removed
+  if (value === undefined) return 'UNKNOWN';
 
   if (value < config.criticalMin || value > config.criticalMax) {
     return 'CRITICAL';
@@ -187,7 +188,8 @@ function calculateGaugePercent(
   value: number | undefined,
   config: ParameterConfig,
 ): number {
-  if (value === undefined || value === null) return 0;
+  // BUG-L4: null is not in the type union — removed dead null check
+  if (value === undefined) return 0;
 
   const range = config.criticalMax - config.criticalMin;
   const normalizedValue = Math.max(config.criticalMin, Math.min(config.criticalMax, value));
@@ -285,6 +287,15 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
     });
   }, [data]);
 
+  // BUG-M5: compute aggregate gauge score from actual parameter percentages
+  // instead of mapping status strings to arbitrary hardcoded values (100/75/50/25).
+  const aggregateGaugePercent = useMemo(() => {
+    const known = parameterValues.filter((p) => p.status !== 'UNKNOWN');
+    if (known.length === 0) return 0;
+    const sum = known.reduce((acc, p) => acc + p.percent, 0);
+    return Math.round(sum / known.length);
+  }, [parameterValues]);
+
   // Loading skeleton
   if (isLoading) {
     return (
@@ -331,7 +342,7 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
             </svg>
           </div>
           <p className="text-sm text-gray-500">Su kalitesi verisi yok</p>
-          <p className="text-xs text-gray-400 mt-1">Henuz olcum yapilmamis</p>
+          <p className="text-xs text-gray-400 mt-1">Henüz ölçüm yapılmamış</p>
         </div>
       </Card>
     );
@@ -359,18 +370,18 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
         </Badge>
       </div>
 
-      {/* Main Gauge - Overall Status */}
+      {/* Main Gauge - Overall Status (BUG-M5: data-driven from parameter averages) */}
       {!compact && (
         <div className="flex justify-center mb-4">
           <div className="relative">
             <CircularGauge
-              value={status === 'OPTIMAL' ? 100 : status === 'ACCEPTABLE' ? 75 : status === 'WARNING' ? 50 : status === 'CRITICAL' ? 25 : 0}
+              value={status !== 'UNKNOWN' ? aggregateGaugePercent : undefined}
               status={status}
               size={80}
             />
             <div className="absolute inset-0 flex items-center justify-center">
               <span className={`text-lg font-bold ${config.color}`}>
-                {status === 'OPTIMAL' ? '100%' : status === 'ACCEPTABLE' ? '75%' : status === 'WARNING' ? '50%' : status === 'CRITICAL' ? '25%' : '-'}
+                {status !== 'UNKNOWN' ? `${aggregateGaugePercent}%` : '-'}
               </span>
             </div>
           </div>

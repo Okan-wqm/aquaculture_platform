@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, HttpException, HttpStatus } from '@nestjs/common';
 import {
   HealthCheck,
   HealthCheckService,
@@ -6,6 +6,7 @@ import {
   MemoryHealthIndicator,
 } from '@nestjs/terminus';
 import { HealthService } from './health.service';
+import { Public } from '../guards/internal-api.guard';
 
 @Controller('health')
 export class HealthController {
@@ -27,18 +28,30 @@ export class HealthController {
   }
 
   @Get('live')
+  @Public()
   liveness() {
     return { status: 'ok', timestamp: new Date().toISOString() };
   }
 
   @Get('ready')
+  @Public()
   async readiness() {
     const dbHealthy = await this.healthService.checkDatabase();
+    if (!dbHealthy) {
+      throw new HttpException(
+        {
+          status: 'not_ready',
+          timestamp: new Date().toISOString(),
+          checks: { database: false },
+        },
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
     return {
-      status: dbHealthy ? 'ok' : 'not_ready',
+      status: 'ok',
       timestamp: new Date().toISOString(),
       checks: {
-        database: dbHealthy,
+        database: true,
       },
     };
   }

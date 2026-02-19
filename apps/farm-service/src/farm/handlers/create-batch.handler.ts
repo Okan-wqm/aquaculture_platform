@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
   Optional,
   Inject,
 } from '@nestjs/common';
@@ -41,19 +42,14 @@ export class CreatePondBatchHandler
       `Creating batch "${command.name}" in pond ${command.pondId}`,
     );
 
-    // Verify pond exists
+    // Verify pond exists with tenant isolation in WHERE clause
     const pond = await this.pondRepository.findOne({
-      where: { id: command.pondId },
+      where: { id: command.pondId, tenantId: command.tenantId },
       relations: ['farm'],
     });
 
     if (!pond) {
       throw new NotFoundException(`Pond with ID ${command.pondId} not found`);
-    }
-
-    // Verify tenant access
-    if (pond.tenantId !== command.tenantId) {
-      throw new ForbiddenException('Access denied to this pond');
     }
 
     // Check pond status
@@ -67,19 +63,19 @@ export class CreatePondBatchHandler
       );
     }
 
-    // Check for active batches in pond (optional - depends on business rules)
+    // Enforce single active batch per pond
     const activeBatches = await this.batchRepository.count({
       where: {
         pondId: command.pondId,
+        tenantId: command.tenantId,
         status: BatchStatus.ACTIVE,
       },
     });
 
     if (activeBatches > 0) {
-      this.logger.warn(
-        `Pond ${command.pondId} already has ${activeBatches} active batches`,
+      throw new ConflictException(
+        `Pond ${command.pondId} already has an active batch. Harvest or close the existing batch first.`,
       );
-      // Could throw an error here depending on business rules
     }
 
     // Create the batch entity

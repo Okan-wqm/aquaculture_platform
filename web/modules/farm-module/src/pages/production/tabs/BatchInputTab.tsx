@@ -2,12 +2,12 @@
  * Batch Input Tab
  * Batch list with CRUD operations and allocation functionality
  */
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBatchList, type BatchStatus, type Batch } from '../../../hooks/useBatches';
+import { useSpeciesList } from '../../../hooks/useSpecies';
 import { BatchFormModal } from '../components/BatchFormModal';
 import { ApiError } from '@aquaculture/shared-ui';
-import { useAuth } from '@aquaculture/shared-ui';
 
 // Status badge colors
 const statusColors: Record<BatchStatus, string> = {
@@ -40,6 +40,14 @@ export const BatchInputTab: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<BatchStatus | 'all'>('all');
   const [showAddModal, setShowAddModal] = useState(false);
 
+  // Fetch species list for name lookup (BUG-009)
+  const { data: speciesData } = useSpeciesList();
+  const speciesById = useMemo(() => {
+    const map = new Map<string, string>();
+    (speciesData?.items || []).forEach((s) => map.set(s.id, s.commonName || s.scientificName || s.id));
+    return map;
+  }, [speciesData]);
+
   // Fetch batches from API
   const { data: batchData, isLoading, error, refetch } = useBatchList(
     {
@@ -54,18 +62,10 @@ export const BatchInputTab: React.FC = () => {
     }
   );
 
-  const batches = batchData?.items || [];
-
-  // Filter batches (additional client-side filtering if needed)
-  const filteredBatches = useMemo(() => {
-    return batches.filter(batch => {
-      const matchesSearch = !searchTerm ||
-        batch.batchNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        batch.name?.toLowerCase().includes(searchTerm.toLowerCase());
-
-      return matchesSearch;
-    });
-  }, [batches, searchTerm]);
+  // PERF-005: The hook already passes searchTerm to the server-side query, so the
+  // returned items are already filtered. Skip the redundant client-side re-filter
+  // and use the server result directly.
+  const filteredBatches = batchData?.items || [];
 
   // Calculate survival rate
   const getSurvivalRate = (batch: Batch): number => {
@@ -74,11 +74,11 @@ export const BatchInputTab: React.FC = () => {
     return ((batch.initialQuantity - batch.totalMortality) / batch.initialQuantity) * 100;
   };
 
-  // Get current biomass
-  const getCurrentBiomass = (batch: Batch): number => {
+  // Get current biomass — useCallback so useMemo can safely include it as a dep (PERF-005)
+  const getCurrentBiomass = useCallback((batch: Batch): number => {
     if (batch.currentBiomassKg !== undefined) return batch.currentBiomassKg;
     return batch.weight?.actual?.totalBiomass || batch.weight?.theoretical?.totalBiomass || 0;
-  };
+  }, []);
 
   // Format date
   const formatDate = (date: string): string => {
@@ -89,13 +89,13 @@ export const BatchInputTab: React.FC = () => {
     });
   };
 
-  // Calculate summary stats
+  // BUG-018: summaryStats must reflect the currently filtered set, not all batches (PERF-005: stable dep)
   const summaryStats = useMemo(() => {
-    const activeBatches = batches.filter(b => b.isActive);
-    const totalStock = batches.reduce((sum, b) => sum + b.currentQuantity, 0);
-    const totalBiomass = batches.reduce((sum, b) => sum + getCurrentBiomass(b), 0);
-    const avgFCR = batches.length > 0
-      ? batches.reduce((sum, b) => sum + (b.fcr?.actual || 0), 0) / batches.length
+    const activeBatches = filteredBatches.filter(b => b.isActive);
+    const totalStock = filteredBatches.reduce((sum, b) => sum + b.currentQuantity, 0);
+    const totalBiomass = filteredBatches.reduce((sum, b) => sum + getCurrentBiomass(b), 0);
+    const avgFCR = filteredBatches.length > 0
+      ? filteredBatches.reduce((sum, b) => sum + (b.fcr?.actual || 0), 0) / filteredBatches.length
       : 0;
 
     return {
@@ -104,7 +104,7 @@ export const BatchInputTab: React.FC = () => {
       totalBiomass,
       avgFCR,
     };
-  }, [batches]);
+  }, [filteredBatches, getCurrentBiomass]);
 
   return (
     <div className="space-y-6">
@@ -228,7 +228,10 @@ export const BatchInputTab: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{batch.speciesId}</div>
+                    {/* BUG-009: display resolved species name, fall back to truncated ID */}
+                    <div className="text-sm text-gray-900">
+                      {speciesById.get(batch.speciesId) ?? batch.speciesId.substring(0, 8) + '…'}
+                    </div>
                     <div className="text-sm text-gray-500 capitalize">{batch.inputType.replace('_', ' ')}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -256,31 +259,8 @@ export const BatchInputTab: React.FC = () => {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {formatDate(batch.stockedAt)}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // TODO: Open allocation modal
-                      }}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                      title="Allocate to Tank"
-                    >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // TODO: Open edit modal
-                      }}
-                      className="text-gray-600 hover:text-gray-900"
-                      title="Edit"
-                    >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </button>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-400">
+                    View
                   </td>
                 </tr>
               ))}

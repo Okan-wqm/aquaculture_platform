@@ -9,6 +9,7 @@ import {
   ValidateNested,
   Min,
   Max,
+  MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { BillingCycle, PlanTier } from '../entities/subscription.entity';
@@ -96,6 +97,7 @@ export class CreateSubscriptionInput {
 
   @Field()
   @IsString()
+  @MaxLength(100)
   planName!: string;
 
   @Field(() => BillingCycle)

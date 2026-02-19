@@ -11,7 +11,7 @@
  * - See draft/scheduled/cancelled announcements
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Megaphone,
   Search,
@@ -28,6 +28,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { announcementsApi, type Announcement } from '../services/tenantApi';
+import { logError } from '../utils/error-handling';
 
 // ============================================================================
 // Types
@@ -67,35 +68,36 @@ export const TenantAnnouncementsPage: React.FC = () => {
   // Local state for read/acknowledged status (could be persisted to backend later)
   const [localState, setLocalState] = useState<Record<string, { isRead: boolean; isAcknowledged: boolean; acknowledgedAt?: string }>>({});
 
-  // Fetch announcements from backend
-  const fetchAnnouncements = async () => {
+  // Fetch announcements from backend (PERF-007: wrapped in useCallback)
+  const fetchAnnouncements = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       const data = await announcementsApi.getAnnouncements();
-      
-      // Extend announcements with local state
-      const extended: ExtendedAnnouncement[] = data.map(ann => ({
-        ...ann,
-        type: mapAnnouncementType(ann.type),
-        isRead: localState[ann.id]?.isRead || false,
-        isAcknowledged: localState[ann.id]?.isAcknowledged || false,
-        acknowledgedAt: localState[ann.id]?.acknowledgedAt,
-        requiresAcknowledgment: ann.priority === 'high', // High priority requires acknowledgment
-      }));
-      
-      setAnnouncements(extended);
+
+      // SEC-006: Prefer backend-returned read/acknowledged status, fall back to local state
+      setAnnouncements(
+        data.map(ann => ({
+          ...ann,
+          type: mapAnnouncementType(ann.type),
+          // Use backend fields if present, else fall back to local ephemeral state
+          isRead: (ann as ExtendedAnnouncement).isRead ?? localState[ann.id]?.isRead ?? false,
+          isAcknowledged: (ann as ExtendedAnnouncement).isAcknowledged ?? localState[ann.id]?.isAcknowledged ?? false,
+          acknowledgedAt: (ann as ExtendedAnnouncement).acknowledgedAt ?? localState[ann.id]?.acknowledgedAt,
+          requiresAcknowledgment: ann.priority === 'high',
+        }))
+      );
     } catch (err) {
-      console.error('Failed to fetch announcements:', err);
       setError(err instanceof Error ? err.message : 'Failed to load announcements');
     } finally {
       setLoading(false);
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     fetchAnnouncements();
-  }, []);
+  }, [fetchAnnouncements]);
 
   // Stats
   const unreadCount = announcements.filter((a) => !a.isRead).length;
@@ -201,7 +203,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
       try {
         await announcementsApi.markAsViewed(announcement.id);
       } catch (err) {
-        console.error('Failed to mark as viewed:', err);
+        logError('TenantAnnouncementsPage.markAsViewed', err);
       }
     }
     setSelectedAnnouncement({ ...announcement, isRead: true });
@@ -240,7 +242,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
     try {
       await announcementsApi.acknowledgeAnnouncement(announcementId);
     } catch (err) {
-      console.error('Failed to acknowledge announcement:', err);
+      logError('TenantAnnouncementsPage.acknowledgeAnnouncement', err);
     }
   };
 
@@ -262,7 +264,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
           .map(a => announcementsApi.markAsViewed(a.id))
       );
     } catch (err) {
-      console.error('Failed to mark all as read:', err);
+      logError('TenantAnnouncementsPage.markAllRead', err);
     }
   };
 
@@ -497,6 +499,10 @@ export const TenantAnnouncementsPage: React.FC = () => {
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-6">
               <div className="bg-white rounded-lg border border-gray-200 p-6">
+                {/* SEC-008: Announcement content is plain text only. React JSX text
+                    nodes prevent HTML/script injection. Do NOT switch to
+                    dangerouslySetInnerHTML without running the value through
+                    DOMPurify first — doing so would introduce a direct XSS path. */}
                 <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
                   {selectedAnnouncement.content}
                 </p>

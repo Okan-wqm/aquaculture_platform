@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
 import {
   MetricsAggregatorService,
   AggregatedMetrics,
@@ -56,7 +56,9 @@ export class MetricsAggregatorController {
   }
 
   @Get('tenant/:tenantId')
-  async getTenantSpecificMetrics(@Param('tenantId') tenantId: string) {
+  async getTenantSpecificMetrics(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+  ) {
     return this.metricsAggregatorService.getTenantMetrics(tenantId);
   }
 }

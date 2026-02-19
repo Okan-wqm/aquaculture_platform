@@ -5,7 +5,7 @@
  * Loads remote modules with lazy loading.
  */
 
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, memo } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthContext, PageLoading } from '@aquaculture/shared-ui';
 import MainLayout from './layouts/MainLayout';
@@ -67,7 +67,7 @@ interface ProtectedRouteProps {
  * Protected route component
  * Handles authentication and role checks
  */
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRoles }) => {
+const ProtectedRoute: React.FC<ProtectedRouteProps> = memo(({ children, requiredRoles }) => {
   const { isAuthenticated, isLoading, user, isSuperAdmin } = useAuthContext();
 
   // Loading state
@@ -90,11 +90,11 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRoles
 
   // Tenant check - SUPER_ADMIN doesn't need a tenant
   if (!user?.tenantId && !isSuperAdmin()) {
-    return <Navigate to="/select-tenant" replace />;
+    return <Navigate to="/unauthorized" replace />;
   }
 
   return <>{children}</>;
-};
+});
 
 /**
  * Role-based redirect component
@@ -133,9 +133,11 @@ const App: React.FC = () => {
       {/* ================================================================ */}
       <Route element={<AuthLayout />}>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<LoginPage isRegister />} />
+        {/* Registration is invitation-only — redirect /register to /login */}
+        <Route path="/register" element={<Navigate to="/login" replace />} />
         <Route path="/forgot-password" element={<LoginPage isForgotPassword />} />
         <Route path="/reset-password/:token" element={<LoginPage isResetPassword />} />
+        <Route path="/accept-invitation/:token" element={<LoginPage isAcceptInvitation />} />
       </Route>
 
       {/* ================================================================ */}
@@ -247,7 +249,6 @@ const App: React.FC = () => {
       {/* Error Routes */}
       {/* ================================================================ */}
       <Route path="/unauthorized" element={<NotFoundPage type="unauthorized" />} />
-      <Route path="/select-tenant" element={<div>Tenant Selection (TODO)</div>} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );

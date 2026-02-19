@@ -3,7 +3,7 @@
  * Displays leave requests with filtering and approval workflow
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   Calendar,
   Plus,
@@ -15,22 +15,24 @@ import {
   Eye,
 } from 'lucide-react';
 import { cn } from '@aquaculture/shared-ui';
-import { useAuth } from '@aquaculture/shared-ui';
 import {
   useLeaveRequests,
   usePendingLeaveApprovals,
   useLeaveTypes,
   useApproveLeaveRequest,
   useRejectLeaveRequest,
+  useCurrentEmployeeId,
 } from '../../hooks';
 import { DataTable, StatusBadge, EmployeeAvatar } from '../../components/common';
 import type { Column } from '../../components/common';
 import type { LeaveRequest, LeaveRequestFilterInput, LeaveRequestStatus, PaginationInput } from '../../types';
 import { LEAVE_STATUS_CONFIG, LEAVE_CATEGORY_CONFIG } from '../../types';
+// SEC-006: sanitize API-sourced color codes before use in inline styles
+import { sanitizeColor } from '../../components/leave/LeaveBalanceWidget';
 
 export function LeavesPage() {
-  const { user } = useAuth();
-  const employeeId = user?.sub || '';
+  // BUG-011: use centralised hook for consistent auth→employeeId mapping
+  const employeeId = useCurrentEmployeeId();
 
   // State
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'mine'>('all');
@@ -38,6 +40,9 @@ export function LeavesPage() {
   const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, offset: 0 });
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  // BUG-010 / SEC-006: replace prompt() with controlled input state
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   // Data fetching
   const { data: allRequests, isLoading: loadingAll } = useLeaveRequests(
@@ -54,8 +59,8 @@ export function LeavesPage() {
   const requests = activeTab === 'pending' ? pendingApprovals : allRequests?.items;
   const isLoading = activeTab === 'pending' ? loadingPending : loadingAll;
 
-  // Table columns
-  const columns: Column<LeaveRequest>[] = [
+  // PERF-004: memoize columns — they only change when activeTab or mutation state changes
+  const columns: Column<LeaveRequest>[] = useMemo(() => [
     {
       key: 'employee',
       header: 'Employee',
@@ -90,9 +95,10 @@ export function LeavesPage() {
           : null;
         return (
           <div className="flex items-center gap-2">
+            {/* SEC-006: sanitize colorCode before use in inline style */}
             <div
               className="h-3 w-3 rounded-full"
-              style={{ backgroundColor: row.leaveType?.colorCode || '#6366f1' }}
+              style={{ backgroundColor: sanitizeColor(row.leaveType?.colorCode) }}
             />
             <span className="text-gray-900 dark:text-white">{row.leaveType?.name}</span>
           </div>
@@ -148,10 +154,8 @@ export function LeavesPage() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  const reason = prompt('Enter rejection reason:');
-                  if (reason) {
-                    rejectMutation.mutate({ id: row.id, reason });
-                  }
+                  setRejectingId(row.id);
+                  setRejectReason('');
                 }}
                 disabled={rejectMutation.isPending}
                 className="rounded p-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
@@ -174,9 +178,14 @@ export function LeavesPage() {
         </div>
       ),
     },
-  ];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [activeTab, approveMutation.isPending, rejectMutation.isPending]);
 
-  const handleFilterChange = (key: keyof LeaveRequestFilterInput, value: any) => {
+  // PERF-009: stable keyExtractor reference
+  const leaveKeyExtractor = useCallback((row: LeaveRequest) => row.id, []);
+
+  // BUG-012: replace any with narrower type for filter values
+  const handleFilterChange = (key: keyof LeaveRequestFilterInput, value: string | undefined) => {
     setFilter((prev) => ({
       ...prev,
       [key]: value || undefined,
@@ -191,8 +200,56 @@ export function LeavesPage() {
     });
   };
 
+  const handleConfirmReject = () => {
+    if (rejectingId && rejectReason.trim()) {
+      rejectMutation.mutate(
+        { id: rejectingId, reason: rejectReason.trim() },
+        { onSuccess: () => { setRejectingId(null); setRejectReason(''); } }
+      );
+    }
+  };
+
   return (
     <div className="space-y-6 p-6">
+      {/* Rejection reason modal — replaces prompt() */}
+      {rejectingId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-800">
+            <h3 className="mb-3 text-lg font-semibold text-gray-900 dark:text-white">
+              Reject Leave Request
+            </h3>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Reason <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              rows={3}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              placeholder="Enter the reason for rejection..."
+              autoFocus
+            />
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                onClick={() => { setRejectingId(null); setRejectReason(''); }}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:text-gray-300 dark:ring-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmReject}
+                disabled={!rejectReason.trim() || rejectMutation.isPending}
+                className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {rejectMutation.isPending && (
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                )}
+                Confirm Rejection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -351,17 +408,19 @@ export function LeavesPage() {
         </div>
       )}
 
-      {/* Data Table */}
+      {/* Data Table
+          BUG-007: the pending tab returns a flat array (no server-side pagination),
+          so omit total/onPageChange for that tab to avoid a broken pagination UI. */}
       <DataTable
         data={requests || []}
         columns={columns}
-        keyExtractor={(row) => row.id}
+        keyExtractor={leaveKeyExtractor}
         isLoading={isLoading}
         emptyMessage="No leave requests found"
-        total={activeTab === 'pending' ? pendingApprovals?.length : allRequests?.total}
-        page={Math.floor((pagination.offset || 0) / (pagination.limit || 20)) + 1}
+        total={activeTab === 'pending' ? undefined : allRequests?.total}
+        page={activeTab === 'pending' ? 1 : Math.floor((pagination.offset || 0) / (pagination.limit || 20)) + 1}
         pageSize={pagination.limit || 20}
-        onPageChange={handlePageChange}
+        onPageChange={activeTab === 'pending' ? undefined : handlePageChange}
       />
     </div>
   );

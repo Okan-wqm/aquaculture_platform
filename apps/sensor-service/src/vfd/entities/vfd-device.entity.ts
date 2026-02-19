@@ -150,11 +150,11 @@ export class VfdDevice {
   tenantId!: string;
 
   @Field({ nullable: true })
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'uuid', name: 'farm_id', nullable: true })
   farmId?: string;
 
   @Field({ nullable: true })
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'uuid', name: 'tank_id', nullable: true })
   tankId?: string;
 
   @Field({ nullable: true })
@@ -185,11 +185,11 @@ export class VfdDevice {
   }>;
 
   @Field()
-  @Column({ type: 'int', default: 1000 })
+  @Column({ type: 'int', name: 'poll_interval_ms', default: 1000 })
   pollIntervalMs!: number;
 
   @Field()
-  @Column({ type: 'boolean', default: true })
+  @Column({ type: 'boolean', name: 'is_polling_enabled', default: true })
   isPollingEnabled!: boolean;
 
   @Field()

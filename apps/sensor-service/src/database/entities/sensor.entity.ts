@@ -129,7 +129,7 @@ export class Sensor {
   name!: string;
 
   @Field()
-  @Column({ name: 'serial_number', unique: true })
+  @Column({ name: 'serial_number' })
   serialNumber!: string;
 
   @Field(() => SensorType)

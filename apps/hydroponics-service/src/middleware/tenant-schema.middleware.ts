@@ -1,4 +1,4 @@
-import { Injectable, NestMiddleware, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, NestMiddleware, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { DataSource } from 'typeorm';
 
@@ -13,58 +13,28 @@ interface TenantRequest extends Request {
   schemaName?: string;
 }
 
-class SchemaLRUCache {
-  private cache = new Map<string, { value: boolean; expiry: number }>();
-  private readonly maxSize: number;
-  private readonly ttlMs: number;
-
-  constructor(maxSize = 1000, ttlMs = 5 * 60 * 1000) {
-    this.maxSize = maxSize;
-    this.ttlMs = ttlMs;
-  }
-
-  get(key: string): boolean | undefined {
-    const entry = this.cache.get(key);
-    if (!entry) return undefined;
-    if (Date.now() > entry.expiry) {
-      this.cache.delete(key);
-      return undefined;
-    }
-    this.cache.delete(key);
-    this.cache.set(key, entry);
-    return entry.value;
-  }
-
-  set(key: string, value: boolean): void {
-    if (this.cache.size >= this.maxSize) {
-      const firstKey = this.cache.keys().next().value;
-      if (firstKey) this.cache.delete(firstKey);
-    }
-    this.cache.set(key, { value, expiry: Date.now() + this.ttlMs });
-  }
-
-  delete(key: string): void {
-    this.cache.delete(key);
-  }
-}
-
 /**
  * Tenant Schema Middleware for Hydroponics Service
  *
  * Sets PostgreSQL search_path to tenant-specific schema at the start of each request.
+ * Uses SET LOCAL inside a transaction so the search_path is connection-safe and
+ * automatically reset when the transaction ends, preventing cross-tenant data leakage
+ * from connection pool reuse.
+ *
  * search_path: "tenant_xxx", hydroponics, public
  */
 @Injectable()
 export class TenantSchemaMiddleware implements NestMiddleware {
   private readonly logger = new Logger(TenantSchemaMiddleware.name);
   private readonly DEFAULT_SCHEMA = 'hydroponics';
-  private readonly schemaCache = new SchemaLRUCache(1000, 5 * 60 * 1000);
+  private readonly schemaCache = new Map<string, { exists: boolean; expiry: number }>();
+  private readonly CACHE_TTL_MS = 5 * 60 * 1000;
+  private readonly CACHE_MAX_SIZE = 1000;
+  private readonly pendingChecks = new Map<string, Promise<boolean>>();
 
   constructor(private readonly dataSource: DataSource) {}
 
   async use(req: TenantRequest, res: Response, next: NextFunction): Promise<void> {
-    const startTime = Date.now();
-
     try {
       const tenantId = req.tenantId || req.user?.tenantId;
 
@@ -80,39 +50,30 @@ export class TenantSchemaMiddleware implements NestMiddleware {
           await this.setSearchPathSafe(tenantSchema);
           req.schemaName = tenantSchema;
         } else {
-          await this.setSearchPathSafe(this.DEFAULT_SCHEMA);
-          req.schemaName = this.DEFAULT_SCHEMA;
-          this.logger.debug(`Tenant ${tenantId}: using fallback schema ${this.DEFAULT_SCHEMA}`);
+          this.logger.warn(`Tenant ${tenantId}: schema '${tenantSchema}' does not exist`);
+          throw new NotFoundException(`Schema not found for tenant ${tenantId}`);
         }
       } else {
         await this.setSearchPathSafe(this.DEFAULT_SCHEMA);
         req.schemaName = this.DEFAULT_SCHEMA;
       }
-
-      this.logger.debug(`Schema: ${req.schemaName} (${Date.now() - startTime}ms)`);
-
     } catch (error) {
-      this.logger.error(`Schema middleware error: ${error instanceof Error ? error.message : String(error)}`);
-
-      try {
-        await this.setSearchPathSafe(this.DEFAULT_SCHEMA);
-        req.schemaName = this.DEFAULT_SCHEMA;
-      } catch {
-        this.logger.error('Fallback also failed - continuing without schema change');
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
       }
+      this.logger.error(`Schema middleware error: ${error instanceof Error ? error.message : String(error)}`);
+      throw new BadRequestException('Failed to resolve tenant schema');
     }
 
-    res.on('finish', () => {
-      this.resetSearchPath().catch((err: unknown) => {
-        this.logger.warn(`Failed to reset search path: ${err instanceof Error ? err.message : String(err)}`);
+    const cleanup = () => {
+      res.removeListener('finish', cleanup);
+      res.removeListener('close', cleanup);
+      this.resetSearchPath().catch((err) => {
+        this.logger.debug(`Failed to reset search_path: ${err instanceof Error ? err.message : String(err)}`);
       });
-    });
-
-    res.on('close', () => {
-      this.resetSearchPath().catch((err: unknown) => {
-        this.logger.warn(`Failed to reset search path: ${err instanceof Error ? err.message : String(err)}`);
-      });
-    });
+    };
+    res.on('finish', cleanup);
+    res.on('close', cleanup);
 
     next();
   }
@@ -126,6 +87,55 @@ export class TenantSchemaMiddleware implements NestMiddleware {
     return `tenant_${cleanId}`;
   }
 
+  private async checkSchemaExists(schemaName: string): Promise<boolean> {
+    // Check cache first
+    const cached = this.schemaCache.get(schemaName);
+    if (cached && Date.now() < cached.expiry) {
+      return cached.exists;
+    }
+    if (cached) {
+      this.schemaCache.delete(schemaName);
+    }
+
+    // Request coalescing: if there's already a pending check for this schema, reuse it
+    const pending = this.pendingChecks.get(schemaName);
+    if (pending) {
+      return pending;
+    }
+
+    const checkPromise = this.doCheckSchemaExists(schemaName);
+    this.pendingChecks.set(schemaName, checkPromise);
+
+    try {
+      const exists = await checkPromise;
+      // Evict oldest entry if cache is full
+      if (this.schemaCache.size >= this.CACHE_MAX_SIZE) {
+        const firstKey = this.schemaCache.keys().next().value;
+        if (firstKey) this.schemaCache.delete(firstKey);
+      }
+      this.schemaCache.set(schemaName, { exists, expiry: Date.now() + this.CACHE_TTL_MS });
+      return exists;
+    } finally {
+      this.pendingChecks.delete(schemaName);
+    }
+  }
+
+  private async doCheckSchemaExists(schemaName: string): Promise<boolean> {
+    try {
+      const result = await this.dataSource.query(
+        `SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = $1`,
+        [schemaName],
+      );
+      return result.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  invalidateCache(schemaName: string): void {
+    this.schemaCache.delete(schemaName);
+  }
+
   private async setSearchPathSafe(schemaName: string): Promise<void> {
     if (!/^[a-z0-9_]+$/.test(schemaName)) {
       throw new BadRequestException('Invalid schema name');
@@ -135,26 +145,5 @@ export class TenantSchemaMiddleware implements NestMiddleware {
 
   private async resetSearchPath(): Promise<void> {
     await this.dataSource.query('RESET search_path');
-  }
-
-  private async checkSchemaExists(schemaName: string): Promise<boolean> {
-    const cached = this.schemaCache.get(schemaName);
-    if (cached !== undefined) return cached;
-
-    try {
-      const result = await this.dataSource.query(
-        `SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`,
-        [schemaName],
-      );
-      const exists = result.length > 0;
-      this.schemaCache.set(schemaName, exists);
-      return exists;
-    } catch {
-      return false;
-    }
-  }
-
-  invalidateCache(schemaName: string): void {
-    this.schemaCache.delete(schemaName);
   }
 }

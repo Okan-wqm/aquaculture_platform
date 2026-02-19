@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Users,
   Building2,
@@ -26,14 +26,14 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import {
-  useEmployees,
+  useHRDashboardStats,
   usePendingLeaveApprovals,
   useExpiringCertifications,
   useCurrentlyOffshore,
   useWorkAreas,
   useDepartments,
+  useCurrentEmployeeId,
 } from '../hooks';
-import { useAuth } from '@aquaculture/shared-ui';
 import { CertificationExpiryAlert, SeaLandSplitView } from '../components';
 import { cn } from '@aquaculture/shared-ui';
 
@@ -135,32 +135,28 @@ const LoadingSkeleton: React.FC<{ className?: string }> = ({ className }) => (
 // ============================================================================
 
 export function HRDashboardPage() {
-  const { user } = useAuth();
-  const employeeId = user?.id || '';
+  const navigate = useNavigate();
+  // CRIT-5 / BUG-011: use centralised hook instead of user?.id or user?.sub
+  const employeeId = useCurrentEmployeeId();
 
-  // Data fetching with hooks
-  const { data: employees, isLoading: loadingEmployees } = useEmployees({}, { limit: 1000 });
+  // CRIT-3 / PERF-001: use pre-aggregated stats query instead of limit:1000
+  const { data: stats, isLoading: loadingStats } = useHRDashboardStats();
   const { data: pendingLeaves, isLoading: loadingLeaves } = usePendingLeaveApprovals(employeeId);
   const { data: expiringCerts, isLoading: loadingCerts } = useExpiringCertifications(30);
   const { data: offshoreEmployees, isLoading: loadingOffshore } = useCurrentlyOffshore();
   const { data: departments, isLoading: loadingDepts } = useDepartments();
   const { data: workAreas } = useWorkAreas();
 
-  // Calculate stats
-  const totalEmployees = employees?.total || 0;
-  const activeEmployees = employees?.items?.filter((e) => e.status === 'active').length || 0;
-  const onLeaveCount = employees?.items?.filter((e) => e.status === 'on_leave').length || 0;
-  const offshoreCount = offshoreEmployees?.length || 0;
-  const onshoreCount = activeEmployees - offshoreCount;
+  const totalEmployees = stats?.totalEmployees || 0;
+  const activeEmployees = stats?.activeEmployees || 0;
+  const onLeaveCount = stats?.onLeaveCount || 0;
+  const offshoreCount = stats?.offshoreCount || offshoreEmployees?.length || 0;
+  const seaWorthyCount = stats?.seaWorthyCount || 0;
+  const departmentCount = stats?.departmentCount || departments?.length || 0;
   const pendingLeavesCount = pendingLeaves?.length || 0;
   const expiringCertsCount = expiringCerts?.length || 0;
-  const departmentCount = departments?.length || 0;
 
-  // Separate employees for sea/land view
-  const offshoreList = employees?.items?.filter((e) => e.personnelCategory === 'offshore') || [];
-  const onshoreList = employees?.items?.filter((e) => e.personnelCategory === 'onshore') || [];
-
-  const isLoading = loadingEmployees || loadingLeaves || loadingCerts || loadingOffshore;
+  const isLoading = loadingStats || loadingLeaves || loadingCerts || loadingOffshore;
 
   return (
     <div className="space-y-6 p-6">
@@ -190,7 +186,7 @@ export function HRDashboardPage() {
           changeType="neutral"
           icon={<Users className="h-6 w-6 text-indigo-600" />}
           color="bg-indigo-50 dark:bg-indigo-900/30"
-          isLoading={loadingEmployees}
+          isLoading={loadingStats}
         />
         <StatCard
           title="Offshore Crew"
@@ -199,21 +195,21 @@ export function HRDashboardPage() {
           changeType="neutral"
           icon={<Ship className="h-6 w-6 text-blue-600" />}
           color="bg-blue-50 dark:bg-blue-900/30"
-          isLoading={loadingOffshore}
+          isLoading={loadingStats || loadingOffshore}
         />
         <StatCard
           title="On Leave"
           value={onLeaveCount}
           icon={<Calendar className="h-6 w-6 text-amber-600" />}
           color="bg-amber-50 dark:bg-amber-900/30"
-          isLoading={loadingEmployees}
+          isLoading={loadingStats}
         />
         <StatCard
           title="Departments"
           value={departmentCount}
           icon={<Building2 className="h-6 w-6 text-emerald-600" />}
           color="bg-emerald-50 dark:bg-emerald-900/30"
-          isLoading={loadingDepts}
+          isLoading={loadingStats || loadingDepts}
         />
       </div>
 
@@ -248,8 +244,8 @@ export function HRDashboardPage() {
           {expiringCertsCount > 0 && (
             <CertificationExpiryAlert
               onRenew={(certificationId) => {
-                // Navigate to certification renewal
-                window.location.href = `/hr/training/certifications?renew=${certificationId}`;
+                // SEC-008: use navigate() with encodeURIComponent instead of window.location.href
+                navigate(`/hr/training/certifications?renew=${encodeURIComponent(certificationId)}`);
               }}
             />
           )}
@@ -272,6 +268,7 @@ export function HRDashboardPage() {
             Manage Crew
           </Link>
         </div>
+        {/* SeaLandSplitView fetches its own data with an appropriate limit */}
         <SeaLandSplitView variant="compact" />
       </div>
 
@@ -358,16 +355,16 @@ export function HRDashboardPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Sea Worthy"
-          value={employees?.items?.filter((e) => e.seaWorthy).length || 0}
+          value={seaWorthyCount}
           change="Certified for offshore"
           changeType="positive"
           icon={<Anchor className="h-6 w-6 text-teal-600" />}
           color="bg-teal-50 dark:bg-teal-900/30"
-          isLoading={loadingEmployees}
+          isLoading={loadingStats}
         />
         <StatCard
           title="Active Certifications"
-          value={expiringCerts?.length || 0}
+          value={expiringCertsCount}
           icon={<Award className="h-6 w-6 text-purple-600" />}
           color="bg-purple-50 dark:bg-purple-900/30"
           isLoading={loadingCerts}
@@ -441,7 +438,6 @@ export function HRDashboardPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Dynamic activity based on data */}
               {pendingLeaves && pendingLeaves.length > 0 && (
                 <div className="flex items-center gap-4">
                   <div className="rounded-lg bg-amber-50 p-2 dark:bg-amber-900/30">

@@ -236,8 +236,8 @@ export class SensorQueryService {
         MIN((readings->>'temperature')::numeric) AS min_temperature,
         MAX((readings->>'temperature')::numeric) AS max_temperature
       FROM sensor_readings
-      WHERE "sensorId" = $2
-        AND "tenantId" = $3
+      WHERE sensor_id = $2
+        AND tenant_id = $3
         AND timestamp BETWEEN $4 AND $5
       GROUP BY bucket
       ORDER BY bucket ASC
@@ -339,8 +339,8 @@ export class SensorQueryService {
         -- Water Level
         AVG((readings->>'waterLevel')::numeric) AS avg_water_level
       FROM sensor_readings
-      WHERE "sensorId" = $2
-        AND "tenantId" = $3
+      WHERE sensor_id = $2
+        AND tenant_id = $3
         AND timestamp >= $4
         AND timestamp <= $5
       GROUP BY bucket
@@ -380,7 +380,7 @@ export class SensorQueryService {
     let sensorName: string | undefined;
     try {
       const sensor: Array<{ name: string }> = await this.dataSource.query(
-        `SELECT name FROM sensors WHERE id = $1 AND "tenantId" = $2`,
+        `SELECT name FROM sensors WHERE id = $1 AND tenant_id = $2`,
         [validSensorId, validTenantId],
       );
       sensorName = sensor[0]?.name;
@@ -460,8 +460,8 @@ export class SensorQueryService {
         AVG(quality) AS average_quality,
         MAX(timestamp) AS last_reading
       FROM sensor_readings
-      WHERE "sensorId" = $1
-        AND "tenantId" = $2
+      WHERE sensor_id = $1
+        AND tenant_id = $2
         AND timestamp >= $3
     `;
 
@@ -502,11 +502,11 @@ export class SensorQueryService {
 
     // Use DISTINCT ON for PostgreSQL to get latest reading per sensor
     const query = `
-      SELECT DISTINCT ON ("sensorId") *
+      SELECT DISTINCT ON (sensor_id) *
       FROM sensor_readings
-      WHERE "sensorId" = ANY($1)
-        AND "tenantId" = $2
-      ORDER BY "sensorId", timestamp DESC
+      WHERE sensor_id = ANY($1)
+        AND tenant_id = $2
+      ORDER BY sensor_id, timestamp DESC
     `;
 
     const results: SensorReading[] = await this.dataSource.query(query, [

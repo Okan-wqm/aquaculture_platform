@@ -37,6 +37,7 @@ import { Type } from 'class-transformer';
 import { FeedingProgram, InvalidJSONBStructureError } from './feeding-program.entity';
 import { FeedingProgramTank, ProgramEquipmentType } from './feeding-program-tank.entity';
 import { FCRSource } from './feeding-program.entity';
+import { FeedingMethod } from './feeding-record.entity';
 
 // Re-export for consumers who import from this file
 export { InvalidJSONBStructureError };
@@ -288,6 +289,26 @@ export class DailyFeedingExecution {
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
   completedBy?: string;
+
+  // -------------------------------------------------------------------------
+  // FEEDER BİLGİSİ (Kim/ne ile yemleme yapıldı)
+  // -------------------------------------------------------------------------
+
+  @Field({ nullable: true, description: 'SubEquipment feeder ID (for automatic feeders)' })
+  @Column('uuid', { nullable: true })
+  feederEquipmentId?: string;
+
+  @Field({ nullable: true, description: 'Denormalized feeder name for quick access' })
+  @Column({ length: 100, nullable: true })
+  feederName?: string;
+
+  @Field(() => FeedingMethod, { nullable: true, description: 'Feeding method used (manual, automatic, etc.)' })
+  @Column({
+    type: 'enum',
+    enum: FeedingMethod,
+    nullable: true,
+  })
+  feedingMethod?: FeedingMethod;
 
   /**
    * Optional notes about the feeding execution
@@ -614,8 +635,11 @@ export class DailyFeedingExecution {
     const newAvgWeightG = (newBiomassKg / fishCount) * 1000;
 
     // Variance calculation with safe division
+    // When plannedKg is 0 (fasting day), any actual feed is 100% overfeeding
     const variance = actualKg - plannedKg;
-    const variancePercent = plannedKg > 0 ? (variance / plannedKg) * 100 : 0;
+    const variancePercent = plannedKg > 0
+      ? (variance / plannedKg) * 100
+      : (actualKg > 0 ? 100 : 0);
 
     this.actualResults = {
       actualFeedGivenKg: actualKg,

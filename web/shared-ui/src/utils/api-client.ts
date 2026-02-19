@@ -1,36 +1,36 @@
 /**
  * API Client
- * GraphQL ve REST API istekleri için merkezi istemci
- * Token yönetimi, retry mantığı ve hata işleme
+ * Central client for GraphQL and REST API requests.
+ * Handles token management, retry logic, and error handling.
  */
 
 import { print, type DocumentNode } from 'graphql';
 
 // ============================================================================
-// Tip Tanımlamaları
+// Type Definitions
 // ============================================================================
 
 /**
- * API yapılandırması
+ * API configuration
  */
 export interface ApiConfig {
   /** GraphQL endpoint URL */
   graphqlUrl: string;
   /** REST API base URL */
   restBaseUrl: string;
-  /** Varsayılan timeout (ms) */
+  /** Default timeout (ms) */
   timeout: number;
-  /** Retry sayısı */
+  /** Maximum retry count */
   maxRetries: number;
-  /** Retry gecikmesi (ms) */
+  /** Retry delay (ms) */
   retryDelay: number;
 }
 
 /**
- * GraphQL istek seçenekleri
+ * GraphQL request options
  */
 export interface GraphQLRequestOptions {
-  /** Özel headers */
+  /** Custom headers */
   headers?: Record<string, string>;
   /** Timeout override */
   timeout?: number;
@@ -39,7 +39,7 @@ export interface GraphQLRequestOptions {
 }
 
 /**
- * GraphQL hata tipi
+ * GraphQL error type
  */
 export interface GraphQLErrorResponse {
   message: string;
@@ -52,7 +52,7 @@ export interface GraphQLErrorResponse {
 }
 
 // ============================================================================
-// Varsayılan Yapılandırma
+// Default Configuration
 // ============================================================================
 
 const defaultConfig: ApiConfig = {
@@ -65,67 +65,117 @@ const defaultConfig: ApiConfig = {
 };
 
 // ============================================================================
-// Token Yönetimi
+// Token Management
 // ============================================================================
 
 /**
- * Token ve Tenant deposu - Memory'de tutulur
+ * Token and Tenant store — kept in memory only.
+ * SECURITY: Access token is kept in-memory only (not localStorage).
+ * Refresh token is in an httpOnly cookie (never accessible to JS).
  */
 let accessToken: string | null = null;
-let refreshTokenValue: string | null = null;
 let tenantId: string | null = null;
 let tokenRefreshPromise: Promise<void> | null = null;
 
 /**
- * Token'ları ayarla
+ * Set access token (in-memory only).
+ * The refresh token is managed via httpOnly cookie - not stored in JS.
  */
-export function setTokens(access: string, refresh: string): void {
+export function setTokens(access: string, _refresh?: string): void {
   accessToken = access;
-  refreshTokenValue = refresh;
 
-  // LocalStorage'a da kaydet (sayfa yenilemesi için)
-  try {
-    localStorage.setItem('access_token', access);
-    localStorage.setItem('refresh_token', refresh);
-  } catch (e) {
-    console.warn('Token localStorage\'a kaydedilemedi:', e);
+  // SECURITY: Expose getter on window for Module Federation cross-bundle access
+  if (typeof window !== 'undefined') {
+    (window as any).__AQUACULTURE_AUTH__ = { getAccessToken };
   }
 }
 
 /**
- * Token'ları temizle
+ * Clear tokens
  */
 export function clearTokens(): void {
   accessToken = null;
-  refreshTokenValue = null;
   tenantId = null;
 
   try {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
     localStorage.removeItem('tenant_id');
   } catch (e) {
     // Ignore
   }
+
+  if (typeof window !== 'undefined') {
+    (window as any).__AQUACULTURE_AUTH__ = { getAccessToken };
+  }
 }
 
 /**
- * Token'ları localStorage'dan yükle
+ * Restore session via silent refresh (httpOnly cookie sends refresh token automatically).
+ * Call this on app startup instead of reading tokens from localStorage.
+ * Returns true if session was restored successfully.
  */
-export function loadTokensFromStorage(): void {
+export async function silentRefresh(): Promise<boolean> {
+  // Load tenant_id from localStorage (not sensitive)
   try {
-    accessToken = localStorage.getItem('access_token');
-    refreshTokenValue = localStorage.getItem('refresh_token');
     tenantId = localStorage.getItem('tenant_id');
   } catch (e) {
     // Ignore
   }
+
+  try {
+    const graphqlUrl = import.meta.env.VITE_GRAPHQL_URL || '/graphql';
+    const response = await fetch(graphqlUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken user { id email role tenantId } } }`,
+      }),
+    });
+
+    if (!response.ok) return false;
+
+    const result = await response.json();
+    if (result.errors || !result.data?.refreshToken?.accessToken) {
+      return false;
+    }
+
+    accessToken = result.data.refreshToken.accessToken;
+
+    if (typeof window !== 'undefined') {
+      (window as any).__AQUACULTURE_AUTH__ = { getAccessToken };
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Backward-compatible alias for silentRefresh.
+ * Previously loaded tokens from localStorage; now restores via cookie-based refresh.
+ */
+export function loadTokensFromStorage(): void {
+  // Load tenant_id synchronously (non-sensitive, stays in localStorage)
+  try {
+    tenantId = localStorage.getItem('tenant_id');
+  } catch (e) {
+    // Ignore
+  }
+  // Access token will be restored asynchronously via silentRefresh() in AuthContext
 }
 
 /**
  * Access token al
  */
 export function getAccessToken(): string | null {
+  // Module Federation fallback: check window global if module-level var is empty
+  if (!accessToken && typeof window !== 'undefined') {
+    const authGlobal = (window as any).__AQUACULTURE_AUTH__;
+    if (authGlobal?.getAccessToken && authGlobal.getAccessToken !== getAccessToken) {
+      return authGlobal.getAccessToken();
+    }
+  }
   return accessToken;
 }
 
@@ -140,27 +190,29 @@ export function setTenantId(id: string | null): void {
     } else {
       localStorage.removeItem('tenant_id');
     }
-  } catch (e) {
-    console.warn('Tenant ID localStorage\'a kaydedilemedi:', e);
+  } catch {
+    // Ignore localStorage errors silently in production
   }
 }
 
 /**
- * Tenant ID al (memory'den veya localStorage'dan)
+ * Get tenant ID (from memory or localStorage).
+ * SEC-013: Always read from localStorage if in-memory value is absent — do not
+ * cache the localStorage value at module level, which would cause stale tenant
+ * ID headers after a tenant switch without a page reload.
+ * setTenantId() remains the canonical authority; memory cache is only for the
+ * current session once explicitly set.
  */
 export function getTenantId(): string | null {
-  // Önce memory'den kontrol et
+  // Check memory first (set explicitly via setTenantId)
   if (tenantId) return tenantId;
 
-  // Memory'de yoksa localStorage'dan oku ve cache'le
+  // Fall back to localStorage — but do NOT cache to module-level var
+  // so that tenant switches are always reflected without a page reload
   try {
-    const storedTenantId = localStorage.getItem('tenant_id');
-    if (storedTenantId) {
-      tenantId = storedTenantId;
-      return storedTenantId;
-    }
-  } catch (e) {
-    console.warn('localStorage tenant_id okunamadı:', e);
+    return localStorage.getItem('tenant_id');
+  } catch {
+    // Ignore localStorage errors silently in production
   }
   return null;
 }
@@ -170,7 +222,7 @@ export function getTenantId(): string | null {
 // ============================================================================
 
 /**
- * GraphQL istemcisi
+ * GraphQL client
  */
 class GraphQLClient {
   private config: ApiConfig;
@@ -180,38 +232,38 @@ class GraphQLClient {
   }
 
   /**
-   * GraphQL sorgusu/mutasyonu çalıştır
+   * Execute a GraphQL query or mutation
    */
   async request<TData = unknown, TVariables = Record<string, unknown>>(
     query: string | DocumentNode,
     variables?: TVariables,
-    options?: GraphQLRequestOptions
+    options?: GraphQLRequestOptions,
+    retryCount = 0
   ): Promise<TData> {
     const { headers: customHeaders, timeout, signal } = options || {};
 
     // Convert DocumentNode to string if needed (e.g. from graphql-tag gql`...`)
     const queryString = typeof query === 'string' ? query : print(query);
 
-    // Headers oluştur
+    // Build request headers
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...customHeaders,
     };
 
-    // Access token ekle - Always read from localStorage for Module Federation compatibility
-    // Module-level variables may not be shared correctly across microfrontend boundaries
-    const currentToken = accessToken || localStorage.getItem('access_token');
+    // Access token from in-memory store (with Module Federation window fallback)
+    const currentToken = getAccessToken();
     if (currentToken) {
       headers['Authorization'] = `Bearer ${currentToken}`;
     }
 
-    // Tenant ID ekle - Always read from localStorage for Module Federation compatibility
-    const currentTenantId = getTenantId() || localStorage.getItem('tenant_id');
+    // Tenant ID from memory/localStorage
+    const currentTenantId = getTenantId();
     if (currentTenantId) {
       headers['X-Tenant-Id'] = currentTenantId;
     }
 
-    // Request ID ekle (tracing için)
+    // Add request ID for distributed tracing
     headers['X-Request-Id'] = this.generateRequestId();
 
     // Timeout controller
@@ -225,6 +277,7 @@ class GraphQLClient {
       const response = await fetch(this.config.graphqlUrl, {
         method: 'POST',
         headers,
+        credentials: 'include',
         body: JSON.stringify({
           query: queryString,
           variables,
@@ -234,19 +287,41 @@ class GraphQLClient {
 
       clearTimeout(timeoutId);
 
-      // 401 - Token yenileme gerekebilir
-      if (response.status === 401) {
-        await this.handleUnauthorized();
-        // Retry with new token
-        return this.request(query, variables, options);
+      // 401 — attempt a single token refresh, then retry.
+      // retryCount === 0 caps the retry to exactly one attempt (CRIT-01: no infinite loop).
+      if (response.status === 401 && retryCount === 0) {
+        try {
+          await this.handleUnauthorized();
+        } catch {
+          // Refresh failed — clear session and throw so callers can redirect to /login
+          clearTokens();
+          throw new GraphQLClientError('Session expired', 'UNAUTHENTICATED');
+        }
+        return this.request(query, variables, options, retryCount + 1);
       }
 
       // Response parse
       const result = await response.json();
 
-      // GraphQL hataları kontrol et
+      // Check for GraphQL errors
       if (result.errors && result.errors.length > 0) {
         const error = result.errors[0] as GraphQLErrorResponse;
+
+        // Check for auth-related GraphQL errors (HTTP 200 but token expired/invalid)
+        const isAuthError =
+          error.extensions?.code === 'UNAUTHENTICATED' ||
+          error.extensions?.code === 'FORBIDDEN' ||
+          /expired|Invalid/i.test(error.message);
+
+        if (isAuthError && retryCount === 0) {
+          try {
+            await this.handleUnauthorized();
+            return this.request(query, variables, options, retryCount + 1);
+          } catch {
+            // Refresh failed — throw the original GraphQL error
+          }
+        }
+
         throw new GraphQLClientError(
           error.message,
           error.extensions?.code || 'GRAPHQL_ERROR',
@@ -258,14 +333,14 @@ class GraphQLClient {
     } catch (error) {
       clearTimeout(timeoutId);
 
-      // Abort hatası
+      // Abort error
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new GraphQLClientError('İstek zaman aşımına uğradı', 'TIMEOUT');
+        throw new GraphQLClientError('Request timed out', 'TIMEOUT');
       }
 
-      // Network hatası
+      // Network error
       if (error instanceof TypeError && error.message.includes('fetch')) {
-        throw new GraphQLClientError('Sunucuya bağlanılamadı', 'NETWORK_ERROR');
+        throw new GraphQLClientError('Unable to connect to server', 'NETWORK_ERROR');
       }
 
       throw error;
@@ -273,21 +348,16 @@ class GraphQLClient {
   }
 
   /**
-   * Unauthorized durumu işle
+   * Handle 401 Unauthorized — refresh token and dedup concurrent refresh calls
    */
   private async handleUnauthorized(): Promise<void> {
-    // Eğer zaten token yenileme yapılıyorsa bekle
+    // If a refresh is already in progress, wait for it
     if (tokenRefreshPromise) {
       await tokenRefreshPromise;
       return;
     }
 
-    if (!refreshTokenValue) {
-      clearTokens();
-      throw new GraphQLClientError('Oturum süresi doldu', 'UNAUTHENTICATED');
-    }
-
-    // Token yenileme
+    // Refresh token via httpOnly cookie (sent automatically by browser)
     tokenRefreshPromise = this.refreshAccessToken();
 
     try {
@@ -298,27 +368,32 @@ class GraphQLClient {
   }
 
   /**
-   * Access token yenile
+   * Refresh access token via httpOnly cookie.
+   * The refresh token cookie is sent automatically by the browser.
    */
   private async refreshAccessToken(): Promise<void> {
     try {
-      const response = await fetch(`${this.config.restBaseUrl}/auth/refresh`, {
+      const response = await fetch(this.config.graphqlUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
-          refreshToken: refreshTokenValue,
+          query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken } }`,
         }),
       });
 
       if (!response.ok) {
         clearTokens();
-        throw new GraphQLClientError('Token yenileme başarısız', 'REFRESH_FAILED');
+        throw new GraphQLClientError('Token refresh failed', 'REFRESH_FAILED');
       }
 
-      const data = await response.json();
-      setTokens(data.accessToken, data.refreshToken);
+      const result = await response.json();
+      if (result.errors || !result.data?.refreshToken?.accessToken) {
+        clearTokens();
+        throw new GraphQLClientError('Token refresh failed', 'REFRESH_FAILED');
+      }
+
+      setTokens(result.data.refreshToken.accessToken);
     } catch (error) {
       clearTokens();
       throw error;
@@ -326,9 +401,14 @@ class GraphQLClient {
   }
 
   /**
-   * Benzersiz request ID oluştur
+   * Generate a unique request ID.
+   * SEC-015: Use crypto.randomUUID() for production-grade entropy.
    */
   private generateRequestId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    // Fallback for environments without crypto.randomUUID
     return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   }
 }
@@ -354,7 +434,7 @@ export class GraphQLClientError extends Error {
 // ============================================================================
 
 /**
- * REST API istemcisi
+ * REST API client
  */
 class RestClient {
   private config: ApiConfig;
@@ -364,7 +444,7 @@ class RestClient {
   }
 
   /**
-   * HTTP isteği gönder
+   * Send an HTTP request
    */
   async request<T = unknown>(
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
@@ -378,7 +458,7 @@ class RestClient {
   ): Promise<T> {
     const { body, params, headers: customHeaders, timeout } = options || {};
 
-    // URL oluştur
+    // Build URL
     let url = `${this.config.restBaseUrl}${path}`;
     if (params) {
       const searchParams = new URLSearchParams();
@@ -398,7 +478,7 @@ class RestClient {
       headers['Authorization'] = `Bearer ${accessToken}`;
     }
 
-    // Tenant ID ekle (memory veya localStorage'dan)
+    // Attach tenant ID (from memory or localStorage)
     const currentTenantId = getTenantId();
     if (currentTenantId) {
       headers['X-Tenant-Id'] = currentTenantId;
@@ -415,6 +495,7 @@ class RestClient {
       const response = await fetch(url, {
         method,
         headers,
+        credentials: 'include',
         body: body ? JSON.stringify(body) : undefined,
         signal: controller.signal,
       });
@@ -442,7 +523,7 @@ class RestClient {
     }
   }
 
-  // Kısayol metodlar
+  // Convenience methods
   get<T>(path: string, params?: Record<string, string | number | boolean>) {
     return this.request<T>('GET', path, { params });
   }
@@ -481,7 +562,7 @@ export class RestClientError extends Error {
 }
 
 // ============================================================================
-// Singleton İstemciler
+// Singleton Clients
 // ============================================================================
 
 export const graphqlClient = new GraphQLClient();

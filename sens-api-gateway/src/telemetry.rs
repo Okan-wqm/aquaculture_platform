@@ -11,6 +11,7 @@ use tracing::{debug, info, warn};
 
 use crate::AppState;
 use crate::gpio::PinState;
+use crate::interning::{intern_register_name, resolve};
 use crate::mqtt::{
     DeviceStatus, GpioPinData, ModbusDeviceData, ModbusRegisterData, TelemetryMetrics,
 };
@@ -49,8 +50,15 @@ impl TelemetryCollector {
 
         let mut status_counter = 0u32;
 
+        // MissedTickBehavior::Skip prevents burst catch-up after a sleep overrun
+        // (e.g., slow Modbus device causing the cycle to exceed interval).
+        // Without Skip, tokio would fire multiple ticks back-to-back to compensate,
+        // which on constrained edge hardware can cause CPU spikes and MQTT floods.
+        let mut ticker = tokio::time::interval(interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
         loop {
-            tokio::time::sleep(interval).await;
+            ticker.tick().await;
 
             // Collect and publish telemetry
             if let Err(e) = self.collect_and_publish().await {
@@ -128,10 +136,12 @@ impl TelemetryCollector {
         }
 
         // Network metrics (aggregate all interfaces)
+        // LOW-42: Convert raw bytes to MB for JSON safety (avoids f64 precision loss
+        // when byte counters exceed 2^53 on high-throughput interfaces).
         let (rx_bytes, tx_bytes) = self.get_network_bytes();
         if rx_bytes > 0 || tx_bytes > 0 {
-            metrics.network_rx_bytes = Some(rx_bytes);
-            metrics.network_tx_bytes = Some(tx_bytes);
+            metrics.network_rx_mb = Some(rx_bytes as f64 / 1024.0 / 1024.0);
+            metrics.network_tx_mb = Some(tx_bytes as f64 / 1024.0 / 1024.0);
         }
 
         // Collect hardware data (Modbus, GPIO)
@@ -220,16 +230,19 @@ impl TelemetryCollector {
 
         if let Some(handle) = gpio_handle {
             let gpio_result = handle.read_all().await;
+            // LOW-38: Use string interning for repeated GPIO names/directions/states
+            // to avoid heap-allocating the same strings every telemetry cycle.
+            // intern_register_name() returns a Spur key; resolve() gives &'static str.
             let gpio_data: Vec<GpioPinData> = gpio_result
                 .values
                 .iter()
                 .map(|v| GpioPinData {
-                    name: v.name.clone(),
+                    name: resolve(intern_register_name(&v.name)).to_string(),
                     pin: v.pin,
-                    direction: v.direction.clone(),
+                    direction: resolve(intern_register_name(&v.direction)).to_string(),
                     state: match v.state {
-                        PinState::High => "high".to_string(),
-                        PinState::Low => "low".to_string(),
+                        PinState::High => resolve(intern_register_name("high")).to_string(),
+                        PinState::Low => resolve(intern_register_name("low")).to_string(),
                     },
                 })
                 .collect();
@@ -256,11 +269,12 @@ impl TelemetryCollector {
             let mut modbus_data = Vec::new();
 
             for result in modbus_results {
+                // LOW-38: Intern register names and device names (polled every cycle)
                 let registers: Vec<ModbusRegisterData> = result
                     .values
                     .iter()
                     .map(|v| ModbusRegisterData {
-                        name: v.name.clone(),
+                        name: resolve(intern_register_name(&v.name)).to_string(),
                         address: v.address,
                         value: v.scaled_value,
                         unit: v.unit.clone(),
@@ -268,7 +282,7 @@ impl TelemetryCollector {
                     .collect();
 
                 modbus_data.push(ModbusDeviceData {
-                    device_name: result.device_name,
+                    device_name: resolve(intern_register_name(&result.device_name)).to_string(),
                     registers,
                     errors: result.errors,
                 });
@@ -296,8 +310,8 @@ mod tests {
             disk_used_gb: None,
             disk_total_gb: None,
             temperature_celsius: Some(55.0),
-            network_rx_bytes: None,
-            network_tx_bytes: None,
+            network_rx_mb: None,
+            network_tx_mb: None,
             modbus: None,
             gpio: None,
         };
@@ -320,8 +334,8 @@ mod tests {
             disk_used_gb: None,
             disk_total_gb: None,
             temperature_celsius: None,
-            network_rx_bytes: None,
-            network_tx_bytes: None,
+            network_rx_mb: None,
+            network_tx_mb: None,
             modbus: Some(vec![ModbusDeviceData {
                 device_name: "PLC-1".to_string(),
                 registers: vec![ModbusRegisterData {

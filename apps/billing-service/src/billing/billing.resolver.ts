@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
-import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { UnauthorizedException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Subscription } from './entities/subscription.entity';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
@@ -10,6 +10,8 @@ import { RecordPaymentInput } from './dto/record-payment.input';
 import { CreateSubscriptionCommand } from './commands/create-subscription.command';
 import { CancelSubscriptionCommand } from './commands/cancel-subscription.command';
 import { CreateInvoiceCommand } from './commands/create-invoice.command';
+import { FinalizeInvoiceCommand } from './commands/finalize-invoice.command';
+import { VoidInvoiceCommand } from './commands/void-invoice.command';
 import { RecordPaymentCommand } from './commands/record-payment.command';
 import { GetSubscriptionQuery } from './queries/get-subscription.query';
 import { GetInvoicesQuery, InvoiceFilterInput } from './queries/get-invoices.query';
@@ -29,7 +31,6 @@ enum BillingRole {
 /** Roles allowed to create/modify subscriptions */
 const SUBSCRIPTION_WRITE_ROLES: string[] = [
   BillingRole.SUPER_ADMIN,
-  BillingRole.TENANT_ADMIN,
   BillingRole.BILLING_ADMIN,
 ];
 
@@ -74,9 +75,8 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9
 
 // Helper functions outside of class to avoid GraphQL resolver detection
 function extractTenantId(context: GraphQLContext): string {
-  const tenantId =
-    context.req.user?.tenantId ||
-    context.req.headers['x-tenant-id'];
+  // Only trust tenant identity from validated JWT, never from raw headers
+  const tenantId = context.req.user?.tenantId;
 
   if (!tenantId || typeof tenantId !== 'string') {
     throw new UnauthorizedException('Tenant ID is required');
@@ -96,11 +96,8 @@ function extractTenantId(context: GraphQLContext): string {
 }
 
 function extractUserId(context: GraphQLContext): string {
-  const userId =
-    context.req.user?.sub ||
-    context.req.headers['x-user-id'] ||
-    'system';
-  return userId;
+  // Only trust user identity from validated JWT, never from headers
+  return context.req.user?.sub || 'system';
 }
 
 /**
@@ -160,6 +157,12 @@ export class BillingResolver {
     @Args('reason') reason: string,
     @Context() context: GraphQLContext,
   ): Promise<Subscription> {
+    if (!UUID_REGEX.test(id)) {
+      throw new BadRequestException('Invalid subscription ID format');
+    }
+    if (reason && reason.length > 1000) {
+      throw new BadRequestException('Cancellation reason must not exceed 1000 characters');
+    }
     const tenantId = extractTenantId(context);
     requireRoles(context, SUBSCRIPTION_WRITE_ROLES, 'cancel subscription');
     const userId = extractUserId(context);
@@ -198,14 +201,12 @@ export class BillingResolver {
   ): Promise<Invoice[]> {
     const tenantId = extractTenantId(context);
     requireRoles(context, BILLING_READ_ROLES, 'view unpaid invoices');
-    // Get both pending and overdue invoices
-    const pendingInvoices = await this.queryBus.execute(
-      new GetInvoicesQuery(tenantId, { status: InvoiceStatus.PENDING }),
+    // Single query for all unpaid statuses
+    return this.queryBus.execute(
+      new GetInvoicesQuery(tenantId, {
+        statuses: [InvoiceStatus.PENDING, InvoiceStatus.OVERDUE, InvoiceStatus.PARTIALLY_PAID],
+      }),
     );
-    const overdueInvoices = await this.queryBus.execute(
-      new GetInvoicesQuery(tenantId, { status: InvoiceStatus.OVERDUE }),
-    );
-    return [...pendingInvoices, ...overdueInvoices];
   }
 
   // Invoice Mutations
@@ -219,6 +220,40 @@ export class BillingResolver {
     const userId = extractUserId(context);
     return this.commandBus.execute(
       new CreateInvoiceCommand(tenantId, input, userId),
+    );
+  }
+
+  /**
+   * Transition a DRAFT invoice to SENT status, making it payable.
+   * Invoices must be finalized before payments can be recorded.
+   */
+  @Mutation(() => Invoice)
+  async finalizeInvoice(
+    @Args('id', { type: () => ID }) id: string,
+    @Context() context: GraphQLContext,
+  ): Promise<Invoice> {
+    const tenantId = extractTenantId(context);
+    requireRoles(context, INVOICE_WRITE_ROLES, 'finalize invoice');
+    const userId = extractUserId(context);
+    return this.commandBus.execute(
+      new FinalizeInvoiceCommand(tenantId, id, userId),
+    );
+  }
+
+  /**
+   * Void an invoice. Only unpaid invoices (DRAFT, PENDING, SENT, OVERDUE) can be voided.
+   */
+  @Mutation(() => Invoice)
+  async voidInvoice(
+    @Args('id', { type: () => ID }) id: string,
+    @Args('reason') reason: string,
+    @Context() context: GraphQLContext,
+  ): Promise<Invoice> {
+    const tenantId = extractTenantId(context);
+    requireRoles(context, INVOICE_WRITE_ROLES, 'void invoice');
+    const userId = extractUserId(context);
+    return this.commandBus.execute(
+      new VoidInvoiceCommand(tenantId, id, reason, userId),
     );
   }
 

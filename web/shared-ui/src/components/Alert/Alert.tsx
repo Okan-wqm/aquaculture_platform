@@ -21,6 +21,11 @@ export interface AlertProps {
   dismissible?: boolean;
   /** Kapatma işleyicisi */
   onDismiss?: () => void;
+  /**
+   * BUG-006: Accessible label for the dismiss button.
+   * Defaults to 'Kapat' (Turkish). Override for other locales.
+   */
+  dismissLabel?: string;
   /** Aksiyon butonu */
   action?: {
     label: string;
@@ -113,10 +118,16 @@ export const Alert: React.FC<AlertProps> = ({
   children,
   dismissible = false,
   onDismiss,
+  dismissLabel = 'Kapat',
   action,
   showIcon = true,
   className = '',
 }) => {
+  // BUG-006: Warn if dismissible=true but no onDismiss handler is provided
+  if (dismissible && !onDismiss && process.env.NODE_ENV !== 'production') {
+    console.warn('Alert: dismissible={true} but onDismiss is not provided. The dismiss button will have no effect.');
+  }
+
   const styles = typeStyles[type];
 
   return (
@@ -167,7 +178,7 @@ export const Alert: React.FC<AlertProps> = ({
               onClick={onDismiss}
               className={`inline-flex rounded-md p-1.5 ${styles.text} hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-${type === 'success' ? 'green' : type === 'error' ? 'red' : type === 'warning' ? 'yellow' : 'blue'}-50`}
             >
-              <span className="sr-only">Kapat</span>
+              <span className="sr-only">{dismissLabel}</span>
               <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
               </svg>

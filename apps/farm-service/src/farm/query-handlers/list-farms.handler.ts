@@ -52,7 +52,10 @@ export class ListFarmsQueryHandler
     }
 
     if (query.filters?.search) {
-      where.name = Like(`%${query.filters.search}%`);
+      const escaped = query.filters.search
+        .replace(/%/g, '\\%')
+        .replace(/_/g, '\\_');
+      where.name = Like(`%${escaped}%`);
     }
 
     // Execute query with count

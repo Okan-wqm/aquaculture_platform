@@ -77,22 +77,27 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
   async execute(query: ListEquipmentQuery): Promise<PaginatedResult<Equipment>> {
     const { tenantId, filter, pagination } = query;
 
+    const MAX_LIMIT = 100;
     const page = pagination?.page || 1;
-    // Default to 200 items when no pagination is provided (for tank list views)
-    const limit = pagination?.limit || 200;
+    // Cap limit to prevent excessive data retrieval (DTO max is 100)
+    const limit = Math.min(pagination?.limit ?? 50, MAX_LIMIT);
     const sortBy = pagination?.sortBy || 'createdAt';
     const sortOrder = pagination?.sortOrder || 'DESC';
 
     // Determine if we should also query the tanks table
     const shouldQueryTanks = this.shouldQueryTanksTable(filter);
 
-    // Query equipment table
-    const equipmentResult = await this.queryEquipmentTable(tenantId, filter, sortBy, sortOrder);
+    // Cap the maximum rows loaded from each source to prevent OOM under large datasets.
+    // We need (page * limit) rows from the merged set to satisfy the current page.
+    const maxRowsNeeded = page * limit;
 
-    // Query tanks table if applicable
+    // Query equipment table with row cap
+    const equipmentResult = await this.queryEquipmentTable(tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
+
+    // Query tanks table if applicable with row cap
     let tanksAsEquipment: Equipment[] = [];
     if (shouldQueryTanks) {
-      tanksAsEquipment = await this.queryAndTransformTanks(tenantId, filter, sortBy, sortOrder);
+      tanksAsEquipment = await this.queryAndTransformTanks(tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
     }
 
     // Merge results from both tables
@@ -151,6 +156,7 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     filter: ListEquipmentQuery['filter'],
     sortBy: string,
     sortOrder: 'ASC' | 'DESC',
+    maxRows?: number,
   ): Promise<{ items: Equipment[]; total: number }> {
     const queryBuilder = this.equipmentRepository.createQueryBuilder('equipment');
     queryBuilder.where('equipment.tenantId = :tenantId', { tenantId });
@@ -227,11 +233,20 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
       );
     }
 
-    // Apply sorting
-    queryBuilder.orderBy(`equipment.${sortBy}`, sortOrder);
+    // Apply sorting with allowlist to prevent SQL injection
+    const validSortFields = ['name', 'code', 'status', 'volume', 'createdAt', 'updatedAt'];
+    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    queryBuilder.orderBy(`equipment.${safeSortBy}`, sortOrder);
 
-    // Get all results (pagination will be applied after merge)
-    const [items, total] = await queryBuilder.getManyAndCount();
+    // Get total count first
+    const total = await queryBuilder.getCount();
+
+    // Apply row cap to prevent loading entire dataset into memory
+    if (maxRows) {
+      queryBuilder.take(maxRows);
+    }
+
+    const items = await queryBuilder.getMany();
 
     return { items, total };
   }
@@ -244,6 +259,7 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     filter: ListEquipmentQuery['filter'],
     sortBy: string,
     sortOrder: 'ASC' | 'DESC',
+    maxRows?: number,
   ): Promise<Equipment[]> {
     const tankQueryBuilder = this.tankRepository.createQueryBuilder('tank');
     tankQueryBuilder.where('tank.tenantId = :tenantId', { tenantId });
@@ -284,7 +300,11 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     const tankSortBy = this.mapSortFieldToTank(sortBy);
     tankQueryBuilder.orderBy(`tank.${tankSortBy}`, sortOrder);
 
-    // Get all tanks (pagination applied after merge)
+    // Apply row cap to prevent loading entire dataset into memory
+    if (maxRows) {
+      tankQueryBuilder.take(maxRows);
+    }
+
     const tanks = await tankQueryBuilder.getMany();
 
     // Load equipment types for transformation
@@ -328,8 +348,16 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
 
   /**
    * Load equipment types into a map for quick lookup
+   * PERF(F5-007): Cached in-process with 1-hour TTL since equipment types are seeded reference data
    */
+  private equipmentTypesCache: { map: Map<string, EquipmentType>; expiresAt: number } | null = null;
+  private static readonly EQUIPMENT_TYPES_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
   private async loadEquipmentTypesMap(): Promise<Map<string, EquipmentType>> {
+    if (this.equipmentTypesCache && this.equipmentTypesCache.expiresAt > Date.now()) {
+      return this.equipmentTypesCache.map;
+    }
+
     const equipmentTypes = await this.equipmentTypeRepository.find({
       where: { category: EquipmentCategory.TANK },
     });
@@ -338,6 +366,12 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     for (const type of equipmentTypes) {
       map.set(type.code, type);
     }
+
+    this.equipmentTypesCache = {
+      map,
+      expiresAt: Date.now() + ListEquipmentHandler.EQUIPMENT_TYPES_CACHE_TTL_MS,
+    };
+
     return map;
   }
 

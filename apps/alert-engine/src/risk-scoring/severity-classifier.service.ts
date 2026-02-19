@@ -104,7 +104,7 @@ export class SeverityClassifierService {
   /**
    * Classify severity based on risk score
    */
-  classifyBySCore(score: number, thresholds: RiskThresholds): AlertSeverity {
+  classifyByScore(score: number, thresholds: RiskThresholds): AlertSeverity {
     if (score >= thresholds.critical) {
       return AlertSeverity.CRITICAL;
     }
@@ -306,12 +306,11 @@ export class SeverityClassifierService {
 
     const currentIndex = severityOrder.indexOf(severity);
 
+    // At low confidence suggest downgrading for human review.
+    // Do NOT suggest upgrading severity at low confidence — that would increase
+    // alert noise precisely when the classification is least reliable.
     if (currentIndex > 0 && confidence < 0.5) {
       return severityOrder[currentIndex - 1];
-    }
-
-    if (currentIndex < severityOrder.length - 1 && confidence < 0.6) {
-      return severityOrder[currentIndex + 1];
     }
 
     return undefined;

@@ -2,6 +2,7 @@ import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { trace, context } from '@opentelemetry/api';
+import { TenantRequest as CanonicalTenantRequest } from '../types/tenant-request.interface';
 
 /**
  * User payload from JWT (forwarded by gateway)
@@ -20,10 +21,15 @@ export interface UserPayload {
 }
 
 /**
- * Extended Request with tenant context and user
+ * Extended Request with tenant context and user.
+ * Extends the canonical TenantRequest (libs/backend-common/src/types/tenant-request.interface.ts)
+ * with the additional `tenantContext` field populated by TenantContextMiddleware.
+ *
+ * NOTE: The base `TenantRequest` type is exported from the canonical location
+ * `@platform/backend-common` (via `types/tenant-request.interface.ts`).
+ * This extended interface is local to the middleware module and does not conflict.
  */
-export interface TenantRequest extends Request {
-  tenantId?: string;
+export interface TenantRequest extends CanonicalTenantRequest {
   tenantContext?: TenantContext;
   user?: UserPayload;
 }
@@ -115,8 +121,9 @@ export class TenantContextMiddleware implements NestMiddleware {
     const parts = host.split('.');
     if (parts.length >= 3) {
       const subdomain = parts[0];
-      // Exclude common prefixes
-      if (subdomain && !['www', 'api', 'app', 'admin', 'localhost'].includes(subdomain)) {
+      // Exclude common prefixes and validate UUID format for subdomain-based tenant IDs
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (subdomain && !['www', 'api', 'app', 'admin', 'localhost'].includes(subdomain) && uuidRegex.test(subdomain)) {
         return { tenantId: subdomain, source: 'subdomain' };
       }
     }
@@ -176,29 +183,40 @@ export class CorrelationIdMiddleware implements NestMiddleware {
       req.headers['x-correlation-id'] = correlationId;
     }
 
-    // Parse W3C Trace Context (traceparent header)
-    // Format: version-traceId-spanId-traceFlags (e.g., 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01)
-    const traceparent = req.headers['traceparent'] as string;
+    // Try to read trace context from OpenTelemetry SDK first (if active)
+    // This avoids generating duplicate trace IDs when OTel is enabled
+    const activeSpan = trace.getSpan(context.active());
     let traceId: string;
     let spanId: string;
     let parentSpanId: string | undefined;
     let sampled = true;
 
-    if (traceparent) {
-      const parts = traceparent.split('-');
-      if (parts.length >= 4) {
-        traceId = parts[1] || this.generateTraceId();
-        parentSpanId = parts[2];
-        spanId = this.generateSpanId(); // Generate new span for this service
-        sampled = parts[3] ? (parseInt(parts[3], 16) & 0x01) === 1 : true;
+    if (activeSpan) {
+      // Use OTel's trace context as the single source of truth
+      const spanContext = activeSpan.spanContext();
+      traceId = spanContext.traceId;
+      spanId = spanContext.spanId;
+      sampled = (spanContext.traceFlags & 0x01) === 1;
+    } else {
+      // No OTel context - fall back to W3C traceparent header parsing
+      const traceparent = req.headers['traceparent'] as string;
+
+      if (traceparent) {
+        const parts = traceparent.split('-');
+        if (parts.length >= 4) {
+          traceId = parts[1] || this.generateTraceId();
+          parentSpanId = parts[2];
+          spanId = this.generateSpanId(); // Generate new span for this service
+          sampled = parts[3] ? (parseInt(parts[3], 16) & 0x01) === 1 : true;
+        } else {
+          traceId = this.generateTraceId();
+          spanId = this.generateSpanId();
+        }
       } else {
+        // No trace context at all - generate new
         traceId = this.generateTraceId();
         spanId = this.generateSpanId();
       }
-    } else {
-      // No trace context - generate new
-      traceId = this.generateTraceId();
-      spanId = this.generateSpanId();
     }
 
     // Set trace context on request
@@ -293,7 +311,7 @@ export class RequestLoggingMiddleware implements NestMiddleware {
       } else if (statusCode >= 400) {
         this.logger.warn(logMessage, logContext);
       } else {
-        this.logger.log(logMessage);
+        this.logger.log(logMessage, logContext);
       }
     });
 

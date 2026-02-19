@@ -286,7 +286,9 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Subscribe to topics
+   * Subscribe to topics.
+   * LOW-003: Sends a single SUBSCRIBE packet for all topics using the object form
+   * of mqtt.Client.subscribe(), instead of N sequential SUBSCRIBE packets.
    */
   async subscribe(topics: string | string[], qos: 0 | 1 | 2 = 1): Promise<void> {
     if (!this.client || !this.isConnectedToBroker()) {
@@ -295,20 +297,28 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
 
     const topicList = Array.isArray(topics) ? topics : [topics];
 
+    if (topicList.length === 0) return;
+
+    // Build topic → QoS map for a single SUBSCRIBE packet
+    const topicsMap: Record<string, { qos: 0 | 1 | 2 }> = {};
     for (const topic of topicList) {
-      await new Promise<void>((resolve, reject) => {
-        this.client!.subscribe(topic, { qos }, (err) => {
-          if (err) {
-            this.logger.error(`Failed to subscribe to ${topic}: ${err.message}`);
-            reject(err);
-          } else {
-            this.subscribedTopics.add(topic);
-            this.logger.log(`Subscribed to topic: ${topic}`);
-            resolve();
-          }
-        });
-      });
+      topicsMap[topic] = { qos };
     }
+
+    await new Promise<void>((resolve, reject) => {
+      this.client!.subscribe(topicsMap, (err) => {
+        if (err) {
+          this.logger.error(`Failed to subscribe to topics: ${err.message}`);
+          reject(err);
+        } else {
+          for (const topic of topicList) {
+            this.subscribedTopics.add(topic);
+          }
+          this.logger.log(`Subscribed to ${topicList.length} topic(s) in single SUBSCRIBE packet`);
+          resolve();
+        }
+      });
+    });
   }
 
   /**

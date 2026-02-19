@@ -3,7 +3,7 @@
  * SUPER_ADMIN icin tenant yonetimi
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -52,7 +52,11 @@ const TenantManagementPage: React.FC = () => {
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBulkSuspendModalOpen, setIsBulkSuspendModalOpen] = useState(false);
+  const [isBulkActivateModalOpen, setIsBulkActivateModalOpen] = useState(false);
   const [bulkSuspendReason, setBulkSuspendReason] = useState('');
+  const [suspendReason, setSuspendReason] = useState('');
+  const [isSuspendReasonModalOpen, setIsSuspendReasonModalOpen] = useState(false);
+  const [tenantToSuspend, setTenantToSuspend] = useState<Tenant | null>(null);
 
   // Modals
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -85,10 +89,19 @@ const TenantManagementPage: React.FC = () => {
     }
   }, [searchTerm, statusFilter, tierFilter, page, limit]);
 
-  // Fetch stats
+  // Cache stats — they're aggregate values, only fetch once per session (PERF-009)
+  const statsCacheRef = useRef<{ data: ReturnType<typeof tenantsApi.getStats> extends Promise<infer U> ? U : never; fetchedAt: number } | null>(null);
+  const STATS_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+
   const fetchInitialData = useCallback(async () => {
     try {
+      const now = Date.now();
+      if (statsCacheRef.current && now - statsCacheRef.current.fetchedAt < STATS_CACHE_TTL) {
+        setStats(statsCacheRef.current.data as Parameters<typeof setStats>[0]);
+        return;
+      }
       const statsResult = await tenantsApi.getStats();
+      statsCacheRef.current = { data: statsResult as never, fetchedAt: Date.now() };
       setStats(statsResult);
     } catch (err) {
       console.error('Failed to fetch stats:', err);
@@ -106,16 +119,33 @@ const TenantManagementPage: React.FC = () => {
 
   // Handle suspend/activate
   const handleToggleStatus = async (tenant: Tenant, action: 'suspend' | 'activate') => {
+    if (action === 'suspend') {
+      // Require operator to provide a reason — open reason modal
+      setTenantToSuspend(tenant);
+      setSuspendReason('');
+      setIsSuspendReasonModalOpen(true);
+      return;
+    }
     try {
-      if (action === 'suspend') {
-        await tenantsApi.suspend(tenant.id, 'Admin tarafindan askiya alindi');
-      } else {
-        await tenantsApi.activate(tenant.id);
-      }
+      await tenantsApi.activate(tenant.id);
       fetchTenants();
       fetchInitialData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Islem basarisiz');
+      setError(err instanceof Error ? err.message : 'Operation failed');
+    }
+  };
+
+  const handleConfirmSuspend = async () => {
+    if (!tenantToSuspend || !suspendReason.trim()) return;
+    try {
+      await tenantsApi.suspend(tenantToSuspend.id, suspendReason.trim());
+      setIsSuspendReasonModalOpen(false);
+      setTenantToSuspend(null);
+      setSuspendReason('');
+      fetchTenants();
+      fetchInitialData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Suspend operation failed');
     }
   };
 
@@ -157,16 +187,21 @@ const TenantManagementPage: React.FC = () => {
     }
   };
 
-  const handleBulkActivate = async () => {
+  const handleBulkActivate = () => {
     if (selectedIds.size === 0) return;
+    setIsBulkActivateModalOpen(true);
+  };
+
+  const handleConfirmBulkActivate = async () => {
     setSaving(true);
     try {
       await tenantsApi.bulkActivate(Array.from(selectedIds));
+      setIsBulkActivateModalOpen(false);
       setSelectedIds(new Set());
       fetchTenants();
       fetchInitialData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Toplu aktif etme basarisiz');
+      setError(err instanceof Error ? err.message : 'Bulk activation failed');
     } finally {
       setSaving(false);
     }
@@ -514,6 +549,67 @@ const TenantManagementPage: React.FC = () => {
             disabled={!bulkSuspendReason.trim()}
           >
             Askiya Al ({selectedIds.size})
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Bulk Activate Confirmation Modal */}
+      <Modal
+        isOpen={isBulkActivateModalOpen}
+        onClose={() => setIsBulkActivateModalOpen(false)}
+        title="Confirm Bulk Activation"
+      >
+        <div className="space-y-4">
+          <Alert type="warning">
+            You are about to activate {selectedIds.size} tenant(s). This will restore access for any tenants that were suspended for policy violations. Please confirm this is intentional.
+          </Alert>
+        </div>
+        <div className="flex justify-end space-x-2 mt-6 pt-4 border-t">
+          <Button variant="outline" onClick={() => setIsBulkActivateModalOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleConfirmBulkActivate}
+            loading={saving}
+          >
+            Activate ({selectedIds.size})
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Individual Suspend Reason Modal */}
+      <Modal
+        isOpen={isSuspendReasonModalOpen}
+        onClose={() => { setIsSuspendReasonModalOpen(false); setTenantToSuspend(null); }}
+        title="Suspend Tenant"
+      >
+        <div className="space-y-4">
+          <Alert type="warning">
+            Suspending tenant: <strong>{tenantToSuspend?.name}</strong>. Please provide a reason for this action — it will be recorded in the audit log.
+          </Alert>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Reason <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              className="w-full border rounded-lg p-3 min-h-[80px]"
+              value={suspendReason}
+              onChange={(e) => setSuspendReason(e.target.value)}
+              placeholder="Enter reason for suspension..."
+            />
+          </div>
+        </div>
+        <div className="flex justify-end space-x-2 mt-6 pt-4 border-t">
+          <Button variant="outline" onClick={() => { setIsSuspendReasonModalOpen(false); setTenantToSuspend(null); }}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onClick={handleConfirmSuspend}
+            disabled={!suspendReason.trim()}
+          >
+            Suspend Tenant
           </Button>
         </div>
       </Modal>

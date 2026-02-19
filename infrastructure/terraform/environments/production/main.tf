@@ -3,7 +3,8 @@
 # =============================================================================
 
 terraform {
-  required_version = ">= 1.0"
+  # ARCH-008 fix: bounded version constraint prevents accidental upgrade to Terraform 2.x
+  required_version = ">= 1.5, < 2.0"
 
   required_providers {
     aws = {
@@ -18,8 +19,19 @@ terraform {
       source  = "hashicorp/helm"
       version = "~> 2.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
   }
 
+  # ARCH-002 / SEC-003 fix: backend configuration is the single source of truth here;
+  # no backend_override.tf is generated in CI/CD. Bucket, region, and DynamoDB table
+  # must match the actual state bucket created via the bootstrap configuration.
   backend "s3" {
     bucket         = "aquaculture-terraform-state"
     key            = "production/terraform.tfstate"
@@ -98,7 +110,10 @@ module "networking" {
 
   enable_nat_gateway = true
   single_nat_gateway = false  # High availability for production
-  enable_flow_logs   = true
+
+  enable_flow_logs = true
+  # ARCH-017 fix: explicitly set 90-day retention (module default is 30 days)
+  flow_log_retention_days = 90
 
   tags = local.common_tags
 }
@@ -115,9 +130,14 @@ module "eks" {
 
   vpc_id     = module.networking.vpc_id
   subnet_ids = module.networking.private_subnet_ids
+  # SEC-012 fix: pass VPC CIDR so the module can scope cluster SG egress to the VPC
+  vpc_cidr   = module.networking.vpc_cidr
 
   endpoint_public_access = true
-  public_access_cidrs    = var.allowed_cidrs
+  # SEC-001 / SEC-009 fix: allowed_cidrs has no default and no 0.0.0.0/0 allowed.
+  # Value must be provided via TF_VAR_allowed_cidrs in CI/CD (see variables.tf
+  # validation). For production this should be NAT gateway IPs + CI runner IPs.
+  public_access_cidrs = var.allowed_cidrs
 
   node_groups = {
     general = {
@@ -188,10 +208,14 @@ module "rds" {
   performance_insights_retention = 7
   monitoring_interval            = 60
 
+  # SEC-017 fix: changed log_statement from "all" to "ddl" so only schema-change
+  # statements are logged. This prevents tenant query data (INSERT/UPDATE content)
+  # from being written to CloudWatch logs. Slow query identification is still
+  # provided by log_min_duration_statement = 1000.
   parameters = [
     {
       name  = "log_statement"
-      value = "all"
+      value = "ddl"
     },
     {
       name  = "log_min_duration_statement"

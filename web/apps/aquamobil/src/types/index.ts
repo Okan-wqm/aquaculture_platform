@@ -9,6 +9,9 @@ export interface User {
   name: string;
   role: 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MANAGER' | 'OPERATOR' | 'VIEWER';
   tenantId: string | null;
+  // BUG-11: employeeId is the HR employee identifier, distinct from the auth user id.
+  // When present, it must be used for schedule queries instead of user.id.
+  employeeId?: string;
 }
 
 export interface AuthState {
@@ -106,13 +109,24 @@ export interface HarvestInput {
   notes?: string;
 }
 
+// Feeding types
+export interface FeedingInput {
+  executionId: string;
+  actualKg: number;
+  feedingMethod?: string;
+  feederEquipmentId?: string;
+  notes?: string;
+}
+
 // Offline queue types
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord';
+export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding';
+
+export type OperationPayload = MortalityInput | CullInput | HarvestInput | FeedingInput;
 
 export interface QueuedOperation {
   id: string;
   type: OperationType;
-  payload: MortalityInput | CullInput | HarvestInput;
+  payload: OperationPayload;
   createdAt: string;
   retryCount: number;
   lastError?: string;

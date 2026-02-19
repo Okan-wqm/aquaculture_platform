@@ -35,7 +35,9 @@ export class EnrollInTrainingHandler
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
-    await queryRunner.startTransaction('SERIALIZABLE');
+    // READ COMMITTED with the unique index on (tenantId, employeeId, trainingCourseId, status)
+    // is sufficient to prevent duplicate enrollments; SERIALIZABLE is unnecessary overhead here.
+    await queryRunner.startTransaction('READ COMMITTED');
 
     try {
       // Validate employee

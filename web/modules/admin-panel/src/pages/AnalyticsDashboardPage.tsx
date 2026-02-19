@@ -665,8 +665,13 @@ const AnalyticsDashboardPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Tenant Growth Chart */}
         <Card title="Tenant Buyumesi">
-          <div className="h-32 mb-4">
+          <div className="h-32 mb-4 relative">
             <MiniChart data={tenantTrend} height={100} color="#3B82F6" />
+            {(tenantTrend.length === 0 || tenantTrend.every(d => d.value === 0)) && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
+                <p className="text-sm text-gray-400">No analytics data available yet</p>
+              </div>
+            )}
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">Bu ay: +{data.tenants.newThisMonth}</span>
@@ -676,8 +681,13 @@ const AnalyticsDashboardPage: React.FC = () => {
 
         {/* Revenue Trend Chart */}
         <Card title="Gelir Trendi">
-          <div className="h-32 mb-4">
+          <div className="h-32 mb-4 relative">
             <MiniChart data={revenueTrend} height={100} color="#8B5CF6" />
+            {(revenueTrend.length === 0 || revenueTrend.every(d => d.value === 0)) && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
+                <p className="text-sm text-gray-400">No analytics data available yet</p>
+              </div>
+            )}
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">MRR: {formatCurrency(data.financial.mrr)}</span>
@@ -687,8 +697,13 @@ const AnalyticsDashboardPage: React.FC = () => {
 
         {/* Daily Active Users Chart */}
         <Card title="Gunluk Aktif Kullanicilar">
-          <div className="h-32 mb-4">
+          <div className="h-32 mb-4 relative">
             <MiniChart data={userTrend} height={100} color="#10B981" />
+            {(userTrend.length === 0 || userTrend.every(d => d.value === 0)) && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
+                <p className="text-sm text-gray-400">No analytics data available yet</p>
+              </div>
+            )}
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">Ortalama: {data.usage.avgDailyActiveUsers}</span>
@@ -778,6 +793,11 @@ const AnalyticsDashboardPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Module Usage */}
         <Card title="Modul Kullanimi">
+          {Object.keys(data.usage.moduleUsage).length === 0 && (
+            <div className="flex items-center justify-center py-8">
+              <p className="text-sm text-gray-400">No analytics data available yet</p>
+            </div>
+          )}
           <div className="space-y-4">
             {Object.entries(data.usage.moduleUsage).map(([module, stats]) => {
               const percentage = data.users.active > 0 ? Math.round((stats.activeUsers / data.users.active) * 100) : 0;
@@ -803,6 +823,11 @@ const AnalyticsDashboardPage: React.FC = () => {
 
         {/* Feature Adoption */}
         <Card title="Feature Adoption">
+          {data.usage.topFeatures.length === 0 && (
+            <div className="flex items-center justify-center py-8">
+              <p className="text-sm text-gray-400">No analytics data available yet</p>
+            </div>
+          )}
           <div className="space-y-4">
             {data.usage.topFeatures.map((feature) => (
               <div key={feature.feature}>

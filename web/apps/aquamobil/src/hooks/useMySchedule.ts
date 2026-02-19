@@ -108,6 +108,8 @@ async function fetchMySchedule(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
       'X-Tenant-Id': tenantId,
+      // SEC-06: CSRF defense header
+      'X-Requested-With': 'XMLHttpRequest',
     },
     body: JSON.stringify({
       query: MY_WEEKLY_PLAN_QUERY,
@@ -145,8 +147,19 @@ export function useMySchedule(weekOffset = 0) {
         throw new Error('Not authenticated');
       }
 
+      // BUG-11: Use employeeId (HR system identifier) if available, fall back to
+      // auth user.id with a warning. These may differ in deployments where HR IDs
+      // are managed independently from auth user IDs.
+      const scheduleId = user.employeeId ?? user.id;
+      if (!user.employeeId) {
+        console.warn(
+          'useMySchedule: user.employeeId is not set — falling back to user.id. ' +
+          'Schedule lookup may return no results if HR IDs differ from auth IDs.'
+        );
+      }
+
       try {
-        const plan = await fetchMySchedule(accessToken, tenantId, user.id, weekStartDate);
+        const plan = await fetchMySchedule(accessToken, tenantId, scheduleId, weekStartDate);
         if (plan) {
           await cacheData(cacheKey, plan, 1000 * 60 * 30); // 30 min TTL
         }

@@ -1,8 +1,7 @@
 /**
  * Remote Module Type Declarations
  *
- * Module Federation ile yüklenen remote modüller için
- * TypeScript tip tanımlamaları.
+ * TypeScript type declarations for remote modules loaded via Module Federation.
  */
 
 // ============================================================================

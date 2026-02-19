@@ -63,6 +63,13 @@ const ThresholdRow: React.FC<ThresholdRowProps> = ({ threshold, onUpdate, updati
   const [editData, setEditData] = useState<AlertThresholds>(threshold.alertThresholds);
   const [saving, setSaving] = useState(false);
 
+  // BUG-011: sync editData when prop changes from external refetch (only when not actively editing)
+  React.useEffect(() => {
+    if (!isEditing) {
+      setEditData(threshold.alertThresholds);
+    }
+  }, [threshold.alertThresholds, isEditing]);
+
   const handleEdit = () => {
     setEditData(threshold.alertThresholds);
     setIsEditing(true);

@@ -3,21 +3,19 @@
  * Displays list of employees with filtering, sorting, and actions
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus,
   Search,
   Filter,
   Download,
-  MoreVertical,
   Eye,
   Edit,
-  Trash2,
   Ship,
   Building2,
 } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, useAuth } from '@aquaculture/shared-ui';
 import { useEmployees, useDepartments, usePositions, useToggleFarmWorker } from '../../hooks';
 import { DataTable, StatusBadge, EmployeeAvatar, DepartmentBadge } from '../../components/common';
 import type { Column } from '../../components/common';
@@ -26,11 +24,23 @@ import { EMPLOYEE_STATUS_CONFIG, PERSONNEL_CATEGORY_CONFIG } from '../../types';
 
 export function EmployeesListPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  // SEC-007: only HR managers may perform destructive bulk actions
+  const canBulkDelete =
+    user?.roles?.includes('hr_manager') ||
+    user?.roles?.includes('admin') ||
+    user?.role === 'hr_manager' ||
+    user?.role === 'admin';
 
   // State
   const [filter, setFilter] = useState<EmployeeFilterInput>({});
   const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, offset: 0 });
   const [searchQuery, setSearchQuery] = useState('');
+  // PERF-006: defer the search value so rapid keystrokes are coalesced before
+  // a new network request fires.  useDeferredValue yields the previous value
+  // during the transition, so the table stays responsive while the query runs.
+  const deferredSearch = useDeferredValue(searchQuery);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<string>('lastName');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -38,15 +48,15 @@ export function EmployeesListPage() {
 
   // Data fetching
   const { data: employees, isLoading } = useEmployees(
-    { ...filter, search: searchQuery || undefined },
+    { ...filter, search: deferredSearch || undefined },
     pagination
   );
   const { data: departments } = useDepartments();
   const { data: positions } = usePositions();
   const toggleFarmWorker = useToggleFarmWorker();
 
-  // Table columns
-  const columns: Column<Employee>[] = [
+  // PERF-004: memoize columns to avoid re-creating the array on every render
+  const columns: Column<Employee>[] = useMemo(() => [
     {
       key: 'employee',
       header: 'Employee',
@@ -188,7 +198,11 @@ export function EmployeesListPage() {
         </div>
       ),
     },
-  ];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [navigate, toggleFarmWorker.mutate]);
+
+  // PERF-009: stable keyExtractor so DataTable's useMemo deps don't invalidate
+  const keyExtractor = useCallback((row: Employee) => row.id, []);
 
   const handleSort = (key: string) => {
     if (sortBy === key) {
@@ -206,7 +220,8 @@ export function EmployeesListPage() {
     });
   };
 
-  const handleFilterChange = (key: keyof EmployeeFilterInput, value: any) => {
+  // BUG-012 / BUG-013: replace any with specific union type
+  const handleFilterChange = (key: keyof EmployeeFilterInput, value: string | boolean | undefined) => {
     setFilter((prev) => ({
       ...prev,
       [key]: value || undefined,
@@ -364,12 +379,25 @@ export function EmployeesListPage() {
             {selectedKeys.size} selected
           </span>
           <div className="flex items-center gap-2">
-            <button className="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400">
-              Bulk Edit
-            </button>
-            <button className="text-sm text-red-600 hover:text-red-700 dark:text-red-400">
-              Delete Selected
-            </button>
+            {canBulkDelete && (
+              <>
+                {/* BUG-016: bulk actions are guarded but not yet implemented */}
+                <button
+                  disabled
+                  title="Bulk edit — not yet implemented"
+                  className="text-sm text-indigo-400 cursor-not-allowed dark:text-indigo-600"
+                >
+                  Bulk Edit
+                </button>
+                <button
+                  disabled
+                  title="Bulk delete — not yet implemented"
+                  className="text-sm text-red-400 cursor-not-allowed dark:text-red-600"
+                >
+                  Delete Selected
+                </button>
+              </>
+            )}
           </div>
           <button
             onClick={() => setSelectedKeys(new Set())}
@@ -384,7 +412,7 @@ export function EmployeesListPage() {
       <DataTable
         data={employees?.items || []}
         columns={columns}
-        keyExtractor={(row) => row.id}
+        keyExtractor={keyExtractor}
         isLoading={isLoading}
         emptyMessage="No employees found"
         total={employees?.total}

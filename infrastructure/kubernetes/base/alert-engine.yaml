@@ -20,10 +20,40 @@ spec:
         app: alert-engine
         tier: backend
     spec:
-      serviceAccountName: aquaculture-sa
+      # SEC-003: per-service service account
+      serviceAccountName: alert-engine-sa
+      # SEC-017: pull secret for GHCR private registry
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      # ARCH-006: pod anti-affinity to spread replicas across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - alert-engine
+                topologyKey: kubernetes.io/hostname
+      # ARCH-015: topology spread for AZ resilience
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: alert-engine
+      volumes:
+        # SEC-004: emptyDir for /tmp since readOnlyRootFilesystem: true
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: alert-engine
-          image: ghcr.io/aquaculture/alert-engine:latest
+          # ARCH-013: no tag here; tag set via Kustomize images transformer
+          image: ghcr.io/aquaculture/alert-engine
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
@@ -39,22 +69,45 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          # ARCH-010: startupProbe replaces long initialDelaySeconds blind window
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            failureThreshold: 30
+            periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /health
               port: 3000
-            initialDelaySeconds: 30
+            initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # ARCH-007: readinessProbe uses /health/ready (separate from liveness)
           readinessProbe:
             httpGet:
               path: /health/ready
               port: 3000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 5
             periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
           securityContext:
             runAsNonRoot: true
             runAsUser: 1001
             allowPrivilegeEscalation: false
+            # SEC-004: readOnlyRootFilesystem
+            readOnlyRootFilesystem: true
+            # SEC-006: seccompProfile and capabilities drop ALL
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
 
 ---
 apiVersion: v1
@@ -70,3 +123,44 @@ spec:
       name: http
   selector:
     app: alert-engine
+
+---
+# ARCH-001: PodDisruptionBudget for alert-engine
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: alert-engine-pdb
+  namespace: aquaculture
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: alert-engine
+
+---
+# ARCH-011: HPA for alert-engine — scales with sensor-service event volume
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: alert-engine-hpa
+  namespace: aquaculture
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: alert-engine
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75

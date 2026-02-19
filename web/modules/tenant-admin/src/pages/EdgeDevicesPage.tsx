@@ -15,27 +15,8 @@ import {
 } from 'lucide-react';
 
 import { InstallerKeyModal } from '../components/devices/InstallerKeyModal';
-
-const GRAPHQL_URL = '/graphql';
-
-const getAuthToken = (): string | null => {
-  return localStorage.getItem('access_token');
-};
-
-const executeGraphQL = async <T,>(query: string, variables?: Record<string, unknown>): Promise<T> => {
-  const token = getAuthToken();
-  const response = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-  const result = await response.json();
-  if (result.errors) throw new Error(result.errors[0]?.message || 'GraphQL error');
-  return result.data;
-};
+import { graphqlRequest } from '../services/tenant-api.service';
+import { logError } from '../utils/error-handling';
 
 interface EdgeDeviceListItem {
   id: string;
@@ -133,7 +114,7 @@ const EdgeDevicesPage: React.FC = () => {
       if (stateFilter) variables.lifecycleState = stateFilter;
       if (onlineFilter !== undefined) variables.isOnline = onlineFilter;
 
-      const data = await executeGraphQL<{
+      const data = await graphqlRequest<{
         edgeDevices: { items: EdgeDeviceListItem[]; total: number };
         edgeDeviceStats: DeviceStats;
       }>(EDGE_DEVICES_QUERY, variables);
@@ -142,7 +123,7 @@ const EdgeDevicesPage: React.FC = () => {
       setTotal(data.edgeDevices.total);
       setStats(data.edgeDeviceStats);
     } catch (err) {
-      console.error('Failed to fetch devices:', err);
+      logError('EdgeDevicesPage.fetchDevices', err);
     } finally {
       setLoading(false);
     }

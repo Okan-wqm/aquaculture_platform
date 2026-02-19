@@ -14,7 +14,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import * as turf from '@turf/turf';
-import type { Map as LeafletMap, Layer, LatLng } from 'leaflet';
+import type { Layer } from 'leaflet';
+import { useAuth } from '@aquaculture/shared-ui';
 
 // AOI Types
 export type AOIType = 'polygon' | 'circle' | 'rectangle';
@@ -67,8 +68,8 @@ const AOI_COLORS = [
   '#84cc16', // lime
 ];
 
-// LocalStorage key
-const STORAGE_KEY = 'aquaculture-aois';
+// LocalStorage key prefix — scoped per tenant at runtime
+const STORAGE_KEY_PREFIX = 'aquaculture-aois';
 
 /**
  * Calculate area of a GeoJSON polygon in km²
@@ -144,46 +145,79 @@ function layerToGeometry(
   }
 }
 
+/**
+ * Type guard: validate that a parsed localStorage value is a valid AOI array.
+ * Blocks prototype-pollution and type-confusion attacks.
+ */
+function isValidAOIArray(parsed: unknown): parsed is Omit<AOI, 'createdAt'>[] {
+  if (!Array.isArray(parsed)) return false;
+  return parsed.every(
+    (item) =>
+      item !== null &&
+      typeof item === 'object' &&
+      !Array.isArray(item) &&
+      // Block prototype keys
+      !Object.prototype.hasOwnProperty.call(item, '__proto__') &&
+      !Object.prototype.hasOwnProperty.call(item, 'constructor') &&
+      typeof (item as Record<string, unknown>).id === 'string' &&
+      typeof (item as Record<string, unknown>).name === 'string',
+  );
+}
+
 export function useAOIDrawing(): UseAOIDrawingReturn {
+  const { tenantId } = useAuth();
+  // Scope key to tenant so users on shared browsers can't see each other's AOIs
+  const storageKey = tenantId ? `${STORAGE_KEY_PREFIX}_${tenantId}` : STORAGE_KEY_PREFIX;
+
   // State
   const [aois, setAOIs] = useState<AOI[]>([]);
   const [activeAOIId, setActiveAOIId] = useState<string | null>(null);
   const [drawingMode, setDrawingMode] = useState<DrawingMode>('none');
   const colorIndexRef = useRef(0);
+  const isFirstMountRef = useRef(true);
 
   // Derived state
   const activeAOI = aois.find((a) => a.id === activeAOIId) || null;
   const isDrawing = drawingMode !== 'none';
 
   /**
-   * Load AOIs from localStorage on mount
+   * Load AOIs from localStorage when storageKey is ready (tenant available)
    */
   useEffect(() => {
+    if (!storageKey) return;
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = localStorage.getItem(storageKey);
       if (stored) {
-        const parsed = JSON.parse(stored);
-        const loadedAOIs = parsed.map((aoi: any) => ({
-          ...aoi,
-          createdAt: new Date(aoi.createdAt),
-        }));
-        setAOIs(loadedAOIs);
+        const parsed: unknown = JSON.parse(stored);
+        if (isValidAOIArray(parsed)) {
+          const loadedAOIs = parsed.map((aoi) => ({
+            ...aoi,
+            createdAt: new Date((aoi as Record<string, unknown>).createdAt as string),
+          }));
+          setAOIs(loadedAOIs as AOI[]);
+        }
       }
     } catch (error) {
-      console.error('Failed to load AOIs from storage:', error);
+      if (import.meta.env.DEV) console.error('Failed to load AOIs from storage:', error);
     }
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey]);
 
   /**
-   * Save AOIs to localStorage when they change
+   * Save AOIs to localStorage when they change (skip initial mount write)
    */
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(aois));
-    } catch (error) {
-      console.error('Failed to save AOIs to storage:', error);
+    if (isFirstMountRef.current) {
+      isFirstMountRef.current = false;
+      return;
     }
-  }, [aois]);
+    if (!storageKey) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(aois));
+    } catch (error) {
+      if (import.meta.env.DEV) console.error('Failed to save AOIs to storage:', error);
+    }
+  }, [aois, storageKey]);
 
   /**
    * Get next color for new AOI

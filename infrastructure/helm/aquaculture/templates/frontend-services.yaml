@@ -2,6 +2,10 @@
 =============================================================================
 Aquaculture Platform - Frontend Services
 =============================================================================
+Frontend containers run as nginx (user 101). emptyDir volumes are provided
+for nginx write paths that require filesystem access when readOnlyRootFilesystem
+is enabled.
+=============================================================================
 */}}
 
 {{- /* Shell (Host Application) */}}
@@ -10,6 +14,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "aquaculture.fullname" . }}-shell
+  namespace: {{ .Values.namespace }}
   labels:
     {{- include "aquaculture.frontendLabels" . | nindent 4 }}
     app: shell
@@ -24,6 +29,22 @@ spec:
         app: shell
         tier: frontend
     spec:
+      serviceAccountName: {{ include "aquaculture.fullname" . }}-shell
+      automountServiceAccountToken: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: shell
+                topologyKey: kubernetes.io/hostname
+      volumes:
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-tmp
+          emptyDir: {}
       containers:
         - name: shell
           image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.shell.image) }}
@@ -35,35 +56,45 @@ spec:
               value: "http://{{ include "aquaculture.fullname" . }}-dashboard"
             - name: FARM_MODULE_URL
               value: "http://{{ include "aquaculture.fullname" . }}-farm-module"
+            {{- if .Values.processEditor.enabled }}
             - name: PROCESS_EDITOR_URL
               value: "http://{{ include "aquaculture.fullname" . }}-process-editor"
+            {{- end }}
             - name: ADMIN_PANEL_URL
               value: "http://{{ include "aquaculture.fullname" . }}-admin-panel"
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-tmp
+              mountPath: /tmp
           resources:
             {{- toYaml .Values.shell.resources | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /health
               port: {{ .Values.shell.service.targetPort }}
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
           readinessProbe:
             httpGet:
               path: /health
               port: {{ .Values.shell.service.targetPort }}
-            initialDelaySeconds: 5
-            periodSeconds: 5
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 101
-            allowPrivilegeEscalation: false
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- include "aquaculture.frontendSecurityContext" . | nindent 10 }}
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "aquaculture.fullname" . }}-shell
+  namespace: {{ .Values.namespace }}
   labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
     app: shell
 spec:
   type: {{ .Values.shell.service.type }}
@@ -82,6 +113,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "aquaculture.fullname" . }}-dashboard
+  namespace: {{ .Values.namespace }}
   labels:
     {{- include "aquaculture.frontendLabels" . | nindent 4 }}
     app: dashboard
@@ -96,31 +128,61 @@ spec:
         app: dashboard
         tier: frontend
     spec:
+      serviceAccountName: {{ include "aquaculture.fullname" . }}-dashboard
+      automountServiceAccountToken: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: dashboard
+                topologyKey: kubernetes.io/hostname
+      volumes:
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-tmp
+          emptyDir: {}
       containers:
         - name: dashboard
           image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.dashboard.image) }}
           imagePullPolicy: {{ .Values.dashboard.image.pullPolicy }}
           ports:
             - containerPort: {{ .Values.dashboard.service.targetPort }}
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-tmp
+              mountPath: /tmp
           resources:
             {{- toYaml .Values.dashboard.resources | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /health
               port: {{ .Values.dashboard.service.targetPort }}
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 101
-            allowPrivilegeEscalation: false
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.dashboard.service.targetPort }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- include "aquaculture.frontendSecurityContext" . | nindent 10 }}
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "aquaculture.fullname" . }}-dashboard
+  namespace: {{ .Values.namespace }}
   labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
     app: dashboard
 spec:
   type: {{ .Values.dashboard.service.type }}
@@ -139,6 +201,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "aquaculture.fullname" . }}-farm-module
+  namespace: {{ .Values.namespace }}
   labels:
     {{- include "aquaculture.frontendLabels" . | nindent 4 }}
     app: farm-module
@@ -153,31 +216,61 @@ spec:
         app: farm-module
         tier: frontend
     spec:
+      serviceAccountName: {{ include "aquaculture.fullname" . }}-farm-module
+      automountServiceAccountToken: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: farm-module
+                topologyKey: kubernetes.io/hostname
+      volumes:
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-tmp
+          emptyDir: {}
       containers:
         - name: farm-module
           image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.farmModule.image) }}
           imagePullPolicy: {{ .Values.farmModule.image.pullPolicy }}
           ports:
             - containerPort: {{ .Values.farmModule.service.targetPort }}
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-tmp
+              mountPath: /tmp
           resources:
             {{- toYaml .Values.farmModule.resources | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /health
               port: {{ .Values.farmModule.service.targetPort }}
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 101
-            allowPrivilegeEscalation: false
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.farmModule.service.targetPort }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- include "aquaculture.frontendSecurityContext" . | nindent 10 }}
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "aquaculture.fullname" . }}-farm-module
+  namespace: {{ .Values.namespace }}
   labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
     app: farm-module
 spec:
   type: {{ .Values.farmModule.service.type }}
@@ -190,12 +283,13 @@ spec:
 {{- end }}
 
 ---
-{{- /* Process Editor Module */}}
+{{- /* Process Editor Module — disabled by default (no image exists yet) */}}
 {{- if .Values.processEditor.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "aquaculture.fullname" . }}-process-editor
+  namespace: {{ .Values.namespace }}
   labels:
     {{- include "aquaculture.frontendLabels" . | nindent 4 }}
     app: process-editor
@@ -210,31 +304,61 @@ spec:
         app: process-editor
         tier: frontend
     spec:
+      serviceAccountName: {{ include "aquaculture.fullname" . }}-process-editor
+      automountServiceAccountToken: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: process-editor
+                topologyKey: kubernetes.io/hostname
+      volumes:
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-tmp
+          emptyDir: {}
       containers:
         - name: process-editor
           image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.processEditor.image) }}
           imagePullPolicy: {{ .Values.processEditor.image.pullPolicy }}
           ports:
             - containerPort: {{ .Values.processEditor.service.targetPort }}
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-tmp
+              mountPath: /tmp
           resources:
             {{- toYaml .Values.processEditor.resources | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /health
               port: {{ .Values.processEditor.service.targetPort }}
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 101
-            allowPrivilegeEscalation: false
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.processEditor.service.targetPort }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- include "aquaculture.frontendSecurityContext" . | nindent 10 }}
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "aquaculture.fullname" . }}-process-editor
+  namespace: {{ .Values.namespace }}
   labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
     app: process-editor
 spec:
   type: {{ .Values.processEditor.service.type }}
@@ -253,6 +377,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "aquaculture.fullname" . }}-admin-panel
+  namespace: {{ .Values.namespace }}
   labels:
     {{- include "aquaculture.frontendLabels" . | nindent 4 }}
     app: admin-panel
@@ -267,31 +392,61 @@ spec:
         app: admin-panel
         tier: frontend
     spec:
+      serviceAccountName: {{ include "aquaculture.fullname" . }}-admin-panel
+      automountServiceAccountToken: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: admin-panel
+                topologyKey: kubernetes.io/hostname
+      volumes:
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-tmp
+          emptyDir: {}
       containers:
         - name: admin-panel
           image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.adminPanel.image) }}
           imagePullPolicy: {{ .Values.adminPanel.image.pullPolicy }}
           ports:
             - containerPort: {{ .Values.adminPanel.service.targetPort }}
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-tmp
+              mountPath: /tmp
           resources:
             {{- toYaml .Values.adminPanel.resources | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /health
               port: {{ .Values.adminPanel.service.targetPort }}
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 101
-            allowPrivilegeEscalation: false
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.adminPanel.service.targetPort }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- include "aquaculture.frontendSecurityContext" . | nindent 10 }}
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "aquaculture.fullname" . }}-admin-panel
+  namespace: {{ .Values.namespace }}
   labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
     app: admin-panel
 spec:
   type: {{ .Values.adminPanel.service.type }}

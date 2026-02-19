@@ -181,6 +181,8 @@ const TenantConfigurationPage: React.FC = () => {
   const [config, setConfig] = useState<TenantConfiguration | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('limits');
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [newApiKey, setNewApiKey] = useState<string | null>(null);
@@ -331,11 +333,13 @@ const TenantConfigurationPage: React.FC = () => {
     if (!config) return;
     try {
       setSaving(true);
+      setSaveError(null);
+      setSaveSuccess(false);
       await new Promise(resolve => setTimeout(resolve, 1000));
-      alert('Configuration saved successfully!');
+      setSaveSuccess(true);
     } catch (error) {
       console.error('Failed to save configuration:', error);
-      alert('Failed to save configuration');
+      setSaveError('Failed to save configuration. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -387,7 +391,7 @@ const TenantConfigurationPage: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Tenant Konfigürasyonu</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Tenant Configuration</h1>
           <p className="text-gray-500 mt-1">Tenant ID: {tenantId}</p>
         </div>
         <Button
@@ -395,9 +399,31 @@ const TenantConfigurationPage: React.FC = () => {
           onClick={handleSave}
           loading={saving}
         >
-          Değişiklikleri Kaydet
+          Save Changes
         </Button>
       </div>
+
+      {/* Save success/error */}
+      {saveSuccess && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center justify-between">
+          <span className="text-green-700 text-sm">Configuration saved successfully.</span>
+          <button onClick={() => setSaveSuccess(false)} className="text-green-400 hover:text-green-600 ml-4">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+      )}
+      {saveError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center justify-between">
+          <span className="text-red-700 text-sm">{saveError}</span>
+          <button onClick={() => setSaveError(null)} className="text-red-400 hover:text-red-600 ml-4">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="border-b border-gray-200">
@@ -986,8 +1012,8 @@ const TenantConfigurationPage: React.FC = () => {
                 variant="primary"
                 fullWidth
                 onClick={() => {
-                  navigator.clipboard.writeText(newApiKey);
-                  alert('Anahtar panoya kopyalandı!');
+                  navigator.clipboard.writeText(newApiKey).catch(console.error);
+                  setSaveSuccess(true);
                 }}
               >
                 Kopyala

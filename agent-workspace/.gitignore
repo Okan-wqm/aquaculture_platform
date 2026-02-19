@@ -1,0 +1,6 @@
+# Agent workspace - generated analysis output
+# These files are created by the multi-agent analysis system
+# and should not be committed to version control
+
+*
+!.gitignore

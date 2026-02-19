@@ -92,16 +92,19 @@ export class UserProvisioningService {
 
       // Generate invitation token and temporary password
       const invitationToken = this.generateSecureToken(64);
+      // MED-004 fix: store only the SHA-256 hash of the token in the DB;
+      // the raw token is returned to the caller and sent via email only.
+      const invitationTokenHash = crypto.createHash('sha256').update(invitationToken).digest('hex');
       const temporaryPassword = this.generateTemporaryPassword();
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiration
 
       // Create user and invitation in transaction
       const result = await this.dataSource.transaction(async (manager) => {
-        // Create user with invitation token
+        // C-8 fix: qualify all table references with auth. schema
         const userResult = await manager.query(
           `
-          INSERT INTO users (
+          INSERT INTO auth.users (
             id, email, first_name, last_name, role, "tenantId",
             is_active, is_email_verified, invitation_token, invitation_expires_at,
             invited_by, created_at, updated_at
@@ -112,15 +115,16 @@ export class UserProvisioningService {
           )
           RETURNING id
         `,
-          [email, firstName, lastName, tenantId, invitationToken, expiresAt, createdBy],
+          // MED-004 fix: store hash, not raw token
+          [email, firstName, lastName, tenantId, invitationTokenHash, expiresAt, createdBy],
         );
 
         const userId = userResult[0].id;
 
-        // Create invitation record for tracking
+        // C-8 fix: qualify with auth. schema
         await manager.query(
           `
-          INSERT INTO invitations (
+          INSERT INTO auth.invitations (
             id, token, email, first_name, last_name, role, "tenantId",
             status, expires_at, invited_by, send_count, last_sent_at, created_at, updated_at
           ) VALUES (
@@ -129,15 +133,17 @@ export class UserProvisioningService {
           )
           RETURNING id
         `,
-          [invitationToken, email, firstName, lastName, tenantId, expiresAt, createdBy],
+          // MED-004 fix: store hash, not raw token
+          [invitationTokenHash, email, firstName, lastName, tenantId, expiresAt, createdBy],
         );
 
-        // Update tenant user count
+        // C-8 fix: qualify with auth. schema
         await manager.query(
-          `UPDATE tenants SET user_count = user_count + 1 WHERE id = $1`,
+          `UPDATE auth.tenants SET user_count = user_count + 1 WHERE id = $1`,
           [tenantId],
         );
 
+        // Return the raw token to the caller (for email delivery) — not the hash
         return { userId, invitationToken };
       });
 
@@ -175,7 +181,7 @@ export class UserProvisioningService {
           t.user_count as current_count,
           t.limits->>'maxUsers' as max_users,
           t.tier
-        FROM tenants t
+        FROM auth.tenants t
         WHERE t.id = $1
       `,
         [tenantId],
@@ -282,14 +288,17 @@ export class UserProvisioningService {
 
     try {
       const invitationToken = this.generateSecureToken(64);
+      // MED-004 fix: store only the SHA-256 hash of the token in the DB;
+      // the raw token is returned to the caller for email delivery only.
+      const invitationTokenHash = crypto.createHash('sha256').update(invitationToken).digest('hex');
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
 
       const result = await this.dataSource.transaction(async (manager) => {
-        // Create user with invitation token
+        // C-8 fix: qualify all table references with auth. schema
         const userResult = await manager.query(
           `
-          INSERT INTO users (
+          INSERT INTO auth.users (
             id, email, first_name, last_name, role, "tenantId",
             is_active, is_email_verified, invitation_token, invitation_expires_at,
             invited_by, created_at, updated_at
@@ -306,7 +315,7 @@ export class UserProvisioningService {
             lastName,
             role,
             tenantId,
-            invitationToken,
+            invitationTokenHash, // MED-004 fix: store hash, not raw token
             expiresAt,
             invitedBy,
           ],
@@ -314,10 +323,10 @@ export class UserProvisioningService {
 
         const userId = userResult[0].id;
 
-        // Create invitation record
+        // C-8 fix: qualify with auth. schema
         const invitationResult = await manager.query(
           `
-          INSERT INTO invitations (
+          INSERT INTO auth.invitations (
             id, token, email, first_name, last_name, role, "tenantId",
             module_ids, primary_module_id, status, expires_at,
             invited_by, message, send_count, last_sent_at, created_at, updated_at
@@ -329,13 +338,15 @@ export class UserProvisioningService {
           RETURNING id
         `,
           [
-            invitationToken,
+            invitationTokenHash, // MED-004 fix: store hash, not raw token
             email,
             firstName,
             lastName,
             role,
             tenantId,
-            moduleIds ? moduleIds.join(',') : null,
+            // BUG-025 fix: store moduleIds as a JSON array, not a comma-separated string,
+            // so consumers can read it back correctly without fragile string splitting.
+            moduleIds && moduleIds.length > 0 ? JSON.stringify(moduleIds) : null,
             primaryModuleId,
             expiresAt,
             invitedBy,
@@ -348,7 +359,7 @@ export class UserProvisioningService {
           for (const moduleId of moduleIds) {
             await manager.query(
               `
-              INSERT INTO user_module_assignments (
+              INSERT INTO auth.user_module_assignments (
                 id, user_id, module_id, "tenantId", is_active,
                 can_read, can_write, can_delete, can_manage,
                 assigned_by, created_at, updated_at
@@ -363,9 +374,9 @@ export class UserProvisioningService {
           }
         }
 
-        // Update tenant user count
+        // C-8 fix: qualify with auth. schema
         await manager.query(
-          `UPDATE tenants SET user_count = user_count + 1 WHERE id = $1`,
+          `UPDATE auth.tenants SET user_count = user_count + 1 WHERE id = $1`,
           [tenantId],
         );
 
@@ -408,7 +419,7 @@ export class UserProvisioningService {
     try {
       // Get inviter's role
       const inviterResult = await this.dataSource.query(
-        `SELECT role, "tenantId" FROM users WHERE id = $1`,
+        `SELECT role, "tenantId" FROM auth.users WHERE id = $1`,
         [inviterId],
       );
 
@@ -481,7 +492,7 @@ export class UserProvisioningService {
 
   private async getTenantUserCount(tenantId: string): Promise<number> {
     const result = await this.dataSource.query(
-      `SELECT COUNT(*) as count FROM users WHERE "tenantId" = $1`,
+      `SELECT COUNT(*) as count FROM auth.users WHERE "tenantId" = $1`,
       [tenantId],
     );
     return parseInt(result[0]?.count || '0', 10);
@@ -489,26 +500,31 @@ export class UserProvisioningService {
 
   private async checkEmailExists(email: string): Promise<boolean> {
     const result = await this.dataSource.query(
-      `SELECT id FROM users WHERE LOWER(email) = LOWER($1)`,
+      `SELECT id FROM auth.users WHERE LOWER(email) = LOWER($1)`,
       [email],
     );
     return result && result.length > 0;
   }
 
   private generateSecureToken(length: number): string {
-    return crypto.randomBytes(length).toString('hex').substring(0, length);
+    // BUG-012 fix: generate `length` bytes of entropy (produces 2*length hex chars)
+    // Previously used substring(0, length) which halved the entropy
+    return crypto.randomBytes(length).toString('hex');
   }
 
   private generateTemporaryPassword(): string {
     // Generate a secure temporary password: 16 chars with upper, lower, numbers, special
+    // LOW fix: Use rejection sampling to eliminate modulo bias
     const chars =
       'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+    const charsLen = chars.length;
+    // Largest multiple of charsLen that fits in a byte (256)
+    const maxUnbiased = Math.floor(256 / charsLen) * charsLen;
     let password = '';
-    const randomBytes = crypto.randomBytes(16);
-    for (let i = 0; i < 16; i++) {
-      const byte = randomBytes[i];
-      if (byte !== undefined) {
-        password += chars[byte % chars.length];
+    while (password.length < 16) {
+      const byte = crypto.randomBytes(1)[0];
+      if (byte !== undefined && byte < maxUnbiased) {
+        password += chars[byte % charsLen];
       }
     }
     return password;

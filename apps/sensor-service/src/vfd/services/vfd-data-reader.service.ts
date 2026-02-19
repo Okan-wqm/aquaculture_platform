@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThanOrEqual } from 'typeorm';
 
@@ -26,7 +26,7 @@ export interface TimeRange {
  * Handles reading data from VFD devices and storing readings
  */
 @Injectable()
-export class VfdDataReaderService {
+export class VfdDataReaderService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(VfdDataReaderService.name);
 
   // Active connections cache
@@ -36,12 +36,53 @@ export class VfdDataReaderService {
     lastActivity: Date;
   }> = new Map();
 
+  // Background eviction timer (MEDIUM-005)
+  private evictionTimer: ReturnType<typeof setInterval> | null = null;
+  private static readonly EVICTION_INTERVAL_MS = 5 * 60 * 1000;   // 5 minutes
+  private static readonly STALE_CONNECTION_MS   = 5 * 60 * 1000;  // 5 minutes idle
+
+  // Per-device connect lock: prevents concurrent callers from opening duplicate sockets
+  private connectLocks: Map<string, Promise<{
+    adapter: ReturnType<typeof createVfdAdapter>;
+    handle: VfdConnectionHandle;
+  }>> = new Map();
+
   constructor(
     @InjectRepository(VfdReading)
     private readonly vfdReadingRepository: Repository<VfdReading>,
     private readonly vfdDeviceService: VfdDeviceService,
     private readonly registerMappingService: VfdRegisterMappingService
   ) {}
+
+  onModuleInit(): void {
+    // Evict stale VFD connections every 5 minutes (MEDIUM-005)
+    this.evictionTimer = setInterval(() => {
+      this.evictStaleConnections();
+    }, VfdDataReaderService.EVICTION_INTERVAL_MS);
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    if (this.evictionTimer) {
+      clearInterval(this.evictionTimer);
+      this.evictionTimer = null;
+    }
+    await this.closeAllConnections();
+  }
+
+  /**
+   * Evict VFD connections that have been idle longer than STALE_CONNECTION_MS.
+   * Prevents indefinite handle accumulation for decommissioned devices (MEDIUM-005).
+   */
+  private evictStaleConnections(): void {
+    const cutoff = Date.now() - VfdDataReaderService.STALE_CONNECTION_MS;
+    for (const [deviceId, conn] of this.activeConnections.entries()) {
+      if (conn.lastActivity.getTime() < cutoff) {
+        this.closeConnection(deviceId).catch((err) =>
+          this.logger.warn(`Failed to evict stale connection for device ${deviceId}: ${(err as Error).message}`),
+        );
+      }
+    }
+  }
 
   /**
    * Read current parameters from a VFD device
@@ -251,36 +292,52 @@ export class VfdDataReaderService {
   // ============ PRIVATE METHODS ============
 
   /**
-   * Get or create connection to a device
+   * Get or create connection to a device.
+   * Uses a per-device promise lock so concurrent poll calls wait for the same
+   * connect() rather than each opening their own socket.
    */
-  private async getOrCreateConnection(device: VfdDevice): Promise<{
+  private getOrCreateConnection(device: VfdDevice): Promise<{
     adapter: ReturnType<typeof createVfdAdapter>;
     handle: VfdConnectionHandle;
   }> {
     const cached = this.activeConnections.get(device.id);
 
-    // Check if we have a valid cached connection
     if (cached && cached.handle.isConnected) {
       const idleTime = Date.now() - cached.lastActivity.getTime();
       if (idleTime < 60000) { // 1 minute idle timeout
         cached.lastActivity = new Date();
-        return { adapter: cached.adapter, handle: cached.handle };
+        return Promise.resolve({ adapter: cached.adapter, handle: cached.handle });
       }
-      // Connection is stale, close it
-      await this.closeConnection(device.id);
+      // Stale connection: close asynchronously, then fall through to reconnect
+      void this.closeConnection(device.id);
     }
 
-    // Create new connection
-    const adapter = createVfdAdapter(device.protocol);
-    const handle = await adapter.connect(device.protocolConfiguration as unknown as Record<string, unknown>);
+    // If a connect is already in progress for this device, reuse that promise
+    const inflight = this.connectLocks.get(device.id);
+    if (inflight) {
+      return inflight;
+    }
 
-    this.activeConnections.set(device.id, {
-      adapter,
-      handle,
-      lastActivity: new Date(),
-    });
+    const connectPromise = (async () => {
+      try {
+        const adapter = createVfdAdapter(device.protocol);
+        const handle = await adapter.connect(device.protocolConfiguration as unknown as Record<string, unknown>);
 
-    return { adapter, handle };
+        this.activeConnections.set(device.id, {
+          adapter,
+          handle,
+          lastActivity: new Date(),
+        });
+
+        return { adapter, handle };
+      } finally {
+        // Remove the lock regardless of success or failure
+        this.connectLocks.delete(device.id);
+      }
+    })();
+
+    this.connectLocks.set(device.id, connectPromise);
+    return connectPromise;
   }
 
   /**

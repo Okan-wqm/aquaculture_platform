@@ -243,12 +243,14 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
           </label>
         )}
 
+        {/* BUG-012: Add aria-describedby to associate error/helper with textarea */}
         <textarea
           ref={ref}
           id={textareaId}
           rows={rows}
           disabled={disabled}
           aria-invalid={!!error}
+          aria-describedby={error ? `${textareaId}-error` : helperText ? `${textareaId}-helper` : undefined}
           className={`
             block w-full rounded-lg border
             transition-colors duration-200
@@ -262,13 +264,13 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         />
 
         {error && (
-          <p className="mt-1 text-sm text-red-600" role="alert">
+          <p id={`${textareaId}-error`} className="mt-1 text-sm text-red-600" role="alert">
             {error}
           </p>
         )}
 
         {!error && helperText && (
-          <p className="mt-1 text-sm text-gray-500">{helperText}</p>
+          <p id={`${textareaId}-helper`} className="mt-1 text-sm text-gray-500">{helperText}</p>
         )}
       </div>
     );

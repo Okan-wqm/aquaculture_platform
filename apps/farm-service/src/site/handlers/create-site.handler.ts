@@ -82,6 +82,7 @@ export class CreateSiteHandler implements ICommandHandler<CreateSiteCommand> {
           country: savedSite.country || '',
           region: input.region,
           status: savedSite.status,
+          version: 1,
         };
         await this.eventBus.publish(event);
         this.logger.debug(`Published SiteCreatedEvent for site ${savedSite.id}`);

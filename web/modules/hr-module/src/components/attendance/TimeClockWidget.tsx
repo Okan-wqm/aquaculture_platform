@@ -1,10 +1,16 @@
 /**
  * Time Clock Widget Component
- * Allows employees to clock in/out with location tracking
+ * Allows employees to clock in/out with optional location tracking.
+ *
+ * SEC-004: GPS location is opt-in, not opt-out.
+ *   - enableGps defaults to false.
+ *   - The employee must explicitly consent to GPS before each session.
+ *   - A consent banner is shown when enableGps is true; the employee can
+ *     decline and still clock in/out without any location data being sent.
  */
 
 import React, { useState, useEffect } from 'react';
-import { Clock, LogIn, LogOut, MapPin, AlertCircle } from 'lucide-react';
+import { Clock, LogIn, LogOut, MapPin, AlertCircle, ShieldCheck } from 'lucide-react';
 import { cn } from '@aquaculture/shared-ui';
 import { useClockIn, useClockOut, useTodaysAttendance } from '../../hooks';
 import { ClockMethod, AttendanceStatus, ATTENDANCE_STATUS_CONFIG } from '../../types';
@@ -13,6 +19,10 @@ import { StatusBadge } from '../common/StatusBadge';
 interface TimeClockWidgetProps {
   employeeId: string;
   className?: string;
+  /**
+   * SEC-004: Defaults to false. Even when true, the employee must actively
+   * consent before location is captured — they can always proceed without GPS.
+   */
   enableGps?: boolean;
 }
 
@@ -25,12 +35,14 @@ interface GeoPosition {
 export function TimeClockWidget({
   employeeId,
   className,
-  enableGps = true,
+  enableGps = false, // SEC-004: opt-in, not opt-out
 }: TimeClockWidgetProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [location, setLocation] = useState<GeoPosition | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
+  // SEC-004: track whether the employee has actively consented to GPS for this session
+  const [gpsConsented, setGpsConsented] = useState<boolean | null>(null);
 
   const { data: todayRecords, isLoading } = useTodaysAttendance();
   const clockInMutation = useClockIn();
@@ -46,9 +58,11 @@ export function TimeClockWidget({
     return () => clearInterval(timer);
   }, []);
 
-  // Get GPS location
+  // SEC-004: Only capture location when GPS is enabled AND the employee has
+  // explicitly consented for this session. If they decline, resolve null so
+  // clock-in/out still proceeds without location data.
   const getLocation = async (): Promise<GeoPosition | null> => {
-    if (!enableGps || !navigator.geolocation) return null;
+    if (!enableGps || gpsConsented !== true || !navigator.geolocation) return null;
 
     setIsGettingLocation(true);
     setGpsError(null);
@@ -178,19 +192,56 @@ export function TimeClockWidget({
         </div>
       )}
 
-      {/* GPS Status */}
-      {enableGps && (
+      {/* SEC-004: GPS consent banner — shown only when the feature is enabled
+           and the employee has not yet made a decision for this session. */}
+      {enableGps && gpsConsented === null && (
+        <div className="border-t border-blue-100 bg-blue-50 px-4 py-3 dark:border-blue-900/40 dark:bg-blue-900/20">
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
+            <div className="flex-1 text-sm">
+              <p className="font-medium text-blue-800 dark:text-blue-200">
+                Location permission request
+              </p>
+              <p className="mt-0.5 text-blue-700 dark:text-blue-300">
+                This site would like to record your GPS coordinates when you clock
+                in or out. Location data is stored securely and used only for
+                attendance verification. You can decline and still clock in/out
+                without sharing your location.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={() => setGpsConsented(true)}
+                  className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700"
+                >
+                  Allow location
+                </button>
+                <button
+                  onClick={() => setGpsConsented(false)}
+                  className="rounded-md bg-white px-3 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-300 hover:bg-blue-50 dark:bg-transparent dark:text-blue-300 dark:ring-blue-700"
+                >
+                  Decline
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GPS status (only after decision) */}
+      {enableGps && gpsConsented !== null && (
         <div className="border-t border-gray-200 px-4 py-2 dark:border-gray-700">
           <div className="flex items-center gap-2 text-sm">
             <MapPin className="h-4 w-4 text-gray-400" />
-            {isGettingLocation ? (
+            {gpsConsented === false ? (
+              <span className="text-gray-400">Location sharing declined</span>
+            ) : isGettingLocation ? (
               <span className="text-gray-500">Getting location...</span>
             ) : gpsError ? (
               <span className="text-red-500">{gpsError}</span>
             ) : location ? (
               <span className="text-green-600">Location captured</span>
             ) : (
-              <span className="text-gray-500">GPS location will be captured</span>
+              <span className="text-gray-500">Location will be captured on clock action</span>
             )}
           </div>
         </div>

@@ -6,6 +6,34 @@
 //! - Function block state backup
 //! - SQLite database backup
 //!
+//! # Backup Strategy (LOW-43)
+//!
+//! ## Retention policy
+//! Up to `max_backups` backup files are kept on disk (default: 10).
+//! When the limit is exceeded, the oldest backup is deleted automatically
+//! by `cleanup_old_backups()` after every `create_backup()` call.
+//!
+//! ## File format
+//! Each backup is a binary file with the following layout:
+//! ```text
+//! [8 bytes]  Magic header: "SUDERRA\0"
+//! [4 bytes]  Format version (little-endian u32, currently 1)
+//! [N bytes]  gzip-compressed JSON payload (BackupContents)
+//! ```
+//! The compressed payload contains a manifest (checksums, timestamps, device ID)
+//! plus all configuration, scripts, function-block states, variables, and triggers.
+//!
+//! ## Security
+//! - Backups are written to `backup_dir` (default: `/var/lib/suderra/backups/`).
+//! - Directory permissions should be restricted to the `suderra` service user.
+//! - The `device_id` field in the manifest must match the restoring device when
+//!   `verify_device_id = true` is passed to `restore_backup()`, preventing
+//!   accidental cross-device restore.
+//!
+//! ## Size limits
+//! Decompressed size is bounded by `MAX_BACKUP_SIZE` (100 MB) to prevent
+//! decompression-bomb attacks if a corrupted or malicious `.sdb` file is presented.
+//!
 //! # IEC 62443 SL2 Compliance
 //! - FR7: Resource Availability (backup and restore for recovery)
 

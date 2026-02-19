@@ -2,6 +2,8 @@ import { useNavigate } from 'react-router-dom';
 import { Skull, Scissors, Package } from 'lucide-react';
 import type { Tank } from '@/types';
 import { clsx } from 'clsx';
+// BUG-09: Import permissions hook to conditionally render action buttons
+import { useMobilePermissions } from '@/hooks/useMobilePermissions';
 
 interface TankCardProps {
   tank: Tank;
@@ -18,6 +20,9 @@ const STATUS_CONFIG: Record<string, { dot: string; label: string }> = {
 
 export function TankCard({ tank }: TankCardProps) {
   const navigate = useNavigate();
+  // BUG-09: Check feature permissions so buttons that would redirect back to /
+  // via FeatureRoute are not shown at all, avoiding the navigation flash.
+  const { canAccess } = useMobilePermissions();
   const metrics = tank.batchMetrics;
   const hasBatch = !!metrics?.batchId;
   const status = STATUS_CONFIG[tank.status] || STATUS_CONFIG.INACTIVE;
@@ -95,30 +100,36 @@ export function TankCard({ tank }: TankCardProps) {
         </div>
       )}
 
-      {/* Action buttons - only for tanks with batches */}
-      {hasBatch && (
-        <div className="grid grid-cols-3 border-t border-gray-50 dark:border-gray-800">
-          <button
-            onClick={() => navigate(`/mortality/record/${tank.id}`)}
-            className="flex items-center justify-center gap-1.5 py-2.5 text-mortality hover:bg-mortality-light dark:hover:bg-red-900/20 touch-feedback transition-colors border-r border-gray-50 dark:border-gray-800"
-          >
-            <Skull size={16} />
-            <span className="text-xs font-semibold">Mortality</span>
-          </button>
-          <button
-            onClick={() => navigate(`/cull/record/${tank.id}`)}
-            className="flex items-center justify-center gap-1.5 py-2.5 text-cull hover:bg-cull-light dark:hover:bg-orange-900/20 touch-feedback transition-colors border-r border-gray-50 dark:border-gray-800"
-          >
-            <Scissors size={16} />
-            <span className="text-xs font-semibold">Cull</span>
-          </button>
-          <button
-            onClick={() => navigate(`/harvest/record/${tank.id}`)}
-            className="flex items-center justify-center gap-1.5 py-2.5 text-harvest hover:bg-harvest-light dark:hover:bg-purple-900/20 touch-feedback transition-colors"
-          >
-            <Package size={16} />
-            <span className="text-xs font-semibold">Harvest</span>
-          </button>
+      {/* Action buttons - only for tanks with batches, only for permitted features */}
+      {hasBatch && (canAccess('mortality') || canAccess('cull') || canAccess('harvest')) && (
+        <div className="flex border-t border-gray-50 dark:border-gray-800">
+          {canAccess('mortality') && (
+            <button
+              onClick={() => navigate(`/mortality/record/${tank.id}`)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-mortality hover:bg-mortality-light dark:hover:bg-red-900/20 touch-feedback transition-colors border-r border-gray-50 dark:border-gray-800 last:border-r-0"
+            >
+              <Skull size={16} />
+              <span className="text-xs font-semibold">Mortality</span>
+            </button>
+          )}
+          {canAccess('cull') && (
+            <button
+              onClick={() => navigate(`/cull/record/${tank.id}`)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-cull hover:bg-cull-light dark:hover:bg-orange-900/20 touch-feedback transition-colors border-r border-gray-50 dark:border-gray-800 last:border-r-0"
+            >
+              <Scissors size={16} />
+              <span className="text-xs font-semibold">Cull</span>
+            </button>
+          )}
+          {canAccess('harvest') && (
+            <button
+              onClick={() => navigate(`/harvest/record/${tank.id}`)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-harvest hover:bg-harvest-light dark:hover:bg-purple-900/20 touch-feedback transition-colors border-r border-gray-50 dark:border-gray-800 last:border-r-0"
+            >
+              <Package size={16} />
+              <span className="text-xs font-semibold">Harvest</span>
+            </button>
+          )}
         </div>
       )}
     </div>

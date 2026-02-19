@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, Float, ObjectType, Field } from '@nestjs/graphql';
-import { UnauthorizedException, ForbiddenException, UseGuards } from '@nestjs/common';
+import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -61,12 +61,11 @@ class TrainingEnrollmentConnection {
   hasMore!: boolean;
 }
 
+// SECURITY: Context only exposes JWT-verified user fields.
+// Do NOT add x-tenant-id or x-user-id headers here — those are attacker-controlled
+// and must never be used directly (LOW-01).
 interface GraphQLContext {
   req: {
-    headers: {
-      'x-tenant-id'?: string;
-      'x-user-id'?: string;
-    };
     user?: {
       sub: string;
       tenantId: string;
@@ -286,13 +285,8 @@ export class TrainingResolver {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
 
-    // SECURITY: Users can only enroll themselves in training unless they have elevated role
-    // For self-service, employeeId should match userId
-    if (employeeId !== userId) {
-      // Only managers can enroll others - this should be handled by a separate mutation
-      throw new ForbiddenException('You can only enroll yourself in training');
-    }
-
+    // Managers and admins (already verified by @Roles guard above) are allowed
+    // to enroll other employees in training courses.
     return this.commandBus.execute(
       new EnrollInTrainingCommand(
         tenantId,

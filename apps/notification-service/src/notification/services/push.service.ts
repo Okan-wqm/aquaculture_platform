@@ -2,6 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /**
+ * Mask device token for logging (shows first 8 and last 4 chars)
+ */
+function maskDeviceToken(token: string): string {
+  if (token.length <= 12) {
+    return '***';
+  }
+  return token.substring(0, 8) + '...' + token.slice(-4);
+}
+
+/**
  * Push notification data
  */
 export interface PushNotificationData {
@@ -105,7 +115,7 @@ export class PushService {
     notification: PushNotificationData,
   ): Promise<string> {
     if (!this.isEnabled) {
-      this.logger.warn(`Push not sent (disabled): to ${deviceToken}`);
+      this.logger.warn(`Push not sent (disabled): to ${maskDeviceToken(deviceToken)}`);
       return `mock-push-${Date.now()}`;
     }
 
@@ -173,7 +183,7 @@ export class PushService {
     notification: PushNotificationData,
   ): Promise<string> {
     this.logger.debug(
-      `[MOCK PUSH] To: ${deviceToken}, Title: ${notification.title}, Body: ${notification.body}`,
+      `[MOCK PUSH] To: ${maskDeviceToken(deviceToken)}, Title: ${notification.title}`,
     );
     return `mock-push-${Date.now()}`;
   }
@@ -182,8 +192,8 @@ export class PushService {
    * Firebase Cloud Messaging provider (placeholder)
    */
   private async sendViaFirebase(
-    deviceToken: string,
-    notification: PushNotificationData,
+    _deviceToken: string,
+    _notification: PushNotificationData,
   ): Promise<string> {
     // TODO: Implement Firebase integration
     // const admin = require('firebase-admin');
@@ -191,33 +201,36 @@ export class PushService {
     // const result = await admin.messaging().send(message);
     // return result;
 
-    this.logger.warn('Firebase integration not implemented, using mock');
-    return await this.sendViaMock(deviceToken, notification);
+    throw new Error(
+      'Firebase push provider is not yet implemented. Set PUSH_PROVIDER=mock or implement Firebase integration.',
+    );
   }
 
   /**
    * OneSignal provider (placeholder)
    */
   private async sendViaOneSignal(
-    deviceToken: string,
-    notification: PushNotificationData,
+    _deviceToken: string,
+    _notification: PushNotificationData,
   ): Promise<string> {
     // TODO: Implement OneSignal integration
 
-    this.logger.warn('OneSignal integration not implemented, using mock');
-    return await this.sendViaMock(deviceToken, notification);
+    throw new Error(
+      'OneSignal push provider is not yet implemented. Set PUSH_PROVIDER=mock or implement OneSignal integration.',
+    );
   }
 
   /**
    * Apple Push Notification Service provider (placeholder)
    */
   private async sendViaApns(
-    deviceToken: string,
-    notification: PushNotificationData,
+    _deviceToken: string,
+    _notification: PushNotificationData,
   ): Promise<string> {
     // TODO: Implement APNS integration
 
-    this.logger.warn('APNS integration not implemented, using mock');
-    return await this.sendViaMock(deviceToken, notification);
+    throw new Error(
+      'APNS push provider is not yet implemented. Set PUSH_PROVIDER=mock or implement APNS integration.',
+    );
   }
 }

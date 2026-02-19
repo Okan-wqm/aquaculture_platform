@@ -22,6 +22,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
+import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 
 import {
@@ -90,7 +91,6 @@ interface GqlContext {
 @Injectable()
 export class AuthGuard implements CanActivate {
   private readonly logger = new Logger(AuthGuard.name);
-  private readonly jwtSecret: string;
   private readonly jwtIssuer: string;
   private readonly jwtAudience: string[];
   private readonly apiKeys: Map<string, ApiKeyInfo>;
@@ -100,25 +100,13 @@ export class AuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
     @Optional()
     @Inject(TOKEN_BLACKLIST_STORE)
     tokenBlacklistStore?: TokenBlacklistStore,
   ) {
     // Use injected store or fallback to in-memory
     this.tokenBlacklist = tokenBlacklistStore ?? new InMemoryTokenBlacklistStore();
-    // SECURITY: Fail fast in production if JWT_SECRET is not configured
-    const secret = this.configService.get<string>('JWT_SECRET');
-    const isProduction = process.env['NODE_ENV'] === 'production';
-
-    if (!secret && isProduction) {
-      throw new Error('SECURITY: JWT_SECRET environment variable must be set in production');
-    }
-
-    // In development, use a clearly marked dev secret that cannot be confused with production
-    this.jwtSecret = secret || 'DEV-ONLY-' + Date.now().toString(36) + '-NOT-FOR-PRODUCTION';
-    if (!secret) {
-      this.logger.warn('JWT_SECRET not configured - using development secret. DO NOT use in production!');
-    }
 
     this.jwtIssuer = this.configService.get<string>('JWT_ISSUER', 'aquaculture-platform');
     this.jwtAudience = this.configService
@@ -129,7 +117,6 @@ export class AuthGuard implements CanActivate {
 
     this.loadApiKeys();
     this.loadBasicAuthCredentials();
-    // Note: Cleanup is handled by the TokenBlacklistStore implementation
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -171,8 +158,48 @@ export class AuthGuard implements CanActivate {
 
   /**
    * Validate JWT token
+   * SECURITY: Uses JwtService.verifyAsync() with explicit algorithm restriction
+   * to prevent algorithm confusion attacks (HS256 vs RS256 downgrade).
+   * If JwtMiddleware already verified the token and set req.user, we only
+   * perform the blacklist check to avoid double cryptographic verification.
    */
   private async validateJwt(request: AuthenticatedRequest): Promise<boolean> {
+    // If JwtMiddleware already verified and set req.user (HTTP context),
+    // trust it and only do the blacklist check
+    if (request.user) {
+      const payload = request.user;
+
+      // Check token type
+      if (payload.type !== 'access') {
+        throw new UnauthorizedException({
+          code: 'INVALID_TOKEN_TYPE',
+          message: 'Access token required',
+        });
+      }
+
+      // SECURITY: Reject tokens without jti in production - they cannot be revoked
+      const isProduction = process.env['NODE_ENV'] === 'production';
+      if (isProduction && !payload.jti) {
+        throw new UnauthorizedException({
+          code: 'MISSING_JTI',
+          message: 'Token must include jti claim',
+        });
+      }
+
+      // Blacklist check already done in JwtMiddleware, but verify again for safety
+      if (payload.jti && await this.tokenBlacklist.isBlacklisted(payload.jti)) {
+        request.user = undefined;
+        throw new UnauthorizedException({
+          code: 'TOKEN_REVOKED',
+          message: 'Token has been revoked',
+        });
+      }
+
+      request.authMethod = 'jwt';
+      return true;
+    }
+
+    // Full verification for non-HTTP contexts (e.g., GraphQL without middleware)
     const authHeader = request.headers['authorization'];
 
     if (!authHeader) {
@@ -182,7 +209,6 @@ export class AuthGuard implements CanActivate {
       });
     }
 
-    // Validate Bearer scheme
     const parts = authHeader.split(' ');
     if (parts.length !== 2 || parts[0]?.toLowerCase() !== 'bearer') {
       throw new UnauthorizedException({
@@ -194,8 +220,10 @@ export class AuthGuard implements CanActivate {
     const token = parts[1] as string;
 
     try {
-      // Decode and validate token
-      const payload = this.decodeAndValidateToken(token);
+      // SECURITY: Use JwtService with explicit algorithm to prevent confusion attacks
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
+        algorithms: ['HS256'],
+      });
 
       // Check token type
       if (payload.type !== 'access') {
@@ -205,7 +233,36 @@ export class AuthGuard implements CanActivate {
         });
       }
 
-      // Check blacklist (async operation)
+      // SECURITY: Reject tokens without jti in production
+      const isProduction = process.env['NODE_ENV'] === 'production';
+      if (isProduction && !payload.jti) {
+        throw new UnauthorizedException({
+          code: 'MISSING_JTI',
+          message: 'Token must include jti claim',
+        });
+      }
+
+      // Validate issuer
+      if (payload.iss && payload.iss !== this.jwtIssuer) {
+        throw new UnauthorizedException({
+          code: 'INVALID_ISSUER',
+          message: 'Invalid token issuer',
+        });
+      }
+
+      // Validate audience
+      if (payload.aud) {
+        const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+        const hasValidAudience = audiences.some((aud) => this.jwtAudience.includes(aud));
+        if (!hasValidAudience) {
+          throw new UnauthorizedException({
+            code: 'INVALID_AUDIENCE',
+            message: 'Invalid token audience',
+          });
+        }
+      }
+
+      // Check blacklist
       if (payload.jti && await this.tokenBlacklist.isBlacklisted(payload.jti)) {
         throw new UnauthorizedException({
           code: 'TOKEN_REVOKED',
@@ -213,7 +270,6 @@ export class AuthGuard implements CanActivate {
         });
       }
 
-      // Attach user to request
       request.user = payload;
       request.authMethod = 'jwt';
 
@@ -233,65 +289,6 @@ export class AuthGuard implements CanActivate {
         message: 'Invalid or expired token',
       });
     }
-  }
-
-  /**
-   * Decode and validate JWT token
-   */
-  private decodeAndValidateToken(token: string): JwtPayload {
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      throw new Error('Invalid token format');
-    }
-
-    const [headerB64, payloadB64, signatureB64] = parts as [string, string, string];
-
-    // Verify signature
-    const data = `${headerB64}.${payloadB64}`;
-    const signature = this.base64UrlDecode(signatureB64);
-    const expectedSignature = crypto
-      .createHmac('sha256', this.jwtSecret)
-      .update(data)
-      .digest();
-
-    if (!crypto.timingSafeEqual(Buffer.from(signature), expectedSignature)) {
-      throw new Error('Invalid signature');
-    }
-
-    // Decode payload
-    const payloadJson = Buffer.from(this.base64UrlDecode(payloadB64)).toString('utf8');
-    const payload = JSON.parse(payloadJson) as JwtPayload;
-
-    // Validate expiration
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp && payload.exp < now) {
-      throw new UnauthorizedException({
-        code: 'TOKEN_EXPIRED',
-        message: 'Token has expired',
-      });
-    }
-
-    // Validate issuer
-    if (payload.iss && payload.iss !== this.jwtIssuer) {
-      throw new UnauthorizedException({
-        code: 'INVALID_ISSUER',
-        message: 'Invalid token issuer',
-      });
-    }
-
-    // Validate audience
-    if (payload.aud) {
-      const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-      const hasValidAudience = audiences.some((aud) => this.jwtAudience.includes(aud));
-      if (!hasValidAudience) {
-        throw new UnauthorizedException({
-          code: 'INVALID_AUDIENCE',
-          message: 'Invalid token audience',
-        });
-      }
-    }
-
-    return payload;
   }
 
   /**
@@ -352,8 +349,9 @@ export class AuthGuard implements CanActivate {
 
   /**
    * Validate basic auth
+   * SECURITY: Uses async bcrypt.compare() to avoid blocking the event loop
    */
-  private validateBasicAuth(request: AuthenticatedRequest): boolean {
+  private async validateBasicAuth(request: AuthenticatedRequest): Promise<boolean> {
     const authHeader = request.headers['authorization'];
 
     if (!authHeader) {
@@ -382,7 +380,7 @@ export class AuthGuard implements CanActivate {
     }
 
     const storedPasswordHash = this.basicAuthCredentials.get(username);
-    if (!storedPasswordHash || !bcrypt.compareSync(password, storedPasswordHash)) {
+    if (!storedPasswordHash || !(await bcrypt.compare(password, storedPasswordHash))) {
       throw new UnauthorizedException({
         code: 'INVALID_CREDENTIALS',
         message: 'Invalid username or password',
@@ -434,17 +432,6 @@ export class AuthGuard implements CanActivate {
   }
 
   /**
-   * Base64 URL decode
-   */
-  private base64UrlDecode(str: string): Buffer {
-    str = str.replace(/-/g, '+').replace(/_/g, '/');
-    while (str.length % 4) {
-      str += '=';
-    }
-    return Buffer.from(str, 'base64');
-  }
-
-  /**
    * Load API keys from config
    */
   private loadApiKeys(): void {
@@ -464,7 +451,9 @@ export class AuthGuard implements CanActivate {
 
   /**
    * Load basic auth credentials from config
-   * Passwords are hashed before storing in memory for security
+   * SECURITY: Accepts pre-hashed bcrypt values to avoid synchronous hashing at startup.
+   * If a value starts with '$2a$' or '$2b$', it is treated as already hashed.
+   * Otherwise it is hashed asynchronously.
    */
   private loadBasicAuthCredentials(): void {
     const credentialsConfig = this.configService.get<string>('BASIC_AUTH_CREDENTIALS', '');
@@ -473,9 +462,15 @@ export class AuthGuard implements CanActivate {
     try {
       const credentials = JSON.parse(credentialsConfig) as Record<string, string>;
       for (const [username, password] of Object.entries(credentials)) {
-        // Hash password before storing to avoid plaintext in memory
-        const hashedPassword = bcrypt.hashSync(password, 10);
-        this.basicAuthCredentials.set(username, hashedPassword);
+        // Accept pre-hashed bcrypt passwords to avoid blocking hashSync at startup
+        if (password.startsWith('$2a$') || password.startsWith('$2b$')) {
+          this.basicAuthCredentials.set(username, password);
+        } else {
+          // Fallback: hash asynchronously for backwards compatibility
+          void bcrypt.hash(password, 10).then((hashed) => {
+            this.basicAuthCredentials.set(username, hashed);
+          });
+        }
       }
     } catch {
       this.logger.warn('Failed to parse basic auth credentials');

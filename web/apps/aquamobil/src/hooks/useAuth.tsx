@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { del } from 'idb-keyval';
 import type { AuthState } from '@/types';
+import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
 
 interface AuthContextValue extends AuthState {
   isLoading: boolean;
@@ -10,8 +12,6 @@ interface AuthContextValue extends AuthState {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-const STORAGE_KEY = 'aquamobil_auth';
 
 // GraphQL login mutation - use LoginInput and firstName + lastName
 const LOGIN_MUTATION = `
@@ -32,10 +32,17 @@ const LOGIN_MUTATION = `
 `;
 
 const REFRESH_MUTATION = `
-  mutation RefreshToken($refreshToken: String!) {
-    refreshToken(token: $refreshToken) {
+  mutation RefreshToken($input: RefreshTokenInput!) {
+    refreshToken(input: $input) {
       accessToken
-      refreshToken
+      user {
+        id
+        email
+        firstName
+        lastName
+        role
+        tenantId
+      }
     }
   }
 `;
@@ -48,14 +55,19 @@ const MOBILE_SETTINGS_QUERY = `
   }
 `;
 
-async function checkMobileEnabled(accessToken: string): Promise<boolean> {
+// SEC-06: All fetch calls include X-Requested-With for CSRF defense-in-depth
+const CSRF_HEADER = { 'X-Requested-With': 'XMLHttpRequest' };
+
+async function checkMobileEnabled(token: string): Promise<boolean> {
   try {
     const response = await fetch('/graphql', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${token}`,
+        ...CSRF_HEADER,
       },
+      credentials: 'include',
       body: JSON.stringify({ query: MOBILE_SETTINGS_QUERY }),
     });
     const result = await response.json();
@@ -64,6 +76,21 @@ async function checkMobileEnabled(accessToken: string): Promise<boolean> {
     // If we can't check, allow access (graceful degradation)
     return true;
   }
+}
+
+// BUG-03 / SEC-02 / SEC-04: Coordinated teardown of all user data stores on logout.
+// Clears offline queue (IndexedDB), data cache (IndexedDB), permissions cache (IndexedDB),
+// and service worker Cache Storage to prevent data leakage on shared devices.
+async function clearAllUserData(userId?: string): Promise<void> {
+  await Promise.all([
+    clearAllOperations(),
+    clearCache(),
+    // Clear per-user and legacy permission cache keys
+    del(`mobile_permissions${userId ? `_${userId}` : ''}`).catch(() => {}),
+    del('mobile_permissions').catch(() => {}),
+    // Clear service worker Cache Storage (CRIT-2 / SEC-02)
+    caches.delete('api-cache').catch(() => {}),
+  ]);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -77,29 +104,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isMobileDisabled, setIsMobileDisabled] = useState(false);
 
-  // Load stored auth on mount
+  // On mount: attempt silent refresh via httpOnly cookie
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
+    const restoreSession = async () => {
       try {
-        const parsed = JSON.parse(stored);
+        const response = await fetch('/graphql', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...CSRF_HEADER,
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            query: REFRESH_MUTATION,
+            variables: { input: { refreshToken: '' } },
+          }),
+        });
+
+        const result = await response.json();
+        if (result.errors || !result.data?.refreshToken?.accessToken) {
+          setIsLoading(false);
+          return;
+        }
+
+        const { accessToken, user } = result.data.refreshToken;
+        const displayName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
+
         setState({
-          ...parsed,
-          isAuthenticated: !!parsed.accessToken,
+          user: { ...user, name: displayName },
+          accessToken,
+          refreshToken: null,
+          tenantId: user.tenantId,
+          isAuthenticated: true,
         });
       } catch {
-        localStorage.removeItem(STORAGE_KEY);
+        // No valid session
+      } finally {
+        setIsLoading(false);
       }
-    }
-    setIsLoading(false);
-  }, []);
+    };
 
-  // Persist auth state changes
-  useEffect(() => {
-    if (state.isAuthenticated) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    }
-  }, [state]);
+    restoreSession();
+  }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     setIsLoading(true);
@@ -107,7 +153,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch('/graphql', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...CSRF_HEADER,
+        },
+        credentials: 'include',
         body: JSON.stringify({
           query: LOGIN_MUTATION,
           variables: { input: { email, password } },
@@ -120,7 +170,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(result.errors[0]?.message || 'Login failed');
       }
 
-      const { accessToken, refreshToken, user } = result.data.login;
+      // BUG-13: Null guard before destructuring login result
+      if (!result.data?.login) {
+        throw new Error('Login failed: no response data');
+      }
+
+      const { accessToken, user } = result.data.login;
+      // refreshToken is now in httpOnly cookie, not in response body
 
       // Check if user has mobile access enabled
       const mobileEnabled = await checkMobileEnabled(accessToken);
@@ -138,7 +194,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name: displayName,
         },
         accessToken,
-        refreshToken,
+        refreshToken: null,
         tenantId: user.tenantId,
         isAuthenticated: true,
       });
@@ -148,6 +204,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    const currentUserId = state.user?.id;
+
+    // Call logout mutation to clear httpOnly cookie server-side
+    fetch('/graphql', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(state.accessToken ? { Authorization: `Bearer ${state.accessToken}` } : {}),
+        ...CSRF_HEADER,
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        query: `mutation { logout { success } }`,
+      }),
+    }).catch(() => {});
+
+    // BUG-03 / SEC-02 / SEC-04: Clear all user data stores before resetting state.
+    // Fire-and-forget — UI resets immediately, cleanup runs async.
+    clearAllUserData(currentUserId).catch(() => {});
+
     setState({
       user: null,
       accessToken: null,
@@ -156,40 +232,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: false,
     });
     setIsMobileDisabled(false);
-    localStorage.removeItem(STORAGE_KEY);
-  }, []);
+  }, [state.accessToken, state.user?.id]);
 
   const refreshAuth = useCallback(async () => {
-    if (!state.refreshToken) return;
-
     try {
       const response = await fetch('/graphql', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...CSRF_HEADER,
+        },
+        credentials: 'include',
         body: JSON.stringify({
           query: REFRESH_MUTATION,
-          variables: { refreshToken: state.refreshToken },
+          variables: { input: { refreshToken: '' } },
         }),
       });
 
       const result = await response.json();
 
-      if (result.errors) {
+      if (result.errors || !result.data?.refreshToken?.accessToken) {
         logout();
         return;
       }
 
-      const { accessToken, refreshToken } = result.data.refreshToken;
+      const { accessToken } = result.data.refreshToken;
 
       setState((prev) => ({
         ...prev,
         accessToken,
-        refreshToken,
       }));
     } catch {
       logout();
     }
-  }, [state.refreshToken, logout]);
+  }, [logout]);
 
   return (
     <AuthContext.Provider

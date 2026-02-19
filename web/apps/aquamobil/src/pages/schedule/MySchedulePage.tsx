@@ -157,7 +157,9 @@ export function MySchedulePage() {
           </div>
         )}
 
-        <div className="absolute -bottom-px left-0 right-0 relative">
+        {/* BUG-12: Removed conflicting 'relative' — 'relative' overrides 'absolute'
+            as they are in the same CSS property group. Only 'absolute' is intended. */}
+        <div className="absolute -bottom-px left-0 right-0">
           <svg viewBox="0 0 400 20" fill="none" className="w-full block" preserveAspectRatio="none">
             <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />
           </svg>

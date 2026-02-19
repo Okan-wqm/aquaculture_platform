@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { Button, Badge, Spinner } from '@aquaculture/shared-ui';
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 
 // ============================================================================
 // Types
@@ -51,7 +52,7 @@ type SortDirection = 'ASC' | 'DESC';
 const API_BASE = '/api/database/explorer';
 
 const getAuthHeader = (): Record<string, string> => {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
@@ -74,7 +75,7 @@ async function fetchTableData(
 
   const response = await fetch(
     `${API_BASE}/schemas/${schema}/tables/${table}/data?${params}`,
-    { headers: { ...getAuthHeader() } }
+    { credentials: 'include', headers: { ...getAuthHeader() } }
   );
   if (!response.ok) throw new Error('Failed to fetch table data');
   const json = await response.json();

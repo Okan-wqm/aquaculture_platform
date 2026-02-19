@@ -210,8 +210,8 @@ export class DashboardService {
     const layout = this.dashboardLayoutRepository.create({
       tenantId,
       userId: undefined,
-      name: 'Varsayılan Dashboard',
-      description: 'Tenant sistem varsayılanı',
+      name: 'Default Dashboard',
+      description: 'System default dashboard for tenant',
       widgets: [],
       isDefault: false,
       isSystemDefault: true,

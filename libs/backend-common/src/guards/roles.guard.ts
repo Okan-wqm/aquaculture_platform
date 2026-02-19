@@ -107,15 +107,20 @@ export class RolesGuard implements CanActivate {
     if (Array.isArray(user.roles)) {
       for (const role of user.roles) {
         if (this.isValidRole(role)) {
-          roles.push(role as Role);
+          // Normalize to uppercase to match Role enum
+          const normalized = String(role).toUpperCase() as Role;
+          if (!roles.includes(normalized)) {
+            roles.push(normalized);
+          }
         }
       }
     }
 
     // Handle single role (backward compatibility)
     if (user.role && this.isValidRole(user.role)) {
-      if (!roles.includes(user.role as Role)) {
-        roles.push(user.role as Role);
+      const normalized = String(user.role).toUpperCase() as Role;
+      if (!roles.includes(normalized)) {
+        roles.push(normalized);
       }
     }
 
@@ -123,10 +128,23 @@ export class RolesGuard implements CanActivate {
   }
 
   /**
-   * Check if a role string is a valid Role enum value
+   * Check if a role string is a valid Role enum value.
+   * Performs case-insensitive comparison and warns on case mismatch.
    */
   private isValidRole(role: string | Role): boolean {
-    return Object.values(Role).includes(role as Role);
+    if (Object.values(Role).includes(role as Role)) {
+      return true;
+    }
+    // Case-insensitive fallback: check if the role matches when uppercased
+    const upperRole = String(role).toUpperCase();
+    if (Object.values(Role).includes(upperRole as Role)) {
+      this.logger.warn(
+        `Role "${role}" matched after case normalization to "${upperRole}". ` +
+        `JWT should emit Role enum values in uppercase (e.g., SUPER_ADMIN).`,
+      );
+      return true;
+    }
+    return false;
   }
 
   /**

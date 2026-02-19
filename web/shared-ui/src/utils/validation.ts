@@ -502,6 +502,10 @@ export function validateField<T>(value: T, rules: ValidationRule<T>[]): Validati
 /**
  * Şema doğrulama
  *
+ * PERF-011: This function iterates ALL schema fields on every call.
+ * Call it only on form submit, not on every keystroke.
+ * For per-field validation, use `validateField(value, rules)` instead.
+ *
  * @example
  * const schema = {
  *   email: [required(), email()],
@@ -532,9 +536,10 @@ export function validateSchema<T extends Record<string, unknown>>(
 
 /**
  * Hata olup olmadığını kontrol et
+ * BUG-018: Check actual error values (not just key existence) — empty strings are not errors.
  */
 export function hasErrors<T>(errors: ValidationErrors<T>): boolean {
-  return Object.keys(errors).length > 0;
+  return Object.values(errors).some((v) => !!v);
 }
 
 // ============================================================================
@@ -550,8 +555,20 @@ export function sanitize(value: string): string {
 
 /**
  * HTML etiketlerini temizle
+ *
+ * SEC-006: WARNING — This function is NOT an XSS sanitizer.
+ * The regex approach is defeated by malformed/nested tags and HTML entities.
+ * Do NOT use this to sanitize user-supplied content before inserting into the DOM.
+ * For XSS-safe sanitization, use DOMPurify or the browser's DOMParser.
+ * This function is only safe for stripping basic markup for display purposes (e.g., plain-text previews).
  */
 export function stripHtml(value: string): string {
+  if (typeof document !== 'undefined') {
+    // Use browser's parser for safer stripping when available
+    const doc = new DOMParser().parseFromString(value, 'text/html');
+    return doc.body.textContent || '';
+  }
+  // Fallback: regex (NOT XSS-safe — see JSDoc above)
   return value.replace(/<[^>]*>/g, '');
 }
 

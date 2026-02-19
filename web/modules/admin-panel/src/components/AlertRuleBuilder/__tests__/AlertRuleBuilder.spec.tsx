@@ -260,7 +260,7 @@ describe('Helper Functions', () => {
         const errors = validateRule(rule);
 
         expect(errors.some(e =>
-          e.field.includes('secondValue') && e.message.includes('büyük')
+          e.field.includes('secondValue') && e.message.includes('greater')
         )).toBe(true);
       });
 
@@ -378,7 +378,7 @@ describe('Helper Functions', () => {
       expect(formatted).toContain('pH');
       expect(formatted).toContain('6.5');
       expect(formatted).toContain('8.5');
-      expect(formatted).toContain('arasında');
+      expect(formatted).toContain('between');
     });
 
     it('should format outside condition', () => {
@@ -394,7 +394,7 @@ describe('Helper Functions', () => {
       expect(formatted).toContain('Çözünmüş Oksijen');
       expect(formatted).toContain('5');
       expect(formatted).toContain('10');
-      expect(formatted).toContain('dışında');
+      expect(formatted).toContain('outside');
     });
   });
 });

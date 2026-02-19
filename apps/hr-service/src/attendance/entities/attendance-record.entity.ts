@@ -23,33 +23,9 @@ import { Shift } from './shift.entity';
  */
 export function convertLocalToUtc(localTime: Date, timezone: string): Date {
   try {
-    // Get the UTC timestamp by accounting for timezone offset
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-
-    // Get local time string in the target timezone
-    const localStr = formatter.format(localTime);
-    const parts = localStr.split(', ');
-    if (parts.length < 2) return localTime;
-    const [datePart, timePart] = parts;
-    if (!datePart || !timePart) return localTime;
-    const [month, day, year] = datePart.split('/');
-    const [hour, minute, second] = timePart.split(':');
-
-    // Create a date assuming it's in the local timezone and convert to UTC
     const tzOffset = getTimezoneOffset(timezone, localTime);
-    const utcTime = new Date(localTime.getTime() + tzOffset * 60000);
-    return utcTime;
+    return new Date(localTime.getTime() + tzOffset * 60000);
   } catch {
-    // Fallback: return as-is if timezone is invalid
     return localTime;
   }
 }
@@ -70,8 +46,10 @@ export function convertUtcToLocal(utcTime: Date, timezone: string): Date {
 }
 
 /**
- * Get timezone offset in minutes for a given timezone and date
- * Positive offset means timezone is behind UTC, negative means ahead
+ * Get timezone offset in minutes for a given timezone and date.
+ * Returns a negative value for timezones ahead of UTC (e.g. Asia/Manila UTC+8 → -480)
+ * and a positive value for timezones behind UTC (e.g. America/New_York UTC-5 → +300).
+ * Formula: (UTC wall-clock time) - (timezone wall-clock time), in minutes.
  */
 export function getTimezoneOffset(timezone: string, date: Date): number {
   try {
@@ -357,24 +335,29 @@ export class AttendanceRecord {
       const date = new Date();
       const year = date.getFullYear();
       const month = (date.getMonth() + 1).toString().padStart(2, '0');
-      const random = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
+      // SECURITY: Use cryptographically secure random bytes instead of Math.random()
+      // to prevent enumeration attacks on attendance record IDs (MED-01).
+      const randomBytes = require('crypto').randomBytes(3);
+      const random = (randomBytes.readUIntBE(0, 3) % 100000).toString().padStart(5, '0');
       this.recordNumber = `ATT-${year}${month}-${random}`;
     }
   }
 
   /**
-   * Calculate totalBreakMinutes after loading from database
+   * Calculate totalBreakMinutes after loading from database.
+   * Early-return when either time is null (the common case) avoids two unnecessary
+   * Date allocations per row on bulk queries (M-8 fix).
    */
   @AfterLoad()
   calculateTotalBreakMinutes(): void {
-    if (this.breakStartTime && this.breakEndTime) {
-      const breakStart = new Date(this.breakStartTime);
-      const breakEnd = new Date(this.breakEndTime);
-      this.totalBreakMinutes = Math.max(0, Math.floor((breakEnd.getTime() - breakStart.getTime()) / 60000));
-    } else {
+    if (!this.breakStartTime || !this.breakEndTime) {
       // Fall back to stored breakMinutes if break times not recorded
       this.totalBreakMinutes = this.breakMinutes || 0;
+      return;
     }
+    const breakStart = new Date(this.breakStartTime);
+    const breakEnd = new Date(this.breakEndTime);
+    this.totalBreakMinutes = Math.max(0, Math.floor((breakEnd.getTime() - breakStart.getTime()) / 60000));
   }
 
   /**

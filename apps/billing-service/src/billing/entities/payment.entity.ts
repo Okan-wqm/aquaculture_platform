@@ -9,8 +9,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { ObjectType, Field, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
-import { forwardRef } from '@nestjs/common';
+import { ObjectType, Field, HideField, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
 
 export enum PaymentStatus {
   PENDING = 'pending',
@@ -46,10 +45,10 @@ export class PaymentMethodDetails {
   @Field({ nullable: true })
   cardLast4?: string;
 
-  @Field({ nullable: true })
+  @HideField()
   cardExpMonth?: number;
 
-  @Field({ nullable: true })
+  @HideField()
   cardExpYear?: number;
 
   @Field({ nullable: true })
@@ -89,23 +88,23 @@ export class Payment {
   id!: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'tenant_id' })
   @Index()
   tenantId!: string;
 
   @Field()
-  @Column() // Note: Unique per tenant via composite index on line 82
+  @Column({ name: 'transaction_id' }) // Note: Unique per tenant via composite index on line 82
   transactionId!: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'invoice_id' })
   @Index()
   invoiceId!: string;
 
   // Bi-directional relationship - using string-based lazy loading to avoid circular dependency
   // Invoice entity is loaded lazily by TypeORM at runtime
   @ManyToOne('Invoice', (invoice: any) => invoice.payments)
-  @JoinColumn({ name: 'invoiceId' })
+  @JoinColumn({ name: 'invoice_id' })
   invoice?: any;
 
   @Field(() => Float)
@@ -121,31 +120,31 @@ export class Payment {
   status!: PaymentStatus;
 
   @Field(() => PaymentMethod)
-  @Column({ type: 'enum', enum: PaymentMethod })
+  @Column({ type: 'enum', enum: PaymentMethod, name: 'payment_method' })
   paymentMethod!: PaymentMethod;
 
   @Field(() => PaymentMethodDetails, { nullable: true })
-  @Column('jsonb', { nullable: true })
+  @Column('jsonb', { nullable: true, name: 'payment_method_details' })
   paymentMethodDetails?: PaymentMethodDetails;
 
   @Field(() => Date)
-  @Column({ type: 'timestamptz' })
+  @Column({ type: 'timestamptz', name: 'payment_date' })
   paymentDate!: Date;
 
   @Field(() => Date, { nullable: true })
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true, name: 'processed_at' })
   processedAt?: Date;
 
   @Field({ nullable: true })
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'failure_reason' })
   failureReason?: string;
 
-  @Field({ nullable: true })
-  @Column({ nullable: true })
+  @HideField()
+  @Column({ nullable: true, name: 'stripe_payment_intent_id' })
   stripePaymentIntentId?: string;
 
-  @Field({ nullable: true })
-  @Column({ nullable: true })
+  @HideField()
+  @Column({ nullable: true, name: 'stripe_charge_id' })
   stripeChargeId?: string;
 
   @Field(() => [RefundInfo], { nullable: true })
@@ -153,7 +152,7 @@ export class Payment {
   refunds?: RefundInfo[];
 
   @Field(() => Float, { defaultValue: 0 })
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0, name: 'refunded_amount' })
   refundedAmount!: number;
 
   @Field({ nullable: true })
@@ -169,11 +168,11 @@ export class Payment {
   updatedAt!: Date;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'created_by' })
   createdBy?: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'updated_by' })
   updatedBy?: string;
 
   @Field(() => Int)

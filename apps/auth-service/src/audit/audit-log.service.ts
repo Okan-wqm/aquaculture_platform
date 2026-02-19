@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 
@@ -28,6 +30,7 @@ export class AuditLogService {
   constructor(
     @InjectRepository(AuditLog)
     private readonly auditLogRepository: Repository<AuditLog>,
+    private readonly configService: ConfigService,
   ) {}
 
   async log(dto: CreateAuditLogDto): Promise<AuditLog> {
@@ -104,6 +107,13 @@ export class AuditLogService {
       where: { entityType, entityId, tenantId },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  @Cron(CronExpression.EVERY_DAY_AT_2AM)
+  async scheduledLogCleanup(): Promise<void> {
+    const retentionDays = this.configService.get<number>('AUDIT_LOG_RETENTION_DAYS', 90);
+    const deleted = await this.deleteOldLogs(retentionDays);
+    this.logger.log(`Scheduled audit log cleanup: deleted ${deleted} logs older than ${retentionDays} days`);
   }
 
   async deleteOldLogs(retentionDays = 90): Promise<number> {

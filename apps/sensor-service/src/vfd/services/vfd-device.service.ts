@@ -174,9 +174,10 @@ export class VfdDeviceService {
       );
     }
 
-    // Apply sorting
-    const sortBy = pagination?.sortBy || 'createdAt';
-    const sortOrder = pagination?.sortOrder || 'DESC';
+    // Apply sorting with allowlist to prevent column injection
+    const ALLOWED_SORT_COLUMNS = ['createdAt', 'name', 'brand', 'status', 'updatedAt', 'model', 'protocol'];
+    const sortBy = ALLOWED_SORT_COLUMNS.includes(pagination?.sortBy ?? '') ? pagination!.sortBy! : 'createdAt';
+    const sortOrder = pagination?.sortOrder === 'ASC' ? 'ASC' : 'DESC';
     queryBuilder.orderBy(`vfd.${sortBy}`, sortOrder);
 
     // Get total count and items

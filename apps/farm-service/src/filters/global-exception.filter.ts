@@ -58,9 +58,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     const { statusCode, message } = this.parseException(exception);
 
+    const sanitizedMessage = this.isProduction ? this.sanitizeMessage(message) : message;
+
     const errorResponse = {
       statusCode,
-      message,
+      message: sanitizedMessage,
       timestamp: new Date().toISOString(),
       correlationId: request?.headers?.['x-correlation-id'],
     };

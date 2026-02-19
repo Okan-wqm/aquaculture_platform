@@ -1,4 +1,4 @@
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { createParamDecorator, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
 import { Role } from './roles.decorator';
@@ -26,7 +26,9 @@ export interface CurrentUserPayload {
   tenantId: string | null;
 
   /**
-   * User role (single role for backward compatibility)
+   * @deprecated Use `roles` array instead. This field exists for backward
+   * compatibility with older JWT payloads and will be removed in a future version.
+   * Auth-service should populate only the `roles` array going forward.
    */
   role?: Role | string;
 
@@ -85,7 +87,7 @@ export const CurrentUser = createParamDecorator(
     }
 
     if (!user) {
-      throw new Error('User not found in request context');
+      throw new UnauthorizedException('User not found in request context');
     }
 
     return data ? user[data] : user;

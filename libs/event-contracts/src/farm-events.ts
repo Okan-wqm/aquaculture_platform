@@ -39,12 +39,16 @@ export interface PondCreatedEvent extends BaseEvent {
 
 /**
  * Batch Created Event
+ *
+ * Note: `farmId` and `pondId` are optional because the domain model
+ * has evolved to tank-based allocation. Use `tankIds` for current schema.
  */
 export interface BatchCreatedEvent extends BaseEvent {
   eventType: 'BatchCreated';
   batchId: string;
-  farmId: string;
-  pondId: string;
+  farmId?: string;
+  pondId?: string;
+  tankIds?: string[];
   name: string;
   species: string;
   quantity: number;
@@ -57,8 +61,9 @@ export interface BatchCreatedEvent extends BaseEvent {
 export interface BatchHarvestedEvent extends BaseEvent {
   eventType: 'BatchHarvested';
   batchId: string;
-  farmId: string;
-  pondId: string;
+  farmId?: string;
+  pondId?: string;
+  siteId?: string;
   harvestedQuantity: number;
   harvestedAt: Date;
   averageWeight?: number;
@@ -71,6 +76,8 @@ export interface BatchHarvestedEvent extends BaseEvent {
 export interface BatchStatusChangedEvent extends BaseEvent {
   eventType: 'BatchStatusChanged';
   batchId: string;
+  farmId?: string;
+  siteId?: string;
   previousStatus: string;
   newStatus: string;
   reason?: string;
@@ -82,6 +89,8 @@ export interface BatchStatusChangedEvent extends BaseEvent {
 export interface MortalityRecordedEvent extends BaseEvent {
   eventType: 'MortalityRecorded';
   batchId: string;
+  farmId?: string;
+  siteId?: string;
   tankId?: string;
   quantity: number;
   reason: string;
@@ -92,10 +101,16 @@ export interface MortalityRecordedEvent extends BaseEvent {
 
 /**
  * Batch Transferred Event
+ *
+ * Represents an atomic transfer of fish between tanks.
+ * Used for history and audit. See also `BatchAllocatedToTankEvent`
+ * which represents the resultant allocation state update.
  */
 export interface BatchTransferredEvent extends BaseEvent {
   eventType: 'BatchTransferred';
   batchId: string;
+  farmId?: string;
+  siteId?: string;
   sourceTankId: string;
   destinationTankId: string;
   quantity: number;
@@ -106,10 +121,15 @@ export interface BatchTransferredEvent extends BaseEvent {
 
 /**
  * Batch Allocated to Tank Event
+ *
+ * Represents the resultant allocation state after a batch movement.
+ * Used for current-state queries. See also `BatchTransferredEvent`.
  */
 export interface BatchAllocatedToTankEvent extends BaseEvent {
   eventType: 'BatchAllocatedToTank';
   batchId: string;
+  farmId?: string;
+  siteId?: string;
   tankId: string;
   quantity: number;
   biomassKg: number;
@@ -119,6 +139,13 @@ export interface BatchAllocatedToTankEvent extends BaseEvent {
 
 /**
  * Growth Sample Recorded Event
+ *
+ * `performance` classification is based on percentage deviation from target weight:
+ * - excellent: >= +10% above target
+ * - good: +0% to +10% above target
+ * - average: -5% to 0% of target
+ * - below_average: -15% to -5% of target
+ * - poor: < -15% below target
  */
 export interface GrowthSampleRecordedEvent extends BaseEvent {
   eventType: 'GrowthSampleRecorded';
@@ -178,6 +205,8 @@ export interface FCRAlertEvent extends BaseEvent {
 export interface BatchClosedEvent extends BaseEvent {
   eventType: 'BatchClosed';
   batchId: string;
+  farmId?: string;
+  siteId?: string;
   closeReason: string;
   finalQuantity: number;
   finalBiomassKg: number;
@@ -212,7 +241,6 @@ export interface SiteUpdatedEvent extends BaseEvent {
   name?: string;
   code?: string;
   status?: string;
-  changes: Record<string, unknown>;
 }
 
 /**
@@ -248,7 +276,6 @@ export interface DepartmentUpdatedEvent extends BaseEvent {
   departmentId: string;
   siteId: string;
   name?: string;
-  changes: Record<string, unknown>;
 }
 
 /**
@@ -288,7 +315,6 @@ export interface SystemUpdatedEvent extends BaseEvent {
   siteId: string;
   name?: string;
   status?: string;
-  changes: Record<string, unknown>;
 }
 
 /**
@@ -330,7 +356,6 @@ export interface EquipmentUpdatedEvent extends BaseEvent {
   siteId: string;
   name?: string;
   status?: string;
-  changes: Record<string, unknown>;
 }
 
 /**
@@ -349,13 +374,52 @@ export interface EquipmentDeletedEvent extends BaseEvent {
 
 /**
  * Feed Inventory Low Event
+ *
+ * Location hierarchy: Farm > Site > Department > System > Equipment.
+ * `siteId` identifies the site where inventory is tracked.
+ * `farmId` is provided when the site maps to a known farm.
  */
 export interface FeedInventoryLowEvent extends BaseEvent {
   eventType: 'FeedInventoryLow';
   inventoryId: string;
   feedId: string;
   siteId: string;
+  farmId?: string;
   currentQuantityKg: number;
   reorderPointKg: number;
   status: 'low_stock' | 'critical';
 }
+
+// ==================== Type Union ====================
+
+/**
+ * Union type for all farm events
+ */
+export type FarmEvent =
+  | FarmCreatedEvent
+  | FarmUpdatedEvent
+  | PondCreatedEvent
+  | BatchCreatedEvent
+  | BatchHarvestedEvent
+  | BatchStatusChangedEvent
+  | MortalityRecordedEvent
+  | BatchTransferredEvent
+  | BatchAllocatedToTankEvent
+  | GrowthSampleRecordedEvent
+  | FeedingRecordedEvent
+  | TankDensityAlertEvent
+  | FCRAlertEvent
+  | BatchClosedEvent
+  | SiteCreatedEvent
+  | SiteUpdatedEvent
+  | SiteDeletedEvent
+  | DepartmentCreatedEvent
+  | DepartmentUpdatedEvent
+  | DepartmentDeletedEvent
+  | SystemCreatedEvent
+  | SystemUpdatedEvent
+  | SystemDeletedEvent
+  | EquipmentCreatedEvent
+  | EquipmentUpdatedEvent
+  | EquipmentDeletedEvent
+  | FeedInventoryLowEvent;

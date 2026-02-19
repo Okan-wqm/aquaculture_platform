@@ -4,10 +4,15 @@
 # =============================================================================
 
 loki:
-  # Single binary mode for simplicity (use distributed for production scale)
+  # SimpleScalable mode: distributed topology with separate read/write/backend components.
+  # ARCH-NM-010: auth_enabled must be true in distributed/SimpleScalable mode to enforce
+  # per-tenant log isolation. All Promtail clients must send X-Scope-OrgID header.
   deploymentMode: SimpleScalable
 
-  auth_enabled: false
+  # SEC-NM-006: auth_enabled set to true to enforce multi-tenant log isolation.
+  # Without this, all logs accumulate in the 'fake' default org and any Grafana user
+  # can query logs from all tenants.
+  auth_enabled: true
 
   limits_config:
     retention_period: 30d
@@ -122,6 +127,11 @@ promtail:
   config:
     clients:
       - url: http://loki-gateway/loki/api/v1/push
+        # SEC-NM-006 + ARCH-NM-010: X-Scope-OrgID required when auth_enabled: true.
+        # This sends all Promtail logs to the 'aquaculture' Loki org.
+        # For per-tenant isolation, configure separate Promtail instances or use
+        # pipeline_stages to extract tenant_id and set X-Scope-OrgID dynamically.
+        tenant_id: aquaculture
 
     snippets:
       pipelineStages:
@@ -212,10 +222,13 @@ promtail:
                   message: msg
                   tenant_id: tenantId
                   trace_id: traceId
+                  # SEC-NM-013: user_id extracted but NOT promoted to label (high cardinality)
                   user_id: userId
             - labels:
                 level:
+                # tenant_id as label is intentional for org-level access control (auth_enabled: true)
                 tenant_id:
+                # user_id intentionally omitted from labels to prevent high-cardinality stream explosion
 
   resources:
     requests:

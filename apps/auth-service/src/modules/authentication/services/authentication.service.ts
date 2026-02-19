@@ -75,6 +75,16 @@ export class AuthenticationService {
   private readonly maxSessionsPerUser: number;
   private readonly hashRefreshTokens: boolean;
   private readonly minLoginDurationMs: number;
+  private readonly jwtExpiresInSeconds: number;
+
+  // PERF: In-memory cache for user module assignments (CRIT-03)
+  // Keyed by userId, value is { modules, cachedAt }
+  // TTL: 5 minutes — module assignments are stable between admin actions
+  private readonly moduleCache = new Map<string, {
+    modules: Array<{ code: string; name: string; defaultRoute: string }>;
+    cachedAt: number;
+  }>();
+  private readonly moduleCacheTtlMs = 5 * 60 * 1000; // 5 minutes
 
   constructor(
     @InjectRepository(User)
@@ -116,6 +126,9 @@ export class AuthenticationService {
       'MIN_LOGIN_DURATION_MS',
       SECURITY_CONSTANTS.MIN_LOGIN_DURATION_MS,
     );
+    // PERF: Cache parsed JWT expiration at startup (MED-07)
+    const expiresInStr = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
+    this.jwtExpiresInSeconds = this.parseExpiresIn(expiresInStr);
   }
 
   /**
@@ -162,8 +175,9 @@ export class AuthenticationService {
    * Register a new user (self-registration - typically not used in enterprise)
    *
    * SECURITY:
+   * - Can be disabled via REGISTRATION_ENABLED=false env var (checked in resolver)
    * - Generic error message to prevent email enumeration
-   * - Rate limited at controller level
+   * - Rate limited at gateway level (RateLimitGuard applied as global APP_GUARD)
    */
   async register(input: RegisterInput): Promise<AuthPayload> {
     // Check if user already exists
@@ -197,8 +211,9 @@ export class AuthenticationService {
       eventId: crypto.randomUUID(),
       eventType: 'UserRegistered',
       timestamp: new Date(),
-      tenantId: savedUser.tenantId ?? undefined,
+      tenantId: savedUser.tenantId ?? 'system',
       userId: savedUser.id,
+      version: 1,
     });
 
     return this.generateTokens(savedUser);
@@ -214,7 +229,8 @@ export class AuthenticationService {
    */
   async login(input: LoginInput, ipAddress?: string, userAgent?: string): Promise<AuthPayload> {
     const startTime = Date.now();
-    this.logger.debug(`Login attempt for: ${input.email.toLowerCase()}`);
+    // SECURITY: Do not log email addresses — PII under GDPR (SEC-AUTH-011)
+    this.logger.debug('Login attempt received');
 
     try {
       // Find user by email only (tenantId can be null for SUPER_ADMIN)
@@ -277,7 +293,8 @@ export class AuthenticationService {
       const isPasswordValid = await user.validatePassword(input.password);
 
       if (!isPasswordValid) {
-        await this.handleFailedLogin(user);
+        // M-04: Use returned attempt count for accurate audit logging
+        const updatedAttempts = await this.handleFailedLogin(user);
         await this.ensureMinDuration(startTime);
         // SECURITY AUDIT: Log failed password attempt
         await this.logSecurityEvent('LOGIN_FAILED_INVALID_PASSWORD', {
@@ -287,7 +304,7 @@ export class AuthenticationService {
           ipAddress,
           userAgent,
           success: false,
-          reason: `Invalid password (attempt ${user.failedLoginAttempts})`,
+          reason: `Invalid password (attempt ${updatedAttempts})`,
         }, AuditLogSeverity.WARNING);
         throw new UnauthorizedException(INVALID_CREDENTIALS_MSG);
       }
@@ -306,24 +323,26 @@ export class AuthenticationService {
 
       this.logger.log(`User logged in: ${user.email} (role: ${user.role})`);
 
-      // SECURITY AUDIT: Log successful login
-      await this.logSecurityEvent('LOGIN_SUCCESS', {
-        userId: user.id,
-        email: user.email,
-        tenantId: user.tenantId,
-        ipAddress,
-        userAgent,
-        success: true,
-      });
-
-      // Publish event
-      await this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        eventType: 'UserLoggedIn',
-        timestamp: new Date(),
-        tenantId: user.tenantId ?? undefined,
-        userId: user.id,
-      });
+      // PERF: Parallelize audit log + event publish — both are independent
+      // fire-and-monitor operations (HIGH-08)
+      await Promise.allSettled([
+        this.logSecurityEvent('LOGIN_SUCCESS', {
+          userId: user.id,
+          email: user.email,
+          tenantId: user.tenantId,
+          ipAddress,
+          userAgent,
+          success: true,
+        }),
+        this.eventBus.publish({
+          eventId: crypto.randomUUID(),
+          eventType: 'UserLoggedIn',
+          timestamp: new Date(),
+          tenantId: user.tenantId ?? 'system',
+          userId: user.id,
+          version: 1,
+        }),
+      ]);
 
       await this.ensureMinDuration(startTime);
       return this.generateTokens(user, ipAddress, userAgent);
@@ -351,7 +370,10 @@ export class AuthenticationService {
 
   /**
    * Accept invitation and set password
-   * Uses transaction to ensure user and invitation updates are atomic
+   *
+   * SECURITY: All reads and the canBeAccepted() check are inside the transaction
+   * with SELECT FOR UPDATE to prevent TOCTOU race conditions (two concurrent
+   * requests both passing validation independently).
    */
   async acceptInvitation(
     token: string,
@@ -360,34 +382,37 @@ export class AuthenticationService {
     lastName?: string,
     ipAddress?: string,
   ): Promise<AuthPayload> {
-    // Find and validate invitation before starting transaction
-    const invitation = await this.invitationRepository.findOne({
-      where: { token },
-    });
+    // Execute all reads + validation + writes inside a single transaction
+    const result = await this.dataSource.transaction(async (manager) => {
+      // SECURITY: Lock the invitation row to prevent concurrent acceptance
+      const invitation = await manager
+        .getRepository(Invitation)
+        .createQueryBuilder('invitation')
+        .setLock('pessimistic_write')
+        .where('invitation.token = :token', { token })
+        .getOne();
 
-    if (!invitation) {
-      throw new BadRequestException('Invalid invitation token');
-    }
-
-    if (!invitation.canBeAccepted()) {
-      if (invitation.isExpired()) {
-        throw new BadRequestException('Invitation has expired');
+      if (!invitation) {
+        throw new BadRequestException('Invalid invitation token');
       }
-      throw new BadRequestException('Invitation cannot be accepted');
-    }
 
-    // Find user by invitation token
-    const user = await this.userRepository.findOne({
-      where: { invitationToken: token },
-    });
+      if (!invitation.canBeAccepted()) {
+        if (invitation.isExpired()) {
+          throw new BadRequestException('Invitation has expired');
+        }
+        throw new BadRequestException('Invitation cannot be accepted');
+      }
 
-    if (!user) {
-      // SECURITY: Generic message to prevent token enumeration
-      throw new BadRequestException('Invalid or expired invitation');
-    }
+      // Find user by invitation token (within transaction)
+      const user = await manager
+        .getRepository(User)
+        .findOne({ where: { invitationToken: token } });
 
-    // Execute updates in a transaction to ensure consistency
-    await this.dataSource.transaction(async (manager) => {
+      if (!user) {
+        // SECURITY: Generic message to prevent token enumeration
+        throw new BadRequestException('Invalid or expired invitation');
+      }
+
       // Update user with password and clear invitation token
       user.password = password; // Will be hashed by BeforeUpdate hook
       user.invitationToken = null;
@@ -405,20 +430,23 @@ export class AuthenticationService {
       invitation.userId = user.id;
       invitation.acceptedFromIp = ipAddress ?? null;
       await manager.save(Invitation, invitation);
+
+      return user;
     });
 
-    this.logger.log(`Invitation accepted: ${user.email} (role: ${user.role})`);
+    this.logger.log(`Invitation accepted: ${result.email} (role: ${result.role})`);
 
     // Publish event (outside transaction - events can be retried)
     await this.eventBus.publish({
       eventId: crypto.randomUUID(),
       eventType: 'InvitationAccepted',
       timestamp: new Date(),
-      tenantId: user.tenantId ?? undefined,
-      userId: user.id,
+      tenantId: result.tenantId ?? 'system',
+      userId: result.id,
+      version: 1,
     });
 
-    return this.generateTokens(user, ipAddress);
+    return this.generateTokens(result, ipAddress);
   }
 
   /**
@@ -515,22 +543,36 @@ export class AuthenticationService {
 
   /**
    * Refresh token with hashed tokens
-   * Since we can't query by hash directly, we need to find valid tokens
-   * for the user and compare hashes
    *
-   * SECURITY: Uses transaction with pessimistic locking to prevent double-spending
+   * SECURITY:
+   * - Extracts userId from the first 36 chars of the token (UUID prefix)
+   *   to scope the query to a single user's tokens, avoiding cross-tenant lock contention
+   * - Uses transaction with pessimistic locking on per-user tokens only
+   * - Limits bcrypt comparisons to the user's active tokens (typically 1-5)
    */
   private async refreshTokenWithHash(plainToken: string): Promise<AuthPayload> {
+    // Extract userId prefix from token (first 36 chars = UUID)
+    // Token format: {userId}:{randomBytes} — see generateTokens()
+    const separatorIndex = plainToken.indexOf(':');
+    const userIdPrefix = separatorIndex > 0 ? plainToken.substring(0, separatorIndex) : null;
+    const tokenPart = separatorIndex > 0 ? plainToken.substring(separatorIndex + 1) : plainToken;
+
     return this.dataSource.transaction(async (manager) => {
       const tokenRepo = manager.getRepository(RefreshToken);
 
-      // Get all non-revoked, non-expired tokens with pessimistic lock
-      // NOTE: No LEFT JOIN here — FOR UPDATE cannot be applied to outer join targets in PostgreSQL
-      const validTokens = await tokenRepo
+      // Build query scoped to user if userId prefix is available
+      const queryBuilder = tokenRepo
         .createQueryBuilder('rt')
         .setLock('pessimistic_write')
         .where('rt.isRevoked = :isRevoked', { isRevoked: false })
-        .andWhere('rt.expiresAt > :now', { now: new Date() })
+        .andWhere('rt.expiresAt > :now', { now: new Date() });
+
+      if (userIdPrefix) {
+        // SECURITY: Scope lock to single user's tokens — prevents global lock contention
+        queryBuilder.andWhere('rt.userId = :userId', { userId: userIdPrefix });
+      }
+
+      const validTokens = await queryBuilder
         .orderBy('rt.createdAt', 'DESC')
         .take(TOKEN_CONSTANTS.MAX_REFRESH_TOKEN_CHECK)
         .getMany();
@@ -538,7 +580,7 @@ export class AuthenticationService {
       // Find matching token by comparing hashes
       let matchedToken: RefreshToken | null = null;
       for (const storedToken of validTokens) {
-        const isMatch = await bcrypt.compare(plainToken, storedToken.token);
+        const isMatch = await bcrypt.compare(tokenPart, storedToken.token);
         if (isMatch) {
           matchedToken = storedToken;
           break;
@@ -725,13 +767,23 @@ export class AuthenticationService {
   }
 
   /**
-   * Get modules accessible by user based on their role
+   * Get modules accessible by user based on their role.
+   * PERF: Results are cached in-memory with 5-minute TTL (CRIT-03).
+   * Module assignments only change when an admin explicitly reassigns modules.
    */
   private async getUserModules(user: User): Promise<Array<{ code: string; name: string; defaultRoute: string }>> {
     // SUPER_ADMIN has no modules (they manage the system)
     if (user.role === Role.SUPER_ADMIN) {
       return [];
     }
+
+    // Check cache first
+    const cached = this.moduleCache.get(user.id);
+    if (cached && (Date.now() - cached.cachedAt) < this.moduleCacheTtlMs) {
+      return cached.modules;
+    }
+
+    let modules: Array<{ code: string; name: string; defaultRoute: string }>;
 
     // TENANT_ADMIN has access to all tenant modules
     if (user.role === Role.TENANT_ADMIN && user.tenantId) {
@@ -745,53 +797,66 @@ export class AuthenticationService {
         [user.tenantId],
       );
 
-      return tenantModules.map((tm) => ({
+      modules = tenantModules.map((tm) => ({
         code: tm.code,
         name: tm.name,
         defaultRoute: tm.defaultRoute,
       }));
+    } else {
+      // MODULE_MANAGER and MODULE_USER have specific module assignments
+      const assignments = await this.userModuleAssignmentRepository.find({
+        where: { userId: user.id, isActive: true },
+        relations: ['module'],
+      });
+
+      modules = assignments
+        .filter((a) => a.isAccessible() && a.module)
+        .map((a) => ({
+          code: a.module.code,
+          name: a.module.name,
+          defaultRoute: a.module.defaultRoute,
+        }));
     }
 
-    // MODULE_MANAGER and MODULE_USER have specific module assignments
-    const assignments = await this.userModuleAssignmentRepository.find({
-      where: { userId: user.id, isActive: true },
-      relations: ['module'],
-    });
+    // Cache the result
+    this.moduleCache.set(user.id, { modules, cachedAt: Date.now() });
 
-    return assignments
-      .filter((a) => a.isAccessible() && a.module)
-      .map((a) => ({
-        code: a.module.code,
-        name: a.module.name,
-        defaultRoute: a.module.defaultRoute,
-      }));
+    return modules;
+  }
+
+  /**
+   * Invalidate module cache for a user (call when module assignments change)
+   */
+  invalidateModuleCache(userId: string): void {
+    this.moduleCache.delete(userId);
   }
 
   /**
    * Handle failed login with atomic database increment to prevent race conditions.
-   * Uses raw SQL to ensure atomicity even under concurrent login attempts.
+   * Uses a single atomic SQL statement with RETURNING to avoid multiple round-trips (MED-01).
+   * Returns the updated failedLoginAttempts count for accurate audit logging (M-04).
    */
-  private async handleFailedLogin(user: User): Promise<void> {
-    // Atomic increment using raw query to prevent race conditions
-    // This ensures concurrent failed login attempts are all counted
-    await this.userRepository
-      .createQueryBuilder()
-      .update(User)
-      .set({
-        failedLoginAttempts: () => '"failedLoginAttempts" + 1',
-      })
-      .where('id = :id', { id: user.id })
-      .execute();
+  private async handleFailedLogin(user: User): Promise<number> {
+    const lockoutUntil = new Date(Date.now() + this.lockoutDurationMinutes * 60 * 1000);
 
-    // Re-fetch to check current count and apply lockout if needed
-    const updatedUser = await this.userRepository.findOne({
-      where: { id: user.id },
-      select: ['id', 'email', 'failedLoginAttempts'],
-    });
+    // Single atomic query: increment + conditional lockout + return updated values (MED-01)
+    const result: Array<{ failedLoginAttempts: number; lockedUntil: Date | null }> =
+      await this.dataSource.query(
+        `UPDATE auth.users
+         SET "failedLoginAttempts" = "failedLoginAttempts" + 1,
+             "lockedUntil" = CASE
+               WHEN "failedLoginAttempts" + 1 >= $2 THEN $3::timestamp
+               ELSE "lockedUntil"
+             END
+         WHERE id = $1
+         RETURNING "failedLoginAttempts", "lockedUntil"`,
+        [user.id, this.maxFailedAttempts, lockoutUntil],
+      );
 
-    if (updatedUser && updatedUser.failedLoginAttempts >= this.maxFailedAttempts) {
-      const lockoutUntil = new Date(Date.now() + this.lockoutDurationMinutes * 60 * 1000);
-      await this.userRepository.update(user.id, { lockedUntil: lockoutUntil });
+    const updatedAttempts = result[0]?.failedLoginAttempts ?? 0;
+    const isNowLocked = result[0]?.lockedUntil !== null && updatedAttempts >= this.maxFailedAttempts;
+
+    if (isNowLocked) {
       this.logger.warn(`Account locked for user: ${user.email} until ${lockoutUntil.toISOString()}`);
       // SECURITY AUDIT: Log account lockout (critical security event)
       await this.logSecurityEvent('ACCOUNT_LOCKED', {
@@ -802,6 +867,8 @@ export class AuthenticationService {
         reason: `Account locked after ${this.maxFailedAttempts} failed attempts. Locked until ${lockoutUntil.toISOString()}`,
       }, AuditLogSeverity.CRITICAL);
     }
+
+    return updatedAttempts;
   }
 
   private async generateTokens(
@@ -826,14 +893,24 @@ export class AuthenticationService {
       jti, // Include JTI for token blacklisting
     };
 
-    const accessToken = await this.jwtService.signAsync(payload);
-    const refreshTokenValue = crypto.randomBytes(64).toString('hex');
+    // SECURITY: Include audience claim to prevent cross-service token replay
+    const accessToken = await this.jwtService.signAsync(payload, {
+      audience: this.configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform'),
+    });
+    const refreshTokenRandom = crypto.randomBytes(64).toString('hex');
+
+    // SECURITY: Prefix refresh token with userId so the lookup can be scoped per-user.
+    // Token format sent to client: {userId}:{randomBytes}
+    // Only the random part is hashed and stored in DB; userId is used as a lookup key.
+    const refreshTokenValue = this.hashRefreshTokens
+      ? `${user.id}:${refreshTokenRandom}`
+      : refreshTokenRandom;
 
     // SECURITY: Hash refresh token before storage
     // The client gets the plain token, we store the hash
-    let tokenToStore = refreshTokenValue;
+    let tokenToStore = refreshTokenRandom;
     if (this.hashRefreshTokens) {
-      tokenToStore = await bcrypt.hash(refreshTokenValue, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS);
+      tokenToStore = await bcrypt.hash(refreshTokenRandom, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS);
     }
 
     // Create refresh token
@@ -898,7 +975,8 @@ export class AuthenticationService {
   }
 
   private parseExpiresIn(expiresIn: string): number {
-    const match = expiresIn.match(/^(\d+)([smhd])$/);
+    // L-03: Support 'w' (weeks) unit in addition to s/m/h/d
+    const match = expiresIn.match(/^(\d+)([smhdw])$/);
     if (!match || !match[1] || !match[2]) return SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_SECONDS;
 
     const value = parseInt(match[1], 10);
@@ -913,6 +991,8 @@ export class AuthenticationService {
         return value * 60 * 60;
       case 'd':
         return value * 24 * 60 * 60;
+      case 'w':
+        return value * 7 * 24 * 60 * 60;
       default:
         return SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_SECONDS;
     }

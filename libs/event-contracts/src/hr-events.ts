@@ -20,7 +20,11 @@ export interface EmployeeCreatedEvent extends BaseEvent {
 export interface EmployeeUpdatedEvent extends BaseEvent {
   eventType: 'EmployeeUpdated';
   employeeId: string;
-  changes: Record<string, unknown>;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  position?: string;
+  farmId?: string;
 }
 
 /**
@@ -44,20 +48,17 @@ export interface PayrollProcessedEvent extends BaseEvent {
   periodEnd: Date;
   grossAmount: number;
   netAmount: number;
-  status: 'draft' | 'approved' | 'paid';
-}
-
-/**
- * Leave Requested Event
- */
-export interface LeaveRequestedEvent extends BaseEvent {
-  eventType: 'LeaveRequested';
-  leaveId: string;
-  employeeId: string;
-  leaveType: string;
-  startDate: Date;
-  endDate: Date;
-  reason?: string;
+  /**
+   * Payroll status at the time of the event.
+   * Values are always lowercase to match the entity enum:
+   * - 'draft': payroll record created but not yet approved
+   * - 'pending_approval': payroll submitted for approval
+   * - 'approved': payroll approved and ready for payment
+   * - 'processing': payment is being processed
+   * - 'paid': payment has been disbursed
+   * - 'cancelled': payroll has been cancelled
+   */
+  status: 'draft' | 'pending_approval' | 'approved' | 'processing' | 'paid' | 'cancelled';
 }
 
 /**
@@ -70,24 +71,13 @@ export interface LeaveApprovedEvent extends BaseEvent {
   approvedBy: string;
 }
 
-/**
- * Attendance Recorded Event
- */
-export interface AttendanceRecordedEvent extends BaseEvent {
-  eventType: 'AttendanceRecorded';
-  employeeId: string;
-  farmId?: string;
-  clockIn?: Date;
-  clockOut?: Date;
-  hoursWorked?: number;
-}
-
 // =====================
 // Leave Events
 // =====================
 
 /**
  * Leave Request Submitted Event
+ * Canonical event for leave initiation. Uses `leaveRequestId` for correlation.
  */
 export interface LeaveRequestSubmittedEvent extends BaseEvent {
   eventType: 'LeaveRequestSubmitted';
@@ -128,6 +118,7 @@ export interface LeaveCancelledEvent extends BaseEvent {
 
 /**
  * Employee Clocked In Event
+ * Canonical attendance event with proper correlation via `attendanceRecordId`.
  */
 export interface EmployeeClockedInEvent extends BaseEvent {
   eventType: 'EmployeeClockedIn';
@@ -325,12 +316,10 @@ export type HREvent =
   | EmployeeUpdatedEvent
   | EmployeeTerminatedEvent
   | PayrollProcessedEvent
-  | LeaveRequestedEvent
   | LeaveApprovedEvent
   | LeaveRequestSubmittedEvent
   | LeaveRejectedEvent
   | LeaveCancelledEvent
-  | AttendanceRecordedEvent
   | EmployeeClockedInEvent
   | EmployeeClockedOutEvent
   | CertificationAddedEvent

@@ -94,16 +94,16 @@ export class RequestLoggingInterceptor implements NestInterceptor {
   ): RequestMetrics {
     const request = context.switchToHttp().getRequest<LoggingRequest>();
 
+    // SECURITY: Use req.ip which respects the trust proxy setting.
+    // Falling back to x-forwarded-for header directly allows spoofing
+    // when the gateway is not behind a trusted proxy.
     return {
       method: request.method,
       path: request.url,
       correlationId: request.headers?.['x-correlation-id'],
       tenantId: request.tenantId || request.headers?.['x-tenant-id'],
       userId: request.user?.sub,
-      ip:
-        request.ip ||
-        request.headers?.['x-forwarded-for']?.split(',')[0] ||
-        request.connection?.remoteAddress,
+      ip: request.ip || request.connection?.remoteAddress,
       userAgent: request.headers?.['user-agent'],
       startTime,
       success: true,
@@ -131,10 +131,7 @@ export class RequestLoggingInterceptor implements NestInterceptor {
       correlationId: request?.headers?.['x-correlation-id'],
       tenantId: request?.tenantId || request?.headers?.['x-tenant-id'],
       userId: request?.user?.sub,
-      ip:
-        request?.ip ||
-        request?.headers?.['x-forwarded-for']?.split(',')[0] ||
-        request?.connection?.remoteAddress,
+      ip: request?.ip || request?.connection?.remoteAddress,
       userAgent: request?.headers?.['user-agent'],
       startTime,
       success: true,
@@ -248,14 +245,15 @@ export class RequestLoggingInterceptor implements NestInterceptor {
       };
     }
 
-    // Add response size if available
-    if (response && typeof response === 'object') {
-      try {
-        const size = JSON.stringify(response).length;
-        context['responseSize'] = size;
-      } catch {
-        // Ignore serialization errors
+    // Lightweight response size estimate without full serialization.
+    // JSON.stringify on every response creates a full heap copy per request.
+    if (response !== null && response !== undefined) {
+      if (typeof response === 'string') {
+        context['responseSize'] = response.length;
+      } else if (Buffer.isBuffer(response)) {
+        context['responseSize'] = response.length;
       }
+      // For objects, skip size estimation to avoid O(n) serialization cost
     }
 
     return context;

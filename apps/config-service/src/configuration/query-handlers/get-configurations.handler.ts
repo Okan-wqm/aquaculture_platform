@@ -26,34 +26,49 @@ export class GetConfigurationsHandler
   async execute(query: GetConfigurationsQuery): Promise<Configuration[]> {
     const { tenantId, filter } = query;
 
-    const where: FindOptionsWhere<Configuration> = {
-      tenantId,
-    };
+    // Use query builder for tag filtering and pagination support
+    const qb = this.configRepository
+      .createQueryBuilder('config')
+      .where('config.tenantId = :tenantId', { tenantId });
+
+    // Default to active only unless explicitly overridden
+    if (filter?.isActive !== undefined) {
+      qb.andWhere('config.isActive = :isActive', { isActive: filter.isActive });
+    } else {
+      qb.andWhere('config.isActive = :isActive', { isActive: true });
+    }
 
     if (filter) {
-      if (filter.service) where.service = filter.service;
-      if (filter.key) where.key = filter.key;
-      if (filter.environment) where.environment = filter.environment;
-      if (filter.category) where.category = filter.category;
-      if (filter.isActive !== undefined) where.isActive = filter.isActive;
-      if (filter.isSecret !== undefined) where.isSecret = filter.isSecret;
+      if (filter.service) {
+        qb.andWhere('config.service = :service', { service: filter.service });
+      }
+      if (filter.key) {
+        qb.andWhere('config.key = :key', { key: filter.key });
+      }
+      if (filter.environment) {
+        qb.andWhere('config.environment = :environment', { environment: filter.environment });
+      }
+      if (filter.category) {
+        qb.andWhere('config.category = :category', { category: filter.category });
+      }
+      if (filter.isSecret !== undefined) {
+        qb.andWhere('config.isSecret = :isSecret', { isSecret: filter.isSecret });
+      }
+      // Push tag filtering to PostgreSQL using native array overlap operator
+      if (filter.tags && filter.tags.length > 0) {
+        qb.andWhere('config.tags && :tags', { tags: filter.tags });
+      }
     }
 
-    const configurations = await this.configRepository.find({
-      where,
-      order: { service: 'ASC', key: 'ASC' },
-    });
+    const limit = Math.min(Math.max(filter?.limit ?? 100, 1), 500);
+    const offset = Math.max(filter?.offset ?? 0, 0);
 
-    // Filter by tags if specified
-    if (filter?.tags && filter.tags.length > 0) {
-      return configurations.filter(
-        (config) =>
-          config.tags &&
-          filter.tags!.some((tag) => config.tags!.includes(tag)),
-      );
-    }
+    qb.orderBy('config.service', 'ASC')
+      .addOrderBy('config.key', 'ASC')
+      .take(limit)
+      .skip(offset);
 
-    return configurations;
+    return qb.getMany();
   }
 }
 
@@ -92,6 +107,7 @@ export class GetConfigurationsByServiceHandler
     const configurations = await this.configRepository.find({
       where,
       order: { key: 'ASC' },
+      take: 500,
     });
 
     // Merge: tenant-specific overrides global
@@ -124,10 +140,13 @@ export class GetConfigurationHistoryHandler
   async execute(query: GetConfigurationHistoryQuery): Promise<ConfigurationHistory[]> {
     const { tenantId, configurationId, limit } = query;
 
-    return await this.historyRepository.find({
+    // Cap limit to prevent abuse
+    const cappedLimit = Math.min(Math.max(limit || 50, 1), 500);
+
+    return this.historyRepository.find({
       where: { configurationId, tenantId },
       order: { changedAt: 'DESC' },
-      take: limit || 100,
+      take: cappedLimit,
     });
   }
 }

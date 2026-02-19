@@ -1,6 +1,6 @@
 import { InputType, Field, Int } from '@nestjs/graphql';
-import { IsOptional, IsEnum, IsUUID, IsInt, Min, Max } from 'class-validator';
-import { EmployeeStatus, EmploymentType, Department } from '../entities/employee.entity';
+import { IsOptional, IsEnum, IsUUID, IsInt, IsBoolean, Min, Max } from 'class-validator';
+import { EmployeeStatus, EmploymentType, Department, PersonnelCategory } from '../entities/employee.entity';
 
 @InputType()
 export class EmployeeFilterInput {
@@ -28,6 +28,16 @@ export class EmployeeFilterInput {
   @IsOptional()
   @IsUUID()
   supervisorId?: string;
+
+  @Field(() => PersonnelCategory, { nullable: true, description: 'Filter by personnel category (OFFSHORE/ONSHORE/HYBRID)' })
+  @IsOptional()
+  @IsEnum(PersonnelCategory)
+  personnelCategory?: PersonnelCategory;
+
+  @Field({ nullable: true, description: 'Filter by sea-worthiness certification status' })
+  @IsOptional()
+  @IsBoolean()
+  seaWorthy?: boolean;
 
   @Field(() => Int, { nullable: true, defaultValue: 0 })
   @IsOptional()

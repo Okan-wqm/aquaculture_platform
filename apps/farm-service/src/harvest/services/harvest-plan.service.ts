@@ -381,10 +381,12 @@ export class HarvestPlanService {
     const offset = filter?.offset ?? 0;
     query.skip(offset).take(limit);
 
-    // Apply sorting
+    // Apply sorting with allowlist to prevent SQL injection
     const sortBy = filter?.sortBy ?? 'plannedDate';
     const sortDir = filter?.sortDirection ?? 'ASC';
-    query.orderBy(`hp.${sortBy}`, sortDir);
+    const validSortFields = ['plannedDate', 'status', 'estimatedWeight', 'createdAt', 'updatedAt'];
+    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'plannedDate';
+    query.orderBy(`hp.${safeSortBy}`, sortDir);
 
     const items = await query.getMany();
 

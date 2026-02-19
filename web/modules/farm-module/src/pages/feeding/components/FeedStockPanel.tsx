@@ -4,7 +4,7 @@
  * Shows feed inventory levels with stockout predictions
  * and reorder recommendations
  */
-import React from 'react';
+import React, { useMemo } from 'react';
 import { FeedForecastResult, getAlertColor } from '../../../hooks/useFeeding';
 
 interface FeedStockPanelProps {
@@ -36,6 +36,13 @@ export const FeedStockPanel: React.FC<FeedStockPanelProps> = ({ forecastData }) 
     if (daysUntilStockout > forecastDays) return 'Healthy';
     return 'Monitor';
   };
+
+  // Sort feeds by urgency: critical first (PERF-004 — memoize expensive sort)
+  const sortedFeeds = useMemo(
+    () =>
+      [...forecastData.byFeedType].sort((a, b) => a.daysUntilStockout - b.daysUntilStockout),
+    [forecastData.byFeedType],
+  );
 
   return (
     <div className="space-y-6">
@@ -134,7 +141,7 @@ export const FeedStockPanel: React.FC<FeedStockPanelProps> = ({ forecastData }) 
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {forecastData.byFeedType.map((feed) => {
+              {sortedFeeds.map((feed) => {
                 const avgDailyUsage = feed.dailyConsumption.length > 0
                   ? feed.dailyConsumption.reduce((sum, d) => sum + d, 0) / feed.dailyConsumption.length
                   : 0;
@@ -217,7 +224,22 @@ export const FeedStockPanel: React.FC<FeedStockPanelProps> = ({ forecastData }) 
       <div className="bg-white rounded-lg shadow p-4">
         <h3 className="text-lg font-medium text-gray-900 mb-4">Stock Depletion Timeline</h3>
         <div className="space-y-4">
-          {forecastData.byFeedType.map((feed) => {
+          {sortedFeeds.map((feed) => {
+            // BUG-017: when totalConsumption is 0, bar would show 100% green (misleading)
+            if (feed.totalConsumption <= 0) {
+              return (
+                <div key={feed.feedId}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium text-gray-700">{feed.feedCode}</span>
+                    <span className="text-xs text-gray-400">No forecast data — {feed.currentStock.toFixed(0)} kg in stock</span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-4 flex items-center justify-center">
+                    <span className="text-xs text-gray-400">No consumption forecast</span>
+                  </div>
+                </div>
+              );
+            }
+
             const percentRemaining = feed.currentStock > 0
               ? Math.min(100, ((feed.currentStock - feed.totalConsumption) / feed.currentStock) * 100)
               : 0;

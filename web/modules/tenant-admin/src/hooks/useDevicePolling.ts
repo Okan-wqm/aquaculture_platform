@@ -1,10 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-
-const GRAPHQL_URL = '/graphql';
-
-const getAuthToken = (): string | null => {
-  return localStorage.getItem('access_token');
-};
+import { graphqlRequest } from '../services/tenant-api.service';
 
 interface EdgeDevice {
   id: string;
@@ -91,50 +86,47 @@ const EDGE_DEVICE_QUERY = `
 `;
 
 /**
- * Hook for polling edge device data at regular intervals
+ * Hook for polling edge device data at regular intervals.
+ *
+ * PERF-003: Uses isInitialLoad ref so the loading spinner only shows on the
+ * first fetch, not on every subsequent poll tick, avoiding full re-renders
+ * of the component tree every 5 seconds.
  */
 export function useDevicePolling(deviceId: string, intervalMs = 5000) {
   const [device, setDevice] = useState<EdgeDevice | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isInitialLoad = useRef(true);
 
   const fetchDevice = useCallback(async () => {
-    const token = getAuthToken();
-    if (!token || !deviceId) return;
+    if (!deviceId) return;
+
+    // Only show full loading state on the initial load (PERF-003)
+    if (isInitialLoad.current) {
+      setLoading(true);
+    }
 
     try {
-      const response = await fetch(GRAPHQL_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          query: EDGE_DEVICE_QUERY,
-          variables: { id: deviceId },
-        }),
-      });
-
-      const result = await response.json();
-
-      if (result.errors) {
-        setError(result.errors[0]?.message || 'GraphQL error');
-        return;
-      }
-
-      setDevice(result.data?.edgeDevice || null);
+      const result = await graphqlRequest<{ edgeDevice: EdgeDevice | null }>(
+        EDGE_DEVICE_QUERY,
+        { id: deviceId },
+      );
+      setDevice(result.edgeDevice || null);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch device');
     } finally {
-      setLoading(false);
+      if (isInitialLoad.current) {
+        setLoading(false);
+        isInitialLoad.current = false;
+      }
     }
   }, [deviceId]);
 
   // Initial fetch
   useEffect(() => {
-    setLoading(true);
+    isInitialLoad.current = true;
     fetchDevice();
   }, [fetchDevice]);
 
@@ -156,7 +148,8 @@ export function useDevicePolling(deviceId: string, intervalMs = 5000) {
   }, [fetchDevice, intervalMs]);
 
   const refetch = useCallback(() => {
-    setLoading(true);
+    // Manual refetch always shows loading indicator
+    isInitialLoad.current = true;
     fetchDevice();
   }, [fetchDevice]);
 

@@ -21,7 +21,7 @@
  * ```
  */
 import { InputType, Field, Int, ObjectType } from '@nestjs/graphql';
-import { IsOptional, IsInt, Min, Max, IsString, IsEnum } from 'class-validator';
+import { IsOptional, IsInt, Min, Max, IsString, IsEnum, Matches } from 'class-validator';
 import { Type } from '@nestjs/common';
 
 /**
@@ -53,9 +53,15 @@ export class PaginationInput {
   @Max(100)
   limit?: number;
 
-  @Field({ nullable: true, defaultValue: 'createdAt', description: 'Field to sort by' })
+  /**
+   * Field to sort by. Must be a valid identifier (alphanumeric + underscore).
+   * Consumers MUST validate this against an allowlist of permitted fields
+   * before using in query builders to prevent SQL injection via ORDER BY.
+   */
+  @Field({ nullable: true, defaultValue: 'createdAt', description: 'Field to sort by (must be a valid column name)' })
   @IsOptional()
   @IsString()
+  @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'sortBy must be a valid field name (alphanumeric and underscore only)' })
   sortBy?: string;
 
   @Field({ nullable: true, defaultValue: 'DESC', description: 'Sort direction (ASC or DESC)' })

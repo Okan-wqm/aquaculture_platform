@@ -1,6 +1,7 @@
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import cookieParser from 'cookie-parser';
 import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 
@@ -19,6 +20,9 @@ async function bootstrap(): Promise<void> {
   // These limits should be set based on your application's requirements
   const jsonLimit = configService.get<string>('REQUEST_JSON_LIMIT', '1mb');
   const urlencodedLimit = configService.get<string>('REQUEST_URLENCODED_LIMIT', '1mb');
+
+  // SECURITY: cookie-parser required for forwarding httpOnly refresh token cookies to auth-service
+  app.use(cookieParser());
 
   app.use(json({ limit: jsonLimit }));
   app.use(urlencoded({ limit: urlencodedLimit, extended: true }));
@@ -112,7 +116,10 @@ async function bootstrap(): Promise<void> {
       transform: true,
       forbidNonWhitelisted: true,
       transformOptions: {
-        enableImplicitConversion: true,
+        // SECURITY: Disable implicit conversion. When enabled, strings like
+        // "true", "1", etc. are auto-coerced to boolean/number without explicit
+        // decorators. This can cause type-confusion bugs in authorization checks.
+        enableImplicitConversion: false,
       },
       // SECURITY: Hide internal details from validation errors
       validationError: {
@@ -154,7 +161,7 @@ async function bootstrap(): Promise<void> {
   // Enable graceful shutdown hooks
   app.enableShutdownHooks();
 
-  const port = configService.get<number>('GATEWAY_PORT', 4000);
+  const port = configService.get<number>('GATEWAY_PORT', 3000);
   await app.listen(port);
 
   logger.log(`Gateway API running on http://localhost:${port}`);

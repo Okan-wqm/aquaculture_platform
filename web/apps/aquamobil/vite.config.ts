@@ -8,7 +8,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'prompt',
+      // PERF-10: autoUpdate ensures field workers always run the latest version
+      // without needing to manually dismiss an update prompt.
+      registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'icons/*.png'],
       manifest: {
         name: 'AquaMobil',
@@ -40,24 +42,19 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // PERF-06: Tighter glob patterns — SVGs excluded to avoid inlining HTML SVGs
+        // into the precache manifest unintentionally.
+        globPatterns: ['**/*.{js,css,html,ico,png,woff2}'],
         runtimeCaching: [
-          {
-            // GraphQL API - Network first with fallback
-            urlPattern: /\/graphql/,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 60 * 24, // 24 hours
-              },
-              networkTimeoutSeconds: 10,
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-            },
-          },
+          // CRIT-2 / SEC-02 / PERF-01: GraphQL runtime caching has been intentionally
+          // removed. Reasons:
+          // 1. Caching authenticated GraphQL POST responses leaks tenant data between
+          //    users on shared devices (Cache Storage is not cleared on logout).
+          // 2. Workbox cannot distinguish mutations from queries — cached mutation
+          //    responses cause offline queue operations to be silently discarded.
+          // 3. POST requests are keyed by URL only, so only one response is stored
+          //    per URL, providing no real offline query value.
+          // Offline reads use the application-layer IndexedDB cache (cacheData/getCachedData).
           {
             // Static assets - Cache first
             urlPattern: /\.(?:js|css|woff2?)$/,
@@ -72,7 +69,7 @@ export default defineConfig({
           },
           {
             // Images - Stale while revalidate
-            urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp)$/,
+            urlPattern: /\.(?:png|jpg|jpeg|gif|webp)$/,
             handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'image-cache',
@@ -113,7 +110,10 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
-    sourcemap: true,
+    // PERF-06: Disable source maps in production to prevent exposing TypeScript
+    // source, GraphQL query structures, and internal variable names.
+    // Use 'hidden' in CI to upload to error tracking without serving publicly.
+    sourcemap: false,
     commonjsOptions: {
       include: [/node_modules/],
       transformMixedEsModules: true,

@@ -51,7 +51,7 @@ export class TenantDetailService {
         this.getModuleUsage(tenantId),
         this.activityService.getRecentActivities(tenantId, 20),
         this.activityService.getNotes(tenantId, { limit: 10 }),
-        this.getBillingSummary(tenantId),
+        this.getBillingSummary(tenantId, tenant),
         this.getResourceUsage(tenant),
       ]);
 
@@ -123,7 +123,7 @@ export class TenantDetailService {
           COUNT(*) FILTER (WHERE role = 'MODULE_USER') as user_count,
           COUNT(*) FILTER (WHERE "lastLoginAt" > NOW() - INTERVAL '7 days') as recently_active,
           COUNT(*) FILTER (WHERE "createdAt" > NOW() - INTERVAL '30 days') as new_users
-        FROM users
+        FROM auth.users
         WHERE "tenantId" = $1
       `,
         [tenantId],
@@ -146,7 +146,11 @@ export class TenantDetailService {
         newUsersLast30Days: parseInt(stats.new_users || '0', 10),
       };
     } catch (error) {
-      this.logger.warn(`Could not fetch user stats for tenant ${tenantId}`);
+      // BUG-007 fix: log the actual error object so root cause is visible to operators
+      this.logger.warn(
+        `Could not fetch user stats for tenant ${tenantId}: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
       // Return default stats if query fails
       return {
         total: 0,
@@ -167,7 +171,7 @@ export class TenantDetailService {
       const result = await this.dataSource.query(
         `
         SELECT
-          tm."moduleId",
+          tm."moduleId" as "moduleId",
           m.code as module_code,
           m.name as module_name,
           tm."isEnabled" as is_active,
@@ -265,9 +269,11 @@ export class TenantDetailService {
 
   /**
    * Get billing summary
+   * BUG-008 fix: accept the already-fetched tenant object to avoid a redundant DB round-trip
    */
   private async getBillingSummary(
     tenantId: string,
+    tenant: Tenant,
   ): Promise<BillingSummary | undefined> {
     const billing = await this.billingRepository.findOne({
       where: { tenantId },
@@ -277,12 +283,8 @@ export class TenantDetailService {
       return undefined;
     }
 
-    const tenant = await this.tenantRepository.findOne({
-      where: { id: tenantId },
-    });
-
     return {
-      currentPlan: tenant?.tier || 'free',
+      currentPlan: tenant.tier || 'free',
       monthlyAmount: Number(billing.monthlyAmount),
       currency: billing.currency,
       billingCycle: billing.billingCycle,
@@ -303,94 +305,160 @@ export class TenantDetailService {
     page = 1,
     limit = 20,
   ): Promise<{ data: TenantActivity[]; total: number; totalPages: number }> {
+    // BUG-031 fix: guard against limit=0 to prevent Math.ceil producing Infinity
+    const safeLimit = limit > 0 ? limit : 20;
+
     const result = await this.activityService.getActivities(tenantId, {
-      limit,
-      offset: (page - 1) * limit,
+      limit: safeLimit,
+      offset: (page - 1) * safeLimit,
     });
 
     return {
       data: result.data,
       total: result.total,
-      totalPages: Math.ceil(result.total / limit),
+      totalPages: Math.ceil(result.total / safeLimit),
     };
   }
 
   /**
-   * Bulk suspend tenants
+   * Bulk suspend tenants.
+   * HIGH-003 fix: replaced sequential per-tenant UPDATE + activity log calls
+   * with a single bulk UPDATE and a batch activity log INSERT.
    */
   async bulkSuspend(
     tenantIds: string[],
     reason: string,
     performedBy: string,
   ): Promise<{ success: string[]; failed: string[] }> {
-    const success: string[] = [];
-    const failed: string[] = [];
+    if (tenantIds.length === 0) return { success: [], failed: [] };
 
-    for (const tenantId of tenantIds) {
-      try {
-        await this.tenantRepository.update(tenantId, {
-          status: TenantStatus.SUSPENDED,
-          suspendedAt: new Date(),
-          suspendedReason: reason,
-          suspendedBy: performedBy,
-        });
+    try {
+      // Fetch current statuses in one query (needed for the audit trail)
+      const existingTenants = await this.tenantRepository
+        .createQueryBuilder('t')
+        .select(['t.id', 't.status'])
+        .where('t.id IN (:...ids)', { ids: tenantIds })
+        .getMany();
 
-        await this.activityService.logStatusChange(
-          tenantId,
-          'active',
-          'suspended',
-          reason,
-          performedBy,
+      const foundIds = new Set(existingTenants.map(t => t.id));
+      const failed  = tenantIds.filter(id => !foundIds.has(id));
+      const success = tenantIds.filter(id =>  foundIds.has(id));
+
+      if (success.length === 0) return { success: [], failed };
+
+      // Single bulk UPDATE
+      const now = new Date();
+      await this.dataSource.query(
+        `UPDATE tenants
+         SET    status            = 'SUSPENDED',
+                "suspendedAt"     = $1,
+                "suspendedReason" = $2,
+                "suspendedBy"     = $3,
+                "updatedAt"       = $1
+         WHERE  id = ANY($4::uuid[])`,
+        [now, reason, performedBy, success],
+      );
+
+      // Batch-create activity log entries (single INSERT … VALUES …)
+      const activityRows = existingTenants.filter(t => foundIds.has(t.id));
+      if (activityRows.length > 0) {
+        await this.dataSource.query(
+          `INSERT INTO tenant_activities
+             ("tenantId", "activityType", title, description,
+              "previousValue", "newValue", "performedBy", "createdAt", "updatedAt")
+           SELECT
+             unnest($1::uuid[]),
+             'SUSPENDED'::varchar,
+             'Status changed: suspended',
+             $2,
+             jsonb_build_object('status', prev_status),
+             '{"status":"suspended"}'::jsonb,
+             $3,
+             NOW(), NOW()
+           FROM unnest($4::text[]) AS prev_status`,
+          [
+            activityRows.map(t => t.id),
+            reason || 'Bulk suspended',
+            performedBy,
+            activityRows.map(t => t.status),
+          ],
         );
-
-        success.push(tenantId);
-      } catch (error) {
-        this.logger.error(
-          `Failed to suspend tenant ${tenantId}: ${(error as Error).message}`,
-        );
-        failed.push(tenantId);
       }
-    }
 
-    return { success, failed };
+      return { success, failed };
+    } catch (error) {
+      this.logger.error(`bulkSuspend failed: ${(error as Error).message}`);
+      return { success: [], failed: tenantIds };
+    }
   }
 
   /**
-   * Bulk activate tenants
+   * Bulk activate tenants.
+   * HIGH-003 fix: replaced sequential per-tenant UPDATE + activity log calls
+   * with a single bulk UPDATE and a batch activity log INSERT.
    */
   async bulkActivate(
     tenantIds: string[],
     performedBy: string,
   ): Promise<{ success: string[]; failed: string[] }> {
-    const success: string[] = [];
-    const failed: string[] = [];
+    if (tenantIds.length === 0) return { success: [], failed: [] };
 
-    for (const tenantId of tenantIds) {
-      try {
-        await this.tenantRepository.update(tenantId, {
-          status: TenantStatus.ACTIVE,
-          suspendedAt: undefined,
-          suspendedReason: undefined,
-          suspendedBy: undefined,
-        });
+    try {
+      // Fetch current statuses in one query (needed for the audit trail)
+      const existingTenants = await this.tenantRepository
+        .createQueryBuilder('t')
+        .select(['t.id', 't.status'])
+        .where('t.id IN (:...ids)', { ids: tenantIds })
+        .getMany();
 
-        await this.activityService.logStatusChange(
-          tenantId,
-          'suspended',
-          'active',
-          undefined,
-          performedBy,
+      const foundIds = new Set(existingTenants.map(t => t.id));
+      const failed  = tenantIds.filter(id => !foundIds.has(id));
+      const success = tenantIds.filter(id =>  foundIds.has(id));
+
+      if (success.length === 0) return { success: [], failed };
+
+      // Single bulk UPDATE
+      const now = new Date();
+      await this.dataSource.query(
+        `UPDATE tenants
+         SET    status            = 'ACTIVE',
+                "suspendedAt"     = NULL,
+                "suspendedReason" = NULL,
+                "suspendedBy"     = NULL,
+                "updatedAt"       = $1
+         WHERE  id = ANY($2::uuid[])`,
+        [now, success],
+      );
+
+      // Batch-create activity log entries
+      const activityRows = existingTenants.filter(t => foundIds.has(t.id));
+      if (activityRows.length > 0) {
+        await this.dataSource.query(
+          `INSERT INTO tenant_activities
+             ("tenantId", "activityType", title, description,
+              "previousValue", "newValue", "performedBy", "createdAt", "updatedAt")
+           SELECT
+             unnest($1::uuid[]),
+             'ACTIVATED'::varchar,
+             'Status changed: active',
+             'Bulk activated',
+             jsonb_build_object('status', prev_status),
+             '{"status":"active"}'::jsonb,
+             $2,
+             NOW(), NOW()
+           FROM unnest($3::text[]) AS prev_status`,
+          [
+            activityRows.map(t => t.id),
+            performedBy,
+            activityRows.map(t => t.status),
+          ],
         );
-
-        success.push(tenantId);
-      } catch (error) {
-        this.logger.error(
-          `Failed to activate tenant ${tenantId}: ${(error as Error).message}`,
-        );
-        failed.push(tenantId);
       }
-    }
 
-    return { success, failed };
+      return { success, failed };
+    } catch (error) {
+      this.logger.error(`bulkActivate failed: ${(error as Error).message}`);
+      return { success: [], failed: tenantIds };
+    }
   }
 }

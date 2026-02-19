@@ -10,7 +10,9 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
+  // SEC-10: "Remember Me" checkbox removed — session persistence is handled by
+  // the httpOnly refresh token cookie set by the backend. There is no separate
+  // "remember" vs "forget" mode in the current auth architecture.
 
   if (isAuthenticated) {
     navigate('/', { replace: true });
@@ -160,17 +162,6 @@ export function LoginPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between text-sm">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 rounded border-gray-300 text-ocean-600 focus:ring-ocean-500"
-                />
-                <span className="ml-2 text-gray-600 dark:text-gray-400">Remember me</span>
-              </label>
-            </div>
 
             <button
               type="submit"

@@ -1,9 +1,12 @@
 /**
  * Internal API Guard
  *
- * Bu guard, internal endpoint'leri korumak için kullanılır.
- * Prometheus /metrics endpoint'i hariç, diğer tüm endpoint'ler
- * INTERNAL_API_KEY header'ı ile korunur.
+ * Protects internal endpoints from unauthenticated access.
+ * All endpoints require the x-internal-api-key header except those
+ * explicitly annotated with @Public() (e.g. liveness/readiness probes).
+ *
+ * Registered globally via APP_GUARD in AppModule so every controller is
+ * protected without individual @UseGuards decorators.
  */
 
 import {
@@ -12,16 +15,25 @@ import {
   ExecutionContext,
   UnauthorizedException,
   Logger,
+  SetMetadata,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
+import { timingSafeEqual, createHash } from 'crypto';
+
+export const IS_PUBLIC_KEY = 'isPublic';
+export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
 @Injectable()
 export class InternalApiGuard implements CanActivate {
   private readonly logger = new Logger(InternalApiGuard.name);
   private readonly apiKey: string;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly reflector: Reflector,
+  ) {
     this.apiKey = this.configService.get<string>('INTERNAL_API_KEY', '');
 
     if (!this.apiKey && process.env['NODE_ENV'] === 'production') {
@@ -32,6 +44,15 @@ export class InternalApiGuard implements CanActivate {
   }
 
   canActivate(context: ExecutionContext): boolean {
+    // Check for @Public() decorator
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) {
+      return true;
+    }
+
     const request = context.switchToHttp().getRequest<Request>();
 
     // Development mode: allow all if no API key configured
@@ -65,7 +86,7 @@ export class InternalApiGuard implements CanActivate {
     const providedKey = Array.isArray(rawKey) ? rawKey[0] : rawKey;
 
     // Use timing-safe comparison to prevent timing attacks
-    if (!providedKey || !this.timingSafeEqual(providedKey, this.apiKey)) {
+    if (!providedKey || !this.constantTimeEqual(providedKey, this.apiKey)) {
       this.logger.warn(
         `Invalid internal API key attempt from ${request.ip}`,
       );
@@ -78,16 +99,9 @@ export class InternalApiGuard implements CanActivate {
     return true;
   }
 
-  private timingSafeEqual(a: string, b: string): boolean {
-    if (a.length !== b.length) {
-      return false;
-    }
-
-    let result = 0;
-    for (let i = 0; i < a.length; i++) {
-      result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-    }
-
-    return result === 0;
+  private constantTimeEqual(a: string, b: string): boolean {
+    const hashA = createHash('sha256').update(a).digest();
+    const hashB = createHash('sha256').update(b).digest();
+    return timingSafeEqual(hashA, hashB);
   }
 }

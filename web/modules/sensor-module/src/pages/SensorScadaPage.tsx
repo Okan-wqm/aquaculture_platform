@@ -91,21 +91,25 @@ const SensorScadaPage: React.FC = () => {
     }
   }, [apiProcesses, setProcesses, selectedProcessId, setSelectedProcessId]);
 
-  // Calculate stats
+  // Calculate stats — PERF-006: single-pass instead of three separate filter passes
   const stats = useMemo(() => {
-    const parentCount = sensors.filter((s) => s.isParentDevice).length;
-    const channelCount = sensors.filter((s) => !s.isParentDevice).length;
-    const onlineCount = sensors.filter(
-      (s) => s.isParentDevice && s.connectionStatus?.isConnected
-    ).length;
-
+    let parentCount = 0;
+    let channelCount = 0;
+    let onlineCount = 0;
+    for (const s of sensors) {
+      if (s.isParentDevice) {
+        parentCount++;
+        if (s.connectionStatus?.isConnected) onlineCount++;
+      } else {
+        channelCount++;
+      }
+    }
     return { parentCount, channelCount, onlineCount };
   }, [sensors]);
 
   // Format last update time
-  const lastUpdateTime = lastUpdate
-    ? new Date(lastUpdate).toLocaleTimeString('tr-TR')
-    : '-';
+  // BUG-010: lastUpdate is already a Date object — avoid redundant new Date() wrapper
+  const lastUpdateTime = lastUpdate?.toLocaleTimeString('tr-TR') ?? '-';
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-100">
@@ -218,9 +222,8 @@ const SensorScadaPage: React.FC = () => {
                   SCADA görünümü için bir proses seçin veya yeni bir proses oluşturun.
                   Prosesler, ekipman düzenini ve sensör bağlantılarını içerir.
                 </p>
+                {/* BUG-005: ProcessSelector already in header toolbar — only show the "new process" link here */}
                 <div className="flex items-center justify-center gap-3">
-                  <ProcessSelector />
-                  <span className="text-gray-400">veya</span>
                   <Link
                     to="/sensor/process/new"
                     className="flex items-center gap-2 px-4 py-2 text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg transition-colors"

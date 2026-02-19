@@ -6,6 +6,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { BigIntTransformer } from '../../event-store/transformers/bigint.transformer';
 
 export enum ProjectionStatus {
   RUNNING = 'running',
@@ -19,7 +20,7 @@ export enum ProjectionStatus {
  * Tracks the current position for each projection/subscription
  */
 @Entity('projection_checkpoints')
-@Index(['projectionName'], { unique: true })
+@Index(['tenantId', 'projectionName'], { unique: true })
 @Index(['tenantId'])
 @Index(['status'])
 export class ProjectionCheckpoint {
@@ -27,9 +28,9 @@ export class ProjectionCheckpoint {
   id!: string;
 
   /**
-   * Unique projection name
+   * Unique projection name (unique per tenant)
    */
-  @Column({ type: 'varchar', length: 255, unique: true })
+  @Column({ type: 'varchar', length: 255 })
   projectionName!: string;
 
   /**
@@ -41,7 +42,7 @@ export class ProjectionCheckpoint {
   /**
    * Current position in the global event log
    */
-  @Column({ type: 'bigint', default: 0 })
+  @Column({ type: 'bigint', default: 0, transformer: new BigIntTransformer() })
   position!: number;
 
   /**
@@ -55,10 +56,10 @@ export class ProjectionCheckpoint {
   status!: ProjectionStatus;
 
   /**
-   * Multi-tenant isolation (null for cross-tenant projections)
+   * Multi-tenant isolation
    */
-  @Column({ type: 'uuid', nullable: true })
-  tenantId?: string;
+  @Column({ type: 'uuid' })
+  tenantId!: string;
 
   /**
    * Consumer group for shared subscriptions
@@ -81,17 +82,17 @@ export class ProjectionCheckpoint {
   /**
    * Total events processed
    */
-  @Column({ type: 'bigint', default: 0 })
+  @Column({ type: 'bigint', default: 0, transformer: new BigIntTransformer() })
   eventsProcessed!: number;
 
   /**
    * Total events that failed processing
    */
-  @Column({ type: 'bigint', default: 0 })
+  @Column({ type: 'bigint', default: 0, transformer: new BigIntTransformer() })
   eventsFailed!: number;
 
   /**
-   * Last error message if faulted
+   * Last error message if faulted (truncated to 500 chars)
    */
   @Column({ type: 'text', nullable: true })
   lastError?: string;

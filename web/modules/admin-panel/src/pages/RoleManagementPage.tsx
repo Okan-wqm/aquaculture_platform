@@ -150,7 +150,7 @@ const RoleManagementPage: React.FC = () => {
                 {/* Permission Count */}
                 <div className="flex-shrink-0 text-right">
                   <span className="text-2xl font-bold text-gray-700">
-                    {role.permissions?.length ?? 0}
+                    {role.permissions != null ? role.permissions.length : '\u2014'}
                   </span>
                   <p className="text-xs text-gray-500">permissions</p>
                 </div>

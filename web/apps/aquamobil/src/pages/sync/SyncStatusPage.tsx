@@ -3,10 +3,12 @@ import { Cloud, CloudOff, RefreshCw, Trash2, CheckCircle, AlertCircle, Clock } f
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { clsx } from 'clsx';
 
+// BUG-06: Include recordFeeding so feeding queue entries show a friendly label.
 const OPERATION_LABELS: Record<string, { label: string; icon: string }> = {
   recordMortality: { label: 'Mortality', icon: '💀' },
   recordCull: { label: 'Cull', icon: '✂️' },
   createHarvestRecord: { label: 'Harvest', icon: '📦' },
+  recordFeeding: { label: 'Feeding', icon: '🐟' },
 };
 
 export function SyncStatusPage() {
@@ -109,7 +111,11 @@ export function SyncStatusPage() {
                       {formatDate(op.createdAt)}
                       {op.retryCount > 0 && ` • Retries: ${op.retryCount}`}
                       {op.lastError && (
-                        <span className="text-red-500 block">{op.lastError}</span>
+                        // SEC-07: Truncate error messages to limit social engineering
+                        // potential from server-sourced text rendered in the UI.
+                        <span className="text-red-500 block">
+                          Error: {op.lastError.slice(0, 200)}
+                        </span>
                       )}
                     </span>
                   }

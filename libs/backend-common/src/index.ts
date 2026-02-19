@@ -1,6 +1,8 @@
+// Types - Canonical shared interfaces
+export * from './types/tenant-request.interface';
+
 // Decorators
 export * from './decorators/tenant.decorator';
-export { Tenant as CurrentTenant } from './decorators/tenant.decorator';
 export * from './decorators/current-user.decorator';
 export * from './decorators/roles.decorator';
 export * from './decorators/cacheable.decorator';
@@ -13,7 +15,19 @@ export * from './guards/tenant.guard';
 export * from './filters/http-exception.filter';
 
 // Middleware - includes TenantContextMiddleware, CorrelationIdMiddleware, RequestLoggingMiddleware
-export * from './middleware/tenant-context.middleware';
+// Note: TenantRequest is excluded here; the canonical TenantRequest is exported from
+// './types/tenant-request.interface' above. The middleware's extended TenantRequest
+// (which adds tenantContext) is available by importing directly from the middleware file.
+export {
+  UserPayload,
+  TenantContext,
+  UserContextMiddleware,
+  TenantContextMiddleware,
+  TraceContext,
+  TracedRequest,
+  CorrelationIdMiddleware,
+  RequestLoggingMiddleware,
+} from './middleware/tenant-context.middleware';
 
 // Database - Schema Manager and Tenant-Aware Repository
 export * from './database';

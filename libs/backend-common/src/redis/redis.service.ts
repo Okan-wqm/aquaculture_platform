@@ -109,22 +109,56 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /**
-   * Get all keys matching a pattern
+   * Get all keys matching a pattern using SCAN (non-blocking).
+   * Prefer scanKeys() for large datasets; this method collects all results.
    */
   async keys(pattern: string): Promise<string[]> {
     const prefixedPattern = this.prefixKey(pattern);
-    const keys = await this.client.keys(prefixedPattern);
+    const allKeys: string[] = [];
+    let cursor = '0';
+
+    do {
+      const [nextCursor, keys] = await this.client.scan(
+        cursor,
+        'MATCH',
+        prefixedPattern,
+        'COUNT',
+        100,
+      );
+      cursor = nextCursor;
+      allKeys.push(...keys);
+    } while (cursor !== '0');
+
     // Remove prefix from returned keys
-    return keys.map((k) => k.slice(this.keyPrefix.length));
+    return allKeys.map((k) => k.slice(this.keyPrefix.length));
   }
 
   /**
-   * Delete all keys matching a pattern
+   * Delete all keys matching a pattern using cursor-based SCAN
+   * with batched DEL. Non-blocking alternative to KEYS + DEL.
    */
   async deletePattern(pattern: string): Promise<number> {
-    const keys = await this.keys(pattern);
-    if (keys.length === 0) return 0;
-    return this.client.del(...keys.map((k) => this.prefixKey(k)));
+    const prefixedPattern = this.prefixKey(pattern);
+    let cursor = '0';
+    let totalDeleted = 0;
+
+    do {
+      const [nextCursor, keys] = await this.client.scan(
+        cursor,
+        'MATCH',
+        prefixedPattern,
+        'COUNT',
+        100,
+      );
+      cursor = nextCursor;
+
+      if (keys.length > 0) {
+        const deleted = await this.client.del(...keys);
+        totalDeleted += deleted;
+      }
+    } while (cursor !== '0');
+
+    return totalDeleted;
   }
 
   /**

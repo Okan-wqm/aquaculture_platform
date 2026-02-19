@@ -7,8 +7,11 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const logger = new Logger('NotificationService');
 
+  const isProduction = process.env['NODE_ENV'] === 'production';
   const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+    logger: isProduction
+      ? ['error', 'warn', 'log']
+      : ['error', 'warn', 'log', 'debug', 'verbose'],
   });
 
   const configService = app.get(ConfigService);
@@ -27,7 +30,9 @@ async function bootstrap() {
   const isWildcard = corsOrigins === '*';
 
   if (isWildcard && configService.get('NODE_ENV') === 'production') {
-    logger.warn('SECURITY WARNING: CORS_ORIGINS is set to "*" in production');
+    throw new Error(
+      'SECURITY: CORS_ORIGINS must not be "*" in production. Set explicit origins.',
+    );
   }
 
   app.enableCors({

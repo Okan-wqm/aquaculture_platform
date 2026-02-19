@@ -1,39 +1,34 @@
 /**
- * Error Boundary Bileşeni
+ * Error Boundary Component
  *
- * React hata sınırı - Microfrontend modüllerindeki
- * hataları yakalayıp kullanıcı dostu mesaj gösterir.
+ * React error boundary — catches errors in microfrontend modules
+ * and displays a user-friendly message.
  */
 
 import React, { Component, ErrorInfo } from 'react';
 import { Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
-// Tip Tanımlamaları
+// Types
 // ============================================================================
 
 interface ErrorBoundaryProps {
-  /** Alt bileşenler */
   children: React.ReactNode;
-  /** Modül adı (hata mesajında gösterilir) */
+  /** Module name shown in the error message */
   moduleName?: string;
-  /** Özel fallback bileşeni */
+  /** Custom fallback to render instead of the default error UI */
   fallback?: React.ReactNode;
-  /** Hata callback'i */
   onError?: (error: Error, errorInfo: ErrorInfo) => void;
 }
 
 interface ErrorBoundaryState {
-  /** Hata oluştu mu */
   hasError: boolean;
-  /** Hata detayı */
   error: Error | null;
-  /** Hata bilgisi */
   errorInfo: ErrorInfo | null;
 }
 
 // ============================================================================
-// Error Boundary Bileşeni
+// Error Boundary Component
 // ============================================================================
 
 class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
@@ -46,48 +41,27 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     };
   }
 
-  /**
-   * Hata yakalandığında state güncelle
-   */
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     return { hasError: true, error };
   }
 
-  /**
-   * Hata bilgisini logla
-   */
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     this.setState({ errorInfo });
 
-    // Callback varsa çağır
     if (this.props.onError) {
       this.props.onError(error, errorInfo);
     }
 
-    // Hata loglama servisi (production'da)
-    if (import.meta.env.PROD) {
-      // TODO: Sentry veya benzeri servise gönder
-      console.error('Module Error:', {
-        module: this.props.moduleName,
-        error: error.message,
-        stack: error.stack,
-        componentStack: errorInfo.componentStack,
-      });
-    } else {
+    // TODO: send to error reporting service (e.g. Sentry)
+    if (import.meta.env.DEV) {
       console.error('Module Error:', error, errorInfo);
     }
   }
 
-  /**
-   * Sayfayı yenile
-   */
   handleRefresh = (): void => {
     window.location.reload();
   };
 
-  /**
-   * Tekrar dene (state sıfırla)
-   */
   handleRetry = (): void => {
     this.setState({
       hasError: false,
@@ -97,7 +71,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   };
 
   /**
-   * Ana sayfaya dön
+   * Navigate to home page
    */
   handleGoHome = (): void => {
     window.location.href = '/';
@@ -108,16 +82,13 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     const { children, moduleName, fallback } = this.props;
 
     if (hasError) {
-      // Özel fallback varsa göster
       if (fallback) {
         return fallback;
       }
 
-      // Varsayılan hata ekranı
       return (
         <div className="min-h-[400px] flex items-center justify-center p-8">
           <div className="text-center max-w-md">
-            {/* Hata ikonu */}
             <div className="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
               <svg
                 className="w-8 h-8 text-red-600"
@@ -134,17 +105,14 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
               </svg>
             </div>
 
-            {/* Başlık */}
             <h2 className="text-xl font-semibold text-gray-900 mb-2">
-              {moduleName ? `${moduleName} Modülü Yüklenemedi` : 'Bir Hata Oluştu'}
+              {moduleName ? `Failed to Load ${moduleName}` : 'An Error Occurred'}
             </h2>
 
-            {/* Açıklama */}
             <p className="text-gray-600 mb-6">
-              Beklenmeyen bir hata oluştu. Lütfen sayfayı yenileyin veya daha sonra tekrar deneyin.
+              An unexpected error occurred. Please refresh the page or try again later.
             </p>
 
-            {/* Hata detayı (development'ta) */}
             {import.meta.env.DEV && error && (
               <div className="mb-6 p-4 bg-gray-100 rounded-lg text-left">
                 <p className="text-sm font-mono text-red-600 break-all">
@@ -153,16 +121,15 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
               </div>
             )}
 
-            {/* Aksiyon butonları */}
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Button variant="primary" onClick={this.handleRetry}>
-                Tekrar Dene
+                Retry
               </Button>
               <Button variant="outline" onClick={this.handleRefresh}>
-                Sayfayı Yenile
+                Refresh Page
               </Button>
               <Button variant="ghost" onClick={this.handleGoHome}>
-                Ana Sayfaya Dön
+                Go to Home
               </Button>
             </div>
           </div>

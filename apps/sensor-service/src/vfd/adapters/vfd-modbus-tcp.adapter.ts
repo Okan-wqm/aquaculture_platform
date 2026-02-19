@@ -1,3 +1,4 @@
+import * as net from 'net';
 import { Injectable } from '@nestjs/common';
 
 import { VfdParameters, VfdStatusBits } from '../entities/vfd-reading.entity';
@@ -31,13 +32,17 @@ export interface ModbusTcpConfig {
  */
 interface ModbusTcpConnectionHandle extends VfdConnectionHandle {
   config: ModbusTcpConfig;
-  socket?: unknown; // TCP socket placeholder
+  socket: net.Socket | null;
   transactionId: number;
 }
 
 /**
  * VFD Modbus TCP Protocol Adapter
- * Implements Modbus TCP communication for VFD drives
+ *
+ * Implements real Modbus TCP communication using Node.js `net` module.
+ * Builds MBAP-framed PDUs, sends them over a persistent TCP socket,
+ * and parses the response. Each readRegister / writeRegister call
+ * uses the shared socket stored in the connection handle.
  */
 @Injectable()
 export class VfdModbusTcpAdapter extends BaseVfdAdapter {
@@ -51,7 +56,6 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     super('VfdModbusTcpAdapter');
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async connect(config: Record<string, unknown>): Promise<VfdConnectionHandle> {
     const validatedConfig = this.validateAndCastConfig(config);
     const connectionId = this.generateConnectionId();
@@ -59,14 +63,12 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     try {
       this.logger.log(`Connecting to VFD via Modbus TCP at ${validatedConfig.host}:${validatedConfig.port}`);
 
-      // In production, this would use Node.js net module
-      // const net = require('net');
-      // const socket = new net.Socket();
-      // await new Promise((resolve, reject) => {
-      //   socket.connect(validatedConfig.port, validatedConfig.host, resolve);
-      //   socket.on('error', reject);
-      //   setTimeout(() => reject(new Error('Connection timeout')), validatedConfig.connectionTimeout);
-      // });
+      const socket = await this.openSocket(
+        validatedConfig.host,
+        validatedConfig.port,
+        validatedConfig.connectionTimeout,
+        validatedConfig.keepAlive,
+      );
 
       const handle: ModbusTcpConnectionHandle = {
         id: connectionId,
@@ -74,6 +76,7 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
         isConnected: true,
         lastActivity: new Date(),
         config: validatedConfig,
+        socket,
         transactionId: 0,
         metadata: {
           host: validatedConfig.host,
@@ -81,6 +84,16 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
           unitId: validatedConfig.unitId,
         },
       };
+
+      // Mark connection as closed when the socket disconnects
+      socket.once('close', () => {
+        handle.isConnected = false;
+        this.logger.warn(`Socket closed for VFD connection ${connectionId}`);
+      });
+      socket.once('error', (err) => {
+        handle.isConnected = false;
+        this.logError(`Socket error on VFD connection ${connectionId}`, err);
+      });
 
       this.connections.set(connectionId, handle);
       this.logger.log(`Connected to VFD at ${validatedConfig.host}:${validatedConfig.port}, ID: ${connectionId}`);
@@ -92,7 +105,6 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async disconnect(handle: VfdConnectionHandle): Promise<void> {
     const connection = this.connections.get(handle.id);
     if (!connection) {
@@ -101,7 +113,13 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     }
 
     try {
-      // In production: await connection.socket?.end();
+      if (connection.socket) {
+        await new Promise<void>((resolve) => {
+          connection.socket!.end(() => resolve());
+        });
+        connection.socket.destroy();
+      }
+      connection.isConnected = false;
       this.connections.delete(handle.id);
       this.logger.log(`Disconnected from VFD, ID: ${handle.id}`);
     } catch (error) {
@@ -122,8 +140,6 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
       const testBuffer = await this.readRegister(handle, 0, 1, 3);
       const latencyMs = Date.now() - startTime;
 
-      await this.disconnect(handle);
-
       return {
         success: true,
         latencyMs,
@@ -132,19 +148,22 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
         },
       };
     } catch (error) {
-      if (handle) {
-        try {
-          await this.disconnect(handle);
-        } catch {
-          // Ignore disconnect errors
-        }
-      }
-
       return {
         success: false,
         latencyMs: Date.now() - startTime,
         error: (error as Error).message,
       };
+    } finally {
+      // LOW-005: Always clean up the test connection, even on error,
+      // to prevent stale handles accumulating in this.connections.
+      if (handle) {
+        try {
+          await this.disconnect(handle);
+        } catch {
+          // Force-remove from map even if disconnect() throws
+          this.connections.delete(handle.id);
+        }
+      }
     }
   }
 
@@ -239,7 +258,6 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async readRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -248,17 +266,16 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
   ): Promise<Buffer> {
     const connection = this.connections.get(handle.id) as ModbusTcpConnectionHandle;
 
-    if (!connection?.isConnected) {
+    if (!connection?.isConnected || !connection.socket) {
       throw new Error('Connection not established');
     }
 
     // Increment transaction ID
     connection.transactionId = (connection.transactionId + 1) & 0xffff;
+    const txId = connection.transactionId;
 
-    // Build Modbus TCP request frame (MBAP header + PDU)
-    // Used in production for TCP communication
-    this.buildModbusTcpRequest(
-      connection.transactionId,
+    const request = this.buildModbusTcpRequest(
+      txId,
       connection.config.unitId,
       functionCode,
       address,
@@ -266,17 +283,19 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     );
 
     this.logDebug(`Reading ${count} registers from address ${address}`, {
-      transactionId: connection.transactionId,
+      transactionId: txId,
       unitId: connection.config.unitId,
     });
 
-    // In production, send via TCP socket and wait for response
-    // Simulate response for now
-    const responseData = Buffer.alloc(count * 2);
-    for (let i = 0; i < count; i++) {
-      responseData.writeUInt16BE(Math.floor(Math.random() * 65535), i * 2);
-    }
+    // Send request and await response
+    const responseData = await this.sendAndReceive(
+      connection.socket,
+      request,
+      txId,
+      connection.config.responseTimeout,
+    );
 
+    connection.lastActivity = new Date();
     return responseData;
   }
 
@@ -298,7 +317,6 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     return this.writeRegister(handle, registerAddress, rawValue);
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async writeRegister(
     handle: VfdConnectionHandle,
     address: number,
@@ -307,7 +325,7 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     const startTime = Date.now();
     const connection = this.connections.get(handle.id) as ModbusTcpConnectionHandle;
 
-    if (!connection?.isConnected) {
+    if (!connection?.isConnected || !connection.socket) {
       return {
         success: false,
         error: 'Connection not established',
@@ -316,20 +334,28 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
 
     try {
       connection.transactionId = (connection.transactionId + 1) & 0xffff;
+      const txId = connection.transactionId;
 
-      // Used in production for TCP communication
-      this.buildModbusTcpWriteRequest(
-        connection.transactionId,
+      const request = this.buildModbusTcpWriteRequest(
+        txId,
         connection.config.unitId,
-        6,
+        6, // FC06: Write Single Register
         address,
         value
       );
 
       this.logDebug(`Writing value ${value} to address ${address}`, {
-        transactionId: connection.transactionId,
+        transactionId: txId,
         unitId: connection.config.unitId,
       });
+
+      // Send write request and await acknowledgement
+      await this.sendAndReceive(
+        connection.socket,
+        request,
+        txId,
+        connection.config.responseTimeout,
+      );
 
       connection.lastActivity = new Date();
 
@@ -532,5 +558,118 @@ export class VfdModbusTcpAdapter extends BaseVfdAdapter {
     request.writeUInt16BE(value, 10);
 
     return request;
+  }
+
+  /**
+   * Open a TCP socket to the VFD and return it once connected.
+   */
+  private openSocket(
+    host: string,
+    port: number,
+    connectionTimeout: number,
+    keepAlive: boolean,
+  ): Promise<net.Socket> {
+    return new Promise((resolve, reject) => {
+      const socket = new net.Socket();
+      socket.setNoDelay(true);
+      if (keepAlive) {
+        socket.setKeepAlive(true, 10000);
+      }
+
+      const timer = setTimeout(() => {
+        socket.destroy();
+        reject(new Error(`Connection timeout after ${connectionTimeout}ms to ${host}:${port}`));
+      }, connectionTimeout);
+
+      socket.once('error', (err) => {
+        clearTimeout(timer);
+        socket.destroy();
+        reject(err);
+      });
+
+      socket.connect(port, host, () => {
+        clearTimeout(timer);
+        resolve(socket);
+      });
+    });
+  }
+
+  /**
+   * Send a Modbus TCP request frame and wait for the matching response.
+   * Validates the MBAP transaction ID and returns only the register data bytes.
+   */
+  private sendAndReceive(
+    socket: net.Socket,
+    request: Buffer,
+    txId: number,
+    responseTimeout: number,
+  ): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Response timeout after ${responseTimeout}ms (txId=${txId})`));
+      }, responseTimeout);
+
+      const onData = (data: Buffer) => {
+        // A valid Modbus TCP response has at least 9 bytes:
+        // 2 (txId) + 2 (proto) + 2 (length) + 1 (unitId) + 1 (fc) + 1 (byte count) + N*2 (data)
+        if (data.length < 9) {
+          cleanup();
+          return reject(new Error('Modbus TCP response too short'));
+        }
+
+        const responseTxId = data.readUInt16BE(0);
+        if (responseTxId !== txId) {
+          // Not our frame — ignore and keep waiting
+          return;
+        }
+
+        const functionCode = data[7];
+        // Check for Modbus exception response (fc | 0x80)
+        if (functionCode !== undefined && functionCode & 0x80) {
+          const exceptionCode = data[8] ?? 0;
+          cleanup();
+          return reject(new Error(`Modbus exception response: fc=0x${(functionCode & 0x7f).toString(16)}, code=${exceptionCode}`));
+        }
+
+        // For read responses (FC01-FC04): byte 8 is data byte count, bytes 9..N are register values
+        // For write responses (FC05, FC06): bytes 8-11 are echo of address+value
+        const pduLength = data.readUInt16BE(4) - 1; // subtract unit ID byte
+        if (data.length < 7 + pduLength) {
+          cleanup();
+          return reject(new Error('Modbus TCP response incomplete'));
+        }
+
+        // FC01/FC02: coil/discrete input — return raw PDU data starting after byte-count byte
+        // FC03/FC04: holding/input registers — same
+        // FC05/FC06: write echo — return empty buffer (success)
+        const fc = functionCode ?? 0;
+        if (fc === 0x05 || fc === 0x06) {
+          cleanup();
+          return resolve(Buffer.alloc(0));
+        }
+
+        // Read responses: byte index 8 = byte count, followed by register data
+        const byteCount = data[8] ?? 0;
+        const registerData = data.subarray(9, 9 + byteCount);
+        cleanup();
+        resolve(registerData);
+      };
+
+      const onError = (err: Error) => {
+        cleanup();
+        reject(err);
+      };
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        socket.removeListener('data', onData);
+        socket.removeListener('error', onError);
+      };
+
+      socket.on('data', onData);
+      socket.once('error', onError);
+      socket.write(request);
+    });
   }
 }

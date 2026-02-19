@@ -1,3 +1,41 @@
+// TODO(ARCH-CRIT-001 / CONTRACT-CRIT-001): Migration plan — adopt GlobalExceptionFilter platform-wide
+//
+// Problem: Three incompatible error response contracts coexist:
+//   1. This GlobalExceptionFilter — canonical { success, error: { code, message, ... } } shape
+//   2. Service-specific HttpExceptionFilter / AllExceptionsFilter (sensor-service, auth-service, etc.)
+//      — uses raw { statusCode, message, error } shape from NestJS HttpException
+//   3. ApplicationException / ErrorResponse — same canonical shape as (1) but not yet used widely
+//
+// libs/shared GlobalExceptionFilter is the canonical error-handling implementation
+// but is not yet used by most services. Each service registers its own ad-hoc filter
+// (e.g. libs/backend-common HttpExceptionFilter / AllExceptionsFilter / GraphQLExceptionFilter),
+// producing inconsistent response envelopes across the API surface.
+//
+// Target state: All NestJS apps should register GlobalExceptionFilter as APP_FILTER in their
+// AppModule and remove any service-local exception filter registrations.
+//
+// Migration steps (per service, one at a time):
+//   1. Remove local exception filter from providers[] / main.ts useGlobalFilters()
+//   2. Add { provide: APP_FILTER, useClass: GlobalExceptionFilter } to AppModule providers
+//   3. Verify error response shape matches { success, error: { code, message, ... } }
+//   4. Update any service-specific error handling tests
+//
+// Services still using non-standard filters (as of 2026-02-19):
+//   - apps/auth-service        (AllExceptionsFilter from backend-common)
+//   - apps/config-service      (AllExceptionsFilter from backend-common)
+//   - apps/gateway-api         (AllExceptionsFilter from backend-common)
+//   - apps/billing-service     (AllExceptionsFilter from backend-common)
+//   - apps/hr-service          (AllExceptionsFilter from backend-common)
+//   - apps/admin-api-service   (AllExceptionsFilter from backend-common)
+//
+// Note: apps/farm-service already uses GlobalExceptionFilter (see farm-service/src/app.module.ts).
+//
+// TODO(ARCH-CRIT-002): ApplicationException / ErrorCode adoption
+// Once a service adopts this filter, replace ad-hoc throw new HttpException() calls with
+// ApplicationException or its typed subclasses (ValidationException, BusinessRuleException,
+// ExternalServiceException). This ensures typed error codes from error-codes.ts flow through
+// getErrorResponse() automatically and appear in the response envelope. See application-exception.ts
+// and error-codes.ts for the full registry of typed codes.
 import {
   ExceptionFilter,
   Catch,
@@ -34,13 +72,16 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   }
 
   private buildErrorResponse(exception: unknown, request: Request): ErrorResponse {
-    const requestId = (request.headers['x-request-id'] as string) || undefined;
+    const correlationId =
+      (request.headers['x-correlation-id'] as string) ||
+      (request.headers['x-request-id'] as string) ||
+      undefined;
 
     // Handle ApplicationException
     if (exception instanceof ApplicationException) {
       const errorResponse = exception.getErrorResponse();
       errorResponse.error.path = request.url;
-      errorResponse.error.requestId = requestId;
+      errorResponse.error.correlationId = correlationId;
       return errorResponse;
     }
 
@@ -58,7 +99,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           details,
           timestamp: new Date().toISOString(),
           path: request.url,
-          requestId,
+          correlationId,
         },
       };
     }
@@ -74,7 +115,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           : (exception instanceof Error ? exception.message : 'Unknown error'),
         timestamp: new Date().toISOString(),
         path: request.url,
-        requestId,
+        correlationId,
       },
     };
   }
@@ -114,9 +155,22 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     const obj = response as Record<string, unknown>;
 
-    // Check for validation errors (class-validator)
+    // Check for validation errors (class-validator / ValidationPipe)
+    // Standardize to { fields: Record<string, string[]> } format
+    // matching ValidationException's structure
     if ('message' in obj && Array.isArray(obj.message) && obj.message.length > 1) {
-      return { validationErrors: obj.message };
+      const fields: Record<string, string[]> = {};
+      for (const msg of obj.message) {
+        const strMsg = String(msg);
+        // Try to extract field name from messages like "email must be a valid email"
+        const match = strMsg.match(/^(\w+)\s/);
+        const fieldName = match ? match[1] : '_general';
+        if (!fields[fieldName]) {
+          fields[fieldName] = [];
+        }
+        fields[fieldName].push(strMsg);
+      }
+      return { fields };
     }
 
     // Check for nested error details
@@ -131,12 +185,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   }
 
   private getErrorCode(status: number): string {
+    // All codes reference entries in ERROR_CODES to eliminate phantom codes
     const statusCodeMap: Record<number, string> = {
       400: 'VALIDATION_FAILED',
-      401: 'AUTH_INVALID_CREDENTIALS',
+      401: 'AUTH_TOKEN_INVALID',
       403: 'AUTH_FORBIDDEN',
-      404: 'NOT_FOUND',
-      409: 'CONFLICT',
+      404: 'RESOURCE_NOT_FOUND',
+      409: 'RESOURCE_CONFLICT',
       422: 'VALIDATION_FAILED',
       429: 'RATE_LIMIT_EXCEEDED',
       500: 'INTERNAL_SERVER_ERROR',
@@ -155,7 +210,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       status,
       userId: (request as Request & { user?: { id?: string } }).user?.id,
       tenantId: request.headers['x-tenant-id'],
-      requestId: request.headers['x-request-id'],
+      correlationId: request.headers['x-correlation-id'] || request.headers['x-request-id'],
     };
 
     if (status >= 500) {

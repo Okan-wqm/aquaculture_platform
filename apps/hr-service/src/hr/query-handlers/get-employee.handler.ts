@@ -18,7 +18,6 @@ export class GetEmployeeHandler implements IQueryHandler<GetEmployeeQuery, Emplo
 
     const employee = await this.employeeRepository.findOne({
       where: { id: employeeId, tenantId, isDeleted: false },
-      relations: ['payrolls'],
     });
 
     if (!employee) {

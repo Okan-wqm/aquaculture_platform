@@ -94,25 +94,36 @@ export class SecurityHeadersMiddleware implements NestMiddleware {
 
   /**
    * Build default Content Security Policy
+   * SECURITY: Do NOT use 'unsafe-inline' for script-src in production.
+   * If this middleware is ever activated alongside or instead of Helmet,
+   * it must not silently weaken the CSP.
    */
   private buildDefaultCsp(): string {
-    const directives: string[] = [
-      "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'", // May need adjustment for GraphQL Playground
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: https:",
-      "font-src 'self' data:",
-      "connect-src 'self' https:",
-      "frame-ancestors 'none'",
-      "form-action 'self'",
-      "base-uri 'self'",
-      "object-src 'none'",
-    ];
-
-    if (!this.isProduction) {
-      // Allow WebSocket connections in development
-      directives.push("connect-src 'self' ws: wss: https:");
-    }
+    const directives: string[] = this.isProduction
+      ? [
+          "default-src 'self'",
+          "script-src 'self'",
+          "style-src 'self' 'unsafe-inline'", // inline styles may be needed for rendering
+          "img-src 'self' data: https:",
+          "font-src 'self' data:",
+          "connect-src 'self'",
+          "frame-ancestors 'none'",
+          "form-action 'self'",
+          "base-uri 'self'",
+          "object-src 'none'",
+        ]
+      : [
+          "default-src 'self'",
+          "script-src 'self' 'unsafe-inline'", // GraphQL Playground needs this in dev
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' data: https:",
+          "font-src 'self' data:",
+          "connect-src 'self' ws: wss: https:",
+          "frame-ancestors 'none'",
+          "form-action 'self'",
+          "base-uri 'self'",
+          "object-src 'none'",
+        ];
 
     return directives.join('; ');
   }

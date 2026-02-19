@@ -48,17 +48,23 @@ interface LineChartWidgetContentProps {
 // Color palette for multiple sensors
 const COLORS = ['#0EA5E9', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
+// PERF-004: isolated timer — only this leaf re-renders every second
+const TimeSinceUpdate: React.FC<{ timestamp: Date | null }> = ({ timestamp }) => {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  if (!timestamp) return null;
+  const diffSec = Math.floor((Date.now() - timestamp.getTime()) / 1000);
+  const label = diffSec < 60 ? `${diffSec}s ago` : `${Math.floor(diffSec / 60)}m ago`;
+  return <span className="text-xs text-gray-400">{label}</span>;
+};
+
 export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
   config,
 }) => {
   const { data, history, loading, error } = useWidgetData(config);
-  const [, forceUpdate] = useState(0);
-
-  // Update time display every second
-  useEffect(() => {
-    const interval = setInterval(() => forceUpdate((n) => n + 1), 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   if (loading) {
     return (
@@ -91,23 +97,28 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
   })) || [];
 
   // Group by timestamp for multi-sensor charts
-  // Bug #3 fix: Add null/undefined validation for data points
+  // PERF-010: round to nearest minute bucket so readings from different sensors that differ
+  // by a few milliseconds are merged into the same chart data point instead of creating
+  // a sparse multi-line chart with many gaps.
+  const BUCKET_MS = 60 * 1000; // 1-minute bucket
   const groupedData: Record<string, any> = {};
   history?.forEach((point) => {
     // Validate data point before processing
     if (!point.sensorName || point.value === undefined || Number.isNaN(point.value)) {
-      return; // Skip invalid data points
+      return;
     }
 
-    const timeKey = new Date(point.timestamp).toISOString();
+    const ts = new Date(point.timestamp);
+    const bucketTs = new Date(Math.round(ts.getTime() / BUCKET_MS) * BUCKET_MS);
+    const timeKey = bucketTs.toISOString();
     if (!groupedData[timeKey]) {
       groupedData[timeKey] = {
-        time: new Date(point.timestamp).toLocaleTimeString('en-US', {
+        time: bucketTs.toLocaleTimeString('en-US', {
           hour: '2-digit',
           minute: '2-digit',
           hour12: false,
         }),
-        timestamp: point.timestamp,
+        timestamp: bucketTs,
       };
     }
     groupedData[timeKey][point.sensorName] = point.value;
@@ -207,11 +218,12 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
           </LineChart>
         </ResponsiveContainer>
       </div>
-      {/* Last update time */}
+      {/* Last update time — only TimeSinceUpdate re-renders every second (PERF-004) */}
       {latestTimestamp && (
         <div className="flex items-center justify-center gap-1 text-xs text-gray-400 pt-1 border-t border-gray-100">
           <Clock size={10} />
-          <span>Last update: {formatTimeSince(latestTimestamp)}</span>
+          <span>Last update: </span>
+          <TimeSinceUpdate timestamp={latestTimestamp} />
         </div>
       )}
     </div>

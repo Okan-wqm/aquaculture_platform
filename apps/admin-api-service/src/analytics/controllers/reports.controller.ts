@@ -93,6 +93,15 @@ class QuickReportDto {
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
+  /** H-1 fix: Sanitize filenames to prevent Content-Disposition header injection */
+  private sanitizeFilename(filename: string): string {
+    // Strip path separators, control characters, quotes, and newlines
+    return filename
+      .replace(/[/\\:*?"<>|\r\n]/g, '_')
+      .replace(/\.{2,}/g, '.')
+      .slice(0, 255);
+  }
+
   // ============================================================================
   // Report Definitions (Saved Reports)
   // ============================================================================
@@ -168,7 +177,9 @@ export class ReportsController {
     const download = await this.reportsService.getExecutionDownload(id);
 
     res.setHeader('Content-Type', download.contentType);
-    res.setHeader('Content-Disposition', `attachment; filename=${download.filename}`);
+    // H-1 fix: sanitize filename to prevent Content-Disposition header injection
+    const safeFilename = this.sanitizeFilename(download.filename);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
 
     if (download.execution.format === 'json') {
       res.send(JSON.stringify(download.data, null, 2));
@@ -380,6 +391,23 @@ export class ReportsController {
     @Query('days') days = 30,
     @Res() res: Response,
   ) {
+    // MED-007 fix: validate reportType against the known enum at runtime
+    // (TypeScript types are erased at runtime — an invalid value would reach generateReport()
+    // and the Content-Disposition header if the switch default did not throw).
+    const allowedReportTypes: readonly string[] = [
+      'tenant_overview', 'tenant_churn', 'financial_revenue',
+      'financial_payments', 'usage_modules', 'usage_features', 'system_performance',
+    ];
+    if (!allowedReportTypes.includes(reportType as string)) {
+      throw new BadRequestException(`Invalid report type: "${reportType}"`);
+    }
+
+    // MED-007 fix: validate format parameter
+    const allowedFormats: readonly string[] = ['pdf', 'csv'];
+    if (!allowedFormats.includes(format as string)) {
+      throw new BadRequestException(`Invalid format: "${format}". Must be "pdf" or "csv"`);
+    }
+
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
@@ -397,7 +425,7 @@ export class ReportsController {
       const filename = `${reportType}_report_${Date.now()}.pdf`;
 
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+      res.setHeader('Content-Disposition', `attachment; filename="${this.sanitizeFilename(filename)}"`);
       res.setHeader('Content-Length', pdfBuffer.length);
       res.send(pdfBuffer);
     } else {
@@ -411,7 +439,7 @@ export class ReportsController {
       const filename = `${reportType}_report_${Date.now()}.csv`;
 
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+      res.setHeader('Content-Disposition', `attachment; filename="${this.sanitizeFilename(filename)}"`);
       res.send(csvReport.data);
     }
   }
@@ -437,7 +465,8 @@ export class ReportsController {
     const filename = `${reportType}_report_${Date.now()}.pdf`;
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+    // BUG-040 fix: quote the filename per RFC 6266 to handle special characters safely
+    res.setHeader('Content-Disposition', `attachment; filename="${this.sanitizeFilename(filename)}"`);
     res.setHeader('Content-Length', pdfBuffer.length);
     res.send(pdfBuffer);
   }
@@ -481,7 +510,8 @@ export class ReportsController {
     });
 
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename=${type}_report_${Date.now()}.csv`);
+    const csvFilename = this.sanitizeFilename(`${type}_report_${Date.now()}.csv`);
+    res.setHeader('Content-Disposition', `attachment; filename="${csvFilename}"`);
     res.send(report.data);
   }
 }

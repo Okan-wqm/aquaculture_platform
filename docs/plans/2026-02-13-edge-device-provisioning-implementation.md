@@ -1,4 +1,4 @@
-# Edge Device Provisioning - Implementation Plan
+ bır plan ya# Edge Device Provisioning - Implementation Plan
 
 
 **Goal:** Enable zero-touch edge device provisioning with DB-backed configuration, CI/CD for Rust binary releases, and admin panel settings management.

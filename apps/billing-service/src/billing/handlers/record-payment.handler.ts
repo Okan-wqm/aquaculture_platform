@@ -8,14 +8,14 @@ import { randomUUID } from 'crypto';
 
 /**
  * Helper function for safe decimal arithmetic
- * Multiplies by 100, does integer math, divides back to avoid floating point errors
+ * Converts to integer cents first, then performs math to avoid floating point errors
  */
 function safeAdd(a: number, b: number): number {
-  return Math.round((a * 100) + (b * 100)) / 100;
+  return (Math.round(a * 100) + Math.round(b * 100)) / 100;
 }
 
 function safeSubtract(a: number, b: number): number {
-  return Math.round((a * 100) - (b * 100)) / 100;
+  return (Math.round(a * 100) - Math.round(b * 100)) / 100;
 }
 
 @Injectable()
@@ -51,6 +51,14 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
       if (!payableStatuses.includes(invoice.status)) {
         throw new BadRequestException(
           `Cannot record payment for invoice with status ${invoice.status}`,
+        );
+      }
+
+      // Validate payment currency matches invoice currency
+      const paymentCurrency = input.currency || invoice.currency;
+      if (paymentCurrency !== invoice.currency) {
+        throw new BadRequestException(
+          `Payment currency ${paymentCurrency} does not match invoice currency ${invoice.currency}`,
         );
       }
 

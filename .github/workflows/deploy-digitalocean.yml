@@ -7,19 +7,29 @@
 # - Deploy condition: only deploys when build succeeds
 # - Build timeout: 30 min max
 # - Optimized for 2GB RAM droplet (uses docker-compose.droplet.yml)
+# - SEC-CI-001: GHCR_TOKEN no longer injected into SSH script body
+# - SEC-CI-002: All third-party actions pinned to full commit SHAs
+# - SEC-CI-005: DROPLET_HOST echo removed from verify step
+# - SEC-CI-007: npm tarball integrity verified against package-lock.json sha512
+# - SEC-CI-011/ARCH-CI-006: github.sha removed from NX cache key
+# - SEC-CI-012: git checkout pinned to github.sha instead of git pull
+# - ARCH-CI-002: buildcache tags namespaced with -main suffix
+# - ARCH-CI-003: nx affected used instead of run-many --projects for build
+# - ARCH-CI-007: Image digest capture + rollback on failed health check
+# - ARCH-CI-010: Split build into separate backend/frontend jobs so a frontend
+#                failure cannot block backend images from being built/deployed
+# - ARCH-CI-011: NX binary verified after manual install
+# - ARCH-CI-015: max-parallel increased to 6
 # =============================================================================
 
 name: Deploy to DigitalOcean
 
 on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.vscode/**'
-      - '.claude/**'
+  # Only deploy after CI passes (ci-affected workflow must succeed first)
+  workflow_run:
+    workflows: ["CI - Affected"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       services:
@@ -41,13 +51,18 @@ jobs:
   # Prepare - Set lowercase image prefix & detect changes
   # ===========================================================================
   prepare:
+    # Only deploy if CI workflow succeeded (skip if it failed or was cancelled)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     outputs:
       image_prefix: ${{ steps.vars.outputs.image_prefix }}
       has_backend_changes: ${{ steps.changes.outputs.has_backend }}
       has_frontend_changes: ${{ steps.changes.outputs.has_frontend }}
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
@@ -82,30 +97,35 @@ jobs:
           echo "has_frontend=$HAS_FRONTEND" >> $GITHUB_OUTPUT
 
   # ===========================================================================
-  # Build with NX
+  # ARCH-CI-010: Build backend artifacts (separate job — 30 min timeout)
+  # A frontend build failure will NOT block backend images from deploying.
   # ===========================================================================
-  build:
+  build-backend-artifacts:
     needs: [prepare]
+    if: needs.prepare.outputs.has_backend_changes == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: '22'
           cache: 'npm'
 
+      # ARCH-CI-006/SEC-CI-011: Removed github.sha from cache key so primary key can hit
       - name: Cache Nx
-        uses: actions/cache@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .nx/cache
-          key: nx-deploy-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}-${{ github.sha }}
+          key: nx-deploy-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
-            nx-deploy-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}-
             nx-deploy-${{ runner.os }}-
 
       - name: Install dependencies
@@ -116,18 +136,183 @@ jobs:
         run: |
           # Lockfile generated on Windows only has win32 binaries.
           # Manually download Linux (x64-gnu) binaries from npm registry.
+          #
+          # SEC-CI-007: Each tarball is downloaded to a temp file and its SHA-512
+          # digest is verified against the 'integrity' field recorded in package-lock.json
+          # before extraction. This detects registry compromise or MitM even over HTTPS.
           install_pkg() {
             local name=$1
             local ver=$2
             local dest=${3:-"node_modules/${name}"}
+            local tmpfile
+            tmpfile=$(mktemp /tmp/npm-pkg-XXXXXX.tgz)
             echo "Installing ${name}@${ver} → ${dest}"
             mkdir -p "${dest}"
-            curl -sfL --max-time 30 "https://registry.npmjs.org/${name}/-/$(basename ${name})-${ver}.tgz" \
-              | tar xz -C "${dest}" --strip-components=1
-            if [ -f "${dest}/package.json" ]; then
-              echo "  ✓ OK ($(node -p "require('./${dest}/package.json').name"))"
+
+            # Download tarball to temp file (do not pipe directly into tar)
+            curl -sfL --max-time 30 \
+              "https://registry.npmjs.org/${name}/-/$(basename ${name})-${ver}.tgz" \
+              -o "${tmpfile}"
+
+            # SEC-CI-007: Verify integrity hash from package-lock.json
+            # The integrity field is base64-encoded sha512: "sha512-<base64>"
+            LOCK_INTEGRITY=$(node -p "
+              try {
+                const lock = require('./package-lock.json');
+                const pkg = lock.packages && lock.packages['node_modules/${name}'];
+                (pkg && pkg.integrity) || ''
+              } catch(e) { '' }
+            " 2>/dev/null || true)
+
+            if [ -n "${LOCK_INTEGRITY}" ] && echo "${LOCK_INTEGRITY}" | grep -q '^sha512-'; then
+              # Extract base64 hash and convert to hex for sha512sum comparison
+              B64="${LOCK_INTEGRITY#sha512-}"
+              EXPECTED_HEX=$(echo "${B64}" | base64 -d | xxd -p | tr -d '\n')
+              ACTUAL_HEX=$(sha512sum "${tmpfile}" | cut -d ' ' -f 1)
+              if [ "${EXPECTED_HEX}" != "${ACTUAL_HEX}" ]; then
+                echo "::error::Integrity check FAILED for ${name}@${ver}"
+                echo "  Expected (from lockfile): ${EXPECTED_HEX}"
+                echo "  Actual (downloaded):      ${ACTUAL_HEX}"
+                rm -f "${tmpfile}"
+                exit 1
+              fi
+              echo "  Integrity verified (sha512 matches package-lock.json)"
             else
-              echo "  ✗ FAILED - no package.json found"
+              echo "  ::warning::No lockfile integrity entry for ${name}@${ver} — skipping hash check"
+            fi
+
+            tar xz -C "${dest}" --strip-components=1 < "${tmpfile}"
+            rm -f "${tmpfile}"
+            if [ -f "${dest}/package.json" ]; then
+              echo "  OK ($(node -p "require('./${dest}/package.json').name"))"
+            else
+              echo "  FAILED - no package.json found"
+            fi
+          }
+
+          # SWC (needed by NX for fast TypeScript compilation)
+          install_pkg "@swc/core-linux-x64-gnu" "$(node -p "require('./node_modules/@swc/core/package.json').version")"
+
+          # NX native binary (CRITICAL - without this NX hangs on Linux!)
+          install_pkg "@nx/nx-linux-x64-gnu" "$(node -p "require('./node_modules/nx/package.json').version")"
+
+          timeout 30 node node_modules/nx/bin/post-install || true
+
+          # ARCH-CI-011: Verify NX binary is functional before proceeding
+          node -e "require('@nx/nx-linux-x64-gnu')" || { echo "::error::NX linux binary missing or broken"; exit 1; }
+          echo "All Linux platform binaries installed successfully"
+
+      # ARCH-CI-003: Use nx affected instead of run-many --projects for build
+      - name: Build affected backend services
+        run: |
+          npx nx affected -t build \
+            --base=origin/main~1 --head=HEAD \
+            --parallel=3
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+
+      # Upload backend artifacts (dist/apps/*)
+      - name: Upload backend artifacts
+        # SEC-CI-002: pinned to SHA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
+        with:
+          name: backend-dist
+          path: dist/
+          retention-days: 1
+
+  # ===========================================================================
+  # ARCH-CI-010: Build frontend artifacts (separate job — 30 min timeout)
+  # A backend build failure will NOT block frontend images from deploying.
+  # ===========================================================================
+  build-frontend-artifacts:
+    needs: [prepare]
+    if: needs.prepare.outputs.has_frontend_changes == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        # SEC-CI-002: pinned to SHA
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # ARCH-CI-006/SEC-CI-011: Removed github.sha from cache key so primary key can hit
+      - name: Cache Nx
+        # SEC-CI-002: pinned to SHA
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .nx/cache
+          key: nx-deploy-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            nx-deploy-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+
+      - name: Install Linux platform binaries
+        timeout-minutes: 3
+        run: |
+          # Lockfile generated on Windows only has win32 binaries.
+          # Manually download Linux (x64-gnu) binaries from npm registry.
+          #
+          # SEC-CI-007: Each tarball is downloaded to a temp file and its SHA-512
+          # digest is verified against the 'integrity' field recorded in package-lock.json
+          # before extraction. This detects registry compromise or MitM even over HTTPS.
+          install_pkg() {
+            local name=$1
+            local ver=$2
+            local dest=${3:-"node_modules/${name}"}
+            local tmpfile
+            tmpfile=$(mktemp /tmp/npm-pkg-XXXXXX.tgz)
+            echo "Installing ${name}@${ver} → ${dest}"
+            mkdir -p "${dest}"
+
+            # Download tarball to temp file (do not pipe directly into tar)
+            curl -sfL --max-time 30 \
+              "https://registry.npmjs.org/${name}/-/$(basename ${name})-${ver}.tgz" \
+              -o "${tmpfile}"
+
+            # SEC-CI-007: Verify integrity hash from package-lock.json
+            # The integrity field is base64-encoded sha512: "sha512-<base64>"
+            LOCK_INTEGRITY=$(node -p "
+              try {
+                const lock = require('./package-lock.json');
+                const pkg = lock.packages && lock.packages['node_modules/${name}'];
+                (pkg && pkg.integrity) || ''
+              } catch(e) { '' }
+            " 2>/dev/null || true)
+
+            if [ -n "${LOCK_INTEGRITY}" ] && echo "${LOCK_INTEGRITY}" | grep -q '^sha512-'; then
+              # Extract base64 hash and convert to hex for sha512sum comparison
+              B64="${LOCK_INTEGRITY#sha512-}"
+              EXPECTED_HEX=$(echo "${B64}" | base64 -d | xxd -p | tr -d '\n')
+              ACTUAL_HEX=$(sha512sum "${tmpfile}" | cut -d ' ' -f 1)
+              if [ "${EXPECTED_HEX}" != "${ACTUAL_HEX}" ]; then
+                echo "::error::Integrity check FAILED for ${name}@${ver}"
+                echo "  Expected (from lockfile): ${EXPECTED_HEX}"
+                echo "  Actual (downloaded):      ${ACTUAL_HEX}"
+                rm -f "${tmpfile}"
+                exit 1
+              fi
+              echo "  Integrity verified (sha512 matches package-lock.json)"
+            else
+              echo "  ::warning::No lockfile integrity entry for ${name}@${ver} — skipping hash check"
+            fi
+
+            tar xz -C "${dest}" --strip-components=1 < "${tmpfile}"
+            rm -f "${tmpfile}"
+            if [ -f "${dest}/package.json" ]; then
+              echo "  OK ($(node -p "require('./${dest}/package.json').name"))"
+            else
+              echo "  FAILED - no package.json found"
             fi
           }
 
@@ -147,44 +332,30 @@ jobs:
           # Rollup native binary (needed by Vite for frontend builds)
           install_pkg "@rollup/rollup-linux-x64-gnu" "$(node -p "require('./node_modules/rollup/package.json').version")"
 
-          # SWC (needed by NX for fast TypeScript compilation)
-          install_pkg "@swc/core-linux-x64-gnu" "$(node -p "require('./node_modules/@swc/core/package.json').version")"
-
           # NX native binary (CRITICAL - without this NX hangs on Linux!)
           install_pkg "@nx/nx-linux-x64-gnu" "$(node -p "require('./node_modules/nx/package.json').version")"
 
           timeout 30 node node_modules/nx/bin/post-install || true
+
+          # ARCH-CI-011: Verify NX binary is functional before proceeding
+          node -e "require('@nx/nx-linux-x64-gnu')" || { echo "::error::NX linux binary missing or broken"; exit 1; }
           echo "All Linux platform binaries installed successfully"
 
-      - name: Build backend services
+      # ARCH-CI-003: Use nx affected instead of run-many --projects for build
+      - name: Build affected frontend modules
         run: |
-          npx nx run-many -t build --parallel=3 \
-            --projects=gateway-api,auth-service,farm-service,sensor-service,admin-api-service,alert-engine,billing-service,hr-service,hydroponics-service,notification-service
+          npx nx affected -t build \
+            --base=origin/main~1 --head=HEAD \
+            --parallel=3
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
-
-      - name: Build frontend modules
-        run: |
-          npx nx run-many -t build --parallel=3 \
-            --projects=shared-ui,shell,dashboard,farm-module,sensor-module,admin-panel,tenant-admin,hr-module,hydroponics-module
-        env:
-          NODE_OPTIONS: '--max-old-space-size=4096'
-          NX_DAEMON: 'false'
-          NX_NO_CLOUD: 'true'
-
-      # Upload backend artifacts (dist/apps/*)
-      - name: Upload backend artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-dist
-          path: dist/
-          retention-days: 1
 
       # Upload frontend artifacts (web/*/dist/)
       - name: Upload frontend artifacts
-        uses: actions/upload-artifact@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
         with:
           name: frontend-dist
           path: |
@@ -197,7 +368,8 @@ jobs:
   # Build Backend Docker Images
   # ===========================================================================
   build-backend-images:
-    needs: [prepare, build]
+    # ARCH-CI-010: Depends on build-backend-artifacts, not the merged build job
+    needs: [prepare, build-backend-artifacts]
     if: needs.prepare.outputs.has_backend_changes == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -206,7 +378,8 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      max-parallel: 4
+      # ARCH-CI-015: Increased from 4 to 6 for fewer sequential waves
+      max-parallel: 6
       matrix:
         service:
           - gateway-api
@@ -220,24 +393,29 @@ jobs:
           - hydroponics-service
           - notification-service
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Download backend artifacts
-        uses: actions/download-artifact@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           name: backend-dist
           path: dist/
 
-      - uses: docker/setup-buildx-action@v3
+      # SEC-CI-002: pinned to SHA
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
-      - uses: docker/login-action@v3
+      # SEC-CI-002: pinned to SHA
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push ${{ matrix.service }}
-        uses: docker/build-push-action@v6
+        # SEC-CI-002: pinned to SHA
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b2a4 # v6.15.0
         with:
           context: .
           file: infrastructure/docker/Dockerfile.backend.simple
@@ -247,14 +425,16 @@ jobs:
             ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:latest
           build-args: |
             SERVICE_NAME=${{ matrix.service }}
-          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache
-          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache,mode=max
+          # ARCH-CI-002: Namespaced buildcache tag to avoid collision with cd-production.yml
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-main
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-main,mode=max
 
   # ===========================================================================
   # Build Frontend Docker Images
   # ===========================================================================
   build-frontend-images:
-    needs: [prepare, build]
+    # ARCH-CI-010: Depends on build-frontend-artifacts, not the merged build job
+    needs: [prepare, build-frontend-artifacts]
     if: needs.prepare.outputs.has_frontend_changes == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -263,7 +443,8 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      max-parallel: 4
+      # ARCH-CI-015: Increased from 4 to 6
+      max-parallel: 6
       matrix:
         include:
           - module: shell
@@ -294,26 +475,31 @@ jobs:
             dockerfile: infrastructure/docker/Dockerfile.aquamobil
             module_path: web/apps/aquamobil
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       # Download frontend artifacts - upload strips common ancestor 'web/',
       # so we extract into 'web/' to restore original paths (web/shell/dist, web/modules/*/dist)
       - name: Download frontend artifacts
-        uses: actions/download-artifact@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           name: frontend-dist
           path: web
 
-      - uses: docker/setup-buildx-action@v3
+      # SEC-CI-002: pinned to SHA
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
-      - uses: docker/login-action@v3
+      # SEC-CI-002: pinned to SHA
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push ${{ matrix.module }}
-        uses: docker/build-push-action@v6
+        # SEC-CI-002: pinned to SHA
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b2a4 # v6.15.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -323,18 +509,22 @@ jobs:
             ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:latest
           build-args: |
             MODULE_PATH=${{ matrix.module_path }}
-          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache
-          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache,mode=max
+          # ARCH-CI-002: Namespaced buildcache tag to avoid collision with cd-production.yml
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main,mode=max
 
   # ===========================================================================
   # Deploy to DigitalOcean Droplet
   # ===========================================================================
   deploy:
-    needs: [prepare, build, build-backend-images, build-frontend-images]
-    # Only deploy if build succeeded, and at least one image build succeeded or was skipped
+    # ARCH-CI-010: needs now reference the split artifact jobs instead of the old merged build job
+    needs: [prepare, build-backend-artifacts, build-frontend-artifacts, build-backend-images, build-frontend-images]
+    # Only deploy if at least one image build succeeded (artifact jobs may be skipped when there are no changes)
     if: |
       always() &&
-      needs.build.result == 'success' &&
+      needs.prepare.result == 'success' &&
+      (needs.build-backend-artifacts.result == 'success' || needs.build-backend-artifacts.result == 'skipped') &&
+      (needs.build-frontend-artifacts.result == 'success' || needs.build-frontend-artifacts.result == 'skipped') &&
       (needs.build-backend-images.result == 'success' || needs.build-backend-images.result == 'skipped') &&
       (needs.build-frontend-images.result == 'success' || needs.build-frontend-images.result == 'skipped') &&
       (needs.build-backend-images.result == 'success' || needs.build-frontend-images.result == 'success')
@@ -343,21 +533,36 @@ jobs:
     environment: production
     steps:
       - name: Deploy to DigitalOcean Droplet
-        uses: appleboy/ssh-action@v1.0.3
+        # SEC-CI-002: pinned to SHA
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.0.3
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           command_timeout: 10m
+          # SEC-CI-001: GHCR_TOKEN is no longer injected into the SSH script body.
+          # The token must be pre-configured on the droplet in /etc/environment as GHCR_TOKEN
+          # and GHCR_USER, readable only by the deploy user. This prevents the literal token
+          # value from appearing in the SSH payload transmitted to the remote host.
           script: |
             set -e
             cd /var/aqua-saas
 
-            echo "=== Pulling latest code ==="
-            git pull origin main
+            # SEC-CI-012: Checkout to the specific SHA that triggered the workflow
+            # instead of git pull (prevents TOCTOU race if another commit lands mid-deploy)
+            echo "=== Checking out deploy SHA ==="
+            git fetch origin
+            git checkout ${{ github.sha }}
 
+            # SEC-CI-001: Use GHCR credentials stored locally on the droplet.
+            # Set GHCR_TOKEN and GHCR_USER in /etc/environment before first deploy.
             echo "=== Logging into GHCR ==="
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+
+            # ARCH-CI-007: Capture current image digests for rollback before pulling new images
+            echo "=== Capturing current image digests for rollback ==="
+            PREV_GATEWAY=$(docker inspect --format='{{.Image}}' aqua-saas-gateway-api-1 2>/dev/null || echo "")
+            echo "Previous gateway digest: ${PREV_GATEWAY:-none}"
 
             echo "=== Pulling latest images ==="
             docker compose -f docker-compose.droplet.yml pull --ignore-pull-failures
@@ -366,25 +571,42 @@ jobs:
             docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans
 
             echo "=== Waiting for services ==="
-            sleep 30
+            HEALTHY=false
+            for i in $(seq 1 12); do
+              sleep 10
+              if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
+                echo "Gateway API: OK (attempt ${i})"
+                HEALTHY=true
+                break
+              fi
+              echo "Gateway API: not ready yet (attempt ${i}/12)"
+            done
 
-            echo "=== Health check ==="
-            if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
-              echo "Gateway API: OK"
-            else
-              echo "Gateway API: not responding yet (may still be starting)"
+            # ARCH-CI-007: Rollback if health check fails after all retries
+            if [ "$HEALTHY" != "true" ]; then
+              echo "::error::Health check failed after 2 minutes. Initiating rollback."
+              if [ -n "$PREV_GATEWAY" ]; then
+                echo "Rolling back to previous gateway image: ${PREV_GATEWAY}"
+                docker tag "${PREV_GATEWAY}" $(docker compose -f docker-compose.droplet.yml config | grep 'image:.*gateway-api' | awk '{print $2}' | head -1) 2>/dev/null || true
+                docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans
+                echo "Rollback complete. Please investigate the failed deploy."
+              else
+                echo "No previous image digest available; manual intervention required."
+              fi
+              exit 1
             fi
 
             echo "=== Cleanup old images ==="
-            docker image prune -f --filter "until=24h"
+            docker image prune -f --filter "dangling=true"
+            docker image prune -f --filter "until=24h" --filter "label!=deployed=current"
 
             echo "=== Container status ==="
             docker compose -f docker-compose.droplet.yml ps
 
             echo "=== Deployment completed at $(date) ==="
 
+      # SEC-CI-005: Removed echo of DROPLET_HOST to prevent leaking server IP in logs
       - name: Verify deployment
         run: |
           echo "Deployment initiated successfully"
-          echo "Server: ${{ secrets.DROPLET_HOST }}"
           echo "Commit: ${{ github.sha }}"

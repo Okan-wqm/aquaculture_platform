@@ -35,17 +35,23 @@ function formatTimeSince(dateInput: Date | string): string {
   return `${seconds}s ago`;
 }
 
+// PERF-004: isolated timer component — only this tiny node re-renders every second
+const TimeSinceUpdate: React.FC<{ timestamp: Date | null }> = ({ timestamp }) => {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  if (!timestamp) return null;
+  const diffSec = Math.floor((Date.now() - timestamp.getTime()) / 1000);
+  const label = diffSec < 60 ? `${diffSec}s ago` : `${Math.floor(diffSec / 60)}m ago`;
+  return <span className="text-xs text-gray-400">{label}</span>;
+};
+
 export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> = ({
   config,
 }) => {
   const { data, loading, error } = useWidgetData(config);
-  const [, forceUpdate] = useState(0);
-
-  // Update time display every second
-  useEffect(() => {
-    const interval = setInterval(() => forceUpdate((n) => n + 1), 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   if (loading) {
     return (
@@ -101,15 +107,16 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
 
   const valueColor = getColor();
 
-  // Generate gradient stops for the background arc
-  const backgroundGradientStops = [
-    { offset: 0, color: '#10B981', opacity: 0.2 },    // Green (low normal)
-    { offset: 20, color: '#F59E0B', opacity: 0.2 },   // Warning low
-    { offset: 30, color: '#10B981', opacity: 0.2 },   // Normal zone
-    { offset: 70, color: '#10B981', opacity: 0.2 },   // Normal zone
-    { offset: 80, color: '#F59E0B', opacity: 0.2 },   // Warning high
-    { offset: 100, color: '#EF4444', opacity: 0.2 },  // Critical high
-  ];
+  // BUG-013: Compute gradient zone percentages from actual threshold values rather than hardcoded stops
+  // BUG-019: removed dead `backgroundGradientStops` array that was never used in JSX
+  const range = maxValue - minValue;
+  const toPct = (v: number | undefined, fallback: number) =>
+    v !== undefined ? Math.min(100, Math.max(0, ((v - minValue) / range) * 100)) : fallback;
+
+  const critLowPct  = toPct(thresholds.critical?.low,   0);
+  const warnLowPct  = toPct(thresholds.warning?.low,   20);
+  const warnHighPct = toPct(thresholds.warning?.high,  80);
+  const critHighPct = toPct(thresholds.critical?.high, 100);
 
   return (
     <div className="flex flex-col items-center justify-center h-full">
@@ -120,14 +127,16 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
           height={size / 2 + strokeWidth}
           className="overflow-visible"
         >
-          {/* Background gradient definition */}
+          {/* Background gradient — zone positions derived from actual thresholds (BUG-013) */}
           <defs>
             <linearGradient id={`radial-bg-${config.id}`} x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor="#EF4444" stopOpacity={0.15} />
-              <stop offset="20%" stopColor="#F59E0B" stopOpacity={0.15} />
-              <stop offset="35%" stopColor="#10B981" stopOpacity={0.15} />
-              <stop offset="65%" stopColor="#10B981" stopOpacity={0.15} />
-              <stop offset="80%" stopColor="#F59E0B" stopOpacity={0.15} />
+              <stop offset={`${critLowPct}%`} stopColor="#EF4444" stopOpacity={0.15} />
+              <stop offset={`${warnLowPct}%`} stopColor="#F59E0B" stopOpacity={0.15} />
+              <stop offset={`${Math.min(warnLowPct + 5, 50)}%`} stopColor="#10B981" stopOpacity={0.15} />
+              <stop offset={`${Math.max(warnHighPct - 5, 50)}%`} stopColor="#10B981" stopOpacity={0.15} />
+              <stop offset={`${warnHighPct}%`} stopColor="#F59E0B" stopOpacity={0.15} />
+              <stop offset={`${critHighPct}%`} stopColor="#EF4444" stopOpacity={0.15} />
               <stop offset="100%" stopColor="#EF4444" stopOpacity={0.15} />
             </linearGradient>
           </defs>
@@ -196,10 +205,10 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
         <span className="text-xs text-gray-600 capitalize">{status}</span>
       </div>
 
-      {/* Last update time */}
+      {/* Last update time — only the leaf TimeSinceUpdate re-renders every second (PERF-004) */}
       <div className="flex items-center gap-1 text-xs text-gray-400 mt-1">
         <Clock size={10} />
-        <span>{formatTimeSince(reading.timestamp)}</span>
+        <TimeSinceUpdate timestamp={reading.timestamp} />
       </div>
     </div>
   );

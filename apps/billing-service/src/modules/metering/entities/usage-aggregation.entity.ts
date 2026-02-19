@@ -26,7 +26,7 @@ export class UsageAggregation {
   @PrimaryColumn('varchar', { length: 255 })
   id!: string;
 
-  @Column('uuid')
+  @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
   tenantId!: string;
 
@@ -57,8 +57,8 @@ export class UsageAggregation {
   @Column('decimal', { precision: 20, scale: 6, default: 0 })
   averageUsage!: number;
 
-  @Column('decimal', { precision: 20, scale: 6, default: Number.MAX_VALUE })
-  minUsage!: number;
+  @Column('decimal', { precision: 20, scale: 6, nullable: true })
+  minUsage!: number | null;
 
   @Column('decimal', { precision: 20, scale: 6, default: 0 })
   maxUsage!: number;
@@ -88,7 +88,7 @@ export class UsageHourlyData {
   @PrimaryColumn('varchar', { length: 100 })
   id!: string; // tenantId:meterType:hourly
 
-  @Column('uuid')
+  @Column({ type: 'uuid', name: 'tenant_id' })
   tenantId!: string;
 
   @Column({ type: 'varchar', length: 50 })

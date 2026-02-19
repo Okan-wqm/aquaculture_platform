@@ -2,6 +2,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
@@ -22,6 +23,9 @@ async function bootstrap(): Promise<void> {
     app.getHttpAdapter().getInstance().set('trust proxy', trustProxy);
     logger.log(`Trust proxy configured: ${trustProxy}`);
   }
+
+  // SECURITY: cookie-parser required for httpOnly refresh token cookies
+  app.use(cookieParser());
 
   const isProduction = process.env['NODE_ENV'] === 'production';
 

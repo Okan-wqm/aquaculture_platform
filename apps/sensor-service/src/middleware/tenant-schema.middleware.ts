@@ -15,16 +15,23 @@ interface TenantRequest extends Request {
 }
 
 /**
- * Simple LRU Cache for schema existence checks
+ * Simple LRU Cache for schema existence checks.
+ *
+ * Uses separate TTLs for positive (schema exists) and negative (schema missing) entries
+ * to avoid routing new-tenant traffic to the shared schema for up to 5 minutes (LOW-03).
+ * Positive TTL: 5 minutes (schema existence is stable once created).
+ * Negative TTL: 30 seconds (new tenant schemas are provisioned frequently; quick re-check).
  */
 class SchemaLRUCache {
   private cache = new Map<string, { value: boolean; expiry: number }>();
   private readonly maxSize: number;
-  private readonly ttlMs: number;
+  private readonly positiveTtlMs: number;
+  private readonly negativeTtlMs: number;
 
-  constructor(maxSize = 1000, ttlMs = 5 * 60 * 1000) {
+  constructor(maxSize = 1000, positiveTtlMs = 5 * 60 * 1000, negativeTtlMs = 30_000) {
     this.maxSize = maxSize;
-    this.ttlMs = ttlMs;
+    this.positiveTtlMs = positiveTtlMs;
+    this.negativeTtlMs = negativeTtlMs;
   }
 
   get(key: string): boolean | undefined {
@@ -34,6 +41,7 @@ class SchemaLRUCache {
       this.cache.delete(key);
       return undefined;
     }
+    // Move to end (most-recently-used)
     this.cache.delete(key);
     this.cache.set(key, entry);
     return entry.value;
@@ -44,7 +52,10 @@ class SchemaLRUCache {
       const firstKey = this.cache.keys().next().value;
       if (firstKey) this.cache.delete(firstKey);
     }
-    this.cache.set(key, { value, expiry: Date.now() + this.ttlMs });
+    // Apply shorter TTL for negative entries so newly-provisioned tenant schemas are
+    // picked up within 30 seconds rather than the full 5-minute positive TTL (LOW-03)
+    const ttl = value ? this.positiveTtlMs : this.negativeTtlMs;
+    this.cache.set(key, { value, expiry: Date.now() + ttl });
   }
 
   delete(key: string): void {
@@ -72,15 +83,16 @@ export class TenantSchemaMiddleware implements NestMiddleware {
   private readonly logger = new Logger(TenantSchemaMiddleware.name);
   private readonly DEFAULT_SCHEMA = 'sensor';
 
-  /** LRU cache for schema existence (max 1000 entries, 5 min TTL) */
-  private readonly schemaCache = new SchemaLRUCache(1000, 5 * 60 * 1000);
+  /** LRU cache for schema existence (max 1000 entries, positive TTL=5 min, negative TTL=30 s) */
+  private readonly schemaCache = new SchemaLRUCache(1000, 5 * 60 * 1000, 30_000);
 
   constructor(private readonly dataSource: DataSource) {}
 
   async use(req: TenantRequest, res: Response, next: NextFunction): Promise<void> {
+    // Extract tenant ID from request (set by UserContextMiddleware/TenantContextMiddleware)
+    const tenantId = req.tenantId || req.user?.tenantId;
+
     try {
-      // Extract tenant ID from request (set by UserContextMiddleware/TenantContextMiddleware)
-      const tenantId = req.tenantId || req.user?.tenantId;
 
       if (tenantId && tenantId !== 'default-tenant') {
         // Validate UUID format (SQL injection prevention)
@@ -107,7 +119,12 @@ export class TenantSchemaMiddleware implements NestMiddleware {
       }
     } catch (error) {
       this.logger.error(`Failed to set tenant schema: ${error instanceof Error ? error.message : String(error)}`);
-      // Don't block the request, fallback to default schema
+      // For authenticated requests with a tenant ID, return 503 instead of falling back
+      // to the shared schema, which would cause cross-tenant data contamination
+      if (tenantId && tenantId !== 'default-tenant') {
+        throw new BadRequestException('Tenant schema unavailable. Please try again later.');
+      }
+      // Only fall back to shared schema for unauthenticated requests
       try {
         await this.setSearchPathSafe(this.DEFAULT_SCHEMA);
       } catch {

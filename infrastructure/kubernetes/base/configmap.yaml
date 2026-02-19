@@ -12,13 +12,19 @@ data:
   NATS_URL: "nats://nats:4222"
 
 ---
+# ARCH-008: frontend-config uses externally reachable HTTPS URLs for module federation.
+# These values are consumed by browser JavaScript (shell app runtime config).
+# Internal cluster DNS names (http://dashboard, etc.) are NOT reachable from browsers.
+# Override per environment in overlays (e.g., dev uses dev.aquaculture.example.com).
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: frontend-config
   namespace: aquaculture
 data:
-  DASHBOARD_URL: "http://dashboard"
-  FARM_MODULE_URL: "http://farm-module"
-  PROCESS_EDITOR_URL: "http://process-editor"
-  ADMIN_PANEL_URL: "http://admin-panel"
+  # Externally reachable module federation remote entry points
+  # served via the aquaculture-mf-ingress over HTTPS
+  DASHBOARD_URL: "https://mf.aquaculture.example.com/dashboard"
+  FARM_MODULE_URL: "https://mf.aquaculture.example.com/farm-module"
+  PROCESS_EDITOR_URL: "https://mf.aquaculture.example.com/process-editor"
+  ADMIN_PANEL_URL: "https://mf.aquaculture.example.com/admin-panel"

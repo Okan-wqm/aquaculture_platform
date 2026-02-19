@@ -4,6 +4,8 @@
  * Comprehensive backend integration with all endpoints
  */
 
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
+
 // API URL - Shell nginx üzerinden /api prefix'i ile admin-api-service'e yönlendirilir
 const ADMIN_API_URL = import.meta.env.VITE_ADMIN_API_URL || '/api';
 
@@ -30,8 +32,7 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
 };
 
 const getAuthHeader = (): Record<string, string> => {
-  // Token 'access_token' key ile saklanıyor (shared-ui api-client.ts ile uyumlu)
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
@@ -57,6 +58,7 @@ async function apiFetch<T>(
     try {
       const response = await fetch(`${ADMIN_API_URL}${endpoint}`, {
         ...options,
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           'X-Request-ID': generateRequestId(),
@@ -1133,6 +1135,10 @@ export const securityApi = {
       recentEvents: SecurityEvent[];
       topThreats: Array<{ type: string; count: number }>;
     }>('/security/monitoring/dashboard'),
+  // Full monitoring dashboard data
+  getMonitoringDashboard: () => apiFetch<unknown>('/security/monitoring/dashboard'),
+  // Health score
+  getHealthScore: () => apiFetch<{ score: number; status: string; details: unknown[] }>('/security/monitoring/health-score'),
 };
 
 // ============================================================================

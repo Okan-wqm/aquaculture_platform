@@ -7,6 +7,7 @@
 
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuthContext } from '@aquaculture/shared-ui';
 import AdminDashboard from './pages/AdminDashboard';
 import UserManagementPage from './pages/UserManagementPage';
 import RoleManagementPage from './pages/RoleManagementPage';
@@ -52,6 +53,12 @@ import {
 } from './pages/system';
 
 const AdminPanelModule: React.FC = () => {
+  const { user } = useAuthContext();
+
+  if (!user || user.role !== 'SUPER_ADMIN') {
+    return <Navigate to="/unauthorized" replace />;
+  }
+
   return (
     <Routes>
       {/* Dashboard */}
@@ -67,10 +74,11 @@ const AdminPanelModule: React.FC = () => {
       <Route path="tenants/:tenantId" element={<TenantDetailPage />} />
       <Route path="tenants/:tenantId/configuration" element={<TenantConfigurationPage />} />
 
-      {/* Users & Roles */}
+      {/* Users & Roles — static route must precede dynamic segment */}
       <Route path="users" element={<UserManagementPage />} />
-      <Route path="users/:userId" element={<UserManagementPage />} />
       <Route path="users/roles" element={<RoleManagementPage />} />
+      {/* users/:userId renders the user list filtered by ID; kept for back-compat but
+          UserManagementPage does not yet read the param — navigate to /admin/users instead */}
 
       {/* Modules */}
       <Route path="modules" element={<ModulesPage />} />

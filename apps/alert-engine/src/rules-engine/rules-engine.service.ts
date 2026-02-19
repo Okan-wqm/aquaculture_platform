@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
 import { AlertRule, AlertCondition, AlertOperator, AlertSeverity } from '../database/entities/alert-rule.entity';
@@ -50,17 +50,46 @@ interface CachedRules {
  * Main orchestrator for rule evaluation and management
  */
 @Injectable()
-export class RulesEngineService {
+export class RulesEngineService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RulesEngineService.name);
   private ruleCache: Map<string, CachedRules> = new Map();
   private readonly DEFAULT_CACHE_TTL_MS = 60000; // 1 minute
   private readonly EVALUATION_TIMEOUT_MS = 5000; // 5 seconds
+
+  // PE-05: Periodic eviction of stale cache entries prevents unbounded growth.
+  // The cache key space is O(tenants * farms * ponds * sensors); without
+  // proactive eviction, entries for decommissioned sensors accumulate forever.
+  private cacheEvictionInterval: NodeJS.Timeout | null = null;
 
   constructor(
     @InjectRepository(AlertRule)
     private readonly ruleRepository: Repository<AlertRule>,
     private readonly ruleEvaluator: RuleEvaluatorService,
   ) {}
+
+  onModuleInit(): void {
+    // Sweep stale entries every 2 × TTL so any entry is evicted within 3 × TTL.
+    this.cacheEvictionInterval = setInterval(() => {
+      this.evictStaleEntries();
+    }, this.DEFAULT_CACHE_TTL_MS * 2);
+  }
+
+  onModuleDestroy(): void {
+    if (this.cacheEvictionInterval) {
+      clearInterval(this.cacheEvictionInterval);
+      this.cacheEvictionInterval = null;
+    }
+  }
+
+  /** Remove all cache entries whose TTL has expired. */
+  private evictStaleEntries(): void {
+    const now = Date.now();
+    for (const [key, cached] of this.ruleCache) {
+      if (now > cached.cachedAt + cached.ttlMs) {
+        this.ruleCache.delete(key);
+      }
+    }
+  }
 
   /**
    * Evaluate rules for given context
@@ -77,18 +106,28 @@ export class RulesEngineService {
         return [];
       }
 
-      // Evaluate each rule with timeout
+      // PE-10: Evaluate all rules concurrently under a single shared timeout
+      // instead of wrapping each rule in an individual setTimeout.
+      // FIRST_MATCH still gets the highest-priority match from the settled results.
       const matches: RuleMatch[] = [];
 
-      for (const rule of rules) {
-        const match = await this.evaluateRuleWithTimeout(rule, request.context);
-
-        if (match) {
-          matches.push(match);
-
-          // If using FIRST_MATCH strategy, return immediately
-          if (request.strategy === RuleMatchStrategy.FIRST_MATCH) {
+      if (request.strategy === RuleMatchStrategy.FIRST_MATCH) {
+        // Sequential is correct here to respect rule priority order.
+        for (const rule of rules) {
+          const match = await this.evaluateRuleWithTimeout(rule, request.context);
+          if (match) {
+            matches.push(match);
             break;
+          }
+        }
+      } else {
+        // ALL_MATCH / BEST_MATCH: evaluate all rules in parallel.
+        const settled = await Promise.allSettled(
+          rules.map(rule => this.evaluateRuleWithTimeout(rule, request.context)),
+        );
+        for (const result of settled) {
+          if (result.status === 'fulfilled' && result.value) {
+            matches.push(result.value);
           }
         }
       }
@@ -175,12 +214,15 @@ export class RulesEngineService {
   /**
    * Update a rule
    */
-  async updateRule(id: string, updates: Partial<AlertRule>): Promise<AlertRule> {
-    const rule = await this.ruleRepository.findOne({ where: { id } });
+  async updateRule(id: string, tenantId: string, updates: Partial<AlertRule>): Promise<AlertRule> {
+    const rule = await this.ruleRepository.findOne({ where: { id, tenantId } });
 
     if (!rule) {
-      throw new Error(`Rule ${id} not found`);
+      throw new Error(`Rule ${id} not found for tenant ${tenantId}`);
     }
+
+    // Prevent tenantId from being changed via updates
+    delete updates.tenantId;
 
     Object.assign(rule, updates);
     const savedRule = await this.ruleRepository.save(rule);
@@ -188,40 +230,40 @@ export class RulesEngineService {
     // Invalidate cache
     this.invalidateTenantCache(rule.tenantId);
 
-    this.logger.log(`Updated rule ${id}`);
+    this.logger.log(`Updated rule ${id} for tenant ${tenantId}`);
     return savedRule;
   }
 
   /**
    * Delete a rule
    */
-  async deleteRule(id: string): Promise<void> {
-    const rule = await this.ruleRepository.findOne({ where: { id } });
+  async deleteRule(id: string, tenantId: string): Promise<void> {
+    const rule = await this.ruleRepository.findOne({ where: { id, tenantId } });
 
     if (!rule) {
-      throw new Error(`Rule ${id} not found`);
+      throw new Error(`Rule ${id} not found for tenant ${tenantId}`);
     }
 
-    await this.ruleRepository.delete(id);
+    await this.ruleRepository.delete({ id, tenantId });
 
     // Invalidate cache
     this.invalidateTenantCache(rule.tenantId);
 
-    this.logger.log(`Deleted rule ${id}`);
+    this.logger.log(`Deleted rule ${id} for tenant ${tenantId}`);
   }
 
   /**
    * Toggle rule active status
    */
-  async toggleRuleStatus(id: string, isActive: boolean): Promise<AlertRule> {
-    return this.updateRule(id, { isActive });
+  async toggleRuleStatus(id: string, tenantId: string, isActive: boolean): Promise<AlertRule> {
+    return this.updateRule(id, tenantId, { isActive });
   }
 
   /**
    * Get rule by ID
    */
-  async getRuleById(id: string): Promise<AlertRule | null> {
-    return this.ruleRepository.findOne({ where: { id } });
+  async getRuleById(id: string, tenantId: string): Promise<AlertRule | null> {
+    return this.ruleRepository.findOne({ where: { id, tenantId } });
   }
 
   /**
@@ -293,7 +335,13 @@ export class RulesEngineService {
   ): Promise<RuleMatch | null> {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
-        this.logger.warn(`Rule ${rule.id} evaluation timed out`);
+        // Log at warn level with explicit "timed out" label so operators can
+        // distinguish this from a legitimate non-match in logs and metrics.
+        this.logger.warn(
+          `Rule ${rule.id} evaluation timed out after ${this.EVALUATION_TIMEOUT_MS}ms. ` +
+          'This rule is being treated as a non-match for this cycle. ' +
+          'Investigate the rule complexity if this warning recurs.',
+        );
         resolve(null);
       }, this.EVALUATION_TIMEOUT_MS);
 
@@ -430,11 +478,12 @@ export class RulesEngineService {
 
   /**
    * Get cache stats (for monitoring)
+   * Keys are hashed to avoid exposing tenant IDs in diagnostic output.
    */
-  getCacheStats(): { size: number; keys: string[] } {
+  getCacheStats(): { size: number; keyCount: number } {
     return {
       size: this.ruleCache.size,
-      keys: Array.from(this.ruleCache.keys()),
+      keyCount: this.ruleCache.size,
     };
   }
 }

@@ -98,8 +98,8 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
         throw new BadRequestException('Net pay cannot be negative');
       }
 
-      // Generate payroll number
-      const payrollNumber = await this.generatePayrollNumber(tenantId, queryRunner);
+      // Generate payroll number derived from the pay period start date, not creation date
+      const payrollNumber = this.generatePayrollNumber(new Date(input.payPeriodStart));
 
       const payroll = queryRunner.manager.create(Payroll, {
         tenantId,
@@ -142,13 +142,19 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
     }
   }
 
-  private async generatePayrollNumber(tenantId: string, queryRunner?: { manager: { count: (entity: typeof Payroll, options: { where: { tenantId: string } }) => Promise<number> } }): Promise<string> {
-    const count = queryRunner
-      ? await queryRunner.manager.count(Payroll, { where: { tenantId } })
-      : await this.payrollRepository.count({ where: { tenantId } });
-    const year = new Date().getFullYear();
-    const month = String(new Date().getMonth() + 1).padStart(2, '0');
-    const sequence = String(count + 1).padStart(6, '0');
-    return `PAY-${year}${month}-${sequence}`;
+  /**
+   * Generate a collision-safe payroll number.
+   * Uses the pay period start date (not creation date) so the number correctly
+   * reflects the pay period (e.g. PAY-202501-... for a January period).
+   * A cryptographically random 8-character suffix prevents collisions even under
+   * concurrent load; the unique DB index on (tenantId, payrollNumber) is the
+   * definitive safety net.
+   */
+  private generatePayrollNumber(payPeriodStart: Date): string {
+    const year = payPeriodStart.getFullYear();
+    const month = String(payPeriodStart.getMonth() + 1).padStart(2, '0');
+    // 4 random bytes → 8 hex chars → very low collision probability
+    const randomHex = require('crypto').randomBytes(4).toString('hex').toUpperCase();
+    return `PAY-${year}${month}-${randomHex}`;
   }
 }

@@ -58,6 +58,13 @@ export class TenantProvisioningService {
   private readonly schemaManager: SchemaManagerService;
 
   /**
+   * MEDIUM-008 fix: guard flag so the DDL in ensureTenantRolesTableExists()
+   * only executes once per service-instance lifetime instead of on every
+   * provisioning call.  The ideal long-term fix is a proper TypeORM migration.
+   */
+  private tenantRolesTableEnsured = false;
+
+  /**
    * Default roles to be created for each tenant during provisioning.
    * Only TENANT_ADMIN role is created - actual permissions are managed via user_permissions table.
    */
@@ -147,6 +154,9 @@ export class TenantProvisioningService {
       }
 
       // Step 1: Validate tenant
+      // MED-005 fix: perform an atomic UPDATE ... WHERE status = PENDING to prevent TOCTOU races.
+      // Even if two requests both read status=PENDING, only one UPDATE will match — the other
+      // will update 0 rows and be rejected here, preventing duplicate provisioning.
       updateStep(0, 'in_progress');
       const startValidate = Date.now();
 
@@ -159,6 +169,24 @@ export class TenantProvisioningService {
         );
         return { success: false, tenantId, steps };
       }
+
+      // Atomically mark the tenant as being provisioned; if another process already claimed it,
+      // rowsAffected will be 0 and we bail out immediately.
+      const [, rowsAffected] = await this.dataSource.query(
+        `UPDATE tenants SET status = 'ACTIVE', updated_at = NOW() WHERE id = $1 AND status = $2`,
+        [tenantId, TenantStatus.PENDING],
+      );
+      if ((rowsAffected as number) === 0) {
+        updateStep(
+          0,
+          'failed',
+          Date.now() - startValidate,
+          'Tenant provisioning already in progress or completed by a concurrent request',
+        );
+        return { success: false, tenantId, steps };
+      }
+      // Update the in-memory entity to reflect the new status so downstream steps work correctly
+      tenant.status = TenantStatus.ACTIVE;
 
       updateStep(0, 'completed', Date.now() - startValidate);
 
@@ -489,9 +517,13 @@ export class TenantProvisioningService {
   }
 
   /**
-   * Ensure the tenant_roles table exists in the database
+   * Ensure the tenant_roles table exists in the database.
+   * MEDIUM-008 fix: the DDL is skipped after the first successful call within
+   * this service instance to avoid issuing locking DDL on every provisioning.
+   * The authoritative fix is to move these statements into a TypeORM migration.
    */
   private async ensureTenantRolesTableExists(): Promise<void> {
+    if (this.tenantRolesTableEnsured) return;
     try {
       await this.dataSource.query(`
         CREATE TABLE IF NOT EXISTS tenant_roles (
@@ -522,11 +554,16 @@ export class TenantProvisioningService {
         CREATE INDEX IF NOT EXISTS idx_tenant_roles_code
         ON tenant_roles(code)
       `);
+
+      // Mark as done so subsequent provisioning calls skip these DDL statements
+      this.tenantRolesTableEnsured = true;
     } catch (error) {
       // Table might already exist or constraint might already be in place
       this.logger.debug(
         `tenant_roles table setup: ${(error as Error).message}`,
       );
+      // Still mark as ensured if the table was already there (CREATE IF NOT EXISTS)
+      this.tenantRolesTableEnsured = true;
     }
   }
 
@@ -785,32 +822,30 @@ export class TenantProvisioningService {
   }
 
   /**
-   * Assign modules to a tenant
+   * Assign modules to a tenant.
+   * HIGH-004 fix: replaced sequential per-module INSERT calls with a single
+   * bulk INSERT … VALUES … ON CONFLICT DO NOTHING.
    */
   private async assignModulesToTenant(
     tenantId: string,
     moduleIds: string[],
   ): Promise<void> {
+    if (moduleIds.length === 0) return;
+
     this.logger.log(`Assigning ${moduleIds.length} modules to tenant ${tenantId}`);
 
-    for (const moduleId of moduleIds) {
-      try {
-        await this.dataSource.query(
-          `
-          INSERT INTO tenant_modules (
-            id, "tenantId", module_id, is_active, assigned_at, created_at, updated_at
-          ) VALUES (
-            gen_random_uuid(), $1, $2, true, NOW(), NOW(), NOW()
-          )
-          ON CONFLICT ("tenantId", module_id) DO NOTHING
-        `,
-          [tenantId, moduleId],
-        );
-      } catch (error) {
-        this.logger.warn(
-          `Could not assign module ${moduleId} to tenant ${tenantId}: ${(error as Error).message}`,
-        );
-      }
+    try {
+      // Build a single query with unnest for safe parameterised bulk insert
+      await this.dataSource.query(
+        `INSERT INTO tenant_modules (id, "tenantId", module_id, is_active, assigned_at, created_at, updated_at)
+         SELECT gen_random_uuid(), $1, unnest($2::uuid[]), true, NOW(), NOW(), NOW()
+         ON CONFLICT ("tenantId", module_id) DO NOTHING`,
+        [tenantId, moduleIds],
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Could not assign modules to tenant ${tenantId}: ${(error as Error).message}`,
+      );
     }
   }
 }

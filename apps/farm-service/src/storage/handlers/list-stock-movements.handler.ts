@@ -48,7 +48,10 @@ export class ListStockMovementsHandler implements IQueryHandler<ListStockMovemen
       qb.andWhere('mov.performedAt <= :toDate', { toDate: filter.toDate });
     }
 
-    qb.orderBy(`mov.${sortBy}`, sortOrder);
+    // Apply sorting with allowlist to prevent SQL injection
+    const validSortFields = ['movementType', 'itemType', 'quantity', 'performedAt', 'createdAt'];
+    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'performedAt';
+    qb.orderBy(`mov.${safeSortBy}`, sortOrder);
     qb.skip((page - 1) * limit);
     qb.take(limit);
 

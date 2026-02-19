@@ -54,7 +54,9 @@ export class TenantRole {
   updatedAt!: Date;
 
   // Relations
-  @OneToOne(() => TenantRolePermissions, (perms) => perms.role, { eager: true })
+  // MEDIUM-001 fix: removed eager: true — permissions are now fetched explicitly
+  // when needed to avoid automatic JOIN on every TenantRole query.
+  @OneToOne(() => TenantRolePermissions, (perms) => perms.role)
   permissions?: TenantRolePermissions;
 
   // Virtual field - populated by service

@@ -99,16 +99,26 @@ export const TenantAdminOrHigher = () => Roles(Role.SUPER_ADMIN, Role.TENANT_ADM
 export const ModuleManagerOrHigher = () => Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN, Role.MODULE_MANAGER);
 
 /**
- * Public decorator - marks endpoint as publicly accessible
- */
-export const IS_PUBLIC_KEY = 'isPublic';
-export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
-
-/**
  * Skip tenant guard decorator - for endpoints that don't require tenant context
  */
 export const SKIP_TENANT_GUARD_KEY = 'skipTenantGuard';
 export const SkipTenantGuard = () => SetMetadata(SKIP_TENANT_GUARD_KEY, true);
+
+/**
+ * Public decorator - marks endpoint as publicly accessible.
+ * Automatically skips both RolesGuard and TenantGuard, so developers
+ * do not need to apply @SkipTenantGuard() separately for public endpoints.
+ */
+export const IS_PUBLIC_KEY = 'isPublic';
+export const Public = (): MethodDecorator & ClassDecorator => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (target: any, propertyKey?: string | symbol, descriptor?: any): any => {
+    // Apply both isPublic and skipTenantGuard metadata
+    SetMetadata(IS_PUBLIC_KEY, true)(target, propertyKey!, descriptor!);
+    SetMetadata(SKIP_TENANT_GUARD_KEY, true)(target, propertyKey!, descriptor!);
+    return descriptor ?? target;
+  };
+};
 
 /**
  * Check if metadata indicates public access

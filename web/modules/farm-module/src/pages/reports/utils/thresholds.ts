@@ -389,8 +389,12 @@ export function getNextDeadline(reportType: keyof typeof REPORTING_DEADLINES): D
     return deadline;
   }
 
-  // For immediate/event-based, return current date
-  return now;
+  // BUG-013: event-based/immediate reports have no fixed deadline.
+  // Returning `now` would cause getDaysUntilDeadline() = 0 → "Due Today" which is misleading.
+  // Return a far-future sentinel date so callers can detect this case.
+  const farFuture = new Date(now);
+  farFuture.setFullYear(farFuture.getFullYear() + 100);
+  return farFuture;
 }
 
 /**

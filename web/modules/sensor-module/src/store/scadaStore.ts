@@ -59,7 +59,8 @@ export interface ScadaProcess {
   id: string;
   name: string;
   description?: string;
-  status: 'draft' | 'active' | 'paused' | 'archived';
+  // BUG-018: align with useProcess.ts ProcessStatus type — use 'inactive', not 'paused'
+  status: 'draft' | 'active' | 'inactive' | 'archived';
   nodes: ScadaNode<EquipmentNodeData>[];
   edges: ScadaEdge<ProcessEdgeData>[];
 }
@@ -74,8 +75,11 @@ interface ScadaState {
   // Selected equipment for detail panel
   selectedEquipmentId: string | null;
 
-  // Sensor readings by equipment
-  sensorReadings: Map<string, SensorReading[]>;
+  // PERF-008: Use plain Record instead of Map so Zustand shallow-equality and
+  // fine-grained selectors work correctly.  Object spread only copies the top-level
+  // keys (one entry per equipment), whereas `new Map(state.sensorReadings)` had to
+  // iterate every entry to build a new Map instance on every single sensor update.
+  sensorReadings: Record<string, SensorReading[]>;
 
   // UI state
   isLiveMode: boolean;
@@ -101,7 +105,8 @@ const initialState = {
   selectedProcess: null,
   processes: [],
   selectedEquipmentId: null,
-  sensorReadings: new Map<string, SensorReading[]>(),
+  // PERF-008: plain object — no Map constructor overhead
+  sensorReadings: {} as Record<string, SensorReading[]>,
   isLiveMode: true,
   isPanelOpen: false,
   lastUpdate: null,
@@ -146,45 +151,39 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     }),
 
   setSensorReadings: (equipmentId, readings) =>
-    set((state) => {
-      const newReadings = new Map(state.sensorReadings);
-      newReadings.set(equipmentId, readings);
-      return { sensorReadings: newReadings, lastUpdate: new Date() };
-    }),
+    set((state) => ({
+      // PERF-008: object spread — only one new top-level key is touched
+      sensorReadings: { ...state.sensorReadings, [equipmentId]: readings },
+      lastUpdate: new Date(),
+    })),
 
   updateSensorReading: (equipmentId, sensorId, value) =>
     set((state) => {
-      const newReadings = new Map(state.sensorReadings);
-      const equipmentReadings = newReadings.get(equipmentId);
+      // PERF-008: avoid full collection clone — only update the one equipment slice.
+      // Object spread copies keys by reference for every entry except [equipmentId],
+      // so unaffected equipment slices are the same reference and components that
+      // select state.sensorReadings[otherEquipmentId] will not re-render.
+      const equipmentReadings = state.sensorReadings[equipmentId];
+      if (!equipmentReadings) return { lastUpdate: new Date() };
 
-      if (equipmentReadings) {
-        const updatedReadings = equipmentReadings.map((reading) => {
-          if (reading.sensorId === sensorId) {
-            const oldValue = reading.value;
-            const trend = value > oldValue ? 'up' : value < oldValue ? 'down' : 'stable';
-            const status = getStatusFromValue(value, reading);
+      const updatedReadings = equipmentReadings.map((reading) => {
+        if (reading.sensorId === sensorId) {
+          const oldValue = reading.value;
+          const trend = value > oldValue ? 'up' : value < oldValue ? 'down' : 'stable';
+          const status = getStatusFromValue(value, reading);
+          const history = [
+            ...reading.history.slice(-59),
+            { timestamp: new Date(), value },
+          ];
+          return { ...reading, value, trend, status, timestamp: new Date(), history };
+        }
+        return reading;
+      });
 
-            // Add to history (keep last 60 readings)
-            const history = [
-              ...reading.history.slice(-59),
-              { timestamp: new Date(), value },
-            ];
-
-            return {
-              ...reading,
-              value,
-              trend,
-              status,
-              timestamp: new Date(),
-              history,
-            };
-          }
-          return reading;
-        });
-        newReadings.set(equipmentId, updatedReadings);
-      }
-
-      return { sensorReadings: newReadings, lastUpdate: new Date() };
+      return {
+        sensorReadings: { ...state.sensorReadings, [equipmentId]: updatedReadings },
+        lastUpdate: new Date(),
+      };
     }),
 
   setIsLiveMode: (isLive) =>
@@ -194,13 +193,13 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     set({ isPanelOpen: isOpen }),
 
   getEquipmentSensors: (equipmentId) => {
-    return get().sensorReadings.get(equipmentId) || [];
+    return get().sensorReadings[equipmentId] || [];
   },
 
   resetStore: () =>
     set({
       ...initialState,
-      sensorReadings: new Map<string, SensorReading[]>(),
+      sensorReadings: {} as Record<string, SensorReading[]>,
     }),
 }));
 
@@ -219,3 +218,11 @@ export const useSelectedEquipmentId = () => useScadaStore((state) => state.selec
 export const useIsLiveMode = () => useScadaStore((state) => state.isLiveMode);
 export const useIsPanelOpen = () => useScadaStore((state) => state.isPanelOpen);
 export const useProcesses = () => useScadaStore((state) => state.processes);
+
+// PERF-008: Fine-grained equipment-scoped selector.
+// SensorPanel uses this so it only re-renders when its OWN equipment's readings change,
+// not on every other sensor update across the SCADA page.
+export const useEquipmentReadings = (equipmentId: string | null) =>
+  useScadaStore((state) =>
+    equipmentId ? (state.sensorReadings[equipmentId] ?? []) : []
+  );

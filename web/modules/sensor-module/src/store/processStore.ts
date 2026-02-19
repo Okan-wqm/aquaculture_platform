@@ -233,7 +233,7 @@ export interface SavedProcess {
   name: string;
   description?: string;
   version: string;
-  status: 'draft' | 'active' | 'paused' | 'archived';
+  status: 'draft' | 'active' | 'inactive' | 'archived';
   nodes: Node<EquipmentNodeData>[];
   edges: Edge<ProcessEdgeData>[];
   createdAt: Date;
@@ -248,7 +248,8 @@ interface ProcessState {
   processName: string;
   processDescription: string;
   processVersion: string;
-  processStatus: 'draft' | 'active' | 'paused' | 'archived';
+  // BUG-018: align with useProcess.ts ProcessStatus — use 'inactive' not 'paused'
+  processStatus: 'draft' | 'active' | 'inactive' | 'archived';
 
   // ReactFlow state - uses any for flexibility with different node types
   nodes: Node<any>[];
@@ -270,7 +271,7 @@ interface ProcessState {
   setProcessId: (id: string | null) => void;
   setProcessName: (name: string) => void;
   setProcessDescription: (description: string) => void;
-  setProcessStatus: (status: 'draft' | 'active' | 'paused' | 'archived') => void;
+  setProcessStatus: (status: 'draft' | 'active' | 'inactive' | 'archived') => void;
 
   // Actions - Nodes
   setNodes: (nodes: Node<any>[]) => void;
@@ -516,7 +517,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
     if (iframe?.contentWindow) {
       iframe.contentWindow.postMessage(
         { type: 'updateEdgeData', data: { edgeId, data }, source: 'process-editor-host' },
-        '*'
+        window.location.origin
       );
     }
   },
@@ -529,7 +530,14 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
     set({ selectedEdge: edge, selectedNode: null }),
 
   // Save/Load actions
-  loadProcess: (process) =>
+  loadProcess: (process) => {
+    // BUG-003: rebuild both maps from loaded node data so isEquipmentLinked/isSensorLinked work correctly
+    const equipmentNodeMap: Record<string, string> = {};
+    const sensorNodeMap: Record<string, string> = {};
+    process.nodes.forEach((node) => {
+      if (node.data?.equipmentId) equipmentNodeMap[node.data.equipmentId] = node.id;
+      if (node.data?.sensorId) sensorNodeMap[node.data.sensorId] = node.id;
+    });
     set({
       processId: process.id,
       processName: process.name,
@@ -541,7 +549,10 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
       selectedNode: null,
       selectedEdge: null,
       isDirty: false,
-    }),
+      equipmentNodeMap,
+      sensorNodeMap,
+    });
+  },
 
   getProcessData: () => {
     const state = get();
@@ -648,7 +659,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
     if (iframe?.contentWindow) {
       iframe.contentWindow.postMessage(
         { type: 'highlightNode', data: nodeId, source: 'process-editor-host' },
-        '*'
+        window.location.origin
       );
     }
   },
@@ -659,7 +670,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
     if (iframe?.contentWindow) {
       iframe.contentWindow.postMessage(
         { type: 'updateNodeData', data: { nodeId, data }, source: 'process-editor-host' },
-        '*'
+        window.location.origin
       );
     }
   },

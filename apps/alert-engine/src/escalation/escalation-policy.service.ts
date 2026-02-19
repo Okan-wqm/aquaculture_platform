@@ -511,12 +511,14 @@ export class EscalationPolicyService {
     );
   }
 
+  // PE-12: Regex promoted to a static constant to avoid re-evaluation on every call.
+  private static readonly TIME_FORMAT_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
   /**
    * Validate time format HH:mm
    */
   private isValidTimeFormat(time: string): boolean {
-    const regex = /^([01]\d|2[0-3]):([0-5]\d)$/;
-    return regex.test(time);
+    return EscalationPolicyService.TIME_FORMAT_REGEX.test(time);
   }
 
   /**

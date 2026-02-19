@@ -55,8 +55,10 @@ export class ListSitesHandler implements IQueryHandler<ListSitesQuery> {
       );
     }
 
-    // Apply sorting
-    queryBuilder.orderBy(`site.${sortBy}`, sortOrder);
+    // Apply sorting with allowlist to prevent SQL injection
+    const validSortFields = ['name', 'code', 'status', 'country', 'createdAt', 'updatedAt'];
+    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    queryBuilder.orderBy(`site.${safeSortBy}`, sortOrder);
 
     // Apply pagination
     queryBuilder.skip((page - 1) * limit);

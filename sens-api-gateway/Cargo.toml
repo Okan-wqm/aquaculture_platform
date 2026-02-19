@@ -54,6 +54,13 @@ regex = "1.10"
 
 # Modbus TCP/RTU for PLC communication (v1.2.0: rodbus with TLS support)
 # rodbus provides native TLS support for IEC 62443 SL2 FR4 compliance
+#
+# BUG-005 (version pin): The server-only TLS path in modbus.rs passes empty
+# Path::new("") for the client cert/key arguments to TlsClientConfig::full_pki().
+# This relies on rodbus 1.4 treating an empty OsStr path as "no client certificate".
+# If rodbus changes this behavior in a future minor version, Modbus TLS connections
+# without client certs will silently fail or panic.
+# Do NOT bump this dependency without re-testing server-only TLS (no mTLS) connections.
 rodbus = "1.4"
 # Keep tokio-serial for RTU serial port support
 tokio-serial = "5.4"
@@ -74,7 +81,9 @@ mac_address = "1.1"
 hostname = "0.3"
 
 # SQLite for RETAIN variable persistence (IEC 61131-3 compliance)
-rusqlite = { version = "0.34", features = ["bundled"] }
+# "bundled-sqlcipher" enables AES-256-CBC encryption at rest (IEC 62443 FR4).
+# The database key is derived from the device machine-id at runtime via init_schema().
+rusqlite = { version = "0.34", features = ["bundled-sqlcipher"] }
 
 # Bounded cache for memory management (prevents unbounded growth)
 moka = { version = "0.12", features = ["sync"] }
@@ -94,6 +103,19 @@ flate2 = "1.0"
 
 # Cryptographically secure random number generation (OPC UA nonces)
 getrandom = "0.2"
+
+# UUID generation for unique MQTT client IDs (IEC 62443 FR1 - client impersonation prevention)
+uuid = { version = "1.0", features = ["v4"] }
+
+# Base64 encoding for credential obfuscation in config file (IEC 62443 FR4)
+base64 = "0.22"
+
+# In-process X.509 certificate parsing — replaces openssl subprocess (IEC 62443 FR3)
+x509-parser = "0.16"
+pem = "3.0"
+
+# SHA-256 hashing for GDPR-compliant MAC address pseudonymisation in DeviceFingerprint (LOW-45)
+sha2 = "0.10"
 
 # HTTP server for health check endpoint
 axum = { version = "0.8", optional = true }

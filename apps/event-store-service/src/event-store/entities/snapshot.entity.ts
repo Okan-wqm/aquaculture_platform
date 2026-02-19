@@ -11,7 +11,7 @@ import {
  * Used to optimize event replay by storing periodic aggregate states
  */
 @Entity('snapshots')
-@Index(['aggregateType', 'aggregateId'], { unique: true })
+@Index(['aggregateType', 'aggregateId', 'tenantId'], { unique: true })
 @Index(['tenantId'])
 export class Snapshot {
   @PrimaryGeneratedColumn('uuid')

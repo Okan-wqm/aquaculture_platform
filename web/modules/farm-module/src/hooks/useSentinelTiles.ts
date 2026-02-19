@@ -12,6 +12,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
 import { LayerType } from '../services/sentinelHubService';
 
 // GraphQL queries
@@ -82,6 +83,8 @@ export interface UseSentinelTilesReturn extends SentinelTilesState {
 }
 
 export function useSentinelTiles(): UseSentinelTilesReturn {
+  const { token: authToken } = useAuth();
+
   // Configuration state
   const [isConfigured, setIsConfigured] = useState(false);
   const [instanceId, setInstanceId] = useState<string | null>(null);
@@ -111,24 +114,19 @@ export function useSentinelTiles(): UseSentinelTilesReturn {
    * Check if Sentinel Hub is configured
    */
   const checkConfiguration = useCallback(async (): Promise<boolean> => {
+    if (!authToken) {
+      setIsConfigured(false);
+      return false;
+    }
     try {
-      const authToken = localStorage.getItem('access_token');
-      if (!authToken) {
-        setIsConfigured(false);
-        return false;
-      }
+      const data = await graphqlClient.request<{
+        sentinelHubStatus: {
+          isConfigured: boolean;
+          instanceIdMasked?: string | null;
+        };
+      }>(SENTINEL_HUB_STATUS_QUERY);
 
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ query: SENTINEL_HUB_STATUS_QUERY }),
-      });
-
-      const result = await response.json();
-      const status = result.data?.sentinelHubStatus;
+      const status = data.sentinelHubStatus;
       const configured = status?.isConfigured ?? false;
       const hasInstance = !!status?.instanceIdMasked;
 
@@ -137,45 +135,29 @@ export function useSentinelTiles(): UseSentinelTilesReturn {
 
       return configured;
     } catch (err) {
-      console.error('Failed to check Sentinel Hub configuration:', err);
+      if (import.meta.env.DEV) console.error('Failed to check Sentinel Hub configuration:', err);
       setIsConfigured(false);
       return false;
     }
-  }, []);
+  }, [authToken]);
 
   /**
    * Fetch WMTS config (instanceId + token) from backend
    */
   const fetchWmtsConfig = useCallback(async (): Promise<boolean> => {
+    if (!authToken) return false;
     try {
-      const authToken = localStorage.getItem('access_token');
-      if (!authToken) {
-        throw new Error('Oturum acmaniz gerekiyor');
-      }
+      const data = await graphqlClient.request<{
+        sentinelHubWmtsConfig: {
+          instanceId: string;
+          accessToken: string;
+          expiresIn: number;
+        } | null;
+      }>(SENTINEL_HUB_WMTS_CONFIG_QUERY);
 
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ query: SENTINEL_HUB_WMTS_CONFIG_QUERY }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (result.errors) {
-        throw new Error(result.errors[0]?.message || 'WMTS config alinamadi');
-      }
-
-      const wmtsConfig = result.data?.sentinelHubWmtsConfig;
+      const wmtsConfig = data.sentinelHubWmtsConfig;
 
       if (wmtsConfig) {
-        // WMTS is configured
         const expiry = new Date(Date.now() + (wmtsConfig.expiresIn - 60) * 1000);
 
         setInstanceId(wmtsConfig.instanceId);
@@ -186,7 +168,6 @@ export function useSentinelTiles(): UseSentinelTilesReturn {
 
         return true;
       } else {
-        // WMTS not configured, try token-only fallback
         setInstanceId(null);
         setHasWmtsSupport(false);
         return false;
@@ -200,38 +181,19 @@ export function useSentinelTiles(): UseSentinelTilesReturn {
       setHasWmtsSupport(false);
       return false;
     }
-  }, []);
+  }, [authToken]);
 
   /**
    * Fallback: Fetch token only (for Processing API if WMTS not available)
    */
   const fetchTokenOnly = useCallback(async (): Promise<boolean> => {
+    if (!authToken) return false;
     try {
-      const authToken = localStorage.getItem('access_token');
-      if (!authToken) {
-        throw new Error('Oturum acmaniz gerekiyor');
-      }
+      const data = await graphqlClient.request<{
+        sentinelHubToken: { accessToken: string; expiresIn: number } | null;
+      }>(SENTINEL_HUB_TOKEN_QUERY);
 
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ query: SENTINEL_HUB_TOKEN_QUERY }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (result.errors) {
-        throw new Error(result.errors[0]?.message || 'Token alinamadi');
-      }
-
-      const tokenResult = result.data?.sentinelHubToken;
+      const tokenResult = data.sentinelHubToken;
 
       if (tokenResult) {
         const expiry = new Date(Date.now() + (tokenResult.expiresIn - 60) * 1000);
@@ -251,7 +213,7 @@ export function useSentinelTiles(): UseSentinelTilesReturn {
       setTokenExpiry(null);
       return false;
     }
-  }, []);
+  }, [authToken]);
 
   /**
    * Refresh configuration (WMTS or token-only)

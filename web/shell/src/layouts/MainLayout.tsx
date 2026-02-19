@@ -251,18 +251,13 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
     icon: 'sprout',
     children: [
       { id: 'hydroponics-setup', label: 'Setup', path: '/hydroponics/setup' },
+      { id: 'hydroponics-general', label: 'General Options', path: '/hydroponics/solution/general_options' },
+      { id: 'hydroponics-water', label: 'Water Analysis', path: '/hydroponics/solution/water_analysis' },
+      { id: 'hydroponics-user', label: 'User Options', path: '/hydroponics/solution/user_options' },
+      { id: 'hydroponics-result', label: 'Result', path: '/hydroponics/solution/result' },
     ],
   },
-  process: {
-    id: 'process-module',
-    label: 'Process Management',
-    icon: 'process',
-    children: [
-      { id: 'process-list', label: 'Processes', path: '/processes' },
-      { id: 'process-editor', label: 'Editor', path: '/processes/editor' },
-      { id: 'process-templates', label: 'Templates', path: '/processes/templates' },
-    ],
-  },
+  // 'process' module removed: no corresponding route exists in App.tsx
 };
 
 /**
@@ -302,68 +297,68 @@ const moduleUserBaseNavigation: NavigationItem[] = [
 const MainLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout, isSuperAdmin, isTenantAdmin, modules } = useAuthContext();
+  const { user, logout, modules } = useAuthContext();
   const { tenant } = useTenantContext();
+
+  // Derive primitive role value to avoid callback identity churn on user object refresh
+  const userRole = user?.role;
 
   // Sidebar state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   /**
-   * Build module navigation items from tenant's assigned modules
+   * Build module navigation items from tenant's assigned modules.
+   * Divider is added only when at least one module has a nav config.
    */
   const moduleNavigationItems = useMemo((): NavigationItem[] => {
     if (!modules || modules.length === 0) {
       return [];
     }
 
-    const moduleItems: NavigationItem[] = [];
-
-    // Add divider before modules section
-    moduleItems.push({
-      id: 'divider-modules',
-      label: '── Modules ──',
-      path: '',
-      icon: 'modules',
-    });
-
-    // Add navigation for each assigned module
+    const items: NavigationItem[] = [];
     for (const module of modules) {
       const navConfig = MODULE_NAV_CONFIG[module.code];
       if (navConfig) {
-        moduleItems.push(navConfig);
+        items.push(navConfig);
       }
     }
 
-    return moduleItems;
+    if (items.length === 0) {
+      return [];
+    }
+
+    return [
+      { id: 'divider-modules', label: '── Modules ──', path: '', icon: 'modules' },
+      ...items,
+    ];
   }, [modules]);
 
   /**
-   * Role-based navigation menu with dynamic modules
+   * Role-based navigation menu with dynamic modules.
+   * Depends on primitive userRole string, not function references.
    */
   const navigationItems = useMemo((): NavigationItem[] => {
-    if (isSuperAdmin()) {
+    if (userRole === 'SUPER_ADMIN') {
       return superAdminNavigation;
     }
-    if (isTenantAdmin()) {
-      // Tenant admin: base management items + dynamic module items
+    if (userRole === 'TENANT_ADMIN') {
       return [...tenantAdminBaseNavigation, ...moduleNavigationItems];
     }
-    // MODULE_MANAGER and MODULE_USER: base items + their assigned modules
     return [...moduleUserBaseNavigation, ...moduleNavigationItems];
-  }, [isSuperAdmin, isTenantAdmin, moduleNavigationItems]);
+  }, [userRole, moduleNavigationItems]);
 
   /**
    * Logo text based on role
    */
   const logoText = useMemo(() => {
-    if (isSuperAdmin()) {
+    if (userRole === 'SUPER_ADMIN') {
       return 'Aqua Admin';
     }
-    if (isTenantAdmin()) {
+    if (userRole === 'TENANT_ADMIN') {
       return tenant?.name || 'Tenant Admin';
     }
     return tenant?.name || 'Aquaculture';
-  }, [isSuperAdmin, isTenantAdmin, tenant]);
+  }, [userRole, tenant]);
 
   /**
    * Role-based theme selection
@@ -372,14 +367,14 @@ const MainLayout: React.FC = () => {
    * - Others: default (blue)
    */
   const theme: SidebarTheme = useMemo(() => {
-    if (isSuperAdmin()) {
+    if (userRole === 'SUPER_ADMIN') {
       return 'admin';
     }
-    if (isTenantAdmin()) {
+    if (userRole === 'TENANT_ADMIN') {
       return 'tenant';
     }
     return 'default';
-  }, [isSuperAdmin, isTenantAdmin]);
+  }, [userRole]);
 
   /**
    * Logo color based on theme
@@ -413,17 +408,20 @@ const MainLayout: React.FC = () => {
   );
 
   /**
-   * Logout handler
+   * Logout handler — always navigate to /login even if logout throws
    */
   const handleLogout = useCallback(async () => {
-    await logout();
-    navigate('/login');
+    try {
+      await logout();
+    } finally {
+      navigate('/login');
+    }
   }, [logout, navigate]);
 
   /**
-   * User menu items
+   * User menu items — memoized to avoid recreating on every render
    */
-  const userMenuItems = [
+  const userMenuItems = useMemo(() => [
     {
       label: 'My Profile',
       onClick: () => navigate('/settings/profile'),
@@ -432,7 +430,45 @@ const MainLayout: React.FC = () => {
       label: 'Settings',
       onClick: () => navigate('/settings'),
     },
-  ];
+  ], [navigate]);
+
+  /**
+   * Search handler — stable reference to avoid Header re-renders.
+   * Search route is not yet implemented; navigate to "/" as a no-op fallback.
+   */
+  const handleSearch = useCallback((_query: string) => {
+    // TODO: implement global search page and update this navigation
+  }, []);
+
+  /**
+   * Notifications click handler — placeholder until notification system is built.
+   */
+  const handleNotificationsClick = useCallback(() => {
+    // TODO: implement notification panel
+  }, []);
+
+  /**
+   * Logo element — memoized to avoid Sidebar re-renders
+   */
+  const logoElement = useMemo(() => (
+    <div className="flex items-center">
+      <span className={`text-xl font-bold ${logoColorClass}`}>{logoText}</span>
+    </div>
+  ), [logoColorClass, logoText]);
+
+  /**
+   * Sidebar toggle button — memoized to avoid Header re-renders
+   */
+  const leftContent = useMemo(() => (
+    <button
+      onClick={handleSidebarToggle}
+      className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg md:hidden"
+    >
+      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+      </svg>
+    </button>
+  ), [handleSidebarToggle]);
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -444,13 +480,7 @@ const MainLayout: React.FC = () => {
         onNavigate={handleNavigate}
         onCollapsedChange={handleSidebarToggle}
         theme={theme}
-        logo={
-          <div className="flex items-center">
-            <span className={`text-xl font-bold ${logoColorClass}`}>
-              {logoText}
-            </span>
-          </div>
-        }
+        logo={logoElement}
       />
 
       {/* Main Content Area */}
@@ -459,26 +489,12 @@ const MainLayout: React.FC = () => {
         <Header
           user={user}
           tenant={tenant}
-          onSearch={(query) => {
-            navigate(`/search?q=${encodeURIComponent(query)}`);
-          }}
-          notificationCount={3}
-          onNotificationsClick={() => {
-            console.log('Notifications clicked');
-          }}
+          onSearch={handleSearch}
+          onNotificationsClick={handleNotificationsClick}
           userMenuItems={userMenuItems}
           onLogout={handleLogout}
           theme={theme as HeaderTheme}
-          leftContent={
-            <button
-              onClick={handleSidebarToggle}
-              className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg md:hidden"
-            >
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-          }
+          leftContent={leftContent}
         />
 
         {/* Page Content */}

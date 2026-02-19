@@ -72,13 +72,14 @@ export class AlertResolver {
   async getAlertHistory(
     @Tenant() tenantId: string,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page: number,
-    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) rawLimit: number,
     @Args('ruleId', { type: () => ID, nullable: true }) ruleId?: string,
     @Args('severity', { type: () => AlertSeverity, nullable: true }) severity?: AlertSeverity,
     @Args('acknowledged', { type: () => Boolean, nullable: true }) acknowledged?: boolean,
     @Args('startDate', { nullable: true }) startDate?: Date,
     @Args('endDate', { nullable: true }) endDate?: Date,
   ): Promise<AlertHistory[]> {
+    const limit = Math.min(Math.max(1, rawLimit), 100);
     const result = await this.alertRuleService.getAlertHistory(
       tenantId,
       { ruleId, severity, acknowledged, startDate, endDate },
@@ -119,11 +120,20 @@ export class AlertResolver {
 
     const { ruleId, isActive, ...updates } = input;
 
-    if (isActive !== undefined) {
-      return await this.alertRuleService.toggleRule(ruleId, tenantId, isActive);
+    // Apply all field updates first, then toggle isActive if specified
+    // Previously, isActive would silently discard other field updates
+    let rule: AlertRule;
+    if (Object.keys(updates).length > 0) {
+      rule = await this.alertRuleService.updateRule(ruleId, tenantId, updates);
+    } else {
+      rule = await this.alertRuleService.getRule(ruleId, tenantId);
     }
 
-    return await this.alertRuleService.updateRule(ruleId, tenantId, updates);
+    if (isActive !== undefined) {
+      rule = await this.alertRuleService.toggleRule(ruleId, tenantId, isActive);
+    }
+
+    return rule;
   }
 
   /**
@@ -143,6 +153,7 @@ export class AlertResolver {
    * Acknowledge an alert
    */
   @Mutation(() => AlertHistory, { name: 'acknowledgeAlert' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.OPERATOR)
   async acknowledgeAlert(
     @Args('input') input: AcknowledgeAlertInput,
     @Tenant() tenantId: string,
@@ -162,6 +173,7 @@ export class AlertResolver {
    * Resolve an alert
    */
   @Mutation(() => AlertHistory, { name: 'resolveAlert' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.OPERATOR)
   async resolveAlert(
     @Args('alertId', { type: () => ID }) alertId: string,
     @Tenant() tenantId: string,

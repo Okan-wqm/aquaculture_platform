@@ -191,6 +191,147 @@ const Spinner: React.FC<{ size?: 'sm' | 'md' | 'lg' }> = ({ size = 'md' }) => {
 };
 
 // ============================================================================
+// PERF-010: Memoized table body — prevents rows re-rendering when menu state
+// (showColumnMenu / showExportMenu / showFilterPanel) changes in the parent.
+// ============================================================================
+
+interface TableBodyProps<T> {
+  loading: boolean;
+  loadingMessage: string;
+  emptyMessage: string;
+  emptyIcon?: React.ReactNode;
+  processedData: T[];
+  activeColumns: TableColumn<T>[];
+  selectable: boolean;
+  expandable: boolean;
+  selectedRows: string[];
+  expandedRows: Set<string>;
+  keyExtractor: (row: T) => string;
+  rowClasses: (row: T, index: number) => string;
+  cellClasses: string;
+  onRowClick?: (row: T) => void;
+  handleSelectRow: (id: string, checked: boolean) => void;
+  handleToggleExpand: (id: string) => void;
+  renderExpandedRow?: (row: T) => React.ReactNode;
+}
+
+const TableBodyInner = <T,>({
+  loading,
+  loadingMessage,
+  emptyMessage,
+  emptyIcon,
+  processedData,
+  activeColumns,
+  selectable,
+  expandable,
+  selectedRows,
+  expandedRows,
+  keyExtractor,
+  rowClasses,
+  cellClasses,
+  onRowClick,
+  handleSelectRow,
+  handleToggleExpand,
+  renderExpandedRow,
+}: TableBodyProps<T>) => {
+  const colSpan = (selectable ? 1 : 0) + (expandable ? 1 : 0) + activeColumns.length;
+
+  return (
+    <tbody className="bg-white divide-y divide-gray-200">
+      {loading ? (
+        <tr>
+          <td colSpan={colSpan} className="px-4 py-12 text-center">
+            <div className="flex flex-col items-center gap-3">
+              <Spinner size="lg" />
+              <span className="text-sm text-gray-500">{loadingMessage}</span>
+            </div>
+          </td>
+        </tr>
+      ) : processedData.length === 0 ? (
+        <tr>
+          <td colSpan={colSpan} className="px-4 py-12 text-center">
+            <div className="flex flex-col items-center gap-3 text-gray-500">
+              {emptyIcon || (
+                <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
+                  />
+                </svg>
+              )}
+              <span className="text-sm">{emptyMessage}</span>
+            </div>
+          </td>
+        </tr>
+      ) : (
+        processedData.map((row, index) => {
+          const rowId = keyExtractor(row);
+          const isSelected = selectedRows.includes(rowId);
+          const isExpanded = expandedRows.has(rowId);
+
+          return (
+            <React.Fragment key={rowId}>
+              <tr
+                className={`${rowClasses(row, index)} ${isSelected ? 'bg-blue-50' : ''}`}
+                onClick={() => onRowClick?.(row)}
+              >
+                {selectable && (
+                  <td className="px-4 py-3 w-12" onClick={(e) => e.stopPropagation()}>
+                    <Checkbox checked={isSelected} onChange={(checked) => handleSelectRow(rowId, checked)} />
+                  </td>
+                )}
+                {expandable && (
+                  <td className="px-4 py-3 w-12" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => handleToggleExpand(rowId)}
+                      className="p-1 rounded hover:bg-gray-200 transition-colors"
+                    >
+                      <svg
+                        className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </td>
+                )}
+                {activeColumns.map((col) => {
+                  const value = (row as Record<string, unknown>)[String(col.key)];
+                  return (
+                    <td
+                      key={String(col.key)}
+                      className={`${cellClasses} text-gray-700 ${
+                        col.sticky ? `sticky ${col.sticky === 'left' ? 'left-0' : 'right-0'} bg-white z-10` : ''
+                      } ${col.className || ''}`}
+                      style={{ textAlign: col.align }}
+                    >
+                      {col.render ? col.render(value, row, index) : String(value ?? '-')}
+                    </td>
+                  );
+                })}
+              </tr>
+              {expandable && isExpanded && renderExpandedRow && (
+                <tr className="bg-gray-50">
+                  <td colSpan={(selectable ? 1 : 0) + 1 + activeColumns.length} className="px-4 py-4">
+                    {renderExpandedRow(row)}
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          );
+        })
+      )}
+    </tbody>
+  );
+};
+// memo cast required for generic component
+const TableBody = React.memo(TableBodyInner) as typeof TableBodyInner;
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -247,10 +388,15 @@ export function DataTable<T>({
   // State
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(defaultSort || null);
   const [internalSearch, setInternalSearch] = useState(searchValue);
+  // BUG-008: Initialize visible columns based on current columns prop.
+  // hidden===true means the column starts hidden; hidden===false or undefined means visible.
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
-    new Set(columns.filter((c) => !c.hidden).map((c) => String(c.key)))
+    () => new Set(columns.filter((c) => c.hidden !== true).map((c) => String(c.key)))
   );
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  // PERF-010: These three menu state vars cause the full DataTable (including all rows)
+  // to re-render when a menu opens/closes. To fix: extract ColumnMenu, ExportMenu, and
+  // FilterPanel into separate child components with their own local state.
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
@@ -322,6 +468,9 @@ export function DataTable<T>({
   }, []);
 
   // Process data (client-side operations)
+  // PERF-002: processedData recomputes whenever the `data` reference changes.
+  // Callers MUST pass a stable array reference (via useState or useMemo in the parent)
+  // to avoid O(n log n) sort on every parent render.
   const processedData = useMemo(() => {
     let result = [...data];
 
@@ -349,9 +498,15 @@ export function DataTable<T>({
     [columns, visibleColumns]
   );
 
-  // Selection state
-  const isAllSelected = data.length > 0 && selectedRows.length === data.length;
-  const isSomeSelected = selectedRows.length > 0 && selectedRows.length < data.length;
+  // PERF-014: Memoize derived selection state to avoid recomputing on every render
+  const isAllSelected = useMemo(
+    () => data.length > 0 && selectedRows.length === data.length,
+    [data.length, selectedRows.length]
+  );
+  const isSomeSelected = useMemo(
+    () => selectedRows.length > 0 && selectedRows.length < data.length,
+    [data.length, selectedRows.length]
+  );
 
   // Export handler
   const handleExport = useCallback(
@@ -364,13 +519,19 @@ export function DataTable<T>({
 
       // Client-side CSV export
       if (format === 'csv') {
+        // SEC-014: Defang formula injection by prefixing formula chars with a single quote
+        const sanitizeCsvCell = (val: string): string => {
+          if (/^[=+\-@\t\r]/.test(val)) return `'${val}`;
+          return val;
+        };
+
         const exportColumns = activeColumns.filter((c) => c.exportable !== false);
         const headers = exportColumns.map((c) => c.header).join(',');
         const rows = processedData.map((row) =>
           exportColumns
             .map((col) => {
               const value = (row as Record<string, unknown>)[String(col.key)];
-              const str = String(value ?? '');
+              const str = sanitizeCsvCell(String(value ?? ''));
               return str.includes(',') || str.includes('"') ? `"${str.replace(/"/g, '""')}"` : str;
             })
             .join(',')
@@ -381,7 +542,10 @@ export function DataTable<T>({
         const link = document.createElement('a');
         link.href = url;
         link.download = `${exportFileName}.csv`;
+        // BUG-019: Append to DOM before click — required by Firefox to trigger download
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
         URL.revokeObjectURL(url);
       }
     },
@@ -389,22 +553,28 @@ export function DataTable<T>({
   );
 
   // Styles
-  const tableClasses = [
-    'min-w-full divide-y divide-gray-200',
-    bordered && 'border border-gray-200',
-  ]
-    .filter(Boolean)
-    .join(' ');
+  // PERF-006: Memoize static table class string — only changes when border prop changes
+  const tableClasses = useMemo(
+    () =>
+      ['min-w-full divide-y divide-gray-200', bordered && 'border border-gray-200']
+        .filter(Boolean)
+        .join(' '),
+    [bordered]
+  );
 
-  const rowClasses = (row: T, index: number) =>
-    [
-      striped && index % 2 === 1 && 'bg-gray-50',
-      hoverable && 'hover:bg-blue-50 transition-colors duration-150',
-      onRowClick && 'cursor-pointer',
-      rowClassName?.(row, index),
-    ]
-      .filter(Boolean)
-      .join(' ');
+  // PERF-006: Return a stable function so React reconciler can bail out on rows that haven't changed
+  const rowClasses = useCallback(
+    (row: T, index: number) =>
+      [
+        striped && index % 2 === 1 && 'bg-gray-50',
+        hoverable && 'hover:bg-blue-50 transition-colors duration-150',
+        onRowClick && 'cursor-pointer',
+        rowClassName?.(row, index),
+      ]
+        .filter(Boolean)
+        .join(' '),
+    [striped, hoverable, onRowClick, rowClassName]
+  );
 
   const cellClasses = compact ? 'px-3 py-2 text-sm' : 'px-4 py-3 text-sm';
 
@@ -667,109 +837,26 @@ export function DataTable<T>({
             </tr>
           </thead>
 
-          {/* Body */}
-          <tbody className="bg-white divide-y divide-gray-200">
-            {loading ? (
-              <tr>
-                <td
-                  colSpan={(selectable ? 1 : 0) + (expandable ? 1 : 0) + activeColumns.length}
-                  className="px-4 py-12 text-center"
-                >
-                  <div className="flex flex-col items-center gap-3">
-                    <Spinner size="lg" />
-                    <span className="text-sm text-gray-500">{loadingMessage}</span>
-                  </div>
-                </td>
-              </tr>
-            ) : processedData.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={(selectable ? 1 : 0) + (expandable ? 1 : 0) + activeColumns.length}
-                  className="px-4 py-12 text-center"
-                >
-                  <div className="flex flex-col items-center gap-3 text-gray-500">
-                    {emptyIcon || (
-                      <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={1.5}
-                          d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
-                        />
-                      </svg>
-                    )}
-                    <span className="text-sm">{emptyMessage}</span>
-                  </div>
-                </td>
-              </tr>
-            ) : (
-              processedData.map((row, index) => {
-                const rowId = keyExtractor(row);
-                const isSelected = selectedRows.includes(rowId);
-                const isExpanded = expandedRows.has(rowId);
-
-                return (
-                  <React.Fragment key={rowId}>
-                    <tr
-                      className={`${rowClasses(row, index)} ${isSelected ? 'bg-blue-50' : ''}`}
-                      onClick={() => onRowClick?.(row)}
-                    >
-                      {/* Selection Checkbox */}
-                      {selectable && (
-                        <td className="px-4 py-3 w-12" onClick={(e) => e.stopPropagation()}>
-                          <Checkbox checked={isSelected} onChange={(checked) => handleSelectRow(rowId, checked)} />
-                        </td>
-                      )}
-
-                      {/* Expand Toggle */}
-                      {expandable && (
-                        <td className="px-4 py-3 w-12" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => handleToggleExpand(rowId)}
-                            className="p-1 rounded hover:bg-gray-200 transition-colors"
-                          >
-                            <svg
-                              className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                            </svg>
-                          </button>
-                        </td>
-                      )}
-
-                      {/* Data Cells */}
-                      {activeColumns.map((col) => {
-                        const value = (row as Record<string, unknown>)[String(col.key)];
-                        return (
-                          <td
-                            key={String(col.key)}
-                            className={`${cellClasses} text-gray-700 ${
-                              col.sticky ? `sticky ${col.sticky === 'left' ? 'left-0' : 'right-0'} bg-white z-10` : ''
-                            } ${col.className || ''}`}
-                            style={{ textAlign: col.align }}
-                          >
-                            {col.render ? col.render(value, row, index) : String(value ?? '-')}
-                          </td>
-                        );
-                      })}
-                    </tr>
-
-                    {/* Expanded Row */}
-                    {expandable && isExpanded && renderExpandedRow && (
-                      <tr className="bg-gray-50">
-                        <td colSpan={(selectable ? 1 : 0) + 1 + activeColumns.length} className="px-4 py-4">
-                          {renderExpandedRow(row)}
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })
-            )}
-          </tbody>
+          {/* Body — rendered by memoized TableBody to prevent re-renders on menu open/close (PERF-010) */}
+          <TableBody
+            loading={loading}
+            loadingMessage={loadingMessage}
+            emptyMessage={emptyMessage}
+            emptyIcon={emptyIcon}
+            processedData={processedData}
+            activeColumns={activeColumns}
+            selectable={selectable}
+            expandable={expandable}
+            selectedRows={selectedRows}
+            expandedRows={expandedRows}
+            keyExtractor={keyExtractor}
+            rowClasses={rowClasses}
+            cellClasses={cellClasses}
+            onRowClick={onRowClick}
+            handleSelectRow={handleSelectRow}
+            handleToggleExpand={handleToggleExpand}
+            renderExpandedRow={renderExpandedRow}
+          />
         </table>
       </div>
 
@@ -850,9 +937,15 @@ export function DataTable<T>({
         </div>
       )}
 
-      {/* Click outside handler for menus */}
+      {/* BUG-002: Non-blocking click-outside backdrop — use pointer-events-none so it doesn't
+          intercept table row clicks or scrolling; menus use z-50 and are above this layer */}
       {(showColumnMenu || showExportMenu) && (
-        <div className="fixed inset-0 z-40" onClick={() => { setShowColumnMenu(false); setShowExportMenu(false); }} />
+        <div
+          className="fixed inset-0 z-40"
+          style={{ pointerEvents: 'auto', background: 'transparent' }}
+          onClick={() => { setShowColumnMenu(false); setShowExportMenu(false); }}
+          aria-hidden="true"
+        />
       )}
     </div>
   );

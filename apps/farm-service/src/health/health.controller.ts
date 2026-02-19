@@ -47,14 +47,10 @@ export class HealthController {
   async health(): Promise<{
     status: 'ok';
     timestamp: string;
-    uptime: number;
-    database: boolean;
   }> {
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      database: this.dataSource.isInitialized,
     };
   }
 }

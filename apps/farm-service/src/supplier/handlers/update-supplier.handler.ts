@@ -1,7 +1,7 @@
 /**
  * Update Supplier Command Handler
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { ConflictException, NotFoundException, Logger } from '@nestjs/common';
@@ -51,9 +51,10 @@ export class UpdateSupplierHandler implements ICommandHandler<UpdateSupplierComm
       }
     }
 
-    // Update fields
+    // Update only allowed fields (exclude id, tenantId, createdBy, createdAt)
+    const { id: _id, tenantId: _tid, createdBy: _cb, createdAt: _ca, ...safeInput } = input as any;
     Object.assign(supplier, {
-      ...input,
+      ...safeInput,
       code: input.code ? input.code.toUpperCase() : supplier.code,
       updatedBy: userId,
     });

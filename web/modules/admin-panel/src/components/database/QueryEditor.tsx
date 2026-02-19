@@ -11,6 +11,7 @@
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Card, Button, Alert, Badge } from '@aquaculture/shared-ui';
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 
 // ============================================================================
 // Types
@@ -53,12 +54,13 @@ const DEFAULT_EDITOR_HEIGHT = 200;
 const API_BASE = '/api/database/explorer';
 
 const getAuthHeader = (): Record<string, string> => {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
 async function fetchSchemas(): Promise<string[]> {
   const response = await fetch(`${API_BASE}/schemas`, {
+    credentials: 'include',
     headers: { ...getAuthHeader() },
   });
   if (!response.ok) throw new Error('Failed to fetch schemas');
@@ -72,6 +74,7 @@ async function executeQuery(
 ): Promise<{ rows: Record<string, unknown>[]; rowCount: number; columns: string[] }> {
   const response = await fetch(`${API_BASE}/query`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...getAuthHeader(),
@@ -116,22 +119,31 @@ const getQueryHistory = (): QueryHistoryItem[] => {
   }
 };
 
+// Truncate query for history to avoid storing sensitive filter values in full
+const truncateForHistory = (query: string): string => {
+  const MAX_PREVIEW = 120;
+  const trimmed = query.trim();
+  if (trimmed.length <= MAX_PREVIEW) return trimmed;
+  return trimmed.substring(0, MAX_PREVIEW) + '…';
+};
+
 const saveQueryToHistory = (query: string, schema: string): void => {
   try {
     const history = getQueryHistory();
     const trimmedQuery = query.trim();
+    const preview = truncateForHistory(trimmedQuery);
 
     // Don't save empty queries or duplicates at the top
     if (!trimmedQuery) return;
-    if (history.length > 0 && history[0].query === trimmedQuery) return;
+    if (history.length > 0 && history[0].query === preview) return;
 
     const newItem: QueryHistoryItem = {
-      query: trimmedQuery,
+      query: preview,
       timestamp: Date.now(),
       schema,
     };
 
-    const updatedHistory = [newItem, ...history.filter((h) => h.query !== trimmedQuery)].slice(
+    const updatedHistory = [newItem, ...history.filter((h) => h.query !== preview)].slice(
       0,
       MAX_HISTORY_ITEMS
     );
@@ -140,6 +152,14 @@ const saveQueryToHistory = (query: string, schema: string): void => {
   } catch {
     // Silently fail if localStorage is unavailable
   }
+};
+
+// Enforce SELECT-only queries client-side
+const isSelectOnlyQuery = (query: string): boolean => {
+  const normalized = query.trim().replace(/\s+/g, ' ').toLowerCase();
+  // Reject any statement that starts with a DML/DDL keyword
+  const forbiddenPrefixes = ['insert', 'update', 'delete', 'drop', 'truncate', 'alter', 'create', 'grant', 'revoke', 'exec', 'execute', 'call'];
+  return !forbiddenPrefixes.some((kw) => normalized.startsWith(kw));
 };
 
 const exportToCSV = (columns: string[], rows: Record<string, unknown>[]): void => {
@@ -192,7 +212,7 @@ interface LineNumbersProps {
   height: number;
 }
 
-const LineNumbers: React.FC<LineNumbersProps> = ({ lineCount, height }) => {
+const LineNumbers: React.FC<LineNumbersProps> = React.memo(({ lineCount, height }) => {
   const lines = useMemo(() => Array.from({ length: Math.max(lineCount, 1) }, (_, i) => i + 1), [lineCount]);
 
   return (
@@ -205,7 +225,7 @@ const LineNumbers: React.FC<LineNumbersProps> = ({ lineCount, height }) => {
       ))}
     </div>
   );
-};
+});
 
 // ============================================================================
 // Resize Handle Component
@@ -533,14 +553,21 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
         handleExecute();
       }
     },
-    [query]
+    [query, handleExecute]
   );
 
   // Execute query
   const handleExecute = useCallback(async () => {
+    if (isExecuting) return;
+
     const trimmedQuery = query.trim();
     if (!trimmedQuery) {
       setError('Please enter a SQL query');
+      return;
+    }
+
+    if (!isSelectOnlyQuery(trimmedQuery)) {
+      setError('Only SELECT queries are allowed. INSERT, UPDATE, DELETE, DROP, and other write operations are not permitted.');
       return;
     }
 
@@ -594,14 +621,19 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
     });
   }, []);
 
-  // Update base height when resize ends
+  // Update base height when resize ends — use a ref to editorHeight to avoid re-registering on each change (PERF-007)
+  const editorHeightRef = useRef(editorHeight);
+  useEffect(() => {
+    editorHeightRef.current = editorHeight;
+  }, [editorHeight]);
+
   useEffect(() => {
     const handleMouseUp = () => {
-      baseHeightRef.current = editorHeight;
+      baseHeightRef.current = editorHeightRef.current;
     };
     document.addEventListener('mouseup', handleMouseUp);
     return () => document.removeEventListener('mouseup', handleMouseUp);
-  }, [editorHeight]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle history selection
   const handleHistorySelect = useCallback((selectedQuery: string) => {

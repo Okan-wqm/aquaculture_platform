@@ -29,8 +29,9 @@ COPY package*.json ./
 # Install ONLY production dependencies
 # This is much faster than full install + build
 # BuildKit cache mount preserves npm cache between builds
-RUN --mount=type=cache,target=/root/.npm,sharing=locked \
-    npm ci --legacy-peer-deps --omit=dev --ignore-scripts --no-audit
+RUN --mount=type=cache,target=/root/.npm,sharing=shared \
+    npm ci --legacy-peer-deps --omit=dev --ignore-scripts --no-audit && \
+    chown -R nestjs:nodejs /app/node_modules
 
 # Copy the pre-built service from host's dist folder
 COPY --chown=nestjs:nodejs dist/apps/${SERVICE_NAME} ./dist

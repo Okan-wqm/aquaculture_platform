@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import {
   UserConsent,
   ConsentType,
@@ -66,6 +66,7 @@ export class UserConsentService {
     private readonly consentRepository: Repository<UserConsent>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    private readonly dataSource: DataSource,
   ) {}
 
   // =========================================================================
@@ -107,15 +108,15 @@ export class UserConsentService {
 
   /**
    * Record multiple consents at once
+   * PERF: Uses batch insert in a single transaction (HIGH-06/M-10)
    */
   async recordBulkConsent(
     context: ConsentRequestContext,
     consents: ConsentItemInput[],
   ): Promise<BulkConsentResult> {
-    const ids: string[] = [];
-
-    for (const consent of consents) {
-      const entity = this.consentRepository.create({
+    // Create all entities up front
+    const entities = consents.map((consent) =>
+      this.consentRepository.create({
         userId: context.userId,
         tenantId: context.tenantId,
         consentType: consent.consentType,
@@ -123,11 +124,16 @@ export class UserConsentService {
         version: this.currentVersion,
         ipAddress: context.ipAddress,
         userAgent: context.userAgent,
-      });
+      }),
+    );
 
-      const saved = await this.consentRepository.save(entity);
-      ids.push(saved.id);
-    }
+    // Batch insert in a single transaction to ensure atomicity (M-10)
+    // and avoid N sequential round-trips (HIGH-06)
+    const saved = await this.dataSource.transaction(async (manager) => {
+      return manager.getRepository(UserConsent).save(entities);
+    });
+
+    const ids = saved.map((s) => s.id);
 
     this.logger.log(
       `Bulk consent recorded for user ${context.userId}: ${consents.length} consents`,
@@ -208,39 +214,33 @@ export class UserConsentService {
    * Get current consent status for a user
    */
   async getConsentStatus(userId: string): Promise<UserConsentStatus> {
-    const consents: ConsentStatusItem[] = [];
+    // PERF: Single query using DISTINCT ON to get latest consent per type
+    // instead of N+1 queries (one per ConsentType enum value)
+    const latestPerType: UserConsent[] = await this.consentRepository
+      .createQueryBuilder('c')
+      .distinctOn(['c.consentType'])
+      .where('c.userId = :userId', { userId })
+      .orderBy('c.consentType', 'ASC')
+      .addOrderBy('c.createdAt', 'DESC')
+      .getMany();
+
+    const consentMap = new Map(latestPerType.map((c) => [c.consentType, c]));
     let lastUpdated = new Date(0);
+    let latestVersion: string | null = null;
 
-    // Get latest consent for each type
-    for (const type of Object.values(ConsentType)) {
-      const latest = await this.consentRepository.findOne({
-        where: { userId, consentType: type },
-        order: { createdAt: 'DESC' },
-      });
-
-      if (latest) {
-        consents.push({
-          consentType: type,
-          granted: latest.isActive(),
-        });
-        if (latest.createdAt > lastUpdated) {
-          lastUpdated = latest.createdAt;
+    const consents: ConsentStatusItem[] = Object.values(ConsentType).map((type) => {
+      const record = consentMap.get(type);
+      if (record) {
+        if (record.createdAt > lastUpdated) {
+          lastUpdated = record.createdAt;
+          latestVersion = record.version;
         }
-      } else {
-        consents.push({
-          consentType: type,
-          granted: false,
-        });
+        return { consentType: type, granted: record.isActive() };
       }
-    }
-
-    // Check if consent is outdated
-    const latestConsent = await this.consentRepository.findOne({
-      where: { userId },
-      order: { createdAt: 'DESC' },
+      return { consentType: type, granted: false };
     });
 
-    const isOutdated = !latestConsent || latestConsent.version !== this.currentVersion;
+    const isOutdated = !latestVersion || latestVersion !== this.currentVersion;
 
     return {
       userId,

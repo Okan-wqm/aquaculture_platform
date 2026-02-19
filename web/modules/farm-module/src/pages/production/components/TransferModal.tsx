@@ -4,7 +4,7 @@
  * Handles mixed batch logic when transferring to a tank with existing fish
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Modal, Button } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast } from '@aquaculture/shared-ui';
 import { TankBatch } from '../types/batch.types';
 import { useTransferBatch, useAvailableTanks, AvailableTank } from '../../../hooks/useBatches';
 
@@ -42,6 +42,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
   // Mutation hook
   const transferBatch = useTransferBatch();
+  const { toast } = useToast();
 
   // Fetch available tanks
   const { data: availableTanks = [], isLoading: tanksLoading } = useAvailableTanks({
@@ -131,7 +132,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
     // Check if we have a batch
     if (!tank.primaryBatchId) {
-      alert('No batch assigned to this tank');
+      toast({ title: 'Validation Error', description: 'No batch assigned to this tank.', variant: 'error' });
       return;
     }
 
@@ -152,8 +153,8 @@ export const TransferModal: React.FC<TransferModalProps> = ({
       onSuccess();
       onClose();
     } catch (error) {
-      console.error('Failed to transfer batch:', error);
-      alert(error instanceof Error ? error.message : 'Failed to transfer batch');
+      if (import.meta.env.DEV) console.error('Failed to transfer batch:', error);
+      toast({ title: 'Error', description: 'Failed to transfer batch. Please try again.', variant: 'error' });
     }
   };
 
@@ -377,6 +378,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             <textarea
               id="notes"
               rows={3}
+              maxLength={2000}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"

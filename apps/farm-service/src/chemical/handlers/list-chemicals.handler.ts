@@ -71,8 +71,10 @@ export class ListChemicalsHandler implements IQueryHandler<ListChemicalsQuery> {
       );
     }
 
-    // Apply sorting
-    queryBuilder.orderBy(`chemical.${sortBy}`, sortOrder);
+    // Apply sorting with allowlist to prevent SQL injection
+    const validSortFields = ['name', 'code', 'type', 'status', 'activeIngredient', 'createdAt', 'updatedAt'];
+    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    queryBuilder.orderBy(`chemical.${safeSortBy}`, sortOrder);
 
     // Apply pagination
     queryBuilder.skip((page - 1) * limit);

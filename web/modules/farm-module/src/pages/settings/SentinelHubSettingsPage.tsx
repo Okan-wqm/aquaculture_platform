@@ -5,8 +5,8 @@
  * Client ID ve Client Secret bilgileri backend'de şifrelenerek saklanır.
  */
 
-import React, { useState, useEffect } from 'react';
-import { Card, Button, Input, Alert } from '@aquaculture/shared-ui';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Card, Button, Input, Alert, graphqlClient } from '@aquaculture/shared-ui';
 
 // GraphQL queries/mutations
 const SENTINEL_HUB_STATUS_QUERY = `
@@ -51,33 +51,26 @@ export const SentinelHubSettingsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Fetch current status on mount
-  useEffect(() => {
-    fetchStatus();
-  }, []);
-
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async () => {
     setIsStatusLoading(true);
     try {
-      const token = localStorage.getItem('access_token');
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ query: SENTINEL_HUB_STATUS_QUERY }),
-      });
-      const result = await response.json();
-      if (result.data?.sentinelHubStatus) {
-        setStatus(result.data.sentinelHubStatus);
+      const data = await graphqlClient.request<{ sentinelHubStatus: SettingsStatus }>(
+        SENTINEL_HUB_STATUS_QUERY,
+      );
+      if (data.sentinelHubStatus) {
+        setStatus(data.sentinelHubStatus);
       }
     } catch (err) {
-      console.error('Failed to fetch status:', err);
+      if (import.meta.env.DEV) console.error('Failed to fetch status:', err);
     } finally {
       setIsStatusLoading(false);
     }
-  };
+  }, []);
+
+  // Fetch current status on mount
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
 
   const handleSave = async () => {
     if (!clientId.trim() || !clientSecret.trim()) {
@@ -90,27 +83,11 @@ export const SentinelHubSettingsPage: React.FC = () => {
     setSuccess(null);
 
     try {
-      const token = localStorage.getItem('access_token');
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          query: SAVE_SENTINEL_HUB_SETTINGS,
-          variables: {
-            clientId: clientId.trim(),
-            clientSecret: clientSecret.trim(),
-            instanceId: instanceId.trim() || null,
-          },
-        }),
+      await graphqlClient.request(SAVE_SENTINEL_HUB_SETTINGS, {
+        clientId: clientId.trim(),
+        clientSecret: clientSecret.trim(),
+        instanceId: instanceId.trim() || null,
       });
-
-      const result = await response.json();
-      if (result.errors) {
-        throw new Error(result.errors[0].message);
-      }
 
       setSuccess('Sentinel Hub ayarlari basariyla kaydedildi');
       setClientId('');
@@ -134,20 +111,7 @@ export const SentinelHubSettingsPage: React.FC = () => {
     setSuccess(null);
 
     try {
-      const token = localStorage.getItem('access_token');
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ query: DELETE_SENTINEL_HUB_SETTINGS }),
-      });
-
-      const result = await response.json();
-      if (result.errors) {
-        throw new Error(result.errors[0].message);
-      }
+      await graphqlClient.request(DELETE_SENTINEL_HUB_SETTINGS);
 
       setSuccess('Ayarlar silindi');
       fetchStatus();

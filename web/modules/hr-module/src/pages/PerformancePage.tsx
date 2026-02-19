@@ -1,249 +1,157 @@
 /**
  * Performance Page
  *
- * Performans değerlendirme sayfası.
+ * BUG-007: Mock data replaced with real API hooks.
  */
 
-import React from 'react';
-import { Award, TrendingUp, Star, Target, BarChart3, Users, Calendar, ChevronRight } from 'lucide-react';
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface PerformanceReview {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  department: string;
-  reviewPeriod: string;
-  overallScore: number;
-  status: 'pending' | 'in-progress' | 'completed';
-  reviewDate: string;
-  categories: {
-    name: string;
-    score: number;
-  }[];
-}
-
-// ============================================================================
-// Mock Data
-// ============================================================================
-
-const mockReviews: PerformanceReview[] = [
-  {
-    id: '1',
-    employeeId: '1',
-    employeeName: 'Ahmet Yılmaz',
-    department: 'Üretim',
-    reviewPeriod: 'Q4 2023',
-    overallScore: 4.5,
-    status: 'completed',
-    reviewDate: '2024-01-10',
-    categories: [
-      { name: 'İş Kalitesi', score: 4.5 },
-      { name: 'Verimlilik', score: 4.0 },
-      { name: 'Takım Çalışması', score: 5.0 },
-      { name: 'İletişim', score: 4.5 },
-    ],
-  },
-  {
-    id: '2',
-    employeeId: '2',
-    employeeName: 'Ayşe Kaya',
-    department: 'Kalite',
-    reviewPeriod: 'Q4 2023',
-    overallScore: 4.8,
-    status: 'completed',
-    reviewDate: '2024-01-08',
-    categories: [
-      { name: 'İş Kalitesi', score: 5.0 },
-      { name: 'Verimlilik', score: 4.5 },
-      { name: 'Takım Çalışması', score: 4.5 },
-      { name: 'İletişim', score: 5.0 },
-    ],
-  },
-  {
-    id: '3',
-    employeeId: '3',
-    employeeName: 'Mehmet Demir',
-    department: 'Bakım',
-    reviewPeriod: 'Q4 2023',
-    overallScore: 0,
-    status: 'in-progress',
-    reviewDate: '2024-01-15',
-    categories: [],
-  },
-  {
-    id: '4',
-    employeeId: '4',
-    employeeName: 'Fatma Şahin',
-    department: 'HR',
-    reviewPeriod: 'Q4 2023',
-    overallScore: 0,
-    status: 'pending',
-    reviewDate: '2024-01-20',
-    categories: [],
-  },
-];
-
-// ============================================================================
-// Components
-// ============================================================================
-
-const ScoreDisplay: React.FC<{ score: number }> = ({ score }) => {
-  const getColor = (s: number) => {
-    if (s >= 4.5) return 'text-green-600';
-    if (s >= 3.5) return 'text-blue-600';
-    if (s >= 2.5) return 'text-yellow-600';
-    return 'text-red-600';
-  };
-
-  return (
-    <div className="flex items-center gap-1">
-      <Star className={`w-5 h-5 ${getColor(score)} fill-current`} />
-      <span className={`text-lg font-bold ${getColor(score)}`}>{score.toFixed(1)}</span>
-    </div>
-  );
-};
-
-const StatusBadge: React.FC<{ status: PerformanceReview['status'] }> = ({ status }) => {
-  const config = {
-    pending: { label: 'Planlandı', className: 'bg-gray-100 text-gray-800' },
-    'in-progress': { label: 'Devam Ediyor', className: 'bg-yellow-100 text-yellow-800' },
-    completed: { label: 'Tamamlandı', className: 'bg-green-100 text-green-800' },
-  };
-
-  const { label, className } = config[status];
-
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${className}`}>
-      {label}
-    </span>
-  );
-};
-
-// ============================================================================
-// Performance Page
-// ============================================================================
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Award, TrendingUp, Star, Target, BarChart3, Calendar, ChevronRight } from 'lucide-react';
+import { usePerformanceReviews, usePendingReviews, useCurrentEmployeeId } from '../hooks';
+import { cn } from '@aquaculture/shared-ui';
 
 const PerformancePage: React.FC = () => {
-  const completedCount = mockReviews.filter((r) => r.status === 'completed').length;
-  const avgScore = mockReviews
-    .filter((r) => r.status === 'completed')
-    .reduce((sum, r) => sum + r.overallScore, 0) / completedCount || 0;
+  const employeeId = useCurrentEmployeeId();
+  const [activeTab, setActiveTab] = useState<'reviews' | 'goals'>('reviews');
+
+  const { data: reviews, isLoading: loadingReviews } = usePerformanceReviews();
+  const { data: pending, isLoading: loadingPending } = usePendingReviews(employeeId);
+
+  const isLoading = loadingReviews || loadingPending;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Performans Değerlendirme</h1>
-          <p className="text-gray-500 mt-1">Çalışan performans takibi ve değerlendirmeleri</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Performance</h1>
+          <p className="mt-1 text-gray-500 dark:text-gray-400">
+            Performance reviews and goal tracking
+          </p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors">
-          <Target className="w-4 h-4" />
-          Yeni Değerlendirme
+        <Link
+          to="/hr/performance/reviews"
+          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+        >
+          <Award className="h-4 w-4" />
+          New Review
+        </Link>
+      </div>
+
+      {/* Pending Reviews Alert */}
+      {pending && pending.length > 0 && (
+        <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
+          <div className="flex items-center gap-3">
+            <Star className="h-5 w-5 text-amber-600" />
+            <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
+              {pending.length} review{pending.length !== 1 ? 's' : ''} pending your submission
+            </span>
+          </div>
+          <Link
+            to="/hr/performance/reviews"
+            className="flex items-center gap-1 text-sm text-amber-700 hover:text-amber-900 dark:text-amber-300"
+          >
+            View <ChevronRight className="h-4 w-4" />
+          </Link>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="flex gap-4 border-b border-gray-200 dark:border-gray-700">
+        <button
+          onClick={() => setActiveTab('reviews')}
+          className={cn(
+            'border-b-2 pb-3 text-sm font-medium transition-colors',
+            activeTab === 'reviews'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          )}
+        >
+          Reviews
+        </button>
+        <button
+          onClick={() => setActiveTab('goals')}
+          className={cn(
+            'border-b-2 pb-3 text-sm font-medium transition-colors',
+            activeTab === 'goals'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          )}
+        >
+          Goals
         </button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-violet-100 rounded-lg">
-              <Users className="w-6 h-6 text-violet-600" />
+      {/* Reviews Tab */}
+      {activeTab === 'reviews' && (
+        <div className="space-y-4">
+          {isLoading ? (
+            <div className="flex h-32 items-center justify-center">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
             </div>
-            <div>
-              <p className="text-sm text-gray-500">Toplam Değerlendirme</p>
-              <p className="text-xl font-bold text-gray-900">{mockReviews.length}</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-green-100 rounded-lg">
-              <Award className="w-6 h-6 text-green-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Tamamlanan</p>
-              <p className="text-xl font-bold text-gray-900">{completedCount}</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-yellow-100 rounded-lg">
-              <TrendingUp className="w-6 h-6 text-yellow-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Ortalama Puan</p>
-              <p className="text-xl font-bold text-gray-900">{avgScore.toFixed(1)} / 5.0</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-blue-100 rounded-lg">
-              <Calendar className="w-6 h-6 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Dönem</p>
-              <p className="text-xl font-bold text-gray-900">Q4 2023</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Reviews List */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-        <div className="p-4 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-900">Değerlendirme Listesi</h3>
-        </div>
-        <div className="divide-y divide-gray-100">
-          {mockReviews.map((review) => (
-            <div
-              key={review.id}
-              className="p-6 hover:bg-gray-50 transition-colors cursor-pointer"
-            >
-              <div className="flex items-center justify-between">
+          ) : reviews && reviews.items && reviews.items.length > 0 ? (
+            reviews.items.map((review) => (
+              <div
+                key={review.id}
+                className="flex items-center justify-between rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800"
+              >
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-violet-100 flex items-center justify-center">
-                    <span className="text-violet-600 font-medium">
-                      {review.employeeName.split(' ').map((n) => n[0]).join('')}
-                    </span>
+                  <div className="rounded-lg bg-indigo-50 p-3 dark:bg-indigo-900/30">
+                    <Award className="h-5 w-5 text-indigo-600" />
                   </div>
                   <div>
-                    <h4 className="font-medium text-gray-900">{review.employeeName}</h4>
-                    <p className="text-sm text-gray-500">{review.department} - {review.reviewPeriod}</p>
+                    <p className="font-medium text-gray-900 dark:text-white">
+                      {review.reviewPeriod}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      {review.employee?.firstName} {review.employee?.lastName}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
-                  {review.status === 'completed' && (
-                    <ScoreDisplay score={review.overallScore} />
+                  {review.overallScore !== null && review.overallScore !== undefined && (
+                    <div className="flex items-center gap-1 text-amber-600">
+                      <Star className="h-4 w-4 fill-amber-500" />
+                      <span className="text-sm font-medium">{review.overallScore.toFixed(1)}</span>
+                    </div>
                   )}
-                  <StatusBadge status={review.status} />
-                  <ChevronRight className="w-5 h-5 text-gray-400" />
+                  <span
+                    className={cn(
+                      'rounded-full px-2 py-0.5 text-xs font-medium',
+                      review.status === 'completed'
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                        : review.status === 'in_progress'
+                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                        : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                    )}
+                  >
+                    {review.status}
+                  </span>
                 </div>
               </div>
-
-              {review.status === 'completed' && review.categories.length > 0 && (
-                <div className="mt-4 grid grid-cols-4 gap-4">
-                  {review.categories.map((cat) => (
-                    <div key={cat.name} className="bg-gray-50 rounded-lg p-3">
-                      <p className="text-xs text-gray-500">{cat.name}</p>
-                      <div className="flex items-center gap-1 mt-1">
-                        <Star className="w-4 h-4 text-yellow-500 fill-current" />
-                        <span className="text-sm font-medium text-gray-900">{cat.score.toFixed(1)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+            ))
+          ) : (
+            <div className="flex h-32 flex-col items-center justify-center text-center">
+              <BarChart3 className="mb-2 h-8 w-8 text-gray-400" />
+              <p className="text-gray-500">No performance reviews found</p>
             </div>
-          ))}
+          )}
         </div>
-      </div>
+      )}
+
+      {/* Goals Tab */}
+      {activeTab === 'goals' && (
+        <div className="flex h-32 flex-col items-center justify-center text-center">
+          <Target className="mb-2 h-8 w-8 text-gray-400" />
+          <p className="text-gray-500">Goals tracking available in the Goals section</p>
+          <Link
+            to="/hr/performance/goals"
+            className="mt-3 text-sm text-indigo-600 hover:underline"
+          >
+            Open Goals
+          </Link>
+        </div>
+      )}
     </div>
   );
 };

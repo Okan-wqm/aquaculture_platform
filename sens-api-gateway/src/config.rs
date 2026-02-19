@@ -20,7 +20,17 @@ use tracing::{debug, info, warn};
 // Secret<String> Serialization Helpers (v1.2.2)
 // ============================================================================
 
-/// Serialize Option<Secret<String>> - exposes inner value for YAML storage
+/// Prefix used to identify base64-encoded credential fields in config.yaml
+const B64_PREFIX: &str = "b64:";
+
+/// Serialize Option<Secret<String>> — stores the value as base64 to avoid
+/// accidental cleartext credential exposure via grep, diff, or backup tools.
+///
+/// The `b64:` prefix allows the deserializer to distinguish encoded values
+/// from any legacy cleartext values stored before this change was applied.
+///
+/// Note: base64 is encoding, not encryption.  The config file must still be
+/// protected by OS-level permissions (0600) which `save()` enforces below.
 fn serialize_secret_option<S>(
     value: &Option<Secret<String>>,
     serializer: S,
@@ -28,50 +38,43 @@ fn serialize_secret_option<S>(
 where
     S: Serializer,
 {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
     match value {
-        Some(secret) => serializer.serialize_some(secret.expose_secret()),
+        Some(secret) => {
+            let encoded = format!("{}{}", B64_PREFIX, STANDARD.encode(secret.expose_secret()));
+            serializer.serialize_some(&encoded)
+        }
         None => serializer.serialize_none(),
     }
 }
 
-/// Deserialize Option<Secret<String>> - wraps value in Secret
+/// Deserialize Option<Secret<String>> — handles both the new `b64:` encoded
+/// form and any legacy cleartext values for backward compatibility.
 fn deserialize_secret_option<'de, D>(deserializer: D) -> Result<Option<Secret<String>>, D::Error>
 where
     D: Deserializer<'de>,
 {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
     let opt: Option<String> = Option::deserialize(deserializer)?;
-    Ok(opt.map(Secret::new))
+    Ok(opt.map(|s| {
+        if let Some(encoded) = s.strip_prefix(B64_PREFIX) {
+            // Decode base64; fall back to the raw string if decoding fails
+            match STANDARD.decode(encoded) {
+                Ok(bytes) => Secret::new(String::from_utf8_lossy(&bytes).into_owned()),
+                Err(_) => Secret::new(s),
+            }
+        } else {
+            // Legacy cleartext value — wrap as-is
+            Secret::new(s)
+        }
+    }))
 }
 
 // ============================================================================
 // Private Key Permission Validation (v1.2.2 - IEC 62443 FR4)
 // ============================================================================
-
-/// Validate that a private key file has secure permissions (Unix only)
-///
-/// Private key files should only be readable by owner (mode 0600 or 0400).
-/// This prevents other users from accessing sensitive credentials.
-#[cfg(unix)]
-fn validate_key_file_permissions(path: &std::path::Path) -> std::result::Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let metadata =
-        std::fs::metadata(path).map_err(|e| format!("Cannot read file metadata: {}", e))?;
-
-    let mode = metadata.permissions().mode();
-    let world_readable = mode & 0o004 != 0;
-    let group_readable = mode & 0o040 != 0;
-
-    if world_readable || group_readable {
-        return Err(format!(
-            "Insecure permissions {:04o} on {}: private keys should be 0600 or 0400",
-            mode & 0o777,
-            path.display()
-        ));
-    }
-
-    Ok(())
-}
+// Delegate to the canonical implementation in crate::security (MED-23).
+use crate::security::validate_key_file_permissions;
 
 // ============================================================================
 // Platform-Aware GPIO Validation (v1.2.2)
@@ -144,15 +147,23 @@ pub struct AgentConfig {
     /// Human-readable device code (e.g., "RPI-A1B2C3D4")
     pub device_code: String,
 
-    /// Provisioning token (cleared after activation)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provisioning_token: Option<String>,
+    /// Provisioning token — zeroized on drop via Secret<String> (IEC 62443 FR4 / MED-30).
+    /// Cleared from config after successful activation.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_secret_option",
+        deserialize_with = "deserialize_secret_option"
+    )]
+    pub provisioning_token: Option<Secret<String>>,
 
-    /// Tenant provisioning token for self-registration (v2.0)
-    /// Used when device is installed via tenant-level installer link
-    /// Cleared after successful self-registration
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tenant_token: Option<String>,
+    /// Tenant provisioning token for self-registration (v2.0) — zeroized on drop.
+    /// Cleared after successful self-registration.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_secret_option",
+        deserialize_with = "deserialize_secret_option"
+    )]
+    pub tenant_token: Option<Secret<String>>,
 
     /// Cloud API URL
     pub api_url: String,
@@ -216,6 +227,25 @@ pub struct MqttTlsConfig {
     /// Verify server hostname against certificate
     #[serde(default = "default_true")]
     pub verify_hostname: bool,
+
+    /// Disable TLS server certificate verification — ONLY for development/testing.
+    /// Setting this to `true` in release builds is blocked at compile time
+    /// to prevent insecure production deployments (IEC 62443 FR4).
+    #[serde(default)]
+    pub insecure_skip_verify: bool,
+}
+
+impl MqttTlsConfig {
+    /// Validate TLS configuration — compile-time guard mirrors ModbusTlsConfig
+    pub fn validate(&self) -> Result<(), crate::error::AgentError> {
+        #[cfg(not(debug_assertions))]
+        if self.insecure_skip_verify {
+            return Err(crate::error::AgentError::Config(
+                "MQTT TLS insecure_skip_verify is not allowed in release builds (IEC 62443 FR4)".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// MQTT configuration

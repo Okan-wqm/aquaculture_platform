@@ -617,11 +617,37 @@ describe('LoadingState', () => {
   });
 });
 
+// DASH-SEC-007: ErrorState must never render raw backend strings.
+// It maps error messages/codes through toSafeErrorMessage and shows
+// a generic or code-matched user-facing message instead.
 describe('ErrorState', () => {
-  it('should render error message', () => {
+  it('should render a safe generic message for unknown errors (DASH-SEC-007)', () => {
     render(<ErrorState message="Something went wrong" />);
 
-    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
+    // Raw backend string must NOT appear
+    expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument();
+    // Generic safe message must appear instead
+    expect(
+      screen.getByText('Uyarılar yüklenirken bir hata oluştu. Lütfen tekrar deneyin.')
+    ).toBeInTheDocument();
+  });
+
+  it('should map UNAUTHENTICATED code to a safe message', () => {
+    render(<ErrorState message="UNAUTHENTICATED" />);
+
+    expect(screen.queryByText('UNAUTHENTICATED')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('Oturum süreniz doldu. Lütfen tekrar giriş yapın.')
+    ).toBeInTheDocument();
+  });
+
+  it('should map NETWORK_ERROR code to a safe message', () => {
+    render(<ErrorState message="NETWORK_ERROR" />);
+
+    expect(screen.queryByText('NETWORK_ERROR')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('Sunucuya bağlanılamadı. Lütfen bağlantınızı kontrol edin.')
+    ).toBeInTheDocument();
   });
 
   it('should show retry button when onRetry provided', () => {
@@ -721,11 +747,16 @@ describe('AlertSummaryWidget', () => {
   });
 
   describe('Error State', () => {
-    it('should show error state', () => {
+    it('should show error state with safe message (DASH-SEC-007)', () => {
       render(<AlertSummaryWidget error="Failed to load alerts" />);
 
       expect(screen.getByTestId('error-state')).toBeInTheDocument();
-      expect(screen.getByText('Failed to load alerts')).toBeInTheDocument();
+      // Raw backend error string must NOT be displayed
+      expect(screen.queryByText('Failed to load alerts')).not.toBeInTheDocument();
+      // Safe generic message must appear instead
+      expect(
+        screen.getByText('Uyarılar yüklenirken bir hata oluştu. Lütfen tekrar deneyin.')
+      ).toBeInTheDocument();
     });
 
     it('should not show alerts when error', () => {

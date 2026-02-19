@@ -5,7 +5,8 @@ import { BadRequestException, NotFoundException, ForbiddenException, Logger } fr
 import { ApproveLeaveRequestCommand } from '../commands/approve-leave-request.command';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { LeaveBalance } from '../entities/leave-balance.entity';
-import { LeaveApprovedEvent } from '../events/leave.events';
+import { Employee } from '../../hr/entities/employee.entity';
+import { createLeaveApprovedEvent } from '../events/leave.events';
 
 @CommandHandler(ApproveLeaveRequestCommand)
 export class ApproveLeaveRequestHandler
@@ -27,7 +28,7 @@ export class ApproveLeaveRequestHandler
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
-    await queryRunner.startTransaction('SERIALIZABLE');
+    await queryRunner.startTransaction('READ COMMITTED');
 
     try {
       const leaveRequest = await queryRunner.manager.findOne(LeaveRequest, {
@@ -38,8 +39,13 @@ export class ApproveLeaveRequestHandler
         throw new NotFoundException(`Leave request with ID ${leaveRequestId} not found`);
       }
 
+      // Resolve the approver's employee ID from auth userId to prevent cross-namespace comparison
+      const approverEmployee = await queryRunner.manager.findOne(Employee, {
+        where: { userId, tenantId, isDeleted: false },
+      });
+
       // Cannot approve own leave request
-      if (leaveRequest.employeeId === userId) {
+      if (approverEmployee && leaveRequest.employeeId === approverEmployee.id) {
         throw new ForbiddenException('You cannot approve your own leave request');
       }
 
@@ -92,7 +98,7 @@ export class ApproveLeaveRequestHandler
       await queryRunner.commitTransaction();
 
       // Publish event for notification/audit purposes
-      this.eventBus.publish(new LeaveApprovedEvent(savedRequest)).catch((err: unknown) => {
+      this.eventBus.publish(createLeaveApprovedEvent(savedRequest, userId)).catch((err: unknown) => {
         this.logger.warn(`Failed to publish LeaveApprovedEvent: ${err instanceof Error ? err.message : String(err)}`);
       });
 

@@ -313,11 +313,13 @@ export class ModuleAssignmentService {
 
     // Publish event
     this.eventBus.publish({
+      eventId: crypto.randomUUID(),
       eventType: 'ModuleRemovedFromTenant',
+      timestamp: new Date(),
       tenantId,
       moduleId,
       removedBy,
-      timestamp: new Date(),
+      version: 1,
     });
 
     // Create audit log
@@ -549,7 +551,9 @@ export class ModuleAssignmentService {
     assignedBy: string,
   ): void {
     this.eventBus.publish({
+      eventId: crypto.randomUUID(),
       eventType: 'TenantModulesAssigned',
+      timestamp: new Date(),
       tenantId,
       moduleIds,
       pricing: pricing
@@ -561,7 +565,7 @@ export class ModuleAssignmentService {
           }
         : undefined,
       assignedBy,
-      timestamp: new Date(),
+      version: 1,
     });
   }
 

@@ -5,6 +5,7 @@
  * Handles ack timeouts, ack escalation, and ack-related workflows.
  */
 
+import * as crypto from 'crypto';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
@@ -707,6 +708,11 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
    * Bulk acknowledge multiple alerts
    */
   bulkAcknowledge(alertIds: string[], options: AckRequestOptions): Map<string, AcknowledgmentRecord | Error> {
+    const MAX_BULK_SIZE = 100;
+    if (alertIds.length > MAX_BULK_SIZE) {
+      throw new Error(`Bulk acknowledge limited to ${MAX_BULK_SIZE} alerts at a time`);
+    }
+
     const results = new Map<string, AcknowledgmentRecord | Error>();
 
     for (const alertId of alertIds) {
@@ -725,7 +731,7 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
    * Generate unique ID
    */
   private generateId(): string {
-    return `ack_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `ack_${crypto.randomUUID()}`;
   }
 
   /**

@@ -49,10 +49,12 @@ const updateSW = registerSW({
 });
 
 // Detect iOS for Konsta theme
+// SEC-08: Use navigator.maxTouchPoints instead of the deprecated navigator.platform.
+// The maxTouchPoints check handles iPadOS 13+ which reports a Mac-like userAgent.
 const isIOS =
   typeof navigator !== 'undefined' &&
   (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+    (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent)));
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

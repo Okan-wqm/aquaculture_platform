@@ -6,37 +6,27 @@
  * is available when Apollo Gateway's willSendRequest forwards headers.
  */
 
-import * as crypto from 'crypto';
-import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, NestMiddleware, Logger, Inject, Optional } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { Request, Response, NextFunction } from 'express';
 import { JwtPayload, AuthenticatedRequest } from '../guards/auth.guard';
+import {
+  TokenBlacklistStore,
+  TOKEN_BLACKLIST_STORE,
+} from '../guards/redis-token-blacklist.store';
 
 @Injectable()
 export class JwtMiddleware implements NestMiddleware {
   private readonly logger = new Logger(JwtMiddleware.name);
-  private readonly jwtSecret: string;
-  private readonly jwtIssuer: string;
 
-  constructor(private readonly configService: ConfigService) {
-    const secret = this.configService.get<string>('JWT_SECRET');
-    const devSecret = this.configService.get<string>('DEV_JWT_SECRET');
-    const allowDevSecret = this.configService.get<string>('ALLOW_DEV_JWT_SECRET', 'false');
+  constructor(
+    private readonly jwtService: JwtService,
+    @Optional()
+    @Inject(TOKEN_BLACKLIST_STORE)
+    private readonly tokenBlacklist?: TokenBlacklistStore,
+  ) {}
 
-    // Use same secret resolution logic as AuthGuard
-    if (secret) {
-      this.jwtSecret = secret;
-    } else if (allowDevSecret === 'true' && devSecret) {
-      this.jwtSecret = devSecret;
-    } else {
-      this.jwtSecret = '';
-      this.logger.warn('JWT_SECRET not configured - JWT middleware will not decode tokens');
-    }
-
-    this.jwtIssuer = this.configService.get<string>('JWT_ISSUER', 'aquaculture-platform');
-  }
-
-  use(req: Request, res: Response, next: NextFunction): void {
+  async use(req: Request, res: Response, next: NextFunction): Promise<void> {
     const authHeader = req.headers['authorization'];
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -45,12 +35,29 @@ export class JwtMiddleware implements NestMiddleware {
 
     const token = authHeader.substring(7);
 
-    if (!this.jwtSecret) {
-      return next();
-    }
-
     try {
-      const payload = this.decodeAndValidateToken(token);
+      // SECURITY: Use JwtService.verifyAsync() with explicit algorithm restriction
+      // instead of custom HMAC verification to prevent algorithm confusion attacks
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
+        algorithms: ['HS256'],
+      });
+
+      // SECURITY: Reject tokens without jti in production - they cannot be revoked
+      const isProduction = process.env['NODE_ENV'] === 'production';
+      if (isProduction && !payload.jti) {
+        this.logger.warn('Rejected token without jti claim in production');
+        return next();
+      }
+
+      // SECURITY: Check blacklist BEFORE setting req.user
+      // This prevents revoked token identity from being forwarded to subgraphs
+      if (payload.jti && this.tokenBlacklist) {
+        const isBlacklisted = await this.tokenBlacklist.isBlacklisted(payload.jti);
+        if (isBlacklisted) {
+          this.logger.warn(`Blacklisted token used: ${payload.jti.substring(0, 8)}...`);
+          return next();
+        }
+      }
 
       // Set user on request - this will be available in GraphQL context
       (req as AuthenticatedRequest).user = payload;
@@ -62,58 +69,5 @@ export class JwtMiddleware implements NestMiddleware {
     }
 
     next();
-  }
-
-  /**
-   * Decode and validate JWT token
-   * Uses same logic as AuthGuard for consistency
-   */
-  private decodeAndValidateToken(token: string): JwtPayload {
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      throw new Error('Invalid token format');
-    }
-
-    const [headerB64, payloadB64, signatureB64] = parts as [string, string, string];
-
-    // Verify signature
-    const data = `${headerB64}.${payloadB64}`;
-    const signature = this.base64UrlDecode(signatureB64);
-    const expectedSignature = crypto
-      .createHmac('sha256', this.jwtSecret)
-      .update(data)
-      .digest();
-
-    if (!crypto.timingSafeEqual(Buffer.from(signature), expectedSignature)) {
-      throw new Error('Invalid signature');
-    }
-
-    // Decode payload
-    const payloadJson = Buffer.from(this.base64UrlDecode(payloadB64)).toString('utf8');
-    const payload = JSON.parse(payloadJson) as JwtPayload;
-
-    // Validate expiration
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp && payload.exp < now) {
-      throw new Error('Token expired');
-    }
-
-    // Validate issuer
-    if (payload.iss && payload.iss !== this.jwtIssuer) {
-      throw new Error('Invalid issuer');
-    }
-
-    return payload;
-  }
-
-  /**
-   * Base64 URL decode
-   */
-  private base64UrlDecode(str: string): Buffer {
-    str = str.replace(/-/g, '+').replace(/_/g, '/');
-    while (str.length % 4) {
-      str += '=';
-    }
-    return Buffer.from(str, 'base64');
   }
 }

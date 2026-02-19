@@ -3,7 +3,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_FILTER } from '@nestjs/core';
 import {
-  TenantContextMiddleware,
   CorrelationIdMiddleware,
 } from '@platform/backend-common';
 import { EventBusModule } from '@platform/event-bus';
@@ -38,8 +37,14 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
         password: dbPassword || 'postgres',
         database: configService.get('DATABASE_NAME', 'notification_service'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: configService.get('NODE_ENV') !== 'production',
+        synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
+        extra: {
+          max: configService.get<number>('DATABASE_POOL_MAX', 20),
+          min: configService.get<number>('DATABASE_POOL_MIN', 2),
+          idleTimeoutMillis: 30000,
+          connectionTimeoutMillis: 5000,
+        },
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {
           const sslEnabled = configService.get('DATABASE_SSL') === 'true';
@@ -86,7 +91,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
-      .apply(CorrelationIdMiddleware, TenantContextMiddleware)
+      .apply(CorrelationIdMiddleware)
       .forRoutes('*');
   }
 }

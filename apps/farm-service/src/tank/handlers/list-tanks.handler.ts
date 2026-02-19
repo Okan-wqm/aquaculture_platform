@@ -125,14 +125,11 @@ export class ListTanksHandler
       queryBuilder.orderBy('tank.name', 'ASC');
     }
 
-    // Get total count
-    const total = await queryBuilder.getCount();
-
     // Apply pagination
     queryBuilder.skip(offset).take(limit);
 
-    // Execute
-    const items = await queryBuilder.getMany();
+    // PERF(F1-006): Single query for both count and data instead of two separate round-trips
+    const [items, total] = await queryBuilder.getManyAndCount();
 
     return {
       items,

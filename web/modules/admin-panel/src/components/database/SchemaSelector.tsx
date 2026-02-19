@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, Badge, Button, Input, Skeleton } from '@aquaculture/shared-ui';
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 
 // ============================================================================
 // Type Definitions
@@ -65,10 +66,11 @@ const STATUS_LABELS: Record<TenantSchema['status'], string> = {
  * Fetch categorized schemas from the API
  */
 async function fetchCategorizedSchemas(): Promise<CategorizedSchemas> {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
 
   const response = await fetch('/api/database/explorer/schemas/categorized', {
     method: 'GET',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

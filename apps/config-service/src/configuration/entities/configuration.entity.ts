@@ -7,11 +7,9 @@ import {
   VersionColumn,
   Index,
   Unique,
-  BeforeInsert,
-  BeforeUpdate,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, registerEnumType } from '@nestjs/graphql';
-import * as crypto from 'crypto';
+import GraphQLJSON from 'graphql-type-json';
 
 /**
  * Configuration value types
@@ -47,8 +45,10 @@ registerEnumType(ConfigEnvironment, {
 /**
  * Configuration Entity
  * Stores centralized configuration for all services
- * Supports multi-tenancy, encryption for secrets, and versioning
+ * Supports multi-tenancy, versioning
+ * Encryption for secrets is delegated to EncryptionService
  */
+@ObjectType()
 @Entity('configurations')
 @Unique(['tenantId', 'service', 'key', 'environment'])
 @Index(['tenantId', 'service'])
@@ -59,7 +59,7 @@ export class Configuration {
   @Field(() => ID)
   id!: string;
 
-  @Column({ length: 100 })
+  @Column({ length: 100, name: 'tenant_id' })
   @Index()
   @Field()
   tenantId!: string; // 'global' for system-wide configs
@@ -75,12 +75,13 @@ export class Configuration {
 
   @Column('text')
   @Field()
-  value!: string; // Encrypted if isSecret=true
+  value!: string; // Encrypted if isSecret=true (handled by EncryptionService)
 
   @Column({
     type: 'enum',
     enum: ConfigValueType,
     default: ConfigValueType.STRING,
+    name: 'value_type',
   })
   @Field(() => ConfigValueType)
   valueType!: ConfigValueType;
@@ -97,20 +98,20 @@ export class Configuration {
   @Field({ nullable: true })
   description?: string;
 
-  @Column({ default: false })
+  @Column({ default: false, name: 'is_secret' })
   @Field()
-  isSecret!: boolean; // If true, value is encrypted
+  isSecret!: boolean; // If true, value is encrypted (by EncryptionService)
 
-  @Column({ default: true })
+  @Column({ default: true, name: 'is_active' })
   @Field()
   isActive!: boolean;
 
-  @Column({ nullable: true, length: 255 })
+  @Column({ nullable: true, length: 255, name: 'default_value' })
   @Field({ nullable: true })
   defaultValue?: string;
 
-  @Column('jsonb', { nullable: true })
-  @Field({ nullable: true })
+  @Column('jsonb', { name: 'validation_rules', nullable: true })
+  @Field(() => GraphQLJSON, { nullable: true })
   validationRules?: Record<string, unknown>; // { min: 1, max: 100 } for numbers
 
   @Column({ nullable: true, length: 50 })
@@ -121,19 +122,19 @@ export class Configuration {
   @Field(() => [String], { nullable: true })
   tags?: string[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   @Field()
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   @Field()
   updatedAt!: Date;
 
-  @Column({ nullable: true, length: 100 })
+  @Column({ nullable: true, length: 100, name: 'created_by' })
   @Field({ nullable: true })
   createdBy?: string;
 
-  @Column({ nullable: true, length: 100 })
+  @Column({ nullable: true, length: 100, name: 'updated_by' })
   @Field({ nullable: true })
   updatedBy?: string;
 
@@ -141,102 +142,27 @@ export class Configuration {
   @Field(() => Int)
   version!: number;
 
-  // SECURITY: Encryption key must be provided via environment variable
-  private static readonly ENCRYPTION_KEY = (() => {
-    const key = process.env['CONFIG_ENCRYPTION_KEY'];
-    if (!key && process.env['NODE_ENV'] === 'production') {
-      throw new Error('SECURITY: CONFIG_ENCRYPTION_KEY environment variable must be set in production');
-    }
-    return key || 'DEV-ONLY-ENCRYPTION-KEY-32CHARS!';
-  })();
-  private static readonly ENCRYPTION_ALGORITHM = 'aes-256-gcm';
-
   /**
-   * Encrypt sensitive values before saving
-   */
-  @BeforeInsert()
-  @BeforeUpdate()
-  encryptIfSecret(): void {
-    if (this.isSecret && this.value && !this.isEncrypted(this.value)) {
-      this.value = this.encrypt(this.value);
-    }
-  }
-
-  /**
-   * Check if value is already encrypted
-   */
-  private isEncrypted(value: string): boolean {
-    try {
-      const parsed = JSON.parse(value);
-      return parsed.iv && parsed.authTag && parsed.encrypted;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Encrypt a value using AES-256-GCM
-   */
-  private encrypt(text: string): string {
-    const iv = crypto.randomBytes(16);
-    const key = crypto.scryptSync(Configuration.ENCRYPTION_KEY, 'salt', 32);
-    const cipher = crypto.createCipheriv(Configuration.ENCRYPTION_ALGORITHM, key, iv);
-
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-
-    const authTag = cipher.getAuthTag();
-
-    return JSON.stringify({
-      iv: iv.toString('hex'),
-      authTag: authTag.toString('hex'),
-      encrypted,
-    });
-  }
-
-  /**
-   * Decrypt a value
-   * SECURITY: Throws on decryption failure instead of returning encrypted blob
-   */
-  static decrypt(encryptedValue: string): string {
-    try {
-      const { iv, authTag, encrypted } = JSON.parse(encryptedValue);
-      const key = crypto.scryptSync(Configuration.ENCRYPTION_KEY, 'salt', 32);
-      const decipher = crypto.createDecipheriv(
-        Configuration.ENCRYPTION_ALGORITHM,
-        key,
-        Buffer.from(iv, 'hex'),
-      );
-
-      decipher.setAuthTag(Buffer.from(authTag, 'hex'));
-
-      let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-      decrypted += decipher.final('utf8');
-
-      return decrypted;
-    } catch (error) {
-      // SECURITY FIX: Never return encrypted value on failure - this could expose secrets
-      // Throw an error instead so callers can handle appropriately
-      throw new Error(
-        `Configuration decryption failed: ${error instanceof Error ? error.message : 'Unknown error'}. ` +
-        `This may indicate a corrupted value or wrong encryption key.`
-      );
-    }
-  }
-
-  /**
-   * Get typed value
+   * Get typed value.
+   * For SECRET type, returns raw value as string — decryption is handled by the service layer.
    */
   getTypedValue<T = unknown>(): T {
-    const rawValue = this.isSecret ? Configuration.decrypt(this.value) : this.value;
+    const rawValue = this.value;
 
     switch (this.valueType) {
-      case ConfigValueType.NUMBER:
-        return Number(rawValue) as T;
+      case ConfigValueType.NUMBER: {
+        const num = Number(rawValue);
+        if (rawValue.trim() === '' || !Number.isFinite(num)) {
+          return NaN as T;
+        }
+        return num as T;
+      }
       case ConfigValueType.BOOLEAN:
         return (rawValue === 'true' || rawValue === '1') as T;
       case ConfigValueType.JSON:
         return JSON.parse(rawValue) as T;
+      case ConfigValueType.SECRET:
+        return rawValue as T;
       default:
         return rawValue as T;
     }
@@ -256,12 +182,12 @@ export class ConfigurationHistory {
   @Field(() => ID)
   id!: string;
 
-  @Column('uuid')
+  @Column({ type: 'uuid', name: 'configuration_id' })
   @Index()
   @Field()
   configurationId!: string;
 
-  @Column({ length: 100 })
+  @Column({ length: 100, name: 'tenant_id' })
   @Field()
   tenantId!: string;
 
@@ -273,23 +199,23 @@ export class ConfigurationHistory {
   @Field()
   key!: string;
 
-  @Column('text')
+  @Column('text', { name: 'previous_value' })
   @Field()
   previousValue!: string;
 
-  @Column('text')
+  @Column('text', { name: 'new_value' })
   @Field()
   newValue!: string;
 
-  @Column({ length: 100 })
+  @Column({ length: 100, name: 'changed_by' })
   @Field()
   changedBy!: string;
 
-  @Column()
+  @Column({ name: 'changed_at' })
   @Field()
   changedAt!: Date;
 
-  @Column({ length: 255, nullable: true })
+  @Column({ length: 255, nullable: true, name: 'change_reason' })
   @Field({ nullable: true })
   changeReason?: string;
 }

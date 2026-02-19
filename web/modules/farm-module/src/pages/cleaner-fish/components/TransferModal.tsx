@@ -4,7 +4,7 @@
  * Modal for transferring cleaner fish between tanks.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast } from '@aquaculture/shared-ui';
 import { useTransferCleanerFish, useTankCleanerFish, CleanerFishBatch } from '../../../hooks/useCleanerFish';
 
 interface Tank {
@@ -39,6 +39,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
   // Mutation
   const transferCleanerFish = useTransferCleanerFish();
+  const { toast } = useToast();
 
   // Get source tank cleaner fish info
   const { data: sourceTankInfo } = useTankCleanerFish(sourceTankId || '');
@@ -97,8 +98,8 @@ export const TransferModal: React.FC<TransferModalProps> = ({
       onSuccess();
       onClose();
     } catch (error) {
-      console.error('Failed to transfer cleaner fish:', error);
-      alert(error instanceof Error ? error.message : 'Failed to transfer cleaner fish');
+      if (import.meta.env.DEV) console.error('Failed to transfer cleaner fish:', error);
+      toast({ title: 'Error', description: 'Failed to transfer cleaner fish. Please try again.', variant: 'error' });
     }
   };
 
@@ -222,6 +223,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
           <textarea
             id="notes"
             rows={2}
+            maxLength={2000}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"

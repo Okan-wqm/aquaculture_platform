@@ -27,6 +27,10 @@ import { DepartmentResponse } from '../department/dto/department.response';
 import { GetDepartmentQuery } from '../department/queries/get-department.query';
 import { Equipment } from './entities/equipment.entity';
 import { EquipmentSystem } from './entities/equipment-system.entity';
+import { FeederCalibrationResponse } from './dto/feeder-calibration.response';
+import { SaveFeederCalibrationsInput } from './dto/feeder-calibration.input';
+import { SaveFeederCalibrationsCommand } from './commands/save-feeder-calibrations.command';
+import { ListFeederCalibrationsQuery } from './queries/list-feeder-calibrations.query';
 
 @Resolver(() => EquipmentResponse)
 @UseGuards(TenantGuard)
@@ -155,15 +159,16 @@ export class EquipmentResolver {
 
   /**
    * Get equipment type by ID with specification schema
+   * PERF(F3-001): Query directly by ID instead of fetching all types and filtering in JS
    */
   @SkipTenantGuard()
   @Query(() => EquipmentTypeResponse, { nullable: true })
   async equipmentType(
     @Args('id', { type: () => ID }) id: string,
   ): Promise<EquipmentTypeResponse | null> {
-    const query = new GetEquipmentTypesQuery({ isActive: true });
+    const query = new GetEquipmentTypesQuery({ isActive: true, id });
     const types = await this.queryBus.execute(query);
-    return types.find((t: EquipmentTypeResponse) => t.id === id) || null;
+    return types[0] || null;
   }
 
   /**
@@ -363,5 +368,35 @@ export class EquipmentResolver {
       cleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg) || undefined,
       cleanerFishDetails: tankBatch.cleanerFishDetails || undefined,
     };
+  }
+
+  // =========================================================================
+  // Feeder Calibrations
+  // =========================================================================
+
+  /**
+   * List feeder calibrations for an equipment
+   */
+  @Query(() => [FeederCalibrationResponse])
+  async feederCalibrations(
+    @Args('equipmentId', { type: () => ID }) equipmentId: string,
+    @CurrentTenant() tenantId: string,
+  ): Promise<FeederCalibrationResponse[]> {
+    const query = new ListFeederCalibrationsQuery(equipmentId, tenantId);
+    return this.queryBus.execute(query);
+  }
+
+  /**
+   * Save (upsert) feeder calibrations for an equipment
+   */
+  @Mutation(() => [FeederCalibrationResponse])
+  async saveFeederCalibrations(
+    @Args('input') input: SaveFeederCalibrationsInput,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
+  ): Promise<FeederCalibrationResponse[]> {
+    this.logger.log(`Saving feeder calibrations for equipment ${input.equipmentId}`);
+    const command = new SaveFeederCalibrationsCommand(input, tenantId, user.sub);
+    return this.commandBus.execute(command);
   }
 }

@@ -5,7 +5,7 @@
  * Displays crew distribution, current assignments, and rotation status.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Ship,
@@ -110,8 +110,9 @@ const WorkAreaCard: React.FC<{ workArea: WorkArea; employeeCount: number }> = ({
         {workArea.coordinates && (
           <div className="flex items-center gap-1 text-sm text-gray-500">
             <MapPin className="h-3 w-3" />
+            {/* BUG-018: maritime GPS requires 5 decimal places (~1m precision) */}
             <span>
-              {workArea.coordinates.latitude.toFixed(2)}, {workArea.coordinates.longitude.toFixed(2)}
+              {workArea.coordinates.latitude.toFixed(5)}, {workArea.coordinates.longitude.toFixed(5)}
             </span>
           </div>
         )}
@@ -155,8 +156,8 @@ export function CrewAssignmentsPage() {
   const offshoreList = employees?.items?.filter((e) => e.personnelCategory === 'offshore') || [];
   const onshoreList = employees?.items?.filter((e) => e.personnelCategory === 'onshore') || [];
 
-  // Crew assignment columns
-  const assignmentColumns: Column<CrewAssignment>[] = [
+  // PERF-004: memoize so the column array reference is stable across renders
+  const assignmentColumns: Column<CrewAssignment>[] = useMemo(() => [
     {
       key: 'employee',
       header: 'Employee',
@@ -227,7 +228,10 @@ export function CrewAssignmentsPage() {
         />
       ),
     },
-  ];
+  ], []);
+
+  // PERF-009: stable keyExtractor reference
+  const assignmentKeyExtractor = useCallback((row: CrewAssignment) => row.id, []);
 
   const handlePageChange = (page: number) => {
     setPagination({
@@ -235,6 +239,15 @@ export function CrewAssignmentsPage() {
       offset: (page - 1) * (pagination.limit || 20),
     });
   };
+
+  // BUG-008: crewAssignments is a flat array; DataTable doesn't slice internally,
+  // so paginate client-side by slicing the array ourselves.
+  const pageSize = pagination.limit || 20;
+  const currentOffset = pagination.offset || 0;
+  const pagedAssignments = useMemo(
+    () => (crewAssignments || []).slice(currentOffset, currentOffset + pageSize),
+    [crewAssignments, currentOffset, pageSize]
+  );
 
   const isLoading = loadingEmployees || loadingWorkAreas || loadingOffshore;
 
@@ -443,14 +456,14 @@ export function CrewAssignmentsPage() {
 
           {/* Assignments Table */}
           <DataTable
-            data={crewAssignments || []}
+            data={pagedAssignments}
             columns={assignmentColumns}
-            keyExtractor={(row) => row.id}
+            keyExtractor={assignmentKeyExtractor}
             isLoading={loadingAssignments}
             emptyMessage="No crew assignments found"
             total={crewAssignments?.length}
-            page={Math.floor((pagination.offset || 0) / (pagination.limit || 20)) + 1}
-            pageSize={pagination.limit || 20}
+            page={Math.floor(currentOffset / pageSize) + 1}
+            pageSize={pageSize}
             onPageChange={handlePageChange}
           />
         </div>

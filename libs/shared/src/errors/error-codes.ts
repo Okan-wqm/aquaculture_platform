@@ -289,6 +289,51 @@ export const FARM_ERRORS = {
     status: 404,
     message: 'Batch not found',
   },
+  EQUIPMENT_NOT_FOUND: {
+    code: 'EQUIPMENT_NOT_FOUND',
+    status: 404,
+    message: 'Equipment not found',
+  },
+  EQUIPMENT_TYPE_NOT_FOUND: {
+    code: 'EQUIPMENT_TYPE_NOT_FOUND',
+    status: 404,
+    message: 'Equipment type not found',
+  },
+  FEEDING_PROGRAM_NOT_FOUND: {
+    code: 'FEEDING_PROGRAM_NOT_FOUND',
+    status: 404,
+    message: 'Feeding program not found',
+  },
+  SITE_NOT_FOUND: {
+    code: 'SITE_NOT_FOUND',
+    status: 404,
+    message: 'Site not found',
+  },
+  CHEMICAL_NOT_FOUND: {
+    code: 'CHEMICAL_NOT_FOUND',
+    status: 404,
+    message: 'Chemical not found',
+  },
+  CONSUMABLE_NOT_FOUND: {
+    code: 'CONSUMABLE_NOT_FOUND',
+    status: 404,
+    message: 'Consumable not found',
+  },
+  FEED_NOT_FOUND: {
+    code: 'FEED_NOT_FOUND',
+    status: 404,
+    message: 'Feed not found',
+  },
+  STORAGE_LOCATION_NOT_FOUND: {
+    code: 'STORAGE_LOCATION_NOT_FOUND',
+    status: 404,
+    message: 'Storage location not found',
+  },
+  PURCHASE_ORDER_NOT_FOUND: {
+    code: 'PURCHASE_ORDER_NOT_FOUND',
+    status: 404,
+    message: 'Purchase order not found',
+  },
 
   // Business Logic (5300-5399)
   FARM_LIMIT_REACHED: {
@@ -344,6 +389,51 @@ export const SENSOR_ERRORS = {
     code: 'DEVICE_NOT_REGISTERED',
     status: 400,
     message: 'Device is not registered',
+  },
+
+  // Alert/Notification (6200-6299)
+  ALERT_RULE_NOT_FOUND: {
+    code: 'ALERT_RULE_NOT_FOUND',
+    status: 404,
+    message: 'Alert rule not found',
+  },
+  ALERT_EVENT_NOT_FOUND: {
+    code: 'ALERT_EVENT_NOT_FOUND',
+    status: 404,
+    message: 'Alert event not found',
+  },
+
+  // HR (6400-6499)
+  EMPLOYEE_NOT_FOUND: {
+    code: 'EMPLOYEE_NOT_FOUND',
+    status: 404,
+    message: 'Employee not found',
+  },
+  LEAVE_REQUEST_NOT_FOUND: {
+    code: 'LEAVE_REQUEST_NOT_FOUND',
+    status: 404,
+    message: 'Leave request not found',
+  },
+} as const;
+
+// ============================================================================
+// Generic Resource Errors (6500-6599)
+// ============================================================================
+export const RESOURCE_ERRORS = {
+  RESOURCE_NOT_FOUND: {
+    code: 'RESOURCE_NOT_FOUND',
+    status: 404,
+    message: 'Resource not found',
+  },
+  RESOURCE_CONFLICT: {
+    code: 'RESOURCE_CONFLICT',
+    status: 409,
+    message: 'Resource already exists',
+  },
+  RATE_LIMIT_EXCEEDED: {
+    code: 'RATE_LIMIT_EXCEEDED',
+    status: 429,
+    message: 'Too many requests',
   },
 } as const;
 
@@ -440,6 +530,7 @@ export const ERROR_CODES = {
   ...BILLING_ERRORS,
   ...FARM_ERRORS,
   ...SENSOR_ERRORS,
+  ...RESOURCE_ERRORS,
   ...VALIDATION_ERRORS,
   ...EXTERNAL_ERRORS,
   ...INTERNAL_ERRORS,

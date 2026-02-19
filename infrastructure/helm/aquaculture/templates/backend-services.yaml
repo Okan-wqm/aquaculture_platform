@@ -10,6 +10,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "aquaculture.fullname" . }}-auth-service
+  namespace: {{ .Values.namespace }}
   labels:
     {{- include "aquaculture.backendLabels" . | nindent 4 }}
     app: auth-service
@@ -24,7 +25,9 @@ spec:
         app: auth-service
         tier: backend
     spec:
-      serviceAccountName: {{ include "aquaculture.serviceAccountName" . }}
+      serviceAccountName: {{ include "aquaculture.fullname" . }}-auth-service
+      automountServiceAccountToken: false
+      {{- include "aquaculture.podSecurityContext" . | nindent 6 }}
       containers:
         - name: auth-service
           image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.authService.image) }}
@@ -33,31 +36,30 @@ spec:
             - containerPort: {{ .Values.authService.service.targetPort }}
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
+            {{- /* JWT_SECRET injected only into auth-service — sole token signing authority */}}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aquaculture.fullname" . }}-secrets
+                  key: jwtSecret
             - name: JWT_EXPIRES_IN
               value: {{ .Values.authService.env.JWT_EXPIRES_IN | quote }}
             - name: REFRESH_TOKEN_EXPIRES_IN
               value: {{ .Values.authService.env.REFRESH_TOKEN_EXPIRES_IN | quote }}
           resources:
             {{- toYaml .Values.authService.resources | nindent 12 }}
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: {{ .Values.authService.service.targetPort }}
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /health/ready
-              port: {{ .Values.authService.service.targetPort }}
-            initialDelaySeconds: 10
-            periodSeconds: 5
+          {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.authService.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.authService.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.securityContext" . | nindent 10 }}
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "aquaculture.fullname" . }}-auth-service
+  namespace: {{ .Values.namespace }}
   labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
     app: auth-service
 spec:
   type: {{ .Values.authService.service.type }}
@@ -67,6 +69,20 @@ spec:
       name: http
   selector:
     app: auth-service
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-auth-service-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: auth-service
 {{- end }}
 
 ---
@@ -76,6 +92,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "aquaculture.fullname" . }}-farm-service
+  namespace: {{ .Values.namespace }}
   labels:
     {{- include "aquaculture.backendLabels" . | nindent 4 }}
     app: farm-service
@@ -90,7 +107,9 @@ spec:
         app: farm-service
         tier: backend
     spec:
-      serviceAccountName: {{ include "aquaculture.serviceAccountName" . }}
+      serviceAccountName: {{ include "aquaculture.fullname" . }}-farm-service
+      automountServiceAccountToken: false
+      {{- include "aquaculture.podSecurityContext" . | nindent 6 }}
       containers:
         - name: farm-service
           image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.farmService.image) }}
@@ -101,25 +120,18 @@ spec:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.farmService.resources | nindent 12 }}
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: {{ .Values.farmService.service.targetPort }}
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /health/ready
-              port: {{ .Values.farmService.service.targetPort }}
-            initialDelaySeconds: 10
-            periodSeconds: 5
+          {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.farmService.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.farmService.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.securityContext" . | nindent 10 }}
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "aquaculture.fullname" . }}-farm-service
+  namespace: {{ .Values.namespace }}
   labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
     app: farm-service
 spec:
   type: {{ .Values.farmService.service.type }}
@@ -129,6 +141,20 @@ spec:
       name: http
   selector:
     app: farm-service
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-farm-service-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: farm-service
 {{- end }}
 
 ---
@@ -138,6 +164,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "aquaculture.fullname" . }}-sensor-service
+  namespace: {{ .Values.namespace }}
   labels:
     {{- include "aquaculture.backendLabels" . | nindent 4 }}
     app: sensor-service
@@ -157,7 +184,9 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"
     spec:
-      serviceAccountName: {{ include "aquaculture.serviceAccountName" . }}
+      serviceAccountName: {{ include "aquaculture.fullname" . }}-sensor-service
+      automountServiceAccountToken: false
+      {{- include "aquaculture.podSecurityContext" . | nindent 6 }}
       containers:
         - name: sensor-service
           image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.sensorService.image) }}
@@ -168,25 +197,18 @@ spec:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.sensorService.resources | nindent 12 }}
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: {{ .Values.sensorService.service.targetPort }}
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /health/ready
-              port: {{ .Values.sensorService.service.targetPort }}
-            initialDelaySeconds: 10
-            periodSeconds: 5
+          {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.sensorService.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.sensorService.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.securityContext" . | nindent 10 }}
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "aquaculture.fullname" . }}-sensor-service
+  namespace: {{ .Values.namespace }}
   labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
     app: sensor-service
 spec:
   type: {{ .Values.sensorService.service.type }}
@@ -203,6 +225,9 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: {{ include "aquaculture.fullname" . }}-sensor-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -218,6 +243,20 @@ spec:
           type: Utilization
           averageUtilization: {{ .Values.sensorService.autoscaling.targetCPUUtilizationPercentage }}
 {{- end }}
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-sensor-service-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: sensor-service
 {{- end }}
 
 ---
@@ -227,6 +266,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "aquaculture.fullname" . }}-alert-engine
+  namespace: {{ .Values.namespace }}
   labels:
     {{- include "aquaculture.backendLabels" . | nindent 4 }}
     app: alert-engine
@@ -241,7 +281,9 @@ spec:
         app: alert-engine
         tier: backend
     spec:
-      serviceAccountName: {{ include "aquaculture.serviceAccountName" . }}
+      serviceAccountName: {{ include "aquaculture.fullname" . }}-alert-engine
+      automountServiceAccountToken: false
+      {{- include "aquaculture.podSecurityContext" . | nindent 6 }}
       containers:
         - name: alert-engine
           image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.alertEngine.image) }}
@@ -252,19 +294,18 @@ spec:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.alertEngine.resources | nindent 12 }}
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: {{ .Values.alertEngine.service.targetPort }}
-            initialDelaySeconds: 30
-            periodSeconds: 10
+          {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.alertEngine.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.alertEngine.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.securityContext" . | nindent 10 }}
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "aquaculture.fullname" . }}-alert-engine
+  namespace: {{ .Values.namespace }}
   labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
     app: alert-engine
 spec:
   type: {{ .Values.alertEngine.service.type }}
@@ -274,6 +315,20 @@ spec:
       name: http
   selector:
     app: alert-engine
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-alert-engine-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: alert-engine
 {{- end }}
 
 ---
@@ -283,6 +338,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "aquaculture.fullname" . }}-notification-service
+  namespace: {{ .Values.namespace }}
   labels:
     {{- include "aquaculture.backendLabels" . | nindent 4 }}
     app: notification-service
@@ -297,7 +353,9 @@ spec:
         app: notification-service
         tier: backend
     spec:
-      serviceAccountName: {{ include "aquaculture.serviceAccountName" . }}
+      serviceAccountName: {{ include "aquaculture.fullname" . }}-notification-service
+      automountServiceAccountToken: false
+      {{- include "aquaculture.podSecurityContext" . | nindent 6 }}
       containers:
         - name: notification-service
           image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.notificationService.image) }}
@@ -308,19 +366,18 @@ spec:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.notificationService.resources | nindent 12 }}
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: {{ .Values.notificationService.service.targetPort }}
-            initialDelaySeconds: 30
-            periodSeconds: 10
+          {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.notificationService.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.notificationService.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.securityContext" . | nindent 10 }}
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "aquaculture.fullname" . }}-notification-service
+  namespace: {{ .Values.namespace }}
   labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
     app: notification-service
 spec:
   type: {{ .Values.notificationService.service.type }}
@@ -330,4 +387,170 @@ spec:
       name: http
   selector:
     app: notification-service
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-notification-service-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: notification-service
+{{- end }}
+
+---
+{{- /* Billing Service */}}
+{{- if .Values.billingService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-billing-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.backendLabels" . | nindent 4 }}
+    app: billing-service
+spec:
+  replicas: {{ .Values.billingService.replicaCount }}
+  selector:
+    matchLabels:
+      app: billing-service
+  template:
+    metadata:
+      labels:
+        app: billing-service
+        tier: backend
+    spec:
+      serviceAccountName: {{ include "aquaculture.fullname" . }}-billing-service
+      automountServiceAccountToken: false
+      {{- include "aquaculture.podSecurityContext" . | nindent 6 }}
+      containers:
+        - name: billing-service
+          image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.billingService.image) }}
+          imagePullPolicy: {{ .Values.billingService.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.billingService.service.targetPort }}
+          env:
+            {{- include "aquaculture.backendEnv" . | nindent 12 }}
+            {{- range $key, $val := .Values.billingService.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.billingService.resources | nindent 12 }}
+          {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.billingService.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.billingService.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.securityContext" . | nindent 10 }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-billing-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+    app: billing-service
+spec:
+  type: {{ .Values.billingService.service.type }}
+  ports:
+    - port: {{ .Values.billingService.service.port }}
+      targetPort: {{ .Values.billingService.service.targetPort }}
+      name: http
+  selector:
+    app: billing-service
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-billing-service-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: billing-service
+{{- end }}
+
+---
+{{- /* HR Service */}}
+{{- if .Values.hrService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-hr-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.backendLabels" . | nindent 4 }}
+    app: hr-service
+spec:
+  replicas: {{ .Values.hrService.replicaCount }}
+  selector:
+    matchLabels:
+      app: hr-service
+  template:
+    metadata:
+      labels:
+        app: hr-service
+        tier: backend
+    spec:
+      serviceAccountName: {{ include "aquaculture.fullname" . }}-hr-service
+      automountServiceAccountToken: false
+      {{- include "aquaculture.podSecurityContext" . | nindent 6 }}
+      containers:
+        - name: hr-service
+          image: {{ include "aquaculture.image" (dict "global" .Values.global "image" .Values.hrService.image) }}
+          imagePullPolicy: {{ .Values.hrService.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.hrService.service.targetPort }}
+          env:
+            {{- include "aquaculture.backendEnv" . | nindent 12 }}
+            {{- range $key, $val := .Values.hrService.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.hrService.resources | nindent 12 }}
+          {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.hrService.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.hrService.service.targetPort) | nindent 10 }}
+          {{- include "aquaculture.securityContext" . | nindent 10 }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-hr-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+    app: hr-service
+spec:
+  type: {{ .Values.hrService.service.type }}
+  ports:
+    - port: {{ .Values.hrService.service.port }}
+      targetPort: {{ .Values.hrService.service.targetPort }}
+      name: http
+  selector:
+    app: hr-service
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-hr-service-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: hr-service
 {{- end }}

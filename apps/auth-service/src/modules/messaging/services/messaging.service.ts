@@ -259,21 +259,38 @@ export class MessagingService {
 
     const savedMessage = await this.messageRepository.save(message);
 
-    // Update thread
-    thread.lastMessage = input.isInternal ? thread.lastMessage : input.content;
-    thread.lastMessageAt = new Date();
-    thread.lastMessageBy = userId;
-    thread.messageCount += 1;
+    // SECURITY: Use atomic increment for messageCount to prevent race conditions
+    await this.threadRepository.increment(
+      { id: thread.id },
+      'messageCount',
+      1,
+    );
+
+    // Update thread metadata
+    const updateData: Record<string, unknown> = {
+      lastMessageAt: new Date(),
+      lastMessageBy: userId,
+    };
+    if (!input.isInternal) {
+      updateData.lastMessage = input.content;
+    }
+    await this.threadRepository.update(thread.id, updateData as any);
 
     if (!input.isInternal) {
       if (isSuperAdmin) {
-        thread.unreadCountTenant += 1;
+        await this.threadRepository.increment(
+          { id: thread.id },
+          'unreadCountTenant',
+          1,
+        );
       } else {
-        thread.unreadCountAdmin += 1;
+        await this.threadRepository.increment(
+          { id: thread.id },
+          'unreadCountAdmin',
+          1,
+        );
       }
     }
-
-    await this.threadRepository.save(thread);
 
     this.logger.log(`Message sent to thread ${thread.id} by ${user.email}`);
     return savedMessage;
@@ -360,7 +377,21 @@ export class MessagingService {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    let query = this.threadRepository.createQueryBuilder('thread');
+    // PERF: Use SQL aggregation instead of loading all threads into memory (HIGH-09/L-07)
+    const isSuperAdmin = user.role === Role.SUPER_ADMIN;
+    const unreadColumn = isSuperAdmin ? 'thread.unreadCountAdmin' : 'thread.unreadCountTenant';
+
+    let query = this.threadRepository
+      .createQueryBuilder('thread')
+      .select('COUNT(*)', 'totalThreads')
+      .addSelect(`COUNT(*) FILTER (WHERE thread.status = :open)`, 'activeThreads')
+      .addSelect(`COUNT(*) FILTER (WHERE thread.status = :closed)`, 'closedThreads')
+      .addSelect('COALESCE(SUM(thread.messageCount), 0)', 'totalMessages')
+      .addSelect(`COALESCE(SUM(${unreadColumn}), 0)`, 'unreadMessages')
+      .setParameters({
+        open: ThreadStatus.OPEN,
+        closed: ThreadStatus.CLOSED,
+      });
 
     // TenantAdmin sees only their tenant's stats
     if (user.role === Role.TENANT_ADMIN && user.tenantId) {
@@ -369,31 +400,14 @@ export class MessagingService {
       });
     }
 
-    const threads = await query.getMany();
-
-    const totalThreads = threads.length;
-    const activeThreads = threads.filter(
-      (t) => t.status === ThreadStatus.OPEN,
-    ).length;
-    const closedThreads = threads.filter(
-      (t) => t.status === ThreadStatus.CLOSED,
-    ).length;
-    const totalMessages = threads.reduce((sum, t) => sum + t.messageCount, 0);
-    const unreadMessages = threads.reduce((sum, t) => {
-      return (
-        sum +
-        (user.role === Role.SUPER_ADMIN
-          ? t.unreadCountAdmin
-          : t.unreadCountTenant)
-      );
-    }, 0);
+    const result = await query.getRawOne();
 
     return {
-      totalThreads,
-      activeThreads,
-      closedThreads,
-      totalMessages,
-      unreadMessages,
+      totalThreads: parseInt(result?.totalThreads ?? '0') || 0,
+      activeThreads: parseInt(result?.activeThreads ?? '0') || 0,
+      closedThreads: parseInt(result?.closedThreads ?? '0') || 0,
+      totalMessages: parseInt(result?.totalMessages ?? '0') || 0,
+      unreadMessages: parseInt(result?.unreadMessages ?? '0') || 0,
       avgResponseTimeMinutes: 45, // TODO: Calculate actual average
     };
   }

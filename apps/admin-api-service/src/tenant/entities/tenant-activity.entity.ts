@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  UpdateDateColumn,
   Index,
 } from 'typeorm';
 
@@ -91,6 +92,10 @@ export class TenantNote {
 
   @CreateDateColumn({ type: 'timestamp with time zone' })
   createdAt!: Date;
+
+  // BUG-011 fix: track when a note was last edited so edit history is visible
+  @UpdateDateColumn({ type: 'timestamp with time zone' })
+  updatedAt!: Date;
 }
 
 // Tenant Billing Info (simplified - full billing would be in billing-service)

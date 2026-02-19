@@ -1,5 +1,11 @@
 name: CI - Full
 
+# SEC-CI-002: All third-party actions pinned to full commit SHAs
+# SEC-CI-009: Snyk action pinned to SHA (was @master), continue-on-error removed
+# SEC-CI-020: Removed continue-on-error from security audit and license check
+# ARCH-CI-006: Removed github.sha from NX cache key
+# ARCH-CI-014: Added NX cache to build job (was missing)
+
 on:
   schedule:
     # Run weekly instead of daily (saves runner minutes)
@@ -21,17 +27,30 @@ concurrency:
 jobs:
   lint-and-typecheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # Prevent stuck jobs
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+
+      # ARCH-CI-014: Added NX cache (was missing from lint-and-typecheck job)
+      # ARCH-CI-006: No github.sha in key
+      - name: Cache Nx
+        # SEC-CI-002: pinned to SHA
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .nx/cache
+          key: nx-full-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            nx-full-${{ runner.os }}-
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
@@ -47,7 +66,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30  # Tests shouldn't take more than 30 min
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
@@ -72,12 +91,14 @@ jobs:
           - 6379:6379
 
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -92,39 +113,58 @@ jobs:
           REDIS_URL: redis://localhost:6379
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        # SEC-CI-002: pinned to SHA
+        uses: codecov/codecov-action@1e68e06f1dbfde0e4cefc87efeba9e4643565303 # v5.1.2
         with:
           directory: ./coverage
           fail_ci_if_error: false
 
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30  # Build shouldn't take more than 30 min
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+
+      # ARCH-CI-014: Added NX cache to build job (was missing)
+      # ARCH-CI-006: No github.sha in key
+      - name: Cache Nx
+        # SEC-CI-002: pinned to SHA
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .nx/cache
+          key: nx-full-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            nx-full-${{ runner.os }}-
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
 
       - name: Build all projects
         run: npm run build:all
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
 
   security-scan:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -132,13 +172,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
 
+      # SEC-CI-020: Removed continue-on-error so audit failures block the build
       - name: Run security audit
         run: npm audit --audit-level=high
-        continue-on-error: true
 
+      # SEC-CI-009/SEC-CI-002: Snyk action pinned to SHA (was @master)
+      # SEC-CI-020: continue-on-error removed so Snyk failures block the build
       - name: Run Snyk security scan
-        uses: snyk/actions/node@master
-        continue-on-error: true
+        uses: snyk/actions/node@b98d498629f1c5e001d9cbe42ee4bc08d6f48b4e # pinned
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
@@ -148,10 +189,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -159,9 +202,9 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
 
+      # SEC-CI-020: Removed continue-on-error so license violations block the build
       - name: Check licenses
         run: npx license-checker --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;Unlicense'
-        continue-on-error: true
 
   build-status:
     needs: [lint-and-typecheck, test, build, security-scan, license-check]
@@ -180,6 +223,14 @@ jobs:
           fi
           if [ "${{ needs.build.result }}" != "success" ]; then
             echo "Build failed"
+            exit 1
+          fi
+          if [ "${{ needs.security-scan.result }}" != "success" ]; then
+            echo "Security scan failed"
+            exit 1
+          fi
+          if [ "${{ needs.license-check.result }}" != "success" ]; then
+            echo "License check failed"
             exit 1
           fi
           echo "All critical checks passed"

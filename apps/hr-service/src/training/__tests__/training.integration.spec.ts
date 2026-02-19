@@ -9,7 +9,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventBus } from '@nestjs/cqrs';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 
 // Handlers
 import { EnrollInTrainingHandler } from '../handlers/enroll-in-training.handler';
@@ -277,7 +277,7 @@ describe('Training Module Integration Tests', () => {
           COURSE_ID,
         );
 
-        await expect(enrollHandler.execute(command)).rejects.toThrow(BadRequestException);
+        await expect(enrollHandler.execute(command)).rejects.toThrow(ConflictException);
         await expect(enrollHandler.execute(command)).rejects.toThrow(/already enrolled/);
       });
 
@@ -303,7 +303,7 @@ describe('Training Module Integration Tests', () => {
           COURSE_ID,
         );
 
-        await expect(enrollHandler.execute(command)).rejects.toThrow(BadRequestException);
+        await expect(enrollHandler.execute(command)).rejects.toThrow(ConflictException);
         await expect(enrollHandler.execute(command)).rejects.toThrow(/in progress/);
       });
     });

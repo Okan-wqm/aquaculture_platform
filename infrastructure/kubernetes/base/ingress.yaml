@@ -7,22 +7,26 @@ metadata:
   name: aquaculture-ingress
   namespace: aquaculture
   annotations:
-    kubernetes.io/ingress.class: nginx
+    # SEC-015: use spec.ingressClassName instead of deprecated annotation
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    # SEC-018: restrict body size on API ingress to 1m; increase only on upload routes
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    # Rate limiting
+    # Rate limiting — global baseline (SEC-012: auth path limited separately)
     nginx.ingress.kubernetes.io/limit-rps: "100"
     nginx.ingress.kubernetes.io/limit-connections: "50"
-    # Security headers
+    # Security headers (SEC-010: added CSP + Permissions-Policy; SEC-014: removed X-XSS-Protection)
     nginx.ingress.kubernetes.io/configuration-snippet: |
       add_header X-Frame-Options "SAMEORIGIN" always;
       add_header X-Content-Type-Options "nosniff" always;
-      add_header X-XSS-Protection "1; mode=block" always;
       add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+      add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https://api.aquaculture.io wss://api.aquaculture.io; frame-ancestors 'none';" always;
+      add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
 spec:
+  # SEC-015: spec.ingressClassName replaces kubernetes.io/ingress.class annotation
+  ingressClassName: nginx
   tls:
     - hosts:
         - aquaculture.example.com
@@ -83,19 +87,68 @@ spec:
                   number: 80
 
 ---
-# Internal ingress for module federation assets
+# SEC-012: Separate ingress for auth endpoints with strict per-path rate limiting
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aquaculture-auth-ingress
+  namespace: aquaculture
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    # Strict rate limiting for auth endpoints — 10 RPS, 5 connections max
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+    nginx.ingress.kubernetes.io/limit-connections: "5"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+      add_header Content-Security-Policy "default-src 'none';" always;
+      add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.aquaculture.example.com
+      secretName: aquaculture-tls
+  rules:
+    - host: api.aquaculture.example.com
+      http:
+        paths:
+          - path: /api/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway-api
+                port:
+                  number: 80
+
+---
+# SEC-002: Module federation ingress — TLS + explicit CORS origins + ssl-redirect
+# SEC-015: use spec.ingressClassName
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: aquaculture-mf-ingress
   namespace: aquaculture
   annotations:
-    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/enable-cors: "true"
-    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    # SEC-002: replace wildcard with explicit allowed origins
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://app.aquaculture.io,https://aquaculture.example.com"
     nginx.ingress.kubernetes.io/cors-allow-methods: "GET, OPTIONS"
     nginx.ingress.kubernetes.io/cors-allow-headers: "Origin, Content-Type, Accept"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
 spec:
+  # SEC-015: spec.ingressClassName replaces kubernetes.io/ingress.class annotation
+  ingressClassName: nginx
+  # SEC-002: TLS for module federation assets
+  tls:
+    - hosts:
+        - mf.aquaculture.example.com
+      secretName: aquaculture-mf-tls
   rules:
     - host: mf.aquaculture.example.com
       http:

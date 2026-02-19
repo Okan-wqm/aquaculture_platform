@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -14,28 +14,16 @@ import {
   Shield,
   Trash2,
   RefreshCw,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 
+import { graphqlRequest } from '../services/tenant-api.service';
 import { useDevicePolling } from '../hooks/useDevicePolling';
+import { logError } from '../utils/error-handling';
+import { useAuthContext } from '@aquaculture/shared-ui';
 
-const GRAPHQL_URL = '/graphql';
-
-const getAuthToken = (): string | null => localStorage.getItem('access_token');
-
-const executeGraphQL = async <T,>(query: string, variables?: Record<string, unknown>): Promise<T> => {
-  const token = getAuthToken();
-  const response = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-  const result = await response.json();
-  if (result.errors) throw new Error(result.errors[0]?.message || 'GraphQL error');
-  return result.data;
-};
+const executeGraphQL = graphqlRequest;
 
 const APPROVE_MUTATION = `mutation ApproveEdgeDevice($id: ID!) { approveEdgeDevice(id: $id) { id lifecycleState } }`;
 const PING_MUTATION = `mutation PingEdgeDevice($id: ID!) { pingEdgeDevice(id: $id) { success latencyMs } }`;
@@ -53,6 +41,103 @@ const DEVICE_EVENTS_QUERY = `
 `;
 
 type TabId = 'overview' | 'io-config' | 'automation' | 'events';
+
+/**
+ * Inline confirmation dialog for destructive device actions (SEC-004)
+ */
+const DecommissionModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+  loading: boolean;
+}> = ({ isOpen, onClose, onConfirm, loading }) => {
+  const [reason, setReason] = useState('');
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
+            <AlertTriangle className="w-5 h-5 text-red-600" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Decommission Device</h2>
+            <p className="text-xs text-gray-500">This action is irreversible</p>
+          </div>
+          <button onClick={onClose} className="ml-auto p-1 text-gray-400 hover:text-gray-600">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <p className="text-sm text-gray-700 mb-4">
+          Please provide a reason for decommissioning this device.
+        </p>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Reason for decommissioning..."
+          rows={3}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none"
+        />
+        <div className="flex justify-end gap-3 mt-4">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">
+            Cancel
+          </button>
+          <button
+            onClick={() => reason.trim() && onConfirm(reason.trim())}
+            disabled={!reason.trim() || loading}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50"
+          >
+            {loading && <RefreshCw className="w-4 h-4 animate-spin" />}
+            Decommission
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Inline confirmation dialog for reboot action (SEC-004)
+ */
+const RebootConfirmModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  loading: boolean;
+}> = ({ isOpen, onClose, onConfirm, loading }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
+            <RotateCcw className="w-5 h-5 text-amber-600" />
+          </div>
+          <h2 className="text-base font-semibold text-gray-900">Reboot Device?</h2>
+          <button onClick={onClose} className="ml-auto p-1 text-gray-400 hover:text-gray-600">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <p className="text-sm text-gray-600 mb-4">
+          The device will restart. Active connections will be temporarily interrupted.
+        </p>
+        <div className="flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 disabled:opacity-50"
+          >
+            {loading && <RefreshCw className="w-4 h-4 animate-spin" />}
+            Reboot
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const HealthGauge: React.FC<{ label: string; value?: number; unit?: string; icon: React.ReactNode; color: string }> = ({
   label, value, unit = '%', icon, color,
@@ -80,11 +165,17 @@ const HealthGauge: React.FC<{ label: string; value?: number; unit?: string; icon
 const EdgeDeviceDetailPage: React.FC = () => {
   const { deviceId } = useParams<{ deviceId: string }>();
   const navigate = useNavigate();
+  const { user } = useAuthContext();
   const { device, loading, refetch } = useDevicePolling(deviceId || '', 5000);
+
+  // SEC-007: Only TENANT_ADMIN can perform destructive device actions
+  const isTenantAdmin = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN';
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [events, setEvents] = useState<Array<{ id: string; eventType: string; severity: string; message: string; createdAt: string }>>([]);
   const [eventsLoaded, setEventsLoaded] = useState(false);
+  const [showDecommissionModal, setShowDecommissionModal] = useState(false);
+  const [showRebootModal, setShowRebootModal] = useState(false);
 
   const runAction = async (name: string, mutation: string, variables: Record<string, unknown>) => {
     setActionLoading(name);
@@ -92,11 +183,19 @@ const EdgeDeviceDetailPage: React.FC = () => {
       await executeGraphQL(mutation, variables);
       refetch();
     } catch (err) {
-      console.error(`Action ${name} failed:`, err);
+      logError(`EdgeDeviceDetail.${name}`, err);
     } finally {
       setActionLoading(null);
     }
   };
+
+  // BUG-009: Load events when tab is already active on mount (e.g. deep link to events tab)
+  useEffect(() => {
+    if (activeTab === 'events' && !eventsLoaded && deviceId) {
+      loadEvents();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, deviceId]);
 
   const loadEvents = async () => {
     if (!deviceId) return;
@@ -107,7 +206,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
       setEvents(data.deviceEvents.items);
       setEventsLoaded(true);
     } catch (err) {
-      console.error('Failed to load events:', err);
+      logError('EdgeDeviceDetail.loadEvents', err);
     }
   };
 
@@ -191,18 +290,16 @@ const EdgeDeviceDetailPage: React.FC = () => {
             <Play className="w-4 h-4" />
             Ping
           </button>
-          <button
-            onClick={() => {
-              if (confirm('Cihazı yeniden başlatmak istediğinize emin misiniz?')) {
-                runAction('reboot', REBOOT_MUTATION, { id: device.id, reason: 'Admin reboot' });
-              }
-            }}
-            disabled={!!actionLoading}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
-          >
-            <RotateCcw className="w-4 h-4" />
-            Reboot
-          </button>
+          {isTenantAdmin && (
+            <button
+              onClick={() => setShowRebootModal(true)}
+              disabled={!!actionLoading}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Reboot
+            </button>
+          )}
         </div>
       </div>
 
@@ -310,19 +407,16 @@ const EdgeDeviceDetailPage: React.FC = () => {
                 <Shield className="w-4 h-4" />
                 {device.lifecycleState === 'maintenance' ? 'Exit Maintenance' : 'Maintenance Mode'}
               </button>
-              <button
-                onClick={() => {
-                  const reason = prompt('Decommission reason:');
-                  if (reason) {
-                    runAction('decommission', DECOMMISSION_MUTATION, { id: device.id, reason });
-                  }
-                }}
-                disabled={!!actionLoading || device.lifecycleState === 'decommissioned'}
-                className="flex items-center gap-2 px-3 py-2 bg-white border border-red-300 text-red-600 rounded-lg hover:bg-red-50 text-sm disabled:opacity-50"
-              >
-                <Trash2 className="w-4 h-4" />
-                Decommission
-              </button>
+              {isTenantAdmin && (
+                <button
+                  onClick={() => setShowDecommissionModal(true)}
+                  disabled={!!actionLoading || device.lifecycleState === 'decommissioned'}
+                  className="flex items-center gap-2 px-3 py-2 bg-white border border-red-300 text-red-600 rounded-lg hover:bg-red-50 text-sm disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Decommission
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -394,6 +488,28 @@ const EdgeDeviceDetailPage: React.FC = () => {
         </div>
       )}
     </div>
+
+    {/* Reboot Confirmation Modal (SEC-004) */}
+    <RebootConfirmModal
+      isOpen={showRebootModal}
+      onClose={() => setShowRebootModal(false)}
+      onConfirm={() => {
+        setShowRebootModal(false);
+        runAction('reboot', REBOOT_MUTATION, { id: device.id, reason: 'Admin reboot' });
+      }}
+      loading={actionLoading === 'reboot'}
+    />
+
+    {/* Decommission Modal with reason (SEC-004) */}
+    <DecommissionModal
+      isOpen={showDecommissionModal}
+      onClose={() => setShowDecommissionModal(false)}
+      onConfirm={(reason) => {
+        setShowDecommissionModal(false);
+        runAction('decommission', DECOMMISSION_MUTATION, { id: device.id, reason });
+      }}
+      loading={actionLoading === 'decommission'}
+    />
   );
 };
 

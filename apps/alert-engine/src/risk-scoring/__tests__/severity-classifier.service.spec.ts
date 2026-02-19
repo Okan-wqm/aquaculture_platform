@@ -24,7 +24,7 @@ describe('SeverityClassifierService', () => {
     service.resetWeights();
   });
 
-  describe('classifyBySCore', () => {
+  describe('classifyByScore', () => {
     const defaultThresholds: RiskThresholds = {
       critical: 85,
       high: 65,
@@ -33,28 +33,28 @@ describe('SeverityClassifierService', () => {
     };
 
     it('should return CRITICAL for score >= critical threshold', () => {
-      expect(service.classifyBySCore(85, defaultThresholds)).toBe(AlertSeverity.CRITICAL);
-      expect(service.classifyBySCore(100, defaultThresholds)).toBe(AlertSeverity.CRITICAL);
+      expect(service.classifyByScore(85, defaultThresholds)).toBe(AlertSeverity.CRITICAL);
+      expect(service.classifyByScore(100, defaultThresholds)).toBe(AlertSeverity.CRITICAL);
     });
 
     it('should return HIGH for score >= high threshold', () => {
-      expect(service.classifyBySCore(65, defaultThresholds)).toBe(AlertSeverity.HIGH);
-      expect(service.classifyBySCore(84, defaultThresholds)).toBe(AlertSeverity.HIGH);
+      expect(service.classifyByScore(65, defaultThresholds)).toBe(AlertSeverity.HIGH);
+      expect(service.classifyByScore(84, defaultThresholds)).toBe(AlertSeverity.HIGH);
     });
 
     it('should return MEDIUM for score >= medium threshold', () => {
-      expect(service.classifyBySCore(40, defaultThresholds)).toBe(AlertSeverity.MEDIUM);
-      expect(service.classifyBySCore(64, defaultThresholds)).toBe(AlertSeverity.MEDIUM);
+      expect(service.classifyByScore(40, defaultThresholds)).toBe(AlertSeverity.MEDIUM);
+      expect(service.classifyByScore(64, defaultThresholds)).toBe(AlertSeverity.MEDIUM);
     });
 
     it('should return LOW for score >= low threshold', () => {
-      expect(service.classifyBySCore(20, defaultThresholds)).toBe(AlertSeverity.LOW);
-      expect(service.classifyBySCore(39, defaultThresholds)).toBe(AlertSeverity.LOW);
+      expect(service.classifyByScore(20, defaultThresholds)).toBe(AlertSeverity.LOW);
+      expect(service.classifyByScore(39, defaultThresholds)).toBe(AlertSeverity.LOW);
     });
 
     it('should return INFO for score < low threshold', () => {
-      expect(service.classifyBySCore(0, defaultThresholds)).toBe(AlertSeverity.INFO);
-      expect(service.classifyBySCore(19, defaultThresholds)).toBe(AlertSeverity.INFO);
+      expect(service.classifyByScore(0, defaultThresholds)).toBe(AlertSeverity.INFO);
+      expect(service.classifyByScore(19, defaultThresholds)).toBe(AlertSeverity.INFO);
     });
 
     it('should respect custom thresholds', () => {
@@ -65,8 +65,8 @@ describe('SeverityClassifierService', () => {
         low: 30,
       };
 
-      expect(service.classifyBySCore(90, customThresholds)).toBe(AlertSeverity.HIGH);
-      expect(service.classifyBySCore(95, customThresholds)).toBe(AlertSeverity.CRITICAL);
+      expect(service.classifyByScore(90, customThresholds)).toBe(AlertSeverity.HIGH);
+      expect(service.classifyByScore(95, customThresholds)).toBe(AlertSeverity.CRITICAL);
     });
   });
 
@@ -343,16 +343,19 @@ describe('SeverityClassifierService', () => {
       expect(alternative).toBe(AlertSeverity.MEDIUM);
     });
 
-    it('should return higher severity for moderately low confidence', () => {
+    it('should return undefined for moderately low confidence above threshold', () => {
       const alternative = service.getAlternativeSeverity(AlertSeverity.MEDIUM, 0.55);
 
-      expect(alternative).toBe(AlertSeverity.HIGH);
+      // Confidence >= 0.5 but < 0.8: no downgrade suggested; upgrading at low
+      // confidence would increase alert noise when classification is unreliable.
+      expect(alternative).toBeUndefined();
     });
 
     it('should not downgrade below INFO', () => {
       const alternative = service.getAlternativeSeverity(AlertSeverity.INFO, 0.3);
 
-      expect(alternative).toBe(AlertSeverity.LOW);
+      // INFO is already the lowest severity; nothing to downgrade to.
+      expect(alternative).toBeUndefined();
     });
 
     it('should not upgrade above CRITICAL', () => {
@@ -466,12 +469,16 @@ describe('SeverityClassifierService', () => {
       expect(service.getSeverityPriority(AlertSeverity.MEDIUM)).toBe(3);
     });
 
-    it('should return 4 for LOW', () => {
-      expect(service.getSeverityPriority(AlertSeverity.LOW)).toBe(4);
+    it('should return 4 for WARNING', () => {
+      expect(service.getSeverityPriority(AlertSeverity.WARNING)).toBe(4);
     });
 
-    it('should return 5 for INFO', () => {
-      expect(service.getSeverityPriority(AlertSeverity.INFO)).toBe(5);
+    it('should return 5 for LOW', () => {
+      expect(service.getSeverityPriority(AlertSeverity.LOW)).toBe(5);
+    });
+
+    it('should return 6 for INFO', () => {
+      expect(service.getSeverityPriority(AlertSeverity.INFO)).toBe(6);
     });
   });
 
@@ -480,8 +487,12 @@ describe('SeverityClassifierService', () => {
       expect(service.upgradeSeverity(AlertSeverity.INFO)).toBe(AlertSeverity.LOW);
     });
 
-    it('should upgrade LOW to MEDIUM', () => {
-      expect(service.upgradeSeverity(AlertSeverity.LOW)).toBe(AlertSeverity.MEDIUM);
+    it('should upgrade LOW to WARNING', () => {
+      expect(service.upgradeSeverity(AlertSeverity.LOW)).toBe(AlertSeverity.WARNING);
+    });
+
+    it('should upgrade WARNING to MEDIUM', () => {
+      expect(service.upgradeSeverity(AlertSeverity.WARNING)).toBe(AlertSeverity.MEDIUM);
     });
 
     it('should upgrade MEDIUM to HIGH', () => {
@@ -506,8 +517,12 @@ describe('SeverityClassifierService', () => {
       expect(service.downgradeSeverity(AlertSeverity.HIGH)).toBe(AlertSeverity.MEDIUM);
     });
 
-    it('should downgrade MEDIUM to LOW', () => {
-      expect(service.downgradeSeverity(AlertSeverity.MEDIUM)).toBe(AlertSeverity.LOW);
+    it('should downgrade MEDIUM to WARNING', () => {
+      expect(service.downgradeSeverity(AlertSeverity.MEDIUM)).toBe(AlertSeverity.WARNING);
+    });
+
+    it('should downgrade WARNING to LOW', () => {
+      expect(service.downgradeSeverity(AlertSeverity.WARNING)).toBe(AlertSeverity.LOW);
     });
 
     it('should downgrade LOW to INFO', () => {
@@ -528,8 +543,9 @@ describe('SeverityClassifierService', () => {
       expect(service.severityDistance(AlertSeverity.HIGH, AlertSeverity.MEDIUM)).toBe(1);
     });
 
-    it('should return 4 for CRITICAL to INFO', () => {
-      expect(service.severityDistance(AlertSeverity.CRITICAL, AlertSeverity.INFO)).toBe(4);
+    it('should return 5 for CRITICAL to INFO', () => {
+      // Order: INFO(0), LOW(1), WARNING(2), MEDIUM(3), HIGH(4), CRITICAL(5)
+      expect(service.severityDistance(AlertSeverity.CRITICAL, AlertSeverity.INFO)).toBe(5);
     });
 
     it('should be symmetric', () => {
@@ -589,39 +605,40 @@ describe('SeverityClassifierService', () => {
     });
   });
 
-  describe('getTimeBSasedSeverityAdjustment', () => {
+  describe('getTimeBasedSeverityAdjustment', () => {
     it('should not upgrade CRITICAL', () => {
-      const result = service.getTimeBSasedSeverityAdjustment(AlertSeverity.CRITICAL, 100);
+      const result = service.getTimeBasedSeverityAdjustment(AlertSeverity.CRITICAL, 100);
 
       expect(result).toBe(AlertSeverity.CRITICAL);
     });
 
     it('should upgrade HIGH after 4 hours', () => {
-      const result = service.getTimeBSasedSeverityAdjustment(AlertSeverity.HIGH, 5);
+      const result = service.getTimeBasedSeverityAdjustment(AlertSeverity.HIGH, 5);
 
       expect(result).toBe(AlertSeverity.CRITICAL);
     });
 
     it('should not upgrade HIGH before threshold', () => {
-      const result = service.getTimeBSasedSeverityAdjustment(AlertSeverity.HIGH, 3);
+      const result = service.getTimeBasedSeverityAdjustment(AlertSeverity.HIGH, 3);
 
       expect(result).toBe(AlertSeverity.HIGH);
     });
 
     it('should upgrade MEDIUM after 24 hours', () => {
-      const result = service.getTimeBSasedSeverityAdjustment(AlertSeverity.MEDIUM, 25);
+      const result = service.getTimeBasedSeverityAdjustment(AlertSeverity.MEDIUM, 25);
 
       expect(result).toBe(AlertSeverity.HIGH);
     });
 
     it('should upgrade LOW after 72 hours', () => {
-      const result = service.getTimeBSasedSeverityAdjustment(AlertSeverity.LOW, 73);
+      const result = service.getTimeBasedSeverityAdjustment(AlertSeverity.LOW, 73);
 
-      expect(result).toBe(AlertSeverity.MEDIUM);
+      // upgradeSeverity(LOW) = WARNING (one step up in severity order)
+      expect(result).toBe(AlertSeverity.WARNING);
     });
 
     it('should upgrade INFO after 168 hours', () => {
-      const result = service.getTimeBSasedSeverityAdjustment(AlertSeverity.INFO, 169);
+      const result = service.getTimeBasedSeverityAdjustment(AlertSeverity.INFO, 169);
 
       expect(result).toBe(AlertSeverity.LOW);
     });
@@ -638,9 +655,9 @@ describe('SeverityClassifierService', () => {
       const results = service.batchClassify(criteriaList);
 
       expect(results).toHaveLength(3);
-      expect(results[0].severity).toBe(AlertSeverity.CRITICAL);
-      expect(results[1].severity).toBe(AlertSeverity.MEDIUM);
-      expect(results[2].severity).toBe(AlertSeverity.LOW);
+      expect(results[0]!.severity).toBe(AlertSeverity.CRITICAL);
+      expect(results[1]!.severity).toBe(AlertSeverity.MEDIUM);
+      expect(results[2]!.severity).toBe(AlertSeverity.LOW);
     });
 
     it('should handle empty list', () => {

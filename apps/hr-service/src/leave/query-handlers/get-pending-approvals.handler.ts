@@ -29,10 +29,30 @@ export class GetPendingApprovalsHandler implements IQueryHandler<GetPendingAppro
     const effectiveLimit = Math.min(Math.max(limit, 1), 100);
     const effectiveOffset = Math.max(offset, 0);
 
-    // Get the approver's details to determine which requests they can approve
-    const approver = await this.employeeRepository.findOne({
-      where: { id: approverId, tenantId, isDeleted: false },
-    });
+    // Resolve the approver employee record when no explicit departmentId is provided.
+    // SECURITY: if the approverId cannot be resolved to a known employee we must NOT
+    // fall back to returning all-department results — that would expose every tenant's
+    // pending leave to any unrecognised caller.  Return empty results instead.
+    let effectiveDepartmentId = departmentId;
+    if (!effectiveDepartmentId) {
+      const approver = await this.employeeRepository.findOne({
+        where: { id: approverId, tenantId, isDeleted: false },
+        select: ['id', 'departmentHrId'],
+      });
+
+      if (!approver) {
+        // Unknown approver — return empty set rather than leaking cross-department data
+        return {
+          items: [],
+          total: 0,
+          limit: effectiveLimit,
+          offset: effectiveOffset,
+          hasMore: false,
+        };
+      }
+
+      effectiveDepartmentId = approver.departmentHrId;
+    }
 
     const queryBuilder = this.leaveRequestRepository
       .createQueryBuilder('lr')
@@ -45,15 +65,9 @@ export class GetPendingApprovalsHandler implements IQueryHandler<GetPendingAppro
       .andWhere('lr.employeeId != :approverId', { approverId })
       .orderBy('lr.createdAt', 'ASC');
 
-    // If departmentId is provided, filter by department
-    // FIX: Use departmentHrId - Employee entity has departmentHrId, not departmentId
-    if (departmentId) {
-      queryBuilder.andWhere('employee.departmentHrId = :departmentId', { departmentId });
-    } else if (approver?.departmentHrId) {
-      // If approver has a department, show pending requests from their department
-      queryBuilder.andWhere('employee.departmentHrId = :departmentId', {
-        departmentId: approver.departmentHrId,
-      });
+    // Filter by department (either explicitly provided or inferred from approver)
+    if (effectiveDepartmentId) {
+      queryBuilder.andWhere('employee.departmentHrId = :departmentId', { departmentId: effectiveDepartmentId });
     }
 
     const [items, total] = await queryBuilder

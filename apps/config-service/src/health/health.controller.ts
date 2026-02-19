@@ -5,7 +5,6 @@ import {
   TypeOrmHealthIndicator,
   MemoryHealthIndicator,
 } from '@nestjs/terminus';
-import { HealthService } from './health.service';
 
 @Controller('health')
 export class HealthController {
@@ -13,18 +12,14 @@ export class HealthController {
     private readonly health: HealthCheckService,
     private readonly db: TypeOrmHealthIndicator,
     private readonly memory: MemoryHealthIndicator,
-    private readonly healthService: HealthService,
   ) {}
 
   @Get()
   @HealthCheck()
   check() {
     return this.health.check([
-      // Database check
       () => this.db.pingCheck('database'),
-      // Memory check (heap should be < 500MB)
       () => this.memory.checkHeap('memory_heap', 500 * 1024 * 1024),
-      // RSS memory check (< 1GB)
       () => this.memory.checkRSS('memory_rss', 1024 * 1024 * 1024),
     ]);
   }
@@ -35,19 +30,10 @@ export class HealthController {
   }
 
   @Get('ready')
-  async readiness() {
-    const dbHealthy = await this.healthService.checkDatabase();
-    return {
-      status: dbHealthy ? 'ok' : 'not_ready',
-      timestamp: new Date().toISOString(),
-      checks: {
-        database: dbHealthy,
-      },
-    };
-  }
-
-  @Get('metrics')
-  async metrics() {
-    return this.healthService.getMetrics();
+  @HealthCheck()
+  readiness() {
+    return this.health.check([
+      () => this.db.pingCheck('database'),
+    ]);
   }
 }

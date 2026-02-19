@@ -52,7 +52,8 @@ export interface AggregatedUsage {
   totalUsage: number;
   peakUsage: number;
   averageUsage: number;
-  minUsage: number;
+  /** Nullable: null until the first observation is recorded in this aggregation period */
+  minUsage: number | null;
   maxUsage: number;
   eventCount: number;
   unit: string;
@@ -132,8 +133,15 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
 
   // In-memory cache backed by database
   private readonly aggregations = new Map<string, AggregatedUsage>();
+  // Secondary index: tenantId → Set of aggregation keys owned by that tenant.
+  // Prevents O(N-all-tenants) scans in getAggregationsInRange/performRollup —
+  // per-tenant lookups are O(tenant-record-count) instead.
+  private readonly tenantAggregationIndex = new Map<string, Set<string>>();
   private readonly hourlyData = new Map<string, number[]>();
+  // Ring-buffer write-head positions for hourlyData — avoids O(N) Array.shift()
+  private readonly hourlyDataIndex = new Map<string, number>();
   private readonly rollupConfigs: RollupConfig[] = [];
+  private static readonly HOURLY_WINDOW = 8760;
 
   // Dirty tracking for batch persistence
   private readonly dirtyAggregations = new Set<string>();
@@ -194,15 +202,20 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
    */
   private async loadFromDatabase(): Promise<void> {
     try {
-      // Load recent aggregations (last 90 days for hourly, all for others)
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - 90);
+      // Load recent aggregations only — hourly: last 90 days, non-hourly: last 2 years.
+      // Avoids unbounded startup load on mature deployments.
+      const hourlyCutoff = new Date();
+      hourlyCutoff.setDate(hourlyCutoff.getDate() - 90);
+
+      const nonHourlyCutoff = new Date();
+      nonHourlyCutoff.setFullYear(nonHourlyCutoff.getFullYear() - 2);
 
       const aggregations = await this.aggregationRepository.find({
         where: [
-          { period: AggregationPeriod.HOURLY, periodStart: MoreThanOrEqual(cutoffDate) },
-          { period: Not(AggregationPeriod.HOURLY) },
+          { period: AggregationPeriod.HOURLY, periodStart: MoreThanOrEqual(hourlyCutoff) },
+          { period: Not(AggregationPeriod.HOURLY), periodStart: MoreThanOrEqual(nonHourlyCutoff) },
         ],
+        order: { periodStart: 'DESC' },
       });
 
       for (const agg of aggregations) {
@@ -218,7 +231,7 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
           totalUsage: Number(agg.totalUsage),
           peakUsage: Number(agg.peakUsage),
           averageUsage: Number(agg.averageUsage),
-          minUsage: Number(agg.minUsage),
+          minUsage: agg.minUsage !== null && agg.minUsage !== undefined ? Number(agg.minUsage) : null,
           maxUsage: Number(agg.maxUsage),
           eventCount: agg.eventCount,
           unit: agg.unit,
@@ -227,10 +240,18 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
           updatedAt: agg.updatedAt,
         };
         this.aggregations.set(agg.id, aggregatedUsage);
+        // Populate secondary index
+        if (!this.tenantAggregationIndex.has(agg.tenantId)) {
+          this.tenantAggregationIndex.set(agg.tenantId, new Set());
+        }
+        this.tenantAggregationIndex.get(agg.tenantId)!.add(agg.id);
       }
 
-      // Load hourly data
-      const hourlyRecords = await this.hourlyDataRepository.find();
+      // Load hourly data — limit to prevent unbounded startup load
+      const hourlyRecords = await this.hourlyDataRepository.find({
+        order: { updatedAt: 'DESC' },
+        take: 10000,
+      });
       for (const record of hourlyRecords) {
         this.hourlyData.set(record.id, record.values);
       }
@@ -393,7 +414,7 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
         totalUsage: 0,
         peakUsage: 0,
         averageUsage: 0,
-        minUsage: Number.MAX_VALUE,
+        minUsage: quantity, // Initialize with first observed value instead of Number.MAX_VALUE
         maxUsage: 0,
         eventCount: 0,
         unit: this.getUnitForMeterType(meterType),
@@ -401,6 +422,11 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
         updatedAt: new Date(),
       };
       this.aggregations.set(aggregationId, aggregation);
+      // Maintain secondary index for O(tenant-record-count) per-tenant lookups
+      if (!this.tenantAggregationIndex.has(tenantId)) {
+        this.tenantAggregationIndex.set(tenantId, new Set());
+      }
+      this.tenantAggregationIndex.get(tenantId)!.add(aggregationId);
       this.metrics.totalAggregations++;
     }
 
@@ -416,13 +442,16 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
     // Mark as dirty for persistence
     this.dirtyAggregations.add(aggregationId);
 
-    // Store for trend analysis
+    // Store for trend analysis using a ring buffer — O(1) writes, no Array.shift()
     const hourlyKey = `${tenantId}:${meterType}:hourly`;
-    const hourlyValues = this.hourlyData.get(hourlyKey) || [];
-    hourlyValues.push(quantity);
-    if (hourlyValues.length > 8760) { // Keep 1 year of hourly data
-      hourlyValues.shift();
+    if (!this.hourlyData.has(hourlyKey)) {
+      this.hourlyData.set(hourlyKey, new Array(UsageAggregatorService.HOURLY_WINDOW).fill(0));
+      this.hourlyDataIndex.set(hourlyKey, 0);
     }
+    const hourlyValues = this.hourlyData.get(hourlyKey)!;
+    const writeIdx = this.hourlyDataIndex.get(hourlyKey)!;
+    hourlyValues[writeIdx] = quantity;
+    this.hourlyDataIndex.set(hourlyKey, (writeIdx + 1) % UsageAggregatorService.HOURLY_WINDOW);
     this.hourlyData.set(hourlyKey, hourlyValues);
 
     // Mark hourly data as dirty
@@ -494,7 +523,17 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
     period: AggregationPeriod,
     periodStart: Date,
   ): string {
-    return `${tenantId}:${meterType}:${period}:${periodStart.toISOString()}`;
+    // MED-07: Guard against key overflow — the column is varchar(255).
+    // tenantId is a UUID (36 chars), meterType and period are enums, periodStart is an ISO string (24 chars).
+    // Total should never exceed ~120 chars for valid inputs, but we fail fast if it would truncate.
+    const key = `${tenantId}:${meterType}:${period}:${periodStart.toISOString()}`;
+    if (key.length > 255) {
+      throw new Error(
+        `Aggregation key exceeds maximum length of 255 characters (got ${key.length}). ` +
+          `tenantId=${tenantId}, meterType=${meterType}, period=${period}`,
+      );
+    }
+    return key;
   }
 
   /**
@@ -517,12 +556,16 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
   ): AggregatedUsage | null {
     const targetBounds = this.getPeriodBounds(targetPeriod, targetPeriodStart);
 
-    // Find all source aggregations within the target period
+    // Find all source aggregations within the target period.
+    // Use the secondary tenant index to avoid O(N-all-tenants) scan (CRITICAL-002).
     const sourceAggregations: AggregatedUsage[] = [];
+    const tenantKeys = this.tenantAggregationIndex.get(tenantId);
+    if (!tenantKeys) return null;
 
-    for (const aggregation of this.aggregations.values()) {
+    for (const key of tenantKeys) {
+      const aggregation = this.aggregations.get(key);
       if (
-        aggregation.tenantId === tenantId &&
+        aggregation &&
         aggregation.meterType === meterType &&
         aggregation.period === sourcePeriod &&
         aggregation.periodStart >= targetBounds.start &&
@@ -540,7 +583,11 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
     const totalUsage = sourceAggregations.reduce((sum, a) => sum + a.totalUsage, 0);
     const eventCount = sourceAggregations.reduce((sum, a) => sum + a.eventCount, 0);
     const peakUsage = Math.max(...sourceAggregations.map(a => a.peakUsage));
-    const minUsage = Math.min(...sourceAggregations.map(a => a.minUsage));
+    // Filter out null minUsage values (new aggregation records before first observation)
+    const validMinValues = sourceAggregations
+      .map(a => a.minUsage)
+      .filter((v): v is number => v !== null && v !== undefined);
+    const minUsage = validMinValues.length > 0 ? Math.min(...validMinValues) : null;
     const maxUsage = Math.max(...sourceAggregations.map(a => a.maxUsage));
 
     const rollupId = this.buildAggregationKey(tenantId, meterType, targetPeriod, targetBounds.start);
@@ -564,6 +611,11 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
     };
 
     this.aggregations.set(rollupId, rollup);
+    // Maintain secondary index
+    if (!this.tenantAggregationIndex.has(tenantId)) {
+      this.tenantAggregationIndex.set(tenantId, new Set());
+    }
+    this.tenantAggregationIndex.get(tenantId)!.add(rollupId);
     this.metrics.rollupsPerformed++;
     this.metrics.lastAggregationTime = new Date();
 
@@ -603,9 +655,14 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
   ): AggregatedUsage[] {
     const results: AggregatedUsage[] = [];
 
-    for (const aggregation of this.aggregations.values()) {
+    // Use secondary tenant index to avoid O(N-all-tenants) full scan (CRITICAL-002).
+    const tenantKeys = this.tenantAggregationIndex.get(tenantId);
+    if (!tenantKeys) return results;
+
+    for (const key of tenantKeys) {
+      const aggregation = this.aggregations.get(key);
       if (
-        aggregation.tenantId === tenantId &&
+        aggregation &&
         aggregation.period === period &&
         aggregation.periodStart >= startDate &&
         aggregation.periodEnd <= endDate &&

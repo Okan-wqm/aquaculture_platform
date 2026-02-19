@@ -187,8 +187,8 @@ export abstract class BaseVfdAdapter {
         const high = isBigEndian ? buffer.readUInt16BE(0) : buffer.readUInt16LE(0);
         const low = isBigEndian ? buffer.readUInt16BE(2) : buffer.readUInt16LE(2);
         return wordOrder === ByteOrder.BIG
-          ? (high << 16) | low
-          : (low << 16) | high;
+          ? ((high >>> 0) * 65536 + (low >>> 0))
+          : ((low >>> 0) * 65536 + (high >>> 0));
       }
 
       case VfdDataType.INT32: {
@@ -245,18 +245,18 @@ export abstract class BaseVfdAdapter {
   ): VfdStatusBits {
     const statusBits: VfdStatusBits = {};
 
-    // Common status bit mappings (CiA402 / PROFIdrive standard)
-    statusBits.ready = Boolean(value & 0x0001);        // Bit 0
-    statusBits.running = Boolean(value & 0x0800);      // Bit 11 (typically)
-    statusBits.fault = Boolean(value & 0x0008);        // Bit 3
-    statusBits.warning = Boolean(value & 0x0080);      // Bit 7
-    statusBits.atSetpoint = Boolean(value & 0x0400);   // Bit 10
-    statusBits.voltageEnabled = Boolean(value & 0x0010); // Bit 4
-    statusBits.quickStopActive = !(value & 0x0020); // Bit 5 (inverted)
-    statusBits.switchOnDisabled = Boolean(value & 0x0040); // Bit 6
-    statusBits.remote = Boolean(value & 0x0200);       // Bit 9
-    statusBits.targetReached = Boolean(value & 0x0400); // Bit 10
-    statusBits.internalLimit = Boolean(value & 0x0800); // Bit 11
+    // CiA 402 / PROFIdrive standard status word bit mappings
+    statusBits.ready = Boolean(value & 0x0001);            // Bit 0: Ready to switch on
+    statusBits.running = Boolean(value & 0x0004);          // Bit 2: Operation enabled
+    statusBits.fault = Boolean(value & 0x0008);            // Bit 3: Fault
+    statusBits.voltageEnabled = Boolean(value & 0x0010);   // Bit 4: Voltage enabled
+    statusBits.quickStopActive = !(value & 0x0020);        // Bit 5: Quick stop (inverted)
+    statusBits.switchOnDisabled = Boolean(value & 0x0040); // Bit 6: Switch on disabled
+    statusBits.warning = Boolean(value & 0x0080);          // Bit 7: Warning
+    statusBits.remote = Boolean(value & 0x0200);           // Bit 9: Remote
+    statusBits.targetReached = Boolean(value & 0x0400);    // Bit 10: Target reached
+    statusBits.internalLimit = Boolean(value & 0x0800);    // Bit 11: Internal limit active
+    statusBits.atSetpoint = Boolean(value & 0x2000);       // Bit 13: Operation mode specific (at setpoint)
 
     // Determine direction from bit 11 or 15 depending on brand
     const directionBit = Boolean(value & 0x8000); // Bit 15
@@ -415,7 +415,7 @@ export abstract class BaseVfdAdapter {
    * Generate a unique connection ID
    */
   protected generateConnectionId(): string {
-    return `${this.protocolCode}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `${this.protocolCode}_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   }
 
   /**

@@ -181,45 +181,51 @@ export class TenantRoleService {
       throw new ConflictException(`Role with name "${input.name}" already exists`);
     }
 
-    // If this is set as default, unset other defaults
-    if (input.isDefault) {
-      await this.dataSource.query(
-        `UPDATE "${schemaName}"."tenant_roles" SET is_default = false WHERE is_default = true`,
+    // BUG-027 fix: wrap role + permissions insert in a transaction so an orphaned
+    // role record cannot be left without permissions if the second INSERT fails.
+    const roleId = await this.dataSource.transaction(async (manager) => {
+      // If this is set as default, unset other defaults
+      if (input.isDefault) {
+        await manager.query(
+          `UPDATE "${schemaName}"."tenant_roles" SET is_default = false WHERE is_default = true`,
+        );
+      }
+
+      // Create the role
+      const roleResult = await manager.query(
+        `
+        INSERT INTO "${schemaName}"."tenant_roles" (
+          name, description, color, icon, level, is_system, is_default, created_by, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, false, $6, $7, NOW(), NOW())
+        RETURNING id
+        `,
+        [
+          input.name,
+          input.description || null,
+          input.color || '#6366F1',
+          input.icon || 'shield',
+          input.level ?? 50,
+          input.isDefault ?? false,
+          createdBy,
+        ],
       );
-    }
 
-    // Create the role
-    const roleResult = await this.dataSource.query(
-      `
-      INSERT INTO "${schemaName}"."tenant_roles" (
-        name, description, color, icon, level, is_system, is_default, created_by, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, false, $6, $7, NOW(), NOW())
-      RETURNING *
-      `,
-      [
-        input.name,
-        input.description || null,
-        input.color || '#6366F1',
-        input.icon || 'shield',
-        input.level ?? 50,
-        input.isDefault ?? false,
-        createdBy,
-      ],
-    );
+      const newRoleId = roleResult[0].id;
 
-    const roleId = roleResult[0].id;
+      // Create role permissions
+      const resourcePermissions = panelPermissionsToResourceArray(input.panelPermissions);
 
-    // Create role permissions
-    const resourcePermissions = panelPermissionsToResourceArray(input.panelPermissions);
+      await manager.query(
+        `
+        INSERT INTO "${schemaName}"."tenant_role_permissions" (
+          role_id, panel_permissions, resource_permissions, created_at, updated_at
+        ) VALUES ($1, $2, $3, NOW(), NOW())
+        `,
+        [newRoleId, JSON.stringify(input.panelPermissions), resourcePermissions],
+      );
 
-    await this.dataSource.query(
-      `
-      INSERT INTO "${schemaName}"."tenant_role_permissions" (
-        role_id, panel_permissions, resource_permissions, created_at, updated_at
-      ) VALUES ($1, $2, $3, NOW(), NOW())
-      `,
-      [roleId, JSON.stringify(input.panelPermissions), resourcePermissions],
-    );
+      return newRoleId;
+    });
 
     this.logger.log(`Created role "${input.name}" in tenant ${tenantId}`);
 
@@ -265,66 +271,71 @@ export class TenantRoleService {
       }
     }
 
-    // If this is set as default, unset other defaults
-    if (input.isDefault && !existing.isDefault) {
-      await this.dataSource.query(
-        `UPDATE "${schemaName}"."tenant_roles" SET is_default = false WHERE is_default = true`,
-      );
-    }
+    // BUG-027 fix: wrap role + permissions update in a transaction so both succeed or
+    // both fail atomically — preventing a role from being updated while its permissions
+    // remain stale (or vice versa) if one of the queries fails mid-way.
+    await this.dataSource.transaction(async (manager) => {
+      // If this is set as default, unset other defaults
+      if (input.isDefault && !existing.isDefault) {
+        await manager.query(
+          `UPDATE "${schemaName}"."tenant_roles" SET is_default = false WHERE is_default = true`,
+        );
+      }
 
-    // Update the role
-    const updateFields: string[] = [];
-    const values: unknown[] = [];
-    let paramIndex = 1;
+      // Update the role
+      const updateFields: string[] = [];
+      const values: unknown[] = [];
+      let paramIndex = 1;
 
-    if (input.name !== undefined) {
-      updateFields.push(`name = $${paramIndex++}`);
-      values.push(input.name);
-    }
-    if (input.description !== undefined) {
-      updateFields.push(`description = $${paramIndex++}`);
-      values.push(input.description);
-    }
-    if (input.color !== undefined) {
-      updateFields.push(`color = $${paramIndex++}`);
-      values.push(input.color);
-    }
-    if (input.icon !== undefined) {
-      updateFields.push(`icon = $${paramIndex++}`);
-      values.push(input.icon);
-    }
-    if (input.level !== undefined) {
-      updateFields.push(`level = $${paramIndex++}`);
-      values.push(input.level);
-    }
-    if (input.isDefault !== undefined) {
-      updateFields.push(`is_default = $${paramIndex++}`);
-      values.push(input.isDefault);
-    }
+      if (input.name !== undefined) {
+        updateFields.push(`name = $${paramIndex++}`);
+        values.push(input.name);
+      }
+      if (input.description !== undefined) {
+        updateFields.push(`description = $${paramIndex++}`);
+        values.push(input.description);
+      }
+      if (input.color !== undefined) {
+        updateFields.push(`color = $${paramIndex++}`);
+        values.push(input.color);
+      }
+      if (input.icon !== undefined) {
+        updateFields.push(`icon = $${paramIndex++}`);
+        values.push(input.icon);
+      }
+      if (input.level !== undefined) {
+        updateFields.push(`level = $${paramIndex++}`);
+        values.push(input.level);
+      }
+      if (input.isDefault !== undefined) {
+        updateFields.push(`is_default = $${paramIndex++}`);
+        values.push(input.isDefault);
+      }
 
-    updateFields.push(`updated_at = NOW()`);
-    values.push(roleId);
+      updateFields.push(`updated_at = NOW()`);
+      values.push(roleId);
 
-    if (updateFields.length > 1) {
-      await this.dataSource.query(
-        `UPDATE "${schemaName}"."tenant_roles" SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`,
-        values,
-      );
-    }
+      if (updateFields.length > 1) {
+        await manager.query(
+          `UPDATE "${schemaName}"."tenant_roles" SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`,
+          values,
+        );
+      }
 
-    // Update permissions if provided
-    if (input.panelPermissions) {
-      const resourcePermissions = panelPermissionsToResourceArray(input.panelPermissions);
+      // Update permissions if provided
+      if (input.panelPermissions) {
+        const resourcePermissions = panelPermissionsToResourceArray(input.panelPermissions);
 
-      await this.dataSource.query(
-        `
-        UPDATE "${schemaName}"."tenant_role_permissions"
-        SET panel_permissions = $1, resource_permissions = $2, updated_at = NOW()
-        WHERE role_id = $3
-        `,
-        [JSON.stringify(input.panelPermissions), resourcePermissions, roleId],
-      );
-    }
+        await manager.query(
+          `
+          UPDATE "${schemaName}"."tenant_role_permissions"
+          SET panel_permissions = $1, resource_permissions = $2, updated_at = NOW()
+          WHERE role_id = $3
+          `,
+          [JSON.stringify(input.panelPermissions), resourcePermissions, roleId],
+        );
+      }
+    });
 
     this.logger.log(`Updated role "${existing.name}" (${roleId}) in tenant ${tenantId} by ${updatedBy}`);
 
@@ -389,47 +400,46 @@ export class TenantRoleService {
 
     this.logger.log(`Seeding default roles for tenant ${tenantId}`);
 
-    const createdRoles: TenantRoleWithDetails[] = [];
+    // BUG-027 fix: wrap all role + permissions inserts in a single transaction
+    // so either all default roles are created or none are (no orphaned roles).
+    await this.dataSource.transaction(async (manager) => {
+      for (const roleTemplate of DEFAULT_TENANT_ROLES) {
+        const roleResult = await manager.query(
+          `
+          INSERT INTO "${schemaName}"."tenant_roles" (
+            name, description, color, icon, level, is_system, is_default, created_by, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+          RETURNING id
+          `,
+          [
+            roleTemplate.name,
+            roleTemplate.description,
+            roleTemplate.color,
+            roleTemplate.icon,
+            roleTemplate.level,
+            roleTemplate.isSystem,
+            roleTemplate.isDefault,
+            createdBy,
+          ],
+        );
 
-    for (const roleTemplate of DEFAULT_TENANT_ROLES) {
-      // Insert role
-      const roleResult = await this.dataSource.query(
-        `
-        INSERT INTO "${schemaName}"."tenant_roles" (
-          name, description, color, icon, level, is_system, is_default, created_by, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-        RETURNING id
-        `,
-        [
-          roleTemplate.name,
-          roleTemplate.description,
-          roleTemplate.color,
-          roleTemplate.icon,
-          roleTemplate.level,
-          roleTemplate.isSystem,
-          roleTemplate.isDefault,
-          createdBy,
-        ],
-      );
+        const roleId = roleResult[0].id;
 
-      const roleId = roleResult[0].id;
+        const defaultPermissions = DEFAULT_ROLE_PERMISSIONS[roleTemplate.name] || {};
+        const resourcePermissions = panelPermissionsToResourceArray(defaultPermissions as PanelPermissions);
 
-      // Get default permissions for this role
-      const defaultPermissions = DEFAULT_ROLE_PERMISSIONS[roleTemplate.name] || {};
-      const resourcePermissions = panelPermissionsToResourceArray(defaultPermissions as PanelPermissions);
+        await manager.query(
+          `
+          INSERT INTO "${schemaName}"."tenant_role_permissions" (
+            role_id, panel_permissions, resource_permissions, created_at, updated_at
+          ) VALUES ($1, $2, $3, NOW(), NOW())
+          `,
+          [roleId, JSON.stringify(defaultPermissions), resourcePermissions],
+        );
 
-      // Insert permissions
-      await this.dataSource.query(
-        `
-        INSERT INTO "${schemaName}"."tenant_role_permissions" (
-          role_id, panel_permissions, resource_permissions, created_at, updated_at
-        ) VALUES ($1, $2, $3, NOW(), NOW())
-        `,
-        [roleId, JSON.stringify(defaultPermissions), resourcePermissions],
-      );
-
-      this.logger.debug(`Created default role: ${roleTemplate.name}`);
-    }
+        this.logger.debug(`Created default role: ${roleTemplate.name}`);
+      }
+    });
 
     this.logger.log(`Seeded ${DEFAULT_TENANT_ROLES.length} default roles for tenant ${tenantId}`);
 

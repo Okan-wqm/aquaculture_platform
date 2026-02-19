@@ -1,31 +1,46 @@
 # =============================================================================
 # Aquaculture Platform - Helm Values
 # =============================================================================
+# REQUIRED values that have no safe default are documented with REQUIRED.
+# Set them via --set or a sealed-secrets / external-secrets overlay.
+# Example:
+#   helm install aquaculture ./aquaculture \
+#     -f values-production.yaml \
+#     --set secrets.jwtSecret=$JWT_SECRET \
+#     --set postgresql.auth.password=$PG_PASSWORD \
+#     --set redis.auth.password=$REDIS_PASSWORD
 
 # Global settings
 global:
   imageRegistry: ghcr.io
   imagePullSecrets: []
   storageClass: ""
+  # NODE_ENV shared across all backend services.
+  # Override in environment overlays (values-production.yaml, etc.).
+  nodeEnv: production
 
 # Common labels
 commonLabels:
   app.kubernetes.io/part-of: aquaculture-platform
 
-# Namespace
+# Namespace — created by templates/namespace.yaml.
+# Pass -n <namespace> --create-namespace when running helm install.
 namespace: aquaculture
 
 # =============================================================================
 # Backend Services
 # =============================================================================
+# Image tags MUST be pinned to immutable versions before production deploy.
+# Default "1.0.0" is a placeholder — override in your CI/CD pipeline or
+# values overlay with the actual built tag / digest.
 
 gatewayApi:
   enabled: true
   replicaCount: 3
   image:
     repository: aquaculture/gateway-api
-    tag: latest
-    pullPolicy: Always
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 80
@@ -43,7 +58,6 @@ gatewayApi:
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
   env:
-    NODE_ENV: production
     PORT: "3000"
 
 authService:
@@ -51,8 +65,8 @@ authService:
   replicaCount: 2
   image:
     repository: aquaculture/auth-service
-    tag: latest
-    pullPolicy: Always
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 80
@@ -73,8 +87,8 @@ farmService:
   replicaCount: 2
   image:
     repository: aquaculture/farm-service
-    tag: latest
-    pullPolicy: Always
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 80
@@ -86,14 +100,15 @@ farmService:
     limits:
       cpu: 500m
       memory: 512Mi
+  env: {}
 
 sensorService:
   enabled: true
   replicaCount: 3
   image:
     repository: aquaculture/sensor-service
-    tag: latest
-    pullPolicy: Always
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 80
@@ -110,14 +125,15 @@ sensorService:
     minReplicas: 3
     maxReplicas: 15
     targetCPUUtilizationPercentage: 60
+  env: {}
 
 alertEngine:
   enabled: true
   replicaCount: 2
   image:
     repository: aquaculture/alert-engine
-    tag: latest
-    pullPolicy: Always
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 80
@@ -129,14 +145,15 @@ alertEngine:
     limits:
       cpu: 500m
       memory: 512Mi
+  env: {}
 
 notificationService:
   enabled: true
   replicaCount: 2
   image:
     repository: aquaculture/notification-service
-    tag: latest
-    pullPolicy: Always
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 80
@@ -148,14 +165,15 @@ notificationService:
     limits:
       cpu: 500m
       memory: 512Mi
+  env: {}
 
 billingService:
   enabled: true
   replicaCount: 2
   image:
     repository: aquaculture/billing-service
-    tag: latest
-    pullPolicy: Always
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 80
@@ -167,14 +185,15 @@ billingService:
     limits:
       cpu: 500m
       memory: 512Mi
+  env: {}
 
 hrService:
   enabled: true
   replicaCount: 2
   image:
     repository: aquaculture/hr-service
-    tag: latest
-    pullPolicy: Always
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 80
@@ -186,6 +205,7 @@ hrService:
     limits:
       cpu: 500m
       memory: 512Mi
+  env: {}
 
 # =============================================================================
 # Frontend Services
@@ -196,8 +216,8 @@ shell:
   replicaCount: 2
   image:
     repository: aquaculture/shell
-    tag: latest
-    pullPolicy: Always
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 80
@@ -215,8 +235,8 @@ dashboard:
   replicaCount: 2
   image:
     repository: aquaculture/dashboard
-    tag: latest
-    pullPolicy: Always
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 80
@@ -234,8 +254,8 @@ farmModule:
   replicaCount: 2
   image:
     repository: aquaculture/farm-module
-    tag: latest
-    pullPolicy: Always
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 80
@@ -248,13 +268,15 @@ farmModule:
       cpu: 200m
       memory: 128Mi
 
+# processEditor is disabled by default — no container image exists yet.
+# Set enabled: true once the image is built and published.
 processEditor:
-  enabled: true
+  enabled: false
   replicaCount: 2
   image:
     repository: aquaculture/process-editor
-    tag: latest
-    pullPolicy: Always
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 80
@@ -272,8 +294,8 @@ adminPanel:
   replicaCount: 2
   image:
     repository: aquaculture/admin-panel
-    tag: latest
-    pullPolicy: Always
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 80
@@ -297,6 +319,15 @@ ingress:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Rate limiting — protects backend services in addition to application-level limits
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "20"
+    # Security response headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
   hosts:
     - host: app.aquaculture.io
       paths:
@@ -326,11 +357,20 @@ serviceAccount:
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1001
+  runAsGroup: 1001
   fsGroup: 1001
 
 securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
 
 networkPolicy:
   enabled: true
@@ -338,13 +378,21 @@ networkPolicy:
 # =============================================================================
 # Secrets
 # =============================================================================
+# All credential fields are REQUIRED and have no default.
+# Supply them via --set, a sealed-secrets overlay, or externalSecrets.
 
 secrets:
-  # These should be overridden in production
+  # REQUIRED: full PostgreSQL connection URL
+  # e.g. postgres://aquaculture:<password>@postgresql:5432/aquaculture
   databaseUrl: ""
+  # REQUIRED: full Redis connection URL
+  # e.g. redis://:<password>@redis-master:6379
   redisUrl: ""
+  # REQUIRED: pre-generated JWT signing secret (min 64 chars, generated externally)
   jwtSecret: ""
-  natsUrl: "nats://nats:4222"
+  # REQUIRED: NATS connection URL including credentials token
+  # e.g. nats://<token>@nats:4222
+  natsUrl: ""
 
 # External secrets (e.g., from AWS Secrets Manager, Vault)
 externalSecrets:
@@ -352,6 +400,11 @@ externalSecrets:
   secretStore:
     name: ""
     kind: ClusterSecretStore
+  # Path prefix for remote secret store keys.
+  # Set per environment: "aquaculture/production" or "aquaculture/staging"
+  pathPrefix: "aquaculture/production"
+  # Refresh interval — lower during incident credential rotation (e.g., "5m")
+  refreshInterval: "1h"
 
 # =============================================================================
 # Infrastructure Dependencies
@@ -361,6 +414,8 @@ postgresql:
   enabled: true
   auth:
     username: aquaculture
+    # REQUIRED — set via --set postgresql.auth.password=<value>
+    # An empty string disables PostgreSQL authentication. Never ship empty.
     password: ""
     database: aquaculture
   primary:
@@ -370,6 +425,8 @@ postgresql:
 redis:
   enabled: true
   auth:
+    # REQUIRED — set via --set redis.auth.password=<value>
+    # An empty string disables Redis authentication. Never ship empty.
     password: ""
   master:
     persistence:
@@ -378,6 +435,9 @@ redis:
 nats:
   enabled: true
   config:
+    # Enable token-based authentication for NATS
+    authorization:
+      timeout: 5
     jetstream:
       enabled: true
       memStorage:

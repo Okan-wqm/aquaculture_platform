@@ -3,7 +3,7 @@
  * Records fish mortality in a tank with reason and biomass calculation
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast } from '@aquaculture/shared-ui';
 import { TankBatch, MortalityReason, MortalityReasonLabels } from '../types/batch.types';
 import { useRecordMortality, MortalityReason as MortalityReasonType } from '../../../hooks/useBatches';
 
@@ -29,6 +29,7 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
 
   // Mutation hook
   const recordMortality = useRecordMortality();
+  const { toast } = useToast();
 
   // Calculate biomass loss
   const calculatedBiomass = useMemo(() => {
@@ -80,7 +81,13 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
 
     // Check if we have a batch
     if (!tank.primaryBatchId) {
-      alert('No batch assigned to this tank');
+      toast({ title: 'Validation Error', description: 'No batch assigned to this tank.', variant: 'error' });
+      return;
+    }
+
+    // LOW-03: programmatic future-date guard (max attr is a browser hint, not enforced)
+    if (new Date(observedAt) > new Date()) {
+      toast({ title: 'Validation Error', description: 'Observation date cannot be in the future.', variant: 'error' });
       return;
     }
 
@@ -99,8 +106,8 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
       onSuccess();
       onClose();
     } catch (error) {
-      console.error('Failed to record mortality:', error);
-      alert(error instanceof Error ? error.message : 'Failed to record mortality');
+      if (import.meta.env.DEV) console.error('Failed to record mortality:', error);
+      toast({ title: 'Error', description: 'Failed to record mortality. Please try again.', variant: 'error' });
     }
   };
 
@@ -224,6 +231,7 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
             <textarea
               id="notes"
               rows={3}
+              maxLength={2000}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"

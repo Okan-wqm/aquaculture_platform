@@ -51,21 +51,36 @@ pub struct ExecutionResult {
 }
 
 /// Scan cycle statistics (v2.1)
+///
+/// LOW-44: Two-tier EMA approach
+/// - `fast_avg_cycle_ms` (alpha=0.5) tracks recent spikes; reacts in ~2 cycles.
+/// - `avg_cycle_ms` (alpha=0.1) tracks the long-run average; reacts in ~10 cycles.
+///
+/// `window_max_cycle_ms` is reset every `STATS_WINDOW_SIZE` cycles so operators
+/// can see the worst-case latency in recent history without it being dominated by
+/// a single outlier from hours ago.
 #[derive(Debug, Clone, Default)]
 pub struct ScanCycleStats {
     /// Total scan cycles executed
     pub total_cycles: u64,
     /// Current scan cycle time in ms
     pub current_cycle_ms: u64,
-    /// Maximum cycle time seen
+    /// All-time maximum cycle time seen
     pub max_cycle_ms: u64,
-    /// Average cycle time (exponential moving average)
+    /// Per-window maximum (reset every STATS_WINDOW_SIZE cycles)
+    pub window_max_cycle_ms: u64,
+    /// Long-run average cycle time (slow EMA, alpha = 0.1)
     pub avg_cycle_ms: f64,
+    /// Reactive average cycle time (fast EMA, alpha = 0.5)
+    pub fast_avg_cycle_ms: f64,
     /// Number of cycle overruns (cycle took longer than target)
     pub overrun_count: u64,
     /// Last overrun duration in ms
     pub last_overrun_ms: u64,
 }
+
+/// How many cycles per stats window (for window-max reset)
+const STATS_WINDOW_SIZE: u64 = 100;
 
 impl ScanCycleStats {
     /// Update stats after a scan cycle
@@ -77,13 +92,26 @@ impl ScanCycleStats {
         self.total_cycles = self.total_cycles.wrapping_add(1);
         self.current_cycle_ms = cycle_ms;
 
+        // All-time max
         if cycle_ms > self.max_cycle_ms {
             self.max_cycle_ms = cycle_ms;
         }
 
-        // Exponential moving average (alpha = 0.1)
-        const ALPHA: f64 = 0.1;
-        self.avg_cycle_ms = ALPHA * (cycle_ms as f64) + (1.0 - ALPHA) * self.avg_cycle_ms;
+        // Per-window max — reset at the start of each new window (LOW-44)
+        if self.total_cycles % STATS_WINDOW_SIZE == 1 {
+            self.window_max_cycle_ms = cycle_ms;
+        } else if cycle_ms > self.window_max_cycle_ms {
+            self.window_max_cycle_ms = cycle_ms;
+        }
+
+        // Slow EMA (alpha = 0.1) — long-run average
+        const SLOW_ALPHA: f64 = 0.1;
+        self.avg_cycle_ms = SLOW_ALPHA * (cycle_ms as f64) + (1.0 - SLOW_ALPHA) * self.avg_cycle_ms;
+
+        // Fast EMA (alpha = 0.5) — spike detection (LOW-44)
+        const FAST_ALPHA: f64 = 0.5;
+        self.fast_avg_cycle_ms =
+            FAST_ALPHA * (cycle_ms as f64) + (1.0 - FAST_ALPHA) * self.fast_avg_cycle_ms;
 
         // Detect overrun
         if cycle_ms > target_cycle_ms {
@@ -93,6 +121,7 @@ impl ScanCycleStats {
                 cycle_ms = cycle_ms,
                 target_ms = target_cycle_ms,
                 overrun_ms = self.last_overrun_ms,
+                fast_avg_ms = self.fast_avg_cycle_ms,
                 "Scan cycle overrun detected"
             );
         }
@@ -130,8 +159,10 @@ pub struct ScriptEngine {
     /// Path to program state file (v2.1 - for reload on startup)
     program_state_path: PathBuf,
     /// Shared HTTP client for webhooks (v1.2.4 - resource optimization)
-    /// Reusing client maintains connection pool and reduces overhead
-    http_client: Option<reqwest::Client>,
+    /// Arc-wrapped so parallel script execution tasks share the same connection pool
+    /// (reqwest::Client is already internally Arc-backed, but the Arc here makes
+    /// the sharing intent explicit and enables potential cross-engine sharing).
+    http_client: Option<std::sync::Arc<reqwest::Client>>,
 }
 
 /// Default scan cycle time in ms (100ms = 10 Hz)
@@ -492,6 +523,11 @@ impl ScriptEngine {
     /// Load RETAIN variables from persistence into context
     /// v2.2: Now async to access shared storage
     /// v1.2.0: Use async get_active() with internal locking
+    /// PERF-007: Use list_async() to avoid blocking the Tokio worker thread.
+    /// The sync list() acquires std::sync::Mutex<Connection> inline; if SQLite
+    /// is performing a WAL checkpoint or disk flush this blocks the entire thread,
+    /// stalling MQTT/Modbus tasks on the 2-thread runtime.  list_async() offloads
+    /// the blocking call to the spawn_blocking thread pool instead.
     async fn load_retain_variables(&mut self, persistence: Arc<SqlitePersistence>) {
         let mut loaded_count = 0;
 
@@ -500,11 +536,14 @@ impl ScriptEngine {
         for script in active_scripts {
             let script_id = &script.definition.id;
 
-            match persistence.list(script_id) {
+            match persistence.list_async(script_id).await {
                 Ok(variables) => {
                     for (var_name, value) in variables {
                         // Prefix with script_id to namespace variables
                         let full_name = format!("{}:{}", script_id, var_name);
+                        // LOW-40: Populate both maps so save_retain_variables() can
+                        // use the fast retain_variables path on shutdown.
+                        self.context.retain_variables.insert(full_name.clone(), value.clone());
                         self.context.set_variable(&full_name, value);
                         loaded_count += 1;
                     }
@@ -529,8 +568,9 @@ impl ScriptEngine {
 
         let mut saved_count = 0;
 
-        // Save all context variables that are namespaced (script_id:var_name)
-        for (full_name, value) in &self.context.variables {
+        // LOW-40: Iterate the dedicated retain_variables map (O(n_retain)) instead of
+        // scanning all context.variables with string prefix matching (O(n_all)).
+        for (full_name, value) in &self.context.retain_variables {
             if let Some((script_id, var_name)) = full_name.split_once(':') {
                 if let Err(e) = persistence.save(script_id, var_name, value) {
                     warn!("Failed to save RETAIN variable {}: {}", full_name, e);
@@ -553,7 +593,7 @@ impl ScriptEngine {
         // v1.2.0: Use async get_active() with internal locking
         let active_scripts = self.storage.get_active().await;
         let startup_scripts: Vec<String> = active_scripts
-            .into_iter()
+            .iter()
             .filter(|s| {
                 s.definition
                     .triggers
@@ -611,7 +651,9 @@ impl ScriptEngine {
                 // Scripts are deployed via CommandHandler which shares same storage instance
                 // v1.2.0: Use async count() with internal locking
                 let count = self.storage.count().await;
-                debug!("Active scripts in shared storage: {}", count);
+                // TRACE not DEBUG — this fires every 30 cycles (300ms at 10ms/cycle),
+                // which is still too verbose for DEBUG on constrained edge hardware (LOW-37).
+                trace!("Active scripts in shared storage: {}", count);
             }
 
             // Update context with current data
@@ -1528,17 +1570,13 @@ impl ScriptEngine {
                 "timestamp": Utc::now().to_rfc3339(),
                 "source": "script_engine"
             });
-
-            // TODO: Publish via MQTT when alert topic support is added
-            warn!(
-                target: "audit",
-                level = %level_str,
-                message = %message,
-                "ALERT: MQTT publish not yet implemented - alert logged only"
-            );
         }
+        drop(app_state);
 
-        ActionResult::success(ActionType::Alert, format!("Alert logged (MQTT pending): {}", message))
+        return ActionResult::failure(
+            ActionType::Alert,
+            "alert() action is not yet connected to MQTT transport; use log() for now",
+        );
     }
 
     /// Set variable action (with IEC 61131-3 RETAIN support)
@@ -1565,6 +1603,11 @@ impl ScriptEngine {
 
         // Persist RETAIN variables to SQLite
         if matches!(scope, VariableScope::Retain | VariableScope::Persistent) {
+            // LOW-40: Also track in the dedicated retain_variables map so that
+            // save_retain_variables() can flush only this subset on shutdown,
+            // avoiding an O(n_all_vars) scan with string prefix matching.
+            self.context.retain_variables.insert(var_name.clone(), value.clone());
+
             if let Some(ref persistence) = self.persistence {
                 let script_id = self.current_script_id.as_deref().unwrap_or("global");
                 if let Err(e) = persistence.save(script_id, &action.target, &value) {
@@ -1636,15 +1679,10 @@ impl ScriptEngine {
             self.context.interpolate(&action.target)
         };
 
-        // TODO: Implement actual MQTT publish when client API supports script-originated messages
-        warn!(
-            target: "audit",
-            topic = %topic,
-            "MQTT publish action: not yet implemented - message logged only"
-        );
-        debug!("MQTT publish payload: {}", message);
-
-        ActionResult::success(ActionType::PublishMqtt, format!("Logged to {} (publish pending)", topic))
+        ActionResult::failure(
+            ActionType::PublishMqtt,
+            "publishMqtt() action is not yet connected to MQTT transport; use log() for now",
+        )
     }
 
     /// Call another script (v2.0 - with depth tracking for infinite loop protection)
@@ -1750,18 +1788,31 @@ impl ScriptEngine {
                 "Webhook to link-local/metadata endpoints is not allowed (SSRF protection)",
             );
         }
-        // Block common internal ranges (warn only - industrial networks use private addresses)
-        if host_lower.starts_with("10.") || host_lower.starts_with("172.16.") ||
-           host_lower.starts_with("172.17.") || host_lower.starts_with("172.18.") ||
-           host_lower.starts_with("172.19.") || host_lower.starts_with("172.2") ||
-           host_lower.starts_with("172.30.") || host_lower.starts_with("172.31.") ||
-           host_lower.starts_with("192.168.") {
-            warn!(
-                url = %url,
-                "Webhook to private IP range - allowing but logging for audit"
+        // Block all RFC-1918 private ranges and loopback (IEC 62443 SL2 SSRF protection).
+        // Industrial integrations that require webhooks to internal addresses must use
+        // an explicit allowlist configured in scripting.webhook_allowlist.
+        let is_rfc1918 = host_lower.starts_with("10.")
+            || {
+                // 172.16.0.0/12 covers 172.16.x.x through 172.31.x.x
+                if let Some(rest) = host_lower.strip_prefix("172.") {
+                    rest.split('.')
+                        .next()
+                        .and_then(|s| s.parse::<u8>().ok())
+                        .map(|n| (16..=31).contains(&n))
+                        .unwrap_or(false)
+                } else {
+                    false
+                }
+            }
+            || host_lower.starts_with("192.168.")
+            || host_lower == "0.0.0.0";
+
+        if is_rfc1918 {
+            return ActionResult::failure(
+                ActionType::Webhook,
+                "Webhook to RFC-1918 private address is blocked (SSRF protection). \
+                 Add the host to scripting.webhook_allowlist in config.yaml to permit it.",
             );
-            // Note: We allow private IPs with a warning since industrial networks
-            // often legitimately use private addresses. Full block would break valid use cases.
         }
 
         let method = action.method.as_deref().unwrap_or("POST").to_uppercase();
@@ -1773,14 +1824,13 @@ impl ScriptEngine {
             "Sending webhook"
         );
 
-        // v1.2.4: Use shared HTTP client (lazy initialization)
-        // Reusing client maintains connection pool and reduces memory/CPU overhead
-        // v1.2.6: Fixed - now properly saves client for reuse
-        let client = match &self.http_client {
+        // Use the engine's shared HTTP client (Arc-backed, connection pool shared across all
+        // webhook actions and scan cycles).  Lazy-initialised on first call.
+        let client_arc = match &self.http_client {
             Some(c) => c.clone(),
             None => {
-                // Initialize client on first use
                 let new_client = match reqwest::Client::builder()
+                    .connect_timeout(std::time::Duration::from_secs(5))
                     .timeout(std::time::Duration::from_secs(10))
                     .pool_max_idle_per_host(2) // Limit idle connections
                     .build()
@@ -1793,11 +1843,12 @@ impl ScriptEngine {
                         );
                     }
                 };
-                // v1.2.6: Save client for connection reuse
-                self.http_client = Some(new_client.clone());
-                new_client
+                let arc = std::sync::Arc::new(new_client);
+                self.http_client = Some(arc.clone());
+                arc
             }
         };
+        let client = client_arc.as_ref();
 
         let request = match method.as_str() {
             "GET" => client.get(&url),

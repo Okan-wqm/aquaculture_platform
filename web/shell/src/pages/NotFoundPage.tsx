@@ -1,7 +1,7 @@
 /**
- * Not Found / Error Sayfası
+ * Not Found / Error Page
  *
- * 404 ve yetkilendirme hatası sayfaları.
+ * Rendered for 404, authorization errors, and unexpected server errors.
  */
 
 import React from 'react';
@@ -9,23 +9,22 @@ import { Link } from 'react-router-dom';
 import { Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
-// Tip Tanımlamaları
+// Types
 // ============================================================================
 
 interface NotFoundPageProps {
-  /** Hata tipi */
   type?: 'notfound' | 'unauthorized' | 'error';
 }
 
 // ============================================================================
-// İçerik Yapılandırması
+// Page Content Configuration
 // ============================================================================
 
 const pageContent = {
   notfound: {
     code: '404',
-    title: 'Sayfa Bulunamadı',
-    description: 'Aradığınız sayfa mevcut değil veya taşınmış olabilir.',
+    title: 'Page Not Found',
+    description: 'The page you are looking for does not exist or may have been moved.',
     icon: (
       <svg className="w-24 h-24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path
@@ -39,8 +38,8 @@ const pageContent = {
   },
   unauthorized: {
     code: '403',
-    title: 'Erişim Reddedildi',
-    description: 'Bu sayfaya erişim yetkiniz bulunmamaktadır.',
+    title: 'Access Denied',
+    description: 'You do not have permission to access this page.',
     icon: (
       <svg className="w-24 h-24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path
@@ -54,8 +53,8 @@ const pageContent = {
   },
   error: {
     code: '500',
-    title: 'Sunucu Hatası',
-    description: 'Beklenmeyen bir hata oluştu. Lütfen daha sonra tekrar deneyin.',
+    title: 'Server Error',
+    description: 'An unexpected error occurred. Please try again later.',
     icon: (
       <svg className="w-24 h-24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path
@@ -70,7 +69,7 @@ const pageContent = {
 };
 
 // ============================================================================
-// Ana Bileşen
+// Component
 // ============================================================================
 
 const NotFoundPage: React.FC<NotFoundPageProps> = ({ type = 'notfound' }) => {
@@ -79,35 +78,26 @@ const NotFoundPage: React.FC<NotFoundPageProps> = ({ type = 'notfound' }) => {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="text-center max-w-md">
-        {/* İkon */}
         <div className="text-gray-300 mb-6 flex justify-center">{content.icon}</div>
-
-        {/* Hata Kodu */}
         <div className="text-6xl font-bold text-gray-200 mb-4">{content.code}</div>
-
-        {/* Başlık */}
         <h1 className="text-2xl font-bold text-gray-900 mb-2">{content.title}</h1>
-
-        {/* Açıklama */}
         <p className="text-gray-600 mb-8">{content.description}</p>
 
-        {/* Aksiyon Butonları */}
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Link to="/">
-            <Button variant="primary">Ana Sayfaya Dön</Button>
+            <Button variant="primary">Go to Home</Button>
           </Link>
           <Button variant="outline" onClick={() => window.history.back()}>
-            Geri Git
+            Go Back
           </Button>
         </div>
 
-        {/* Yardım Linki */}
         <p className="mt-8 text-sm text-gray-500">
-          Sorun devam ederse{' '}
+          If the issue persists, please contact{' '}
           <a href="/support" className="text-primary-600 hover:text-primary-700 font-medium">
-            destek ekibimizle
-          </a>{' '}
-          iletişime geçin.
+            support
+          </a>
+          .
         </p>
       </div>
     </div>

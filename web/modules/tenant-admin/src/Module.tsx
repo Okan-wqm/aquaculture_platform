@@ -19,6 +19,7 @@ import TenantSupportPage from './pages/TenantSupportPage';
 import TenantAnnouncementsPage from './pages/TenantAnnouncementsPage';
 import EdgeDevicesPage from './pages/EdgeDevicesPage';
 import EdgeDeviceDetailPage from './pages/EdgeDeviceDetailPage';
+import TenantRolesPage from './pages/TenantRolesPage';
 
 /**
  * Tenant Admin Module
@@ -59,6 +60,9 @@ const TenantAdminModule: React.FC = () => {
 
       {/* Database View */}
       <Route path="database" element={<TenantDatabase />} />
+
+      {/* Roles & Permissions */}
+      <Route path="roles" element={<TenantRolesPage />} />
 
       {/* Catch-all redirect to dashboard */}
       <Route path="*" element={<Navigate to="/tenant" replace />} />

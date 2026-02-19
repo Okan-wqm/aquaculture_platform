@@ -3,10 +3,8 @@
 # For kube-prometheus-stack Helm chart
 # =============================================================================
 
-# Global settings
-global:
-  scrape_interval: 30s
-  evaluation_interval: 30s
+# ARCH-NM-013: Top-level global.scrape_interval is silently ignored by kube-prometheus-stack.
+# Correct path is prometheus.prometheusSpec.scrapeInterval (set below in prometheusSpec).
 
 # Prometheus configuration
 prometheus:
@@ -38,7 +36,26 @@ prometheus:
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
 
-    # Additional scrape configs for custom services
+    # ARCH-NM-005: Watch PrometheusRule resources in both monitoring and aquaculture namespaces
+    ruleNamespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - monitoring
+            - aquaculture
+
+    # ARCH-NM-013: scrape/evaluation intervals at the correct Helm path
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+
+    # SEC-NM-018: Annotation-based pod scraping is a security risk — any pod that can
+    # set its own annotations can inject itself as a scrape target (metric poisoning).
+    # Prefer ServiceMonitor resources with label selectors per service.
+    # The annotation-based config below is retained for legacy compatibility only.
+    # Migrate each service to a dedicated ServiceMonitor CRD with:
+    #   selector.matchLabels targeting specific service labels
+    #   namespaceSelector scoped to the aquaculture namespace
     additionalScrapeConfigs:
       - job_name: 'aquaculture-services'
         kubernetes_sd_configs:
@@ -107,18 +124,42 @@ alertmanager:
         - match:
             severity: critical
           receiver: 'critical-alerts'
+          # continue: true sends critical alerts to 'default' as well (e.g. ticket system)
           continue: true
         - match:
             severity: warning
           receiver: 'warning-alerts'
+          # ARCH-NM-006: continue: true added so warning alerts also reach 'default' receiver
+          continue: true
 
     receivers:
+      # SEC-NM-007: Real receiver configurations. Credentials must be injected via
+      # Kubernetes secrets and referenced here. Never hardcode credentials in this file.
       - name: 'default'
-        # Configure webhook or email
+        # Catch-all: ticket creation or audit log webhook
+        webhook_configs:
+          - url: "${ALERTMANAGER_WEBHOOK_URL}"
+            send_resolved: true
       - name: 'critical-alerts'
-        # Slack, PagerDuty, etc.
+        # PagerDuty for on-call paging on critical severity alerts
+        pagerduty_configs:
+          - routing_key: "${PAGERDUTY_ROUTING_KEY}"
+            send_resolved: true
+        # Slack for immediate team visibility
+        slack_configs:
+          - api_url: "${SLACK_WEBHOOK_URL_CRITICAL}"
+            channel: '#alerts-critical'
+            send_resolved: true
+            title: '{{ .CommonAnnotations.summary }}'
+            text: '{{ .CommonAnnotations.description }}'
       - name: 'warning-alerts'
-        # Email, Slack, etc.
+        # Slack for warning-level alerts
+        slack_configs:
+          - api_url: "${SLACK_WEBHOOK_URL_WARNINGS}"
+            channel: '#alerts-warnings'
+            send_resolved: true
+            title: '{{ .CommonAnnotations.summary }}'
+            text: '{{ .CommonAnnotations.description }}'
 
 # Grafana configuration
 grafana:
@@ -150,11 +191,14 @@ grafana:
 
   grafana.ini:
     server:
-      root_url: "https://grafana.aquaculture.io"
+      # ARCH-NM-015: updated to match actual production domain
+      root_url: "https://grafana.app.suderra.com"
     auth.anonymous:
       enabled: false
     security:
-      admin_password: "${GRAFANA_ADMIN_PASSWORD}"
+      # SEC-NM-012: admin_password removed; credentials come from existingSecret only
+      # Setting admin_password here conflicts with existingSecret and may set the
+      # literal string "${GRAFANA_ADMIN_PASSWORD}" if the env var is not injected.
 
   dashboardProviders:
     dashboardproviders.yaml:
@@ -164,18 +208,42 @@ grafana:
           orgId: 1
           folder: ''
           type: file
-          disableDeletion: false
-          editable: true
+          # SEC-NM-011: lock provisioned dashboards against UI modification and deletion
+          disableDeletion: true
+          editable: false
           options:
             path: /var/lib/grafana/dashboards/default
         - name: 'aquaculture'
           orgId: 1
           folder: 'Aquaculture'
           type: file
-          disableDeletion: false
-          editable: true
+          # SEC-NM-011: lock provisioned dashboards against UI modification and deletion
+          disableDeletion: true
+          editable: false
           options:
             path: /var/lib/grafana/dashboards/aquaculture
+
+  # ARCH-NM-009: Provision Prometheus datasource with explicit UID to match dashboard panels
+  additionalDataSources:
+    - name: Prometheus
+      type: prometheus
+      uid: prometheus
+      url: http://prometheus-kube-prometheus-prometheus:9090
+      access: proxy
+      isDefault: true
+      jsonData:
+        timeInterval: 30s
+    - name: Loki
+      type: loki
+      uid: loki
+      url: http://loki-gateway:3100
+      access: proxy
+      jsonData:
+        derivedFields:
+          - datasourceUid: prometheus
+            matcherRegex: "traceId=(\\w+)"
+            name: TraceID
+            url: '$${__value.raw}'
 
 # Node exporter
 nodeExporter:

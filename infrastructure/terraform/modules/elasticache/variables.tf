@@ -116,6 +116,19 @@ variable "alarm_actions" {
   default     = []
 }
 
+# SEC-010 fix: variables for Secrets Manager automatic rotation
+variable "enable_secret_rotation" {
+  description = "Enable automatic Secrets Manager rotation for the Redis auth token"
+  type        = bool
+  default     = false
+}
+
+variable "rotation_lambda_arn" {
+  description = "ARN of the Secrets Manager rotation Lambda (required when enable_secret_rotation = true)"
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "Tags"
   type        = map(string)

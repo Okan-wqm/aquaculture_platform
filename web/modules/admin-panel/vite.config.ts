@@ -35,5 +35,5 @@ export default defineConfig({
   },
   server: { port: 3004, strictPort: true, cors: true },
   preview: { port: 3004 },
-  build: { modulePreload: false, target: 'esnext', minify: false, cssCodeSplit: false },
+  build: { target: 'esnext' },
 });

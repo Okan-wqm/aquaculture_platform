@@ -75,44 +75,47 @@ export class AlertCondition {
 @Index(['tenantId', 'isActive'])
 @Index(['farmId'])
 @Index(['pondId'])
+@Index(['name', 'tenantId'], { unique: true })
 export class AlertRule {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'name' })
   name!: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'description', nullable: true })
   description?: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'tenant_id' })
   @Index()
   tenantId!: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'farm_id', nullable: true })
   @Index()
   farmId?: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'pond_id', nullable: true })
   @Index()
   pondId?: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'sensor_id', nullable: true })
+  @Index()
   sensorId?: string;
 
   @Field(() => GraphQLJSON)
-  @Column('jsonb')
+  @Column({ name: 'conditions', type: 'jsonb' })
   conditions!: AlertCondition[];
 
   @Field(() => AlertSeverity, { nullable: true })
   @Column({
+    name: 'severity',
     type: 'enum',
     enum: AlertSeverity,
     default: AlertSeverity.MEDIUM,
@@ -121,30 +124,30 @@ export class AlertRule {
   severity?: AlertSeverity;
 
   @Field()
-  @Column({ default: true })
+  @Column({ name: 'is_active', default: true })
   isActive!: boolean;
 
   @Field(() => [String], { nullable: true })
-  @Column('simple-array', { nullable: true })
+  @Column({ name: 'notification_channels', type: 'jsonb', nullable: true })
   notificationChannels?: string[]; // ['email', 'sms', 'push']
 
   @Field(() => [String], { nullable: true })
-  @Column('simple-array', { nullable: true })
+  @Column({ name: 'recipients', type: 'jsonb', nullable: true })
   recipients?: string[]; // user IDs or email addresses
 
   @Field(() => Int)
-  @Column({ type: 'int', default: 0 })
+  @Column({ name: 'cooldown_minutes', type: 'int', default: 0 })
   cooldownMinutes!: number; // Prevent alert spam
 
   @Field()
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
   @Field()
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ name: 'created_by', nullable: true })
   createdBy?: string;
 }

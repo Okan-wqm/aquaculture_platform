@@ -1,9 +1,8 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { DataSource, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual, Between } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { GetPaymentsQuery } from '../queries/get-payments.query';
 import { Payment } from '../entities/payment.entity';
-import { Invoice } from '../entities/invoice.entity';
 
 @Injectable()
 @QueryHandler(GetPaymentsQuery)
@@ -15,24 +14,13 @@ export class GetPaymentsHandler implements IQueryHandler<GetPaymentsQuery, Payme
 
     const paymentRepo = this.dataSource.getRepository(Payment);
 
+    // tenantId is always included in the WHERE clause, which enforces tenant isolation
+    // and prevents IDOR without requiring a separate invoice ownership lookup.
+    // A payment row for a given invoiceId that belongs to a different tenant simply
+    // will not match because tenantId is part of the composite filter.
     const where: FindOptionsWhere<Payment> = { tenantId };
 
-    // SECURITY FIX: Validate that invoiceId belongs to the requesting tenant
-    // This prevents IDOR attacks where a user could access payments for invoices
-    // belonging to other tenants by guessing invoiceIds
     if (filter?.invoiceId) {
-      const invoiceRepo = this.dataSource.getRepository(Invoice);
-      const invoice = await invoiceRepo.findOne({
-        where: { id: filter.invoiceId, tenantId },
-        select: ['id'],
-      });
-
-      if (!invoice) {
-        throw new BadRequestException(
-          `Invoice ${filter.invoiceId} not found or does not belong to this tenant`,
-        );
-      }
-
       where.invoiceId = filter.invoiceId;
     }
     if (filter?.status) {
@@ -48,11 +36,16 @@ export class GetPaymentsHandler implements IQueryHandler<GetPaymentsQuery, Payme
       where.paymentDate = LessThanOrEqual(filter.endDate);
     }
 
+    // Enforce max limit to prevent memory exhaustion
+    const MAX_LIMIT = 100;
+    const requestedLimit = filter?.limit || 20;
+    const safeLimit = Math.min(Math.max(1, requestedLimit), MAX_LIMIT);
+
     return paymentRepo.find({
       where,
       relations: ['invoice'],
-      skip: filter?.offset || 0,
-      take: filter?.limit || 20,
+      skip: Math.max(0, filter?.offset || 0),
+      take: safeLimit,
       order: { paymentDate: 'DESC' },
     });
   }

@@ -8,9 +8,16 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { WidgetConfig, TimeRange, SensorMetric, SENSOR_METRICS, SelectedChannel } from '../components/dashboard/types';
 import { useSensorSocket, SensorReading as SocketSensorReading } from './useSensorSocket';
+import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
 
-// API base URL
-const API_URL = 'http://localhost:3000/graphql';
+// API base URL (SEC-003 / BUG-016: use runtime/env config, not hardcoded localhost)
+const API_URL =
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL) ||
+  (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__?.API_URL) ||
+  'http://localhost:3000/graphql';
+
+// PERF-011: module-scope cache shared across all useWidgetData instances
+const sharedSensorInfoCache = new Map<string, { name: string; type: string; thresholds?: Record<string, unknown> }>();
 
 // ============================================================================
 // Types
@@ -375,17 +382,14 @@ async function graphqlFetch<T>(
   query: string,
   variables?: Record<string, unknown>
 ): Promise<T> {
-  const token = localStorage.getItem('access_token');
-  const tenantId = localStorage.getItem('tenant_id');
+  const token = getAccessToken();
+  const tenantId = getTenantId();
 
-  console.log('[graphqlFetch] Auth:', {
-    hasToken: !!token,
-    tokenPreview: token ? token.substring(0, 20) + '...' : null,
-    tenantId
-  });
+  // SEC-007: No debug logging of auth tokens or tenant IDs
 
   const response = await fetch(API_URL, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -395,10 +399,8 @@ async function graphqlFetch<T>(
   });
 
   const result = await response.json();
-  console.log('[graphqlFetch] Response status:', response.status);
 
   if (result.errors) {
-    console.error('[graphqlFetch] GraphQL errors:', result.errors);
     throw new Error(result.errors[0]?.message || 'GraphQL Error');
   }
 
@@ -417,9 +419,7 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const isInitialLoadRef = useRef(true); // Track if this is the first load
-  const sensorInfoCache = useRef<Map<string, { name: string; type: string; thresholds?: Record<string, unknown> }>>(
-    new Map()
-  );
+  // PERF-011: use module-scope shared cache instead of per-instance useRef
   // Bug #1 fix: Queue for WebSocket readings that arrive before initial data load
   const pendingReadingsRef = useRef<Map<string, SocketSensorReading>>(new Map());
 
@@ -437,6 +437,8 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
   }, [config.selectedChannels, config.sensorIds]);
 
   // Subscribe to WebSocket for real-time updates
+  // PERF-001: useSensorSocket uses a module-scope singleton socket and Zustand store —
+  // multiple useWidgetData instances share the same physical WebSocket connection
   const { isConnected, readings: socketReadings, getLatestReading } = useSensorSocket(sensorIds);
 
   // Update data when WebSocket receives new readings
@@ -444,11 +446,8 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
   useEffect(() => {
     if (socketReadings.size === 0) return;
 
-    console.log('[useWidgetData] WebSocket readings updated:', socketReadings.size, 'sensors');
-
     // Bug #1 fix: If still loading initial data, queue readings for later
     if (loading) {
-      console.log('[useWidgetData] Still loading, queueing WebSocket readings');
       for (const [sensorId, reading] of socketReadings) {
         pendingReadingsRef.current.set(sensorId, reading);
       }
@@ -545,8 +544,6 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
   useEffect(() => {
     if (loading || pendingReadingsRef.current.size === 0) return;
 
-    console.log('[useWidgetData] Processing', pendingReadingsRef.current.size, 'pending WebSocket readings');
-
     // Re-trigger the WebSocket handler by updating data with pending readings
     setData((prevData) => {
       const newData = [...prevData];
@@ -587,10 +584,10 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
     });
   }, [loading, config.selectedChannels]);
 
-  // Fetch sensor info (cached)
+  // Fetch sensor info (uses shared module-scope cache — PERF-011)
   const fetchSensorInfo = useCallback(async (sensorId: string) => {
-    if (sensorInfoCache.current.has(sensorId)) {
-      return sensorInfoCache.current.get(sensorId)!;
+    if (sharedSensorInfoCache.has(sensorId)) {
+      return sharedSensorInfoCache.get(sensorId)!;
     }
 
     try {
@@ -603,7 +600,7 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
         type: result.sensor.type,
         thresholds: result.sensor.alertThresholds,
       };
-      sensorInfoCache.current.set(sensorId, info);
+      sharedSensorInfoCache.set(sensorId, info);
       return info;
     } catch {
       // Fallback if sensor info not available
@@ -617,26 +614,19 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
     const hasSelectedChannels = config.selectedChannels && config.selectedChannels.length > 0;
     const hasSensorIds = config.sensorIds && config.sensorIds.length > 0;
 
-    console.log('[useWidgetData] Fetching for widget:', config.id, {
-      hasSelectedChannels,
-      hasSensorIds,
-      selectedChannels: config.selectedChannels,
-      sensorIds: config.sensorIds,
-    });
 
     if (!hasSelectedChannels && !hasSensorIds) {
-      console.warn('[useWidgetData] No channels or sensors configured');
       setData([]);
       setLoading(false);
       return;
     }
 
     try {
-      const readings: WidgetDataPoint[] = [];
+      const readings: WidgetDataPoint[] = []; // eslint-disable-line prefer-const
 
       if (hasSelectedChannels) {
-        // New approach: fetch by selected channels
-        // Group channels by sensorId
+        // New approach: fetch by selected channels using batch latest-reading query (PERF-005)
+        const uniqueSensorIds = [...new Set(config.selectedChannels!.map((ch) => ch.sensorId))];
         const channelsBySensor = new Map<string, SelectedChannel[]>();
         for (const ch of config.selectedChannels!) {
           if (!channelsBySensor.has(ch.sensorId)) {
@@ -645,73 +635,47 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
           channelsBySensor.get(ch.sensorId)!.push(ch);
         }
 
-        for (const [sensorId, channels] of channelsBySensor) {
-          try {
-            const endTime = new Date();
-            // Use 7 days window to find latest reading (in case sensor data is old)
-            const startTime = new Date(endTime.getTime() - 7 * 24 * 60 * 60 * 1000);
+        try {
+          const result = await graphqlFetch<{ latestReadingsBatch: RawSensorReading[] }>(
+            GET_LATEST_READINGS_QUERY,
+            { sensorIds: uniqueSensorIds }
+          );
 
-            console.log('[useWidgetData] Fetching readings for sensor:', sensorId, 'from', startTime.toISOString(), 'to', endTime.toISOString());
-            const result = await graphqlFetch<{ readings: RawSensorReading[] }>(
-              GET_READINGS_HISTORY_QUERY,
-              {
-                sensorId,
-                startTime: startTime.toISOString(),
-                endTime: endTime.toISOString(),
-                limit: 1,
-              }
-            );
-
-            console.log('[useWidgetData] Readings result:', result);
-
-            if (result.readings && result.readings.length > 0) {
-              const rawReading = result.readings[0];
-              console.log('[useWidgetData] Raw reading:', rawReading);
-
+          if (result.latestReadingsBatch) {
+            for (const rawReading of result.latestReadingsBatch) {
+              const channels = channelsBySensor.get(rawReading.sensorId) || [];
               for (const channel of channels) {
                 const value = extractRawValueByChannelKey(rawReading.readings, channel.channelKey);
-                console.log(`[useWidgetData] Channel ${channel.channelKey} value:`, value);
                 if (value !== null) {
                   readings.push({
-                    sensorId: channel.id, // Use channel ID as identifier
+                    sensorId: channel.id,
                     sensorName: `${channel.sensorName} - ${channel.displayLabel}`,
                     value,
                     unit: channel.unit || '',
                     timestamp: new Date(rawReading.timestamp),
-                    status: 'normal', // TODO: Implement channel-based thresholds
+                    status: 'normal',
                     minValue: 0,
                     maxValue: 100,
                   });
                 }
               }
-            } else {
-              console.warn('[useWidgetData] No readings returned for sensor:', sensorId);
             }
-          } catch (sensorError) {
-            console.error(`[useWidgetData] Failed to fetch reading for sensor ${sensorId}:`, sensorError);
           }
+        } catch (batchError) {
+          console.warn('[useWidgetData] Failed to fetch batch latest readings:', batchError);
         }
       } else {
-        // Legacy approach: sensorIds + metric
-        for (const sensorId of config.sensorIds!) {
-          try {
-            const sensorInfo = await fetchSensorInfo(sensorId);
-            const endTime = new Date();
-            // Use 7 days window to find latest reading
-            const startTime = new Date(endTime.getTime() - 7 * 24 * 60 * 60 * 1000);
+        // Legacy approach: sensorIds + metric — use batch query too (PERF-005)
+        try {
+          const result = await graphqlFetch<{ latestReadingsBatch: RawSensorReading[] }>(
+            GET_LATEST_READINGS_QUERY,
+            { sensorIds: config.sensorIds! }
+          );
 
-            const result = await graphqlFetch<{ readings: RawSensorReading[] }>(
-              GET_READINGS_HISTORY_QUERY,
-              {
-                sensorId,
-                startTime: startTime.toISOString(),
-                endTime: endTime.toISOString(),
-                limit: 1,
-              }
-            );
-
-            if (result.readings && result.readings.length > 0) {
-              const rawReading = result.readings[0];
+          if (result.latestReadingsBatch) {
+            for (const rawReading of result.latestReadingsBatch) {
+              const sensorId = rawReading.sensorId;
+              const sensorInfo = await fetchSensorInfo(sensorId);
               const extracted = extractValueByMetric(rawReading.readings, config.metric);
 
               if (extracted) {
@@ -732,13 +696,11 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
                 });
               }
             }
-          } catch (sensorError) {
-            console.warn(`Failed to fetch reading for sensor ${sensorId}:`, sensorError);
           }
+        } catch (batchError) {
+          console.warn('[useWidgetData] Failed to fetch batch latest readings:', batchError);
         }
       }
-
-      console.log('[useWidgetData] Final readings data:', readings);
       setData(readings);
       setError(null);
     } catch (err) {
@@ -938,8 +900,6 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
 
   // Combined fetch function
   const fetchData = useCallback(async () => {
-    console.log('[useWidgetData] fetchData called for widget:', config.id, 'isInitialLoad:', isInitialLoadRef.current);
-
     // Only show loading spinner on initial load, not on refresh
     if (isInitialLoadRef.current) {
       setLoading(true);
@@ -951,24 +911,16 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
       setLoading(false);
       isInitialLoadRef.current = false;
     }
-
-    console.log('[useWidgetData] fetchData completed for widget:', config.id);
-  }, [fetchLatestReadings, fetchHistory, config.id]);
+  }, [fetchLatestReadings, fetchHistory]);
 
   // Initial fetch and history refresh interval
   // Note: Live data comes via WebSocket, polling is only for history charts
   useEffect(() => {
-    console.log('[useWidgetData] Setting up widget:', config.id, {
-      refreshInterval: config.refreshInterval,
-      wsConnected: isConnected,
-    });
-
     fetchData();
 
     // History refresh interval: use config value or default to 60 seconds
     // Since live data comes via WebSocket, we only need to refresh history periodically
     const historyRefreshInterval = config.refreshInterval > 0 ? config.refreshInterval : 60000;
-    console.log('[useWidgetData] History refresh interval:', historyRefreshInterval, 'ms for widget:', config.id);
 
     intervalRef.current = setInterval(() => {
       // Only refresh history, live data comes from WebSocket
@@ -977,7 +929,6 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
 
     return () => {
       if (intervalRef.current) {
-        console.log('[useWidgetData] Clearing interval for widget:', config.id);
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }

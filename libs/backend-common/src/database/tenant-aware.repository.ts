@@ -1,20 +1,8 @@
 import { Repository, EntityTarget, DataSource, ObjectLiteral, DeepPartial, FindManyOptions, FindOneOptions } from 'typeorm';
 import { Injectable, Scope, Inject, Logger } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
-import { Request } from 'express';
 import { SchemaManagerService } from './schema-manager.service';
-
-/**
- * Extended Request interface with tenant context
- */
-interface TenantRequest extends Request {
-  tenantId?: string;
-  user?: {
-    tenantId?: string;
-    sub?: string;
-    role?: string;
-  };
-}
+import { TenantRequest } from '../types/tenant-request.interface';
 
 /**
  * Base entity interface with tenantId
@@ -179,13 +167,14 @@ export class TenantAwareRepository<T extends TenantEntity> {
       return null;
     }
 
-    // Prevent changing tenant ID
-    const { tenantId: _, ...safeUpdates } = updates as Record<string, unknown>;
+    // Prevent changing tenant ID - strip it from the update payload
+    const updateData = { ...updates } as Record<string, unknown>;
+    delete updateData.tenantId;
 
     await this.repository
       .createQueryBuilder()
       .update()
-      .set(safeUpdates as any)
+      .set(updateData as DeepPartial<T>)
       .where('id = :id', { id })
       .andWhere('"tenantId" = :tenantId', { tenantId })
       .execute();
@@ -281,18 +270,16 @@ export class TenantAwareRepository<T extends TenantEntity> {
   /**
    * Execute raw query with tenant filter
    *
-   * SECURITY: Uses pg_catalog.set_config with parameterized query to prevent SQL injection.
-   * The schema name is validated through getTenantSchemaName() which ensures UUID format.
-   *
-   * WARNING: This method sets search_path at connection level. In a connection pool,
-   * the next query might use a different connection. For reliable tenant isolation,
-   * execute all related queries immediately after this call or use transactions.
+   * SECURITY: Uses a transaction to pin the connection and set search_path
+   * with SET LOCAL (transaction-scoped), preventing cross-tenant data leakage
+   * in connection pools. The schema name is validated through
+   * getTenantSchemaName() which ensures UUID format.
    */
   async executeRaw<R = unknown>(
     query: string,
     parameters?: unknown[],
   ): Promise<R> {
-    this.requireTenantId();
+    const tenantId = this.requireTenantId();
 
     // SECURITY: Validate schema name format before using in query
     // Schema name comes from getTenantSchemaName() which validates UUID format
@@ -301,24 +288,18 @@ export class TenantAwareRepository<T extends TenantEntity> {
       throw new Error(`SECURITY: Invalid schema name format: ${this.schemaName}`);
     }
 
-    // SECURITY: Use pg_catalog.set_config with parameterized query instead of
-    // template literal interpolation. This prevents SQL injection even if
-    // schemaName validation is bypassed.
+    // SECURITY: Use a transaction to pin the connection and set search_path
+    // with SET LOCAL. This prevents the connection-pool race condition where
+    // a concurrent coroutine could observe the wrong search_path.
     if (this.schemaName) {
-      await this.dataSource.query(
-        `SELECT pg_catalog.set_config('search_path', $1 || ', public', false)`,
-        [this.schemaName],
-      );
+      return this.dataSource.transaction(async (manager) => {
+        // SET LOCAL via set_config with 'true' (is_local) - transaction-scoped
+        await this.schemaManager.setTenantSearchPathInTransaction(manager, tenantId);
+        return manager.query(query, parameters);
+      });
     }
 
-    try {
-      return await this.dataSource.query(query, parameters);
-    } finally {
-      // SECURITY: Reset search_path using safe method
-      await this.dataSource.query(
-        `SELECT pg_catalog.set_config('search_path', 'public', false)`,
-      );
-    }
+    return this.dataSource.query(query, parameters);
   }
 }
 

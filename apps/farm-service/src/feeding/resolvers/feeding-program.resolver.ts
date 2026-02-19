@@ -749,9 +749,9 @@ export class FeedingProgramResolver {
         tenantId,
       );
 
-      // Return the updated tank
+      // Return the updated tank with tenant isolation
       const updatedTank = await this.feedingProgramTankRepository.findOne({
-        where: { id: programTank.id },
+        where: { id: programTank.id, tenantId },
       });
 
       this.auditLog({
@@ -857,20 +857,43 @@ export class FeedingProgramResolver {
         input.notes,
       );
 
-      // Fetch updated execution
+      // Save feeder info if provided
+      if (input.feedingMethod || input.feederEquipmentId) {
+        const feederUpdate: Record<string, unknown> = {};
+        if (input.feedingMethod) {
+          feederUpdate.feedingMethod = input.feedingMethod;
+        }
+        if (input.feederEquipmentId) {
+          feederUpdate.feederEquipmentId = input.feederEquipmentId;
+          // Lookup feeder name from SubEquipment for denormalization
+          try {
+            const subEquipmentRepo = this.dataSource.getRepository('SubEquipment');
+            const feeder = await subEquipmentRepo.findOne({
+              where: { id: input.feederEquipmentId, tenantId },
+              select: ['id', 'name'],
+            });
+            if (feeder) {
+              feederUpdate.feederName = (feeder as { name: string }).name;
+            }
+          } catch {
+            // SubEquipment lookup failed - continue without feederName
+          }
+        }
+        // SECURITY: Include tenantId in WHERE clause to prevent cross-tenant writes
+        await this.dailyFeedingExecutionRepository.update(
+          { id: input.executionId, tenantId },
+          feederUpdate,
+        );
+      }
+
+      // Fetch updated execution with tenant isolation
       const updatedExecution = await this.dailyFeedingExecutionRepository.findOne({
-        where: { id: input.executionId },
+        where: { id: input.executionId, tenantId },
         relations: ['feedingProgram', 'feedingProgramTank'],
       });
 
-      // Update program statistics with proper tenant validation
-      if (result.feedTransitioned && execution.feedingProgramId) {
-        await this.safeProgramIncrement(
-          execution.feedingProgramId,
-          tenantId,
-          'totalFeedTransitions',
-        );
-      }
+      // Note: totalFeedTransitions is already incremented inside recordActualFeeding()
+      // Do NOT double-increment here via safeProgramIncrement
 
       this.auditLog({
         action: 'RECORD_FEEDING',
@@ -882,6 +905,8 @@ export class FeedingProgramResolver {
           actualKg: input.actualKg,
           growthKg: result.growthKg,
           feedTransitioned: result.feedTransitioned,
+          feedingMethod: input.feedingMethod,
+          feederEquipmentId: input.feederEquipmentId,
         },
       });
 

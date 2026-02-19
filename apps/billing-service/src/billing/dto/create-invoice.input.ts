@@ -8,6 +8,8 @@ import {
   ValidateNested,
   IsArray,
   Min,
+  MaxLength,
+  Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -56,12 +58,12 @@ export class InvoiceLineItemInput {
 
   @Field(() => Float)
   @IsNumber()
-  @Min(0)
+  @Min(0.01)
   quantity!: number;
 
   @Field(() => Float)
   @IsNumber()
-  @Min(0)
+  @Min(0.01)
   unitPrice!: number;
 
   @Field({ nullable: true })
@@ -121,6 +123,8 @@ export class CreateInvoiceInput {
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
+  @MaxLength(50)
+  @Matches(/^[a-zA-Z0-9_-]+$/, { message: 'Discount code must contain only alphanumeric characters, hyphens, and underscores' })
   discountCode?: string;
 
   @Field({ nullable: true })
@@ -143,5 +147,6 @@ export class CreateInvoiceInput {
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   notes?: string;
 }

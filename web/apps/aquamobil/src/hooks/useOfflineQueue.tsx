@@ -8,7 +8,7 @@ import {
 } from '@/pwa/offline-queue';
 import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
-import type { QueuedOperation, OperationType, MortalityInput, CullInput, HarvestInput } from '@/types';
+import type { QueuedOperation, OperationType, OperationPayload } from '@/types';
 
 interface SyncResult {
   success: number;
@@ -21,7 +21,7 @@ interface OfflineContextValue {
   isOnline: boolean;
   isSyncing: boolean;
   syncError: string | null;
-  addToQueue: (type: OperationType, payload: MortalityInput | CullInput | HarvestInput) => Promise<string>;
+  addToQueue: (type: OperationType, payload: OperationPayload) => Promise<string>;
   syncNow: () => Promise<SyncResult>;
   removeFromQueue: (id: string) => Promise<void>;
   refreshQueue: () => Promise<void>;
@@ -59,6 +59,15 @@ const MUTATIONS: Record<OperationType, string> = {
       }
     }
   `,
+  recordFeeding: `
+    mutation RecordDailyFeeding($input: RecordDailyFeedingInput!) {
+      recordDailyFeeding(input: $input) {
+        id
+        actualFeedKg
+        status
+      }
+    }
+  `,
 };
 
 export function OfflineProvider({ children }: { children: ReactNode }) {
@@ -72,6 +81,9 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   // Use ref to track syncing state to avoid infinite loops
   const isSyncingRef = useRef(false);
   const hasSyncedOnReconnectRef = useRef(false);
+  // PERF-04: Hold syncNow in a ref so the auto-sync effect does not re-run when
+  // syncNow changes due to pendingCount updates during a sync session.
+  const syncNowRef = useRef<() => Promise<SyncResult>>(async () => ({ success: 0, failed: 0 }));
 
   const refreshQueue = useCallback(async () => {
     try {
@@ -108,16 +120,19 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   }, [refreshQueue]);
 
   const addToQueue = useCallback(
-    async (type: OperationType, payload: MortalityInput | CullInput | HarvestInput): Promise<string> => {
-      const id = await queueOperation(type, payload);
+    async (type: OperationType, payload: OperationPayload): Promise<string> => {
+      // SEC-09: pass auth presence so background sync is only registered when
+      // credentials are confirmed valid, preventing auth-failure retryCount inflation.
+      const hasValidAuth = Boolean(accessToken && tenantId && user);
+      const id = await queueOperation(type, payload, hasValidAuth);
       await refreshQueue();
       return id;
     },
-    [refreshQueue]
+    [refreshQueue, accessToken, tenantId, user]
   );
 
   const executeGraphQL = useCallback(
-    async (type: OperationType, payload: MortalityInput | CullInput | HarvestInput): Promise<unknown> => {
+    async (type: OperationType, payload: OperationPayload): Promise<unknown> => {
       if (!accessToken || !tenantId || !user) {
         throw new Error('Not authenticated');
       }
@@ -128,6 +143,8 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
           'X-Tenant-Id': tenantId,
+          // SEC-06: CSRF defense header
+          'X-Requested-With': 'XMLHttpRequest',
         },
         body: JSON.stringify({
           query: MUTATIONS[type],
@@ -165,6 +182,13 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     try {
       const result = await syncAllOperations(executeGraphQL);
       await refreshQueue();
+
+      // BUG-07: Reset the reconnect guard after a successful sync so that
+      // new items queued while online will trigger auto-sync on next effect run.
+      if (result.success > 0) {
+        hasSyncedOnReconnectRef.current = false;
+      }
+
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Sync failed';
@@ -175,6 +199,12 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       setIsSyncing(false);
     }
   }, [isOnline, executeGraphQL, refreshQueue, pendingCount]);
+
+  // Keep ref in sync so the auto-sync effect always calls the latest version
+  // without needing syncNow in its dependency array (PERF-04).
+  useEffect(() => {
+    syncNowRef.current = syncNow;
+  }, [syncNow]);
 
   const removeFromQueueHandler = useCallback(
     async (id: string): Promise<void> => {
@@ -188,22 +218,25 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     setSyncError(null);
   }, []);
 
-  // Auto-sync when coming online - with debounce to prevent loops
+  // Auto-sync when coming online - with debounce to prevent loops.
+  // PERF-04: syncNow is accessed via ref, not listed as a dependency,
+  // preventing 50+ re-evaluations during a bulk sync session.
   useEffect(() => {
     if (isOnline && pendingCount > 0 && !hasSyncedOnReconnectRef.current) {
       hasSyncedOnReconnectRef.current = true;
       // Small delay to ensure network is stable
       const timer = setTimeout(() => {
-        syncNow();
+        syncNowRef.current();
       }, 1000);
       return () => clearTimeout(timer);
     }
 
-    // Reset flag when going offline
+    // Reset flag when going offline so the next reconnect triggers sync
     if (!isOnline) {
       hasSyncedOnReconnectRef.current = false;
     }
-  }, [isOnline, pendingCount, syncNow]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline, pendingCount]);
 
   return (
     <OfflineContext.Provider

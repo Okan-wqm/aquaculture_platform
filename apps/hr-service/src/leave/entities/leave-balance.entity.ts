@@ -73,6 +73,9 @@ export class LeaveBalance {
   @Column({ type: 'decimal', precision: 6, scale: 2, default: 0 })
   carriedOver!: number;
 
+  /**
+   * Current balance: total entitlement minus used (includes pending as still "current")
+   */
   @Field(() => Float)
   get currentBalance(): number {
     return (
@@ -80,11 +83,13 @@ export class LeaveBalance {
       Number(this.accrued) +
       Number(this.carriedOver) +
       Number(this.adjustment) -
-      Number(this.used) -
-      Number(this.pending)
+      Number(this.used)
     );
   }
 
+  /**
+   * Available balance: current balance minus pending (what can still be requested)
+   */
   @Field(() => Float)
   get availableBalance(): number {
     return (

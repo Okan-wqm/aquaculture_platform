@@ -179,7 +179,7 @@ describe('CreateTenantPage', () => {
       await user.click(nextButton);
 
       // Should show error
-      expect(screen.getByText(/lutfen gerekli alanlari doldurun/i)).toBeInTheDocument();
+      expect(screen.getByText(/please fill in all required fields/i)).toBeInTheDocument();
     });
 
     it('should allow proceeding with valid data', async () => {
@@ -258,7 +258,7 @@ describe('CreateTenantPage', () => {
       await user.click(nextButton);
 
       // Should show error
-      expect(screen.getByText(/lutfen gerekli alanlari doldurun/i)).toBeInTheDocument();
+      expect(screen.getByText(/please fill in all required fields/i)).toBeInTheDocument();
     });
 
     it('should accept valid email', async () => {
@@ -610,7 +610,7 @@ describe('CreateTenantPage', () => {
 
       // Try to proceed without data
       await user.click(screen.getByRole('button', { name: /devam/i }));
-      expect(screen.getByText(/lutfen gerekli alanlari doldurun/i)).toBeInTheDocument();
+      expect(screen.getByText(/please fill in all required fields/i)).toBeInTheDocument();
 
       // Fill in data and proceed
       await user.type(screen.getByLabelText(/sirket adi/i), 'Test');
@@ -618,7 +618,7 @@ describe('CreateTenantPage', () => {
 
       // Error should be cleared
       await waitFor(() => {
-        expect(screen.queryByText(/lutfen gerekli alanlari doldurun/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/please fill in all required fields/i)).not.toBeInTheDocument();
       });
     });
 
@@ -628,13 +628,13 @@ describe('CreateTenantPage', () => {
 
       // Trigger error
       await user.click(screen.getByRole('button', { name: /devam/i }));
-      expect(screen.getByText(/lutfen gerekli alanlari doldurun/i)).toBeInTheDocument();
+      expect(screen.getByText(/please fill in all required fields/i)).toBeInTheDocument();
 
       // Find and click dismiss button (if Alert has one)
       const dismissButton = screen.queryByRole('button', { name: /dismiss/i });
       if (dismissButton) {
         await user.click(dismissButton);
-        expect(screen.queryByText(/lutfen gerekli alanlari doldurun/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/please fill in all required fields/i)).not.toBeInTheDocument();
       }
     });
   });

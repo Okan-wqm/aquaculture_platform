@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import federation from '@originjs/vite-plugin-federation';
@@ -34,15 +35,16 @@ export default defineConfig({
           singleton: true,
           requiredVersion: '^6.21.0',
         },
-        '@tanstack/react-query': {
-          singleton: true,
-          requiredVersion: '^5.17.0',
-        },
         // CRITICAL: AuthContext ve TenantContext için zorunlu
         // singleton: true ile host'un provider'larına erişebilir
         '@aquaculture/shared-ui': {
           singleton: true,
           import: true,
+        },
+        // recharts is used heavily — share to avoid duplication across MF chunks
+        recharts: {
+          singleton: true,
+          requiredVersion: '^2.10.0',
         },
         zustand: {
           singleton: true,
@@ -60,15 +62,26 @@ export default defineConfig({
   server: {
     port: 3001,
     strictPort: true,
-    cors: true,
+    // Restrict CORS to known development origins (DASH-SEC-008)
+    cors: {
+      origin: ['http://localhost:8080', 'http://localhost:3000', 'http://localhost:3001'],
+    },
   },
   preview: {
     port: 3001,
   },
   build: {
-    modulePreload: false,
     target: 'esnext',
-    minify: false,
-    cssCodeSplit: false,
+    // Ensure minification is enabled (default esbuild) — CRIT-1 / DASH-SEC-012
+    minify: 'esbuild',
+    // Enable CSS code splitting for route-level deferral — PERF-M5
+    cssCodeSplit: true,
+  },
+  // BUG-L5: vitest configuration for @testing-library/react
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test-setup.ts'],
+    css: false,
   },
 });

@@ -30,7 +30,7 @@ FROM base AS deps
 # Install all dependencies (including devDependencies for build)
 # Skip prepare script (husky) in Docker
 # Use npm ci with BuildKit cache mount for faster subsequent builds
-RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+RUN --mount=type=cache,target=/root/.npm,sharing=shared \
     npm ci --legacy-peer-deps --ignore-scripts --no-audit
 
 # -----------------------------------------------------------------------------
@@ -39,6 +39,9 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
 FROM deps AS builder
 
 # Copy source code
+# ARCH-015: Copying full monorepo source here. To reduce cache invalidation,
+# use a .dockerignore that excludes other apps, or pass SERVICE_NAME earlier
+# and copy only apps/${SERVICE_NAME} and its lib dependencies.
 COPY apps/ ./apps/
 COPY libs/ ./libs/
 COPY platform/ ./platform/
@@ -64,7 +67,7 @@ FROM base AS prod-deps
 
 # Skip prepare script (husky) in Docker
 # Production dependencies only with BuildKit cache mount
-RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+RUN --mount=type=cache,target=/root/.npm,sharing=shared \
     npm ci --legacy-peer-deps --omit=dev --ignore-scripts --no-audit
 
 # -----------------------------------------------------------------------------
@@ -81,15 +84,15 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /app
 
-# Copy production dependencies
-COPY --from=prod-deps /app/node_modules ./node_modules
+# Copy production dependencies with correct ownership (ARCH-001)
+COPY --from=prod-deps --chown=nestjs:nodejs /app/node_modules ./node_modules
 
 # Copy built application
 ARG SERVICE_NAME
-COPY --from=builder /app/dist/apps/${SERVICE_NAME} ./dist
+COPY --from=builder --chown=nestjs:nodejs /app/dist/apps/${SERVICE_NAME} ./dist
 
 # Copy package.json for version info
-COPY package.json ./
+COPY --chown=nestjs:nodejs package.json ./
 
 # Set environment variables
 ENV NODE_ENV=production

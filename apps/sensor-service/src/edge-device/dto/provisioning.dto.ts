@@ -66,6 +66,14 @@ export class ProvisionedDeviceResponse {
 
   @Field()
   status!: string;
+
+  /**
+   * Plaintext provisioning token — shown exactly once at device creation.
+   * The caller must store it securely; it cannot be retrieved again.
+   * It is required to download the installer script and to activate the device.
+   */
+  @Field()
+  provisioningToken!: string;
 }
 
 /**

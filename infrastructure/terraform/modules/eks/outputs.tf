@@ -37,9 +37,11 @@ output "cluster_oidc_provider_arn" {
   value       = aws_iam_openid_connect_provider.cluster.arn
 }
 
-output "node_role_arn" {
-  description = "Node IAM role ARN"
-  value       = aws_iam_role.node.arn
+# ARCH-006 fix: now returns a map of node-group-name → role ARN since each node
+# group has its own IAM role.
+output "node_role_arns" {
+  description = "Map of node group name to node IAM role ARN"
+  value       = { for k, v in aws_iam_role.node : k => v.arn }
 }
 
 output "cluster_version" {

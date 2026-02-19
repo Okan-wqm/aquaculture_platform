@@ -24,6 +24,9 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use tracing::{debug, info};
+// machine_uid is used to derive the SQLCipher database encryption key
+#[allow(unused_imports)]
+use machine_uid;
 
 // ============================================================================
 // Error Types
@@ -472,14 +475,18 @@ impl SqlitePersistence {
                 reason: e.to_string(),
             })?;
 
-            // Cleanup old entries (keep last 1000 per script)
+            // BUG-013: Cleanup old entries (keep last 1000 per script).
+            // Bounds-based deletion using the cutoff timestamp of the 1000th newest
+            // entry avoids the O(n²) NOT IN subquery. The composite index on
+            // (script_id, executed_at DESC) makes the inner SELECT O(log n + 1000)
+            // and the outer DELETE O(rows to delete).
             conn.execute(
                 "DELETE FROM execution_history
-                 WHERE script_id = ?1 AND id NOT IN (
-                    SELECT id FROM execution_history
+                 WHERE script_id = ?1 AND executed_at < (
+                    SELECT executed_at FROM execution_history
                     WHERE script_id = ?1
                     ORDER BY executed_at DESC
-                    LIMIT 1000
+                    LIMIT 1 OFFSET 999
                  )",
                 params![script_id],
             ).ok(); // Ignore cleanup errors
@@ -557,6 +564,15 @@ impl SqlitePersistence {
         let conn = Connection::open(&db_path).map_err(|e| {
             PersistenceError::ConnectionFailed(format!("Cannot open database: {}", e))
         })?;
+
+        // Apply SQLCipher encryption key derived from device machine-id (IEC 62443 FR4).
+        // Must be set before any other PRAGMA or query.
+        let machine_id = machine_uid::get()
+            .unwrap_or_else(|_| "suderra-fallback-device-key-v1".to_string());
+        conn.execute_batch(&format!("PRAGMA key = '{}';", machine_id.replace('\'', "''")))
+            .map_err(|e| PersistenceError::ConnectionFailed(
+                format!("Failed to apply database encryption key: {}", e)
+            ))?;
 
         // Enable WAL mode for better concurrent access
         conn.execute_batch(
@@ -751,14 +767,15 @@ impl SqlitePersistence {
             reason: e.to_string(),
         })?;
 
-        // Cleanup old entries (keep last 1000 per script)
+        // BUG-013: Cleanup old entries (keep last 1000 per script).
+        // Bounds-based deletion avoids the O(n²) NOT IN subquery.
         conn.execute(
             "DELETE FROM execution_history
-             WHERE script_id = ?1 AND id NOT IN (
-                SELECT id FROM execution_history
+             WHERE script_id = ?1 AND executed_at < (
+                SELECT executed_at FROM execution_history
                 WHERE script_id = ?1
                 ORDER BY executed_at DESC
-                LIMIT 1000
+                LIMIT 1 OFFSET 999
              )",
             params![script_id],
         )

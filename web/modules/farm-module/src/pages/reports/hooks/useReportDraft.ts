@@ -9,6 +9,7 @@
  * - Draft expiry (7 days default)
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useAuth } from '@aquaculture/shared-ui';
 import { ReportType } from '../types/reports.types';
 
 // ============================================================================
@@ -71,8 +72,12 @@ export function useReportDraft<T>(
     enableAutoSave = true,
   } = options;
 
-  // Generate storage key
-  const storageKey = `${DRAFT_KEY_PREFIX}${reportType}_${reportId || 'new'}`;
+  // LOW-04: Scope storage key to tenantId so drafts from one tenant are never
+  // loaded for a different tenant on shared browsers, and cleared automatically
+  // when the user authenticates under a different tenant.
+  const { tenantId } = useAuth();
+  const tenantScope = tenantId ? `_t${tenantId.substring(0, 8)}` : '';
+  const storageKey = `${DRAFT_KEY_PREFIX}${reportType}_${reportId || 'new'}${tenantScope}`;
 
   // State
   const [isPending, setIsPending] = useState(false);
@@ -109,7 +114,7 @@ export function useReportDraft<T>(
         setLastSaved(new Date());
         setIsPending(false);
       } catch (error) {
-        console.error('Failed to save draft:', error);
+        if (import.meta.env.DEV) console.error('Failed to save draft:', error);
       }
     },
     [storageKey]
@@ -123,18 +128,33 @@ export function useReportDraft<T>(
       const stored = localStorage.getItem(storageKey);
       if (!stored) return null;
 
-      const parsed: DraftData<T> = JSON.parse(stored);
+      const raw: unknown = JSON.parse(stored);
+
+      // HIGH-04: validate shape before trusting parsed data
+      if (
+        raw === null ||
+        typeof raw !== 'object' ||
+        Array.isArray(raw) ||
+        !('version' in raw) ||
+        !('savedAt' in raw) ||
+        !('data' in raw)
+      ) {
+        localStorage.removeItem(storageKey);
+        return null;
+      }
+
+      const parsed = raw as DraftData<T>;
 
       // Check version compatibility
       if (parsed.version !== DRAFT_VERSION) {
-        console.warn('Draft version mismatch, discarding');
+        if (import.meta.env.DEV) console.warn('Draft version mismatch, discarding');
         localStorage.removeItem(storageKey);
         return null;
       }
 
       // Check expiry
       if (isDraftExpired(parsed.savedAt)) {
-        console.warn('Draft expired, discarding');
+        if (import.meta.env.DEV) console.warn('Draft expired, discarding');
         localStorage.removeItem(storageKey);
         return null;
       }
@@ -142,7 +162,7 @@ export function useReportDraft<T>(
       setLastSaved(new Date(parsed.savedAt));
       return parsed;
     } catch (error) {
-      console.error('Failed to load draft:', error);
+      if (import.meta.env.DEV) console.error('Failed to load draft:', error);
       return null;
     }
   }, [storageKey, isDraftExpired]);
@@ -284,11 +304,16 @@ export function getAllDraftKeys(reportType?: ReportType): string[] {
 
 /**
  * Clear all drafts (useful for logout or cleanup)
+ * @param reportType - Optional filter by report type
+ * @param tenantId - Optional filter by tenant ID (first 8 chars)
  */
-export function clearAllDrafts(reportType?: ReportType): void {
+export function clearAllDrafts(reportType?: ReportType, tenantId?: string): void {
   const keys = getAllDraftKeys(reportType);
+  const tenantSuffix = tenantId ? `_t${tenantId.substring(0, 8)}` : null;
   keys.forEach((key) => {
-    localStorage.removeItem(key);
+    if (!tenantSuffix || key.endsWith(tenantSuffix) || key.includes(`_t${tenantId?.substring(0, 8)}`)) {
+      localStorage.removeItem(key);
+    }
   });
 }
 

@@ -43,12 +43,11 @@ import { TeamWeeklyOverview } from './query-handlers/get-team-weekly-overview.ha
 import { OvertimeSummary } from './query-handlers/get-overtime-summary.handler';
 import { BulkAssignResult } from './handlers/bulk-assign-shifts.handler';
 
+// SECURITY: Context only exposes JWT-verified user fields.
+// Do NOT add x-tenant-id or x-user-id headers here — those are attacker-controlled
+// and must never be used directly (LOW-01).
 interface GraphQLContext {
   req: {
-    headers: {
-      'x-tenant-id'?: string;
-      'x-user-id'?: string;
-    };
     user?: {
       sub: string;
       tenantId: string;

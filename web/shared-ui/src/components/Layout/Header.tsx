@@ -83,7 +83,7 @@ const SearchBox: React.FC<{
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Ara... (Ctrl+K)"
+          placeholder="Ara..."
           className="block w-64 pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
       </div>
@@ -142,8 +142,11 @@ const UserMenu: React.FC<{
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Dışarı tıklama ile menüyü kapat
+  // PERF-006: Only attach the document mousedown listener while the menu is open.
+  // Attaching unconditionally adds a permanent global listener per Header instance.
   useEffect(() => {
+    if (!isOpen) return;
+
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setIsOpen(false);
@@ -152,7 +155,7 @@ const UserMenu: React.FC<{
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [isOpen]);
 
   if (!user) return null;
 

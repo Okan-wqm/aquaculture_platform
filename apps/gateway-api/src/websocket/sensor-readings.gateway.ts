@@ -1,4 +1,4 @@
-import { Logger, Optional, Inject } from '@nestjs/common';
+import { Logger, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
@@ -49,6 +49,29 @@ export interface ISensorAuthorizationService {
 export const SENSOR_AUTH_SERVICE = 'SENSOR_AUTH_SERVICE';
 
 /**
+ * Build CORS config at module load time from environment.
+ * This is the ONLY effective place to set CORS for Socket.io --
+ * mutating engine.opts in afterInit has no effect after the server starts.
+ */
+function buildWsCorsConfig(): { origin: string[] | boolean; credentials: boolean; methods?: string[] } {
+  const isProduction = process.env['NODE_ENV'] === 'production';
+  const originsConfig = process.env['WS_CORS_ORIGINS'] ?? '';
+  const allowedOrigins = originsConfig
+    ? originsConfig.split(',').map((o) => o.trim()).filter(Boolean)
+    : [];
+
+  if (allowedOrigins.length > 0) {
+    return { origin: allowedOrigins, credentials: true, methods: ['GET', 'POST'] };
+  }
+  if (!isProduction) {
+    // Development: allow all origins but disable credentials (CSWSH-safe)
+    return { origin: true, credentials: false, methods: ['GET', 'POST'] };
+  }
+  // Production without config: deny all
+  return { origin: false, credentials: false };
+}
+
+/**
  * WebSocket Gateway for real-time sensor readings
  * Receives events from NATS and pushes to connected clients
  *
@@ -59,12 +82,7 @@ export const SENSOR_AUTH_SERVICE = 'SENSOR_AUTH_SERVICE';
  * - Sensor subscriptions are authorized against tenant ownership
  */
 @WebSocketGateway({
-  cors: {
-    // SECURITY: CORS is configured dynamically in afterInit
-    // to prevent CSWSH vulnerability (wildcard + credentials)
-    origin: false,
-    credentials: false,
-  },
+  cors: buildWsCorsConfig(),
   namespace: '/sensors',
   transports: ['websocket', 'polling'],
 })
@@ -80,8 +98,7 @@ export class SensorReadingsGateway
   private readonly allowedOrigins: string[];
 
   constructor(
-    @Optional()
-    private readonly jwtService: JwtService | null,
+    private readonly jwtService: JwtService,
     @Optional()
     private readonly configService?: ConfigService,
     @Optional()
@@ -106,39 +123,18 @@ export class SensorReadingsGateway
   }
 
   afterInit(): void {
-    // SECURITY: Configure CORS dynamically to prevent CSWSH attacks
-    // Never use origin: '*' with credentials: true
-    if (this.server) {
-      const serverOpts = this.server.engine?.opts || {};
-
-      if (this.allowedOrigins.length > 0) {
-        // Use explicit allowlist
-        serverOpts.cors = {
-          origin: this.allowedOrigins,
-          credentials: true,
-          methods: ['GET', 'POST'],
-        };
-        this.logger.log(
-          `WebSocket CORS configured with origins: ${this.allowedOrigins.join(', ')}`,
-        );
-      } else if (!this.isProduction) {
-        // Development: allow all origins but disable credentials
-        serverOpts.cors = {
-          origin: true,
-          credentials: false,
-          methods: ['GET', 'POST'],
-        };
-        this.logger.warn(
-          'WebSocket CORS: Development mode - allowing all origins without credentials',
-        );
-      } else {
-        // Production without config: deny all
-        serverOpts.cors = {
-          origin: false,
-          credentials: false,
-        };
-        this.logger.error('WebSocket CORS: Blocking all connections - configure WS_CORS_ORIGINS');
-      }
+    // CORS is configured via the @WebSocketGateway decorator using buildWsCorsConfig().
+    // Mutating engine.opts after initialization has no effect on Socket.io.
+    if (this.allowedOrigins.length > 0) {
+      this.logger.log(
+        `WebSocket CORS configured with origins: ${this.allowedOrigins.join(', ')}`,
+      );
+    } else if (!this.isProduction) {
+      this.logger.warn(
+        'WebSocket CORS: Development mode - allowing all origins without credentials',
+      );
+    } else {
+      this.logger.error('WebSocket CORS: Blocking all connections - configure WS_CORS_ORIGINS');
     }
 
     this.logger.log('WebSocket Gateway initialized');
@@ -227,6 +223,12 @@ export class SensorReadingsGateway
     // Validate input
     if (!Array.isArray(payload.sensorIds) || payload.sensorIds.length === 0) {
       return { success: false, subscribedTo: Array.from(clientData.sensorIds), reason: 'Invalid sensorIds' };
+    }
+
+    // Limit subscription size to prevent resource exhaustion
+    const MAX_SENSOR_SUBSCRIPTIONS = 100;
+    if (payload.sensorIds.length > MAX_SENSOR_SUBSCRIPTIONS) {
+      return { success: false, subscribedTo: Array.from(clientData.sensorIds), reason: `Maximum ${MAX_SENSOR_SUBSCRIPTIONS} sensor subscriptions allowed per request` };
     }
 
     // SECURITY: Validate UUID format to prevent injection
@@ -332,36 +334,13 @@ export class SensorReadingsGateway
       return;
     }
 
-    // SECURITY: Only broadcast to the tenant room
-    // This ensures cross-tenant isolation - clients can only receive
-    // data from sensors belonging to their own tenant
-    const tenantRoom = `tenant:${event.tenantId}`;
-
-    // Get all clients in the tenant room
-    const tenantClients = this.server.sockets.adapter.rooms.get(tenantRoom);
-    if (!tenantClients || tenantClients.size === 0) {
-      return;
-    }
-
-    // Filter to only clients subscribed to this specific sensor
-    for (const clientId of tenantClients) {
-      const clientData = this.clients.get(clientId);
-      if (clientData && clientData.sensorIds.has(event.sensorId)) {
-        // SECURITY: Double-check tenant isolation
-        if (clientData.tenantId === event.tenantId) {
-          const socket = this.server.sockets.sockets.get(clientId);
-          socket?.emit('sensorReading', event);
-        }
-      }
-    }
-
-    // Also emit to tenant room for dashboard-wide updates
-    this.server
-      .to(tenantRoom)
-      .emit('tenantSensorUpdate', {
-        sensorId: event.sensorId,
-        timestamp: event.timestamp,
-      });
+    // Use Socket.IO room targeting for O(1) routing instead of manual O(n_clients) loop.
+    // handleSubscribe() already calls client.join(`sensor:${sensorId}`) for each
+    // subscription, so the `sensor:<id>` room contains exactly the subscribed clients.
+    // Tenant isolation is enforced at subscription time in handleSubscribe(),
+    // which verifies sensor ownership before joining the room.
+    const sensorRoom = `sensor:${event.sensorId}`;
+    this.server.to(sensorRoom).emit('sensorReading', event);
 
     this.logger.debug(
       `Broadcasted reading for sensor ${event.sensorId} to tenant ${event.tenantId}`,
@@ -393,16 +372,17 @@ export class SensorReadingsGateway
       return authHeader.substring(7);
     }
 
-    // Try query parameter - SECURITY WARNING: tokens in URLs are logged
+    // SECURITY: Reject query-parameter tokens in production.
+    // JWT tokens in WebSocket upgrade URLs appear in nginx access logs,
+    // browser history, and referrer headers.
     const queryToken = client.handshake.query.token;
     if (typeof queryToken === 'string') {
-      // SECURITY: In production, discourage query parameter tokens
-      // They appear in server logs, browser history, and referrer headers
       if (this.isProduction) {
         this.logger.warn(
-          `SECURITY: Client ${client.id} using query parameter for token. ` +
-          `This is insecure - use socket.io auth object or Authorization header instead.`,
+          `SECURITY: Client ${client.id} rejected - query parameter tokens are ` +
+          `not allowed in production. Use socket.io auth object or Authorization header.`,
         );
+        return null;
       }
       return queryToken;
     }
@@ -411,30 +391,11 @@ export class SensorReadingsGateway
   }
 
   private validateToken(token: string): TokenPayload | null {
-    // SECURITY: Always verify JWT in production
-    if (!this.jwtService) {
-      if (this.isProduction) {
-        this.logger.error(
-          'SECURITY: JwtService not available in production. ' +
-          'All token validation will fail.',
-        );
-        return null;
-      }
-
-      // Development only: decode without verification
-      this.logger.warn('JWT verification disabled - development mode only');
-      try {
-        const parts = token.split('.');
-        if (parts.length !== 3 || !parts[1]) return null;
-        const decoded = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8')) as unknown;
-        return decoded as TokenPayload;
-      } catch {
-        return null;
-      }
-    }
-
     try {
-      const result: unknown = this.jwtService.verify(token);
+      // SECURITY: Always use JwtService.verify() with explicit algorithm restriction
+      const result: unknown = this.jwtService.verify(token, {
+        algorithms: ['HS256'],
+      });
       return result as TokenPayload;
     } catch (error) {
       this.logger.debug(`Token validation failed: ${(error as Error).message}`);

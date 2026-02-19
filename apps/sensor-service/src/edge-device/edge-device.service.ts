@@ -93,6 +93,7 @@ export interface EdgeDeviceStats {
  */
 export interface DeviceHeartbeat {
   deviceCode: string;
+  tenantId?: string;
   isOnline: boolean;
   cpuUsage?: number;
   memoryUsage?: number;
@@ -442,8 +443,12 @@ export class EdgeDeviceService implements OnModuleDestroy {
    * Update device heartbeat (called from MQTT listener)
    */
   async updateHeartbeat(heartbeat: DeviceHeartbeat): Promise<EdgeDevice | null> {
+    const whereCondition: Record<string, unknown> = { deviceCode: heartbeat.deviceCode };
+    if (heartbeat.tenantId) {
+      whereCondition.tenantId = heartbeat.tenantId;
+    }
     const device = await this.deviceRepository.findOne({
-      where: { deviceCode: heartbeat.deviceCode },
+      where: whereCondition,
     });
 
     if (!device) {
@@ -523,7 +528,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
         device_model,
         COUNT(*) AS count
       FROM edge_devices
-      WHERE "tenantId" = $1
+      WHERE tenant_id = $1
       GROUP BY lifecycle_state, device_model
     `;
 
@@ -710,9 +715,9 @@ export class EdgeDeviceService implements OnModuleDestroy {
       });
     });
 
-    // Publish ping command
+    // Publish ping command using tenant-scoped topic for proper ACL enforcement
     try {
-      await mqtt.publish(`edge/${device.deviceCode}/cmd/ping`, {
+      await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
         commandId,
         command: 'ping',
         timestamp: new Date().toISOString(),
@@ -776,10 +781,13 @@ export class EdgeDeviceService implements OnModuleDestroy {
     }
 
     try {
-      await mqtt.publish(`edge/${device.deviceCode}/cmd/reboot`, {
+      // Sanitize reason to prevent log injection
+      const safeReason = (reason || 'User requested reboot').replace(/[^a-zA-Z0-9 ._\-]/g, '').substring(0, 200);
+      // Publish using tenant-scoped topic for proper ACL enforcement
+      await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
         commandId: randomUUID(),
         command: 'reboot',
-        reason: reason || 'User requested reboot',
+        reason: safeReason,
         timestamp: new Date().toISOString(),
       });
 
@@ -802,8 +810,24 @@ export class EdgeDeviceService implements OnModuleDestroy {
     const device = await this.findByIdOrFail(id, tenantId);
     const mqtt = this.ensureMqttAvailable();
 
+    // Validate config payload size (16 KB limit)
+    const configStr = JSON.stringify(config);
+    if (configStr.length > 16384) {
+      throw new BadRequestException('Config payload exceeds 16 KB size limit');
+    }
+
+    // Reject sensitive/dangerous config keys
+    const BLOCKED_KEYS = ['mqtt_credentials', 'mqtt_password', 'firmware_update_url', 'api_key', 'secret'];
+    const configKeys = Object.keys(config);
+    for (const key of configKeys) {
+      if (BLOCKED_KEYS.some(blocked => key.toLowerCase().includes(blocked))) {
+        throw new BadRequestException(`Config key "${key}" is not allowed via this endpoint`);
+      }
+    }
+
     try {
-      await mqtt.publish(`edge/${device.deviceCode}/cmd/config`, {
+      // Publish using tenant-scoped topic for proper ACL enforcement
+      await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
         commandId: randomUUID(),
         command: 'config',
         config,

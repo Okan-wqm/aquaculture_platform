@@ -136,6 +136,9 @@ export class UsersService {
       ? sortColumnMap[sortBy]
       : '"createdAt"';
 
+    // C-2 fix: enforce safe sort order at service layer to prevent SQL injection
+    const safeSortOrder = sortOrder === 'ASC' ? 'ASC' : 'DESC';
+
     const query = `
       SELECT
         u.id,
@@ -152,7 +155,7 @@ export class UsersService {
       FROM auth.users u
       LEFT JOIN auth.tenants t ON u."tenantId" = t.id
       ${whereClause}
-      ORDER BY u.${sortColumn} ${sortOrder}
+      ORDER BY u.${sortColumn} ${safeSortOrder}
       LIMIT $${paramIndex++} OFFSET $${paramIndex}
     `;
 
@@ -378,6 +381,7 @@ export class UsersService {
         FROM auth.refresh_tokens
         WHERE "userId" = $1
         ORDER BY "createdAt" DESC
+        LIMIT 50
       `,
         [userId],
       );
@@ -544,12 +548,14 @@ export class UsersService {
    */
   async forceLogout(id: string): Promise<{ success: boolean; count: number }> {
     try {
+      // BUG-013 fix: use RETURNING to count deleted rows reliably across driver versions.
+      // result[1] (rowCount) is undefined when no RETURNING clause is used.
       const result = await this.dataSource.query(
-        `DELETE FROM auth.refresh_tokens WHERE "userId" = $1`,
+        `DELETE FROM auth.refresh_tokens WHERE "userId" = $1 RETURNING id`,
         [id],
       );
 
-      const count = result[1] || 0;
+      const count = Array.isArray(result) ? result.length : 0;
       this.logger.log(`Force logged out user: ${id}, invalidated ${count} sessions`);
       return { success: true, count };
     } catch (error) {
@@ -605,7 +611,4 @@ export class UsersService {
     }
   }
 
-  private camelToSnake(str: string): string {
-    return str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-  }
 }

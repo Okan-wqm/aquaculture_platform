@@ -71,13 +71,13 @@ export class AuditLogService {
       );
       return saved;
     } catch (error) {
-      // Audit log hatası ana işlemi etkilememeli
+      // Audit log errors must not affect the main operation (fire-and-forget)
       const err = error instanceof Error ? error : new Error(String(error));
       this.logger.error(
         `Failed to create audit log: ${err.message}`,
         err.stack,
       );
-      throw error;
+      return auditLog;
     }
   }
 

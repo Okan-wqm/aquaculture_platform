@@ -8,20 +8,15 @@
 //! # Thread Safety
 //! Uses atomic operations for lock-free, concurrent access.
 
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-// Monotonic time anchor (NTP-safe)
-static BOOT_INSTANT: OnceLock<Instant> = OnceLock::new();
+// Use the single shared monotonic clock defined in crate::resilience (MED-24)
+use super::monotonic_millis;
 
-/// Get monotonic milliseconds since program start
-///
-/// v1.2.2: Uses Instant instead of SystemTime to prevent NTP time manipulation.
+/// Alias for the shared monotonic time source.
 fn now_millis() -> u64 {
-    let boot = BOOT_INSTANT.get_or_init(Instant::now);
-
-    boot.elapsed().as_millis() as u64
+    monotonic_millis()
 }
 
 /// Maximum CAS retry attempts before yielding (v1.2.6)
@@ -130,17 +125,27 @@ impl RateLimiter {
                 .compare_exchange(last, new_last, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
-                // Successfully claimed the refill, add tokens
-                // v1.2.6: Use saturating_add to prevent overflow before min()
-                let current = self.tokens.load(Ordering::Acquire);
-                let new_tokens = current.saturating_add(tokens_to_add).min(self.capacity);
-                self.tokens.store(new_tokens, Ordering::Release);
+                // Successfully claimed the refill — update token count via CAS loop.
+                // An unconditional store() would overwrite concurrent try_acquire() decrements,
+                // allowing more operations than the configured rate (TOCTOU race).
+                let final_tokens = loop {
+                    let current = self.tokens.load(Ordering::Acquire);
+                    let new_tokens = current.saturating_add(tokens_to_add).min(self.capacity);
+                    match self.tokens.compare_exchange(
+                        current,
+                        new_tokens,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    ) {
+                        Ok(_) => break new_tokens,
+                        Err(_) => {} // Another thread modified tokens; retry
+                    }
+                };
 
                 tracing::trace!(
-                    "Rate limiter '{}' refilled: {} -> {} tokens",
+                    "Rate limiter '{}' refilled to {} tokens",
                     self.name,
-                    current,
-                    new_tokens
+                    final_tokens,
                 );
             }
             // If compare_exchange failed, another thread did the refill

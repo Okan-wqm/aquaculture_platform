@@ -517,7 +517,7 @@ const ProcessEditorPage: React.FC = () => {
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage(
         { type, data, source: 'process-editor-host' },
-        '*'
+        window.location.origin
       );
     }
   }, []);
@@ -525,6 +525,8 @@ const ProcessEditorPage: React.FC = () => {
   // Handle messages from iframe
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      // SEC-002: validate origin before processing any payload content
+      if (event.origin !== window.location.origin) return;
       const message = event.data || {};
       const { type, data, source, nodeId } = message;
       if (source !== 'process-editor-canvas') return;
@@ -649,23 +651,29 @@ const ProcessEditorPage: React.FC = () => {
     setIsSaving(true);
     try {
       // Request current state from canvas AND WAIT for response
+      // BUG-004: use AbortController so the listener is always cleaned up, even on timeout
       const currentState = await new Promise<{ nodes: CanvasNode[]; edges: CanvasEdge[] }>((resolve) => {
+        const controller = new AbortController();
         const handler = (event: MessageEvent) => {
+          // SEC-002: validate origin (already validated in main listener, but guard here too)
+          if (event.origin !== window.location.origin) return;
           const { type, data, source } = event.data || {};
           if (source === 'process-editor-canvas' && type === 'state') {
-            window.removeEventListener('message', handler);
+            controller.abort();
             resolve(data as { nodes: CanvasNode[]; edges: CanvasEdge[] });
           }
         };
-        window.addEventListener('message', handler);
+        window.addEventListener('message', handler, { signal: controller.signal });
         sendToCanvas('getState');
 
         // Timeout fallback - use current state if canvas doesn't respond
-        setTimeout(() => {
-          window.removeEventListener('message', handler);
-          console.warn('Canvas state request timed out, using cached state');
+        const timeoutId = setTimeout(() => {
+          controller.abort();
           resolve({ nodes: canvasNodes, edges: canvasEdges });
         }, 2000);
+
+        // Clean up timeout if promise resolves early
+        controller.signal.addEventListener('abort', () => clearTimeout(timeoutId));
       });
 
       console.log('[handleSave] Got current state from canvas:', {
@@ -718,12 +726,13 @@ const ProcessEditorPage: React.FC = () => {
     }
   };
 
-  // Get iframe URL - use process-editor-canvas.html from public folder
+  // Get iframe URL - environment-aware, mirrors ScadaViewer logic (BUG-017)
   const getCanvasUrl = () => {
-    // In production, this will be served from the same origin
-    // In development, we need to handle CORS
-    const baseUrl = window.location.origin;
-    return `${baseUrl}/mf/sensor-module/process-editor-canvas.html`;
+    const isLocalDev =
+      window.location.hostname === 'localhost' && window.location.port === '3006';
+    return isLocalDev
+      ? '/process-editor-canvas.html'
+      : '/mf/sensor-module/process-editor-canvas.html';
   };
 
   // Widget config modal handlers
@@ -782,6 +791,7 @@ const ProcessEditorPage: React.FC = () => {
             className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
             title="Undo"
             disabled={!isCanvasReady}
+            onClick={() => sendToCanvas('undo')}
           >
             <Undo className="w-4 h-4" />
           </button>
@@ -789,6 +799,7 @@ const ProcessEditorPage: React.FC = () => {
             className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
             title="Redo"
             disabled={!isCanvasReady}
+            onClick={() => sendToCanvas('redo')}
           >
             <Redo className="w-4 h-4" />
           </button>
@@ -876,7 +887,7 @@ const ProcessEditorPage: React.FC = () => {
             src={getCanvasUrl()}
             className="w-full h-full border-0"
             title="Process Editor Canvas"
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-scripts"
           />
         </div>
 

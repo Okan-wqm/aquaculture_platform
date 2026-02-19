@@ -79,8 +79,10 @@ export class DeviceFingerprintMiddleware implements NestMiddleware {
       timestamp: new Date(),
     };
 
-    // Set fingerprint header in response
-    res.setHeader(this.headerName, fingerprintedReq.deviceFingerprintHash);
+    // SECURITY: Do NOT expose the computed fingerprint hash in response headers.
+    // Reflecting it allows attackers to reverse-engineer the fingerprinting algorithm
+    // by observing how the hash changes as headers are modified, and to compute
+    // expected fingerprints for target users by spoofing their browser headers.
 
     next();
   }

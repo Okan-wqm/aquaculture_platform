@@ -7,8 +7,6 @@
 #   docker compose -f docker-compose.prod.yml up -d
 # =============================================================================
 
-version: '3.8'
-
 # =============================================================================
 # Networks
 # =============================================================================
@@ -65,7 +63,8 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      # SEC-014: Use REDISCLI_AUTH env var to avoid password in process list
+      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -75,9 +74,12 @@ services:
     image: nats:2.10-alpine
     container_name: aqua-nats
     restart: unless-stopped
-    command: ["--jetstream", "--store_dir=/data"]
+    # ARCH-010/ARCH-018: Use config file for explicit JetStream limits + http_port
+    # The config file enables http_port 8222 (required for /healthz endpoint below)
+    command: ["--config", "/etc/nats/nats.conf"]
     volumes:
       - nats_data:/data
+      - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
     networks:
       - aqua-internal
     healthcheck:
@@ -94,8 +96,6 @@ services:
     image: ghcr.io/okan-wqm/aquaculture_platform/gateway-api:latest
     container_name: aqua-gateway
     restart: unless-stopped
-    ports:
-      - "3000:3000"
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -123,7 +123,7 @@ services:
       - aqua-network
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -146,7 +146,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -169,7 +169,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -191,7 +191,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -213,7 +213,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -235,7 +235,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -258,7 +258,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -286,7 +286,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -308,7 +308,33 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  observability-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/observability-service:latest
+    container_name: aqua-observability
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3009
+      # INTERNAL_API_KEY must be set; guard rejects all requests in production without it
+      INTERNAL_API_KEY: ${OBSERVABILITY_INTERNAL_API_KEY:?OBSERVABILITY_INTERNAL_API_KEY required}
+      # observability-service reads DB_* env vars (not DATABASE_*)
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${POSTGRES_USER:-aquaculture}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: aquaculture_observability
+    depends_on:
+      - postgres
+    # Attached to aqua-internal only — no published ports, not reachable from aqua-network
+    networks:
+      - aqua-internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3009/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -394,7 +420,8 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infrastructure/docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infrastructure/docker/nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
       - ./nginx/certbot:/var/www/certbot:ro
     depends_on:
@@ -404,6 +431,7 @@ services:
     networks:
       - aqua-network
     healthcheck:
+      # ARCH-012: Use /health (nginx-level endpoint) — nginx has no /health/live path
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]
       interval: 30s
       timeout: 10s

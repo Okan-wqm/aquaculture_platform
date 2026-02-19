@@ -1,3 +1,12 @@
+// TODO: SchemaManagerService is ~1,400 lines and should be split into smaller focused services.
+// Recommended decomposition:
+//   - SchemaProvisioningService  (createTenantSchema, dropTenantSchema, schemaExists)
+//   - SchemaSearchPathService    (setTenantSearchPath, setTenantSearchPathInTransaction, resetSearchPath)
+//   - SchemaMigrationService     (migrateDataToTenantSchema, copyReferenceDataTable)
+//   - SchemaTimescaleService     (createSensorMetricsHypertable, createContinuousAggregates, etc.)
+//   - SchemaIntrospectionService (listTenantSchemas, getSchemaTableCount, validateModuleSchemas)
+// Keep MODULE_SCHEMAS and ModuleSchema interface in a separate schemas.constants.ts file.
+
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import * as crypto from 'crypto';
@@ -9,15 +18,29 @@ export interface ModuleSchema {
   moduleName: string;
   tables: string[];
   sourceSchema: string;
+  /** Tables containing reference/lookup data to copy into new tenant schemas */
+  referenceDataTables?: string[];
 }
 
 /**
- * Supported modules and their table definitions
+ * Supported modules and their table definitions.
+ *
+ * MAINTENANCE CONTRACT:
+ * - Every table registered in a NestJS entity (with @Entity decorator) for a module MUST be
+ *   listed in the corresponding MODULE_SCHEMAS entry BEFORE the entity is deployed to production.
+ * - When adding a new table: add it to the `tables` array of the relevant module here.
+ * - When removing a table: remove it from both the entity definitions AND this list, then create
+ *   a migration to drop the column/table from existing tenant schemas.
+ * - Reference data tables (lookup / seed data) must also be listed in `referenceDataTables` so
+ *   they are copied into every new tenant schema on provisioning.
+ * - Call `SchemaManagerService.validateModuleSchemas()` in integration tests to detect drift
+ *   between this list and the actual entity definitions.
  */
 export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'sensor',
     sourceSchema: 'sensor', // Tables are in sensor schema, will be copied to tenant schema
+    referenceDataTables: ['sensor_protocols'],
     tables: [
       // Core sensor entities
       'sensors',
@@ -59,6 +82,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'farm',
     sourceSchema: 'farm', // Tables are in farm schema, will be copied to tenant schema
+    referenceDataTables: ['equipment_types', 'sub_equipment_types', 'supplier_types', 'chemical_types', 'feed_types'],
     tables: [
       // Core entities
       'farms',
@@ -86,6 +110,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'equipment_systems',
       'sub_equipment_types',
       'sub_equipment',
+      'feeder_calibrations',
 
       // Maintenance
       'maintenance_schedules',
@@ -169,6 +194,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'hr',
     sourceSchema: 'hr', // Tables are in hr schema, will be copied to tenant schema
+    referenceDataTables: ['leave_types', 'certification_types', 'shifts'],
     tables: [
       // Core Employee & Payroll
       'employees',
@@ -210,6 +236,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'hydroponics',
     sourceSchema: 'hydroponics',
+    referenceDataTables: [],
     tables: [
       'hydroponics_config',
     ],
@@ -217,47 +244,64 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
 ];
 
 /**
- * Reference data tables to copy for each module
- * These tables contain lookup/configuration data that should be available in each tenant schema
+ * Reference data tables to copy for each module.
+ * Derived from MODULE_SCHEMAS.referenceDataTables to ensure a single source of truth.
  *
- * NOTE: Reference data is copied from the same sourceSchema defined in MODULE_SCHEMAS
- * Currently all tables are in 'public' schema, so reference data is copied from public.
+ * NOTE: Reference data is copied from the same sourceSchema defined in MODULE_SCHEMAS.
  */
-export const REFERENCE_DATA_TABLES: Record<string, string[]> = {
-  farm: [
-    'equipment_types',
-    'sub_equipment_types',
-    'supplier_types',
-    'chemical_types',
-    'feed_types',
-  ],
-  hr: [
-    'leave_types',
-    'certification_types',
-    'shifts',
-  ],
-  sensor: [
-    'sensor_protocols',
-  ],
-  hydroponics: [],
-};
+export const REFERENCE_DATA_TABLES: Record<string, string[]> = Object.fromEntries(
+  MODULE_SCHEMAS.map(m => [m.moduleName, m.referenceDataTables || []]),
+);
+
+/**
+ * Provisioning status to distinguish total failure from partial success
+ */
+export enum ProvisioningStatus {
+  /** All tables created successfully */
+  COMPLETE = 'COMPLETE',
+  /** Schema exists but some tables failed to create */
+  PARTIAL = 'PARTIAL',
+  /** Schema creation failed entirely (schema was dropped/cleaned up) */
+  FAILED = 'FAILED',
+}
 
 /**
  * Schema creation result
  */
 export interface SchemaCreationResult {
   success: boolean;
+  /** Detailed provisioning status distinguishing partial from total failure */
+  status: ProvisioningStatus;
   schemaName: string;
   tablesCreated: string[];
   referenceDataCopied: { table: string; rows: number }[];
   errors: string[];
   duration: number;
   alreadyExists?: boolean;
+  /**
+   * True when at least one table was created successfully AND at least one error
+   * was also recorded. Provides a quick boolean signal for consumers that need to
+   * distinguish "some succeeded, some failed" from a clean success or a total
+   * failure without inspecting `status === ProvisioningStatus.PARTIAL` directly.
+   */
+  partialSuccess?: boolean;
 }
 
 /**
- * Simple LRU Cache implementation for schema existence checks
- * Prevents excessive database queries for repeated checks
+ * Simple LRU Cache implementation for schema existence checks.
+ * Prevents excessive database queries for repeated checks.
+ *
+ * MULTI-INSTANCE LIMITATION: This cache is in-process only. In a multi-instance
+ * (horizontally-scaled) deployment each pod maintains its own independent cache.
+ * A schema created or dropped on one instance will NOT be reflected in the caches
+ * of other instances until the TTL expires (default: 5 minutes). This is acceptable
+ * for schema existence checks because:
+ *   1. Schema creation is an infrequent, one-time operation per tenant.
+ *   2. A false-negative (cache miss) simply causes an extra database round-trip.
+ *   3. A false-positive (stale "exists" entry) is safe because the query will fail
+ *      at the database level with a clear schema-not-found error.
+ * If stronger cache coherence is required in future, replace with a Redis-backed
+ * distributed cache.
  */
 class SchemaLRUCache {
   private cache = new Map<string, { value: boolean; expiry: number }>();
@@ -374,6 +418,46 @@ export class SchemaManagerService {
   }
 
   /**
+   * Get the application database role for GRANT statements.
+   *
+   * Resolution order:
+   * 1. `DB_APPLICATION_ROLE` environment variable — allows explicit configuration of the
+   *    runtime database role when it differs from the provisioning/migration user.
+   * 2. `current_user` from the active session — safe fallback that works in most deployments.
+   * 3. Literal `CURRENT_USER` SQL keyword — last-resort fallback if the query fails.
+   *
+   * Set `DB_APPLICATION_ROLE=app_user` in production to ensure the runtime application role
+   * always receives schema grants regardless of which user runs the provisioning.
+   */
+  private async getApplicationRole(): Promise<string> {
+    // 1. Check explicit env-var configuration
+    const envRole = process.env['DB_APPLICATION_ROLE'];
+    if (envRole) {
+      // Validate role name to prevent injection
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(envRole)) {
+        this.logger.debug(`Using DB_APPLICATION_ROLE for grants: "${envRole}"`);
+        return `"${envRole}"`;
+      }
+      this.logger.warn(
+        `DB_APPLICATION_ROLE value "${envRole}" is not a valid SQL identifier. Falling back to current_user.`,
+      );
+    }
+
+    // 2. Fall back to current session user
+    const result = await this.dataSource.query(`SELECT current_user AS role`);
+    const role = result[0]?.role;
+    if (role) {
+      // Validate role name to prevent injection
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(role)) {
+        return `"${role}"`;
+      }
+    }
+
+    // 3. Last resort: SQL CURRENT_USER keyword
+    return 'CURRENT_USER';
+  }
+
+  /**
    * Validate that schema name is safe for SQL queries
    * Additional safety layer beyond UUID validation
    */
@@ -409,6 +493,7 @@ export class SchemaManagerService {
     if (!this.isValidSchemaName(schemaName)) {
       return {
         success: false,
+        status: ProvisioningStatus.FAILED,
         schemaName,
         tablesCreated: [],
         referenceDataCopied: [],
@@ -430,6 +515,7 @@ export class SchemaManagerService {
         this.schemaCache.set(schemaName, true);
         return {
           success: true,
+          status: ProvisioningStatus.COMPLETE,
           schemaName,
           tablesCreated: [],
           referenceDataCopied: [],
@@ -446,9 +532,8 @@ export class SchemaManagerService {
       await this.dataSource.query(`CREATE SCHEMA "${safeSchemaName}"`);
       this.logger.debug(`Schema ${safeSchemaName} created`);
 
-      // 2. Create tables for ALL modules (ensures tenant isolation for all tables)
-      const allModules = ['sensor', 'farm', 'hr', 'hydroponics'];
-      for (const moduleName of allModules) {
+      // 2. Create tables for requested modules (uses the modules parameter)
+      for (const moduleName of modules) {
         const moduleSchema = MODULE_SCHEMAS.find(m => m.moduleName === moduleName);
         if (!moduleSchema) {
           this.logger.warn(`Module ${moduleName} not found in schema definitions`);
@@ -499,8 +584,8 @@ export class SchemaManagerService {
         }
       }
 
-      // 3. Copy reference data for ALL modules
-      for (const moduleName of allModules) {
+      // 3. Copy reference data for requested modules
+      for (const moduleName of modules) {
         const refTables = REFERENCE_DATA_TABLES[moduleName];
         if (!refTables) continue;
 
@@ -525,17 +610,20 @@ export class SchemaManagerService {
         }
       }
 
-      // 4. Grant permissions (using current database user)
+      // 4. Grant permissions to the application role (or current user as fallback)
+      // Using parameterized role name to ensure the runtime user has access
+      // even when the migration user differs from the application user
+      const appRole = await this.getApplicationRole();
       await this.dataSource.query(`
-        GRANT USAGE ON SCHEMA "${schemaName}" TO CURRENT_USER
+        GRANT USAGE ON SCHEMA "${schemaName}" TO ${appRole}
       `);
 
       await this.dataSource.query(`
-        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA "${schemaName}" TO CURRENT_USER
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA "${schemaName}" TO ${appRole}
       `);
 
       await this.dataSource.query(`
-        GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA "${schemaName}" TO CURRENT_USER
+        GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA "${schemaName}" TO ${appRole}
       `);
 
       // Update cache
@@ -546,13 +634,17 @@ export class SchemaManagerService {
         `Tenant schema ${schemaName} created: ${tablesCreated.length} tables, ${totalRefRows} reference rows in ${Date.now() - startTime}ms`,
       );
 
+      const hasErrors = errors.length > 0;
+      const isPartial = hasErrors && tablesCreated.length > 0;
       return {
-        success: errors.length === 0,
+        success: !hasErrors,
+        status: hasErrors ? ProvisioningStatus.PARTIAL : ProvisioningStatus.COMPLETE,
         schemaName,
         tablesCreated,
         referenceDataCopied,
         errors,
         duration: Date.now() - startTime,
+        partialSuccess: isPartial || undefined,
       };
     } catch (error) {
       const errorMsg = `Failed to create tenant schema: ${(error as Error).message}`;
@@ -570,6 +662,7 @@ export class SchemaManagerService {
 
       return {
         success: false,
+        status: ProvisioningStatus.FAILED,
         schemaName,
         tablesCreated,
         referenceDataCopied,
@@ -873,8 +966,15 @@ export class SchemaManagerService {
   }
 
   /**
-   * Create continuous aggregates for efficient charting
-   * Pre-aggregates data at hourly and daily intervals
+   * Create continuous aggregates for efficient charting.
+   * Pre-aggregates data at hourly and daily intervals.
+   *
+   * JSONB KEY CONVENTION: The `sensor_readings.readings` column stores sensor data as a
+   * JSONB object with camelCase keys as produced by the sensor-service TypeORM entity
+   * (e.g., "dissolvedOxygen", "ph", "temperature", "salinity"). These key names must
+   * exactly match what sensor-service writes. If sensor-service ever changes these key
+   * names, update the aggregate expressions below and rebuild the continuous aggregates
+   * (DROP the view and re-run this method).
    */
   private async createContinuousAggregates(schemaName: string): Promise<void> {
     try {
@@ -886,6 +986,7 @@ export class SchemaManagerService {
 
       if (hourlyExists.length === 0) {
         // Create hourly aggregate
+        // JSONB keys: camelCase ('temperature', 'ph', 'dissolvedOxygen', 'salinity')
         await this.dataSource.query(`
           CREATE MATERIALIZED VIEW "${schemaName}"."sensor_hourly"
           WITH (timescaledb.continuous) AS
@@ -1055,6 +1156,55 @@ export class SchemaManagerService {
       [schemaName],
     );
     return parseInt(result[0]?.count || '0', 10);
+  }
+
+  /**
+   * Validate that MODULE_SCHEMAS is consistent with the actual source schemas in the database.
+   *
+   * Intended for use in integration tests to detect drift between the MODULE_SCHEMAS
+   * constant and the actual entity/migration definitions. Checks that every table listed
+   * in MODULE_SCHEMAS exists in the corresponding source schema.
+   *
+   * @returns An object describing which registered tables were found and which were missing.
+   *
+   * @example
+   * // In an integration test:
+   * const result = await schemaManager.validateModuleSchemas();
+   * expect(result.missing).toHaveLength(0);
+   */
+  async validateModuleSchemas(): Promise<{
+    valid: boolean;
+    missing: Array<{ module: string; table: string; sourceSchema: string }>;
+    found: Array<{ module: string; table: string; sourceSchema: string }>;
+  }> {
+    const missing: Array<{ module: string; table: string; sourceSchema: string }> = [];
+    const found: Array<{ module: string; table: string; sourceSchema: string }> = [];
+
+    for (const moduleSchema of MODULE_SCHEMAS) {
+      for (const tableName of moduleSchema.tables) {
+        const exists = await this.tableExists(moduleSchema.sourceSchema, tableName);
+        const entry = {
+          module: moduleSchema.moduleName,
+          table: tableName,
+          sourceSchema: moduleSchema.sourceSchema,
+        };
+        if (exists) {
+          found.push(entry);
+        } else {
+          missing.push(entry);
+          this.logger.warn(
+            `MODULE_SCHEMAS validation: table "${moduleSchema.sourceSchema}"."${tableName}" ` +
+            `registered for module "${moduleSchema.moduleName}" does not exist in the database.`,
+          );
+        }
+      }
+    }
+
+    return {
+      valid: missing.length === 0,
+      missing,
+      found,
+    };
   }
 
   /**

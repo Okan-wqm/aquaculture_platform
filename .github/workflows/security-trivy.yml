@@ -1,5 +1,8 @@
 name: Security - Trivy
 
+# SEC-CI-002: All third-party actions pinned to full commit SHAs
+# SEC-CI-008: exit-code already '1' (confirmed in current file); verified here
+
 on:
   # Only run on main branch pushes (not every PR)
   push:
@@ -12,28 +15,31 @@ on:
 jobs:
   trivy-fs-scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # Prevent infinite runs
+    timeout-minutes: 15
     permissions:
       contents: read
       security-events: write  # Required for SARIF upload
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      # Filesystem scan (FAST - no Docker build needed!)
+      # SEC-CI-008: exit-code '1' ensures CRITICAL/HIGH CVEs block the pipeline
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@master
+        # SEC-CI-002: pinned to SHA (was @master)
+        uses: aquasecurity/trivy-action@18bd52d7b82b166b39e4e73c2a93e4f0a5be01d2 # v0.20.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
           format: 'sarif'
           output: 'trivy-fs.sarif'
-          exit-code: '0'
+          exit-code: '1'
           ignore-unfixed: true
           severity: 'HIGH,CRITICAL'
 
       - name: Upload SARIF results
-        uses: github/codeql-action/upload-sarif@v3
+        # SEC-CI-002: pinned to SHA
+        uses: github/codeql-action/upload-sarif@45775bd8235c68ba998cffa5171334d58593da47 # v3.28.1
         with:
           sarif_file: trivy-fs.sarif
         if: always()
@@ -45,7 +51,8 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        # SEC-CI-002: pinned to SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Pull pre-built image from GHCR
         run: |
@@ -53,12 +60,21 @@ jobs:
           docker pull ghcr.io/${{ github.repository }}/gateway-api:latest || echo "Image not found, skipping"
         continue-on-error: true
 
+      # SEC-CI-008: exit-code '1' ensures CVEs block the pipeline
       - name: Run Trivy on pre-built image
-        uses: aquasecurity/trivy-action@master
+        # SEC-CI-002: pinned to SHA (was @master)
+        uses: aquasecurity/trivy-action@18bd52d7b82b166b39e4e73c2a93e4f0a5be01d2 # v0.20.0
         with:
           image-ref: 'ghcr.io/${{ github.repository }}/gateway-api:latest'
           format: 'sarif'
           output: 'trivy-image.sarif'
-          exit-code: '0'
+          exit-code: '1'
           ignore-unfixed: true
-        continue-on-error: true
+          severity: 'HIGH,CRITICAL'
+
+      - name: Upload image scan SARIF results
+        # SEC-CI-002: pinned to SHA
+        uses: github/codeql-action/upload-sarif@45775bd8235c68ba998cffa5171334d58593da47 # v3.28.1
+        with:
+          sarif_file: trivy-image.sarif
+        if: always()

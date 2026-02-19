@@ -1,10 +1,13 @@
-import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, HttpCode, HttpStatus, SetMetadata } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { SkipTenantGuard } from '@platform/backend-common';
+import { SkipTenantGuard } from '@aquaculture/backend-common';
+
+const Public = () => SetMetadata('isPublic', true);
 
 @Controller('health')
 @SkipTenantGuard()
+@Public()
 export class HealthController {
   constructor(
     @InjectDataSource()
@@ -26,19 +29,13 @@ export class HealthController {
     };
   }
 
+  // LOW-04: The unauthenticated root health endpoint must not expose internal
+  // operational details (uptime, database connectivity). That information is
+  // available on /health/ready, which is consumed by internal orchestrators.
+  // Exposing database status to unauthenticated callers aids attacker timing.
   @Get()
   @HttpCode(HttpStatus.OK)
-  async health(): Promise<{
-    status: 'ok';
-    timestamp: string;
-    uptime: number;
-    database: boolean;
-  }> {
-    return {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      database: this.dataSource.isInitialized,
-    };
+  health(): { status: 'ok' } {
+    return { status: 'ok' };
   }
 }

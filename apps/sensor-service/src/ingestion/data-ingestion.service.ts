@@ -35,6 +35,15 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
   private isShuttingDown = false;
   private healthCheckInterval: NodeJS.Timeout | null = null;
 
+  // Channel lookup cache: sensorId -> { channels, expiresAt }
+  private readonly channelCache = new Map<string, { channels: SensorDataChannel[]; expiresAt: number }>();
+  private readonly CHANNEL_CACHE_TTL_MS = 60_000; // 60 seconds
+
+  // lastSeenAt debounce: sensorId -> pending timestamp
+  private readonly lastSeenPending = new Map<string, Date>();
+  private lastSeenFlushTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly LAST_SEEN_FLUSH_INTERVAL_MS = 30_000; // 30 seconds
+
   constructor(
     @InjectRepository(Sensor)
     private readonly sensorRepository: Repository<Sensor>,
@@ -62,6 +71,13 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       });
     }, 30000); // Every 30 seconds
 
+    // Start lastSeenAt flush timer (debounce per-message updates)
+    this.lastSeenFlushTimer = setInterval(() => {
+      this.flushLastSeenUpdates().catch((err) => {
+        this.logger.error(`Failed to flush lastSeenAt updates: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }, this.LAST_SEEN_FLUSH_INTERVAL_MS);
+
     this.logger.log(`Data Ingestion Service initialized with ${this.activeConnections.size} active connections`);
   }
 
@@ -72,6 +88,13 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     if (this.healthCheckInterval) {
       clearInterval(this.healthCheckInterval);
     }
+
+    // Flush pending lastSeenAt updates before shutdown
+    if (this.lastSeenFlushTimer) {
+      clearInterval(this.lastSeenFlushTimer);
+      this.lastSeenFlushTimer = null;
+    }
+    await this.flushLastSeenUpdates();
 
     // Disconnect all active sensors
     await this.stopAllSensors();
@@ -227,10 +250,8 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       const sourceTimestamp = data.timestamp || now;
       const ingestionLatencyMs = now.getTime() - sourceTimestamp.getTime();
 
-      // Get all channels for this sensor
-      const channels = await this.channelRepository.find({
-        where: { sensorId: sensor.id, isEnabled: true },
-      });
+      // Get all channels for this sensor (cached — 60-second TTL)
+      const channels = await this.getChannelsCached(sensor.id);
 
       // Collect metrics for batch insert
       const metrics: SensorMetricInput[] = [];
@@ -295,16 +316,17 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       }
 
       // Write to legacy table for backward compatibility (deprecated, will be removed)
-      // Set LEGACY_SENSOR_READINGS_ENABLED=false when migration to sensor_metrics is complete
-      const legacyEnabled = this.configService.get('LEGACY_SENSOR_READINGS_ENABLED', 'true') === 'true';
+      // Default: disabled. Only enable if explicitly needed for migration.
+      const legacyEnabled = this.configService.get('LEGACY_SENSOR_READINGS_ENABLED', 'false') === 'true';
       if (legacyEnabled) {
+        if (this.configService.get('NODE_ENV') === 'production') {
+          this.logger.warn('LEGACY_SENSOR_READINGS_ENABLED=true in production — dual write doubles I/O. Migrate to sensor_metrics and disable.');
+        }
         await this.writeLegacyReading(sensor, data);
       }
 
-      // Update last seen timestamp
-      await this.sensorRepository.update(sensor.id, {
-        lastSeenAt: now,
-      });
+      // Debounce lastSeenAt update — flushed in batch every 30 seconds
+      this.lastSeenPending.set(sensor.id, now);
 
       this.logger.debug(
         `Processed ${metrics.length} metrics from sensor ${sensor.id} (latency: ${ingestionLatencyMs}ms)`,
@@ -313,6 +335,50 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(
         `Error processing data from sensor ${sensor.id}: ${(error as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * Get channels for a sensor with 60-second in-memory cache
+   */
+  private async getChannelsCached(sensorId: string): Promise<SensorDataChannel[]> {
+    const cached = this.channelCache.get(sensorId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.channels;
+    }
+
+    const channels = await this.channelRepository.find({
+      where: { sensorId, isEnabled: true },
+    });
+
+    this.channelCache.set(sensorId, {
+      channels,
+      expiresAt: Date.now() + this.CHANNEL_CACHE_TTL_MS,
+    });
+
+    return channels;
+  }
+
+  /**
+   * Flush all pending lastSeenAt updates in a single batch query
+   */
+  private async flushLastSeenUpdates(): Promise<void> {
+    if (this.lastSeenPending.size === 0) return;
+
+    const ids = Array.from(this.lastSeenPending.keys());
+    this.lastSeenPending.clear();
+
+    try {
+      await this.sensorRepository
+        .createQueryBuilder()
+        .update()
+        .set({ lastSeenAt: () => 'NOW()', status: SensorStatus.ACTIVE })
+        .where('id IN (:...ids)', { ids })
+        .execute();
+
+      this.logger.debug(`Flushed lastSeenAt for ${ids.length} sensors`);
+    } catch (error) {
+      this.logger.error(`Failed to flush lastSeenAt: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -437,15 +503,15 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
 
     const sql = `
       INSERT INTO sensor_metrics (
-        time, "sensorId", "channelId", "tenantId",
-        "siteId", "departmentId", "systemId", "equipmentId", "tankId", "pondId", "farmId",
-        "rawValue", value, "qualityCode", "qualityBits",
-        "sourceProtocol", "sourceTimestamp", "ingestionLatencyMs", "batchId"
+        time, sensor_id, channel_id, tenant_id,
+        site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
+        raw_value, value, quality_code, quality_bits,
+        source_protocol, source_timestamp, ingestion_latency_ms, batch_id
       ) VALUES ${valuePlaceholders.join(',\n')}
-      ON CONFLICT (time, "sensorId", "channelId") DO UPDATE SET
+      ON CONFLICT (time, sensor_id, channel_id) DO UPDATE SET
         value = EXCLUDED.value,
-        "rawValue" = EXCLUDED."rawValue",
-        "qualityCode" = EXCLUDED."qualityCode"
+        raw_value = EXCLUDED.raw_value,
+        quality_code = EXCLUDED.quality_code
     `;
 
     await this.dataSource.query(sql, params);

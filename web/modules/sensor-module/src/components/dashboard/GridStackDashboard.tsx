@@ -282,14 +282,12 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
     return ids;
   }, [localWidgets]);
 
-  // Initialize GridStack
+  // Initialize GridStack ONCE — PERF-002: do not destroy/re-init on every widget add/remove.
+  // Widget additions and removals are handled by GridStack.makeWidget()/removeWidget() below.
   useEffect(() => {
-    if (!gridRef.current || localWidgets.length === 0) return;
+    if (!gridRef.current) return;
 
-    // Clean up existing instance
-    if (gridInstanceRef.current) {
-      gridInstanceRef.current.destroy(false);
-    }
+    if (gridInstanceRef.current) return; // already initialized — don't re-init
 
     // Initialize GridStack with options - 24 columns for finer placement
     const grid = GridStack.init(
@@ -314,11 +312,11 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
     gridInstanceRef.current = grid;
 
     // Listen for changes - filter out phantom DOM elements
-    // Bug #6 fix: Use isUpdatingRef to prevent race conditions
-    grid.on('change', () => {
-      // Skip if we're already updating to prevent re-entrance
-      if (isUpdatingRef.current) return;
+    // PERF-009: use O(1) Map lookup instead of O(N) find per item; only commit on dragstop/resizestop
+    const widgetMap = new Map(localWidgets.map((w) => [w.id, w]));
 
+    const applyGridPositions = () => {
+      if (isUpdatingRef.current) return;
       isUpdatingRef.current = true;
       try {
         const items = grid.getGridItems();
@@ -326,14 +324,9 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
           .map((el) => {
             const node = el.gridstackNode;
             const widgetId = el.getAttribute('data-widget-id');
-
-            // Skip DOM elements without widget ID (GridStack creates temp elements during drag)
             if (!widgetId) return null;
-
-            const existingWidget = localWidgets.find((w) => w.id === widgetId);
-            // Skip if widget not found in our state
+            const existingWidget = widgetMap.get(widgetId);
             if (!existingWidget) return null;
-
             return {
               ...existingWidget,
               gridPosition: {
@@ -345,21 +338,41 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
             };
           })
           .filter((w): w is WidgetConfig => w !== null);
-
         setLocalWidgets(updatedWidgets);
         setHasUnsavedChanges(true);
       } finally {
-        // Use setTimeout to ensure React state update completes before allowing next update
-        setTimeout(() => {
-          isUpdatingRef.current = false;
-        }, 0);
+        setTimeout(() => { isUpdatingRef.current = false; }, 0);
       }
-    });
+    };
+
+    // Commit only on drag/resize end to avoid continuous state updates during drag (PERF-009)
+    grid.on('dragstop resizestop', applyGridPositions);
 
     return () => {
       grid.destroy(false);
+      gridInstanceRef.current = null;
     };
-  }, [localWidgets.length > 0 ? localWidgets.map(w => w.id).join(',') : '']);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // PERF-002: run once on mount — add/remove is handled by makeWidget/removeWidget below
+
+  // PERF-002: Register new DOM nodes with GridStack when localWidgets changes (instead of full re-init)
+  useEffect(() => {
+    const grid = gridInstanceRef.current;
+    if (!grid || !gridRef.current) return;
+
+    const registeredIds = new Set<string>();
+    grid.getGridItems().forEach((el) => {
+      const id = el.getAttribute('data-widget-id');
+      if (id) registeredIds.add(id);
+    });
+
+    // Make any newly rendered DOM nodes known to GridStack
+    localWidgets.forEach((w) => {
+      if (registeredIds.has(w.id)) return;
+      const el = gridRef.current?.querySelector(`[data-widget-id="${w.id}"]`) as HTMLElement | null;
+      if (el) grid.makeWidget(el);
+    });
+  }, [localWidgets]);
 
   // Update GridStack edit mode
   useEffect(() => {
@@ -376,7 +389,8 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
   const handleAddWidget = useCallback((config: WidgetConfig) => {
     const newWidget: WidgetConfig = {
       ...config,
-      id: `widget-${Date.now()}`,
+      // BUG-012: use crypto.randomUUID() to avoid millisecond-resolution collision
+      id: `widget-${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)}`,
       gridPosition: config.gridPosition || { x: 0, y: 0, w: 3, h: 3 },
     };
 

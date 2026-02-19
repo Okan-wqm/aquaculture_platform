@@ -3,19 +3,22 @@ import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
 /**
- * HTML escape function to prevent XSS in email templates
- * Escapes <, >, &, ", and ' characters
+ * HTML escape function to prevent XSS in email templates.
+ * Single-pass replacement using a character-class regex and a lookup map,
+ * replacing the previous 5-sequential-replace approach which ran 5 full
+ * string scans per call.
  */
+const HTML_ESCAPE_MAP: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
 function escapeHtml(str: string | undefined | null): string {
-  if (str === null || str === undefined) {
-    return '';
-  }
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  if (str == null) return '';
+  return String(str).replace(/[&<>"']/g, (c) => HTML_ESCAPE_MAP[c]!);
 }
 
 /**
@@ -134,6 +137,13 @@ export class EmailService {
       port,
       secure: port === 465,
       auth: user && pass ? { user, pass } : undefined,
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 100,
+      requireTLS: port !== 465,
+      tls: {
+        rejectUnauthorized: true,
+      },
     });
 
     this.logger.log(`Email service initialized with SMTP host: ${host}`);
@@ -176,10 +186,13 @@ export class EmailService {
    * Send an alert notification email
    */
   async sendAlertEmail(to: string, alertData: AlertEmailData): Promise<string> {
-    const subject = `[${alertData.severity.toUpperCase()}] ${alertData.ruleName}`;
+    // Sanitize recipient email to prevent header injection
+    const sanitizedTo = this.sanitizeEmailAddress(to);
+    // Strip CRLF from subject to prevent SMTP header injection
+    const subject = `[${alertData.severity.toUpperCase()}] ${alertData.ruleName}`.replace(/[\r\n]/g, '');
     const html = this.generateAlertEmailTemplate(alertData);
 
-    return await this.sendEmail(to, subject, html);
+    return await this.sendEmail(sanitizedTo, subject, html);
   }
 
   /**
@@ -230,7 +243,7 @@ export class EmailService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>🐟 Welcome to Aquaculture Platform</h1>
+              <h1>Welcome to Aquaculture Platform</h1>
               <p>Your account has been created</p>
             </div>
             <div class="content">
@@ -251,16 +264,16 @@ export class EmailService {
                 </div>
                 <div class="info-row">
                   <span class="info-label">Role:</span>
-                  <span class="info-value">${escapeHtml(data.role.replace('_', ' '))}</span>
+                  <span class="info-value">${escapeHtml(data.role.replace(/_/g, ' '))}</span>
                 </div>
               </div>
 
               <div class="button-container">
-                <a href="${escapeHtml(data.actionUrl)}" class="button">Set Up Your Password</a>
+                <a href="${encodeURI(data.actionUrl)}" class="button">Set Up Your Password</a>
               </div>
 
               <div class="warning">
-                ⏰ <strong>Important:</strong> This link will expire in ${expiresIn} days.
+                <strong>Important:</strong> This link will expire in ${expiresIn} days.
                 Please set up your password before the link expires.
               </div>
 
@@ -314,7 +327,7 @@ export class EmailService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>⚠️ Alert Triggered</h1>
+              <h1>Alert Triggered</h1>
             </div>
             <div class="content">
               <div class="field">
@@ -387,6 +400,12 @@ export class EmailService {
     // Remove any CRLF characters that could be used for header injection
     const sanitized = email.replace(/[\r\n\t]/g, '').trim();
 
+    // Enforce RFC 5321 maximum email address length (254 characters)
+    if (sanitized.length > 254) {
+      this.logger.warn(`Email address exceeds maximum length (254 chars): ${sanitized.substring(0, 20)}...`);
+      throw new Error('Email address exceeds maximum allowed length');
+    }
+
     // Basic email format validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(sanitized)) {
@@ -405,9 +424,9 @@ export class EmailService {
     data: RegulatoryReportEmailData,
   ): Promise<{ messageId: string; sentTo: string[] }> {
     const reportTitles = {
-      welfare: 'Refah Olayı Bildirimi / Welfare Event Report',
-      disease: 'Hastalık Salgını Bildirimi / Disease Outbreak Report',
-      escape: 'Kaçış Bildirimi / Escape Report',
+      welfare: 'Welfare Event Report / Velferdshendelsemelding',
+      disease: 'Disease Outbreak Report / Sykdomsutbruddmelding',
+      escape: 'Escape Report / Rommingsmelding',
     };
 
     const subject = `[URGENT] ${reportTitles[data.reportType]} - ${data.siteName} - ${this.formatDate(data.detectedAt)}`;
@@ -473,15 +492,15 @@ export class EmailService {
     };
 
     const reportIcons = {
-      welfare: '🐟',
-      disease: '🦠',
-      escape: '🚨',
+      welfare: '&#x1F41F;',
+      disease: '&#x1F9A0;',
+      escape: '&#x1F6A8;',
     };
 
     const reportTitles = {
-      welfare: 'WELFARE EVENT / REFAH OLAYI',
-      disease: 'DISEASE OUTBREAK / HASTALIK SALGINI',
-      escape: 'ESCAPE INCIDENT / KAÇIŞ OLAYI',
+      welfare: 'WELFARE EVENT / VELFERDSMELDING',
+      disease: 'DISEASE OUTBREAK / SYKDOMSUTBRUDD',
+      escape: 'ESCAPE INCIDENT / ROMMINGSHENDELSE',
     };
 
     const bgColor = reportColors[data.reportType];
@@ -527,19 +546,19 @@ export class EmailService {
         <body>
           <div class="container">
             <div class="header">
-              <div class="urgent-badge">URGENT / ACİL</div>
+              <div class="urgent-badge">URGENT / HASTER</div>
               <h1>${icon} ${title}</h1>
             </div>
             <div class="content">
               <!-- Facility Information -->
               <div class="section">
-                <div class="section-title">Facility Information / Tesis Bilgileri</div>
+                <div class="section-title">Facility Information / Anleggsinformasjon</div>
                 <div class="field">
-                  <span class="field-label">Site Name / Tesis Adı:</span>
+                  <span class="field-label">Site Name / Anleggsnavn:</span>
                   <span class="field-value"><strong>${escapeHtml(data.siteName)}</strong></span>
                 </div>
                 <div class="field">
-                  <span class="field-label">Site Code / Tesis Kodu:</span>
+                  <span class="field-label">Site Code / Anleggskode:</span>
                   <span class="field-value">${escapeHtml(data.siteCode)}</span>
                 </div>
                 <div class="field">
@@ -557,9 +576,9 @@ export class EmailService {
 
               <!-- Contact Information -->
               <div class="section">
-                <div class="section-title">Contact Information / İletişim Bilgileri</div>
+                <div class="section-title">Contact Information / Kontaktinformasjon</div>
                 <div class="field">
-                  <span class="field-label">Contact Person / İlgili Kişi:</span>
+                  <span class="field-label">Contact Person / Kontaktperson:</span>
                   <span class="field-value">${escapeHtml(data.contactPerson)}</span>
                 </div>
                 <div class="field">
@@ -576,24 +595,24 @@ export class EmailService {
 
               <!-- Report Metadata -->
               <div class="section">
-                <div class="section-title">Report Details / Rapor Detayları</div>
+                <div class="section-title">Report Details / Rapportdetaljer</div>
                 <div class="field">
-                  <span class="field-label">Detected At / Tespit Zamanı:</span>
+                  <span class="field-label">Detected At / Oppdaget:</span>
                   <span class="field-value">${escapeHtml(this.formatDateTime(data.detectedAt))}</span>
                 </div>
                 <div class="field">
-                  <span class="field-label">Reported By / Raporlayan:</span>
+                  <span class="field-label">Reported By / Rapportert av:</span>
                   <span class="field-value">${escapeHtml(data.reportedBy)}</span>
                 </div>
                 <div class="field">
-                  <span class="field-label">Report Time / Rapor Zamanı:</span>
+                  <span class="field-label">Report Time / Rapporttidspunkt:</span>
                   <span class="field-value">${escapeHtml(this.formatDateTime(new Date()))}</span>
                 </div>
               </div>
             </div>
             <div class="footer">
               <p><strong>This is an urgent regulatory notification sent to Mattilsynet.</strong></p>
-              <p>Bu acil düzenleyici bildirim Mattilsynet'e gönderilmiştir.</p>
+              <p>Dette er en akutt regulatorisk varsling sendt til Mattilsynet.</p>
               <p class="footer-note">
                 Generated by Aquaculture Platform | varsling.akva@mattilsynet.no
               </p>
@@ -610,13 +629,13 @@ export class EmailService {
   private generateWelfareSection(data: NonNullable<RegulatoryReportEmailData['welfareData']>): string {
     return `
       <div class="section">
-        <div class="section-title">Welfare Event Details / Refah Olayı Detayları</div>
+        <div class="section-title">Welfare Event Details / Velferdshendelsedetaljer</div>
         <div class="field">
-          <span class="field-label">Event Type / Olay Türü:</span>
+          <span class="field-label">Event Type / Hendelsestype:</span>
           <span class="field-value">${escapeHtml(data.eventType)}</span>
         </div>
         <div class="field">
-          <span class="field-label">Severity / Şiddet:</span>
+          <span class="field-label">Severity / Alvorlighetsgrad:</span>
           <span class="field-value" style="color: ${data.severity === 'critical' ? '#dc3545' : '#ff6600'}; font-weight: 600;">
             ${escapeHtml(data.severity.toUpperCase())}
           </span>
@@ -624,23 +643,23 @@ export class EmailService {
         ${data.mortalityRate !== undefined ? `
         <div class="highlight-box">
           <div class="field">
-            <span class="field-label">Mortality Rate / Ölüm Oranı:</span>
+            <span class="field-label">Mortality Rate / Dodelighet:</span>
             <span class="field-value"><strong>${escapeHtml(String(data.mortalityRate))}%</strong> (${escapeHtml(data.mortalityPeriod || 'N/A')})</span>
           </div>
         </div>
         ` : ''}
         <div class="field">
-          <span class="field-label">Description / Açıklama:</span>
+          <span class="field-label">Description / Beskrivelse:</span>
           <span class="field-value">${escapeHtml(data.description)}</span>
         </div>
         ${data.affectedBatches && data.affectedBatches.length > 0 ? `
         <div class="field">
-          <span class="field-label">Affected Batches / Etkilenen Partiler:</span>
+          <span class="field-label">Affected Batches / Berorte partier:</span>
           <span class="field-value">${data.affectedBatches.map(b => escapeHtml(b)).join(', ')}</span>
         </div>
         ` : ''}
         <div class="field">
-          <span class="field-label">Immediate Actions / Alınan Önlemler:</span>
+          <span class="field-label">Immediate Actions / Strakstiltak:</span>
           <span class="field-value">
             <ul class="list-items">
               ${data.immediateActions.map(action => `<li>${escapeHtml(action)}</li>`).join('')}
@@ -656,17 +675,17 @@ export class EmailService {
    */
   private generateDiseaseSection(data: NonNullable<RegulatoryReportEmailData['diseaseData']>): string {
     const categoryDescriptions: Record<string, string> = {
-      A: 'Liste A - Exotic Disease / Egzotik Hastalık',
-      C: 'Liste C - Non-Exotic Notifiable / Bildirilmesi Zorunlu',
-      F: 'Liste F - Other Notifiable / Diğer Bildirilebilir',
+      A: 'Liste A - Exotic Disease / Eksotisk sykdom',
+      C: 'Liste C - Non-Exotic Notifiable / Meldepliktig ikke-eksotisk',
+      F: 'Liste F - Other Notifiable / Annen meldepliktig',
     };
 
     return `
       <div class="section">
-        <div class="section-title">Disease Outbreak Details / Hastalık Salgını Detayları</div>
+        <div class="section-title">Disease Outbreak Details / Sykdomsutbrudddetaljer</div>
         <div class="highlight-box" style="background-color: #ffebee; border-color: #f44336;">
           <div class="field">
-            <span class="field-label">Disease / Hastalık:</span>
+            <span class="field-label">Disease / Sykdom:</span>
             <span class="field-value"><strong>${escapeHtml(data.diseaseName)}</strong></span>
           </div>
           <div class="field">
@@ -674,18 +693,18 @@ export class EmailService {
             <span class="field-value">${escapeHtml(categoryDescriptions[data.diseaseCategory] || data.diseaseCategory)}</span>
           </div>
           <div class="field">
-            <span class="field-label">Status / Durum:</span>
+            <span class="field-label">Status:</span>
             <span class="field-value" style="color: ${data.confirmation === 'confirmed' ? '#dc3545' : '#ff6600'}; font-weight: 600;">
-              ${data.confirmation === 'confirmed' ? 'LAB CONFIRMED / LABORATUVAR ONAYLI' : 'SUSPECTED / ŞÜPHELİ'}
+              ${data.confirmation === 'confirmed' ? 'LAB CONFIRMED / LABORATORIEBKREFTET' : 'SUSPECTED / MISTENKT'}
             </span>
           </div>
         </div>
         <div class="field">
-          <span class="field-label">Affected Population / Etkilenen Popülasyon:</span>
+          <span class="field-label">Affected Population / Berorte individer:</span>
           <span class="field-value">${escapeHtml(data.affectedCount.toLocaleString())} fish (${escapeHtml(String(data.affectedPercentage))}%)</span>
         </div>
         <div class="field">
-          <span class="field-label">Clinical Signs / Klinik Belirtiler:</span>
+          <span class="field-label">Clinical Signs / Kliniske tegn:</span>
           <span class="field-value">
             <ul class="list-items">
               ${data.clinicalSigns.map(sign => `<li>${escapeHtml(sign)}</li>`).join('')}
@@ -693,9 +712,9 @@ export class EmailService {
           </span>
         </div>
         <div class="field">
-          <span class="field-label">Veterinarian Notified / Veteriner Bilgilendirildi:</span>
+          <span class="field-label">Veterinarian Notified / Veterinar varslet:</span>
           <span class="field-value">
-            ${data.veterinarianNotified ? `Yes / Evet${data.veterinarianName ? ` - ${escapeHtml(data.veterinarianName)}` : ''}` : 'No / Hayır'}
+            ${data.veterinarianNotified ? `Yes / Ja${data.veterinarianName ? ` - ${escapeHtml(data.veterinarianName)}` : ''}` : 'No / Nei'}
           </span>
         </div>
       </div>
@@ -708,36 +727,36 @@ export class EmailService {
   private generateEscapeSection(data: NonNullable<RegulatoryReportEmailData['escapeData']>): string {
     return `
       <div class="section">
-        <div class="section-title">Escape Incident Details / Kaçış Olayı Detayları</div>
+        <div class="section-title">Escape Incident Details / Rommingshendelsedetaljer</div>
         <div class="highlight-box" style="background-color: #f3e5f5; border-color: #9c27b0;">
           <div class="field">
-            <span class="field-label">Estimated Escaped / Tahmini Kaçan:</span>
+            <span class="field-label">Estimated Escaped / Anslatt romming:</span>
             <span class="field-value"><strong>${escapeHtml(data.estimatedCount.toLocaleString())} fish</strong></span>
           </div>
           <div class="field">
-            <span class="field-label">Total Biomass / Toplam Biyokütle:</span>
+            <span class="field-label">Total Biomass / Total biomasse:</span>
             <span class="field-value"><strong>${escapeHtml(data.totalBiomassKg.toLocaleString())} kg</strong></span>
           </div>
         </div>
         <div class="field">
-          <span class="field-label">Species / Tür:</span>
+          <span class="field-label">Species / Art:</span>
           <span class="field-value">${escapeHtml(data.species)}</span>
         </div>
         <div class="field">
-          <span class="field-label">Average Weight / Ortalama Ağırlık:</span>
+          <span class="field-label">Average Weight / Gjennomsnittsvekt:</span>
           <span class="field-value">${escapeHtml(String(data.avgWeightG))} g</span>
         </div>
         <div class="field">
-          <span class="field-label">Cause / Sebep:</span>
+          <span class="field-label">Cause / Arsak:</span>
           <span class="field-value">${escapeHtml(data.cause)}</span>
         </div>
         <div class="field">
-          <span class="field-label">Affected Units / Etkilenen Üniteler:</span>
+          <span class="field-label">Affected Units / Berorte enheter:</span>
           <span class="field-value">${data.affectedUnits.map(u => escapeHtml(u)).join(', ')}</span>
         </div>
         <div class="field">
-          <span class="field-label">Recovery Ongoing / Kurtarma Devam Ediyor:</span>
-          <span class="field-value">${data.recoveryOngoing ? 'Yes / Evet' : 'No / Hayır'}</span>
+          <span class="field-label">Recovery Ongoing / Bergingsoperasjon pagaar:</span>
+          <span class="field-value">${data.recoveryOngoing ? 'Yes / Ja' : 'No / Nei'}</span>
         </div>
       </div>
     `;
@@ -747,7 +766,9 @@ export class EmailService {
    * Format date for display
    */
   private formatDate(date: Date): string {
-    return date.toISOString().split('T')[0] ?? '';
+    // toISOString() always returns "YYYY-MM-DDTHH:mm:ss.sssZ"; split('T')[0] is
+    // always defined for a valid Date, so no nullish fallback is needed.
+    return date.toISOString().split('T')[0]!;
   }
 
   /**

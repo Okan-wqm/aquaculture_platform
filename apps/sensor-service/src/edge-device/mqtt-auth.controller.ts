@@ -55,12 +55,22 @@ export class MqttAuthController {
     private readonly configService: ConfigService,
   ) {
     this.mqttAuthSecret = this.configService.get<string>('MQTT_AUTH_SECRET');
+
+    // MQTT_AUTH_SECRET must be set in production to prevent unauthorized access
+    const nodeEnv = this.configService.get<string>('NODE_ENV');
+    if (!this.mqttAuthSecret && nodeEnv === 'production') {
+      this.logger.error('MQTT_AUTH_SECRET is not set in production — MQTT auth endpoints are unprotected');
+      throw new Error('MQTT_AUTH_SECRET must be configured in production environments');
+    }
+    if (!this.mqttAuthSecret) {
+      this.logger.warn('MQTT_AUTH_SECRET is not set — MQTT auth endpoints are unprotected (acceptable in development only)');
+    }
   }
 
   /**
    * Validate the shared secret from Mosquitto.
    * If MQTT_AUTH_SECRET is configured, the X-Mosquitto-Auth header must match.
-   * If not configured, skip validation (backward compatible).
+   * If not configured, skip validation (development only).
    */
   private validateMosquittoSecret(headers: Record<string, string>): void {
     if (this.mqttAuthSecret && headers['x-mosquitto-auth'] !== this.mqttAuthSecret) {

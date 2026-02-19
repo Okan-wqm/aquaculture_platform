@@ -42,25 +42,21 @@ export class RedisTokenBlacklistStore implements TokenBlacklistStore {
   constructor(private readonly redisService: RedisService) {}
 
   async add(jti: string, exp: number): Promise<void> {
-    try {
-      // Calculate TTL (time until token expires)
-      const now = Math.floor(Date.now() / 1000);
-      const ttlSeconds = Math.max(exp - now, 1);
+    // Calculate TTL (time until token expires)
+    const now = Math.floor(Date.now() / 1000);
+    const ttlSeconds = Math.max(exp - now, 1);
 
-      // Store blacklisted token with TTL
-      // Value is just "1" since we only need to check existence
-      await this.redisService.set(
-        this.keyPrefix + jti,
-        '1',
-        ttlSeconds,
-      );
+    // Store blacklisted token with TTL
+    // Value is just "1" since we only need to check existence
+    // SECURITY: Surface errors to callers so token revocation failures are not silent.
+    // A silent failure here means a revoked token remains valid -- unacceptable.
+    await this.redisService.set(
+      this.keyPrefix + jti,
+      '1',
+      ttlSeconds,
+    );
 
-      this.logger.debug(`Token blacklisted: ${jti.substring(0, 8)}... (TTL: ${ttlSeconds}s)`);
-    } catch (error) {
-      this.logger.error(`Failed to blacklist token: ${error}`);
-      // Don't throw - fail open to avoid blocking legitimate requests
-      // The token will still expire naturally
-    }
+    this.logger.debug(`Token blacklisted: ${jti.substring(0, 8)}... (TTL: ${ttlSeconds}s)`);
   }
 
   async isBlacklisted(jti: string): Promise<boolean> {
@@ -101,7 +97,17 @@ export class InMemoryTokenBlacklistStore implements TokenBlacklistStore {
   }
 
   async isBlacklisted(jti: string): Promise<boolean> {
-    return this.blacklist.has(jti);
+    const exp = this.blacklist.get(jti);
+    if (exp === undefined) {
+      return false;
+    }
+    // Lazy expiry: remove expired entries on access
+    const now = Math.floor(Date.now() / 1000);
+    if (exp < now) {
+      this.blacklist.delete(jti);
+      return false;
+    }
+    return true;
   }
 
   cleanup(): void {

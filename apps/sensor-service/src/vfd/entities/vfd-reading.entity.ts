@@ -86,14 +86,14 @@ export class VfdReading {
   id!: string;
 
   @Field()
-  @Column({ type: 'uuid' })
+  @Column({ type: 'uuid', name: 'vfd_device_id' })
   @Index()
   vfdDeviceId!: string;
 
   @Field(() => VfdDevice, { nullable: true })
   @ManyToOne(() => VfdDevice, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'vfdDeviceId' })
-  vfdDevice!: VfdDevice;
+  @JoinColumn({ name: 'vfd_device_id' })
+  vfdDevice?: VfdDevice;
 
   @Field()
   @Column({ type: 'uuid', name: 'tenant_id' })

@@ -128,17 +128,26 @@ export function useDeadlines(options: UseDeadlinesOptions = {}): UseDeadlinesRet
    */
   const getNextDeadlineForType = useCallback(
     (reportType: ReportType): DeadlineInfo => {
-      const deadline = getNextDeadline(reportType.toUpperCase() as keyof typeof REPORTING_DEADLINES);
+      // BUG-012: ReportType uses kebab-case ('sea-lice', 'cleaner-fish') but
+      // REPORTING_DEADLINES keys are SCREAMING_SNAKE_CASE ('SEA_LICE', 'CLEANER_FISH').
+      // Convert by replacing hyphens with underscores before uppercasing.
+      const deadlineKey = reportType.replace(/-/g, '_').toUpperCase() as keyof typeof REPORTING_DEADLINES;
+      const deadline = getNextDeadline(deadlineKey);
       const days = getDaysUntilDeadline(deadline);
-      const config = REPORTING_DEADLINES[reportType.toUpperCase() as keyof typeof REPORTING_DEADLINES];
+      const config = REPORTING_DEADLINES[deadlineKey];
+
+      // For event-based/immediate types the sentinel far-future deadline means
+      // the report is triggered by events, not on a fixed schedule.
+      const isEventBased =
+        !config || config.frequency === 'immediate' || config.frequency === 'event-based';
 
       return {
         reportType,
         deadline,
-        daysRemaining: days,
-        urgency: getUrgency(deadline),
+        daysRemaining: isEventBased ? Infinity : days,
+        urgency: isEventBased ? 'normal' : getUrgency(deadline),
         description: config?.description || '',
-        isRecurring: config?.frequency !== 'immediate' && config?.frequency !== 'event-based',
+        isRecurring: !isEventBased,
       };
     },
     [getUrgency]

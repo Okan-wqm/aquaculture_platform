@@ -8,11 +8,10 @@ import {
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { UpdateConfigurationCommand } from '../commands/update-configuration.command';
-import {
-  Configuration,
-  ConfigurationHistory,
-  ConfigValueType,
-} from '../entities/configuration.entity';
+import { Configuration, ConfigurationHistory } from '../entities/configuration.entity';
+import { ConfigurationService } from '../services/configuration.service';
+import { ConfigurationValidationService } from '../services/configuration-validation.service';
+import { EncryptionService } from '../services/encryption.service';
 
 @Injectable()
 @CommandHandler(UpdateConfigurationCommand)
@@ -21,41 +20,48 @@ export class UpdateConfigurationHandler
 {
   private readonly logger = new Logger(UpdateConfigurationHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly configurationService: ConfigurationService,
+    private readonly validationService: ConfigurationValidationService,
+    private readonly encryptionService: EncryptionService,
+  ) {}
 
   async execute(command: UpdateConfigurationCommand): Promise<Configuration> {
     const { tenantId, input, userId } = command;
 
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
-    await queryRunner.startTransaction('SERIALIZABLE');
+    await queryRunner.startTransaction('READ COMMITTED');
 
     try {
       const configRepo = queryRunner.manager.getRepository(Configuration);
       const historyRepo = queryRunner.manager.getRepository(ConfigurationHistory);
 
-      // Find existing configuration with lock
       const configuration = await configRepo.findOne({
-        where: { id: input.id, tenantId },
-        lock: { mode: 'pessimistic_write' },
+        where: { id: input.id, tenantId, isActive: true },
       });
 
       if (!configuration) {
         throw new NotFoundException(`Configuration not found: ${input.id}`);
       }
 
-      // Store previous value for history
       const previousValue = configuration.value;
       const valueChanged = input.value !== undefined && input.value !== previousValue;
 
-      // Validate new value if provided
       if (input.value !== undefined) {
         const valueType = input.valueType || configuration.valueType;
-        this.validateValue(input.value, valueType);
+        this.validationService.validateValue(input.value, valueType);
       }
 
-      // Update fields
-      if (input.value !== undefined) configuration.value = input.value;
+      // Encrypt new value if this is a secret config
+      if (input.value !== undefined) {
+        if (configuration.isSecret && this.encryptionService.isAvailable()) {
+          configuration.value = this.encryptionService.encrypt(input.value);
+        } else {
+          configuration.value = input.value;
+        }
+      }
       if (input.valueType !== undefined) configuration.valueType = input.valueType;
       if (input.environment !== undefined) configuration.environment = input.environment;
       if (input.description !== undefined) configuration.description = input.description;
@@ -69,18 +75,17 @@ export class UpdateConfigurationHandler
 
       configuration.updatedBy = userId;
 
-      // Save updated configuration
       const savedConfig = await configRepo.save(configuration);
 
-      // Create history record if value changed
+      // SECURITY: Redact secret values in history records
       if (valueChanged) {
         const history = historyRepo.create({
           configurationId: configuration.id,
           tenantId,
           service: configuration.service,
           key: configuration.key,
-          previousValue,
-          newValue: input.value!,
+          previousValue: configuration.isSecret ? '[REDACTED]' : previousValue,
+          newValue: configuration.isSecret ? '[REDACTED]' : input.value!,
           changedBy: userId,
           changedAt: new Date(),
           changeReason: input.changeReason,
@@ -90,6 +95,8 @@ export class UpdateConfigurationHandler
       }
 
       await queryRunner.commitTransaction();
+
+      this.configurationService.invalidateCache(tenantId, savedConfig.service, savedConfig.key);
 
       this.logger.log(
         `Configuration updated: ${savedConfig.id} (${configuration.service}/${configuration.key})`,
@@ -111,28 +118,6 @@ export class UpdateConfigurationHandler
       throw new InternalServerErrorException('Failed to update configuration');
     } finally {
       await queryRunner.release();
-    }
-  }
-
-  private validateValue(value: string, valueType: ConfigValueType): void {
-    switch (valueType) {
-      case ConfigValueType.NUMBER:
-        if (isNaN(Number(value))) {
-          throw new BadRequestException('Value must be a valid number');
-        }
-        break;
-      case ConfigValueType.BOOLEAN:
-        if (!['true', 'false', '1', '0'].includes(value.toLowerCase())) {
-          throw new BadRequestException('Value must be true/false or 1/0');
-        }
-        break;
-      case ConfigValueType.JSON:
-        try {
-          JSON.parse(value);
-        } catch {
-          throw new BadRequestException('Value must be valid JSON');
-        }
-        break;
     }
   }
 }

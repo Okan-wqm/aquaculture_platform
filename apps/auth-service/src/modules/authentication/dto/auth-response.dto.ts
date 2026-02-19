@@ -8,7 +8,7 @@ export class AuthPayload {
   @Field()
   accessToken!: string;
 
-  @Field()
+  @Field({ description: 'Deprecated: refresh token is now stored in httpOnly cookie. This field returns empty string.' })
   refreshToken!: string;
 
   @Field(() => User)
@@ -77,7 +77,7 @@ export class TokenValidationResponse {
   @Field(() => Role, { nullable: true })
   role?: Role;
 
-  @Field(() => String, { nullable: true })
+  @Field(() => Date, { nullable: true })
   expiresAt?: Date;
 }
 
@@ -98,6 +98,6 @@ export class InvitationValidationResponse {
   @Field(() => String, { nullable: true })
   lastName?: string;
 
-  @Field(() => String, { nullable: true })
+  @Field(() => Boolean, { nullable: true })
   expired?: boolean;
 }

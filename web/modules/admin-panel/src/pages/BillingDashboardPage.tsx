@@ -7,6 +7,7 @@
 
 import React, { useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 import { useAsyncData } from '../hooks';
 import { analyticsApi, RevenueAnalytics } from '../services/adminApi';
 
@@ -327,8 +328,9 @@ const BillingDashboardPage: React.FC = () => {
       const response = await fetch(
         `${import.meta.env.VITE_ADMIN_API_URL || '/api'}/billing/invoices?limit=5`,
         {
+          credentials: 'include',
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Authorization': `Bearer ${getAccessToken()}`,
             'Content-Type': 'application/json',
           },
         }

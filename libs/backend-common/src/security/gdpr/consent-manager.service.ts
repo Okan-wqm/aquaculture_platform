@@ -84,7 +84,7 @@ export class ConsentManagerService implements IConsentManager {
 
     return {
       userId,
-      consents,
+      consents: Object.fromEntries(consents) as Record<ConsentType, boolean>,
       lastUpdated,
       consentVersion: this.currentVersion,
     };

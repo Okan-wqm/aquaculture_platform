@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual, Between } from 'typeorm';
+import { DataSource, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual, Between, In } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { GetInvoicesQuery } from '../queries/get-invoices.query';
 import { Invoice } from '../entities/invoice.entity';
@@ -16,7 +16,9 @@ export class GetInvoicesHandler implements IQueryHandler<GetInvoicesQuery, Invoi
 
     const where: FindOptionsWhere<Invoice> = { tenantId };
 
-    if (filter?.status) {
+    if (filter?.statuses && filter.statuses.length > 0) {
+      where.status = In(filter.statuses);
+    } else if (filter?.status) {
       where.status = filter.status;
     }
 

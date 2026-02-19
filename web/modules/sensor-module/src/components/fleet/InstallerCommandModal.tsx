@@ -28,6 +28,15 @@ interface InstallerCommandModalProps {
   provisioningData: ProvisionedDeviceResponse | RegenerateTokenResponse | null;
 }
 
+// SEC-005: mask the token portion of the installer command so it isn't visible over the shoulder
+function maskInstallerCommand(cmd: string): string {
+  // Typical format: ... --token <TOKEN> ... or --bootstrap-token <TOKEN>
+  return cmd.replace(
+    /(--(?:bootstrap-)?token\s+)(\S+)/gi,
+    (_, prefix, token) => `${prefix}${token.slice(0, 4)}${'*'.repeat(Math.max(8, token.length - 4))}`
+  );
+}
+
 export function InstallerCommandModal({
   isOpen,
   onClose,
@@ -35,6 +44,7 @@ export function InstallerCommandModal({
 }: InstallerCommandModalProps) {
   const [copied, setCopied] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [revealed, setRevealed] = useState(false);
 
   const { mutate: regenerateToken, isPending: isRegenerating } = useRegenerateDeviceToken();
 
@@ -156,14 +166,26 @@ export function InstallerCommandModal({
               </div>
             )}
 
-            {/* Installer Command */}
+            {/* Installer Command — SEC-005: token masked by default with reveal toggle */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Kurulum Komutu
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Kurulum Komutu
+                </label>
+                <button
+                  onClick={() => setRevealed((r) => !r)}
+                  className="text-xs text-cyan-600 hover:text-cyan-800 underline"
+                >
+                  {revealed ? 'Gizle' : 'Token\'ı Göster'}
+                </button>
+              </div>
               <div className="relative">
                 <div className="bg-gray-900 rounded-lg p-4 pr-12 font-mono text-sm text-green-400 overflow-x-auto">
-                  <code>{provisioningData.installerCommand}</code>
+                  <code>
+                    {revealed
+                      ? provisioningData.installerCommand
+                      : maskInstallerCommand(provisioningData.installerCommand)}
+                  </code>
                 </div>
                 <button
                   onClick={handleCopyCommand}

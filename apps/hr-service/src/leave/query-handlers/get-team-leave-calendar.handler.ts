@@ -51,10 +51,14 @@ export class GetTeamLeaveCalendarHandler implements IQueryHandler<GetTeamLeaveCa
   async execute(query: GetTeamLeaveCalendarQuery): Promise<LeaveCalendarEntry[]> {
     const { tenantId, departmentId, startDate, endDate } = query;
 
+    // Use leftJoin + addSelect instead of leftJoinAndSelect to load only the columns
+    // actually used in the map below — avoids transferring full JSONB employee fields.
     const queryBuilder = this.leaveRequestRepository
       .createQueryBuilder('lr')
-      .leftJoinAndSelect('lr.employee', 'employee')
-      .leftJoinAndSelect('lr.leaveType', 'leaveType')
+      .leftJoin('lr.employee', 'employee')
+      .addSelect(['employee.id', 'employee.firstName', 'employee.lastName'])
+      .leftJoin('lr.leaveType', 'leaveType')
+      .addSelect(['leaveType.id', 'leaveType.name', 'leaveType.color'])
       .where('lr.tenantId = :tenantId', { tenantId })
       .andWhere('lr.status IN (:...statuses)', {
         statuses: [LeaveRequestStatus.APPROVED, LeaveRequestStatus.PENDING],
@@ -62,7 +66,8 @@ export class GetTeamLeaveCalendarHandler implements IQueryHandler<GetTeamLeaveCa
       .andWhere('lr.isDeleted = false')
       .andWhere('lr.endDate >= :startDate', { startDate })
       .andWhere('lr.startDate <= :endDate', { endDate })
-      .orderBy('lr.startDate', 'ASC');
+      .orderBy('lr.startDate', 'ASC')
+      .take(500);
 
     // FIX: Use departmentHrId - Employee entity has departmentHrId, not departmentId
     if (departmentId) {

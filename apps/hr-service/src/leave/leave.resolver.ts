@@ -27,12 +27,11 @@ import { PaginatedLeaveRequests } from './query-handlers/get-leave-requests.hand
 import { LeaveCalendarEntry } from './query-handlers/get-team-leave-calendar.handler';
 import { PaginatedPendingApprovals } from './query-handlers/get-pending-approvals.handler';
 
+// SECURITY: Context only exposes JWT-verified user fields.
+// Do NOT add x-tenant-id or x-user-id headers here — those are attacker-controlled
+// and must never be used directly (LOW-01).
 interface GraphQLContext {
   req: {
-    headers: {
-      'x-tenant-id'?: string;
-      'x-user-id'?: string;
-    };
     user?: {
       sub: string;
       tenantId: string;
@@ -120,7 +119,7 @@ export class LeaveResolver {
   // =====================
   @Query(() => [LeaveBalance], { name: 'leaveBalances' })
   @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getLeaveBalances(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Context() context: GraphQLContext,
@@ -149,6 +148,8 @@ export class LeaveResolver {
   // Leave Request Queries
   // =====================
   @Query(() => LeaveRequest, { name: 'leaveRequest' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -158,6 +159,8 @@ export class LeaveResolver {
   }
 
   @Query(() => LeaveRequestConnection, { name: 'leaveRequests' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getLeaveRequests(
     @Context() context: GraphQLContext,
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
@@ -209,7 +212,7 @@ export class LeaveResolver {
 
   @Query(() => PendingLeaveApprovalsConnection, { name: 'pendingLeaveApprovals' })
   @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getPendingLeaveApprovals(
     @Context() context: GraphQLContext,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,

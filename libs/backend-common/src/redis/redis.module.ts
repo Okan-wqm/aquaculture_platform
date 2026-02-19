@@ -23,15 +23,21 @@ export interface RedisModuleAsyncOptions {
 @Module({})
 export class RedisModule {
   static forRoot(options: RedisModuleOptions): DynamicModule {
+    const optionsProvider: Provider = {
+      provide: REDIS_OPTIONS,
+      useValue: options,
+    };
+
     const redisServiceProvider: Provider = {
       provide: RedisService,
-      useFactory: () => new RedisService(options),
+      inject: [REDIS_OPTIONS],
+      useFactory: (opts: RedisModuleOptions) => new RedisService(opts),
     };
 
     return {
       module: RedisModule,
-      providers: [redisServiceProvider],
-      exports: [RedisService],
+      providers: [optionsProvider, redisServiceProvider],
+      exports: [RedisService, REDIS_OPTIONS],
     };
   }
 

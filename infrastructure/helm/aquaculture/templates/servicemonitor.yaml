@@ -1,0 +1,171 @@
+{{/*
+=============================================================================
+Aquaculture Platform - ServiceMonitor
+=============================================================================
+Creates Prometheus Operator ServiceMonitor resources for Prometheus service
+discovery. Requires prometheus-operator CRDs to be installed in the cluster.
+=============================================================================
+*/}}
+{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+
+{{- if .Values.gatewayApi.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-gateway-api
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+    app: gateway-api
+spec:
+  selector:
+    matchLabels:
+      app: gateway-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}
+
+{{- if .Values.authService.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-auth-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+    app: auth-service
+spec:
+  selector:
+    matchLabels:
+      app: auth-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}
+
+{{- if .Values.farmService.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-farm-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+    app: farm-service
+spec:
+  selector:
+    matchLabels:
+      app: farm-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}
+
+{{- if .Values.sensorService.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-sensor-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+    app: sensor-service
+spec:
+  selector:
+    matchLabels:
+      app: sensor-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}
+
+{{- if .Values.alertEngine.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-alert-engine
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+    app: alert-engine
+spec:
+  selector:
+    matchLabels:
+      app: alert-engine
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}
+
+{{- if .Values.notificationService.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-notification-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+    app: notification-service
+spec:
+  selector:
+    matchLabels:
+      app: notification-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}
+
+{{- if .Values.billingService.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-billing-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+    app: billing-service
+spec:
+  selector:
+    matchLabels:
+      app: billing-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}
+
+{{- if .Values.hrService.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-hr-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+    app: hr-service
+spec:
+  selector:
+    matchLabels:
+      app: hr-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}
+
+{{- end }}{{/* end metrics.enabled && metrics.serviceMonitor.enabled */}}

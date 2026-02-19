@@ -24,16 +24,14 @@
  */
 
 import { Logger } from '@nestjs/common';
+import { RedisService } from '../redis/redis.service';
 
 /**
- * Interface for Redis cache service operations
+ * Interface for Redis cache service operations.
+ * Uses Pick<RedisService, ...> to stay in sync with the actual RedisService signature
+ * and avoid return-type drift (e.g. del returns Promise<number>, not Promise<void>).
  */
-interface RedisCacheService {
-  getJson: (key: string) => Promise<unknown>;
-  setJson: (key: string, value: unknown, ttl?: number) => Promise<void>;
-  del: (key: string) => Promise<void>;
-  deletePattern?: (pattern: string) => Promise<number>;
-}
+type RedisCacheService = Pick<RedisService, 'getJson' | 'setJson' | 'del' | 'deletePattern'>;
 
 /**
  * Interface for services that support caching
@@ -71,6 +69,9 @@ export interface CacheableOptions {
 }
 
 const logger = new Logger('Cacheable');
+
+/** Track classes that have already emitted the missing-Redis warning */
+const warnedClasses = new Set<string>();
 
 /**
  * Interpolate cache key pattern with method arguments
@@ -132,8 +133,13 @@ export function Cacheable(
 
       // If no Redis service, just execute the method
       if (!redisService) {
-        if (options.debug) {
-          logger.warn(`No RedisService found in ${className}, skipping cache`);
+        // Emit warning once per class (not per call) regardless of debug mode
+        if (!warnedClasses.has(className)) {
+          warnedClasses.add(className);
+          logger.warn(
+            `No RedisService found in ${className}. @Cacheable will execute without caching. ` +
+            `Ensure the service injects RedisService as 'redisService', 'redis', or 'cacheService'.`,
+          );
         }
         return originalMethod.apply(this, args);
       }

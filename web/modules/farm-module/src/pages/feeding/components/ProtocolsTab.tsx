@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, useToast } from '@aquaculture/shared-ui';
 import {
   ACTIVATE_FEEDING_PROGRAM,
   PAUSE_FEEDING_PROGRAM,
@@ -84,6 +84,7 @@ export const ProtocolsTab: React.FC<ProtocolsTabProps> = ({ siteId }) => {
   const navigate = useNavigate();
   const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
   // Fetch feeding programs (backend returns array, not paginated)
@@ -140,8 +141,8 @@ export const ProtocolsTab: React.FC<ProtocolsTabProps> = ({ siteId }) => {
       try {
         await activateMutation.mutateAsync(id);
       } catch (err) {
-        console.error('Failed to activate program:', err);
-        alert('Failed to activate program.');
+        if (import.meta.env.DEV) console.error('Failed to activate program:', err);
+        toast({ title: 'Error', description: 'Failed to activate program. Please try again.', variant: 'error' });
       }
     }
   };
@@ -151,8 +152,8 @@ export const ProtocolsTab: React.FC<ProtocolsTabProps> = ({ siteId }) => {
       try {
         await pauseMutation.mutateAsync(id);
       } catch (err) {
-        console.error('Failed to pause program:', err);
-        alert('Failed to pause program.');
+        if (import.meta.env.DEV) console.error('Failed to pause program:', err);
+        toast({ title: 'Error', description: 'Failed to pause program. Please try again.', variant: 'error' });
       }
     }
   };
@@ -163,8 +164,8 @@ export const ProtocolsTab: React.FC<ProtocolsTabProps> = ({ siteId }) => {
       try {
         await cancelMutation.mutateAsync({ id, reason });
       } catch (err) {
-        console.error('Failed to cancel program:', err);
-        alert('Failed to cancel program.');
+        if (import.meta.env.DEV) console.error('Failed to cancel program:', err);
+        toast({ title: 'Error', description: 'Failed to cancel program. Please try again.', variant: 'error' });
       }
     }
   };

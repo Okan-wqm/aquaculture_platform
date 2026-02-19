@@ -6,6 +6,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
 import {
   ArrowLeft,
   Edit,
@@ -110,11 +111,12 @@ const DELETE_SENSOR_MUTATION = `
 `;
 
 async function fetchGraphQL<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-  const token = localStorage.getItem('access_token');
-  const tenantId = localStorage.getItem('tenant_id');
+  const token = getAccessToken();
+  const tenantId = getTenantId();
 
   const response = await fetch(API_URL, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token && { Authorization: `Bearer ${token}` }),

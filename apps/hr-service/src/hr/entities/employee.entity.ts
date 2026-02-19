@@ -10,7 +10,7 @@ import {
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
-import { ObjectType, Field, ID, Int, registerEnumType } from '@nestjs/graphql';
+import { ObjectType, Field, HideField, ID, Int, registerEnumType } from '@nestjs/graphql';
 import { Payroll } from './payroll.entity';
 
 export enum EmployeeStatus {
@@ -87,21 +87,15 @@ export class Address {
   country!: string;
 }
 
-@ObjectType()
+/**
+ * BankDetails - Internal-only type for payroll operations.
+ * SECURITY: Not exposed via GraphQL to prevent bank account data leakage.
+ */
 export class BankDetails {
-  @Field()
   bankName!: string;
-
-  @Field()
   accountNumber!: string;
-
-  @Field()
   routingNumber!: string;
-
-  @Field({ nullable: true })
   iban?: string;
-
-  @Field({ nullable: true })
   swiftCode?: string;
 }
 
@@ -147,6 +141,7 @@ export class EmergencyInfo {
 // Composite indexes for common query patterns
 @Index('idx_employee_status_tenant', ['status', 'tenantId'])
 @Index(['tenantId', 'department'])
+@Index(['tenantId', 'departmentHrId'])
 @Index(['tenantId', 'farmId'])
 @Index(['tenantId', 'personnelCategory'])
 @Index(['tenantId', 'seaWorthy'])
@@ -161,7 +156,7 @@ export class Employee {
   tenantId!: string;
 
   @Field()
-  @Column({ unique: true })
+  @Column()
   employeeNumber!: string;
 
   @Field()
@@ -184,12 +179,12 @@ export class Employee {
   @Column('jsonb')
   address!: Address;
 
-  @Field(() => Date)
+  @HideField()
   @Column({ type: 'date' })
   dateOfBirth!: Date;
 
-  @Field()
-  @Column()
+  @HideField()
+  @Column({ length: 50 })
   nationalId!: string;
 
   @Field(() => EmployeeStatus)
@@ -216,7 +211,7 @@ export class Employee {
   @Column({ type: 'date', nullable: true })
   terminationDate?: Date;
 
-  @Field()
+  @HideField()
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   baseSalary!: number;
 
@@ -224,7 +219,7 @@ export class Employee {
   @Column({ default: 'USD' })
   currency!: string;
 
-  @Field(() => BankDetails, { nullable: true })
+  @HideField()
   @Column('jsonb', { nullable: true })
   bankDetails?: BankDetails;
 
@@ -248,7 +243,7 @@ export class Employee {
   @Column('simple-array', { nullable: true })
   skills?: string[];
 
-  @Field(() => [Payroll], { nullable: true })
+  @HideField()
   @OneToMany(() => Payroll, (payroll) => payroll.employee)
   payrolls?: Payroll[];
 
@@ -276,7 +271,7 @@ export class Employee {
   @Column({ nullable: true })
   departmentHrId?: string;
 
-  @Field(() => EmergencyInfo, { nullable: true })
+  @HideField()
   @Column('jsonb', { nullable: true })
   emergencyInfo?: EmergencyInfo;
 

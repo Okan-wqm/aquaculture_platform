@@ -12,9 +12,9 @@ server {
     # Security headers
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
+    # SEC-NM-014: X-XSS-Protection removed (deprecated)
 
-    # CORS for Module Federation
+    # CORS for Module Federation (static assets only - no credentials forwarded)
     add_header Access-Control-Allow-Origin "*" always;
     add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
     add_header Access-Control-Allow-Headers "Origin, Content-Type, Accept" always;

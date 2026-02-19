@@ -472,8 +472,8 @@ export class AnnouncementService {
       scheduled: all.filter(a => a.status === 'scheduled').length,
       draft: all.filter(a => a.status === 'draft').length,
       expired: all.filter(a => a.status === 'expired').length,
-      totalViews: all.reduce((sum, a) => sum + a.viewCount, 0),
-      totalAcknowledgments: all.reduce((sum, a) => sum + a.acknowledgmentCount, 0),
+      totalViews: all.reduce((sum, a) => sum + (a.viewCount ?? 0), 0),
+      totalAcknowledgments: all.reduce((sum, a) => sum + (a.acknowledgmentCount ?? 0), 0),
       byType: {
         info: all.filter(a => a.type === 'info').length,
         warning: all.filter(a => a.type === 'warning').length,

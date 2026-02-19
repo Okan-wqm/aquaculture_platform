@@ -62,8 +62,10 @@ export class ListDepartmentsHandler implements IQueryHandler<ListDepartmentsQuer
     // Join site for additional info
     queryBuilder.leftJoinAndSelect('department.site', 'site');
 
-    // Apply sorting
-    queryBuilder.orderBy(`department.${sortBy}`, sortOrder);
+    // Apply sorting with allowlist to prevent SQL injection
+    const validSortFields = ['name', 'code', 'type', 'status', 'createdAt', 'updatedAt'];
+    const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    queryBuilder.orderBy(`department.${safeSortBy}`, sortOrder);
 
     // Apply pagination
     queryBuilder.skip((page - 1) * limit);

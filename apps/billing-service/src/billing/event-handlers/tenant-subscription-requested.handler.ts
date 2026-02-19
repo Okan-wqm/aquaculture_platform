@@ -1,8 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EventsHandler, IEventHandler, CommandBus } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
 import { SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
+import { SubscriptionModuleItem } from '../entities/subscription-module-item.entity';
+
+// UUID v4 regex — matches the same pattern used throughout the billing service
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * Event payload structure for TenantSubscriptionRequested
@@ -27,12 +32,12 @@ interface TenantSubscriptionRequestedPayload {
 }
 
 /**
- * Event structure
+ * Event class for @EventsHandler registration
  */
-interface TenantSubscriptionRequestedEvent {
-  eventType: 'TenantSubscriptionRequested';
-  payload: TenantSubscriptionRequestedPayload;
-  timestamp: Date;
+export class TenantSubscriptionRequestedEvent {
+  eventType!: 'TenantSubscriptionRequested';
+  payload!: TenantSubscriptionRequestedPayload;
+  timestamp!: Date;
 }
 
 /**
@@ -120,7 +125,7 @@ const DEFAULT_PRICING: Record<string, {
  * for newly created tenants.
  */
 @Injectable()
-@EventsHandler()
+@EventsHandler(TenantSubscriptionRequestedEvent)
 export class TenantSubscriptionRequestedHandler
   implements IEventHandler<TenantSubscriptionRequestedEvent>
 {
@@ -129,6 +134,7 @@ export class TenantSubscriptionRequestedHandler
   constructor(
     private readonly commandBus: CommandBus,
     private readonly dataSource: DataSource,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async handle(event: TenantSubscriptionRequestedEvent): Promise<void> {
@@ -139,6 +145,30 @@ export class TenantSubscriptionRequestedHandler
 
     const { payload } = event;
     this.logger.log(`Processing subscription request for tenant ${payload.tenantId}`);
+
+    // SECURITY: Validate tenantId is a proper UUID before any DB operation
+    if (!UUID_REGEX.test(payload.tenantId)) {
+      this.logger.error(`Invalid tenantId in NATS payload: ${payload.tenantId}`);
+      return;
+    }
+
+    // SECURITY: Validate all moduleIds are valid UUIDs before any DB operation.
+    // moduleIds arrive from an untrusted NATS event payload; a malformed value could
+    // cause DoS-style errors or information leakage via DB error messages.
+    if (payload.moduleIds && payload.moduleIds.length > 0) {
+      const invalidIds = payload.moduleIds.filter((id) => !UUID_REGEX.test(id));
+      if (invalidIds.length > 0) {
+        this.logger.error(
+          `Invalid moduleId(s) in NATS payload for tenant ${payload.tenantId}: ${invalidIds.join(', ')}`,
+        );
+        this.eventEmitter.emit('subscription.creation.failed', {
+          tenantId: payload.tenantId,
+          reason: 'Invalid moduleId format in event payload',
+          timestamp: new Date(),
+        });
+        return;
+      }
+    }
 
     try {
       // Map tier string to PlanTier enum
@@ -240,8 +270,15 @@ export class TenantSubscriptionRequestedHandler
         `Failed to create subscription for tenant ${payload.tenantId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      // Don't throw - we don't want to fail the entire tenant creation
-      // The subscription can be created manually if needed
+      // MED-05: Emit a failure event so admin-api-service or alerting can detect and
+      // remediate the orphaned tenant (a tenant with no subscription has no plan limits).
+      this.eventEmitter.emit('subscription.creation.failed', {
+        tenantId: payload.tenantId,
+        reason: (error as Error).message,
+        timestamp: new Date(),
+      });
+      // Don't re-throw — we don't want to fail the entire tenant creation flow.
+      // The subscription can be created manually; the failure event signals the discrepancy.
     }
   }
 
@@ -260,20 +297,24 @@ export class TenantSubscriptionRequestedHandler
       sensors?: number;
     }>,
   ): Promise<void> {
+    const moduleItemRepo = this.dataSource.getRepository(SubscriptionModuleItem);
+
     try {
-      for (const moduleId of moduleIds) {
-        const quantities = moduleQuantities?.find((mq) => mq.moduleId === moduleId);
-
-        // Get module info
-        const moduleInfo = await this.dataSource.query(
-          `SELECT code, name FROM modules WHERE id = $1`,
-          [moduleId],
+      // Batch-fetch all module info in one query instead of N sequential queries
+      const moduleInfoRows: Array<{ id: string; code: string; name: string }> =
+        await this.dataSource.query(
+          `SELECT id, code, name FROM modules WHERE id = ANY($1)`,
+          [moduleIds],
         );
+      const moduleMap = new Map(moduleInfoRows.map((m) => [m.id, m]));
 
-        const moduleCode = moduleInfo[0]?.code || 'unknown';
-        const moduleName = moduleInfo[0]?.name || 'Unknown Module';
+      // Build all upsert payloads and batch-insert in one call
+      const upsertPayloads = moduleIds.map((moduleId) => {
+        const quantities = moduleQuantities?.find((mq) => mq.moduleId === moduleId);
+        const info = moduleMap.get(moduleId);
+        const moduleCode = info?.code || 'unknown';
+        const moduleName = info?.name || 'Unknown Module';
 
-        // Calculate module price (simplified)
         const baseModulePrice = 25; // $25 base per module
         const quantityPrice =
           (quantities?.farms || 0) * 10 +
@@ -281,36 +322,32 @@ export class TenantSubscriptionRequestedHandler
           (quantities?.users || 0) * 5;
         const monthlyPrice = baseModulePrice + quantityPrice;
 
-        await this.dataSource.query(
-          `
-          INSERT INTO subscription_module_items (
-            id, subscription_id, module_id, module_code, module_name,
-            monthly_price, quantities, created_at, updated_at
-          ) VALUES (
-            gen_random_uuid(), $1, $2, $3, $4, $5, $6, NOW(), NOW()
-          )
-          ON CONFLICT (subscription_id, module_id) DO UPDATE SET
-            monthly_price = $5,
-            quantities = $6,
-            updated_at = NOW()
-          `,
-          [
-            subscriptionId,
-            moduleId,
-            moduleCode,
-            moduleName,
-            monthlyPrice,
-            JSON.stringify(quantities || {}),
-          ],
-        );
-      }
+        return {
+          subscriptionId,
+          moduleId,
+          moduleCode,
+          moduleName,
+          quantities: quantities || {},
+          lineItems: [] as never[],
+          subtotal: monthlyPrice,
+          discountAmount: 0,
+          total: monthlyPrice,
+          currency: 'USD',
+        };
+      });
+
+      // Single batch upsert for all module items
+      await moduleItemRepo.upsert(upsertPayloads, {
+        conflictPaths: ['subscriptionId', 'moduleId'],
+      });
 
       this.logger.log(
         `Created ${moduleIds.length} subscription module items for subscription ${subscriptionId}`,
       );
     } catch (error) {
-      this.logger.warn(
-        `Failed to create subscription module items: ${(error as Error).message}`,
+      this.logger.error(
+        `Failed to create subscription module items for subscription ${subscriptionId}: ${(error as Error).message}`,
+        (error as Error).stack,
       );
     }
   }

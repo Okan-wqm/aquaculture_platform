@@ -87,15 +87,6 @@ export class UpdateTankStatusHandler
    */
   private validateStatusChange(tank: Tank, newStatus: TankStatus): void {
     switch (newStatus) {
-      case TankStatus.ACTIVE:
-        // Tank must be prepared before becoming active
-        if (tank.status !== TankStatus.PREPARING && tank.status !== TankStatus.QUARANTINE) {
-          throw new BadRequestException(
-            'Tank must be in PREPARING or QUARANTINE status to become ACTIVE',
-          );
-        }
-        break;
-
       case TankStatus.HARVESTING:
         // Tank must have biomass to harvest
         if (tank.currentBiomass <= 0) {

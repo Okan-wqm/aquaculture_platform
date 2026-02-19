@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { SchemaManagerService } from '@platform/backend-common';
 import { DataSource } from 'typeorm';
@@ -60,6 +60,20 @@ export class UserRoleAssignmentService {
   ) {}
 
   /**
+   * HIGH-002 fix: Assert that a schema name matches the safe pattern
+   * before it is interpolated into any SQL query.
+   * getTenantSchemaName() already validates UUID format; this is a
+   * defence-in-depth check at the SQL usage site.
+   */
+  private assertSafeSchemaName(schemaName: string): void {
+    if (!/^tenant_[0-9a-f]{16}$/.test(schemaName)) {
+      throw new BadRequestException(
+        `SECURITY: Unexpected schema name format: "${schemaName}". Aborting SQL execution.`,
+      );
+    }
+  }
+
+  /**
    * Get role assignment for a user
    */
   async getUserRoleAssignment(
@@ -67,6 +81,7 @@ export class UserRoleAssignmentService {
     userId: string,
   ): Promise<UserRoleAssignmentWithDetails | null> {
     const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
+    this.assertSafeSchemaName(schemaName);
 
     const result = await this.dataSource.query(
       `
@@ -81,7 +96,7 @@ export class UserRoleAssignmentService {
       FROM "${schemaName}"."user_role_assignments" a
       JOIN "${schemaName}"."tenant_roles" r ON a.role_id = r.id
       LEFT JOIN "${schemaName}"."tenant_role_permissions" p ON a.role_id = p.role_id
-      WHERE a.user_id = $1
+      WHERE a.user_id = $1 AND a.is_active = true
       `,
       [userId],
     );
@@ -98,6 +113,7 @@ export class UserRoleAssignmentService {
    */
   async getAllAssignments(tenantId: string): Promise<UserRoleAssignmentWithDetails[]> {
     const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
+    this.assertSafeSchemaName(schemaName);
 
     // Check if table exists
     const tableExists = await this.schemaManager.tableExists(schemaName, 'user_role_assignments');
@@ -135,6 +151,7 @@ export class UserRoleAssignmentService {
     assignedBy: string,
   ): Promise<UserRoleAssignmentWithDetails> {
     const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
+    this.assertSafeSchemaName(schemaName);
 
     // Verify role exists
     const role = await this.tenantRoleService.getRoleById(tenantId, input.roleId);
@@ -185,6 +202,7 @@ export class UserRoleAssignmentService {
     updatedBy: string,
   ): Promise<UserRoleAssignmentWithDetails> {
     const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
+    this.assertSafeSchemaName(schemaName);
 
     // Get existing assignment
     const existing = await this.getUserRoleAssignment(tenantId, userId);
@@ -255,6 +273,7 @@ export class UserRoleAssignmentService {
     revokedBy: string,
   ): Promise<boolean> {
     const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
+    this.assertSafeSchemaName(schemaName);
 
     // Get existing assignment
     const existing = await this.getUserRoleAssignment(tenantId, userId);

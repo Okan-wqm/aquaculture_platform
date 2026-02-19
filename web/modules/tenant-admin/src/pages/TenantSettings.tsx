@@ -13,22 +13,27 @@ import {
   RefreshCw,
   AlertCircle,
 } from 'lucide-react';
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
+import { useMyTenant, useUpdateTenantSettings } from '../hooks/useTenantData';
+import { logError } from '../utils/error-handling';
 
-// GraphQL Configuration
+// GraphQL Configuration (for mobile-users section which uses a separate mutation)
 const GRAPHQL_URL = '/graphql';
 
-const getAuthToken = (): string | null => localStorage.getItem('access_token');
-
 const executeGraphQL = async <T,>(query: string, variables?: Record<string, unknown>): Promise<T> => {
-  const token = getAuthToken();
+  const token = getAccessToken();
   const response = await fetch(GRAPHQL_URL, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify({ query, variables }),
   });
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
   const result = await response.json();
   if (result.errors) {
     throw new Error(result.errors[0]?.message || 'GraphQL error');
@@ -181,12 +186,28 @@ const FEATURE_COLUMNS = [
 const TenantSettings: React.FC = () => {
   const [activeSection, setActiveSection] = useState('general');
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  // Form state
-  const [tenantName, setTenantName] = useState('Aqua Farm Co.');
-  const [contactEmail, setContactEmail] = useState('admin@aquafarm.com');
-  const [contactPhone, setContactPhone] = useState('+1 (555) 123-4567');
-  const [address, setAddress] = useState('123 Ocean Drive, Coastal City, CC 12345');
+  // Fetch real tenant data
+  const { data: tenantData, isLoading: tenantLoading } = useMyTenant();
+  const updateSettingsMutation = useUpdateTenantSettings();
+
+  // Form state - populated from API
+  const [tenantName, setTenantName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [address, setAddress] = useState('');
+
+  // Populate form from real tenant data on load
+  useEffect(() => {
+    if (tenantData) {
+      setTenantName(tenantData.name || '');
+      setContactEmail(tenantData.contactEmail || '');
+      setContactPhone(tenantData.contactPhone || '');
+      setAddress(tenantData.address || '');
+    }
+  }, [tenantData]);
 
   // Notification settings
   const [emailNotifications, setEmailNotifications] = useState(true);
@@ -308,36 +329,40 @@ const TenantSettings: React.FC = () => {
     setDirtyUserIds((prev) => new Set(prev).add(userId));
   };
 
-  // Save changed mobile settings
+  // Save changed mobile settings — use Promise.all instead of serial loop (PERF-002)
   const saveMobileSettings = async () => {
     setMobileSaving(true);
     setMobileError(null);
 
-    try {
-      for (const userId of dirtyUserIds) {
-        const settings = getUserSettings(userId);
-        await executeGraphQL(`
-          mutation UpdateMobileUserSettings($input: UpdateMobileUserSettingsInput!) {
-            updateMobileUserSettings(input: $input) {
-              id
-              userId
-              isMobileEnabled
-              allowedFeatures
-            }
-          }
-        `, {
-          input: {
-            userId,
-            isMobileEnabled: settings.isMobileEnabled,
-            mortality: settings.allowedFeatures.mortality,
-            cull: settings.allowedFeatures.cull,
-            harvest: settings.allowedFeatures.harvest,
-            feeding: settings.allowedFeatures.feeding,
-            waterQuality: settings.allowedFeatures.waterQuality,
-            tankView: settings.allowedFeatures.tankView,
-          },
-        });
+    const MOBILE_MUTATION = `
+      mutation UpdateMobileUserSettings($input: UpdateMobileUserSettingsInput!) {
+        updateMobileUserSettings(input: $input) {
+          id
+          userId
+          isMobileEnabled
+          allowedFeatures
+        }
       }
+    `;
+
+    try {
+      await Promise.all(
+        Array.from(dirtyUserIds).map((userId) => {
+          const settings = getUserSettings(userId);
+          return executeGraphQL(MOBILE_MUTATION, {
+            input: {
+              userId,
+              isMobileEnabled: settings.isMobileEnabled,
+              mortality: settings.allowedFeatures.mortality,
+              cull: settings.allowedFeatures.cull,
+              harvest: settings.allowedFeatures.harvest,
+              feeding: settings.allowedFeatures.feeding,
+              waterQuality: settings.allowedFeatures.waterQuality,
+              tankView: settings.allowedFeatures.tankView,
+            },
+          });
+        }),
+      );
 
       setDirtyUserIds(new Set());
       setSaved(true);
@@ -356,14 +381,37 @@ const TenantSettings: React.FC = () => {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = useCallback(async () => {
     if (activeSection === 'mobileUsers') {
-      saveMobileSettings();
+      await saveMobileSettings();
       return;
     }
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
-  };
+
+    if (activeSection !== 'general') {
+      // SEC-005: Non-persisted sections (notifications, security, localization, appearance)
+      // must NOT give false confirmation. The Save button is disabled for these sections
+      // so this branch should not be reached, but return early as a safety guard.
+      return;
+    }
+
+    setLoading(true);
+    setSaveError(null);
+    try {
+      await updateSettingsMutation.mutateAsync({
+        name: tenantName,
+        contactEmail,
+        contactPhone,
+        address,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      logError('TenantSettings.handleSave', err);
+      setSaveError(err instanceof Error ? err.message : 'Failed to save settings');
+    } finally {
+      setLoading(false);
+    }
+  }, [activeSection, tenantName, contactEmail, contactPhone, address, updateSettingsMutation, saveMobileSettings]);
 
   const renderSection = () => {
     switch (activeSection) {
@@ -419,126 +467,147 @@ const TenantSettings: React.FC = () => {
 
       case 'notifications':
         return (
-          <div className="divide-y divide-gray-100">
-            <Toggle
-              enabled={emailNotifications}
-              onChange={setEmailNotifications}
-              label="Email Notifications"
-              description="Receive important updates via email"
-            />
-            <Toggle
-              enabled={alertNotifications}
-              onChange={setAlertNotifications}
-              label="Alert Notifications"
-              description="Get notified about critical alerts"
-            />
-            <Toggle
-              enabled={weeklyReports}
-              onChange={setWeeklyReports}
-              label="Weekly Reports"
-              description="Receive weekly summary reports"
-            />
-            <Toggle
-              enabled={userActivityAlerts}
-              onChange={setUserActivityAlerts}
-              label="User Activity Alerts"
-              description="Get notified about user login activities"
-            />
+          <div className="space-y-4">
+            {/* SEC-005: Notifications settings are not yet persisted to the backend.
+                Display a clear notice so users are not misled into thinking changes are saved. */}
+            <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <Info className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-700">
+                <strong>Not yet available:</strong> Notification preferences are not currently persisted. Changes made here will not be saved. This section is coming soon.
+              </p>
+            </div>
+            <div className="divide-y divide-gray-100 opacity-50 pointer-events-none">
+              <Toggle
+                enabled={emailNotifications}
+                onChange={setEmailNotifications}
+                label="Email Notifications"
+                description="Receive important updates via email"
+              />
+              <Toggle
+                enabled={alertNotifications}
+                onChange={setAlertNotifications}
+                label="Alert Notifications"
+                description="Get notified about critical alerts"
+              />
+              <Toggle
+                enabled={weeklyReports}
+                onChange={setWeeklyReports}
+                label="Weekly Reports"
+                description="Receive weekly summary reports"
+              />
+              <Toggle
+                enabled={userActivityAlerts}
+                onChange={setUserActivityAlerts}
+                label="User Activity Alerts"
+                description="Get notified about user login activities"
+              />
+            </div>
           </div>
         );
 
       case 'security':
         return (
           <div className="space-y-6">
-            <Toggle
-              enabled={twoFactorRequired}
-              onChange={setTwoFactorRequired}
-              label="Require Two-Factor Authentication"
-              description="All users must enable 2FA to access the system"
-            />
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Session Timeout (minutes)
-              </label>
-              <select
-                value={sessionTimeout}
-                onChange={(e) => setSessionTimeout(e.target.value)}
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
-              >
-                <option value="15">15 minutes</option>
-                <option value="30">30 minutes</option>
-                <option value="60">1 hour</option>
-                <option value="120">2 hours</option>
-                <option value="480">8 hours</option>
-              </select>
+            {/* SEC-005: Security settings are not yet persisted to the backend.
+                Display a prominent warning so users are never misled into believing
+                2FA enforcement or session timeout changes have been applied. */}
+            <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700">
+                <strong>Not yet available:</strong> Security settings (2FA enforcement, session timeout, IP whitelist) are not currently persisted. Changes made here will not take effect. Contact your system administrator to configure these security controls.
+              </p>
             </div>
-            <Toggle
-              enabled={ipWhitelist}
-              onChange={setIpWhitelist}
-              label="IP Whitelist"
-              description="Restrict access to specific IP addresses"
-            />
-            {ipWhitelist && (
-              <div className="p-4 bg-yellow-50 rounded-lg">
-                <div className="flex gap-2">
-                  <Info className="w-5 h-5 text-yellow-600 flex-shrink-0" />
-                  <p className="text-sm text-yellow-700">
-                    Contact your administrator to configure IP whitelist rules.
-                  </p>
-                </div>
+            <div className="opacity-50 pointer-events-none space-y-6">
+              <Toggle
+                enabled={twoFactorRequired}
+                onChange={setTwoFactorRequired}
+                label="Require Two-Factor Authentication"
+                description="All users must enable 2FA to access the system"
+              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Session Timeout (minutes)
+                </label>
+                <select
+                  value={sessionTimeout}
+                  onChange={(e) => setSessionTimeout(e.target.value)}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
+                >
+                  <option value="15">15 minutes</option>
+                  <option value="30">30 minutes</option>
+                  <option value="60">1 hour</option>
+                  <option value="120">2 hours</option>
+                  <option value="480">8 hours</option>
+                </select>
               </div>
-            )}
+              <Toggle
+                enabled={ipWhitelist}
+                onChange={setIpWhitelist}
+                label="IP Whitelist"
+                description="Restrict access to specific IP addresses"
+              />
+            </div>
           </div>
         );
 
       case 'localization':
         return (
           <div className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Language
-              </label>
-              <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
-              >
-                <option value="en">English</option>
-                <option value="tr">Turkish</option>
-                <option value="es">Spanish</option>
-                <option value="fr">French</option>
-                <option value="de">German</option>
-              </select>
+            {/* SEC-005: Localization settings are not yet persisted to the backend.
+                Display a clear notice so users are not misled into thinking changes are saved. */}
+            <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <Info className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-700">
+                <strong>Not yet available:</strong> Localization settings are not currently persisted. Changes made here will not be saved. This section is coming soon.
+              </p>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Timezone
-              </label>
-              <select
-                value={timezone}
-                onChange={(e) => setTimezone(e.target.value)}
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
-              >
-                <option value="UTC">UTC</option>
-                <option value="Europe/Istanbul">Europe/Istanbul (UTC+3)</option>
-                <option value="America/New_York">America/New York (UTC-5)</option>
-                <option value="America/Los_Angeles">America/Los Angeles (UTC-8)</option>
-                <option value="Asia/Tokyo">Asia/Tokyo (UTC+9)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Date Format
-              </label>
-              <select
-                value={dateFormat}
-                onChange={(e) => setDateFormat(e.target.value)}
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
-              >
-                <option value="MM/DD/YYYY">MM/DD/YYYY</option>
-                <option value="DD/MM/YYYY">DD/MM/YYYY</option>
-                <option value="YYYY-MM-DD">YYYY-MM-DD</option>
-              </select>
+            <div className="opacity-50 pointer-events-none space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Language
+                </label>
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
+                >
+                  <option value="en">English</option>
+                  <option value="tr">Turkish</option>
+                  <option value="es">Spanish</option>
+                  <option value="fr">French</option>
+                  <option value="de">German</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Timezone
+                </label>
+                <select
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
+                >
+                  <option value="UTC">UTC</option>
+                  <option value="Europe/Istanbul">Europe/Istanbul (UTC+3)</option>
+                  <option value="America/New_York">America/New York (UTC-5)</option>
+                  <option value="America/Los_Angeles">America/Los Angeles (UTC-8)</option>
+                  <option value="Asia/Tokyo">Asia/Tokyo (UTC+9)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Date Format
+                </label>
+                <select
+                  value={dateFormat}
+                  onChange={(e) => setDateFormat(e.target.value)}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
+                >
+                  <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                  <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                  <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                </select>
+              </div>
             </div>
           </div>
         );
@@ -709,28 +778,47 @@ const TenantSettings: React.FC = () => {
             Manage your tenant settings and preferences
           </p>
         </div>
-        <button
-          onClick={handleSave}
-          disabled={activeSection === 'mobileUsers' && (mobileSaving || dirtyUserIds.size === 0)}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saved ? (
-            <>
-              <Check className="w-4 h-4" />
-              Saved!
-            </>
-          ) : mobileSaving ? (
-            <>
-              <RefreshCw className="w-4 h-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            <>
-              <Save className="w-4 h-4" />
-              Save Changes
-            </>
+        <div className="flex flex-col items-end gap-1">
+          {/* SEC-005: Disable Save for sections not yet persisted to the backend */}
+          <button
+            onClick={handleSave}
+            disabled={
+              loading ||
+              updateSettingsMutation.isPending ||
+              (activeSection === 'mobileUsers' && (mobileSaving || dirtyUserIds.size === 0)) ||
+              ['notifications', 'security', 'localization', 'appearance'].includes(activeSection)
+            }
+            title={
+              ['notifications', 'security', 'localization', 'appearance'].includes(activeSection)
+                ? 'This section is not yet persisted — settings cannot be saved'
+                : undefined
+            }
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {saved ? (
+              <>
+                <Check className="w-4 h-4" />
+                Saved!
+              </>
+            ) : (loading || updateSettingsMutation.isPending || mobileSaving) ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Save Changes
+              </>
+            )}
+          </button>
+          {saveError && (
+            <p className="text-xs text-red-600 flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" />
+              {saveError}
+            </p>
           )}
-        </button>
+        </div>
       </div>
 
       {/* Settings Layout */}

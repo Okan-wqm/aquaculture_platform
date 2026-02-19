@@ -39,8 +39,23 @@ replicas:
   - name: admin-panel
     count: 1
 
+configMapGenerator:
+  - name: aquaculture-config
+    behavior: merge
+    literals:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+  # ARCH-008: dev frontend-config uses dev subdomains
+  - name: frontend-config
+    behavior: merge
+    literals:
+      - DASHBOARD_URL=https://mf.dev.aquaculture.example.com/dashboard
+      - FARM_MODULE_URL=https://mf.dev.aquaculture.example.com/farm-module
+      - PROCESS_EDITOR_URL=https://mf.dev.aquaculture.example.com/process-editor
+      - ADMIN_PANEL_URL=https://mf.dev.aquaculture.example.com/admin-panel
+
 patches:
-  # Reduce resource limits for development
+  # Reduce resource limits for backend development workloads
   - patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/resources/limits/cpu
@@ -58,9 +73,65 @@ patches:
       kind: Deployment
       labelSelector: "tier=backend"
 
-configMapGenerator:
-  - name: aquaculture-config
-    behavior: merge
-    literals:
-      - NODE_ENV=development
-      - LOG_LEVEL=debug
+  # ARCH-009: extend resource reduction to frontend deployments in dev
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "100m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "128Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "20m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "32Mi"
+    target:
+      kind: Deployment
+      labelSelector: "tier=frontend"
+
+  # ARCH-009: dev ingress uses dev subdomains to isolate from staging/prod
+  # Ensures no routing conflicts when sharing a cluster
+  - patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - dev.aquaculture.example.com
+          - api.dev.aquaculture.example.com
+      - op: replace
+        path: /spec/rules/0/host
+        value: dev.aquaculture.example.com
+      - op: replace
+        path: /spec/rules/1/host
+        value: api.dev.aquaculture.example.com
+    target:
+      kind: Ingress
+      name: aquaculture-ingress
+
+  - patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - mf.dev.aquaculture.example.com
+      - op: replace
+        path: /spec/rules/0/host
+        value: mf.dev.aquaculture.example.com
+      - op: replace
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1cors-allow-origin
+        value: "https://dev.aquaculture.example.com"
+    target:
+      kind: Ingress
+      name: aquaculture-mf-ingress
+
+  - patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - api.dev.aquaculture.example.com
+      - op: replace
+        path: /spec/rules/0/host
+        value: api.dev.aquaculture.example.com
+    target:
+      kind: Ingress
+      name: aquaculture-auth-ingress

@@ -5,12 +5,12 @@ import { PrometheusService } from './prometheus.service';
 /**
  * Prometheus Metrics Controller
  *
- * SECURITY NOTE: Bu endpoint Prometheus scraper tarafından kullanılır ve
- * genellikle network seviyesinde korunmalıdır (Kubernetes NetworkPolicy,
- * firewall rules, vb.). Production'da bu endpoint sadece internal network'ten
- * erişilebilir olmalıdır.
+ * Exposes the /metrics scrape endpoint for Prometheus. This endpoint is
+ * protected by the global InternalApiGuard — Prometheus must be configured
+ * to send the x-internal-api-key header on every scrape request.
  *
- * Eğer dış erişime açılması gerekiyorsa, INTERNAL_API_KEY ile koruma eklenmelidir.
+ * The endpoint is excluded from the api/v1 global prefix so it is reachable
+ * at the conventional /metrics path expected by Prometheus scrape jobs.
  */
 @Controller('metrics')
 export class PrometheusController {

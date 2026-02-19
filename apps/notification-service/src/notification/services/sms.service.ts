@@ -177,32 +177,34 @@ export class SmsService {
    * Twilio SMS provider (placeholder - implement when needed)
    */
   private async sendViaTwilio(
-    phoneNumber: string,
-    message: string,
+    _phoneNumber: string,
+    _message: string,
   ): Promise<string> {
     // TODO: Implement Twilio integration
     // const client = require('twilio')(accountSid, authToken);
     // const result = await client.messages.create({ body: message, from: fromNumber, to: phoneNumber });
     // return result.sid;
 
-    this.logger.warn('Twilio integration not implemented, using mock');
-    return await this.sendViaMock(phoneNumber, message);
+    throw new Error(
+      'Twilio SMS provider is not yet implemented. Set SMS_PROVIDER=mock or implement Twilio integration.',
+    );
   }
 
   /**
    * AWS SNS SMS provider (placeholder - implement when needed)
    */
   private async sendViaAwsSns(
-    phoneNumber: string,
-    message: string,
+    _phoneNumber: string,
+    _message: string,
   ): Promise<string> {
     // TODO: Implement AWS SNS integration
     // const sns = new AWS.SNS();
     // const result = await sns.publish({ PhoneNumber: phoneNumber, Message: message }).promise();
     // return result.MessageId;
 
-    this.logger.warn('AWS SNS integration not implemented, using mock');
-    return await this.sendViaMock(phoneNumber, message);
+    throw new Error(
+      'AWS SNS SMS provider is not yet implemented. Set SMS_PROVIDER=mock or implement AWS SNS integration.',
+    );
   }
 
   /**
@@ -216,8 +218,10 @@ export class SmsService {
    * Validate phone number format
    */
   private isValidPhoneNumber(phoneNumber: string): boolean {
-    // Basic validation - should start with + and have 10-15 digits
-    return /^\+?[1-9]\d{9,14}$/.test(phoneNumber);
+    // Require strict E.164 format: mandatory '+' country code prefix followed by 10-15 digits.
+    // The leading '+' is required so providers (Twilio, AWS SNS) interpret the number
+    // unambiguously rather than as a local/domestic number relative to the sender's country.
+    return /^\+[1-9]\d{9,14}$/.test(phoneNumber);
   }
 
   /**

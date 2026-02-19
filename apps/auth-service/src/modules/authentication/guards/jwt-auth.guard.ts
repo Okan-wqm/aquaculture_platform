@@ -2,11 +2,14 @@ import {
   Injectable,
   ExecutionContext,
   UnauthorizedException,
+  Inject,
+  Optional,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { JwtService } from '@nestjs/jwt';
-import { IS_PUBLIC_KEY } from '@platform/backend-common';
+import { ConfigService } from '@nestjs/config';
+import { IS_PUBLIC_KEY, ITokenBlacklist, TOKEN_BLACKLIST } from '@platform/backend-common';
 import { Request } from 'express';
 
 import { JwtPayload } from '../services/authentication.service';
@@ -27,10 +30,16 @@ interface GqlContext {
 
 @Injectable()
 export class JwtAuthGuard {
+  private readonly expectedAudience: string;
+
   constructor(
     private readonly jwtService: JwtService,
     private readonly reflector: Reflector,
-  ) {}
+    private readonly configService: ConfigService,
+    @Optional() @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist?: ITokenBlacklist,
+  ) {
+    this.expectedAudience = this.configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform');
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // Check if endpoint is public
@@ -51,10 +60,31 @@ export class JwtAuthGuard {
     }
 
     try {
-      const payload = await this.jwtService.verifyAsync(token) as JwtPayload;
+      // SECURITY: Verify JWT audience to prevent cross-service token replay
+      const payload = await this.jwtService.verifyAsync(token, {
+        audience: this.expectedAudience,
+      }) as JwtPayload;
+
+      // SECURITY: Check token blacklist using composite method
+      // Validates both per-JTI blacklist and per-user bulk invalidation
+      if (this.tokenBlacklist && payload.jti && payload.sub && payload.iat) {
+        const tokenIssuedAt = new Date(payload.iat * 1000);
+        const isValid = await this.tokenBlacklist.isValidToken(
+          payload.jti,
+          payload.sub,
+          tokenIssuedAt,
+        );
+        if (!isValid) {
+          throw new UnauthorizedException('Token has been revoked');
+        }
+      }
+
       request.user = payload;
       return true;
-    } catch {
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
       throw new UnauthorizedException('Invalid or expired token');
     }
   }

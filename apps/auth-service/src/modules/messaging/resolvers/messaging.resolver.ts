@@ -1,6 +1,6 @@
 import { UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { TenantAdminOrHigher, CurrentUser } from '@platform/backend-common';
+import { TenantAdminOrHigher, SuperAdminOnly, CurrentUser } from '@platform/backend-common';
 
 import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
 import {
@@ -133,7 +133,7 @@ export class MessagingResolver {
    * Archive a thread (SuperAdmin only)
    */
   @Mutation(() => MessageThread)
-  @TenantAdminOrHigher()
+  @SuperAdminOnly()
   async archiveThread(
     @CurrentUser('sub') userId: string,
     @Args('threadId', { type: () => ID }) threadId: string,

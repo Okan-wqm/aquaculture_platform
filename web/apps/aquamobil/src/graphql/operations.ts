@@ -74,29 +74,35 @@ export const CREATE_HARVEST_RECORD = `
   }
 `;
 
-// Auth
-export const LOGIN = `
-  mutation Login($input: LoginInput!) {
-    login(input: $input) {
-      accessToken
-      refreshToken
-      user {
-        id
-        email
-        firstName
-        lastName
-        role
-        tenantId
-      }
+// Feeding queries and mutations
+export const GET_TODAYS_FEEDING_PLAN = `
+  query TodaysFeedingPlan($date: Date!) {
+    dailyFeedingExecutions(date: $date) {
+      id
+      equipmentId
+      equipmentName
+      equipmentCode
+      calculations
+      plannedFeedKg
+      actualFeedKg
+      status
+      hasTransitionWarning
     }
   }
 `;
 
-export const REFRESH_TOKEN = `
-  mutation RefreshToken($refreshToken: String!) {
-    refreshToken(token: $refreshToken) {
-      accessToken
-      refreshToken
+export const RECORD_DAILY_FEEDING = `
+  mutation RecordDailyFeeding($input: RecordDailyFeedingInput!) {
+    recordDailyFeeding(input: $input) {
+      id
+      actualFeedKg
+      status
+      feedingMethod
+      feederName
     }
   }
 `;
+
+// QUAL-01: AUTH mutations (LOGIN, REFRESH_TOKEN) are intentionally defined inline
+// in hooks/useAuth.tsx where they are used. The duplicate exports previously in this
+// file have been removed to avoid maintenance drift between two copies.

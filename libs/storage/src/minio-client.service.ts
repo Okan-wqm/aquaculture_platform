@@ -9,6 +9,7 @@ import { Readable } from 'stream';
 import {
   StorageConfig,
   UploadResult,
+  FileMetadata,
   PresignedUrlOptions,
   UploadOptions,
 } from './interfaces/storage.interfaces';
@@ -21,7 +22,7 @@ export class MinioClientService implements OnModuleInit {
   private client: Minio.Client;
   private bucket: string;
   private endpoint: string;
-  private port: number;
+  private port?: number;
   private useSSL: boolean;
 
   constructor(
@@ -32,14 +33,19 @@ export class MinioClientService implements OnModuleInit {
     this.port = config.port;
     this.useSSL = config.useSSL;
 
-    this.client = new Minio.Client({
+    const clientOptions: Minio.ClientOptions = {
       endPoint: config.endpoint,
-      port: config.port,
       useSSL: config.useSSL,
       accessKey: config.accessKey,
       secretKey: config.secretKey,
       region: config.region || 'us-east-1',
-    });
+    };
+
+    if (config.port !== undefined) {
+      clientOptions.port = config.port;
+    }
+
+    this.client = new Minio.Client(clientOptions);
   }
 
   async onModuleInit(): Promise<void> {
@@ -110,12 +116,12 @@ export class MinioClientService implements OnModuleInit {
         metaData,
       );
 
-      const url = this.buildFileUrl(path);
+      const internalUrl = this.buildFileUrl(path);
 
       this.logger.log(`Uploaded file: ${path} (${buffer.length} bytes)`);
 
       return {
-        url,
+        internalUrl,
         path,
         etag: typeof etag === 'string' ? etag : etag.etag,
         size: buffer.length,
@@ -159,12 +165,12 @@ export class MinioClientService implements OnModuleInit {
         metaData,
       );
 
-      const url = this.buildFileUrl(path);
+      const internalUrl = this.buildFileUrl(path);
 
       this.logger.log(`Uploaded file: ${path} (${size} bytes)`);
 
       return {
-        url,
+        internalUrl,
         path,
         etag: typeof etag === 'string' ? etag : etag.etag,
         size,
@@ -239,10 +245,16 @@ export class MinioClientService implements OnModuleInit {
     try {
       const expirySeconds = options?.expirySeconds || 3600; // 1 hour default
 
+      const respHeaders: Record<string, string> = {};
+      if (options?.responseContentDisposition) {
+        respHeaders['response-content-disposition'] = options.responseContentDisposition;
+      }
+
       const url = await this.client.presignedGetObject(
         this.bucket,
         path,
         expirySeconds,
+        Object.keys(respHeaders).length > 0 ? respHeaders : undefined,
       );
 
       return url;
@@ -253,13 +265,26 @@ export class MinioClientService implements OnModuleInit {
   }
 
   /**
-   * Get a presigned URL for uploading a file (for direct browser uploads)
+   * Get a presigned URL for uploading a file (for direct browser uploads).
+   *
+   * @param path - Storage path within the bucket
+   * @param expirySeconds - URL expiry time in seconds (default: 3600)
+   * @param contentType - Optional MIME type restriction. When provided, the presigned URL
+   *   will include a `Content-Type` condition so that browsers must upload with the
+   *   matching content type. Example: `'application/pdf'`, `'image/png'`.
+   *   If omitted, any content type is accepted.
    */
   async getPresignedUploadUrl(
     path: string,
     expirySeconds: number = 3600,
+    contentType?: string,
   ): Promise<string> {
     try {
+      const reqParams: Record<string, string> = {};
+      if (contentType) {
+        reqParams['Content-Type'] = contentType;
+      }
+
       const url = await this.client.presignedPutObject(
         this.bucket,
         path,
@@ -337,6 +362,29 @@ export class MinioClientService implements OnModuleInit {
   }
 
   /**
+   * Get file metadata including custom x-amz-meta-* headers stored during upload
+   */
+  async getFileMetadata(path: string): Promise<FileMetadata | null> {
+    try {
+      const stat = await this.client.statObject(this.bucket, path);
+      const meta = stat.metaData || {};
+
+      return {
+        tenantId: meta['tenant-id'] || '',
+        entityType: meta['entity-type'] || '',
+        entityId: meta['entity-id'] || '',
+        filename: path.split('/').pop() || '',
+        contentType: meta['content-type'] || 'application/octet-stream',
+        size: stat.size,
+        uploadedBy: meta['uploaded-by'] || '',
+        uploadedAt: stat.lastModified,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Download a file as a buffer
    */
   async downloadFile(path: string): Promise<Buffer> {
@@ -371,37 +419,83 @@ export class MinioClientService implements OnModuleInit {
   }
 
   /**
-   * Build the public URL for a file
+   * Build the internal URL for a file.
+   * Note: This produces a MinIO-internal URL, not suitable for client-facing use.
+   * Use getPresignedUrl() for client-accessible download links.
    */
   private buildFileUrl(path: string): string {
     const protocol = this.useSSL ? 'https' : 'http';
-    return `${protocol}://${this.endpoint}:${this.port}/${this.bucket}/${path}`;
+    const defaultPort = this.useSSL ? 443 : 80;
+
+    // Omit port from URL when it matches the protocol default
+    const portSuffix = (this.port !== undefined && this.port !== defaultPort)
+      ? `:${this.port}`
+      : '';
+
+    return `${protocol}://${this.endpoint}${portSuffix}/${this.bucket}/${path}`;
   }
 
   /**
-   * Detect content type from filename extension
+   * Detect content type from filename extension.
+   *
+   * Returns 'application/octet-stream' as a safe fallback for unknown extensions.
+   * A debug log is emitted on fallback to aid development-time diagnostics; in
+   * production the log level is filtered out by default so performance is unaffected.
+   *
+   * NOTE(ARCH-LOW-004): If you upload files with extensions not listed here you will
+   * receive the generic fallback type. Add new entries to `mimeTypes` below following
+   * the existing pattern rather than relying on the fallback in production.
    */
   private detectContentType(filename: string): string {
-    const ext = filename.toLowerCase().split('.').pop();
+    // Handle compound extensions like .tar.gz before splitting on the last dot
+    const lowerFilename = filename.toLowerCase();
+    if (lowerFilename.endsWith('.tar.gz')) {
+      return 'application/gzip';
+    }
+    if (lowerFilename.endsWith('.tar.bz2')) {
+      return 'application/x-bzip2';
+    }
+
+    const ext = lowerFilename.split('.').pop();
 
     const mimeTypes: Record<string, string> = {
+      // Documents
       pdf: 'application/pdf',
       doc: 'application/msword',
       docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       xls: 'application/vnd.ms-excel',
       xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      // Images
       png: 'image/png',
       jpg: 'image/jpeg',
       jpeg: 'image/jpeg',
       gif: 'image/gif',
       svg: 'image/svg+xml',
+      webp: 'image/webp',
+      // Text / data
       txt: 'text/plain',
       csv: 'text/csv',
+      tsv: 'text/tab-separated-values',
       json: 'application/json',
       xml: 'application/xml',
+      // Archives / binary
       zip: 'application/zip',
+      gz: 'application/gzip',
+      tar: 'application/x-tar',
+      bz2: 'application/x-bzip2',
+      // Misc
+      html: 'text/html',
+      htm: 'text/html',
     };
 
-    return mimeTypes[ext || ''] || 'application/octet-stream';
+    const resolved = mimeTypes[ext || ''];
+    if (!resolved) {
+      this.logger.debug(
+        `detectContentType: unknown extension "${ext}" for file "${filename}", ` +
+        `falling back to application/octet-stream`,
+      );
+      return 'application/octet-stream';
+    }
+    return resolved;
   }
 }

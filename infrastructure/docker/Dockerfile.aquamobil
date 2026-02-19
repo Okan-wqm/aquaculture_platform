@@ -9,10 +9,11 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Copy only aquamobil package files (standalone, no workspace deps needed)
-COPY web/apps/aquamobil/package.json web/apps/aquamobil/package-lock.json* ./
+# Explicit lockfile copy (no glob) — build fails if package-lock.json is missing (SEC-015)
+COPY web/apps/aquamobil/package.json web/apps/aquamobil/package-lock.json ./
 
-# Install dependencies directly (not workspace mode)
-RUN npm install --ignore-scripts
+# Install dependencies with lockfile enforcement (SEC-015)
+RUN npm ci --ignore-scripts
 
 # Copy aquamobil source
 COPY web/apps/aquamobil ./

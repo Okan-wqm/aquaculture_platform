@@ -199,6 +199,7 @@ export class AddBatchDocuments1734500000000 implements MigrationInterface {
         FROM information_schema.columns
         WHERE table_name = $1
         AND column_name = $2
+        AND table_schema = current_schema()
       )
     `, [tableName, columnName]);
     return result[0]?.exists === true;
@@ -216,6 +217,7 @@ export class AddBatchDocuments1734500000000 implements MigrationInterface {
         SELECT 1
         FROM information_schema.tables
         WHERE table_name = $1
+        AND table_schema = current_schema()
       )
     `, [tableName]);
     return result[0]?.exists === true;

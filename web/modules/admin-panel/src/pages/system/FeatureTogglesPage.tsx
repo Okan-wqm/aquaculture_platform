@@ -70,20 +70,21 @@ export const FeatureTogglesPage: React.FC = () => {
         category: filterCategory !== 'all' ? filterCategory : undefined,
         search: searchTerm || undefined,
       });
-      // Backend returns { items: [], total: number } format
-      // Also support { data: [] } format for compatibility
-      const data = (response as unknown as { items?: FeatureToggle[]; data?: FeatureToggle[] })?.items
-        || (response as unknown as { data?: FeatureToggle[] })?.data;
-      if (Array.isArray(data)) {
-        setToggles(data);
-      } else if (Array.isArray(response)) {
-        // Direct array response
-        setToggles(response);
+      // Normalise the API response shape to a flat array (BUG-014)
+      type FeatureToggleListResponse = FeatureToggle[] | { data: FeatureToggle[] } | { items: FeatureToggle[]; total?: number };
+      const r = response as unknown as FeatureToggleListResponse;
+      let toggleList: FeatureToggle[];
+      if (Array.isArray(r)) {
+        toggleList = r;
+      } else if ('items' in r && Array.isArray(r.items)) {
+        toggleList = r.items;
+      } else if ('data' in r && Array.isArray(r.data)) {
+        toggleList = r.data;
       } else {
-        // API returned unexpected format
-        console.error('API returned unexpected format for feature toggles');
-        setToggles([]);
+        console.error('API returned unexpected format for feature toggles', r);
+        toggleList = [];
       }
+      setToggles(toggleList);
     } catch (err) {
       console.error('Failed to load feature toggles:', err);
       setError('Failed to load feature toggles');
@@ -114,14 +115,7 @@ export const FeatureTogglesPage: React.FC = () => {
       );
     } catch (err) {
       console.error('Failed to toggle feature:', err);
-      // Optimistic update for demo
-      setToggles(
-        toggles.map((t) =>
-          t.id === toggle.id
-            ? { ...t, status: t.status === 'enabled' ? 'disabled' : 'enabled' }
-            : t
-        )
-      );
+      setError(err instanceof Error ? err.message : 'Failed to toggle feature flag. Please try again.');
     }
   };
 
@@ -145,23 +139,7 @@ export const FeatureTogglesPage: React.FC = () => {
       setFormData(defaultForm);
     } catch (err) {
       console.error('Failed to create toggle:', err);
-      // Demo: add locally
-      const newToggle: FeatureToggle = {
-        id: Date.now().toString(),
-        key: formData.key,
-        name: formData.name,
-        description: formData.description,
-        scope: formData.scope,
-        category: formData.category,
-        rolloutPercentage: formData.rolloutPercentage,
-        isExperimental: formData.isExperimental,
-        status: 'disabled',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      setToggles([newToggle, ...toggles]);
-      setShowCreateModal(false);
-      setFormData(defaultForm);
+      setError(err instanceof Error ? err.message : 'Failed to create feature flag. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -186,26 +164,7 @@ export const FeatureTogglesPage: React.FC = () => {
       setFormData(defaultForm);
     } catch (err) {
       console.error('Failed to update toggle:', err);
-      // Demo: update locally
-      setToggles(
-        toggles.map((t) =>
-          t.id === selectedToggle.id
-            ? {
-                ...t,
-                name: formData.name,
-                description: formData.description,
-                scope: formData.scope,
-                category: formData.category,
-                rolloutPercentage: formData.rolloutPercentage,
-                isExperimental: formData.isExperimental,
-                updatedAt: new Date().toISOString(),
-              }
-            : t
-        )
-      );
-      setShowEditModal(false);
-      setSelectedToggle(null);
-      setFormData(defaultForm);
+      setError(err instanceof Error ? err.message : 'Failed to update feature flag. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -219,8 +178,7 @@ export const FeatureTogglesPage: React.FC = () => {
       setToggles(toggles.filter((t) => t.id !== toggle.id));
     } catch (err) {
       console.error('Failed to delete toggle:', err);
-      // Demo: delete locally
-      setToggles(toggles.filter((t) => t.id !== toggle.id));
+      setError(err instanceof Error ? err.message : 'Failed to delete feature flag. Please try again.');
     }
   };
 

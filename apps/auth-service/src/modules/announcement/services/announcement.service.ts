@@ -263,12 +263,27 @@ export class AnnouncementService {
 
   /**
    * Publish an announcement
+   * SECURITY: PLATFORM announcements can only be published by SUPER_ADMIN (M-09)
    */
   async publishAnnouncement(
     userId: string,
     announcementId: string,
   ): Promise<Announcement> {
     const announcement = await this.getAnnouncement(userId, announcementId);
+
+    // M-09: Verify caller has permission to publish this announcement's scope
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    if (announcement.scope === AnnouncementScope.PLATFORM && user.role !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException('Only SuperAdmin can publish platform announcements');
+    }
+
+    if (announcement.scope === AnnouncementScope.TENANT) {
+      if (user.role !== Role.SUPER_ADMIN && announcement.tenantId !== user.tenantId) {
+        throw new ForbiddenException('Access denied');
+      }
+    }
 
     if (
       announcement.status !== AnnouncementStatus.DRAFT &&
@@ -339,12 +354,12 @@ export class AnnouncementService {
     if (!announcement) throw new NotFoundException('Announcement not found');
 
     // Check if already viewed
-    let ack = await this.acknowledgmentRepository.findOne({
+    const existing = await this.acknowledgmentRepository.findOne({
       where: { announcementId, userId },
     });
 
-    if (ack) {
-      return ack; // Already viewed
+    if (existing) {
+      return existing; // Already viewed
     }
 
     // Get tenant info
@@ -357,7 +372,7 @@ export class AnnouncementService {
     }
 
     // Create acknowledgment record
-    ack = this.acknowledgmentRepository.create({
+    const ack = this.acknowledgmentRepository.create({
       announcementId,
       userId,
       userName: user.getDisplayName(),
@@ -367,7 +382,7 @@ export class AnnouncementService {
 
     const saved = await this.acknowledgmentRepository.save(ack);
 
-    // Update view count
+    // SECURITY: Use atomic increment to prevent race conditions on concurrent views
     await this.announcementRepository.increment(
       { id: announcementId },
       'viewCount',
@@ -426,7 +441,22 @@ export class AnnouncementService {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    let query = this.announcementRepository.createQueryBuilder('announcement');
+    // PERF: Use SQL aggregation instead of loading all announcements into memory (HIGH-09)
+    let query = this.announcementRepository
+      .createQueryBuilder('announcement')
+      .select('COUNT(*)', 'total')
+      .addSelect(`COUNT(*) FILTER (WHERE announcement.status = :published)`, 'published')
+      .addSelect(`COUNT(*) FILTER (WHERE announcement.status = :scheduled)`, 'scheduled')
+      .addSelect(`COUNT(*) FILTER (WHERE announcement.status = :draft)`, 'draft')
+      .addSelect(`COUNT(*) FILTER (WHERE announcement.status = :expired)`, 'expired')
+      .addSelect('COALESCE(SUM(announcement.viewCount), 0)', 'totalViews')
+      .addSelect('COALESCE(SUM(announcement.acknowledgmentCount), 0)', 'totalAcknowledgments')
+      .setParameters({
+        published: AnnouncementStatus.PUBLISHED,
+        scheduled: AnnouncementStatus.SCHEDULED,
+        draft: AnnouncementStatus.DRAFT,
+        expired: AnnouncementStatus.EXPIRED,
+      });
 
     if (user.role === Role.SUPER_ADMIN) {
       query = query.where('announcement.scope = :scope', {
@@ -438,35 +468,16 @@ export class AnnouncementService {
       });
     }
 
-    const announcements = await query.getMany();
-
-    const total = announcements.length;
-    const published = announcements.filter(
-      (a) => a.status === AnnouncementStatus.PUBLISHED,
-    ).length;
-    const scheduled = announcements.filter(
-      (a) => a.status === AnnouncementStatus.SCHEDULED,
-    ).length;
-    const draft = announcements.filter(
-      (a) => a.status === AnnouncementStatus.DRAFT,
-    ).length;
-    const expired = announcements.filter(
-      (a) => a.status === AnnouncementStatus.EXPIRED,
-    ).length;
-    const totalViews = announcements.reduce((sum, a) => sum + a.viewCount, 0);
-    const totalAcknowledgments = announcements.reduce(
-      (sum, a) => sum + a.acknowledgmentCount,
-      0,
-    );
+    const result = await query.getRawOne();
 
     return {
-      total,
-      published,
-      scheduled,
-      draft,
-      expired,
-      totalViews,
-      totalAcknowledgments,
+      total: parseInt(result?.total ?? '0') || 0,
+      published: parseInt(result?.published ?? '0') || 0,
+      scheduled: parseInt(result?.scheduled ?? '0') || 0,
+      draft: parseInt(result?.draft ?? '0') || 0,
+      expired: parseInt(result?.expired ?? '0') || 0,
+      totalViews: parseInt(result?.totalViews ?? '0') || 0,
+      totalAcknowledgments: parseInt(result?.totalAcknowledgments ?? '0') || 0,
     };
   }
 }

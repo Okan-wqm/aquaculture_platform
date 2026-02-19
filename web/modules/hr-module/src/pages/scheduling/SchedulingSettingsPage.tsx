@@ -20,7 +20,7 @@ import {
   Tag,
   Trash2,
 } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, useAuth } from '@aquaculture/shared-ui';
 import {
   useSchedulingSettings,
   useUpdateSchedulingSettings,
@@ -61,26 +61,35 @@ const DEFAULT_CATEGORIES: ScheduleCategory[] = [
   { code: 'H', name: 'Hastalik', color: '#EF4444', textColor: '#FFFFFF', isWorking: false, hours: 0 },
 ];
 
-const CATEGORY_STORAGE_KEY = 'aqua-schedule-categories';
+// SEC-007: categories storage key is built at runtime with tenant+user identity
+// via makeCategoryStorageKey() — see WeeklySchedulePage for shared rationale.
+function makeCategoryStorageKey(tenantId: string | null | undefined, userId: string | null | undefined): string {
+  return `aqua-schedule-categories-${tenantId || 'anon'}-${userId || 'anon'}`;
+}
 
 const CATEGORY_COLORS = [
   '#22C55E', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6',
   '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#9CA3AF',
 ];
 
-function loadCategories(): ScheduleCategory[] {
+function loadCategories(tenantId?: string | null, userId?: string | null): ScheduleCategory[] {
   try {
-    const stored = localStorage.getItem(CATEGORY_STORAGE_KEY);
+    const stored = localStorage.getItem(makeCategoryStorageKey(tenantId, userId));
     if (stored) return JSON.parse(stored);
   } catch { /* ignore */ }
   return DEFAULT_CATEGORIES;
 }
 
-function saveCategories(cats: ScheduleCategory[]) {
-  localStorage.setItem(CATEGORY_STORAGE_KEY, JSON.stringify(cats));
+function saveCategories(cats: ScheduleCategory[], tenantId?: string | null, userId?: string | null) {
+  localStorage.setItem(makeCategoryStorageKey(tenantId, userId), JSON.stringify(cats));
 }
 
 export function SchedulingSettingsPage() {
+  // SEC-007: auth identity used to namespace localStorage category key
+  const { user } = useAuth();
+  const tenantId = user?.tenantId;
+  const userId = user?.id;
+
   const { data: settings, isLoading, error } = useSchedulingSettings();
   const { data: shifts } = useShifts({ isActive: true });
   const updateMutation = useUpdateSchedulingSettings();
@@ -103,8 +112,8 @@ export function SchedulingSettingsPage() {
     colorCode: '#3B82F6',
   });
 
-  // Category management state
-  const [categories, setCategories] = useState<ScheduleCategory[]>(() => loadCategories());
+  // Category management state — SEC-007: namespaced key
+  const [categories, setCategories] = useState<ScheduleCategory[]>(() => loadCategories(tenantId, userId));
   const [showCategoryForm, setShowCategoryForm] = useState(false);
   const [editingCategoryCode, setEditingCategoryCode] = useState<string | null>(null);
   const [categoryForm, setCategoryForm] = useState({
@@ -142,7 +151,7 @@ export function SchedulingSettingsPage() {
     }
 
     setCategories(updated);
-    saveCategories(updated);
+    saveCategories(updated, tenantId, userId);
     resetCategoryForm();
   };
 
@@ -161,12 +170,12 @@ export function SchedulingSettingsPage() {
   const handleDeleteCategory = (code: string) => {
     const updated = categories.filter((c) => c.code !== code);
     setCategories(updated);
-    saveCategories(updated);
+    saveCategories(updated, tenantId, userId);
   };
 
   const handleResetCategories = () => {
     setCategories(DEFAULT_CATEGORIES);
-    saveCategories(DEFAULT_CATEGORIES);
+    saveCategories(DEFAULT_CATEGORIES, tenantId, userId);
   };
 
   const SHIFT_COLORS = [

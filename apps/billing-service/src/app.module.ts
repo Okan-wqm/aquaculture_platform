@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
-import { RedisModule } from '@aquaculture/backend-common';
+import { RedisModule, TenantGuard } from '@aquaculture/backend-common';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { BillingModule } from './billing/billing.module';
 import { HealthModule } from './health/health.module';
 import { MeteringModule } from './modules/metering/metering.module';
@@ -29,17 +31,17 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        // SECURITY: Fail fast in production if database password is not configured
+        // SECURITY: Fail fast if database password is not configured
         const dbPassword = configService.get<string>('DATABASE_PASSWORD');
-        if (!dbPassword && process.env['NODE_ENV'] === 'production') {
-          throw new Error('SECURITY: DATABASE_PASSWORD must be set in production');
+        if (!dbPassword) {
+          throw new Error('SECURITY: DATABASE_PASSWORD must be configured');
         }
         return {
         type: 'postgres',
         host: configService.get('DATABASE_HOST', 'localhost'),
         port: configService.get<number>('DATABASE_PORT', 5432),
         username: configService.get('DATABASE_USER', 'postgres'),
-        password: dbPassword || 'postgres',
+        password: dbPassword,
         database: configService.get('DATABASE_NAME', 'aquaculture'),
         schema: configService.get('DATABASE_SCHEMA', 'billing'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
@@ -89,8 +91,9 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
           ModuleLineItem,
         ],
       },
-      playground: process.env['NODE_ENV'] !== 'production',
-      introspection: process.env['NODE_ENV'] !== 'production',
+      // SECURITY: Internal subgraph - always disable playground and introspection
+      playground: false,
+      introspection: false,
       context: ({ req }: { req: Request }) => ({ req }),
     }),
     // Redis for caching and distributed state
@@ -108,6 +111,18 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     BillingModule,
     MeteringModule,
     HealthModule,
+  ],
+  providers: [
+    // SECURITY: Global JWT auth guard - requires authentication on all resolvers
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    // SECURITY: Global tenant guard - ensures tenant isolation
+    {
+      provide: APP_GUARD,
+      useClass: TenantGuard,
+    },
   ],
 })
 export class AppModule {}

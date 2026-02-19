@@ -7,8 +7,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Role } from '@platform/backend-common';
+import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 
+import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
 import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { Module } from '../../system-module/entities/module.entity';
@@ -64,6 +66,8 @@ export class TenantAdminService {
     private readonly userModuleAssignmentRepository: Repository<UserModuleAssignment>,
     @InjectRepository(Module)
     private readonly moduleRepository: Repository<Module>,
+    @InjectRepository(RefreshToken)
+    private readonly refreshTokenRepository: Repository<RefreshToken>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -77,18 +81,15 @@ export class TenantAdminService {
       throw new NotFoundException('User or tenant not found');
     }
 
-    const tenant = await this.tenantRepository.findOne({
-      where: { id: user.tenantId },
-    });
+    // PERF: Run tenant fetch and user count in parallel (MED-03)
+    const [tenant, currentUserCount] = await Promise.all([
+      this.tenantRepository.findOne({ where: { id: user.tenantId } }),
+      this.userRepository.count({ where: { tenantId: user.tenantId, isActive: true } }),
+    ]);
 
     if (!tenant) {
       throw new NotFoundException('Tenant not found');
     }
-
-    // Count current users in tenant
-    const currentUserCount = await this.userRepository.count({
-      where: { tenantId: tenant.id, isActive: true },
-    });
 
     return {
       id: tenant.id,
@@ -130,6 +131,7 @@ export class TenantAdminService {
       return tenantModules.map((tm) => ({
         id: tm.id,
         moduleId: tm.moduleId,
+        code: tm.module.code,
         name: tm.module.name,
         description: tm.module.description ?? null,
         icon: tm.module.icon ?? null,
@@ -150,6 +152,7 @@ export class TenantAdminService {
       .map((a) => ({
         id: a.id,
         moduleId: a.moduleId,
+        code: a.module.code,
         name: a.module.name,
         description: a.module.description ?? null,
         icon: a.module.icon ?? null,
@@ -237,95 +240,109 @@ export class TenantAdminService {
 
     let isNewUser = false;
 
-    if (!user) {
-      // Check user limit
-      const currentUserCount = await this.userRepository.count({
-        where: { tenantId: admin.tenantId, isActive: true },
-      });
+    // SECURITY: Wrap user creation + assignment in a transaction to prevent
+    // orphaned users on assignment failure or partial state
+    return this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(User);
+      const assignmentRepo = manager.getRepository(UserModuleAssignment);
 
-      if (currentUserCount >= tenant.maxUsers) {
-        throw new BadRequestException(
-          `User limit reached (${tenant.maxUsers}). Please upgrade your plan.`,
+      if (!user) {
+        // Check user limit
+        const currentUserCount = await userRepo.count({
+          where: { tenantId: admin.tenantId!, isActive: true },
+        });
+
+        if (currentUserCount >= tenant.maxUsers) {
+          throw new BadRequestException(
+            `User limit reached (${tenant.maxUsers}). Please upgrade your plan.`,
+          );
+        }
+
+        // Create new user via invitation flow (SEC-AUTH-004)
+        // SECURITY: Do NOT accept admin-supplied passwords — require the user to set
+        // their own password via the invitation link to prevent account impersonation.
+        const role =
+          input.role === 'manager' ? Role.MODULE_MANAGER : Role.MODULE_USER;
+
+        // Generate invitation token for the new user
+        const invitationToken = crypto.randomBytes(32).toString('hex');
+        const invitationExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+        user = userRepo.create({
+          email: input.email.toLowerCase(),
+          firstName: input.firstName,
+          lastName: input.lastName,
+          password: undefined, // No password — user must set via invitation flow
+          tenantId: admin.tenantId!,
+          role,
+          isActive: true,
+          isEmailVerified: false,
+          invitationToken,
+          invitationExpiresAt: invitationExpiry,
+          invitedBy: tenantAdminId,
+        });
+
+        user = await userRepo.save(user);
+        isNewUser = true;
+
+        this.logger.log(
+          `Created new user ${user.email} for tenant ${tenant.name} (invitation pending)`,
         );
       }
 
-      // Create new user
-      const role =
-        input.role === 'manager' ? Role.MODULE_MANAGER : Role.MODULE_USER;
-
-      user = this.userRepository.create({
-        email: input.email.toLowerCase(),
-        firstName: input.firstName,
-        lastName: input.lastName,
-        password: input.password,
-        tenantId: admin.tenantId,
-        role,
-        isActive: true,
-        isEmailVerified: false,
+      // Check existing assignment
+      const existingAssignment = await assignmentRepo.findOne({
+        where: { userId: user.id, moduleId: input.moduleId },
       });
 
-      await this.userRepository.save(user);
-      isNewUser = true;
+      if (existingAssignment) {
+        // Reactivate if inactive
+        if (!existingAssignment.isActive) {
+          existingAssignment.isActive = true;
+          existingAssignment.isPrimaryManager = input.role === 'manager';
+          await assignmentRepo.save(existingAssignment);
 
-      this.logger.log(
-        `Created new user ${user.email} for tenant ${tenant.name}`,
-      );
-    }
-
-    // Check existing assignment
-    const existingAssignment = await this.userModuleAssignmentRepository.findOne(
-      {
-        where: { userId: user.id, moduleId: input.moduleId },
-      },
-    );
-
-    if (existingAssignment) {
-      // Reactivate if inactive
-      if (!existingAssignment.isActive) {
-        existingAssignment.isActive = true;
-        existingAssignment.isPrimaryManager = input.role === 'manager';
-        await this.userModuleAssignmentRepository.save(existingAssignment);
+          return {
+            success: true,
+            message: 'User assignment reactivated',
+            userId: user.id,
+            isNewUser: false,
+          };
+        }
 
         return {
           success: true,
-          message: 'User assignment reactivated',
+          message: 'User already assigned to module',
           userId: user.id,
           isNewUser: false,
         };
       }
 
+      // Create assignment
+      const assignment = assignmentRepo.create({
+        userId: user.id,
+        moduleId: input.moduleId,
+        tenantId: admin.tenantId!,
+        isPrimaryManager: input.role === 'manager',
+        isActive: true,
+        assignedBy: tenantAdminId,
+      });
+
+      await assignmentRepo.save(assignment);
+
+      this.logger.log(
+        `Assigned user ${user.email} to module ${tenantModule.module.name}`,
+      );
+
       return {
         success: true,
-        message: 'User already assigned to module',
+        message: isNewUser
+          ? 'New user created and assigned to module'
+          : 'User assigned to module',
         userId: user.id,
-        isNewUser: false,
+        isNewUser,
       };
-    }
-
-    // Create assignment
-    const assignment = this.userModuleAssignmentRepository.create({
-      userId: user.id,
-      moduleId: input.moduleId,
-      tenantId: admin.tenantId,
-      isPrimaryManager: input.role === 'manager',
-      isActive: true,
-      assignedBy: tenantAdminId,
     });
-
-    await this.userModuleAssignmentRepository.save(assignment);
-
-    this.logger.log(
-      `Assigned user ${user.email} to module ${tenantModule.module.name}`,
-    );
-
-    return {
-      success: true,
-      message: isNewUser
-        ? 'New user created and assigned to module'
-        : 'User assigned to module',
-      userId: user.id,
-      isNewUser,
-    };
   }
 
   /**
@@ -404,7 +421,14 @@ export class TenantAdminService {
     user.isActive = false;
     const saved = await this.userRepository.save(user);
 
-    this.logger.log(`Deactivated user ${user.email}`);
+    // SECURITY: Revoke all active refresh tokens for the deactivated user
+    // Without this, existing refresh tokens remain valid and can be used to obtain new access tokens.
+    await this.refreshTokenRepository.update(
+      { userId, isRevoked: false },
+      { isRevoked: true, revokedAt: new Date(), revokedReason: 'User deactivated' },
+    );
+
+    this.logger.log(`Deactivated user ${user.email} and revoked all refresh tokens`);
     return saved;
   }
 
@@ -460,8 +484,8 @@ export class TenantAdminService {
       throw new NotFoundException('Tenant not found');
     }
 
-    // Get schema name from tenant slug
-    const schemaName = `tenant_${tenant.slug.replace(/-/g, '_')}`;
+    // Get schema name from tenant ID (must match SchemaManagerService format)
+    const schemaName = this.getTenantSchemaName(tenant.id);
 
     try {
       // Query PostgreSQL information_schema
@@ -498,7 +522,7 @@ export class TenantAdminService {
 
   /**
    * Get data from a specific table (paginated)
-   * Uses row-level tenant isolation with WHERE tenantId = ?
+   * Uses row-level tenant isolation with WHERE tenant_id = ?
    */
   async getTableData(
     tenantAdminId: string,
@@ -534,8 +558,9 @@ export class TenantAdminService {
     // Get tenant's dedicated schema name
     const tenantSchemaName = this.getTenantSchemaName(tenantId);
 
-    // Allowed schemas: tenant's own schema + auth + tenant's module schemas
-    const allowedSchemas = [tenantSchemaName, 'auth', ...moduleSchemas];
+    // Allowed schemas: tenant's own schema + tenant's module schemas
+    // SECURITY: 'auth' schema excluded — contains passwords, MFA secrets, invitation tokens
+    const allowedSchemas = [tenantSchemaName, ...moduleSchemas];
 
     // Validate schema access
     if (!allowedSchemas.includes(input.schemaName)) {
@@ -566,14 +591,14 @@ export class TenantAdminService {
 
       const columns = columnsResult.map((c) => c.column_name);
 
-      // Check if table has tenantId column
-      const hasTenantId = columns.includes('tenantId');
+      // Check if table has tenant_id column (snake_case — actual DB column name)
+      const hasTenantId = columns.includes('tenant_id');
 
       // Get total count (with tenant filter if applicable)
       let totalRows = 0;
       if (hasTenantId) {
         const countResult: CountRow[] = await this.dataSource.query(
-          `SELECT COUNT(*) as count FROM ${fullTableName} WHERE "tenantId" = $1`,
+          `SELECT COUNT(*) as count FROM ${fullTableName} WHERE "tenant_id" = $1`,
           [tenantId],
         );
         totalRows = Number(countResult[0]?.count) || 0;
@@ -588,7 +613,7 @@ export class TenantAdminService {
       let rows: DataRow[];
       if (hasTenantId) {
         rows = await this.dataSource.query(
-          `SELECT * FROM ${fullTableName} WHERE "tenantId" = $1 ORDER BY 1 LIMIT $2 OFFSET $3`,
+          `SELECT * FROM ${fullTableName} WHERE "tenant_id" = $1 ORDER BY 1 LIMIT $2 OFFSET $3`,
           [tenantId, limit, offset],
         );
       } else {
@@ -611,9 +636,8 @@ export class TenantAdminService {
         throw error;
       }
       this.logger.error(`Failed to get table data: ${error instanceof Error ? error.message : String(error)}`);
-      throw new BadRequestException(
-        `Could not read table: ${input.schemaName}.${input.tableName}`,
-      );
+      // SECURITY: Generic error message — do not reflect user input (SEC-AUTH-018)
+      throw new BadRequestException('Could not read the requested table');
     }
   }
 
@@ -664,6 +688,7 @@ export class TenantAdminService {
 
   /**
    * Get tables from main schema (when tenant doesn't have separate schema)
+   * PERF: Use Promise.allSettled for parallel count queries (HIGH-05)
    */
   private async getMainSchemaTables(
     tenantId: string,
@@ -679,79 +704,22 @@ export class TenantAdminService {
       'sensor_readings',
     ];
 
-    const result: TenantTableInfo[] = [];
-
-    for (const tableName of tenantTables) {
-      try {
+    const results = await Promise.allSettled(
+      tenantTables.map(async (tableName) => {
         const countResult: CountRow[] = await this.dataSource.query(
-          `SELECT COUNT(*) as count FROM "${tableName}" WHERE "tenantId" = $1`,
+          `SELECT COUNT(*) as count FROM "${tableName}" WHERE "tenant_id" = $1`,
           [tenantId],
         );
-
-        result.push({
+        return {
           tableName,
           rowCount: Number(countResult[0]?.count) || 0,
           module: this.inferModuleFromTableName(tableName),
-        });
-      } catch {
-        // Table doesn't exist or doesn't have tenantId column
-        continue;
-      }
-    }
+        };
+      }),
+    );
 
-    return result;
-  }
-
-  /**
-   * Get data from main schema table (filtered by tenant_id)
-   */
-  private async getMainSchemaTableData(
-    tenantId: string,
-    input: GetTableDataInput,
-    limit: number,
-    offset: number,
-  ): Promise<TableDataResult> {
-    try {
-      const tableName = input.tableName;
-
-      // Get columns
-      const columnsResult: Array<{ column_name: string }> = await this.dataSource.query(
-        `
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = $1
-        ORDER BY ordinal_position
-      `,
-        [tableName],
-      );
-
-      const columns = columnsResult.map((c) => c.column_name);
-
-      // Get total count (filtered by tenant)
-      const countResult: CountRow[] = await this.dataSource.query(
-        `SELECT COUNT(*) as count FROM "${tableName}" WHERE "tenantId" = $1`,
-        [tenantId],
-      );
-      const totalRows = Number(countResult[0]?.count) || 0;
-
-      // Get data (filtered by tenant)
-      const rows: DataRow[] = await this.dataSource.query(
-        `SELECT * FROM "${tableName}" WHERE "tenantId" = $1 ORDER BY 1 LIMIT $2 OFFSET $3`,
-        [tenantId, limit, offset],
-      );
-
-      return {
-        tableName,
-        totalRows,
-        columns,
-        rows: JSON.stringify(rows),
-        offset,
-        limit,
-      };
-    } catch {
-      throw new BadRequestException(
-        `Could not read table: ${input.tableName}`,
-      );
-    }
+    return results
+      .filter((r): r is PromiseFulfilledResult<TenantTableInfo> => r.status === 'fulfilled')
+      .map((r) => r.value);
   }
 }

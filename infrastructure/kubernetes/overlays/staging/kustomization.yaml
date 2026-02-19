@@ -44,27 +44,84 @@ configMapGenerator:
     literals:
       - NODE_ENV=staging
       - LOG_LEVEL=info
+  # ARCH-008: staging frontend-config uses staging domain
+  - name: frontend-config
+    behavior: merge
+    literals:
+      - DASHBOARD_URL=https://mf.staging.aquaculture.example.com/dashboard
+      - FARM_MODULE_URL=https://mf.staging.aquaculture.example.com/farm-module
+      - PROCESS_EDITOR_URL=https://mf.staging.aquaculture.example.com/process-editor
+      - ADMIN_PANEL_URL=https://mf.staging.aquaculture.example.com/admin-panel
 
+# SEC-013: pin staging images to immutable SHA digests identical to production.
+# The CI pipeline must inject the actual commit SHA at deploy time.
+# Using mutable 'staging' tags is disallowed — it breaks environment parity
+# and allows unintended image substitution during node drains.
 images:
   - name: ghcr.io/aquaculture/gateway-api
-    newTag: staging
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
   - name: ghcr.io/aquaculture/auth-service
-    newTag: staging
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
   - name: ghcr.io/aquaculture/farm-service
-    newTag: staging
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
   - name: ghcr.io/aquaculture/sensor-service
-    newTag: staging
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
   - name: ghcr.io/aquaculture/alert-engine
-    newTag: staging
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
   - name: ghcr.io/aquaculture/notification-service
-    newTag: staging
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
   - name: ghcr.io/aquaculture/shell
-    newTag: staging
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
   - name: ghcr.io/aquaculture/dashboard
-    newTag: staging
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
   - name: ghcr.io/aquaculture/farm-module
-    newTag: staging
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
   - name: ghcr.io/aquaculture/process-editor
-    newTag: staging
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
   - name: ghcr.io/aquaculture/admin-panel
-    newTag: staging
+    newTag: sha-REPLACE_WITH_COMMIT_SHA
+
+patches:
+  # ARCH-009: staging ingress uses staging subdomains to avoid conflict with prod
+  - patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - staging.aquaculture.example.com
+          - api.staging.aquaculture.example.com
+      - op: replace
+        path: /spec/rules/0/host
+        value: staging.aquaculture.example.com
+      - op: replace
+        path: /spec/rules/1/host
+        value: api.staging.aquaculture.example.com
+    target:
+      kind: Ingress
+      name: aquaculture-ingress
+
+  - patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - mf.staging.aquaculture.example.com
+      - op: replace
+        path: /spec/rules/0/host
+        value: mf.staging.aquaculture.example.com
+      - op: replace
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1cors-allow-origin
+        value: "https://staging.aquaculture.example.com"
+    target:
+      kind: Ingress
+      name: aquaculture-mf-ingress
+
+  - patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - api.staging.aquaculture.example.com
+      - op: replace
+        path: /spec/rules/0/host
+        value: api.staging.aquaculture.example.com
+    target:
+      kind: Ingress
+      name: aquaculture-auth-ingress

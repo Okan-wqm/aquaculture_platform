@@ -6,13 +6,14 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { BigIntTransformer } from '../transformers/bigint.transformer';
 
 /**
  * Event stream metadata entity
  * Tracks stream information and current position
  */
 @Entity('event_streams')
-@Index(['streamName'], { unique: true })
+@Index(['tenantId', 'streamName'], { unique: true })
 @Index(['tenantId'])
 @Index(['aggregateType'])
 export class EventStream {
@@ -20,9 +21,9 @@ export class EventStream {
   id!: string;
 
   /**
-   * Unique stream name (typically: {aggregateType}-{aggregateId})
+   * Unique stream name within a tenant (typically: {aggregateType}-{aggregateId})
    */
-  @Column({ type: 'varchar', length: 255, unique: true })
+  @Column({ type: 'varchar', length: 255 })
   streamName!: string;
 
   /**
@@ -46,7 +47,7 @@ export class EventStream {
   /**
    * Total number of events in this stream
    */
-  @Column({ type: 'bigint', default: 0 })
+  @Column({ type: 'bigint', default: 0, transformer: new BigIntTransformer() })
   eventCount!: number;
 
   /**

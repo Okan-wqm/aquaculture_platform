@@ -3,7 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CreateManualAttendanceCommand } from '../commands/create-manual-attendance.command';
-import { AttendanceRecord, AttendanceStatus, ApprovalStatus, ClockMethod } from '../entities/attendance-record.entity';
+import {
+  AttendanceRecord,
+  AttendanceStatus,
+  ApprovalStatus,
+  ClockMethod,
+  convertLocalToUtc,
+  isValidTimezone,
+} from '../entities/attendance-record.entity';
 import { Employee } from '../../hr/entities/employee.entity';
 import { Shift } from '../entities/shift.entity';
 
@@ -78,7 +85,13 @@ export class CreateManualAttendanceHandler implements ICommandHandler<CreateManu
       }
     }
 
-    // Parse clock times
+    // Resolve the timezone to use for shift comparisons
+    const timezone =
+      employee.timezone && isValidTimezone(employee.timezone)
+        ? employee.timezone
+        : 'UTC';
+
+    // Parse clock times (assumed to be UTC timestamps from the command)
     const clockInTime = clockIn ? new Date(clockIn) : undefined;
     const clockOutTime = clockOut ? new Date(clockOut) : undefined;
 
@@ -92,29 +105,40 @@ export class CreateManualAttendanceHandler implements ICommandHandler<CreateManu
       workedMinutes = Math.floor((clockOutTime.getTime() - clockInTime.getTime()) / 60000);
 
       if (shift) {
-        // Calculate late arrival with safe time parsing
+        // Build shift start in the employee's LOCAL timezone, then convert to UTC
+        // for an apples-to-apples comparison with the UTC clock-in/out times.
         const [shiftStartHours, shiftStartMins] = safeParseTime(shift.startTime);
-        const shiftStart = new Date(recordDate);
-        shiftStart.setHours(shiftStartHours, shiftStartMins, 0, 0);
+        const shiftStartLocal = new Date(recordDate);
+        shiftStartLocal.setHours(shiftStartHours, shiftStartMins, 0, 0);
+        const shiftStartUtc = convertLocalToUtc(shiftStartLocal, timezone);
 
-        if (clockInTime > shiftStart) {
-          lateMinutes = Math.floor((clockInTime.getTime() - shiftStart.getTime()) / 60000);
+        if (clockInTime > shiftStartUtc) {
+          lateMinutes = Math.floor((clockInTime.getTime() - shiftStartUtc.getTime()) / 60000);
           if (lateMinutes > (shift.graceMinutes || 0)) {
             status = AttendanceStatus.LATE;
           }
         }
 
-        // Calculate early leave with safe time parsing
+        // Build shift end in the employee's LOCAL timezone, then convert to UTC.
         const [shiftEndHours, shiftEndMins] = safeParseTime(shift.endTime);
-        const shiftEnd = new Date(recordDate);
-        shiftEnd.setHours(shiftEndHours, shiftEndMins, 0, 0);
+        const shiftEndLocal = new Date(recordDate);
+        shiftEndLocal.setHours(shiftEndHours, shiftEndMins, 0, 0);
 
         if (shift.crossesMidnight) {
-          shiftEnd.setDate(shiftEnd.getDate() + 1);
+          shiftEndLocal.setDate(shiftEndLocal.getDate() + 1);
+        } else {
+          // If end time is numerically before start time on a 24-hour clock it crosses midnight
+          const startTotal = shiftStartHours * 60 + shiftStartMins;
+          const endTotal = shiftEndHours * 60 + shiftEndMins;
+          if (endTotal < startTotal) {
+            shiftEndLocal.setDate(shiftEndLocal.getDate() + 1);
+          }
         }
 
-        if (clockOutTime < shiftEnd) {
-          earlyLeaveMinutes = Math.floor((shiftEnd.getTime() - clockOutTime.getTime()) / 60000);
+        const shiftEndUtc = convertLocalToUtc(shiftEndLocal, timezone);
+
+        if (clockOutTime < shiftEndUtc) {
+          earlyLeaveMinutes = Math.floor((shiftEndUtc.getTime() - clockOutTime.getTime()) / 60000);
           if (earlyLeaveMinutes > 0) {
             status = status === AttendanceStatus.LATE ? AttendanceStatus.LATE : AttendanceStatus.EARLY_LEAVE;
           }

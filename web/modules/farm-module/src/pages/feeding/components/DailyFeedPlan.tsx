@@ -3,8 +3,8 @@
  *
  * Shows day-by-day feeding requirements based on growth projections
  */
-import React from 'react';
-import { FeedForecastResult, formatDate } from '../../../hooks/useFeeding';
+import React, { useMemo } from 'react';
+import { FeedForecastResult } from '../../../hooks/useFeeding';
 
 interface DailyFeedPlanProps {
   siteId: string;
@@ -25,30 +25,36 @@ export const DailyFeedPlan: React.FC<DailyFeedPlanProps> = ({
     );
   }
 
-  // Prepare daily plan data
-  const dailyPlan = [];
-  const startDate = new Date(forecastData.startDate);
+  // Memoize daily plan to avoid recomputation on parent re-renders (PERF-001)
+  const dailyPlan = useMemo(() => {
+    const plan = [];
+    const startDate = new Date(forecastData.startDate);
+    // Use strict < to produce exactly maxDays rows (day 0 = today, day 1..maxDays-1 = future days)
+    // BUG-007 fix: day <= maxDays produced maxDays+1 rows
+    const maxDays = Math.min(forecastDays, 14);
 
-  for (let day = 0; day <= Math.min(forecastDays, 14); day++) {
-    const date = new Date(startDate);
-    date.setDate(date.getDate() + day);
+    for (let day = 0; day < maxDays; day++) {
+      const date = new Date(startDate);
+      date.setDate(date.getDate() + day);
 
-    const feeds = forecastData.byFeedType.map((feed) => ({
-      feedCode: feed.feedCode,
-      feedName: feed.feedName,
-      dailyAmount: feed.dailyConsumption[day] ?? 0,
-    }));
+      const feeds = forecastData.byFeedType.map((feed) => ({
+        feedCode: feed.feedCode,
+        feedName: feed.feedName,
+        dailyAmount: feed.dailyConsumption[day] ?? 0,
+      }));
 
-    const totalDaily = feeds.reduce((sum, f) => sum + f.dailyAmount, 0);
+      const totalDaily = feeds.reduce((sum, f) => sum + f.dailyAmount, 0);
 
-    dailyPlan.push({
-      day,
-      date,
-      isToday: day === 0,
-      feeds,
-      totalDaily,
-    });
-  }
+      plan.push({
+        day,
+        date,
+        isToday: day === 0,
+        feeds,
+        totalDaily,
+      });
+    }
+    return plan;
+  }, [forecastData, forecastDays]);
 
   return (
     <div className="space-y-6">
@@ -198,7 +204,7 @@ export const DailyFeedPlan: React.FC<DailyFeedPlanProps> = ({
                 </td>
                 {forecastData.byFeedType.slice(0, 5).map((feed) => {
                   const total = feed.dailyConsumption
-                    .slice(0, Math.min(forecastDays, 14) + 1)
+                    .slice(0, Math.min(forecastDays, 14))
                     .reduce((sum, d) => sum + d, 0);
                   return (
                     <td

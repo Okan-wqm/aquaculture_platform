@@ -9,8 +9,8 @@
  * - MODULE_USER: Limited module access
  */
 
-import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
-import { setTokens, clearTokens, loadTokensFromStorage, getAccessToken, setTenantId, graphqlClient } from '../utils/api-client';
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
+import { setTokens, clearTokens, silentRefresh, getAccessToken, setTenantId, graphqlClient } from '../utils/api-client';
 
 // ============================================================================
 // Types
@@ -219,7 +219,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
 
       return response?.me ?? null;
     } catch (error) {
-      console.error('Failed to fetch user:', error);
+      if (import.meta.env.DEV) {
+        console.error('Failed to fetch user:', error);
+      }
       return null;
     }
   }, []);
@@ -234,9 +236,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
     }
 
     const checkAuth = async () => {
-      loadTokensFromStorage();
+      // Try to use existing in-memory token first
+      let token = getAccessToken();
 
-      const token = getAccessToken();
+      // If no in-memory token, attempt silent refresh via httpOnly cookie
+      if (!token) {
+        const refreshed = await silentRefresh();
+        if (!refreshed) {
+          dispatch({ type: 'AUTH_FAILURE', payload: '' });
+          return;
+        }
+        token = getAccessToken();
+      }
+
       if (!token) {
         dispatch({ type: 'AUTH_FAILURE', payload: '' });
         return;
@@ -300,18 +312,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
         throw new Error('Invalid server response');
       }
 
-      const { accessToken, refreshToken, user, redirectUrl } = response.login;
+      const { accessToken: loginAccessToken, user, redirectUrl } = response.login;
 
-      // Save tokens
-      setTokens(accessToken, refreshToken);
+      // Save access token in memory (refresh token is set as httpOnly cookie by server)
+      setTokens(loginAccessToken);
 
       // Save tenant ID for multi-tenant context
       if (user.tenantId) {
         setTenantId(user.tenantId);
       }
 
-      // Use redirectUrl from login response directly
-      const redirectPath = redirectUrl || getDefaultRedirect(user.role);
+      // Validate redirectUrl is a safe relative path (SEC-005: prevent open redirect)
+      const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
+      const redirectPath = safeRedirectUrl || getDefaultRedirect(user.role);
 
       // Fetch user data with modules after login
       const meData = await fetchMe();
@@ -370,34 +383,39 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
 
   /**
    * Role check helpers
+   * Depend on the primitive role string, not the full state.user object,
+   * so they only get new identities when the role actually changes.
    */
-  const isSuperAdmin = useCallback(() => state.user?.role === 'SUPER_ADMIN', [state.user]);
-  const isTenantAdmin = useCallback(() => state.user?.role === 'TENANT_ADMIN', [state.user]);
-  const isModuleManager = useCallback(() => state.user?.role === 'MODULE_MANAGER', [state.user]);
-  const isModuleUser = useCallback(() => state.user?.role === 'MODULE_USER', [state.user]);
+  const userRole = state.user?.role;
+  const isSuperAdmin = useCallback(() => userRole === 'SUPER_ADMIN', [userRole]);
+  const isTenantAdmin = useCallback(() => userRole === 'TENANT_ADMIN', [userRole]);
+  const isModuleManager = useCallback(() => userRole === 'MODULE_MANAGER', [userRole]);
+  const isModuleUser = useCallback(() => userRole === 'MODULE_USER', [userRole]);
 
   const hasRoleOrHigher = useCallback(
     (role: UserRole): boolean => {
-      if (!state.user) return false;
-      return roleHasPermission(state.user.role, role);
+      if (!userRole) return false;
+      return roleHasPermission(userRole, role);
     },
-    [state.user]
+    [userRole]
   );
 
+  const stateModules = state.modules;
   const hasModuleAccess = useCallback(
     (moduleCode: string): boolean => {
-      if (!state.user) return false;
+      if (!userRole) return false;
       // SUPER_ADMIN has system access, not module access
-      if (state.user.role === 'SUPER_ADMIN') return false;
+      if (userRole === 'SUPER_ADMIN') return false;
       // TENANT_ADMIN has access to all tenant modules
-      if (state.user.role === 'TENANT_ADMIN') return true;
+      if (userRole === 'TENANT_ADMIN') return true;
       // MODULE_MANAGER and MODULE_USER check their assigned modules
-      return state.modules.some((m) => m.code === moduleCode);
+      return stateModules.some((m) => m.code === moduleCode);
     },
-    [state.user, state.modules]
+    [userRole, stateModules]
   );
 
-  const value: AuthContextValue = {
+  // PERF-001: Memoize context value to prevent full subtree re-render on every parent render
+  const value = useMemo<AuthContextValue>(() => ({
     ...state,
     login,
     logout,
@@ -409,14 +427,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
     isModuleUser,
     hasRoleOrHigher,
     hasModuleAccess,
-  };
+  }), [state, login, logout, clearError, refreshAuth,
+      isSuperAdmin, isTenantAdmin, isModuleManager,
+      isModuleUser, hasRoleOrHigher, hasModuleAccess]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 // ============================================================================
-// Helper
+// Helpers
 // ============================================================================
+
+/**
+ * Sanitize redirectUrl to prevent open redirect attacks (SEC-005).
+ * Only allows relative paths starting with '/' that don't contain '//' or a protocol.
+ */
+function sanitizeRedirectUrl(url?: string | null): string | null {
+  if (!url) return null;
+  // Must start with '/', must not contain '//' (protocol-relative), must not contain ':'
+  if (url.startsWith('/') && !url.startsWith('//') && !url.includes(':')) {
+    return url;
+  }
+  return null;
+}
 
 function getDefaultRedirect(role: UserRole): string {
   switch (role) {
@@ -447,55 +480,41 @@ export function useAuthContext(): AuthContextValue {
     return context;
   }
 
-  // Fallback for Module Federation: decode user from JWT token
-  const token = getAccessToken();
-  let fallbackUser: AuthUser | null = null;
-
-  if (token) {
-    try {
-      // Decode JWT payload (base64)
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      fallbackUser = {
-        id: payload.sub || '',
-        email: payload.email || '',
-        firstName: payload.firstName || null,
-        lastName: payload.lastName || null,
-        role: payload.role || 'MODULE_USER',
-        tenantId: payload.tenantId || null,
-        isActive: true,
-      };
-    } catch {
-      console.warn('Failed to decode auth token in microfrontend');
-    }
+  // Fallback for Module Federation: fail closed with no access.
+  // If the AuthProvider is not available, deny all access rather than
+  // trusting a client-side JWT decode without signature verification.
+  if (import.meta.env.DEV) {
+    console.warn('AuthContext not available — microfrontend loaded outside AuthProvider. Denying access.');
   }
 
-  // Return fallback context value for microfrontends
   const fallbackValue: AuthContextValue = {
-    user: fallbackUser,
+    user: null,
     modules: [],
     redirectPath: null,
     isLoading: false,
-    isAuthenticated: !!fallbackUser,
+    isAuthenticated: false,
     error: null,
     login: async () => {
-      console.warn('Login not available in microfrontend context');
+      if (import.meta.env.DEV) {
+        console.warn('Login not available in microfrontend context');
+      }
       return { redirectPath: '/' };
     },
     logout: async () => {
       clearTokens();
-      window.location.href = '/login';
+      // Use location.replace to avoid history pollution (SEC-008: avoid window.location.href anti-pattern)
+      if (typeof window !== 'undefined') {
+        window.location.replace('/login');
+      }
     },
     clearError: () => {},
     refreshAuth: async () => {},
-    isSuperAdmin: () => fallbackUser?.role === 'SUPER_ADMIN',
-    isTenantAdmin: () => fallbackUser?.role === 'TENANT_ADMIN',
-    isModuleManager: () => fallbackUser?.role === 'MODULE_MANAGER',
-    isModuleUser: () => fallbackUser?.role === 'MODULE_USER',
-    hasRoleOrHigher: (role: UserRole) => {
-      if (!fallbackUser) return false;
-      return roleHasPermission(fallbackUser.role, role);
-    },
-    hasModuleAccess: () => true, // Assume access in microfrontend context
+    isSuperAdmin: () => false,
+    isTenantAdmin: () => false,
+    isModuleManager: () => false,
+    isModuleUser: () => false,
+    hasRoleOrHigher: () => false,
+    hasModuleAccess: () => false,
   };
 
   return fallbackValue;

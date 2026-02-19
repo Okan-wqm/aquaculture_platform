@@ -5,7 +5,7 @@
  * Not for mortality - use MortalityModal for that.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast } from '@aquaculture/shared-ui';
 import {
   useRemoveCleanerFish,
   useTankCleanerFish,
@@ -38,6 +38,7 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
 
   // Mutation
   const removeCleanerFish = useRemoveCleanerFish();
+  const { toast } = useToast();
 
   // Get tank cleaner fish info
   const { data: tankInfo } = useTankCleanerFish(tankId || '');
@@ -89,8 +90,8 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
       onSuccess();
       onClose();
     } catch (error) {
-      console.error('Failed to remove cleaner fish:', error);
-      alert(error instanceof Error ? error.message : 'Failed to remove cleaner fish');
+      if (import.meta.env.DEV) console.error('Failed to remove cleaner fish:', error);
+      toast({ title: 'Error', description: 'Failed to remove cleaner fish. Please try again.', variant: 'error' });
     }
   };
 
@@ -235,6 +236,7 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
           <textarea
             id="notes"
             rows={2}
+            maxLength={2000}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"

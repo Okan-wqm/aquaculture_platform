@@ -5,6 +5,7 @@
 import { gql } from 'graphql-tag';
 import {
   EMPLOYEE_BASIC_FRAGMENT,
+  EMPLOYEE_LIST_FRAGMENT,
   EMPLOYEE_FULL_FRAGMENT,
   DEPARTMENT_FRAGMENT,
   POSITION_FRAGMENT,
@@ -14,6 +15,10 @@ import {
 // Queries
 // =====================
 
+/**
+ * List query uses EMPLOYEE_LIST_FRAGMENT (no PII fields).
+ * SEC-002: prevents bulk PII transmission on every list load.
+ */
 export const GET_EMPLOYEES = gql`
   query GetEmployees(
     $filter: EmployeeFilterInput
@@ -21,7 +26,7 @@ export const GET_EMPLOYEES = gql`
   ) {
     employees(filter: $filter, pagination: $pagination) {
       items {
-        ...EmployeeFull
+        ...EmployeeList
       }
       total
       limit
@@ -29,7 +34,25 @@ export const GET_EMPLOYEES = gql`
       hasMore
     }
   }
-  ${EMPLOYEE_FULL_FRAGMENT}
+  ${EMPLOYEE_LIST_FRAGMENT}
+`;
+
+/**
+ * Dashboard stats query — returns pre-aggregated counters without raw employee data.
+ * CRIT-3 / PERF-001: replaces the limit:1000 full-PII fetch on the dashboard.
+ */
+export const GET_HR_DASHBOARD_STATS = gql`
+  query GetHRDashboardStats {
+    hrDashboardStats {
+      totalEmployees
+      activeEmployees
+      onLeaveCount
+      offshoreCount
+      onshoreCount
+      seaWorthyCount
+      departmentCount
+    }
+  }
 `;
 
 export const GET_EMPLOYEE = gql`

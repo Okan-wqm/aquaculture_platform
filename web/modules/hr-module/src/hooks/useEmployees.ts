@@ -5,10 +5,12 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
+import { useAuth } from '@aquaculture/shared-ui';
 import {
   GET_EMPLOYEES,
   GET_EMPLOYEE,
   GET_EMPLOYEE_BY_NUMBER,
+  GET_HR_DASHBOARD_STATS,
   SEARCH_EMPLOYEES,
   GET_DEPARTMENTS,
   GET_DEPARTMENT,
@@ -128,6 +130,12 @@ export function useEmployeeByNumber(employeeNumber: string) {
   });
 }
 
+/**
+ * PERF-006: callers should debounce the `search` argument before passing it in
+ * (e.g. with useDeferredValue or a 300ms setTimeout) so each keystroke does not
+ * fire a new network request.  The staleTime here prevents re-fetching if the
+ * same query key was already resolved within the last 10 seconds.
+ */
 export function useSearchEmployees(search: string, limit = 10) {
   const client = useGraphQLClient();
 
@@ -141,7 +149,49 @@ export function useSearchEmployees(search: string, limit = 10) {
       ),
     select: (data) => data.searchEmployees,
     enabled: search.length >= 2,
+    staleTime: 10_000, // avoid re-fetching the same query within 10s
   });
+}
+
+/**
+ * Pre-aggregated dashboard statistics — replaces the limit:1000 employee fetch.
+ * CRIT-3 / PERF-001: no raw employee records, no PII transmitted.
+ */
+export function useHRDashboardStats() {
+  const client = useGraphQLClient();
+
+  return useQuery({
+    queryKey: ['hrDashboardStats'],
+    queryFn: () =>
+      graphqlRequest<{
+        hrDashboardStats: {
+          totalEmployees: number;
+          activeEmployees: number;
+          onLeaveCount: number;
+          offshoreCount: number;
+          onshoreCount: number;
+          seaWorthyCount: number;
+          departmentCount: number;
+        };
+      }, unknown>(client, GET_HR_DASHBOARD_STATS, {}),
+    select: (data) => data.hrDashboardStats,
+  });
+}
+
+/**
+ * Resolves the current authenticated user's HR employee record.
+ * CRIT-5 / BUG-011 / SEC-009: centralises auth→employee mapping to avoid
+ * inconsistent use of user.id vs user.sub across pages.
+ *
+ * The HR service maps the token's `sub` (auth identity) to the employee record.
+ * Using `sub` here because that is the standard JWT subject claim that the
+ * HR service registers employees against.
+ */
+export function useCurrentEmployeeId(): string {
+  const { user } = useAuth();
+  // `sub` is the standard JWT subject — used as the authoritative identity field.
+  // All pages should use this hook rather than reading user.id or user.sub directly.
+  return user?.sub || user?.id || '';
 }
 
 export function useDirectReports(managerId: string) {

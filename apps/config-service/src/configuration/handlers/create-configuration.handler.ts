@@ -8,7 +8,10 @@ import {
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { CreateConfigurationCommand } from '../commands/create-configuration.command';
-import { Configuration, ConfigValueType } from '../entities/configuration.entity';
+import { Configuration } from '../entities/configuration.entity';
+import { ConfigurationService } from '../services/configuration.service';
+import { ConfigurationValidationService } from '../services/configuration-validation.service';
+import { EncryptionService } from '../services/encryption.service';
 
 @Injectable()
 @CommandHandler(CreateConfigurationCommand)
@@ -17,23 +20,29 @@ export class CreateConfigurationHandler
 {
   private readonly logger = new Logger(CreateConfigurationHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly configurationService: ConfigurationService,
+    private readonly validationService: ConfigurationValidationService,
+    private readonly encryptionService: EncryptionService,
+  ) {}
 
   async execute(command: CreateConfigurationCommand): Promise<Configuration> {
     const { tenantId, input, userId } = command;
 
-    // Validate value based on type
-    this.validateValue(input.value, input.valueType);
+    this.validationService.validateValue(
+      input.value,
+      input.valueType,
+      input.validationRules as any,
+    );
 
-    // Create query runner for transaction
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
-    await queryRunner.startTransaction('SERIALIZABLE');
+    await queryRunner.startTransaction('READ COMMITTED');
 
     try {
       const configRepo = queryRunner.manager.getRepository(Configuration);
 
-      // Check for existing configuration with same service/key/environment
       const existing = await configRepo.findOne({
         where: {
           tenantId,
@@ -41,7 +50,6 @@ export class CreateConfigurationHandler
           key: input.key,
           environment: input.environment,
         },
-        lock: { mode: 'pessimistic_write' },
       });
 
       if (existing) {
@@ -50,12 +58,17 @@ export class CreateConfigurationHandler
         );
       }
 
-      // Create configuration
+      // Encrypt secret values before saving
+      let valueToStore = input.value;
+      if (input.isSecret && this.encryptionService.isAvailable()) {
+        valueToStore = this.encryptionService.encrypt(input.value);
+      }
+
       const configuration = configRepo.create({
         tenantId,
         service: input.service,
         key: input.key,
-        value: input.value,
+        value: valueToStore,
         valueType: input.valueType,
         environment: input.environment,
         description: input.description,
@@ -70,8 +83,9 @@ export class CreateConfigurationHandler
       });
 
       const savedConfig = await configRepo.save(configuration);
-
       await queryRunner.commitTransaction();
+
+      this.configurationService.invalidateCache(tenantId, savedConfig.service, savedConfig.key);
 
       this.logger.log(
         `Configuration created: ${savedConfig.id} (${input.service}/${input.key}) for tenant ${tenantId}`,
@@ -93,28 +107,6 @@ export class CreateConfigurationHandler
       throw new InternalServerErrorException('Failed to create configuration');
     } finally {
       await queryRunner.release();
-    }
-  }
-
-  private validateValue(value: string, valueType: ConfigValueType): void {
-    switch (valueType) {
-      case ConfigValueType.NUMBER:
-        if (isNaN(Number(value))) {
-          throw new BadRequestException('Value must be a valid number');
-        }
-        break;
-      case ConfigValueType.BOOLEAN:
-        if (!['true', 'false', '1', '0'].includes(value.toLowerCase())) {
-          throw new BadRequestException('Value must be true/false or 1/0');
-        }
-        break;
-      case ConfigValueType.JSON:
-        try {
-          JSON.parse(value);
-        } catch {
-          throw new BadRequestException('Value must be valid JSON');
-        }
-        break;
     }
   }
 }

@@ -446,7 +446,7 @@ export class SystemSettingService {
   // ============================================================================
 
   /**
-   * Get email configuration
+   * Get email configuration (safe for API responses - password is masked)
    */
   async getEmailConfig(): Promise<{
     smtpHost: string;
@@ -476,7 +476,48 @@ export class SystemSettingService {
       return setting ? this.parseValue(setting) : defaultValue;
     };
 
-    // Password needs raw value - parseValue masks encrypted type with '********'
+    return {
+      smtpHost: getValue('email.smtp_host', '') as string,
+      smtpPort: getValue('email.smtp_port', 587) as number,
+      smtpSecure: getValue('email.smtp_secure', false) as boolean,
+      smtpUsername: getValue('email.smtp_username', '') as string,
+      smtpPassword: '********',
+      fromAddress: getValue('email.from_address', 'noreply@aquaculture.io') as string,
+      fromName: getValue('email.from_name', 'Aquaculture Platform') as string,
+    };
+  }
+
+  /**
+   * Get email configuration with real SMTP password (for internal email sending only)
+   */
+  async getEmailConfigForSending(): Promise<{
+    smtpHost: string;
+    smtpPort: number;
+    smtpSecure: boolean;
+    smtpUsername: string;
+    smtpPassword: string;
+    fromAddress: string;
+    fromName: string;
+  }> {
+    const keys = [
+      'email.smtp_host',
+      'email.smtp_port',
+      'email.smtp_secure',
+      'email.smtp_username',
+      'email.smtp_password',
+      'email.from_address',
+      'email.from_name',
+    ];
+
+    const settings = await this.settingRepository.find({
+      where: { key: In(keys) },
+    });
+
+    const getValue = (key: string, defaultValue: unknown) => {
+      const setting = settings.find(s => s.key === key);
+      return setting ? this.parseValue(setting) : defaultValue;
+    };
+
     const getRawValue = (key: string, defaultValue: string): string => {
       const setting = settings.find(s => s.key === key);
       if (!setting) return defaultValue;
@@ -484,7 +525,6 @@ export class SystemSettingService {
         try {
           return this.decryptValue(setting.value);
         } catch {
-          // Value may be stored as plain text, return as-is
           return setting.value || defaultValue;
         }
       }
@@ -595,7 +635,7 @@ export class SystemSettingService {
     enforceHttps: boolean;
   }> {
     return {
-      sessionTimeoutMinutes: await this.getValue('security.session_timeout_minutes', 480),
+      sessionTimeoutMinutes: await this.getValue('security.session_timeout_minutes', 60),
       maxLoginAttempts: await this.getValue('security.max_login_attempts', 5),
       lockoutDurationMinutes: await this.getValue('security.lockout_duration_minutes', 30),
       passwordMinLength: await this.getValue('security.password_min_length', 8),

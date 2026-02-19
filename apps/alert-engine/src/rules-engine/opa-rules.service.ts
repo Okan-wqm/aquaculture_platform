@@ -5,6 +5,7 @@
  * Supports Rego policies, policy bundles, and decision logging.
  */
 
+import * as crypto from 'crypto';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -105,9 +106,17 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
   private config: OpaConfig;
   private readonly policies = new Map<string, Policy>();
   private readonly decisionLog: DecisionLogEntry[] = [];
-  private readonly maxDecisionLogSize = 10000;
+  // Capped at 500 entries to bound heap usage; persist to an external audit
+  // store for historical decision analysis.
+  private readonly maxDecisionLogSize = 500;
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private lastHealthStatus: OpaHealthStatus | null = null;
+
+  // PE-17: Shared keep-alive agents reuse TCP connections across OPA requests
+  // instead of opening a new TCP handshake per request (the default behaviour
+  // when no agent is specified).
+  private readonly httpAgent = new http.Agent({ keepAlive: true, maxSockets: 10 });
+  private readonly httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 10 });
 
   // Metrics
   private metrics = {
@@ -143,6 +152,9 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
       clearInterval(this.healthCheckInterval);
       this.healthCheckInterval = null;
     }
+    // Destroy keep-alive agents to free sockets on shutdown.
+    this.httpAgent.destroy();
+    this.httpsAgent.destroy();
   }
 
   /**
@@ -281,7 +293,8 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
     input: PolicyInput,
     options?: { unknowns?: string[]; metrics?: boolean },
   ): Promise<PolicyResult> {
-    const url = `${this.config.serverUrl}/v1/data/${policyPath}`;
+    const safePath = this.sanitizeOpaPath(policyPath);
+    const url = `${this.config.serverUrl}/v1/data/${safePath}`;
     const requestBody = JSON.stringify({
       input,
       unknowns: options?.unknowns,
@@ -369,7 +382,8 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
       throw new Error('Policy must have regoCode for upload');
     }
 
-    const url = `${this.config.serverUrl}/v1/policies/${policy.path}`;
+    const safePath = this.sanitizeOpaPath(policy.path);
+    const url = `${this.config.serverUrl}/v1/policies/${safePath}`;
 
     await this.httpRequest('PUT', url, policy.regoCode, {
       'Content-Type': 'text/plain',
@@ -383,7 +397,8 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
    * Delete a policy from OPA
    */
   async deletePolicy(policyPath: string): Promise<void> {
-    const url = `${this.config.serverUrl}/v1/policies/${policyPath}`;
+    const safePath = this.sanitizeOpaPath(policyPath);
+    const url = `${this.config.serverUrl}/v1/policies/${safePath}`;
     await this.httpRequest('DELETE', url, '');
 
     // Remove from local registry
@@ -467,26 +482,41 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Log a decision
+   * Log a decision.
+   * Only the decision outcome (allowed/denied) is stored — full input payloads
+   * containing sensor readings and tenant context are intentionally excluded to
+   * prevent in-memory tenant data bleed.
    */
   private logDecision(
     policyPath: string,
     input: PolicyInput,
     result: PolicyResult,
   ): void {
+    // Extract tenantId from input if present for filtering purposes.
+    const tenantId = typeof input['tenantId'] === 'string' ? input['tenantId'] : undefined;
+
     const entry: DecisionLogEntry = {
       decisionId: result.decisionId || this.generateDecisionId(),
       policyPath,
-      input,
-      result,
+      // Store only a minimal, sanitized input subset — never full sensor payloads.
+      input: { tenantId } as PolicyInput,
+      result: {
+        policyId: result.policyId,
+        policyPath: result.policyPath,
+        decision: result.allowed, // Store boolean outcome only
+        allowed: result.allowed,
+        reasons: result.reasons,
+        timestamp: result.timestamp,
+      } as PolicyResult,
       timestamp: new Date(),
+      labels: tenantId ? { tenantId } : undefined,
     };
 
     this.decisionLog.push(entry);
 
-    // Trim log if too large
-    if (this.decisionLog.length > this.maxDecisionLogSize) {
-      this.decisionLog.splice(0, this.decisionLog.length - this.maxDecisionLogSize);
+    // Trim log if too large - shift oldest entries instead of O(n) splice
+    while (this.decisionLog.length > this.maxDecisionLogSize) {
+      this.decisionLog.shift();
     }
 
     this.eventEmitter.emit('opa.decision.logged', entry);
@@ -496,19 +526,31 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
    * Generate a decision ID
    */
   private generateDecisionId(): string {
-    return `dec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `dec_${crypto.randomUUID()}`;
   }
 
   /**
-   * Get decision log entries
+   * Get decision log entries.
+   * `tenantId` is required to prevent cross-tenant data access.
+   * Callers must always supply the tenant identifier from the authenticated context.
    */
-  getDecisionLog(options?: {
-    policyPath?: string;
-    startTime?: Date;
-    endTime?: Date;
-    limit?: number;
-  }): DecisionLogEntry[] {
-    let entries = [...this.decisionLog];
+  getDecisionLog(
+    tenantId: string,
+    options?: {
+      policyPath?: string;
+      startTime?: Date;
+      endTime?: Date;
+      limit?: number;
+    },
+  ): DecisionLogEntry[] {
+    if (!tenantId) {
+      throw new Error('tenantId is required to query the decision log');
+    }
+
+    // Always filter by tenantId first for tenant isolation.
+    let entries = this.decisionLog.filter(
+      e => e.labels?.['tenantId'] === tenantId,
+    );
 
     if (options?.policyPath) {
       entries = entries.filter(e => e.policyPath === options.policyPath);
@@ -577,6 +619,28 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
     if (!policy.path) {
       throw new Error('Policy must have a path');
     }
+    // Validate path to prevent traversal attacks
+    this.sanitizeOpaPath(policy.path);
+  }
+
+  /**
+   * Validate and sanitize OPA path to prevent path traversal and SSRF.
+   * Only allows alphanumeric, underscores, hyphens, and forward slashes.
+   */
+  private sanitizeOpaPath(path: string): string {
+    if (!path || typeof path !== 'string') {
+      throw new Error('OPA path must be a non-empty string');
+    }
+    if (path.length > 128) {
+      throw new Error('OPA path exceeds maximum length of 128 characters');
+    }
+    if (path.includes('..') || path.includes('%') || path.includes('\\')) {
+      throw new Error('OPA path contains forbidden characters');
+    }
+    if (!/^[a-zA-Z][a-zA-Z0-9_/\-]*$/.test(path)) {
+      throw new Error('OPA path contains invalid characters (must match ^[a-zA-Z][a-zA-Z0-9_/-]*)');
+    }
+    return path;
   }
 
   /**
@@ -610,6 +674,8 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
         method,
         headers: requestHeaders,
         timeout: timeout || this.config.timeout,
+        // PE-17: Use the shared keep-alive agent to reuse TCP connections.
+        agent: isHttps ? this.httpsAgent : this.httpAgent,
       };
 
       const req = lib.request(options, (res) => {
@@ -734,16 +800,18 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
    * Push data to OPA
    */
   async pushData(path: string, data: unknown): Promise<void> {
-    const url = `${this.config.serverUrl}/v1/data/${path}`;
+    const safePath = this.sanitizeOpaPath(path);
+    const url = `${this.config.serverUrl}/v1/data/${safePath}`;
     await this.httpRequest('PUT', url, JSON.stringify(data));
-    this.logger.debug(`Pushed data to OPA: ${path}`);
+    this.logger.debug(`Pushed data to OPA: ${safePath}`);
   }
 
   /**
    * Get data from OPA
    */
   async getData(path: string): Promise<unknown> {
-    const url = `${this.config.serverUrl}/v1/data/${path}`;
+    const safePath = this.sanitizeOpaPath(path);
+    const url = `${this.config.serverUrl}/v1/data/${safePath}`;
     const response = await this.httpRequest('GET', url, '');
     const data = JSON.parse(response);
     return data.result;
@@ -753,7 +821,8 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
    * Delete data from OPA
    */
   async deleteData(path: string): Promise<void> {
-    const url = `${this.config.serverUrl}/v1/data/${path}`;
+    const safePath = this.sanitizeOpaPath(path);
+    const url = `${this.config.serverUrl}/v1/data/${safePath}`;
     await this.httpRequest('DELETE', url, '');
     this.logger.debug(`Deleted data from OPA: ${path}`);
   }

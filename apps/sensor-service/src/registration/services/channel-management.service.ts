@@ -205,7 +205,9 @@ export class ChannelManagementService {
   }
 
   /**
-   * Save discovered channels from auto-discovery
+   * Save discovered channels from auto-discovery.
+   * HIGH-008: Pre-loads all existing channels in one query to eliminate the
+   * N+1 pattern (previously 1 SELECT + 1 INSERT/UPDATE per channel).
    */
   async saveDiscoveredChannels(
     sensorId: string,
@@ -218,26 +220,31 @@ export class ChannelManagementService {
       await this.channelRepository.delete({ sensorId });
     }
 
-    const savedChannels: SensorDataChannel[] = [];
+    // Pre-load all existing channels for this sensor in a single query (HIGH-008)
+    const existingChannels = replaceExisting
+      ? []
+      : await this.channelRepository.find({ where: { sensorId } });
+    const existingByKey = new Map<string, SensorDataChannel>(
+      existingChannels.map((c) => [c.channelKey, c]),
+    );
+
+    const toUpdate: SensorDataChannel[] = [];
+    const toInsert: SensorDataChannel[] = [];
 
     for (let i = 0; i < discoveredChannels.length; i++) {
       const discovered = discoveredChannels[i];
       if (!discovered) continue;
 
-      // Check if channel already exists
-      const existing = await this.channelRepository.findOne({
-        where: { sensorId, channelKey: discovered.channelKey },
-      });
+      const existing = existingByKey.get(discovered.channelKey);
 
       if (existing && !replaceExisting) {
         // Update existing channel with new sample data
         existing.sampleValue = discovered.sampleValue;
-        const updated = await this.channelRepository.save(existing);
-        savedChannels.push(updated);
+        toUpdate.push(existing);
         continue;
       }
 
-      const channel = this.channelRepository.create({
+      toInsert.push(this.channelRepository.create({
         sensorId,
         tenantId,
         channelKey: discovered.channelKey,
@@ -259,11 +266,13 @@ export class ChannelManagementService {
           showOnDashboard: true,
           precision: 2,
         },
-      });
-
-      const saved = await this.channelRepository.save(channel);
-      savedChannels.push(saved);
+      }));
     }
+
+    // Batch save all new and updated channels in two bulk operations
+    const savedNew = toInsert.length > 0 ? await this.channelRepository.save(toInsert) : [];
+    const savedUpdated = toUpdate.length > 0 ? await this.channelRepository.save(toUpdate) : [];
+    const savedChannels = [...savedUpdated, ...savedNew];
 
     this.logger.log(`Saved ${savedChannels.length} discovered channels for sensor ${sensorId}`);
 
@@ -277,15 +286,14 @@ export class ChannelManagementService {
     sensorId: string,
     channelIds: string[],
   ): Promise<SensorDataChannel[]> {
+    // Query scoped to sensorId to enforce tenant isolation
     const channels = await this.channelRepository.find({
-      where: { id: In(channelIds) },
+      where: { id: In(channelIds), sensorId },
     });
 
-    // Validate all channels belong to the sensor
-    for (const channel of channels) {
-      if (channel.sensorId !== sensorId) {
-        throw new ConflictException(`Channel ${channel.id} does not belong to sensor ${sensorId}`);
-      }
+    // Verify all requested channels were found (prevents cross-sensor references)
+    if (channels.length !== channelIds.length) {
+      throw new ConflictException(`Some channel IDs do not belong to sensor ${sensorId}`);
     }
 
     // Update display order

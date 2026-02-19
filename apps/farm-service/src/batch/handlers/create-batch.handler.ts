@@ -340,18 +340,21 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
       // Publish domain event: BatchCreated (after commit, outside transaction)
       if (this.eventBus) {
         try {
+          const tankIds = (payload.initialLocations || [])
+            .map((loc) => loc.tankId || loc.pondId)
+            .filter((id): id is string => !!id);
           const event: BatchCreatedEvent = {
             eventId: randomUUID(),
             eventType: 'BatchCreated',
             tenantId,
             timestamp: new Date(),
             batchId: savedBatch.id,
-            farmId: '', // Not applicable in current schema
-            pondId: '', // Not applicable - using tankId instead
+            tankIds: tankIds.length > 0 ? tankIds : undefined,
             name: savedBatch.batchNumber,
             species: species.commonName,
             quantity: savedBatch.initialQuantity,
             stockedAt: savedBatch.stockedAt,
+            version: 1,
           };
           await this.eventBus.publish(event);
           this.logger.debug(`Published BatchCreatedEvent for batch ${savedBatch.id}`);

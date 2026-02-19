@@ -96,16 +96,13 @@ export const Modal: React.FC<ModalProps> = ({
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const previousActiveElement = useRef<HTMLElement | null>(null);
-
-  // ESC tuşu ile kapatma
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && closeOnEscape) {
-        onClose();
-      }
-    },
-    [closeOnEscape, onClose]
-  );
+  // BUG-001/PERF-007: Store listener ref so removal always targets same identity
+  const listenerRef = useRef<((e: KeyboardEvent) => void) | null>(null);
+  // Store latest props in refs so the stable listener can access current values
+  const closeOnEscapeRef = useRef(closeOnEscape);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { closeOnEscapeRef.current = closeOnEscape; }, [closeOnEscape]);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   // Overlay tıklaması
   const handleOverlayClick = useCallback(
@@ -117,6 +114,30 @@ export const Modal: React.FC<ModalProps> = ({
     [closeOnOverlayClick, onClose]
   );
 
+  // Focus trap helper: cycle focus within modal (BUG-005)
+  const trapFocus = useCallback((event: KeyboardEvent) => {
+    if (!modalRef.current) return;
+    const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.key === 'Tab') {
+      if (event.shiftKey) {
+        if (document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
+  }, []);
+
   // Modal açıldığında/kapandığında
   useEffect(() => {
     if (isOpen) {
@@ -126,8 +147,14 @@ export const Modal: React.FC<ModalProps> = ({
       // Scroll'u engelle
       document.body.style.overflow = 'hidden';
 
-      // Keyboard event listener ekle
-      document.addEventListener('keydown', handleKeyDown);
+      // BUG-001/PERF-007: Create stable listener using refs — avoids accumulating stale listeners
+      listenerRef.current = (event: KeyboardEvent) => {
+        if (event.key === 'Escape' && closeOnEscapeRef.current) {
+          onCloseRef.current();
+        }
+        trapFocus(event);
+      };
+      document.addEventListener('keydown', listenerRef.current);
 
       // Modal'a focus
       setTimeout(() => {
@@ -137,8 +164,11 @@ export const Modal: React.FC<ModalProps> = ({
       // Scroll'u geri aç
       document.body.style.overflow = '';
 
-      // Keyboard event listener kaldır
-      document.removeEventListener('keydown', handleKeyDown);
+      // Remove by stable ref — guaranteed identity match
+      if (listenerRef.current) {
+        document.removeEventListener('keydown', listenerRef.current);
+        listenerRef.current = null;
+      }
 
       // Önceki elemente focus
       previousActiveElement.current?.focus();
@@ -146,9 +176,13 @@ export const Modal: React.FC<ModalProps> = ({
 
     return () => {
       document.body.style.overflow = '';
-      document.removeEventListener('keydown', handleKeyDown);
+      if (listenerRef.current) {
+        document.removeEventListener('keydown', listenerRef.current);
+        listenerRef.current = null;
+      }
     };
-  }, [isOpen, handleKeyDown]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: re-register only on open/close; props accessed via refs
+  }, [isOpen, trapFocus]);
 
   // Modal kapalıysa render etme
   if (!isOpen) return null;
@@ -250,7 +284,7 @@ export interface ConfirmModalProps {
   /** Onay butonu varyantı */
   variant?: 'danger' | 'warning' | 'info';
   /** Onay butonu varyantı (alias for variant) */
-  confirmVariant?: string;
+  confirmVariant?: 'danger' | 'warning' | 'info';
   isLoading?: boolean;
 }
 
@@ -284,12 +318,8 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   // isOpen ve open birleştir
   const isOpen = isOpenProp ?? open ?? false;
 
-  // variant ve confirmVariant birleştir
-  const variant: 'danger' | 'warning' | 'info' = confirmVariant === 'danger'
-    ? 'danger'
-    : confirmVariant === 'warning'
-    ? 'warning'
-    : variantProp;
+  // BUG-011: confirmVariant is now properly typed — use it directly with fallback to variant prop
+  const variant: 'danger' | 'warning' | 'info' = confirmVariant ?? variantProp;
   const iconColors = {
     danger: 'text-red-600 bg-red-100',
     warning: 'text-yellow-600 bg-yellow-100',

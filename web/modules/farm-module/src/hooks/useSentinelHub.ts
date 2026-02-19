@@ -2,29 +2,24 @@
  * useSentinelHub Hook
  *
  * Sentinel Hub API ile etkileşim için React hook.
- * Credentials'ları backend'den alır ve görüntü/tarih çekme işlemlerini yönetir.
+ * Fetches a short-lived access token from the backend (never the raw clientSecret)
+ * and uses it to initialise/fetch satellite imagery.
+ *
+ * Security: uses `useAuth()` from shared-ui instead of localStorage.getItem().
+ * HIGH-05 fix: the clientSecret is never requested from the backend.
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
 import {
-  initSentinelHub,
   getSatelliteImage,
   getAvailableDates,
   clearCache,
-  type SentinelConfig,
   type LayerType,
 } from '../services/sentinelHubService';
 
-// GraphQL queries
-const SENTINEL_HUB_CREDENTIALS_QUERY = `
-  query SentinelHubCredentials {
-    sentinelHubCredentials {
-      clientId
-      clientSecret
-    }
-  }
-`;
-
+// Only request the Sentinel Hub status (masked clientId, isConfigured flag).
+// The raw clientSecret must NEVER be fetched to the browser.
 const SENTINEL_HUB_STATUS_QUERY = `
   query SentinelHubStatus {
     sentinelHubStatus {
@@ -32,6 +27,17 @@ const SENTINEL_HUB_STATUS_QUERY = `
       clientIdMasked
       lastUsed
       usageCount
+    }
+  }
+`;
+
+// Request a short-lived Sentinel Hub access token from the backend.
+// The backend exchanges clientId/clientSecret server-side and returns only the token.
+const SENTINEL_HUB_TOKEN_QUERY = `
+  query SentinelHubToken {
+    sentinelHubToken {
+      accessToken
+      expiresIn
     }
   }
 `;
@@ -69,8 +75,10 @@ export interface UseSentinelHubReturn {
 }
 
 export function useSentinelHub(): UseSentinelHubReturn {
+  const { token: authToken } = useAuth();
+
   // State
-  const [credentials, setCredentials] = useState<SentinelConfig | null>(null);
+  const [sentinelToken, setSentinelToken] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isConfigured, setIsConfigured] = useState(false);
@@ -79,100 +87,64 @@ export function useSentinelHub(): UseSentinelHubReturn {
   const [availableDates, setAvailableDates] = useState<Date[]>([]);
   const [status, setStatus] = useState<SentinelHubStatus | null>(null);
 
-  // Refs
   const previousImageUrl = useRef<string | null>(null);
 
   /**
-   * Fetch credentials from backend
-   */
-  const fetchCredentials = useCallback(async () => {
-    try {
-      const token = localStorage.getItem('access_token');
-      if (!token) {
-        setIsConfigured(false);
-        return;
-      }
-
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ query: SENTINEL_HUB_CREDENTIALS_QUERY }),
-      });
-
-      const result = await response.json();
-
-      if (result.data?.sentinelHubCredentials) {
-        setCredentials(result.data.sentinelHubCredentials);
-        setIsConfigured(true);
-      } else {
-        setIsConfigured(false);
-        setCredentials(null);
-      }
-    } catch (err) {
-      console.error('Failed to fetch Sentinel Hub credentials:', err);
-      setIsConfigured(false);
-    }
-  }, []);
-
-  /**
-   * Fetch status from backend
+   * Fetch Sentinel Hub status (isConfigured, masked clientId) from backend.
+   * Does NOT fetch credentials/clientSecret.
    */
   const fetchStatus = useCallback(async () => {
+    if (!authToken) return;
     try {
-      const token = localStorage.getItem('access_token');
-      if (!token) return;
+      const data = await graphqlClient.request<{
+        sentinelHubStatus: SentinelHubStatus;
+      }>(SENTINEL_HUB_STATUS_QUERY);
 
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ query: SENTINEL_HUB_STATUS_QUERY }),
-      });
-
-      const result = await response.json();
-
-      if (result.data?.sentinelHubStatus) {
-        setStatus(result.data.sentinelHubStatus);
-        setIsConfigured(result.data.sentinelHubStatus.isConfigured);
+      if (data.sentinelHubStatus) {
+        setStatus(data.sentinelHubStatus);
+        setIsConfigured(data.sentinelHubStatus.isConfigured);
       }
     } catch (err) {
-      console.error('Failed to fetch Sentinel Hub status:', err);
+      if (import.meta.env.DEV) console.error('Failed to fetch Sentinel Hub status:', err);
+      setIsConfigured(false);
     }
-  }, []);
+  }, [authToken]);
 
   /**
-   * Initialize Sentinel Hub when credentials are available
+   * Fetch a short-lived Sentinel Hub access token from the backend.
+   * The backend performs the OAuth client_credentials exchange server-side.
    */
-  useEffect(() => {
-    if (credentials) {
-      setIsLoading(true);
-      initSentinelHub(credentials)
-        .then(() => {
-          setIsInitialized(true);
-          setError(null);
-        })
-        .catch((err) => {
-          setError(err.message);
-          setIsInitialized(false);
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
+  const fetchToken = useCallback(async () => {
+    if (!authToken) return;
+    try {
+      const data = await graphqlClient.request<{
+        sentinelHubToken: { accessToken: string; expiresIn: number };
+      }>(SENTINEL_HUB_TOKEN_QUERY);
+
+      if (data.sentinelHubToken?.accessToken) {
+        setSentinelToken(data.sentinelHubToken.accessToken);
+        setIsInitialized(true);
+        setError(null);
+      } else {
+        setIsConfigured(false);
+        setIsInitialized(false);
+      }
+    } catch (err) {
+      if (import.meta.env.DEV) console.error('Failed to fetch Sentinel Hub token:', err);
+      setIsConfigured(false);
+      setIsInitialized(false);
     }
-  }, [credentials]);
+  }, [authToken]);
 
   /**
-   * Fetch credentials on mount
+   * Initialize on mount / when auth token is available
    */
   useEffect(() => {
-    fetchCredentials();
-    fetchStatus();
-  }, [fetchCredentials, fetchStatus]);
+    if (authToken) {
+      fetchStatus();
+      fetchToken();
+    }
+  }, [authToken, fetchStatus, fetchToken]);
 
   /**
    * Clean up blob URLs on unmount
@@ -186,7 +158,7 @@ export function useSentinelHub(): UseSentinelHubReturn {
   }, []);
 
   /**
-   * Fetch satellite image
+   * Fetch satellite image using the server-supplied access token
    */
   const fetchImage = useCallback(
     async (
@@ -194,7 +166,7 @@ export function useSentinelHub(): UseSentinelHubReturn {
       date: Date,
       layer: LayerType = 'TRUE-COLOR'
     ) => {
-      if (!isInitialized || !credentials) {
+      if (!isInitialized || !sentinelToken) {
         setError('Sentinel Hub yapılandırılmamış. Ayarlar sayfasından yapılandırın.');
         return;
       }
@@ -203,7 +175,6 @@ export function useSentinelHub(): UseSentinelHubReturn {
       setError(null);
 
       try {
-        // End date = start date + 1 day for single day query
         const endDate = new Date(date);
         endDate.setDate(endDate.getDate() + 1);
 
@@ -216,15 +187,13 @@ export function useSentinelHub(): UseSentinelHubReturn {
             width: 512,
             height: 512,
           },
-          credentials
+          sentinelToken,
         );
 
-        // Revoke previous URL to prevent memory leaks
         if (previousImageUrl.current) {
           URL.revokeObjectURL(previousImageUrl.current);
         }
 
-        // Create new object URL for the image
         const url = URL.createObjectURL(blob);
         previousImageUrl.current = url;
         setImageUrl(url);
@@ -235,7 +204,7 @@ export function useSentinelHub(): UseSentinelHubReturn {
         setIsLoading(false);
       }
     },
-    [isInitialized, credentials]
+    [isInitialized, sentinelToken]
   );
 
   /**
@@ -243,29 +212,28 @@ export function useSentinelHub(): UseSentinelHubReturn {
    */
   const fetchAvailableDates = useCallback(
     async (bbox: [number, number, number, number], from: Date, to: Date) => {
-      if (!isInitialized || !credentials) {
-        return;
-      }
+      if (!isInitialized || !sentinelToken) return;
 
       try {
-        const dates = await getAvailableDates(bbox, from, to, credentials);
+        const dates = await getAvailableDates(bbox, from, to, sentinelToken);
         setAvailableDates(dates);
       } catch (err) {
-        console.error('Failed to fetch available dates:', err);
+        if (import.meta.env.DEV) console.error('Failed to fetch available dates:', err);
         setAvailableDates([]);
       }
     },
-    [isInitialized, credentials]
+    [isInitialized, sentinelToken]
   );
 
   /**
-   * Refresh credentials from backend
+   * Refresh token and status from backend
    */
   const refreshCredentials = useCallback(async () => {
     setIsInitialized(false);
-    await fetchCredentials();
+    setSentinelToken(null);
     await fetchStatus();
-  }, [fetchCredentials, fetchStatus]);
+    await fetchToken();
+  }, [fetchStatus, fetchToken]);
 
   /**
    * Clear image cache

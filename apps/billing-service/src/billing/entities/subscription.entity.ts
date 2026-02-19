@@ -10,8 +10,8 @@ import {
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
-import { ObjectType, Field, ID, registerEnumType, Float, Int } from '@nestjs/graphql';
-import { forwardRef } from '@nestjs/common';
+import { ObjectType, Field, HideField, ID, registerEnumType, Float, Int } from '@nestjs/graphql';
+// forwardRef removed - not needed with string-based lazy loading
 
 export enum SubscriptionStatus {
   TRIAL = 'trial',
@@ -99,16 +99,16 @@ export class Subscription {
   id!: string;
 
   @Field()
-  @Column()
+  @Column({ name: 'tenant_id' })
   @Index()
   tenantId!: string;
 
   @Field(() => PlanTier)
-  @Column({ type: 'enum', enum: PlanTier })
+  @Column({ type: 'enum', enum: PlanTier, name: 'plan_tier' })
   planTier!: PlanTier;
 
   @Field()
-  @Column()
+  @Column({ name: 'plan_name' })
   planName!: string;
 
   @Field(() => SubscriptionStatus)
@@ -116,7 +116,7 @@ export class Subscription {
   status!: SubscriptionStatus;
 
   @Field(() => BillingCycle)
-  @Column({ type: 'enum', enum: BillingCycle })
+  @Column({ type: 'enum', enum: BillingCycle, name: 'billing_cycle' })
   billingCycle!: BillingCycle;
 
   @Field(() => PlanLimits)
@@ -128,43 +128,43 @@ export class Subscription {
   pricing!: PlanPricing;
 
   @Field(() => Date)
-  @Column({ type: 'timestamptz' })
+  @Column({ type: 'timestamptz', name: 'start_date' })
   startDate!: Date;
 
   @Field(() => Date, { nullable: true })
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true, name: 'end_date' })
   endDate?: Date;
 
   @Field(() => Date)
-  @Column({ type: 'timestamptz' })
+  @Column({ type: 'timestamptz', name: 'current_period_start' })
   currentPeriodStart!: Date;
 
   @Field(() => Date)
-  @Column({ type: 'timestamptz' })
+  @Column({ type: 'timestamptz', name: 'current_period_end' })
   currentPeriodEnd!: Date;
 
   @Field(() => Date, { nullable: true })
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true, name: 'trial_end_date' })
   trialEndDate?: Date;
 
   @Field(() => Date, { nullable: true })
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true, name: 'cancelled_at' })
   cancelledAt?: Date;
 
   @Field({ nullable: true })
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, name: 'cancellation_reason' })
   cancellationReason?: string;
 
   @Field()
-  @Column({ default: true })
+  @Column({ default: true, name: 'auto_renew' })
   autoRenew!: boolean;
 
-  @Field({ nullable: true })
-  @Column({ nullable: true })
+  @HideField()
+  @Column({ nullable: true, name: 'stripe_subscription_id' })
   stripeSubscriptionId?: string;
 
-  @Field({ nullable: true })
-  @Column({ nullable: true })
+  @HideField()
+  @Column({ nullable: true, name: 'stripe_customer_id' })
   stripeCustomerId?: string;
 
   // Note: invoices field resolved via field resolver to avoid circular dependency
@@ -187,11 +187,11 @@ export class Subscription {
   updatedAt!: Date;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'created_by' })
   createdBy?: string;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'updated_by' })
   updatedBy?: string;
 
   @Field(() => Int)

@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { pbkdf2Sync, randomBytes, timingSafeEqual, createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import { promisify } from 'util';
@@ -10,7 +10,7 @@ import { Repository } from 'typeorm';
 
 import { EdgeDevice } from './entities/edge-device.entity';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * MQTT Authentication Service
@@ -46,8 +46,8 @@ export class MqttAuthService implements OnModuleInit {
   // Service account credentials (hashes from env vars)
   private readonly serviceAccounts: Map<string, string> = new Map();
 
-  // Superuser list (service accounts with full topic access)
-  private readonly superusers = new Set(['backend_service', 'sensor_service']);
+  // Service accounts with per-topic-pattern grants (no superuser access)
+  private readonly serviceAccountNames = new Set(['backend_service', 'sensor_service', 'alert_service']);
 
   // PBKDF2 iteration counts per auth mode
   // HTTP mode: Mosquitto never parses the hash - our service verifies it, so use OWASP-recommended count
@@ -56,8 +56,10 @@ export class MqttAuthService implements OnModuleInit {
   private static readonly FILE_MODE_ITERATIONS = 101;
 
   // In-memory cache: mqttClientId → tenantId (prevents N+1 DB queries on ACL checks)
+  // Max 10,000 entries with LRU-style eviction to prevent unbounded memory growth (LOW-02)
   private readonly tenantIdCache = new Map<string, { tenantId: string; expiresAt: number }>();
   private readonly TENANT_CACHE_TTL_MS = 300_000; // 5 minutes
+  private static readonly TENANT_CACHE_MAX_SIZE = 10_000;
 
   constructor(
     private readonly configService: ConfigService,
@@ -134,11 +136,12 @@ export class MqttAuthService implements OnModuleInit {
   }
 
   /**
-   * Check if username is a superuser (bypasses ACL).
-   * Service accounts like backend_service and sensor_service are superusers.
+   * Check if username is a superuser.
+   * Always returns false — no accounts bypass ACL.
+   * All service accounts use per-topic-pattern grants instead.
    */
-  isSuperuser(username: string): boolean {
-    return this.superusers.has(username);
+  isSuperuser(_username: string): boolean {
+    return false;
   }
 
   /**
@@ -153,19 +156,14 @@ export class MqttAuthService implements OnModuleInit {
    * @param acc - Access type: 1=subscribe, 2=publish
    */
   async checkTopicAccess(username: string, topic: string, acc: number): Promise<boolean> {
-    // Superusers bypass ACL
-    if (this.isSuperuser(username)) {
-      return true;
+    // Service accounts: per-topic-pattern grants scoped to tenants
+    if (this.serviceAccountNames.has(username)) {
+      return this.checkServiceAccountAccess(username, topic, acc);
     }
 
-    // Service accounts with limited access
-    if (username === 'alert_service') {
-      return this.checkAlertServiceAccess(topic, acc);
-    }
-
-    // $SYS/ topics: superusers only (already handled above, deny for regular devices)
+    // $SYS/ topics: deny for all non-service accounts
     if (topic.startsWith('$SYS/')) {
-      return this.isSuperuser(username);
+      return false;
     }
 
     // Development topics: only allowed in non-production environments
@@ -208,28 +206,70 @@ export class MqttAuthService implements OnModuleInit {
   }
 
   /**
-   * Check alert_service specific access rules
+   * Check service account access using per-topic-pattern grants.
+   * Each service account is scoped to specific topic patterns instead of superuser.
    */
-  private checkAlertServiceAccess(topic: string, acc: number): boolean {
-    // Read sensor and edge data
-    if ((topic.startsWith('sensor/') || topic.startsWith('edge/')) && acc === 1) {
-      return true;
+  private checkServiceAccountAccess(username: string, topic: string, acc: number): boolean {
+    // Tenant-scoped topic pattern: tenants/{tenantId}/sensors/#, tenants/{tenantId}/devices/#
+    const isTenantTopic = /^tenants\/[a-f0-9-]+\/(sensors|devices|alerts|commands)\//.test(topic);
+
+    switch (username) {
+      case 'backend_service':
+        // backend_service: read/write on all tenant-scoped topics
+        if (isTenantTopic) return true;
+        // Legacy topics during migration
+        if (topic.startsWith('sensor/') || topic.startsWith('edge/') || topic.startsWith('alerts/')) return true;
+        // $SYS read-only for monitoring
+        if (topic.startsWith('$SYS/') && acc === 1) return true;
+        return false;
+
+      case 'sensor_service':
+        // sensor_service: read/write on tenant-scoped sensor and device topics
+        if (isTenantTopic) return true;
+        // Legacy topics during migration
+        if (topic.startsWith('sensor/') || topic.startsWith('edge/')) return true;
+        // $SYS read-only for monitoring
+        if (topic.startsWith('$SYS/') && acc === 1) return true;
+        return false;
+
+      case 'alert_service':
+        // alert_service: read sensor/device data, write alerts (tenant-scoped only)
+        if (isTenantTopic && topic.includes('/alerts/') && acc === 2) return true;
+        if (isTenantTopic && (topic.includes('/sensors/') || topic.includes('/devices/')) && acc === 1) return true;
+        // Legacy topics: restricted to read-only, non-production only
+        if (this.configService.get('NODE_ENV') !== 'production') {
+          if ((topic.startsWith('sensor/') || topic.startsWith('edge/')) && acc === 1) return true;
+          if (topic.startsWith('alerts/') && acc === 2) return true;
+        }
+        return false;
+
+      default:
+        return false;
     }
-    // Write alerts
-    if (topic.startsWith('alerts/') && acc === 2) {
-      return true;
-    }
-    return false;
   }
 
   /**
    * Look up a device's tenantId, using an in-memory cache to avoid repeated DB queries.
    * ACL checks happen on every PUBLISH/SUBSCRIBE, so caching is critical.
+   *
+   * Security (LOW-02):
+   * - Rejects client IDs that do not match the expected 'edge-{...}-{...}' format early,
+   *   preventing repeated DB queries from random-client-ID floods.
+   * - Enforces a maximum cache size with LRU-style eviction (delete oldest entry when full).
    */
   private async getDeviceTenantId(username: string): Promise<string | null> {
+    // Early return for client IDs that cannot possibly be valid edge device identifiers
+    // Expected format: edge-{uuid}-{deviceCode} or similar structured prefix
+    if (!username.startsWith('edge-') && !this.serviceAccountNames.has(username)) {
+      return null;
+    }
+
     const now = Date.now();
     const cached = this.tenantIdCache.get(username);
     if (cached && now < cached.expiresAt) {
+      // Move to end (most-recently-used) by re-inserting
+      this.tenantIdCache.delete(username);
+      this.tenantIdCache.set(username, cached);
       return cached.tenantId;
     }
 
@@ -242,6 +282,14 @@ export class MqttAuthService implements OnModuleInit {
       // Remove stale cache entry if device no longer exists
       this.tenantIdCache.delete(username);
       return null;
+    }
+
+    // Enforce max cache size: evict the oldest entry (first inserted) before adding new one
+    if (this.tenantIdCache.size >= MqttAuthService.TENANT_CACHE_MAX_SIZE) {
+      const oldestKey = this.tenantIdCache.keys().next().value;
+      if (oldestKey) {
+        this.tenantIdCache.delete(oldestKey);
+      }
     }
 
     this.tenantIdCache.set(username, {
@@ -450,9 +498,9 @@ export class MqttAuthService implements OnModuleInit {
 
       const newContent = header + serviceSection + deviceEntries.join('\n') + '\n';
 
-      // Atomic write: temp file → fsync → rename
+      // Atomic write: temp file → fsync → rename (restrictive permissions)
       const tmpPath = this.passwordFilePath + '.tmp';
-      await fs.writeFile(tmpPath, newContent, 'utf-8');
+      await fs.writeFile(tmpPath, newContent, { encoding: 'utf-8', mode: 0o600 });
       const fileHandle = await fs.open(tmpPath, 'r');
       await fileHandle.datasync();
       await fileHandle.close();
@@ -483,7 +531,7 @@ export class MqttAuthService implements OnModuleInit {
       content = filteredLines.join('\n');
 
       const tmpPath = this.passwordFilePath + '.tmp';
-      await fs.writeFile(tmpPath, content, 'utf-8');
+      await fs.writeFile(tmpPath, content, { encoding: 'utf-8', mode: 0o600 });
       const fileHandle = await fs.open(tmpPath, 'r');
       await fileHandle.datasync();
       await fileHandle.close();
@@ -501,11 +549,16 @@ export class MqttAuthService implements OnModuleInit {
   private async reloadMosquitto(): Promise<boolean> {
     try {
       try {
-        await execAsync('kill -HUP $(pidof mosquitto) 2>/dev/null || true', { timeout: 5000 });
+        // Use execFile with explicit args to avoid shell injection
+        await execFileAsync('mosquitto_pid_reload', [], { timeout: 5000 }).catch(async () => {
+          // Fallback: use pkill to send SIGHUP without shell interpolation
+          await execFileAsync('pkill', ['-HUP', 'mosquitto'], { timeout: 5000 });
+        });
         this.logger.log('Mosquitto reload signal sent');
       } catch {
         try {
-          await execAsync('docker exec mosquitto kill -HUP 1 2>/dev/null || true', { timeout: 5000 });
+          // Docker fallback: use execFile with explicit args (no shell)
+          await execFileAsync('docker', ['exec', 'mosquitto', 'kill', '-HUP', '1'], { timeout: 5000 });
           this.logger.log('Mosquitto reload signal sent via Docker');
         } catch {
           this.logger.warn('Could not reload Mosquitto - may need manual restart');

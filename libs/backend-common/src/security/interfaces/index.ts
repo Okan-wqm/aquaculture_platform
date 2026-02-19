@@ -69,6 +69,21 @@ export interface ITokenBlacklist {
    * @returns true if token was issued before user blacklist entry
    */
   isUserBlacklisted(userId: string, tokenIssuedAt: Date): Promise<boolean>;
+
+  /**
+   * Composite check: validates a token is not individually blacklisted
+   * AND the user's tokens have not been bulk-invalidated.
+   *
+   * Auth guards MUST call this single method instead of calling
+   * isBlacklisted() and isUserBlacklisted() separately, to ensure
+   * both checks are always performed atomically.
+   *
+   * @param jti - JWT ID
+   * @param userId - User ID from token
+   * @param issuedAt - Token issued-at date
+   * @returns true if the token is valid (not blacklisted), false if invalid
+   */
+  isValidToken(jti: string, userId: string, issuedAt: Date): Promise<boolean>;
 }
 
 /**
@@ -225,7 +240,8 @@ export interface ConsentRecord {
 
 export interface ConsentStatus {
   userId: string;
-  consents: Map<ConsentType, boolean>;
+  /** Record instead of Map for correct JSON serialization */
+  consents: Record<ConsentType, boolean>;
   lastUpdated: Date;
   consentVersion: string;
 }
@@ -276,6 +292,20 @@ export interface DataExportResult {
 }
 
 export interface DataDeletionOptions {
+  /**
+   * Controls deletion execution mode.
+   *
+   * - `true`  – Synchronous deletion: all user data is deleted within the
+   *   current request/transaction before the caller receives a response.
+   *   Use only for small datasets or in administrative/test contexts where
+   *   latency is acceptable.
+   *
+   * - `false` (default) – Asynchronous/queued deletion: a deletion job is
+   *   enqueued and the caller receives an immediate acknowledgement with a
+   *   `requestId`. The actual deletion happens in the background. This is
+   *   the recommended mode for production use as it prevents request
+   *   timeouts and allows for audit trails and rollback windows.
+   */
   immediate?: boolean;
   retainAuditLogs?: boolean;
   notifyThirdParties?: boolean;
@@ -322,8 +352,8 @@ export enum SecurityEventType {
   ACCOUNT_UNLOCKED = 'account_unlocked',
 }
 
-export interface SecurityEvent {
-  id?: string;
+/** Security event input (pre-insert, no ID yet) */
+export interface SecurityEventInput {
   eventType: SecurityEventType;
   userId?: string;
   tenantId?: string;
@@ -334,11 +364,16 @@ export interface SecurityEvent {
   severity: 'low' | 'medium' | 'high' | 'critical';
 }
 
+/** Security event (post-insert, always has ID) */
+export interface SecurityEvent extends SecurityEventInput {
+  id: string;
+}
+
 /**
  * Security Audit Logger Interface
  */
 export interface ISecurityAuditLogger {
-  log(event: SecurityEvent): Promise<void>;
+  log(event: SecurityEventInput): Promise<void>;
   query(filters: SecurityEventFilters): Promise<SecurityEvent[]>;
 }
 

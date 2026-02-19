@@ -4,7 +4,7 @@
  * Modal for creating a new cleaner fish batch.
  */
 import React, { useState, useCallback } from 'react';
-import { Modal, Button } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast } from '@aquaculture/shared-ui';
 import {
   useCreateCleanerBatch,
   CleanerFishSpecies,
@@ -38,6 +38,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
 
   // Mutation
   const createBatch = useCreateCleanerBatch();
+  const { toast } = useToast();
 
   // Reset form
   const resetForm = useCallback(() => {
@@ -76,8 +77,8 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
       resetForm();
       onSuccess();
     } catch (error) {
-      console.error('Failed to create cleaner batch:', error);
-      alert(error instanceof Error ? error.message : 'Failed to create batch');
+      if (import.meta.env.DEV) console.error('Failed to create cleaner batch:', error);
+      toast({ title: 'Error', description: 'Failed to create batch. Please try again.', variant: 'error' });
     }
   };
 
@@ -253,6 +254,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
           <textarea
             id="notes"
             rows={3}
+            maxLength={2000}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"

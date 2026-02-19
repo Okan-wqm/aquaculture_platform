@@ -82,12 +82,9 @@ variable "master_username" {
   default     = "aquaculture"
 }
 
-variable "master_password" {
-  description = "Master password (generated if empty)"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
+# SEC-011 fix: master_password variable removed entirely. Passwords are always
+# generated via random_password in main.tf. This prevents plaintext credentials
+# from being passed via -var flags and ending up in the S3 state file.
 
 variable "port" {
   description = "Database port"
@@ -175,6 +172,19 @@ variable "parameters" {
     apply_method = optional(string)
   }))
   default = []
+}
+
+# SEC-010 fix: variables for Secrets Manager automatic rotation
+variable "enable_secret_rotation" {
+  description = "Enable automatic Secrets Manager rotation for the RDS password"
+  type        = bool
+  default     = false
+}
+
+variable "rotation_lambda_arn" {
+  description = "ARN of the Secrets Manager rotation Lambda (required when enable_secret_rotation = true)"
+  type        = string
+  default     = ""
 }
 
 variable "tags" {

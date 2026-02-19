@@ -1,6 +1,7 @@
-import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, HttpCode, HttpStatus, Res } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { Response } from 'express';
 import { Public, SkipTenantGuard } from '@platform/backend-common';
 
 @Controller('health')
@@ -19,27 +20,28 @@ export class HealthController {
   }
 
   @Get('ready')
-  @HttpCode(HttpStatus.OK)
-  async readiness(): Promise<{ status: 'ok' | 'not_ready'; database: boolean }> {
-    return {
-      status: this.dataSource.isInitialized ? 'ok' : 'not_ready',
-      database: this.dataSource.isInitialized,
-    };
+  async readiness(@Res() res: Response): Promise<void> {
+    let dbReady = false;
+    try {
+      if (this.dataSource.isInitialized) {
+        await this.dataSource.query('SELECT 1');
+        dbReady = true;
+      }
+    } catch {
+      dbReady = false;
+    }
+
+    const status = dbReady ? 'ok' : 'not_ready';
+    const httpStatus = dbReady ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
+
+    res.status(httpStatus).json({ status, database: dbReady });
   }
 
   @Get()
   @HttpCode(HttpStatus.OK)
-  async health(): Promise<{
-    status: 'ok';
-    timestamp: string;
-    uptime: number;
-    database: boolean;
-  }> {
-    return {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      database: this.dataSource.isInitialized,
-    };
+  health(): { status: 'ok' } {
+    // Minimal response: uptime and database connectivity are omitted to prevent
+    // reconnaissance. Detailed readiness is available via /health/ready (internal only).
+    return { status: 'ok' };
   }
 }

@@ -3,6 +3,8 @@ import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 
+import { TenantCreatedEvent } from '@app/event-contracts';
+
 import { AuditLogService } from '../../audit/audit.service';
 import { PlanTier, BillingCycle } from '../../billing/entities/plan-definition.entity';
 import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
@@ -109,19 +111,19 @@ export class CreateTenantHandler
         },
       });
 
-      // Publish domain event
-      this.eventBus.publish({
+      // Publish domain event — flat object conforming to TenantCreatedEvent.
+      // Billing-relevant fields (tier, moduleIds) are carried by
+      // TenantSubscriptionRequestedEvent published later in the flow.
+      const tenantCreatedEvent: TenantCreatedEvent = {
+        eventId: crypto.randomUUID(),
         eventType: 'TenantCreated',
-        payload: {
-          tenantId: savedTenant.id,
-          slug: savedTenant.slug,
-          name: savedTenant.name,
-          tier: savedTenant.tier,
-          moduleIds: data.moduleIds,
-          createdBy,
-        },
         timestamp: new Date(),
-      });
+        tenantId: savedTenant.id,
+        slug: savedTenant.slug,
+        name: savedTenant.name,
+        version: 1,
+      };
+      this.eventBus.publish(tenantCreatedEvent);
 
       // SYNCHRONOUS provisioning - schema MUST exist before tenant is usable
       // This ensures tenant data isolation is set up before returning
@@ -173,14 +175,14 @@ export class CreateTenantHandler
 
           // Emit failure event for monitoring/alerting
           this.eventBus.publish({
+            eventId: crypto.randomUUID(),
             eventType: 'TenantProvisioningFailed',
-            payload: {
-              tenantId: savedTenant.id,
-              error: provisionResult.error,
-              steps: provisionResult.steps,
-              duration: provisionDuration,
-            },
             timestamp: new Date(),
+            tenantId: savedTenant.id,
+            error: provisionResult.error,
+            steps: provisionResult.steps,
+            duration: provisionDuration,
+            version: 1,
           });
         }
 
@@ -301,19 +303,19 @@ export class CreateTenantHandler
 
       // Publish subscription requested event for billing service
       this.eventBus.publish({
+        eventId: crypto.randomUUID(),
         eventType: 'TenantSubscriptionRequested',
-        payload: {
-          tenantId: tenant.id,
-          tenantName: tenant.name,
-          moduleIds: data.moduleIds || [],
-          moduleQuantities: data.moduleQuantities,
-          trialDays: data.trialDays,
-          tier: planTier,
-          billingCycle: data.billingCycle || 'monthly',
-          billingEmail: data.billingEmail || data.primaryContact?.email,
-          createdBy,
-        },
         timestamp: new Date(),
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        moduleIds: data.moduleIds || [],
+        moduleQuantities: data.moduleQuantities,
+        trialDays: data.trialDays,
+        tier: planTier,
+        billingCycle: data.billingCycle || 'monthly',
+        billingEmail: data.billingEmail || data.primaryContact?.email,
+        createdBy,
+        version: 1,
       });
 
       this.logger.log(`Subscription event published for tenant ${tenant.id}`);

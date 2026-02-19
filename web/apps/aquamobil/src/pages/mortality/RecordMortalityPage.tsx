@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { List, ListInput, Block, BlockTitle } from 'konsta/react';
+import { List, ListInput, BlockTitle } from 'konsta/react';
 import { ArrowLeft, Skull, CheckCircle, AlertCircle, Minus, Plus } from 'lucide-react';
 import { useTanks } from '@/hooks/useTanks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { MortalityReason } from '@/types';
 import { clsx } from 'clsx';
 
+// BUG-14: All 13 MortalityReason enum values from the backend schema are included.
+// Previously AMMONIA, PREDATION, CANNIBALISM, STARVATION, GENETIC were missing.
 const MORTALITY_REASONS: { value: MortalityReason; label: string; emoji: string }[] = [
   { value: 'DISEASE', label: 'Disease', emoji: '🦠' },
   { value: 'WATER_QUALITY', label: 'Water Quality', emoji: '💧' },
@@ -14,6 +16,11 @@ const MORTALITY_REASONS: { value: MortalityReason; label: string; emoji: string 
   { value: 'HANDLING', label: 'Handling', emoji: '🤲' },
   { value: 'TEMPERATURE', label: 'Temperature', emoji: '🌡️' },
   { value: 'OXYGEN', label: 'Low Oxygen', emoji: '💨' },
+  { value: 'AMMONIA', label: 'Ammonia', emoji: '⚗️' },
+  { value: 'PREDATION', label: 'Predation', emoji: '🦅' },
+  { value: 'CANNIBALISM', label: 'Cannibalism', emoji: '🐟' },
+  { value: 'STARVATION', label: 'Starvation', emoji: '🍽️' },
+  { value: 'GENETIC', label: 'Genetic', emoji: '🧬' },
   { value: 'UNKNOWN', label: 'Unknown', emoji: '❓' },
   { value: 'OTHER', label: 'Other', emoji: '📝' },
 ];
@@ -105,8 +112,10 @@ export function RecordMortalityPage() {
           <CheckCircle size={48} className="text-sea-600" />
         </div>
         <h2 className="text-xl font-bold text-sea-700 dark:text-sea-300">Recorded!</h2>
+        {/* BUG-08: All submissions go through the offline queue regardless of online
+            status. "Queued for sync" is always accurate. */}
         <p className="text-sea-600 dark:text-sea-400 text-sm mt-1">
-          {isOnline ? 'Saved to server' : 'Queued for sync'}
+          Queued for sync
         </p>
       </div>
     );

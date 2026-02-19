@@ -7,7 +7,7 @@ import { AlertEvaluationService } from '../services/alert-evaluation.service';
  * Sensor Reading Event interface
  */
 interface SensorReadingEvent extends IEvent {
-  eventType: 'SensorReading';
+  eventType: 'SensorReadingIngested';
   sensorId: string;
   readings: Record<string, number>;
   farmId?: string;
@@ -32,12 +32,13 @@ export class SensorReadingEventHandler
 
   async onModuleInit(): Promise<void> {
     // Subscribe to sensor reading events
-    await this.eventBus.subscribe('SensorReading', this);
-    this.logger.log('Subscribed to SensorReading events');
+    // Must match the topic published by sensor-service: 'SensorReadingIngested'
+    await this.eventBus.subscribe('SensorReadingIngested', this);
+    this.logger.log('Subscribed to SensorReadingIngested events');
   }
 
   getEventType(): string {
-    return 'SensorReading';
+    return 'SensorReadingIngested';
   }
 
   async handle(event: SensorReadingEvent): Promise<void> {

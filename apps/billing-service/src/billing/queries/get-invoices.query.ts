@@ -2,6 +2,8 @@ import { InvoiceStatus } from '../entities/invoice.entity';
 
 export interface InvoiceFilterInput {
   status?: InvoiceStatus;
+  /** Multiple statuses for combined queries (e.g., unpaid invoices) */
+  statuses?: InvoiceStatus[];
   startDate?: Date;
   endDate?: Date;
   offset?: number;

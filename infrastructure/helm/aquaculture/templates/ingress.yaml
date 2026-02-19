@@ -2,12 +2,18 @@
 =============================================================================
 Aquaculture Platform - Ingress
 =============================================================================
+Security headers are injected via nginx configuration-snippet annotation
+(values.yaml ingress.annotations). Rate limiting is applied at the nginx
+ingress controller layer in addition to the application-level rate limiting
+in gateway-api.
+=============================================================================
 */}}
 {{- if .Values.ingress.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "aquaculture.fullname" . }}-ingress
+  namespace: {{ .Values.namespace }}
   labels:
     {{- include "aquaculture.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}

@@ -168,13 +168,14 @@ impl GpioHandle {
         self.channel_size
     }
 
-    /// Send a command with retry logic (v1.2.0)
+    /// Send a command asynchronously (awaits until the actor channel has capacity).
     ///
-    /// Uses exponential backoff when channel is full.
-    /// Returns error after all retries exhausted.
+    /// This is a plain async channel send with no retry loop.
+    /// For fire-and-forget commands with retry-on-backpressure semantics,
+    /// use `try_send_with_retry()` instead.
     #[allow(dead_code)]
-    async fn send_with_retry(&self, cmd: GpioCommand) -> Result<(), String> {
-        // First try blocking send (most efficient for normal operation)
+    async fn send_async(&self, cmd: GpioCommand) -> Result<(), String> {
+        // Blocking send: suspends until the actor channel has capacity.
         match self.sender.send(cmd).await {
             Ok(()) => Ok(()),
             Err(e) => Err(format!("GPIO actor dead: {}", e)),
@@ -210,13 +211,16 @@ impl GpioHandle {
                         tokio::time::sleep(Duration::from_millis(delay)).await;
                     } else {
                         // v1.3.3: Log command details before returning error
+                        // BUG-014: include command type in the returned Err so callers
+                        // can identify which GPIO pin/command failed without needing
+                        // to correlate a separate warn! log line.
                         warn!(
                             "GPIO channel full after {} retries (buffer size: {}), command lost: {:?}",
                             GPIO_SEND_RETRIES, self.channel_size, cmd
                         );
                         return Err(format!(
-                            "GPIO channel full after {} retries - command dropped",
-                            GPIO_SEND_RETRIES
+                            "GPIO channel full after {} retries - command dropped: {:?}",
+                            GPIO_SEND_RETRIES, cmd
                         ));
                     }
                 }
@@ -507,6 +511,12 @@ impl GpioActor {
     fn read_all_pins(&self) -> GpioReadResult {
         let mut result = GpioReadResult::default();
 
+        // PERF-003: Generate one RFC 3339 timestamp for the entire GPIO read cycle
+        // rather than calling Utc::now().to_rfc3339() for each pin.  All pins are
+        // read in the same logical snapshot, so a shared cycle timestamp is correct
+        // and eliminates N String heap allocations per telemetry cycle.
+        let cycle_timestamp = chrono::Utc::now().to_rfc3339();
+
         for config in &self.configs {
             if config.direction != "input" {
                 continue;
@@ -532,7 +542,7 @@ impl GpioActor {
                     pin: config.pin,
                     direction: config.direction.clone(),
                     state: final_state,
-                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    timestamp: cycle_timestamp.clone(),
                 });
             } else {
                 result
@@ -547,6 +557,12 @@ impl GpioActor {
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
     fn read_all_pins(&self) -> GpioReadResult {
         let mut result = GpioReadResult::default();
+
+        // PERF-003: Generate one RFC 3339 timestamp for the entire GPIO read cycle
+        // rather than calling Utc::now().to_rfc3339() for each pin.  All pins are
+        // read in the same logical snapshot, so a shared cycle timestamp is correct
+        // and eliminates N String heap allocations per telemetry cycle.
+        let cycle_timestamp = chrono::Utc::now().to_rfc3339();
 
         for config in &self.configs {
             if config.direction != "input" {
@@ -573,7 +589,7 @@ impl GpioActor {
                 pin: config.pin,
                 direction: config.direction.clone(),
                 state: final_state,
-                timestamp: chrono::Utc::now().to_rfc3339(),
+                timestamp: cycle_timestamp.clone(),
             });
         }
 

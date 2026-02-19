@@ -4,7 +4,7 @@
  * Modal for recording cleaner fish mortality.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast } from '@aquaculture/shared-ui';
 import {
   useRecordCleanerMortality,
   useTankCleanerFish,
@@ -37,6 +37,7 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
 
   // Mutation
   const recordMortality = useRecordCleanerMortality();
+  const { toast } = useToast();
 
   // Get tank cleaner fish info
   const { data: tankInfo } = useTankCleanerFish(tankId || '');
@@ -93,8 +94,8 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
       onSuccess();
       onClose();
     } catch (error) {
-      console.error('Failed to record mortality:', error);
-      alert(error instanceof Error ? error.message : 'Failed to record mortality');
+      if (import.meta.env.DEV) console.error('Failed to record mortality:', error);
+      toast({ title: 'Error', description: 'Failed to record mortality. Please try again.', variant: 'error' });
     }
   };
 
@@ -216,6 +217,7 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
           <textarea
             id="notes"
             rows={3}
+            maxLength={2000}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"

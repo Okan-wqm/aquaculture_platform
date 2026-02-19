@@ -5,16 +5,18 @@ import {
   VfdCommand,
   VFD_COMMAND_NAMES,
 } from '../types/vfd.types';
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 
 // API base URL
 const API_URL = 'http://localhost:3000/graphql';
 
 // GraphQL fetch helper
 async function graphqlFetch<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
 
   const response = await fetch(API_URL, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

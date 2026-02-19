@@ -70,10 +70,20 @@ export class AlertRuleService {
       cooldownMinutes: data.cooldownMinutes ?? 5,
     });
 
-    const saved = await this.ruleRepository.save(rule);
-    this.logger.log(`Created alert rule ${saved.id}: ${saved.name}`);
-
-    return saved;
+    try {
+      const saved = await this.ruleRepository.save(rule);
+      this.logger.log(`Created alert rule ${saved.id}: ${saved.name}`);
+      return saved;
+    } catch (error: unknown) {
+      // Handle DB-level unique constraint violation for concurrent creates
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('unique') || msg.includes('duplicate') || msg.includes('23505')) {
+        throw new ConflictException(
+          `Alert rule with name "${data.name}" already exists`,
+        );
+      }
+      throw error;
+    }
   }
 
   /**
@@ -133,7 +143,7 @@ export class AlertRuleService {
     const rule = await this.getRule(ruleId, tenantId);
 
     // Apply updates
-    if (updates.name) rule.name = updates.name;
+    if (updates.name !== undefined && updates.name !== '') rule.name = updates.name;
     if (updates.description !== undefined) rule.description = updates.description;
     if (updates.farmId !== undefined) rule.farmId = updates.farmId;
     if (updates.pondId !== undefined) rule.pondId = updates.pondId;
@@ -226,8 +236,9 @@ export class AlertRuleService {
 
     query.orderBy('alert.triggeredAt', 'DESC');
 
+    const MAX_LIMIT = 500;
     const page = pagination?.page || 1;
-    const limit = pagination?.limit || 20;
+    const limit = Math.min(pagination?.limit || 20, MAX_LIMIT);
     const skip = (page - 1) * limit;
 
     query.skip(skip).take(limit);

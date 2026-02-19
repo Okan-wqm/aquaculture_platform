@@ -9,8 +9,8 @@ import {
   JoinColumn,
   Unique,
 } from 'typeorm';
-import { ObjectType, Field, ID, Float, registerEnumType } from '@nestjs/graphql';
-import { forwardRef } from '@nestjs/common';
+import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
+// forwardRef removed - not needed with string-based lazy loading
 
 /**
  * Status of a module within a subscription
@@ -30,34 +30,34 @@ registerEnumType(SubscriptionModuleStatus, { name: 'SubscriptionModuleStatus' })
  */
 @ObjectType()
 export class ModuleQuantities {
-  @Field(() => Number, { nullable: true })
+  @Field(() => Int, { nullable: true })
   users?: number;
 
-  @Field(() => Number, { nullable: true })
+  @Field(() => Int, { nullable: true })
   farms?: number;
 
-  @Field(() => Number, { nullable: true })
+  @Field(() => Int, { nullable: true })
   ponds?: number;
 
-  @Field(() => Number, { nullable: true })
+  @Field(() => Int, { nullable: true })
   sensors?: number;
 
-  @Field(() => Number, { nullable: true })
+  @Field(() => Int, { nullable: true })
   devices?: number;
 
-  @Field(() => Number, { nullable: true })
+  @Field(() => Int, { nullable: true })
   storageGb?: number;
 
-  @Field(() => Number, { nullable: true })
+  @Field(() => Int, { nullable: true })
   apiCalls?: number;
 
-  @Field(() => Number, { nullable: true })
+  @Field(() => Int, { nullable: true })
   alerts?: number;
 
-  @Field(() => Number, { nullable: true })
+  @Field(() => Int, { nullable: true })
   reports?: number;
 
-  @Field(() => Number, { nullable: true })
+  @Field(() => Int, { nullable: true })
   integrations?: number;
 }
 
@@ -118,33 +118,33 @@ export class SubscriptionModuleItem {
    * Parent subscription
    */
   @Field()
-  @Column('uuid')
+  @Column({ type: 'uuid', name: 'subscription_id' })
   subscriptionId!: string;
 
   // Bi-directional relationship - using string-based lazy loading to avoid circular dependency
   @ManyToOne('Subscription', 'moduleItems', { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'subscriptionId' })
+  @JoinColumn({ name: 'subscription_id' })
   subscription!: import('./subscription.entity').Subscription;
 
   /**
    * Reference to system module
    */
   @Field()
-  @Column('uuid')
+  @Column({ type: 'uuid', name: 'module_id' })
   moduleId!: string;
 
   /**
    * Module code for convenience
    */
   @Field()
-  @Column({ type: 'varchar', length: 50 })
+  @Column({ type: 'varchar', length: 50, name: 'module_code' })
   moduleCode!: string;
 
   /**
    * Module name for display
    */
   @Field()
-  @Column({ type: 'varchar', length: 100 })
+  @Column({ type: 'varchar', length: 100, name: 'module_name' })
   moduleName!: string;
 
   /**
@@ -158,7 +158,7 @@ export class SubscriptionModuleItem {
    * Pricing breakdown by metric
    */
   @Field(() => [ModuleLineItem])
-  @Column('jsonb', { default: [] })
+  @Column('jsonb', { default: [], name: 'line_items' })
   lineItems!: ModuleLineItem[];
 
   /**
@@ -172,7 +172,7 @@ export class SubscriptionModuleItem {
    * Module-specific discount
    */
   @Field(() => Float)
-  @Column('decimal', { precision: 12, scale: 2, default: 0 })
+  @Column('decimal', { precision: 12, scale: 2, default: 0, name: 'discount_amount' })
   discountAmount!: number;
 
   /**
@@ -204,14 +204,14 @@ export class SubscriptionModuleItem {
    * When this module was added to subscription
    */
   @Field(() => Date)
-  @Column({ type: 'timestamptz', default: () => 'NOW()' })
+  @Column({ type: 'timestamptz', default: () => 'NOW()', name: 'activated_at' })
   activatedAt!: Date;
 
   /**
    * When this module was cancelled/removed
    */
   @Field(() => Date, { nullable: true })
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true, name: 'cancelled_at' })
   cancelledAt!: Date | null;
 
   /**
@@ -263,6 +263,6 @@ export class SubscriptionModuleItem {
    * Calculate total from line items
    */
   calculateTotal(): number {
-    return this.lineItems.reduce((sum, li) => sum + li.total, 0);
+    return this.lineItems.reduce((sum, li) => sum + Number(li.total), 0);
   }
 }

@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
+import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
 
-// API base URL
-const API_URL = 'http://localhost:3000/graphql';
+// API base URL (SEC-003: use runtime/env config, not hardcoded localhost)
+const API_URL =
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL) ||
+  (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__?.API_URL) ||
+  'http://localhost:3000/graphql';
 
 // Types
 export interface SensorConnectionStatus {
@@ -106,11 +110,12 @@ const GET_SENSORS_QUERY = `
 
 // GraphQL fetch helper
 async function graphqlFetch<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
-  const token = localStorage.getItem('access_token');
-  const tenantId = localStorage.getItem('tenant_id');
+  const token = getAccessToken();
+  const tenantId = getTenantId();
 
   const response = await fetch(API_URL, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -139,8 +144,10 @@ export function useSensorList(filter?: SensorFilter, pagination?: Pagination) {
     setError(null);
 
     try {
-      // Note: Only pass 'page' because federation schema doesn't have 'pageSize' (conflict with farm-service)
+      // BUG-020: include filter in variables so server-side filtering is actually applied
       const result = await graphqlFetch<{ sensors: SensorListResult }>(GET_SENSORS_QUERY, {
+        // Note: Only pass 'page' because federation schema doesn't have 'pageSize' (conflict with farm-service)
+        ...(filter ? { filter } : {}),
         pagination: {
           page: pagination?.page || 1,
         },

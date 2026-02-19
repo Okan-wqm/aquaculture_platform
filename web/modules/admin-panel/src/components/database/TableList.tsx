@@ -12,6 +12,7 @@ import {
   Select,
   Skeleton,
 } from '@aquaculture/shared-ui';
+import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 
 // ============================================================================
 // Types
@@ -54,12 +55,13 @@ interface TableGroup {
 const API_BASE = '/api/database/explorer';
 
 const getAuthHeader = (): Record<string, string> => {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
 async function fetchTables(schema: string): Promise<TableInfo[]> {
   const response = await fetch(`${API_BASE}/schemas/${schema}/tables`, {
+    credentials: 'include',
     headers: { ...getAuthHeader() },
   });
   if (!response.ok) throw new Error('Failed to fetch tables');

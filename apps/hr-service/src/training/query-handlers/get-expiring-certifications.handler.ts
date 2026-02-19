@@ -33,7 +33,8 @@ export class GetExpiringCertificationsHandler
       .andWhere('ec.expiryDate <= :expiryDate', { expiryDate })
       .andWhere('ec.expiryDate > :today', { today })
       .andWhere('ec.isDeleted = false')
-      .orderBy('ec.expiryDate', 'ASC');
+      .orderBy('ec.expiryDate', 'ASC')
+      .take(100);
 
     // FIX: Use departmentHrId - Employee entity has departmentHrId, not departmentId
     if (departmentId) {

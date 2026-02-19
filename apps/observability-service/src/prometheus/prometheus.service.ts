@@ -1,18 +1,23 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import * as client from 'prom-client';
 
 export interface ServiceMetric {
   service: string;
-  tenantId?: string;
   labels: Record<string, string>;
   value: number;
   timestamp: Date;
 }
 
 @Injectable()
-export class PrometheusService implements OnModuleInit {
+export class PrometheusService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PrometheusService.name);
   private registry: client.Registry;
+  private defaultMetricsDispose: (() => void) | null = null;
+
+  // Cached metrics response to avoid blocking event loop on large registries
+  private cachedMetrics: string | null = null;
+  private cacheTimestamp = 0;
+  private readonly cacheTtlMs = 5000;
 
   // Platform metrics
   private httpRequestDuration!: client.Histogram;
@@ -37,9 +42,24 @@ export class PrometheusService implements OnModuleInit {
   }
 
   onModuleInit(): void {
+    // Clear the global default registry to prevent duplicate nodejs_* metric
+    // registration if any third-party library also calls collectDefaultMetrics()
+    // without specifying a custom registry.
+    client.register.clear();
+    // Clear our own registry in case of hot-reload / test re-initialisation
+    this.registry.clear();
     this.initializeMetrics();
     this.startDefaultMetrics();
     this.logger.log('Prometheus metrics initialized');
+  }
+
+  onModuleDestroy(): void {
+    if (this.defaultMetricsDispose) {
+      this.defaultMetricsDispose();
+      this.defaultMetricsDispose = null;
+    }
+    this.registry.clear();
+    this.logger.log('Prometheus metrics cleaned up');
   }
 
   private initializeMetrics(): void {
@@ -73,7 +93,7 @@ export class PrometheusService implements OnModuleInit {
       registers: [this.registry],
     });
 
-    // Business metrics
+    // Business metrics - aggregate by platform-wide dimensions only, no tenant_id/farm_id
     this.tenantCount = new client.Gauge({
       name: 'aquaculture_tenants_total',
       help: 'Total number of tenants by status',
@@ -83,22 +103,22 @@ export class PrometheusService implements OnModuleInit {
 
     this.activeUsers = new client.Gauge({
       name: 'aquaculture_active_users',
-      help: 'Number of active users',
-      labelNames: ['tenant_id', 'role'],
+      help: 'Number of active users by role',
+      labelNames: ['role'],
       registers: [this.registry],
     });
 
     this.sensorReadings = new client.Counter({
       name: 'aquaculture_sensor_readings_total',
       help: 'Total number of sensor readings processed',
-      labelNames: ['tenant_id', 'sensor_type', 'farm_id'],
+      labelNames: ['sensor_type'],
       registers: [this.registry],
     });
 
     this.alertsTriggered = new client.Counter({
       name: 'aquaculture_alerts_triggered_total',
       help: 'Total number of alerts triggered',
-      labelNames: ['tenant_id', 'severity', 'rule_type'],
+      labelNames: ['severity', 'rule_type'],
       registers: [this.registry],
     });
 
@@ -133,17 +153,23 @@ export class PrometheusService implements OnModuleInit {
   }
 
   private startDefaultMetrics(): void {
-    client.collectDefaultMetrics({
+    this.defaultMetricsDispose = client.collectDefaultMetrics({
       register: this.registry,
       prefix: 'nodejs_',
-    });
+    }) as unknown as (() => void);
   }
 
   /**
-   * Get all metrics in Prometheus format
+   * Get all metrics in Prometheus format (cached for 5s to avoid event-loop blocking)
    */
   async getMetrics(): Promise<string> {
-    return this.registry.metrics();
+    const now = Date.now();
+    if (this.cachedMetrics && now - this.cacheTimestamp < this.cacheTtlMs) {
+      return this.cachedMetrics;
+    }
+    this.cachedMetrics = await this.registry.metrics();
+    this.cacheTimestamp = now;
+    return this.cachedMetrics;
   }
 
   /**
@@ -187,36 +213,24 @@ export class PrometheusService implements OnModuleInit {
   }
 
   /**
-   * Set active users count
+   * Set active users count (aggregated by role only)
    */
-  setActiveUsers(tenantId: string, role: string, count: number): void {
-    this.activeUsers.set({ tenant_id: tenantId, role }, count);
+  setActiveUsers(role: string, count: number): void {
+    this.activeUsers.set({ role }, count);
   }
 
   /**
-   * Record sensor reading
+   * Record sensor reading (aggregated by sensor_type only)
    */
-  recordSensorReading(
-    tenantId: string,
-    sensorType: string,
-    farmId: string,
-  ): void {
-    this.sensorReadings.inc({
-      tenant_id: tenantId,
-      sensor_type: sensorType,
-      farm_id: farmId,
-    });
+  recordSensorReading(sensorType: string): void {
+    this.sensorReadings.inc({ sensor_type: sensorType });
   }
 
   /**
-   * Record alert triggered
+   * Record alert triggered (aggregated by severity and rule_type only)
    */
-  recordAlert(tenantId: string, severity: string, ruleType: string): void {
-    this.alertsTriggered.inc({
-      tenant_id: tenantId,
-      severity,
-      rule_type: ruleType,
-    });
+  recordAlert(severity: string, ruleType: string): void {
+    this.alertsTriggered.inc({ severity, rule_type: ruleType });
   }
 
   /**
@@ -263,9 +277,9 @@ export class PrometheusService implements OnModuleInit {
   }
 
   /**
-   * Reset all metrics (for testing)
+   * Reset all metrics (internal use only)
    */
-  resetMetrics(): void {
+  private resetMetrics(): void {
     this.registry.resetMetrics();
     this.logger.warn('All metrics have been reset');
   }

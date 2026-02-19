@@ -9,7 +9,7 @@ import { UpdateSupplierCommand } from '../commands/update-supplier.command';
 import { Supplier } from '../entities/supplier.entity';
 
 @CommandHandler(UpdateSupplierCommand)
-export class UpdateSupplierHandler implements ICommandHandler<UpdateSupplierCommand> {
+export class UpdateSupplierHandler implements ICommandHandler<UpdateSupplierCommand, Supplier> {
   private readonly logger = new Logger(UpdateSupplierHandler.name);
 
   constructor(

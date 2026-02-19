@@ -1,20 +1,12 @@
-import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { JwtModule } from '@nestjs/jwt';
 import { CqrsModule } from '@nestjs/cqrs';
-import { ThrottlerModule } from '@nestjs/throttler';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
-import {
-  RolesGuard,
-  TenantGuard,
-  UserContextMiddleware,
-  TenantContextMiddleware,
-  CorrelationIdMiddleware,
-} from '@platform/backend-common';
 import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -86,19 +78,6 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       }),
     }),
 
-    ThrottlerModule.forRoot([
-      {
-        name: 'short',
-        ttl: 1000,
-        limit: 20,
-      },
-      {
-        name: 'medium',
-        ttl: 60000,
-        limit: 500,
-      },
-    ]),
-
     CqrsModule,
     ConfigurationModule,
     HealthModule,
@@ -108,20 +87,6 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
     },
-    {
-      provide: APP_GUARD,
-      useClass: TenantGuard,
-    },
-    {
-      provide: APP_GUARD,
-      useClass: RolesGuard,
-    },
   ],
 })
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(CorrelationIdMiddleware, UserContextMiddleware, TenantContextMiddleware)
-      .forRoutes('*');
-  }
-}
+export class AppModule {}

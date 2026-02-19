@@ -195,7 +195,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     ref
   ) => {
     // BUG-017: Warn in development if both loading aliases are supplied
-    if (process.env.NODE_ENV !== 'production' && isLoadingProp && loading) {
+    if (import.meta.env.DEV && isLoadingProp && loading) {
       console.warn('Button: Both `isLoading` and `loading` props are set. Use `isLoading` — `loading` is deprecated.');
     }
     const isLoading = isLoadingProp || loading;

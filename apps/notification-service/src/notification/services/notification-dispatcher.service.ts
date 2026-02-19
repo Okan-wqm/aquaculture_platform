@@ -580,7 +580,7 @@ export class NotificationDispatcherService {
     );
 
     // Map raw DB rows to entity-like objects (column names are snake_case from PG)
-    const failedNotifications: NotificationLog[] = (claimed as Record<string, unknown>[]).map((row) => {
+    const failedNotifications: NotificationLog[] = (claimed as unknown as Record<string, unknown>[]).map((row) => {
       const log = new NotificationLog();
       log.id             = row['id'] as string;
       log.tenantId       = row['tenant_id'] as string;

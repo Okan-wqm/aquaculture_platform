@@ -84,13 +84,8 @@ export class HarvestBatchHandler
         : `Harvest Notes: ${command.notes}`;
     }
 
-    // Update pond biomass - decrement by harvested weight
+    // Update pond if needed after harvest
     if (pond && command.harvestedWeight) {
-      pond.currentBiomass = Math.max(
-        0,
-        (Number(pond.currentBiomass) || 0) - command.harvestedWeight,
-      );
-      pond.updatedBy = command.userId;
       await this.pondRepository.save(pond);
     }
 

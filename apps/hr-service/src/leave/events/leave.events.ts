@@ -1,10 +1,10 @@
-import { createBaseEvent } from '@app/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import type {
   LeaveRequestSubmittedEvent,
   LeaveApprovedEvent,
   LeaveRejectedEvent,
   LeaveCancelledEvent,
-} from '@app/event-contracts';
+} from '@platform/event-contracts';
 import { LeaveRequest } from '../entities/leave-request.entity';
 
 /**
@@ -19,6 +19,7 @@ export function createLeaveRequestSubmittedEvent(
       'LeaveRequestSubmitted',
       leaveRequest.tenantId,
     ),
+    eventType: 'LeaveRequestSubmitted' as const,
     leaveRequestId: leaveRequest.id,
     employeeId: leaveRequest.employeeId,
     leaveTypeId: leaveRequest.leaveTypeId,
@@ -38,6 +39,7 @@ export function createLeaveApprovedEvent(
 ): LeaveApprovedEvent {
   return {
     ...createBaseEvent<LeaveApprovedEvent>('LeaveApproved', leaveRequest.tenantId),
+    eventType: 'LeaveApproved' as const,
     leaveId: leaveRequest.id,
     employeeId: leaveRequest.employeeId,
     approvedBy,
@@ -54,6 +56,7 @@ export function createLeaveRejectedEvent(
 ): LeaveRejectedEvent {
   return {
     ...createBaseEvent<LeaveRejectedEvent>('LeaveRejected', leaveRequest.tenantId),
+    eventType: 'LeaveRejected' as const,
     leaveRequestId: leaveRequest.id,
     employeeId: leaveRequest.employeeId,
     rejectedBy,
@@ -71,6 +74,7 @@ export function createLeaveCancelledEvent(
 ): LeaveCancelledEvent {
   return {
     ...createBaseEvent<LeaveCancelledEvent>('LeaveCancelled', leaveRequest.tenantId),
+    eventType: 'LeaveCancelled' as const,
     leaveRequestId: leaveRequest.id,
     employeeId: leaveRequest.employeeId,
     cancelledBy,

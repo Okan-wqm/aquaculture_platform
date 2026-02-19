@@ -164,7 +164,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         const strMsg = String(msg);
         // Try to extract field name from messages like "email must be a valid email"
         const match = strMsg.match(/^(\w+)\s/);
-        const fieldName = match ? match[1] : '_general';
+        const fieldName = match?.[1] ?? '_general';
         if (!fields[fieldName]) {
           fields[fieldName] = [];
         }

@@ -1,4 +1,5 @@
-import { MigrationInterface, QueryRunner, Logger } from 'typeorm';
+import { MigrationInterface, QueryRunner } from 'typeorm';
+import { Logger } from '@nestjs/common';
 
 /**
  * Migration: Add feeder fields to daily_feeding_executions table

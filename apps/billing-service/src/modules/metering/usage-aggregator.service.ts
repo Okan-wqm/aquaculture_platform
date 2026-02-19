@@ -434,8 +434,8 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
     aggregation.totalUsage += quantity;
     aggregation.eventCount++;
     aggregation.averageUsage = aggregation.totalUsage / aggregation.eventCount;
-    aggregation.minUsage = Math.min(aggregation.minUsage, quantity);
-    aggregation.maxUsage = Math.max(aggregation.maxUsage, quantity);
+    aggregation.minUsage = Math.min(aggregation.minUsage ?? Infinity, quantity);
+    aggregation.maxUsage = Math.max(aggregation.maxUsage ?? -Infinity, quantity);
     aggregation.peakUsage = Math.max(aggregation.peakUsage, aggregation.totalUsage);
     aggregation.updatedAt = new Date();
 

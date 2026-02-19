@@ -243,4 +243,21 @@ export class RedisService implements OnModuleDestroy {
       return false;
     }
   }
+
+  async smembers(key: string): Promise<string[]> {
+    return this.client.smembers(this.prefixKey(key));
+  }
+
+  async sadd(key: string, ...members: string[]): Promise<number> {
+    return this.client.sadd(this.prefixKey(key), ...members);
+  }
+
+  async srem(key: string, ...members: string[]): Promise<number> {
+    return this.client.srem(this.prefixKey(key), ...members);
+  }
+
+  async scan(cursor: number, pattern: string, count?: number): Promise<[string, string[]]> {
+    const args: [string, string, string, string, string?, string?] = [String(cursor), 'MATCH', pattern, 'COUNT', String(count ?? 100)];
+    return this.client.scan(...args);
+  }
 }

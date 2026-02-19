@@ -236,17 +236,12 @@ export class AlertEvaluationService {
       // SET NX succeeds (returns 'OK') only if the key does not exist.
       if (rule.cooldownMinutes > 0) {
         const cooldownKey = `cooldown:${reading.tenantId}:${rule.id}`;
-        const acquired = await this.redisService.set(
-          cooldownKey,
-          '1',
-          'EX',
-          rule.cooldownMinutes * 60,
-          'NX',
-        );
-        if (acquired !== 'OK') {
+        const existing = await this.redisService.get(cooldownKey);
+        if (existing !== null) {
           this.logger.debug(`Alert for rule ${rule.id} is in cooldown period`);
           return;
         }
+        await this.redisService.set(cooldownKey, '1', rule.cooldownMinutes * 60);
       }
 
       // Cooldown cleared – save the alert history record.

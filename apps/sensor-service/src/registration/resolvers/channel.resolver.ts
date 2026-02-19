@@ -73,7 +73,7 @@ export class ChannelResolver {
   ): Promise<DiscoveryResultType> {
     const result = await this.discoveryService.discoverChannels(
       input.sampleData,
-      (input.payloadFormat as 'json' | 'csv' | 'text' | 'binary') || 'json',
+      (input.payloadFormat as 'json' | 'csv' | 'text') || 'json',
     );
 
     return {

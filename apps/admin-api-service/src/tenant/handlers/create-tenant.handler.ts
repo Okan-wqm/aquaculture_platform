@@ -3,7 +3,7 @@ import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 
-import { TenantCreatedEvent } from '@app/event-contracts';
+import { TenantCreatedEvent } from '@platform/event-contracts';
 
 import { AuditLogService } from '../../audit/audit.service';
 import { PlanTier, BillingCycle } from '../../billing/entities/plan-definition.entity';

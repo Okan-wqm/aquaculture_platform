@@ -153,7 +153,7 @@ export class AlertResolver {
    * Acknowledge an alert
    */
   @Mutation(() => AlertHistory, { name: 'acknowledgeAlert' })
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.OPERATOR)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async acknowledgeAlert(
     @Args('input') input: AcknowledgeAlertInput,
     @Tenant() tenantId: string,
@@ -173,7 +173,7 @@ export class AlertResolver {
    * Resolve an alert
    */
   @Mutation(() => AlertHistory, { name: 'resolveAlert' })
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.OPERATOR)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async resolveAlert(
     @Args('alertId', { type: () => ID }) alertId: string,
     @Tenant() tenantId: string,

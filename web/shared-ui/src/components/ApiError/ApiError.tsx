@@ -213,7 +213,7 @@ export const ApiError: React.FC<ApiErrorProps> = ({
           <p className={`mt-1 text-sm ${colors.text}`}>{appError.userMessage}</p>
 
           {/* Technical details (SEC-011: only shown in development — never in production) */}
-          {showDetails && process.env.NODE_ENV !== 'production' && (
+          {showDetails && import.meta.env.DEV && (
             <details className="mt-2">
               <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
                 Teknik detaylar

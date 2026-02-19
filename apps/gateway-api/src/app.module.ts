@@ -20,7 +20,7 @@ import {
   RedisModule,
   RedisService,
 } from '@platform/backend-common';
-import { StorageModule } from '@platform/storage';
+import { StorageModule, StorageConfig } from '@platform/storage';
 
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { AuthGuard, JwtPayload } from './guards/auth.guard';
@@ -384,7 +384,7 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
     StorageModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
+      useFactory: (configService: ConfigService): StorageConfig => {
         const nodeEnv = configService.get<string>('NODE_ENV', 'development');
         const isProduction = nodeEnv === 'production';
         const accessKey = configService.get<string>('MINIO_ACCESS_KEY', '');

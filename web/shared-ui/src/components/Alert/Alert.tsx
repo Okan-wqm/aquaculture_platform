@@ -124,7 +124,7 @@ export const Alert: React.FC<AlertProps> = ({
   className = '',
 }) => {
   // BUG-006: Warn if dismissible=true but no onDismiss handler is provided
-  if (dismissible && !onDismiss && process.env.NODE_ENV !== 'production') {
+  if (dismissible && !onDismiss && import.meta.env.DEV) {
     console.warn('Alert: dismissible={true} but onDismiss is not provided. The dismiss button will have no effect.');
   }
 

@@ -44,7 +44,7 @@ jobs:
 
       # SEC-CI-009/SEC-CI-002: Pinned to SHA (was @master)
       - name: Run Snyk to check for vulnerabilities
-        uses: snyk/actions/node@b98d498629f1c5e001d9cbe42ee4bc08d6f48b4e # pinned
+        uses: snyk/actions/node@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
@@ -53,7 +53,7 @@ jobs:
       # SEC-CI-009/SEC-CI-002: Pinned to SHA (was @master)
       - name: Upload Snyk results for PR comment
         if: github.event_name == 'pull_request'
-        uses: snyk/actions/node@b98d498629f1c5e001d9cbe42ee4bc08d6f48b4e # pinned
+        uses: snyk/actions/node@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
@@ -68,7 +68,7 @@ jobs:
 
       # SEC-CI-009/SEC-CI-002: Pinned to SHA (was @master)
       - name: Run Snyk to check for IaC vulnerabilities
-        uses: snyk/actions/iac@b98d498629f1c5e001d9cbe42ee4bc08d6f48b4e # pinned
+        uses: snyk/actions/iac@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:

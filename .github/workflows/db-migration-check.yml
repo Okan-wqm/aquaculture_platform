@@ -135,13 +135,26 @@ jobs:
           fi
           echo "All SQL migration files follow Flyway naming convention."
 
-      - name: Run Flyway validate
+      - name: Run Flyway validate per module
         if: steps.check-sql.outputs.has_sql == 'true'
         run: |
-          docker run --rm --network host \
-            -v "$PWD/database/migrations:/flyway/sql" \
-            flyway/flyway:10 \
-            -url="jdbc:postgresql://localhost:5432/aquaculture_flyway_test" \
-            -user=postgres \
-            -password=postgres \
-            validate
+          # Each module has its own V001..VN version sequence.
+          # Flyway requires globally-unique version numbers within a single scan,
+          # so we validate each subdirectory independently.
+          FAILED=0
+          for dir in database/migrations/core database/migrations/modules/*/; do
+            [ -d "$dir" ] || continue
+            if find "$dir" -maxdepth 1 -name "*.sql" | grep -q .; then
+              module=$(basename "$dir")
+              echo "--- Validating migrations in $dir (module: $module) ---"
+              docker run --rm --network host \
+                -v "$PWD/$dir:/flyway/sql" \
+                flyway/flyway:10 \
+                -url="jdbc:postgresql://localhost:5432/aquaculture_flyway_test" \
+                -user=postgres \
+                -password=postgres \
+                -schemas="flyway_check_${module}" \
+                validate || FAILED=1
+            fi
+          done
+          exit $FAILED

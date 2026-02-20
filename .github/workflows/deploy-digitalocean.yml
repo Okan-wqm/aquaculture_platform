@@ -7,7 +7,7 @@
 # - Deploy condition: only deploys when build succeeds
 # - Build timeout: 30 min max
 # - Optimized for 2GB RAM droplet (uses docker-compose.droplet.yml)
-# - SEC-CI-001: GHCR_TOKEN no longer injected into SSH script body
+# - SEC-CI-001: GHCR credentials injected via SSH envs (GITHUB_TOKEN + actor), not script body
 # - SEC-CI-002: All third-party actions pinned to full commit SHAs
 # - SEC-CI-005: DROPLET_HOST echo removed from verify step
 # - SEC-CI-007: npm tarball integrity verified against package-lock.json sha512
@@ -562,19 +562,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Deploy to DigitalOcean Droplet
         # SEC-CI-002: pinned to SHA
         uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.0.3
+        env:
+          # SEC-CI-001: GHCR credentials injected via SSH envs parameter (not embedded in
+          # script body). GITHUB_TOKEN is scoped to packages:read for this workflow run only.
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           command_timeout: 10m
-          # SEC-CI-001: GHCR_TOKEN is no longer injected into the SSH script body.
-          # The token must be pre-configured on the droplet in /etc/environment as GHCR_TOKEN
-          # and GHCR_USER, readable only by the deploy user. This prevents the literal token
-          # value from appearing in the SSH payload transmitted to the remote host.
+          envs: GHCR_USER,GHCR_TOKEN
           script: |
             set -e
             cd /var/aqua-saas

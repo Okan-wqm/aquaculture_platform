@@ -88,21 +88,17 @@ services:
     image: nats:2.10-alpine
     container_name: aqua-nats
     restart: unless-stopped
-    # ARCH-010: Use config file for explicit JetStream limits
-    # SEC-006/SEC-019: NATS is on aqua-internal (no external exposure). To enable
-    # per-service auth, see infrastructure/docker/nats/nats.conf and uncomment the
-    # authorization block, then set NATS_URL=nats://nats_service:${NATS_PASSWORD}@nats:4222
-    # in all backend service environments.
-    command: ["--config", "/etc/nats/nats.conf"]
+    # ARCH-010: JetStream enabled via CLI flags (avoids config file mount dependency)
+    # SEC-006/SEC-019: NATS is on aqua-internal only (no external exposure)
+    command: ["--js", "--sd", "/data", "--http_port", "8222", "--max_memory_store", "64MB", "--max_file_store", "1GB"]
     volumes:
       - nats_data:/data
-      - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
     networks:
       - aqua-internal
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 192M
           cpus: '0.25'
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 4222 || exit 1"]

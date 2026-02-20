@@ -50,7 +50,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
 
       - name: Build gateway-api (needed for data-source)
         run: npx nx build gateway-api

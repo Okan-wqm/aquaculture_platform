@@ -110,7 +110,7 @@ jobs:
             nx-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
 
       - name: Run all tests
         run: npx nx run-many -t lint test --all --parallel=3

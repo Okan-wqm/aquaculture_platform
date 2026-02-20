@@ -74,7 +74,7 @@ jobs:
             nx-ci-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
 
       # ARCH-CI-005: Use nx affected instead of global npm run scripts
       # Lint and type-check are non-blocking (continue-on-error) to prevent

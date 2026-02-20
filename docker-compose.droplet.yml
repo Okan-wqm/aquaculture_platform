@@ -243,8 +243,10 @@ services:
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@localhost.dev}
       SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - aqua-internal
     deploy:
@@ -279,8 +281,10 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - aqua-internal
     deploy:
@@ -314,8 +318,10 @@ services:
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - aqua-internal
     deploy:
@@ -351,8 +357,10 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - aqua-internal
     deploy:
@@ -386,8 +394,10 @@ services:
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - aqua-internal
     deploy:
@@ -421,8 +431,10 @@ services:
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - aqua-internal
     deploy:
@@ -456,8 +468,10 @@ services:
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - aqua-internal
     deploy:
@@ -491,8 +505,10 @@ services:
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - aqua-internal
     deploy:
@@ -530,8 +546,10 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
     depends_on:
-      - postgres
-      - nats
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
     networks:
       - aqua-internal
     deploy:
@@ -564,7 +582,8 @@ services:
       # observability-service uses its own dedicated database, not the main aquaculture db
       DB_NAME: aquaculture_observability
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     # Attached to aqua-internal only — no published ports, not reachable from external network
     networks:
       - aqua-internal
@@ -601,8 +620,10 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       CONFIG_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - aqua-internal
     deploy:

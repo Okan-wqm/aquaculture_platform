@@ -17,8 +17,9 @@ Thumbs.db
 # Environment
 .env
 .env.local
-*.pem
 *.key
+# Allow CA certificate (public, not secret)
+!certs/suderra-ca.pem
 
 # Logs
 *.log

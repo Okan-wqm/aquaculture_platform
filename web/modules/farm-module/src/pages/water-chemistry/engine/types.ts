@@ -151,6 +151,22 @@ export interface CalculatedOutputs {
   h2sDeltaPH: number;          // currentPH - criticalPH (positive = safe margin, opposite of NH3)
 }
 
+/** Single step in the on-demand forward dosing path */
+export interface OnDemandStep {
+  label: string;     // e.g. "Start", "After NaHCO₃", "Final"
+  dic: number;       // mmol/L
+  alk: number;       // meq/L
+  ph: number;
+  co2: number;       // mg/L
+  amountKg: number;  // amount added (0 for start)
+}
+
+/** One chemical + amount entry for on-demand dosing */
+export interface OnDemandInput {
+  reagentKey: string;  // reagent name (matches ReagentInfo.name)
+  amountGrams: number;
+}
+
 /** Convert alkalinity from mg/L CaCO3 to meq/L */
 export function alkMgToMeq(mgPerL: number): number {
   return mgPerL / 50.04345;

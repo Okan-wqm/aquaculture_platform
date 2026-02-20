@@ -19,10 +19,10 @@ import CalibrationPage from './pages/CalibrationPage';
 import SensorAnalyticsPage from './pages/SensorAnalyticsPage';
 import WidgetDashboardPage from './pages/WidgetDashboardPage';
 
-// Process Editor Pages
-import ProcessListPage from './pages/process/ProcessListPage';
-import ProcessEditorPage from './pages/process/ProcessEditorPage';
-import ProcessTemplatesPage from './pages/process/ProcessTemplatesPage';
+// Process Editor Pages (lazy loaded - reactflow is heavy and causes Module Federation issues if bundled in main chunk)
+const ProcessListPage = lazy(() => import('./pages/process/ProcessListPage'));
+const ProcessEditorPage = lazy(() => import('./pages/process/ProcessEditorPage'));
+const ProcessTemplatesPage = lazy(() => import('./pages/process/ProcessTemplatesPage'));
 
 // Automation Pages (lazy loaded)
 const AutomationProgramsPage = lazy(() => import('./pages/automation/AutomationProgramsPage'));

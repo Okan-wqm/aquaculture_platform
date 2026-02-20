@@ -30,12 +30,13 @@ import {
 } from './engine/ammonia-calc';
 import { criticalPHforCO2, generateCarbonateVsPHData, generateSaturationVsPHData } from './engine/co2-calc';
 import { generateDeffeyesChartData } from './engine/deffeyes-data';
-import { calculateDosingRecipes, reagentDirectionLine, calcDosingVisualization, REAGENTS } from './engine/reagents';
+import { calculateDosingRecipes, reagentDirectionLine, calcDosingVisualization, REAGENTS, calcForwardDosing } from './engine/reagents';
 
 // Component imports
 import InputPanel, { WaterChemistryInputs } from './components/InputPanel';
 import DeffeyesChart from './components/DeffeyesChart';
 import ResultsPanel from './components/ResultsPanel';
+import OnDemandPanel from './components/OnDemandPanel';
 // ============================================================================
 // CHART CARD WRAPPER
 // ============================================================================
@@ -95,6 +96,7 @@ const OverviewContent: React.FC = () => {
     'Add CO₂',
     'De-gas CO₂',
   ]);
+  const [onDemandAmounts, setOnDemandAmounts] = useState<Record<string, number>>({});
 
   // Convert inputs to engine parameters
   const alkMeq = alkMgToMeq(inputs.alkalinityMg);
@@ -264,6 +266,20 @@ const OverviewContent: React.FC = () => {
     };
   }, [inputs, alkMeq, targetAlkMeq, selectedReagents]);
 
+  // On-demand forward dosing path — derived from the amounts Record
+  const onDemandPath = useMemo(() => {
+    const activeInputs = REAGENTS
+      .filter(r => (onDemandAmounts[r.name] || 0) > 0)
+      .map(r => ({ reagentKey: r.name, amountGrams: onDemandAmounts[r.name] }));
+    if (activeInputs.length === 0) return [];
+    const currentDIC = calcDicOfAlk(alkMeq, inputs.pH, inputs.tempC, inputs.salinity);
+    return calcForwardDosing(
+      { dic: currentDIC, alk: alkMeq, tempC: inputs.tempC, salinity: inputs.salinity },
+      inputs.volume,
+      activeInputs,
+    );
+  }, [onDemandAmounts, alkMeq, inputs.pH, inputs.tempC, inputs.salinity, inputs.volume]);
+
   // Intersection points for UIA chart: current pH point + critical pH point
   const uiaIntersectionPoints = useMemo(() => {
     const points: Array<{ pH: number; UIA: number; label: string; color: string }> = [];
@@ -390,6 +406,8 @@ const OverviewContent: React.FC = () => {
         onChange={setInputs}
         selectedReagents={selectedReagents}
         onReagentsChange={setSelectedReagents}
+        onDemandAmounts={onDemandAmounts}
+        onDemandAmountsChange={setOnDemandAmounts}
       />
 
       {/* Print button */}
@@ -404,6 +422,12 @@ const OverviewContent: React.FC = () => {
           Print Report
         </button>
       </div>
+
+      {/* Dosing Simulator Results — appears between input and charts when active */}
+      <OnDemandPanel
+        steps={onDemandPath}
+        co2ToxicMgL={inputs.co2Toxic}
+      />
 
       {/* ROW 2: 3-Column Chart Layout - [UIA+H2S] | [Deffeyes] | [CO2+Calcite] */}
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_1.6fr_1fr] gap-4 items-stretch">
@@ -496,7 +520,7 @@ const OverviewContent: React.FC = () => {
         </div>
 
         {/* Center Column: Deffeyes Diagram (bigger) */}
-        <DeffeyesChart data={deffeyesDataWithReagent} />
+        <DeffeyesChart data={deffeyesDataWithReagent} onDemandPath={onDemandPath.length > 1 ? onDemandPath : undefined} />
 
         {/* Right Column: CO2 + Calcite stacked */}
         <div className="space-y-4 flex flex-col">
@@ -544,6 +568,7 @@ const OverviewContent: React.FC = () => {
 
       {/* ROW 3: Results - UIA Status | Calculated Values | Dosing Recipes */}
       <ResultsPanel outputs={outputs} />
+
 
     </div>
   );

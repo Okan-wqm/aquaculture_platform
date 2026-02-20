@@ -9,7 +9,8 @@
  * 4. Calculate amounts for each reagent
  */
 
-import { ReagentInfo, DosingResult, DosingRecipe, DosingVisualization } from './types';
+import { ReagentInfo, DosingResult, DosingRecipe, DosingVisualization, OnDemandStep, OnDemandInput } from './types';
+import { calcPhForAlkDic, calcCo2OfDic, co2MmToMg } from './water-quality';
 
 // ============================================================================
 // REAGENT DATABASE
@@ -477,4 +478,112 @@ export function calcDosingVisualization(
     step1Label: `Step 1: ${lower.formula}`,
     step2Label: `Step 2: ${higher.formula}`,
   };
+}
+
+// ============================================================================
+// FORWARD (ON-DEMAND) DOSING CALCULATOR
+// ============================================================================
+
+/**
+ * Compute delta_DIC (mmol/L) and delta_ALK (meq/L) for a given reagent amount.
+ *
+ * Direction rules (from reagent radians / slope):
+ *   - slope === 0, radians === 0     → Add CO₂:   +DIC, 0 ALK
+ *   - slope === 0, radians === π     → De-gas CO₂: -DIC, 0 ALK
+ *   - slope === Inf, radians === π/2 → Base (NaOH etc.): 0 DIC, +ALK
+ *   - slope === Inf, radians === 3π/2→ Acid (HCl): 0 DIC, -ALK
+ *   - finite slope                   → Diagonal: +DIC, +slope*DIC
+ */
+function reagentDeltas(
+  reagent: ReagentInfo,
+  amountGrams: number,
+  volumeL: number
+): { deltaDIC: number; deltaALK: number } {
+  const moles = amountGrams / reagent.mw;
+  const concMmolL = (moles * 1000) / volumeL;  // mmol/L
+
+  if (reagent.slope === 0) {
+    // Horizontal: CO₂ add or degas
+    const sign = Math.abs(reagent.radians) < 0.01 ? 1 : -1;  // radians≈0 → add, radians≈π → degas
+    return { deltaDIC: sign * concMmolL, deltaALK: 0 };
+  }
+
+  if (!isFinite(reagent.slope)) {
+    // Vertical: base or acid
+    const sign = reagent.radians < Math.PI ? 1 : -1;  // π/2 → base (up), 3π/2 → acid (down)
+    return { deltaDIC: 0, deltaALK: sign * reagent.meqPerMol * concMmolL };
+  }
+
+  // Diagonal reagent: 1 mol reagent → 1 mmol DIC + meqPerMol meq ALK
+  return { deltaDIC: concMmolL, deltaALK: reagent.meqPerMol * concMmolL };
+}
+
+/**
+ * Forward dosing calculator: given current water state and a sequential list
+ * of chemical additions, compute the resulting (DIC, ALK, pH, CO₂) after each step.
+ *
+ * @param current - Current water state (DIC mmol/L, ALK meq/L, tempC, salinity)
+ * @param volumeM3 - System volume in m³
+ * @param steps - List of {reagentKey, amountGrams} to apply in order
+ * @returns Array of OnDemandStep, starting with "Start" and ending with "Final"
+ */
+export function calcForwardDosing(
+  current: { dic: number; alk: number; tempC: number; salinity: number },
+  volumeM3: number,
+  steps: OnDemandInput[]
+): OnDemandStep[] {
+  const volumeL = volumeM3 * 1000;
+
+  const startPH = calcPhForAlkDic(current.alk, current.dic, current.tempC, current.salinity);
+  const startCO2mm = calcCo2OfDic(current.dic, startPH, current.tempC, current.salinity);
+
+  const result: OnDemandStep[] = [
+    {
+      label: 'Start',
+      dic: current.dic,
+      alk: current.alk,
+      ph: startPH,
+      co2: co2MmToMg(startCO2mm),
+      amountKg: 0,
+    },
+  ];
+
+  let dic = current.dic;
+  let alk = current.alk;
+
+  for (let i = 0; i < steps.length; i++) {
+    const { reagentKey, amountGrams } = steps[i];
+    if (amountGrams <= 0) continue;
+
+    const reagent = REAGENTS.find(r => r.name === reagentKey);
+    if (!reagent) continue;
+
+    const { deltaDIC, deltaALK } = reagentDeltas(reagent, amountGrams, volumeL);
+    dic = dic + deltaDIC;
+    alk = alk + deltaALK;
+
+    // Clamp to physically valid range
+    dic = Math.max(0, dic);
+    alk = Math.max(0, alk);
+
+    const ph = calcPhForAlkDic(alk, dic, current.tempC, current.salinity);
+    const co2mm = calcCo2OfDic(dic, ph, current.tempC, current.salinity);
+
+    const isLast = i === steps.length - 1;
+    result.push({
+      label: isLast ? `Final (${reagent.formula})` : `+ ${reagent.formula} ${amountGrams.toFixed(1)}g`,
+      dic,
+      alk,
+      ph,
+      co2: co2MmToMg(co2mm),
+      amountKg: amountGrams / 1000,
+    });
+  }
+
+  // Rename last step as "Final" if more than one reagent step
+  if (result.length > 2) {
+    result[result.length - 1].label = 'Final';
+  }
+
+  return result;
 }

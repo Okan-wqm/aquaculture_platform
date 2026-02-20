@@ -5,6 +5,7 @@
  * /sites/* route'larını yönetir.
  */
 
+import './styles.css';
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import FarmDetailPage from './pages/FarmDetailPage';

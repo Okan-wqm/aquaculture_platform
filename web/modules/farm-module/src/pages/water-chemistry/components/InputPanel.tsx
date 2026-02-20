@@ -32,9 +32,11 @@ interface InputPanelProps {
   onChange: (inputs: WaterChemistryInputs) => void;
   selectedReagents: string[];
   onReagentsChange: (selected: string[]) => void;
+  onDemandAmounts?: Record<string, number>;
+  onDemandAmountsChange?: (amounts: Record<string, number>) => void;
 }
 
-type InputTab = 'system' | 'realtime' | 'target' | 'toxic' | 'reagents';
+type InputTab = 'system' | 'realtime' | 'target' | 'toxic' | 'reagents' | 'simulator';
 
 const FISH_TYPES: FishType[] = [
   'Arctic Charr', 'Atlantic Salmon', 'Rainbow Trout', 'Brown Trout',
@@ -51,9 +53,10 @@ const INPUT_TABS: Array<{ id: InputTab; label: string }> = [
   { id: 'target', label: 'Target' },
   { id: 'toxic', label: 'Toxic Limits' },
   { id: 'reagents', label: 'Reagents' },
+  { id: 'simulator', label: 'Simulator' },
 ];
 
-const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReagents, onReagentsChange }) => {
+const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReagents, onReagentsChange, onDemandAmounts = {}, onDemandAmountsChange }) => {
   const [activeTab, setActiveTab] = useState<InputTab>('realtime');
 
   const update = (field: keyof WaterChemistryInputs, value: number | string | boolean) => {
@@ -193,6 +196,49 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
                 <span className="text-[10px] text-gray-400">{reagent.mw.toFixed(0)} g/mol</span>
               </label>
             ))}
+          </div>
+        )}
+
+        {activeTab === 'simulator' && (
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+            {REAGENTS.map((reagent) => {
+              const amount = onDemandAmounts[reagent.name] || 0;
+              const isActive = amount > 0;
+              return (
+                <div key={reagent.name} className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded ${isActive ? 'bg-orange-50' : ''}`}>
+                  <span className={`text-xs font-medium whitespace-nowrap ${isActive ? 'text-orange-700' : 'text-gray-600'}`}>
+                    {reagent.formula}
+                  </span>
+                  <span className="text-[10px] text-gray-400 whitespace-nowrap">{reagent.name.includes('De-gas') ? '(degas)' : ''}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={amount || ''}
+                    placeholder="0"
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      const next = { ...onDemandAmounts };
+                      if (val <= 0) delete next[reagent.name];
+                      else next[reagent.name] = val;
+                      onDemandAmountsChange?.(next);
+                    }}
+                    className={`w-16 px-1.5 py-0.5 text-xs border rounded text-right focus:outline-none focus:ring-1 focus:ring-orange-400 ${
+                      isActive ? 'border-orange-300 bg-white' : 'border-gray-300'
+                    }`}
+                  />
+                  <span className="text-[10px] text-gray-400">g</span>
+                </div>
+              );
+            })}
+            {Object.keys(onDemandAmounts).length > 0 && (
+              <button
+                onClick={() => onDemandAmountsChange?.({})}
+                className="text-[10px] text-gray-400 hover:text-red-500 ml-1 whitespace-nowrap"
+              >
+                Clear all
+              </button>
+            )}
           </div>
         )}
       </div>

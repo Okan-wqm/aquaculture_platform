@@ -26,12 +26,13 @@ import {
   Label,
   Customized,
 } from 'recharts';
-import { DeffeyesChartData } from '../engine/types';
+import { DeffeyesChartData, OnDemandStep } from '../engine/types';
 
 interface DeffeyesChartProps {
   data: DeffeyesChartData;
   maxDIC?: number;
   maxALK?: number;
+  onDemandPath?: OnDemandStep[];
 }
 
 /** Select subset of isolines for display - show every 0.5 pH */
@@ -273,6 +274,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
   data,
   maxDIC = 6,
   maxALK = 6,
+  onDemandPath,
 }) => {
   const [showIsolines, setShowIsolines] = useState(true);
   const [showSafeZone, setShowSafeZone] = useState(false);
@@ -282,6 +284,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
   const [showTarget, setShowTarget] = useState(true);
   const [showDosing, setShowDosing] = useState(true);
   const [showCurrentPoint, setShowCurrentPoint] = useState(true);
+  const [showOnDemand, setShowOnDemand] = useState(true);
 
   const { major, minor } = useMemo(() => selectDisplayIsolines(data), [data]);
 
@@ -350,6 +353,9 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
           <LayerToggle label="Current" color="#2563eb" checked={showCurrentPoint} onChange={setShowCurrentPoint} />
           <LayerToggle label="Dosing Path" color="#f59e0b" checked={showDosing} onChange={setShowDosing} />
           <LayerToggle label="Target" color="#111827" checked={showTarget} onChange={setShowTarget} />
+          {onDemandPath && onDemandPath.length > 1 && (
+            <LayerToggle label="On-Demand" color="#f97316" checked={showOnDemand} onChange={setShowOnDemand} />
+          )}
         </div>
       </div>
       <div className="p-4" style={{ height: 700 }}>
@@ -679,6 +685,84 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 shape={<CrossShape />}
                 legendType="none"
               />
+            )}
+
+            {/* On-Demand path: arrows from step to step */}
+            {showOnDemand && onDemandPath && onDemandPath.length > 1 && (
+              <>
+                {/* Arrow segments between consecutive steps */}
+                {onDemandPath.slice(0, -1).map((step, idx) => {
+                  const next = onDemandPath[idx + 1];
+                  const segColor = idx === 0 ? '#f97316' : '#dc2626';
+                  return (
+                    <Line
+                      key={`od-seg-${idx}`}
+                      data={[
+                        { CT: step.dic, AT: step.alk },
+                        { CT: next.dic, AT: next.alk },
+                      ]}
+                      dataKey="AT"
+                      stroke={segColor}
+                      strokeWidth={2.5}
+                      dot={false}
+                      type="linear"
+                      legendType="none"
+                      isAnimationActive={false}
+                    />
+                  );
+                })}
+
+                {/* Arrowheads at each intermediate/final point (using Customized) */}
+                <Customized
+                  component={(props: any) => {
+                    const { xAxisMap, yAxisMap } = props;
+                    if (!xAxisMap || !yAxisMap) return null;
+                    const xAxis = Object.values(xAxisMap)[0] as any;
+                    const yAxis = Object.values(yAxisMap)[0] as any;
+                    if (!xAxis?.scale || !yAxis?.scale) return null;
+                    const xScale = xAxis.scale;
+                    const yScale = yAxis.scale;
+
+                    return (
+                      <g>
+                        {onDemandPath!.slice(1).map((step, idx) => {
+                          const prev = onDemandPath![idx];
+                          const cx = xScale(step.dic);
+                          const cy = yScale(step.alk);
+                          if (!isFinite(cx) || !isFinite(cy)) return null;
+
+                          // Arrow direction in SVG coords
+                          const px = xScale(prev.dic);
+                          const py = yScale(prev.alk);
+                          const dx = (cx - px) / maxDIC;
+                          const dy = (cy - py) / maxALK;
+                          const angle = Math.atan2(dy, dx);
+
+                          const isLast = idx === onDemandPath!.length - 2;
+                          const size = isLast ? 11 : 9;
+                          const color = idx === 0 ? '#f97316' : '#dc2626';
+                          const a1 = angle + Math.PI * 0.8;
+                          const a2 = angle - Math.PI * 0.8;
+
+                          return (
+                            <g key={`od-arrow-${idx}`}>
+                              <polygon
+                                points={`${cx},${cy} ${cx + size * Math.cos(a1)},${cy + size * Math.sin(a1)} ${cx + size * Math.cos(a2)},${cy + size * Math.sin(a2)}`}
+                                fill={color}
+                                stroke="white"
+                                strokeWidth={0.5}
+                              />
+                              {isLast && (
+                                <circle cx={cx} cy={cy} r={5} fill="#f97316" stroke="white" strokeWidth={1.5} />
+                              )}
+                            </g>
+                          );
+                        })}
+                      </g>
+                    );
+                  }}
+                />
+              </>
             )}
           </ComposedChart>
         </ResponsiveContainer>

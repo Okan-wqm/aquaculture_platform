@@ -586,6 +586,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      PORT: 3000
       CONFIG_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}

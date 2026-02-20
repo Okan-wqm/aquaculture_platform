@@ -601,7 +601,7 @@ jobs:
             docker compose -f docker-compose.droplet.yml pull --ignore-pull-failures
 
             echo "=== Starting services ==="
-            docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans
+            docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans --force-recreate
 
             echo "=== Waiting for services ==="
             HEALTHY=false

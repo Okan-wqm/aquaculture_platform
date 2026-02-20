@@ -638,10 +638,13 @@ jobs:
             echo "=== Starting all services ==="
             docker compose -f docker-compose.droplet.yml up -d --no-build 2>&1 || true
 
+            echo "=== Waiting 90s for services to bootstrap ==="
+            sleep 90
+
             echo "=== Container health status ==="
             docker compose -f docker-compose.droplet.yml ps --format 'table {{.Name}}\t{{.Status}}' 2>/dev/null || true
 
-            echo "=== Logs from non-healthy containers ==="
+            echo "=== Logs from non-healthy/restarting containers ==="
             for c in $(docker ps -a --format '{{.Names}}' --filter "label=com.docker.compose.project=aqua-saas"); do
               HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
               RESTARTS=$(docker inspect --format='{{.RestartCount}}' "$c" 2>/dev/null || echo "0")
@@ -651,7 +654,7 @@ jobs:
               fi
             done
 
-            echo "=== Waiting for services ==="
+            echo "=== Waiting for gateway ==="
             HEALTHY=false
             for i in $(seq 1 30); do
               sleep 10

@@ -649,8 +649,6 @@ services:
     image: ghcr.io/okan-wqm/aquaculture_platform/shell:latest
     container_name: aqua-shell
     restart: unless-stopped
-    # SEC-023: Read-only filesystem with tmpfs for nginx runtime dirs
-    read_only: true
     tmpfs:
       - /tmp
       - /var/run

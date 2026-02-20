@@ -10,8 +10,7 @@
     "platform/libs/*",
     "web/shared-ui",
     "web/shell",
-    "web/modules/*",
-    "web/apps/*"
+    "web/modules/*"
   ],
   "scripts": {
     "dev": "nx run-many --target=serve --all",

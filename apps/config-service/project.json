@@ -6,28 +6,42 @@
   "tags": ["scope:backend", "type:service", "domain:platform"],
   "targets": {
     "build": {
-      "executor": "@nx/js:tsc",
+      "executor": "@nx/webpack:webpack",
       "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
       "options": {
+        "target": "node",
+        "compiler": "tsc",
         "outputPath": "dist/apps/config-service",
         "main": "apps/config-service/src/main.ts",
         "tsConfig": "apps/config-service/tsconfig.app.json",
-        "assets": ["apps/config-service/src/assets"]
+        "assets": ["apps/config-service/src/assets"],
+        "generatePackageJson": true,
+        "webpackConfig": "apps/config-service/webpack.config.js"
       },
       "configurations": {
+        "development": {
+          "optimization": false,
+          "sourceMap": true
+        },
         "production": {
           "optimization": true,
           "extractLicenses": true,
-          "inspect": false
+          "inspect": false,
+          "sourceMap": false
         }
       }
     },
     "serve": {
       "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
       "options": {
         "buildTarget": "config-service:build"
       },
       "configurations": {
+        "development": {
+          "buildTarget": "config-service:build:development"
+        },
         "production": {
           "buildTarget": "config-service:build:production"
         }

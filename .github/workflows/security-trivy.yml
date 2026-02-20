@@ -24,7 +24,10 @@ jobs:
         # SEC-CI-002: pinned to SHA
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      # SEC-CI-008: exit-code '1' ensures CRITICAL/HIGH CVEs block the pipeline
+      # SEC-CI-008: fs scan is informational (exit-code 0) — it covers dev dependencies
+      # in package-lock.json/Cargo.lock that are NOT present in production Docker images.
+      # Production CVEs are caught by the weekly image scan (exit-code 1 there).
+      # Results are still uploaded to GitHub Security → Code Scanning for review.
       - name: Run Trivy filesystem scan
         # SEC-CI-002: pinned to SHA (was @master)
         uses: aquasecurity/trivy-action@c1824fd6edce30d7ab345a9989de00bbd46ef284 # v0.34.0
@@ -33,7 +36,7 @@ jobs:
           scan-ref: '.'
           format: 'sarif'
           output: 'trivy-fs.sarif'
-          exit-code: '1'
+          exit-code: '0'
           ignore-unfixed: true
           severity: 'HIGH,CRITICAL'
 

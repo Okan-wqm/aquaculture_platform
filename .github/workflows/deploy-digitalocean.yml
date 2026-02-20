@@ -626,7 +626,16 @@ jobs:
             docker ps -a --format '{{.Names}} {{.Status}}' | grep -E 'aqua-' || echo "none"
 
             echo "=== Starting services ==="
-            docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans
+            docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans 2>&1 || true
+
+            echo "=== Container health status ==="
+            docker compose -f docker-compose.droplet.yml ps --format 'table {{.Name}}\t{{.Status}}' 2>/dev/null || true
+
+            echo "=== Logs from unhealthy/exited containers ==="
+            for c in $(docker ps -a --filter "label=com.docker.compose.project=aqua-saas" --format '{{.Names}} {{.Status}}' | grep -iE 'unhealthy|exit|restarting' | awk '{print $1}'); do
+              echo "--- $c logs (last 50 lines) ---"
+              docker logs --tail 50 "$c" 2>&1 || true
+            done
 
             echo "=== Waiting for services ==="
             HEALTHY=false

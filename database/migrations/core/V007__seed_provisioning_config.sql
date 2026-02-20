@@ -54,8 +54,8 @@ VALUES
     'GitHub Releases URL for edge agent binary downloads',
     'provisioning',
     'url',
-    '"https://github.com/Okan-wqm/sens/releases"',
-    '"https://github.com/Okan-wqm/sens/releases"',
+    '"https://github.com/Okan-wqm/aquaculture_platform/releases"',
+    '"https://github.com/Okan-wqm/aquaculture_platform/releases"',
     false, false, false, false,
     10, 40, NOW(), NOW()
   ),
@@ -78,8 +78,8 @@ VALUES
     'GitHub repository path for edge agent releases',
     'provisioning',
     'string',
-    '"Okan-wqm/sens"',
-    '"Okan-wqm/sens"',
+    '"Okan-wqm/aquaculture_platform"',
+    '"Okan-wqm/aquaculture_platform"',
     false, false, false, false,
     10, 60, NOW(), NOW()
   )

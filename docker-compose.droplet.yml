@@ -26,6 +26,8 @@ volumes:
   redis_data:
   nats_data:
   minio_data:
+  mosquitto_data:
+  mosquitto_log:
 
 services:
   # ===========================================================================
@@ -107,6 +109,32 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 6
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: aqua-mosquitto
+    restart: unless-stopped
+    volumes:
+      - ./infrastructure/mosquitto/mosquitto-production.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    networks:
+      - aqua-internal
+      - aqua-network
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.15'
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_pub -h localhost -p 1883 -t 'healthcheck' -m 'ok' 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   minio:
     image: quay.io/minio/minio:latest
@@ -322,10 +350,17 @@ services:
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
       MQTT_AUTH_SECRET: ${MQTT_AUTH_SECRET:-default-mqtt-secret}
+      MQTT_BROKER_HOST: mosquitto
+      MQTT_BROKER_PORT: 1883
+      MQTT_BROKER_URL: mqtt://mosquitto:1883
+      EDGE_AGENT_GITHUB_REPO: Okan-wqm/aquaculture_platform
+      PROVISIONING_API_BASE_URL: ${PROVISIONING_API_BASE_URL:-https://app.suderra.com}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      mosquitto:
         condition: service_healthy
     networks:
       - aqua-internal

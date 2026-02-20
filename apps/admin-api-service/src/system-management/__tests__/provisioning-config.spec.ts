@@ -117,9 +117,9 @@ describe('GlobalSettingsService - Provisioning Config', () => {
         provisioningApiUrl: 'http://localhost:3000',
         mqttBrokerHost: 'localhost',
         mqttBrokerPort: 1883,
-        githubReleaseUrl: 'https://github.com/Okan-wqm/sens/releases',
+        githubReleaseUrl: 'https://github.com/Okan-wqm/aquaculture_platform/releases',
         agentDefaultVersion: 'latest',
-        githubRepo: 'Okan-wqm/sens',
+        githubRepo: 'Okan-wqm/aquaculture_platform',
       });
       expect(globalConfigRepo.find).toHaveBeenCalledWith({
         where: { category: ConfigCategory.PROVISIONING },
@@ -164,9 +164,9 @@ describe('GlobalSettingsService - Provisioning Config', () => {
       expect(result.mqttBrokerHost).toBe('mqtt.partial.example.com');
       // Default values for missing keys
       expect(result.mqttBrokerPort).toBe(1883);
-      expect(result.githubReleaseUrl).toBe('https://github.com/Okan-wqm/sens/releases');
+      expect(result.githubReleaseUrl).toBe('https://github.com/Okan-wqm/aquaculture_platform/releases');
       expect(result.agentDefaultVersion).toBe('latest');
-      expect(result.githubRepo).toBe('Okan-wqm/sens');
+      expect(result.githubRepo).toBe('Okan-wqm/aquaculture_platform');
     });
   });
 

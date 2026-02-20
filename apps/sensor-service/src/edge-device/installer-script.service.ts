@@ -42,7 +42,7 @@ export class InstallerScriptService {
     this.MQTT_PORT = this.configService.get<number>('MQTT_BROKER_PORT', 1883);
     // Pin the GitHub repo from env var to prevent the admin API from redirecting
     // edge agent downloads to an attacker-controlled repository (MED-07)
-    this.PINNED_GITHUB_REPO = this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/sens');
+    this.PINNED_GITHUB_REPO = this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/aquaculture_platform');
   }
 
   /**
@@ -158,7 +158,7 @@ export class InstallerScriptService {
    * Render installer script for a specific device (per-device provisioning)
    */
   renderInstallerScript(variables: InstallerScriptVariables, config?: ProvisioningConfig): string {
-    const GITHUB_REPO = this.sanitizeForShell(config?.githubRepo || this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/sens'));
+    const GITHUB_REPO = this.sanitizeForShell(config?.githubRepo || this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/aquaculture_platform'));
     const now = new Date().toISOString();
     const safeDeviceCode = this.sanitizeForShell(variables.deviceCode);
     const safeAgentVersion = this.sanitizeForShell(variables.agentVersion);
@@ -251,7 +251,7 @@ log ""
    * Render tenant-level installer script (self-registration mode)
    */
   renderTenantInstallerScript(variables: TenantInstallerScriptVariables, config?: ProvisioningConfig): string {
-    const GITHUB_REPO = this.sanitizeForShell(config?.githubRepo || this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/sens'));
+    const GITHUB_REPO = this.sanitizeForShell(config?.githubRepo || this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/aquaculture_platform'));
     const now = new Date().toISOString();
     const safeAgentVersion = this.sanitizeForShell(variables.agentVersion);
     const safeApiUrl = this.sanitizeForShell(variables.apiUrl);

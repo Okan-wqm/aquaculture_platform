@@ -1013,9 +1013,9 @@ export class GlobalSettingsService implements OnModuleInit {
       'provisioning.api_url': 'http://localhost:3000',
       'provisioning.mqtt_broker_host': 'localhost',
       'provisioning.mqtt_broker_port': '1883',
-      'provisioning.github_release_url': 'https://github.com/Okan-wqm/sens/releases',
+      'provisioning.github_release_url': 'https://github.com/Okan-wqm/aquaculture_platform/releases',
       'provisioning.agent_default_version': 'latest',
-      'provisioning.github_repo': 'Okan-wqm/sens',
+      'provisioning.github_repo': 'Okan-wqm/aquaculture_platform',
     };
 
     // Fetch all provisioning configs from DB

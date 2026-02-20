@@ -10,11 +10,22 @@ passthrough = [
 # ARM64 (Raspberry Pi 4/5, Revolution Pi Connect 4)
 [target.aarch64-unknown-linux-gnu]
 image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:0.2.5"
+pre-build = [
+    "dpkg --add-architecture arm64",
+    "apt-get update && apt-get install -y libssl-dev:arm64 pkg-config"
+]
 
 # ARMv7 (Raspberry Pi 3, older Revolution Pi)
 [target.armv7-unknown-linux-gnueabihf]
 image = "ghcr.io/cross-rs/armv7-unknown-linux-gnueabihf:0.2.5"
+pre-build = [
+    "dpkg --add-architecture armhf",
+    "apt-get update && apt-get install -y libssl-dev:armhf pkg-config"
+]
 
 # x86_64 Linux
 [target.x86_64-unknown-linux-gnu]
 image = "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:0.2.5"
+pre-build = [
+    "apt-get update && apt-get install -y libssl-dev pkg-config"
+]

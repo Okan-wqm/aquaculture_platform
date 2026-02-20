@@ -39,6 +39,7 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
       '@aquaculture/shared-ui': resolve(__dirname, '../../shared-ui/dist'),
+      '@platform/shared-ui': resolve(__dirname, '../../shared-ui/src'),
     },
     dedupe: ['react', 'react-dom'],
   },

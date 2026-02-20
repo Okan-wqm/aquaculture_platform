@@ -36,6 +36,8 @@
     "baseUrl": ".",
     "paths": {
       "@platform/shared": ["libs/shared/src/index.ts"],
+      "@platform/shared-ui": ["web/shared-ui/src/index.ts"],
+      "@platform/shared-ui/*": ["web/shared-ui/src/*"],
       "@platform/backend-common": ["libs/backend-common/src/index.ts"],
       "@aquaculture/backend-common": ["libs/backend-common/src/index.ts"],
       "@platform/event-contracts": ["libs/event-contracts/src/index.ts"],

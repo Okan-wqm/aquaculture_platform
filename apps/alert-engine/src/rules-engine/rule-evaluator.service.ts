@@ -187,16 +187,12 @@ export class RuleEvaluatorService {
     // Handle special computed parameters before falling through to raw context lookup.
     // rate_of_change_ parameters must be computed — never read directly from context
     // values, even if a key with that literal name happens to exist in context.values.
-    let actualValue: number | null | undefined;
-    if (parameter.startsWith('rate_of_change_')) {
-      const baseParam = parameter.replace('rate_of_change_', '');
-      actualValue = this.calculateRateOfChange(baseParam, context);
-    } else {
-      actualValue = this.resolveValue(parameter, context);
-    }
+    const actualValue: number | string | boolean | null = parameter.startsWith('rate_of_change_')
+      ? this.calculateRateOfChange(parameter.replace('rate_of_change_', ''), context)
+      : this.resolveValue(parameter, context);
 
-    // Handle null/undefined values
-    if (actualValue === null || actualValue === undefined) {
+    // Handle null values
+    if (actualValue === null) {
       return {
         condition,
         matched: false,

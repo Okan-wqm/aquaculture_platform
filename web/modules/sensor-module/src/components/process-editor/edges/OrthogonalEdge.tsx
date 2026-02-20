@@ -12,7 +12,7 @@
  * - Proper state persistence via processStore
  */
 
-import React, { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMemo } from 'react';
+import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMemo } from 'react';
 import { EdgeProps } from 'reactflow';
 import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useProcessStore } from '../../../store/processStore';

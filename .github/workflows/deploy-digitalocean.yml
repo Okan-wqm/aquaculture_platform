@@ -614,19 +614,14 @@ jobs:
             echo "=== Pulling latest images ==="
             docker compose -f docker-compose.droplet.yml pull --ignore-pull-failures
 
-            echo "=== Cleaning up stale containers ==="
-            # Stop all aqua-* containers first to prevent "removal already in progress" races.
-            # Previous failed deploys may have left containers in a pending-removal state.
-            docker ps -a --format '{{.Names}}' | grep -E 'aqua-' | xargs -r docker stop --time 10 2>/dev/null || true
+            echo "=== Stopping all services ==="
+            docker compose -f docker-compose.droplet.yml down --remove-orphans --timeout 30 || true
+            # Also remove any orphan containers not tracked by compose (e.g. from config changes)
             docker ps -a --format '{{.Names}}' | grep -E 'aqua-' | xargs -r docker rm -f 2>/dev/null || true
-            # Wait for Docker daemon to fully complete all removals
-            sleep 10
-            # Verify no containers remain in removing state
-            echo "Remaining containers:"
-            docker ps -a --format '{{.Names}} {{.Status}}' | grep -E 'aqua-' || echo "none"
+            sleep 5
 
-            echo "=== Starting services ==="
-            docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans 2>&1 || true
+            echo "=== Starting all services ==="
+            docker compose -f docker-compose.droplet.yml up -d --no-build 2>&1 || true
 
             echo "=== Container health status ==="
             docker compose -f docker-compose.droplet.yml ps --format 'table {{.Name}}\t{{.Status}}' 2>/dev/null || true

@@ -90,7 +90,7 @@ services:
     restart: unless-stopped
     # ARCH-010: JetStream enabled via CLI flags (avoids config file mount dependency)
     # SEC-006/SEC-019: NATS is on aqua-internal only (no external exposure)
-    command: ["--js", "--sd", "/data", "--http_port", "8222", "--max_memory_store", "64MB", "--max_file_store", "1GB"]
+    command: ["-js", "-sd", "/data", "-m", "8222"]
     volumes:
       - nats_data:/data
     networks:

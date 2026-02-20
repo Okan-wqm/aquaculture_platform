@@ -78,16 +78,27 @@ jobs:
       - name: Detect changes
         id: changes
         run: |
-          CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null || echo "ALL")
-
-          if [ "$CHANGED" = "ALL" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          # workflow_run = automated CI→deploy: always rebuild everything so the
+          # deploy reflects exactly what CI validated, regardless of which files changed.
+          # (github.event.before is not set on workflow_run events, making git diff
+          # unreliable — it silently returns empty output instead of falling back to ALL.)
+          if [ "${{ github.event_name }}" = "workflow_run" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "has_backend=true" >> $GITHUB_OUTPUT
             echo "has_frontend=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # Shared libs change = rebuild everything
-          if echo "$CHANGED" | grep -q "^libs/\|^platform/"; then
+          # For any other trigger (push, etc.) detect changes precisely
+          CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null || echo "ALL")
+
+          if [ "$CHANGED" = "ALL" ]; then
+            echo "has_backend=true" >> $GITHUB_OUTPUT
+            echo "has_frontend=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Shared libs or infra change = rebuild everything
+          if echo "$CHANGED" | grep -q "^libs/\|^platform/\|^\.github/\|^docker-compose"; then
             echo "has_backend=true" >> $GITHUB_OUTPUT
             echo "has_frontend=true" >> $GITHUB_OUTPUT
             exit 0

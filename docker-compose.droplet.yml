@@ -50,6 +50,7 @@ services:
       -c search_path=public,auth,admin
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/init:/docker-entrypoint-initdb.d:ro
     networks:
       - aqua-internal
     deploy:
@@ -320,6 +321,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
+      MQTT_AUTH_SECRET: ${MQTT_AUTH_SECRET:-default-mqtt-secret}
     depends_on:
       postgres:
         condition: service_healthy

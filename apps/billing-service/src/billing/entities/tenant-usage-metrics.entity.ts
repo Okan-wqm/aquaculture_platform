@@ -114,14 +114,14 @@ export class TenantUsageMetrics {
   /**
    * Module ID (null for tenant-wide metrics)
    */
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', name: 'module_id', nullable: true })
   moduleId!: string | null;
 
   /**
    * Module code for convenience
    */
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 50, nullable: true })
   moduleCode!: string | null;
 

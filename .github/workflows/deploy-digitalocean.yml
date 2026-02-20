@@ -635,6 +635,14 @@ jobs:
             echo "Containers after cleanup:"
             docker ps -a --format '{{.Names}}' | grep -E 'aqua-' || echo "none (clean)"
 
+            echo "=== Ensuring infrastructure databases exist ==="
+            # Start only postgres first to create additional databases
+            docker compose -f docker-compose.droplet.yml up -d --no-build postgres 2>&1 || true
+            sleep 10
+            # Create observability database if it doesn't exist (postgres init scripts only run on first start)
+            docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -tc "SELECT 1 FROM pg_database WHERE datname = 'aquaculture_observability'" | grep -q 1 || \
+              docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -c "CREATE DATABASE aquaculture_observability" 2>&1 || true
+
             echo "=== Starting all services ==="
             docker compose -f docker-compose.droplet.yml up -d --no-build 2>&1 || true
 

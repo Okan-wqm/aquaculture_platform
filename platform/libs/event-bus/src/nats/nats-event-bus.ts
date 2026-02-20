@@ -48,6 +48,11 @@ export class NatsEventBus
   private readonly consumers = new Map<string, Consumer>();
   private readonly abortControllers = new Map<string, AbortController>();
   private readonly handlers = new Map<string, IEventHandler[]>();
+  /** Subscriptions requested before JetStream was connected, to be activated on connect. */
+  private readonly pendingSubscriptions: Array<{
+    subject: string;
+    options?: SubscriptionOptions;
+  }> = [];
   private lastConnectedAt: Date | null = null;
   private connectionState: 'connected' | 'disconnected' | 'reconnecting' =
     'disconnected';
@@ -122,6 +127,8 @@ export class NatsEventBus
     try {
       await this.connect();
       await this.setupStream();
+      // Activate any subscriptions that were registered before connect completed
+      await this.activatePendingSubscriptions();
     } catch (error) {
       this.logger.warn(
         `Failed to connect to NATS on startup. Service will continue without event bus. Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -139,6 +146,7 @@ export class NatsEventBus
         try {
           await this.connect();
           await this.setupStream();
+          await this.activatePendingSubscriptions();
           this.logger.log('Successfully reconnected to NATS');
         } catch (error) {
           this.logger.warn(
@@ -304,17 +312,26 @@ export class NatsEventBus
     handler: IEventHandler<TEvent>,
     options?: SubscriptionOptions,
   ): Promise<void> {
-    if (!this.jetStream) {
-      throw new Error('NATS JetStream not connected');
-    }
-
     const subject = this.normalizeSubject(topic);
 
-    // Store handler
+    // Store handler regardless of connection state so it is ready when
+    // the connection comes up.
     if (!this.handlers.has(subject)) {
       this.handlers.set(subject, []);
     }
     this.handlers.get(subject)!.push(handler as IEventHandler);
+
+    if (!this.jetStream) {
+      // JetStream is not yet connected.  Queue the subscription so it will
+      // be activated once the connection is established.
+      this.logger.warn(
+        `NATS JetStream not connected yet. Queuing subscription for ${subject}`,
+      );
+      if (!this.pendingSubscriptions.some((p) => p.subject === subject)) {
+        this.pendingSubscriptions.push({ subject, options });
+      }
+      return;
+    }
 
     // Create consumer if not already subscribed
     if (!this.consumers.has(subject)) {
@@ -337,6 +354,35 @@ export class NatsEventBus
       this.consumers.delete(subject);
       this.handlers.delete(subject);
       this.logger.log(`Unsubscribed from ${subject}`);
+    }
+  }
+
+  /**
+   * Activate subscriptions that were queued while JetStream was disconnected.
+   */
+  private async activatePendingSubscriptions(): Promise<void> {
+    if (this.pendingSubscriptions.length === 0) {
+      return;
+    }
+
+    this.logger.log(
+      `Activating ${this.pendingSubscriptions.length} pending subscription(s)...`,
+    );
+
+    // Drain the queue (splice so new entries during iteration are not lost)
+    const pending = this.pendingSubscriptions.splice(0);
+
+    for (const { subject, options } of pending) {
+      try {
+        if (!this.consumers.has(subject)) {
+          await this.createSubscription(subject, options);
+        }
+        this.logger.log(`Activated pending subscription for ${subject}`);
+      } catch (error) {
+        this.logger.error(
+          `Failed to activate pending subscription for ${subject}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      }
     }
   }
 

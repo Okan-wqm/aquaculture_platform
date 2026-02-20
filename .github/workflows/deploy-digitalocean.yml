@@ -14,7 +14,8 @@
 # - SEC-CI-011/ARCH-CI-006: github.sha removed from NX cache key
 # - SEC-CI-012: git checkout pinned to github.sha instead of git pull
 # - ARCH-CI-002: buildcache tags namespaced with -main suffix
-# - ARCH-CI-003: nx affected used instead of run-many --projects for build
+# - ARCH-CI-003: nx run-many --projects used to always build all services
+#                (nx affected skips builds when only infra files changed)
 # - ARCH-CI-007: Image digest capture + rollback on failed health check
 # - ARCH-CI-010: Split build into separate backend/frontend jobs so a frontend
 #                failure cannot block backend images from being built/deployed
@@ -232,18 +233,13 @@ jobs:
           node -e "require('@nx/nx-linux-x64-gnu')" || { echo "::error::NX linux binary missing or broken"; exit 1; }
           echo "All Linux platform binaries installed successfully"
 
-      # ARCH-CI-003: Use nx affected instead of run-many --projects for build
-      # For workflow_dispatch (manual full deploy), look back 20 commits so
-      # all recent code changes are captured regardless of CI-only commits.
-      - name: Build affected backend services
+      # ARCH-CI-003: Use nx run-many --projects to always build all services.
+      # nx affected is NOT used here: when only infra/workflow files change,
+      # nx affected finds no affected projects → no dist/ → artifact download fails.
+      - name: Build all backend services
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            BASE="origin/main~20"
-          else
-            BASE="origin/main~1"
-          fi
-          npx nx affected -t build \
-            --base=$BASE --head=HEAD \
+          npx nx run-many -t build \
+            --projects=gateway-api,auth-service,farm-service,sensor-service,admin-api-service,alert-engine,billing-service,hr-service,hydroponics-service,notification-service,observability-service,config-service \
             --parallel=3
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
@@ -378,25 +374,32 @@ jobs:
           node -e "require('@nx/nx-linux-x64-gnu')" || { echo "::error::NX linux binary missing or broken"; exit 1; }
           echo "All Linux platform binaries installed successfully"
 
-      # ARCH-CI-003: Use nx affected instead of run-many --projects for build
-      # For workflow_dispatch (manual full deploy), look back 20 commits so
-      # all recent code changes are captured regardless of CI-only commits.
-      - name: Build affected frontend modules
+      # ARCH-CI-003: Use nx run-many --projects to always build all frontend apps.
+      # nx affected is NOT used here: when only infra/workflow files change,
+      # nx affected finds no affected projects → no dist/ → artifact download fails.
+      #
+      # Build strategy:
+      #   - NX projects (have project.json): built via nx run-many
+      #   - Non-NX workspace modules (sensor/hr/hydroponics): built via npm workspaces
+      #   - aquamobil (web/apps/aquamobil): builds inside its own Dockerfile — skipped here
+      - name: Build all frontend modules
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            BASE="origin/main~20"
-          else
-            BASE="origin/main~1"
-          fi
-          npx nx affected -t build \
-            --base=$BASE --head=HEAD \
+          # NX-managed frontend apps
+          npx nx run-many -t build \
+            --projects=shell,dashboard,farm-module,admin-panel,tenant-admin \
             --parallel=3
+
+          # Non-NX workspace modules (vite build, deps already hoisted to root node_modules)
+          npm run build --workspace=web/modules/sensor-module
+          npm run build --workspace=web/modules/hr-module
+          npm run build --workspace=web/modules/hydroponics-module
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
 
-      # Upload frontend artifacts (web/*/dist/)
+      # Upload frontend artifacts (web/shell/dist + web/modules/*/dist)
+      # Note: aquamobil (web/apps/aquamobil) builds inside its own Dockerfile — not uploaded here.
       - name: Upload frontend artifacts
         # SEC-CI-002: pinned to SHA
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
@@ -405,7 +408,6 @@ jobs:
           path: |
             web/shell/dist/
             web/modules/*/dist/
-            web/apps/*/dist/
           retention-days: 1
 
   # ===========================================================================

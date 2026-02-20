@@ -614,6 +614,11 @@ jobs:
             echo "=== Pulling latest images ==="
             docker compose -f docker-compose.droplet.yml pull --ignore-pull-failures
 
+            echo "=== Cleaning up stale containers ==="
+            # Remove any leftover containers from failed deploys to avoid name conflicts
+            # (e.g. "dc2c8b2eb0d4_aqua-gateway" blocking recreation of "aqua-gateway")
+            docker container prune -f 2>/dev/null || true
+
             echo "=== Starting services ==="
             # NOTE: --force-recreate removed intentionally.
             # Infra containers (postgres, redis, nats) should stay running across deploys.

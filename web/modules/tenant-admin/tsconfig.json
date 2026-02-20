@@ -21,7 +21,9 @@
 
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@platform/shared-ui": ["../../shared-ui/src/index.ts"],
+      "@platform/shared-ui/*": ["../../shared-ui/src/*"]
     }
   },
   "include": ["src"],

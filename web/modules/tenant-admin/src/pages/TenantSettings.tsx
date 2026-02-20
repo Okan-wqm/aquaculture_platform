@@ -190,7 +190,7 @@ const TenantSettings: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   // Fetch real tenant data
-  const { data: tenantData, isLoading: tenantLoading } = useMyTenant();
+  const { data: tenantData } = useMyTenant();
   const updateSettingsMutation = useUpdateTenantSettings();
 
   // Form state - populated from API

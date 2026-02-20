@@ -11,7 +11,7 @@
  * - Double-click on segment to add bend
  */
 
-import React, { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMemo } from 'react';
+import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMemo } from 'react';
 import { EdgeProps, Position, useReactFlow } from 'reactflow';
 import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 

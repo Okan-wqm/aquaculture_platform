@@ -9,7 +9,6 @@ import React, { useState, useCallback, useMemo, memo, useId } from 'react';
 import {
   Shield,
   Plus,
-  Edit,
   Trash2,
   RefreshCw,
   AlertCircle,

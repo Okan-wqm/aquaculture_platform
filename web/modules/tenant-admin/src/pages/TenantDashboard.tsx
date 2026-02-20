@@ -13,7 +13,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { graphqlRequest } from '../services/tenant-api.service';
-import { useMyTenant, useTenantStats } from '../hooks/useTenantData';
+import { useTenantStats } from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 
 /**
@@ -396,7 +396,7 @@ const TenantDashboard: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={loadDashboardData}
+            onClick={() => loadDashboardData()}
             className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
             title="Refresh"
           >
@@ -420,7 +420,7 @@ const TenantDashboard: React.FC = () => {
             <p className="text-sm text-red-600">{error}</p>
           </div>
           <button
-            onClick={loadDashboardData}
+            onClick={() => loadDashboardData()}
             className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
           >
             Retry

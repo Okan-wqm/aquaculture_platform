@@ -605,14 +605,15 @@ jobs:
 
             echo "=== Waiting for services ==="
             HEALTHY=false
-            for i in $(seq 1 12); do
+            for i in $(seq 1 30); do
               sleep 10
+              GW_STATUS=$(docker inspect --format='{{.State.Status}} ({{.State.ExitCode}})' aqua-gateway 2>/dev/null || echo "not found")
               if curl -sf http://localhost:3000/health/live > /dev/null 2>&1; then
                 echo "Gateway API: OK (attempt ${i})"
                 HEALTHY=true
                 break
               fi
-              echo "Gateway API: not ready yet (attempt ${i}/12)"
+              echo "Gateway API: not ready yet (attempt ${i}/30, container: ${GW_STATUS})"
             done
 
             # ARCH-CI-007: Rollback if health check fails after all retries

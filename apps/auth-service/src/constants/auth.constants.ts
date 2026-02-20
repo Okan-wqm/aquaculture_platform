@@ -10,7 +10,7 @@
  */
 export const SECURITY_CONSTANTS = {
   /** Minimum length for JWT secret in characters */
-  JWT_SECRET_MIN_LENGTH: 64,
+  JWT_SECRET_MIN_LENGTH: 32,
 
   /** bcrypt salt rounds for password hashing */
   BCRYPT_SALT_ROUNDS: 12,

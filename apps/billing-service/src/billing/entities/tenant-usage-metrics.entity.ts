@@ -182,7 +182,7 @@ export class TenantUsageMetrics {
   /**
    * When record was finalized
    */
-  @Field({ nullable: true })
+  @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   finalizedAt!: Date | null;
 

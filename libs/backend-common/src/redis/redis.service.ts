@@ -256,8 +256,11 @@ export class RedisService implements OnModuleDestroy {
     return this.client.srem(this.prefixKey(key), ...members);
   }
 
-  async scan(cursor: number, pattern: string, count?: number): Promise<[string, string[]]> {
-    const args: [string, string, string, string, string?, string?] = [String(cursor), 'MATCH', pattern, 'COUNT', String(count ?? 100)];
-    return this.client.scan(...args);
+  async scan(pattern: string, count?: number): Promise<string[]> {
+    // ioredis SCAN overloads require const literal tokens; cast to satisfy TypeScript
+    const result = await (this.client.scan as (cursor: string, match: string, pattern: string, count: string, limit: number) => Promise<[string, string[]]>)(
+      '0', 'MATCH', pattern, 'COUNT', count ?? 100,
+    );
+    return result[1];
   }
 }

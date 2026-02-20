@@ -193,6 +193,23 @@ jobs:
           # SWC (needed by NX for fast TypeScript compilation)
           install_pkg "@swc/core-linux-x64-gnu" "$(node -p "require('./node_modules/@swc/core/package.json').version")"
 
+          # esbuild linux-x64 for ALL esbuild installations (needed when nx affected
+          # includes frontend/library projects that use Vite in the backend build job)
+          for esbuild_pkg in $(find node_modules -name "package.json" -path "*/esbuild/package.json" -not -path "*/@esbuild/*" 2>/dev/null); do
+            esbuild_dir=$(dirname "$esbuild_pkg")
+            esbuild_ver=$(node -p "require('./${esbuild_pkg}').version")
+            parent_dir=$(dirname "$esbuild_dir")
+            target="${parent_dir}/@esbuild/linux-x64"
+            if [ ! -d "$target" ]; then
+              install_pkg "@esbuild/linux-x64" "$esbuild_ver" "$target"
+            else
+              echo "Skipping ${target} (already exists)"
+            fi
+          done
+
+          # Rollup native binary (needed by Vite when frontend libs are in affected set)
+          install_pkg "@rollup/rollup-linux-x64-gnu" "$(node -p "require('./node_modules/rollup/package.json').version")"
+
           # NX native binary (CRITICAL - without this NX hangs on Linux!)
           install_pkg "@nx/nx-linux-x64-gnu" "$(node -p "require('./node_modules/nx/package.json').version")"
 

@@ -15,8 +15,7 @@
         "outputPath": "dist/apps/config-service",
         "main": "apps/config-service/src/main.ts",
         "tsConfig": "apps/config-service/tsconfig.app.json",
-        "assets": ["apps/config-service/src/assets"],
-        "generatePackageJson": true,
+"generatePackageJson": true,
         "webpackConfig": "apps/config-service/webpack.config.js"
       },
       "configurations": {

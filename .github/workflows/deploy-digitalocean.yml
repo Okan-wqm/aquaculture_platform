@@ -203,10 +203,17 @@ jobs:
           echo "All Linux platform binaries installed successfully"
 
       # ARCH-CI-003: Use nx affected instead of run-many --projects for build
+      # For workflow_dispatch (manual full deploy), look back 20 commits so
+      # all recent code changes are captured regardless of CI-only commits.
       - name: Build affected backend services
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            BASE="origin/main~20"
+          else
+            BASE="origin/main~1"
+          fi
           npx nx affected -t build \
-            --base=origin/main~1 --head=HEAD \
+            --base=$BASE --head=HEAD \
             --parallel=3
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
@@ -342,10 +349,17 @@ jobs:
           echo "All Linux platform binaries installed successfully"
 
       # ARCH-CI-003: Use nx affected instead of run-many --projects for build
+      # For workflow_dispatch (manual full deploy), look back 20 commits so
+      # all recent code changes are captured regardless of CI-only commits.
       - name: Build affected frontend modules
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            BASE="origin/main~20"
+          else
+            BASE="origin/main~1"
+          fi
           npx nx affected -t build \
-            --base=origin/main~1 --head=HEAD \
+            --base=$BASE --head=HEAD \
             --parallel=3
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'

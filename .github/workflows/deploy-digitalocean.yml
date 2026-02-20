@@ -614,22 +614,13 @@ jobs:
             echo "=== Pulling latest images ==="
             docker compose -f docker-compose.droplet.yml pull --ignore-pull-failures
 
-            echo "=== Cleaning up stale containers ==="
-            # Failed deploys leave behind renamed containers with hash prefixes
-            # (e.g. "dc2c8b2eb0d4_aqua-gateway") that block recreation.
-            # These may still be running, so prune alone won't catch them.
-            # Force-remove any container whose name matches the hash_aqua- pattern.
-            docker ps -a --format '{{.Names}}' | grep -E '^[0-9a-f]+_aqua-' | xargs -r docker rm -f 2>/dev/null || true
-            docker container prune -f 2>/dev/null || true
+            echo "=== Stopping and removing all containers ==="
+            # Use compose down to cleanly stop/remove all containers and avoid
+            # name-conflict races from stale containers left by failed deploys.
+            # --volumes is NOT used so named volumes (postgres data etc.) are preserved.
+            docker compose -f docker-compose.droplet.yml down --remove-orphans --timeout 30 2>/dev/null || true
 
             echo "=== Starting services ==="
-            # NOTE: --force-recreate removed intentionally.
-            # Infra containers (postgres, redis, nats) should stay running across deploys.
-            # Recreating them causes the gateway to wait for postgres health before backends
-            # can start, creating a timing race where gateway's Apollo Federation introspection
-            # exhausts its retries before subgraphs are ready.
-            # The gateway now depends_on all backend services (service_started), so Docker
-            # ensures backends are created before the gateway, giving them a head start.
             docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans
 
             echo "=== Waiting for services ==="

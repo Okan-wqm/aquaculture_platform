@@ -41,9 +41,11 @@ env:
   REGISTRY: ghcr.io
   TAG: ${{ github.sha }}
 
-# Cancel in-progress deploys for the same branch
+# Cancel in-progress deploys for the same branch+trigger combination.
+# workflow_dispatch and workflow_run are in separate groups so a manual
+# trigger is never cancelled by an automated CI-triggered deploy.
 concurrency:
-  group: deploy-${{ github.ref }}
+  group: deploy-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:

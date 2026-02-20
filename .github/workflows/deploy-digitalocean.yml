@@ -614,13 +614,20 @@ jobs:
             echo "=== Pulling latest images ==="
             docker compose -f docker-compose.droplet.yml pull --ignore-pull-failures
 
-            echo "=== Stopping and removing all containers ==="
-            # Use compose down to cleanly stop/remove all containers and avoid
-            # name-conflict races from stale containers left by failed deploys.
-            # --volumes is NOT used so named volumes (postgres data etc.) are preserved.
-            docker compose -f docker-compose.droplet.yml down --remove-orphans --timeout 30 2>/dev/null || true
+            echo "=== Cleaning up stale containers ==="
+            # Remove hash-prefixed containers left by failed deploys (e.g. "dc2c8b2eb0d4_aqua-gateway").
+            # These block recreation with name conflicts. Force-stop and remove them, then wait
+            # for Docker daemon to finish cleanup before starting services.
+            STALE=$(docker ps -a --format '{{.Names}}' | grep -E '^[0-9a-f]+_aqua-' || true)
+            if [ -n "$STALE" ]; then
+              echo "Removing stale containers: $STALE"
+              echo "$STALE" | xargs docker rm -f 2>/dev/null || true
+              sleep 5
+            fi
 
             echo "=== Starting services ==="
+            # Do NOT use docker compose down — it kills infra containers (postgres, redis, nats)
+            # forcing a cold start of everything on a 2GB droplet, causing OOM/timeouts.
             docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans
 
             echo "=== Waiting for services ==="

@@ -22,7 +22,7 @@ export class RetryableIntrospectAndCompose extends IntrospectAndCompose {
 
   constructor(options: RetryableIntrospectOptions) {
     super(options);
-    this.maxRetries = options.maxRetries || 10;
+    this.maxRetries = options.maxRetries || 30;  // 30 × 5s = 150s safety net
     this.retryDelayMs = options.retryDelayMs || 5000;
   }
 

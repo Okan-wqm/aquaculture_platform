@@ -181,27 +181,30 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
+      # Subgraph services: wait for healthy (GraphQL endpoint ready) before gateway starts.
+      # This prevents introspection failures caused by subgraphs still bootstrapping.
       auth-service:
-        condition: service_started
+        condition: service_healthy
       farm-service:
-        condition: service_started
+        condition: service_healthy
       sensor-service:
-        condition: service_started
-      admin-api-service:
-        condition: service_started
+        condition: service_healthy
       alert-engine:
-        condition: service_started
+        condition: service_healthy
       billing-service:
-        condition: service_started
+        condition: service_healthy
       hr-service:
-        condition: service_started
+        condition: service_healthy
       hydroponics-service:
+        condition: service_healthy
+      config-service:
+        condition: service_healthy
+      # Non-subgraph services: service_started is sufficient (gateway doesn't introspect them)
+      admin-api-service:
         condition: service_started
       notification-service:
         condition: service_started
       observability-service:
-        condition: service_started
-      config-service:
         condition: service_started
     networks:
       - aqua-network

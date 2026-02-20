@@ -160,6 +160,7 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:3000/graphql
       HYDROPONICS_SERVICE_URL: http://hydroponics-service:3000/graphql
       ADMIN_SERVICE_URL: http://admin-api-service:3000/graphql
+      CONFIG_SERVICE_URL: http://config-service:3000/graphql
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: "false"
@@ -180,6 +181,28 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
+      auth-service:
+        condition: service_started
+      farm-service:
+        condition: service_started
+      sensor-service:
+        condition: service_started
+      admin-api-service:
+        condition: service_started
+      alert-engine:
+        condition: service_started
+      billing-service:
+        condition: service_started
+      hr-service:
+        condition: service_started
+      hydroponics-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      observability-service:
+        condition: service_started
+      config-service:
+        condition: service_started
     networks:
       - aqua-network
       - aqua-internal
@@ -549,6 +572,41 @@ services:
           cpus: '0.25'
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3009/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  config-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/config-service:latest
+    container_name: aqua-config
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      CONFIG_SERVICE_PORT: 3000
+      NODE_OPTIONS: '--max-old-space-size=256'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
+      DATABASE_SYNC: "false"
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3

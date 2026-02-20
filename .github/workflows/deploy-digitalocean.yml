@@ -631,10 +631,15 @@ jobs:
             echo "=== Container health status ==="
             docker compose -f docker-compose.droplet.yml ps --format 'table {{.Name}}\t{{.Status}}' 2>/dev/null || true
 
-            echo "=== Logs from unhealthy/exited containers ==="
-            for c in $(docker ps -a --filter "label=com.docker.compose.project=aqua-saas" --format '{{.Names}} {{.Status}}' | grep -iE 'unhealthy|exit|restarting' | awk '{print $1}'); do
-              echo "--- $c logs (last 50 lines) ---"
-              docker logs --tail 50 "$c" 2>&1 || true
+            echo "=== Logs from non-healthy containers ==="
+            # Show logs for any container that is NOT healthy or running normally
+            for c in $(docker ps -a --format '{{.Names}}' --filter "label=com.docker.compose.project=aqua-saas"); do
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "none")
+              STATE=$(docker inspect --format='{{.State.Status}}' "$c" 2>/dev/null || echo "unknown")
+              if [ "$STATUS" != "healthy" ] && [ "$STATE" != "running" -o "$STATUS" = "unhealthy" ]; then
+                echo "--- $c (state=$STATE, health=$STATUS) last 80 lines ---"
+                docker logs --tail 80 "$c" 2>&1 || true
+              fi
             done
 
             echo "=== Waiting for services ==="

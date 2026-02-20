@@ -615,10 +615,25 @@ jobs:
             docker compose -f docker-compose.droplet.yml pull --ignore-pull-failures
 
             echo "=== Stopping all services ==="
-            docker compose -f docker-compose.droplet.yml down --remove-orphans --timeout 30 || true
-            # Also remove any orphan containers not tracked by compose (e.g. from config changes)
-            docker ps -a --format '{{.Names}}' | grep -E 'aqua-' | xargs -r docker rm -f 2>/dev/null || true
+            docker compose -f docker-compose.droplet.yml down --remove-orphans --timeout 30 2>&1 || true
+            # Force-remove ALL aqua containers (including ones compose couldn't remove)
+            echo "Force-removing any remaining aqua containers..."
+            docker ps -a --format '{{.Names}}' | grep -E 'aqua-' | while read -r name; do
+              echo "  Removing $name..."
+              docker rm -f "$name" 2>&1 || true
+            done
             sleep 5
+            # Verify clean slate
+            REMAINING=$(docker ps -a --format '{{.Names}}' | grep -E 'aqua-' || true)
+            if [ -n "$REMAINING" ]; then
+              echo "WARNING: containers still exist after cleanup: $REMAINING"
+              echo "Attempting docker stop + rm..."
+              echo "$REMAINING" | xargs -r docker stop --time 5 2>&1 || true
+              echo "$REMAINING" | xargs -r docker rm -f 2>&1 || true
+              sleep 5
+            fi
+            echo "Containers after cleanup:"
+            docker ps -a --format '{{.Names}}' | grep -E 'aqua-' || echo "none (clean)"
 
             echo "=== Starting all services ==="
             docker compose -f docker-compose.droplet.yml up -d --no-build 2>&1 || true

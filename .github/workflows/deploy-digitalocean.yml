@@ -583,7 +583,7 @@ jobs:
             # instead of git pull (prevents TOCTOU race if another commit lands mid-deploy)
             echo "=== Checking out deploy SHA ==="
             git fetch origin
-            git checkout ${{ github.sha }}
+            git checkout -f ${{ github.sha }}
 
             # SEC-CI-001: Use GHCR credentials stored locally on the droplet.
             # Set GHCR_TOKEN and GHCR_USER in /etc/environment before first deploy.

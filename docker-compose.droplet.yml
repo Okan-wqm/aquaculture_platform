@@ -171,6 +171,8 @@ services:
       WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       THROTTLE_DEFAULT_LIMIT: 500
       DATABASE_SYNC: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -187,7 +189,7 @@ services:
           memory: 512M
           cpus: '0.5'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health/live >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

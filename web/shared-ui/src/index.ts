@@ -121,3 +121,5 @@ export {
   useUpdateQueryCache,
   useInvalidateQueries,
 } from './hooks/useGraphQL';
+export { useToast } from './hooks/useToast';
+export type { ToastOptions } from './hooks/useToast';

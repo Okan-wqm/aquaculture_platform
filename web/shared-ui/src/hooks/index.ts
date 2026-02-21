@@ -11,3 +11,5 @@ export {
   useUpdateQueryCache,
   useInvalidateQueries,
 } from './useGraphQL';
+export { useToast } from './useToast';
+export type { ToastOptions } from './useToast';

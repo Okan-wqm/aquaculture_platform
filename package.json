@@ -158,6 +158,7 @@
     "@swc-node/register": "^1.10.0",
     "@swc/core": "^1.7.0",
     "@swc/helpers": "^0.5.15",
+    "@types/cookie-parser": "^1.4.10",
     "@types/jest": "30.0.0",
     "@types/multer": "^2.0.0",
     "@types/node": "^20.11.0",

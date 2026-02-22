@@ -152,6 +152,7 @@ export class SensorTypeResolver {
    * Get pending (unapproved) channel detection proposals for a sensor
    */
   @Query(() => [ChannelDetectionLog], { name: 'pendingChannelProposals' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async pendingChannelProposals(
     @Args('sensorId', { type: () => ID }) sensorId: string,
     @Tenant() tenantId: string,

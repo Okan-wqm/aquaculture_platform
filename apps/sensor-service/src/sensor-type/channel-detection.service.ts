@@ -3,8 +3,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, IsNull, DataSource } from 'typeorm';
 
 import { ChannelDetectionLog } from '../database/entities/channel-detection-log.entity';
 import {
@@ -42,6 +42,8 @@ export class ChannelDetectionService {
   private readonly aiServiceUrl: string;
 
   constructor(
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     @InjectRepository(ChannelDetectionLog)
     private readonly logRepo: Repository<ChannelDetectionLog>,
     @InjectRepository(SensorDataChannel)
@@ -118,52 +120,57 @@ export class ChannelDetectionService {
     });
     const existingKeys = new Set(existingChannels.map((c) => c.channelKey));
 
-    const created: SensorDataChannel[] = [];
-
+    // Log skipped channels
     for (const chDef of channelsToCreate) {
       if (existingKeys.has(chDef.channelKey)) {
         this.logger.debug(
           `Skipping channel "${chDef.channelKey}" — already exists for sensor ${proposal.sensorId}`,
         );
-        continue;
       }
-
-      const channel = this.channelRepo.create({
-        sensorId: proposal.sensorId,
-        tenantId,
-        channelKey: chDef.channelKey,
-        displayLabel: chDef.displayLabel,
-        description: chDef.description,
-        dataType: this.mapDataType(chDef.dataType),
-        unit: chDef.unit,
-        unitSymbol: chDef.unitSymbol,
-        physicalMin: chDef.physicalMin,
-        physicalMax: chDef.physicalMax,
-        operationalMin: chDef.operationalMin,
-        operationalMax: chDef.operationalMax,
-        displayOrder: chDef.displayOrder ?? 0,
-        discoverySource: DiscoverySource.AUTO,
-        discoveredAt: new Date(),
-        isEnabled: true,
-        calibrationEnabled: false,
-        calibrationMultiplier: 1.0,
-        calibrationOffset: 0.0,
-      });
-
-      const saved = await this.channelRepo.save(channel);
-      created.push(saved);
     }
 
-    // Update proposal with approval
-    proposal.userAction = 'approved';
-    proposal.finalChannels = (modifications ?? channelsToCreate) as unknown as Record<string, unknown>;
-    await this.logRepo.save(proposal);
+    return this.dataSource.transaction(async (manager) => {
+      const channelRepo = manager.getRepository(SensorDataChannel);
+      const logRepo = manager.getRepository(ChannelDetectionLog);
 
-    this.logger.log(
-      `Approved proposal ${proposalId}: created ${created.length} channels for sensor ${proposal.sensorId}`,
-    );
+      // Batch create channels
+      const channelEntities = channelsToCreate
+        .filter(chDef => !existingKeys.has(chDef.channelKey))
+        .map(chDef => channelRepo.create({
+          sensorId: proposal.sensorId,
+          tenantId,
+          channelKey: chDef.channelKey,
+          displayLabel: chDef.displayLabel,
+          description: chDef.description,
+          dataType: this.mapDataType(chDef.dataType),
+          unit: chDef.unit,
+          unitSymbol: chDef.unitSymbol,
+          physicalMin: chDef.physicalMin,
+          physicalMax: chDef.physicalMax,
+          operationalMin: chDef.operationalMin,
+          operationalMax: chDef.operationalMax,
+          displayOrder: chDef.displayOrder ?? 0,
+          discoverySource: DiscoverySource.AUTO,
+          discoveredAt: new Date(),
+          isEnabled: true,
+          calibrationEnabled: false,
+          calibrationMultiplier: 1.0,
+          calibrationOffset: 0.0,
+        }));
 
-    return created;
+      const created = await channelRepo.save(channelEntities);
+
+      // Update proposal with approval
+      proposal.userAction = 'approved';
+      proposal.finalChannels = (modifications ?? channelsToCreate) as unknown as Record<string, unknown>;
+      await logRepo.save(proposal);
+
+      this.logger.log(
+        `Approved proposal ${proposalId}: created ${created.length} channels for sensor ${proposal.sensorId}`,
+      );
+
+      return created;
+    });
   }
 
   /**
@@ -227,6 +234,7 @@ export class ChannelDetectionService {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!response.ok) {

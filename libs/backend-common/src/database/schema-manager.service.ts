@@ -246,17 +246,6 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'hydroponics_config',
     ],
   },
-  {
-    moduleName: 'ai',
-    sourceSchema: 'ai',
-    referenceDataTables: [],
-    tables: [
-      'agent_conversations',
-      'agent_action_logs',
-      'tenant_agent_configs',
-      'tool_execution_audit',
-    ],
-  },
 ];
 
 /**

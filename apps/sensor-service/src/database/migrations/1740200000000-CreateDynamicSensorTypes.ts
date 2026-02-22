@@ -27,7 +27,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
     if (!(await this.tableExists(queryRunner, 'sensor_type_definitions'))) {
       await queryRunner.query(`
         CREATE TABLE "sensor_type_definitions" (
-          "id" UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           "tenant_id" UUID NOT NULL,
           "type_key" VARCHAR(100) NOT NULL,
           "display_name" VARCHAR(200) NOT NULL,
@@ -36,8 +36,8 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
           "category" VARCHAR(100),
           "industry" VARCHAR(100),
           "is_system" BOOLEAN NOT NULL DEFAULT false,
-          "default_channels" JSONB,
-          "metadata" JSONB,
+          "default_channels" JSONB DEFAULT '[]'::jsonb,
+          "metadata" JSONB DEFAULT '{}'::jsonb,
           "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           CONSTRAINT "UQ_sensor_type_definitions_tenant_key" UNIQUE ("tenant_id", "type_key")
@@ -99,12 +99,12 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
     if (!(await this.tableExists(queryRunner, 'industry_templates'))) {
       await queryRunner.query(`
         CREATE TABLE "industry_templates" (
-          "id" UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           "template_key" VARCHAR(100) NOT NULL,
           "display_name" VARCHAR(200) NOT NULL,
           "description" TEXT,
           "icon" VARCHAR(100),
-          "sensor_types" JSONB,
+          "sensor_types" JSONB NOT NULL DEFAULT '[]'::jsonb,
           "dashboard_layout" JSONB,
           "alert_presets" JSONB,
           "is_active" BOOLEAN NOT NULL DEFAULT true,
@@ -135,12 +135,12 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
     if (!(await this.tableExists(queryRunner, 'channel_detection_log'))) {
       await queryRunner.query(`
         CREATE TABLE "channel_detection_log" (
-          "id" UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           "tenant_id" UUID NOT NULL,
           "sensor_id" UUID NOT NULL,
-          "raw_sample" JSONB,
-          "ai_analysis" JSONB,
-          "proposed_channels" JSONB,
+          "raw_sample" JSONB NOT NULL,
+          "ai_analysis" JSONB NOT NULL,
+          "proposed_channels" JSONB NOT NULL,
           "user_action" VARCHAR(20),
           "final_channels" JSONB,
           "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),

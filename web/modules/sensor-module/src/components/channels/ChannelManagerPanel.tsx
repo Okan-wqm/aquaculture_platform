@@ -6,9 +6,10 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Plus, Edit, Trash2, Loader2, AlertCircle } from 'lucide-react';
+import { Plus, Edit, Trash2, Loader2, AlertCircle, Sparkles } from 'lucide-react';
 import { useChannelManagement, SensorDataChannel, CreateChannelInput, UpdateChannelInput } from '../../hooks/useChannelManagement';
 import { ChannelEditorModal } from '../registration/ChannelEditorModal';
+import { AIDetectionPanel } from './AIDetectionPanel';
 import { DataChannelConfig, ChannelDataType } from '../../types/registration.types';
 
 // ============================================================================
@@ -123,11 +124,13 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
     createChannel,
     updateChannel,
     deleteChannel,
+    refetch,
   } = useChannelManagement(sensorId);
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingChannel, setEditingChannel] = useState<DataChannelConfig | undefined>(undefined);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showAIDetection, setShowAIDetection] = useState(false);
 
   // --- Add Channel ---
   const handleAddChannel = useCallback(() => {
@@ -214,14 +217,37 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900">Data Channels</h3>
-        <button
-          onClick={handleAddChannel}
-          className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors text-sm font-medium"
-        >
-          <Plus className="w-4 h-4" />
-          Add Channel
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowAIDetection((prev) => !prev)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
+              showAIDetection
+                ? 'bg-purple-100 text-purple-700 border border-purple-300'
+                : 'bg-purple-600 text-white hover:bg-purple-700'
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            AI Tespit
+          </button>
+          <button
+            onClick={handleAddChannel}
+            className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" />
+            Add Channel
+          </button>
+        </div>
       </div>
+
+      {/* AI Detection Panel */}
+      {showAIDetection && (
+        <AIDetectionPanel
+          sensorId={sensorId}
+          onChannelsCreated={() => {
+            refetch();
+          }}
+        />
+      )}
 
       {/* Empty state */}
       {channels.length === 0 ? (

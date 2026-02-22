@@ -18,6 +18,7 @@ import {
 } from 'typeorm';
 
 import { SensorProtocol } from './sensor-protocol.entity';
+import { SensorTypeDefinition } from './sensor-type-definition.entity';
 
 /**
  * Sensor type enum
@@ -230,6 +231,15 @@ export class Sensor {
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ name: 'connection_status', type: 'jsonb', nullable: true })
   connectionStatus?: SensorConnectionStatus;
+
+  // Dynamic sensor type definition reference
+  @Field({ nullable: true })
+  @Column({ type: 'uuid', name: 'type_definition_id', nullable: true })
+  typeDefinitionId?: string;
+
+  @ManyToOne(() => SensorTypeDefinition, { nullable: true })
+  @JoinColumn({ name: 'type_definition_id' })
+  typeDefinition?: SensorTypeDefinition;
 
   @Field(() => SensorRegistrationStatus)
   @Column({

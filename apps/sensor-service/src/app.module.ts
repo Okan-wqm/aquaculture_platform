@@ -33,7 +33,10 @@ import { DashboardLayout } from './dashboard/entities/dashboard-layout.entity';
 import { SensorDataChannel } from './database/entities/sensor-data-channel.entity';
 import { SensorProtocol } from './database/entities/sensor-protocol.entity';
 import { SensorReading } from './database/entities/sensor-reading.entity';
+import { ChannelDetectionLog } from './database/entities/channel-detection-log.entity';
+import { IndustryTemplate } from './database/entities/industry-template.entity';
 import { Sensor } from './database/entities/sensor.entity';
+import { SensorTypeDefinition } from './database/entities/sensor-type-definition.entity';
 import { EdgeDeviceModule } from './edge-device/edge-device.module';
 import { DeviceIoConfig } from './edge-device/entities/device-io-config.entity';
 import { EdgeDevice } from './edge-device/entities/edge-device.entity';
@@ -111,6 +114,10 @@ import { CreateDynamicSensorTypes1740200000000 } from './database/migrations/174
           FeedingParameter,
           PlcAlarm,
           PlcTelemetry,
+          // Dynamic sensor type entities
+          SensorTypeDefinition,
+          IndustryTemplate,
+          ChannelDetectionLog,
         ],
         migrations: [
           CreateDynamicSensorTypes1740200000000,

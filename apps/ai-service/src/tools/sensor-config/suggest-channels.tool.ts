@@ -1,0 +1,204 @@
+import { Injectable } from '@nestjs/common';
+import { Tool } from '../core/tool.decorator';
+import { BaseTool } from '../core/base-tool';
+import { ToolExecutionContext } from '../core/tool.interface';
+
+interface DetectedFieldInput {
+  key: string;
+  dataType: 'number' | 'boolean' | 'string';
+  sampleCount: number;
+  min?: number;
+  max?: number;
+  mean?: number;
+  suggestedUnit: string;
+  suggestedLabel: string;
+  suggestedWidgetType: string;
+}
+
+interface SuggestChannelsInput {
+  sensorId: string;
+  detectedFields: DetectedFieldInput[];
+  industryContext?: string;
+}
+
+interface AlertThresholds {
+  warningLow?: number;
+  warningHigh?: number;
+  criticalLow?: number;
+  criticalHigh?: number;
+}
+
+interface ChannelProposal {
+  channelKey: string;
+  displayLabel: string;
+  dataType: 'number' | 'boolean' | 'string';
+  unit: string;
+  operationalMin?: number;
+  operationalMax?: number;
+  widgetType: string;
+  alertThresholds?: AlertThresholds;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+interface SuggestChannelsOutput {
+  sensorId: string;
+  tenantId: string;
+  proposals: ChannelProposal[];
+  industryContext: string;
+}
+
+@Injectable()
+@Tool({
+  name: 'suggest_sensor_channels',
+  description:
+    'Take sensor data analysis output and create structured channel proposals for sensor configuration. Generates channel keys, display labels, data types, units, operational ranges, widget types, and alert thresholds.',
+  category: 'sensor_query',
+  runtime: 'cloud',
+  requiredPermissions: ['operator', 'manager', 'expert', 'supervisor'],
+  inputSchema: {
+    type: 'object',
+    properties: {
+      sensorId: {
+        type: 'string',
+        description: 'ID of the sensor to configure channels for',
+      },
+      detectedFields: {
+        type: 'array',
+        description:
+          'Detected field analysis output from analyze_sensor_data tool',
+        items: {
+          type: 'object',
+          properties: {
+            key: { type: 'string' },
+            dataType: {
+              type: 'string',
+              enum: ['number', 'boolean', 'string'],
+            },
+            sampleCount: { type: 'number' },
+            min: { type: 'number' },
+            max: { type: 'number' },
+            mean: { type: 'number' },
+            suggestedUnit: { type: 'string' },
+            suggestedLabel: { type: 'string' },
+            suggestedWidgetType: { type: 'string' },
+          },
+          required: ['key', 'dataType', 'sampleCount'],
+        },
+        minItems: 1,
+      },
+      industryContext: {
+        type: 'string',
+        description:
+          'Optional industry context (e.g., "aquaculture", "agriculture", "industrial")',
+      },
+    },
+    required: ['sensorId', 'detectedFields'],
+  },
+  requiresModule: null,
+  requiresConfirmation: false,
+})
+export class SuggestChannelsTool extends BaseTool<
+  SuggestChannelsInput,
+  SuggestChannelsOutput
+> {
+  protected async run(
+    input: SuggestChannelsInput,
+    ctx: ToolExecutionContext,
+  ): Promise<SuggestChannelsOutput> {
+    const { sensorId, detectedFields, industryContext } = input;
+
+    const proposals: ChannelProposal[] = detectedFields.map((field) => {
+      const proposal: ChannelProposal = {
+        channelKey: this.toChannelKey(field.key),
+        displayLabel: field.suggestedLabel || this.formatLabel(field.key),
+        dataType: field.dataType,
+        unit: field.suggestedUnit || '',
+        widgetType: field.suggestedWidgetType || this.defaultWidget(field.dataType),
+        confidence: this.determineConfidence(field.sampleCount),
+      };
+
+      if (field.dataType === 'number' && field.min !== undefined && field.max !== undefined) {
+        proposal.operationalMin = field.min;
+        proposal.operationalMax = field.max;
+        proposal.alertThresholds = this.computeAlertThresholds(field.min, field.max);
+      }
+
+      return proposal;
+    });
+
+    return {
+      sensorId,
+      tenantId: ctx.tenantId,
+      proposals,
+      industryContext: industryContext || 'general',
+    };
+  }
+
+  private toChannelKey(key: string): string {
+    return key
+      .replace(/([a-z])([A-Z])/g, '$1_$2')
+      .replace(/[\s-]+/g, '_')
+      .toLowerCase();
+  }
+
+  private formatLabel(key: string): string {
+    return key
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/[_-]/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  private defaultWidget(dataType: string): string {
+    if (dataType === 'boolean') return 'indicator';
+    if (dataType === 'string') return 'text';
+    return 'gauge';
+  }
+
+  private determineConfidence(sampleCount: number): 'high' | 'medium' | 'low' {
+    if (sampleCount >= 10) return 'high';
+    if (sampleCount >= 3) return 'medium';
+    return 'low';
+  }
+
+  /**
+   * Compute alert thresholds from operational range.
+   * Warning = 10% inset from each end, Critical = full range boundaries.
+   */
+  private computeAlertThresholds(min: number, max: number): AlertThresholds {
+    const range = max - min;
+    const inset = range * 0.1;
+
+    return {
+      warningLow: Math.round((min + inset) * 10000) / 10000,
+      warningHigh: Math.round((max - inset) * 10000) / 10000,
+      criticalLow: min,
+      criticalHigh: max,
+    };
+  }
+
+  async validate(
+    input: SuggestChannelsInput,
+  ): Promise<{ valid: boolean; errors?: string[] }> {
+    const errors: string[] = [];
+    if (!input.sensorId || typeof input.sensorId !== 'string') {
+      errors.push('sensorId is required and must be a string');
+    }
+    if (!input.detectedFields || !Array.isArray(input.detectedFields)) {
+      errors.push('detectedFields must be a non-empty array');
+    } else if (input.detectedFields.length === 0) {
+      errors.push('detectedFields must contain at least one field');
+    }
+    return {
+      valid: errors.length === 0,
+      errors: errors.length > 0 ? errors : undefined,
+    };
+  }
+
+  protected isCacheable(): boolean {
+    return true;
+  }
+
+  protected getCacheTtl(): number {
+    return 60;
+  }
+}

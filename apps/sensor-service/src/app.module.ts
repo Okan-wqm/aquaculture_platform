@@ -48,6 +48,7 @@ import { Process } from './process/entities/process.entity';
 import { ProcessModule } from './process/process.module';
 import { ProtocolModule } from './protocol/protocol.module';
 import { RegistrationModule } from './registration/registration.module';
+import { SensorTypeModule } from './sensor-type/sensor-type.module';
 import { SensorModule } from './sensor/sensor.module';
 import { SharedMqttModule } from './shared-mqtt/shared-mqtt.module';
 import { VfdDevice } from './vfd/entities/vfd-device.entity';
@@ -276,6 +277,9 @@ import { CreateDynamicSensorTypes1740200000000 } from './database/migrations/174
 
     // PLC Control module for OPC UA based PLC communication
     PlcControlModule,
+
+    // Sensor type definitions and industry templates
+    SensorTypeModule,
   ],
   providers: [
     // Global exception filter

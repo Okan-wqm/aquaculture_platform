@@ -9,6 +9,7 @@ export * from './alert-events';
 export * from './notification-events';
 export * from './hr-events';
 export * from './billing-events';
+export * from './ai-events';
 
 // Re-export all domain union types for convenience
 import type { TenantEvent } from './tenant-events';
@@ -18,6 +19,7 @@ import type { AlertEvent } from './alert-events';
 import type { NotificationEvent } from './notification-events';
 import type { HREvent } from './hr-events';
 import type { BillingEvent } from './billing-events';
+import type { AIEvent } from './ai-events';
 
 /**
  * Union type for all platform events.
@@ -30,4 +32,5 @@ export type AnyPlatformEvent =
   | AlertEvent
   | NotificationEvent
   | HREvent
-  | BillingEvent;
+  | BillingEvent
+  | AIEvent;

@@ -37,6 +37,7 @@ import { RequestLoggingInterceptor } from './interceptors/request-logging.interc
 import { UploadModule } from './upload/upload.module';
 import { WebSocketModule } from './websocket/websocket.module';
 import { createAliasLimitPlugin } from './plugins/graphql-alias-limit.plugin';
+import { AiRoutesModule } from './routes/v2/ai.routes';
 
 // JwtPayload is imported from auth.guard.ts for consistency
 
@@ -433,6 +434,9 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
 
     // WebSocket module for real-time sensor data
     WebSocketModule,
+
+    // AI service proxy routes (chat, conversations)
+    AiRoutesModule,
 
     // Redis for distributed rate limiting (optional, falls back to in-memory if not configured)
     RedisModule.forRootAsync({

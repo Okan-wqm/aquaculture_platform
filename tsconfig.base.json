@@ -56,7 +56,8 @@
         "platform/libs/temporal-workflows/src/index.ts"
       ],
       "@web/shared-ui": ["web/shared-ui/src/index.ts"],
-      "@aquaculture/node-components": ["libs/node-components/src/index.ts"]
+      "@aquaculture/node-components": ["libs/node-components/src/index.ts"],
+      "@platform/aquaculture-engines": ["libs/aquaculture-engines/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "tmp", "dist", ".nx"]

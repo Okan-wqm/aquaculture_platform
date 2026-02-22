@@ -21,6 +21,7 @@ export class UpdateSensorTypeInput {
   @Field({ nullable: true })
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   description?: string;
 
   @Field({ nullable: true })

@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsNotEmpty,
   MaxLength,
+  Matches,
 } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
@@ -16,6 +17,9 @@ export class CreateSensorTypeInput {
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
+  @Matches(/^[a-z][a-z0-9_]{1,99}$/, {
+    message: 'typeKey must be lowercase alphanumeric with underscores, starting with a letter',
+  })
   typeKey!: string;
 
   @Field()
@@ -27,6 +31,7 @@ export class CreateSensorTypeInput {
   @Field({ nullable: true })
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   description?: string;
 
   @Field({ nullable: true })

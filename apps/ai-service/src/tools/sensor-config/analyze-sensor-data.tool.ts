@@ -109,6 +109,7 @@ function suggestWidgetType(dataType: string, unit: string): string {
           required: ['timestamp', 'values'],
         },
         minItems: 1,
+        maxItems: 10000,
       },
       sensorName: {
         type: 'string',
@@ -169,8 +170,10 @@ export class AnalyzeSensorDataTool extends BaseTool<
         const numericValues = stats.values
           .filter((v): v is number => typeof v === 'number' && !isNaN(v));
         if (numericValues.length > 0) {
-          field.min = Math.round(Math.min(...numericValues) * 10000) / 10000;
-          field.max = Math.round(Math.max(...numericValues) * 10000) / 10000;
+          const minVal = numericValues.reduce((a, b) => Math.min(a, b), Infinity);
+          const maxVal = numericValues.reduce((a, b) => Math.max(a, b), -Infinity);
+          field.min = Math.round(minVal * 10000) / 10000;
+          field.max = Math.round(maxVal * 10000) / 10000;
           const sum = numericValues.reduce((a, b) => a + b, 0);
           field.mean = Math.round((sum / numericValues.length) * 10000) / 10000;
         }

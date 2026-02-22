@@ -264,7 +264,10 @@ export class SensorTypeService {
     typeDefinitionId: string,
   ): Promise<SensorDataChannel[]> {
     const typeDef = await this.sensorTypeRepo.findOne({
-      where: { id: typeDefinitionId },
+      where: [
+        { id: typeDefinitionId, tenantId },
+        { id: typeDefinitionId, isSystem: true },
+      ],
     });
 
     if (!typeDef) {

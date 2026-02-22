@@ -21,7 +21,7 @@ import { Sensor } from './sensor.entity';
  * Tracks raw samples, AI analysis results, and user decisions on proposed channels.
  */
 @ObjectType()
-@Entity('channel_detection_logs')
+@Entity('channel_detection_log')
 @Index(['tenantId'])
 @Index(['sensorId'])
 export class ChannelDetectionLog {

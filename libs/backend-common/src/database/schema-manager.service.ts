@@ -40,7 +40,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'sensor',
     sourceSchema: 'sensor', // Tables are in sensor schema, will be copied to tenant schema
-    referenceDataTables: ['sensor_protocols'],
+    referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities
       'sensors',
@@ -72,6 +72,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'program_transitions',
       'program_variables',
       'step_actions',
+
+      // Dynamic sensor type system
+      'sensor_type_definitions',
+      'industry_templates',
+      'channel_detection_log',
 
       // Edge Gateway - Self-Registration & Deployment
       'tenant_provisioning_keys',
@@ -239,6 +244,17 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     referenceDataTables: [],
     tables: [
       'hydroponics_config',
+    ],
+  },
+  {
+    moduleName: 'ai',
+    sourceSchema: 'ai',
+    referenceDataTables: [],
+    tables: [
+      'agent_conversations',
+      'agent_action_logs',
+      'tenant_agent_configs',
+      'tool_execution_audit',
     ],
   },
 ];

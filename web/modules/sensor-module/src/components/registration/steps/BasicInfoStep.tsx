@@ -1,12 +1,71 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { graphqlFetch } from '../../../config/api';
 import { RegisterSensorInput, SensorType } from '../../../types/registration.types';
 
+/**
+ * Dynamic sensor type definition fetched from the backend
+ */
+interface SensorTypeDefinition {
+  id: string;
+  typeKey: string;
+  displayName: string;
+  category: string | null;
+  icon: string | null;
+  isSystem: boolean;
+}
+
+const GET_SENSOR_TYPES_QUERY = `
+  query GetSensorTypes {
+    sensorTypes {
+      id
+      typeKey
+      displayName
+      category
+      icon
+      isSystem
+    }
+  }
+`;
+
+/**
+ * Hook to fetch dynamic sensor type definitions
+ */
+function useSensorTypes() {
+  const [types, setTypes] = useState<SensorTypeDefinition[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetch = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await graphqlFetch<{ sensorTypes: SensorTypeDefinition[] }>(
+        GET_SENSOR_TYPES_QUERY,
+      );
+      setTypes(data.sensorTypes);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetch();
+  }, [fetch]);
+
+  return { types, loading, error };
+}
+
 interface BasicInfoStepProps {
-  values: Partial<RegisterSensorInput>;
-  onChange: (updates: Partial<RegisterSensorInput>) => void;
+  values: Partial<RegisterSensorInput> & { typeDefinitionId?: string };
+  onChange: (updates: Partial<RegisterSensorInput> & { typeDefinitionId?: string }) => void;
   errors?: Record<string, string>;
 }
 
+/**
+ * Hardcoded fallback options used when dynamic types are unavailable
+ */
 const SENSOR_TYPE_OPTIONS: Array<{ value: SensorType; label: string; description: string }> = [
   { value: SensorType.TEMPERATURE, label: 'Temperature', description: 'Water temperature sensor' },
   { value: SensorType.PH, label: 'pH', description: 'pH level sensor' },
@@ -29,14 +88,61 @@ const SENSOR_TYPE_OPTIONS: Array<{ value: SensorType; label: string; description
 ];
 
 export function BasicInfoStep({ values, onChange, errors = {} }: BasicInfoStepProps) {
-  const handleChange = (field: keyof RegisterSensorInput, value: unknown) => {
+  const { types: dynamicTypes, loading: typesLoading, error: typesError } = useSensorTypes();
+
+  // Group dynamic types by category
+  const groupedTypes = useMemo(() => {
+    if (dynamicTypes.length === 0) return null;
+
+    const groups: Record<string, SensorTypeDefinition[]> = {};
+    for (const t of dynamicTypes) {
+      const category = t.category || 'other';
+      if (!groups[category]) groups[category] = [];
+      groups[category].push(t);
+    }
+    return groups;
+  }, [dynamicTypes]);
+
+  const handleChange = (field: string, value: unknown) => {
     onChange({ [field]: value });
   };
+
+  /**
+   * When a dynamic type is selected, store its id as typeDefinitionId
+   * and also set the legacy type ENUM for backward compatibility.
+   */
+  const handleDynamicTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedId = e.target.value;
+    if (!selectedId) {
+      onChange({ type: undefined as unknown as SensorType, typeDefinitionId: undefined });
+      return;
+    }
+
+    const selected = dynamicTypes.find((t) => t.id === selectedId);
+    if (selected) {
+      // Map typeKey to the legacy SensorType enum if it matches, otherwise default to OTHER
+      const legacyType = Object.values(SensorType).includes(selected.typeKey as SensorType)
+        ? (selected.typeKey as SensorType)
+        : SensorType.OTHER;
+
+      onChange({
+        type: legacyType,
+        typeDefinitionId: selected.id,
+      });
+    }
+  };
+
+  /** Format a category key for display (e.g. "water_quality" -> "Water Quality") */
+  const formatCategory = (cat: string) =>
+    cat.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
   const inputClassName = (hasError: boolean) =>
     `w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
       hasError ? 'border-red-500' : 'border-gray-300'
     }`;
+
+  // Determine whether to use dynamic or fallback type selector
+  const useDynamicTypes = dynamicTypes.length > 0 && !typesError;
 
   return (
     <div className="space-y-6">
@@ -65,18 +171,46 @@ export function BasicInfoStep({ values, onChange, errors = {} }: BasicInfoStepPr
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Sensor Type <span className="text-red-500">*</span>
             </label>
-            <select
-              value={values.type || ''}
-              onChange={(e) => handleChange('type', e.target.value as SensorType)}
-              className={inputClassName(!!errors.type)}
-            >
-              <option value="">Select a sensor type</option>
-              {SENSOR_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label} - {option.description}
-                </option>
-              ))}
-            </select>
+
+            {typesLoading && (
+              <p className="text-sm text-gray-500 mb-1">Loading sensor types...</p>
+            )}
+
+            {useDynamicTypes ? (
+              /* Dynamic types grouped by category */
+              <select
+                value={values.typeDefinitionId || ''}
+                onChange={handleDynamicTypeChange}
+                className={inputClassName(!!errors.type)}
+              >
+                <option value="">Select a sensor type</option>
+                {groupedTypes && Object.entries(groupedTypes)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([category, types]) => (
+                    <optgroup key={category} label={formatCategory(category)}>
+                      {types.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.icon ? `${t.icon} ` : ''}{t.displayName}{t.isSystem ? '' : ' (custom)'}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+              </select>
+            ) : (
+              /* Fallback to hardcoded ENUM options */
+              <select
+                value={values.type || ''}
+                onChange={(e) => handleChange('type', e.target.value as SensorType)}
+                className={inputClassName(!!errors.type)}
+              >
+                <option value="">Select a sensor type</option>
+                {SENSOR_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label} - {option.description}
+                  </option>
+                ))}
+              </select>
+            )}
             {errors.type && <p className="mt-1 text-xs text-red-500">{errors.type}</p>}
           </div>
         </div>

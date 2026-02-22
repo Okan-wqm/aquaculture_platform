@@ -20,6 +20,7 @@ import {
 } from '../dto/aggregated-reading.dto';
 import { CreateSensorInput, UpdateSensorInput } from '../dto/create-sensor.dto';
 import { IngestReadingInput, BatchIngestInput } from '../dto/ingest-reading.dto';
+import { SensorTypeService } from '../../sensor-type/sensor-type.service';
 import { SensorIngestionService } from '../services/sensor-ingestion.service';
 import { SensorQueryService } from '../services/sensor-query.service';
 
@@ -47,6 +48,7 @@ export class SensorResolver {
     private readonly sensorRepository: Repository<Sensor>,
     private readonly ingestionService: SensorIngestionService,
     private readonly queryService: SensorQueryService,
+    private readonly sensorTypeService: SensorTypeService,
   ) {}
 
   /**
@@ -215,14 +217,34 @@ export class SensorResolver {
       );
     }
 
+    const { typeDefinitionId, ...sensorInput } = input;
+
     const sensor = this.sensorRepository.create({
-      ...input,
+      ...sensorInput,
       tenantId,
       status: SensorStatus.ACTIVE,
       createdBy: user.sub,
     });
 
-    return await this.sensorRepository.save(sensor);
+    const saved = await this.sensorRepository.save(sensor);
+
+    // If a dynamic type definition was provided, create default channels
+    if (typeDefinitionId) {
+      try {
+        await this.sensorTypeService.createChannelsFromTypeDefinition(
+          saved.id,
+          tenantId,
+          typeDefinitionId,
+        );
+      } catch (error) {
+        // Channel creation is non-critical — sensor is still valid
+        this.logger.warn(
+          `Failed to create channels from type definition ${typeDefinitionId} for sensor ${saved.id}: ${error}`,
+        );
+      }
+    }
+
+    return saved;
   }
 
   /**

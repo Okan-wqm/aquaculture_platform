@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor } from '../database/entities/sensor.entity';
+import { SensorTypeModule } from '../sensor-type/sensor-type.module';
 
 import { SensorResolver } from './resolvers/sensor.resolver';
 import { CalibrationService } from './services/calibration.service';
@@ -30,6 +31,7 @@ import { SensorQueryService } from './services/sensor-query.service';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Sensor, SensorReading, SensorDataChannel]),
+    SensorTypeModule,
   ],
   providers: [
     // Resolvers

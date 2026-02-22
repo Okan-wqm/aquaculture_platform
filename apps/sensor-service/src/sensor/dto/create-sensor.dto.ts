@@ -60,6 +60,11 @@ export class CreateSensorInput {
   @IsUUID()
   @IsOptional()
   farmId?: string;
+
+  @Field(() => ID, { nullable: true, description: 'Dynamic sensor type definition ID (optional, supplements the type ENUM)' })
+  @IsUUID()
+  @IsOptional()
+  typeDefinitionId?: string;
 }
 
 /**

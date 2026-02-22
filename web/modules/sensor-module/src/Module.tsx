@@ -10,6 +10,7 @@ import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import SensorScadaPage from './pages/SensorScadaPage';
 import SensorDashboardPage from './pages/SensorDashboardPage';
+import IndustrySetupPage from './pages/IndustrySetupPage';
 import DevicesPage from './pages/DevicesPage';
 import DeviceDetailPage from './pages/DeviceDetailPage';
 import ReadingsPage from './pages/ReadingsPage';
@@ -48,6 +49,9 @@ const SensorModule: React.FC = () => {
         {/* SCADA View - Main Page */}
         <Route index element={<SensorScadaPage />} />
         <Route path="scada" element={<SensorScadaPage />} />
+
+        {/* Industry Setup */}
+        <Route path="setup" element={<IndustrySetupPage />} />
 
         {/* Dashboard (legacy, optional access) */}
         <Route path="dashboard" element={<SensorDashboardPage />} />

@@ -6,11 +6,15 @@ import {
   Args,
   ID,
 } from '@nestjs/graphql';
+import { GraphQLJSON } from 'graphql-scalars';
 import { Tenant, Roles, Role } from '@platform/backend-common';
 
+import { ChannelDetectionLog } from '../database/entities/channel-detection-log.entity';
+import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { IndustryTemplate } from '../database/entities/industry-template.entity';
 import { SensorTypeDefinition } from '../database/entities/sensor-type-definition.entity';
 
+import { ChannelDetectionService } from './channel-detection.service';
 import { CreateSensorTypeInput } from './dto/create-sensor-type.dto';
 import { UpdateSensorTypeInput } from './dto/update-sensor-type.dto';
 import { SensorTypeService } from './sensor-type.service';
@@ -25,6 +29,7 @@ export class SensorTypeResolver {
 
   constructor(
     private readonly sensorTypeService: SensorTypeService,
+    private readonly channelDetectionService: ChannelDetectionService,
   ) {}
 
   /**
@@ -94,5 +99,63 @@ export class SensorTypeResolver {
   ): Promise<SensorTypeDefinition[]> {
     this.logger.log(`Applying template "${templateKey}"`);
     return this.sensorTypeService.applyTemplate(tenantId, templateKey);
+  }
+
+  // === Channel Detection ===
+
+  /**
+   * Detect sensor channels from raw data samples using AI analysis
+   */
+  @Mutation(() => ChannelDetectionLog, { name: 'detectSensorChannels' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async detectSensorChannels(
+    @Args('sensorId', { type: () => ID }) sensorId: string,
+    @Args('samples', { type: () => GraphQLJSON }) samples: unknown[],
+    @Tenant() tenantId: string,
+  ): Promise<ChannelDetectionLog> {
+    this.logger.log(`Detecting channels for sensor ${sensorId}`);
+    return this.channelDetectionService.detectChannels(sensorId, tenantId, samples);
+  }
+
+  /**
+   * Approve a channel detection proposal, optionally with modifications
+   */
+  @Mutation(() => [SensorDataChannel], { name: 'approveChannelProposal' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async approveChannelProposal(
+    @Args('proposalId', { type: () => ID }) proposalId: string,
+    @Args('modifications', { type: () => GraphQLJSON, nullable: true }) modifications: unknown,
+    @Tenant() tenantId: string,
+  ): Promise<SensorDataChannel[]> {
+    this.logger.log(`Approving channel proposal ${proposalId}`);
+    return this.channelDetectionService.approveProposal(
+      proposalId,
+      tenantId,
+      modifications as any[] | undefined,
+    );
+  }
+
+  /**
+   * Reject a channel detection proposal
+   */
+  @Mutation(() => Boolean, { name: 'rejectChannelProposal' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async rejectChannelProposal(
+    @Args('proposalId', { type: () => ID }) proposalId: string,
+    @Tenant() tenantId: string,
+  ): Promise<boolean> {
+    this.logger.log(`Rejecting channel proposal ${proposalId}`);
+    return this.channelDetectionService.rejectProposal(proposalId, tenantId);
+  }
+
+  /**
+   * Get pending (unapproved) channel detection proposals for a sensor
+   */
+  @Query(() => [ChannelDetectionLog], { name: 'pendingChannelProposals' })
+  async pendingChannelProposals(
+    @Args('sensorId', { type: () => ID }) sensorId: string,
+    @Tenant() tenantId: string,
+  ): Promise<ChannelDetectionLog[]> {
+    return this.channelDetectionService.getPendingProposals(sensorId, tenantId);
   }
 }

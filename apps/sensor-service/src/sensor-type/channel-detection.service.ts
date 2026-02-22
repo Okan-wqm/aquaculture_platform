@@ -1,0 +1,371 @@
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, IsNull } from 'typeorm';
+
+import { ChannelDetectionLog } from '../database/entities/channel-detection-log.entity';
+import {
+  SensorDataChannel,
+  ChannelDataType,
+  DiscoverySource,
+} from '../database/entities/sensor-data-channel.entity';
+
+/**
+ * Channel definition proposed by AI or local fallback analysis
+ */
+interface ProposedChannel {
+  channelKey: string;
+  displayLabel: string;
+  dataType?: string;
+  unit?: string;
+  unitSymbol?: string;
+  description?: string;
+  physicalMin?: number;
+  physicalMax?: number;
+  operationalMin?: number;
+  operationalMax?: number;
+  displayOrder?: number;
+}
+
+/**
+ * ChannelDetectionService
+ * Manages AI-driven channel detection for sensors.
+ * Accepts raw sensor data, calls AI service for analysis,
+ * stores proposals, and handles approve/reject flow.
+ */
+@Injectable()
+export class ChannelDetectionService {
+  private readonly logger = new Logger(ChannelDetectionService.name);
+  private readonly aiServiceUrl: string;
+
+  constructor(
+    @InjectRepository(ChannelDetectionLog)
+    private readonly logRepo: Repository<ChannelDetectionLog>,
+    @InjectRepository(SensorDataChannel)
+    private readonly channelRepo: Repository<SensorDataChannel>,
+  ) {
+    this.aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:3008';
+  }
+
+  /**
+   * Detect channels from raw sensor data samples.
+   * Calls AI service for analysis, falls back to local heuristics if unavailable.
+   * Stores the proposal in channel_detection_log and returns the log entry.
+   */
+  async detectChannels(
+    sensorId: string,
+    tenantId: string,
+    samples: unknown[],
+  ): Promise<ChannelDetectionLog> {
+    let aiAnalysis: Record<string, unknown>;
+    let proposedChannels: ProposedChannel[];
+
+    try {
+      const result = await this.callAiService(samples);
+      aiAnalysis = result.aiAnalysis;
+      proposedChannels = result.proposedChannels;
+    } catch (error) {
+      this.logger.warn(
+        `AI service unavailable, falling back to local analysis: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      const result = this.localFallbackAnalysis(samples);
+      aiAnalysis = result.aiAnalysis;
+      proposedChannels = result.proposedChannels;
+    }
+
+    const log = this.logRepo.create({
+      sensorId,
+      tenantId,
+      rawSample: samples as unknown as Record<string, unknown>,
+      aiAnalysis,
+      proposedChannels: proposedChannels as unknown as Record<string, unknown>,
+    });
+
+    return this.logRepo.save(log);
+  }
+
+  /**
+   * Approve a channel detection proposal.
+   * Creates sensor_data_channels from proposedChannels (or modifications if provided).
+   * Updates the log entry with userAction='approved' and finalChannels.
+   */
+  async approveProposal(
+    proposalId: string,
+    tenantId: string,
+    modifications?: ProposedChannel[],
+  ): Promise<SensorDataChannel[]> {
+    const proposal = await this.logRepo.findOne({
+      where: { id: proposalId, tenantId },
+    });
+
+    if (!proposal) {
+      throw new NotFoundException(
+        `Channel detection proposal with ID "${proposalId}" not found`,
+      );
+    }
+
+    const channelsToCreate: ProposedChannel[] = modifications
+      ?? (proposal.proposedChannels as unknown as ProposedChannel[]);
+
+    // Check for existing channels to avoid duplicates
+    const existingChannels = await this.channelRepo.find({
+      where: { sensorId: proposal.sensorId, tenantId },
+    });
+    const existingKeys = new Set(existingChannels.map((c) => c.channelKey));
+
+    const created: SensorDataChannel[] = [];
+
+    for (const chDef of channelsToCreate) {
+      if (existingKeys.has(chDef.channelKey)) {
+        this.logger.debug(
+          `Skipping channel "${chDef.channelKey}" — already exists for sensor ${proposal.sensorId}`,
+        );
+        continue;
+      }
+
+      const channel = this.channelRepo.create({
+        sensorId: proposal.sensorId,
+        tenantId,
+        channelKey: chDef.channelKey,
+        displayLabel: chDef.displayLabel,
+        description: chDef.description,
+        dataType: this.mapDataType(chDef.dataType),
+        unit: chDef.unit,
+        unitSymbol: chDef.unitSymbol,
+        physicalMin: chDef.physicalMin,
+        physicalMax: chDef.physicalMax,
+        operationalMin: chDef.operationalMin,
+        operationalMax: chDef.operationalMax,
+        displayOrder: chDef.displayOrder ?? 0,
+        discoverySource: DiscoverySource.AUTO,
+        discoveredAt: new Date(),
+        isEnabled: true,
+        calibrationEnabled: false,
+        calibrationMultiplier: 1.0,
+        calibrationOffset: 0.0,
+      });
+
+      const saved = await this.channelRepo.save(channel);
+      created.push(saved);
+    }
+
+    // Update proposal with approval
+    proposal.userAction = 'approved';
+    proposal.finalChannels = (modifications ?? channelsToCreate) as unknown as Record<string, unknown>;
+    await this.logRepo.save(proposal);
+
+    this.logger.log(
+      `Approved proposal ${proposalId}: created ${created.length} channels for sensor ${proposal.sensorId}`,
+    );
+
+    return created;
+  }
+
+  /**
+   * Reject a channel detection proposal.
+   * Sets userAction='rejected' on the log entry.
+   */
+  async rejectProposal(
+    proposalId: string,
+    tenantId: string,
+  ): Promise<boolean> {
+    const proposal = await this.logRepo.findOne({
+      where: { id: proposalId, tenantId },
+    });
+
+    if (!proposal) {
+      throw new NotFoundException(
+        `Channel detection proposal with ID "${proposalId}" not found`,
+      );
+    }
+
+    proposal.userAction = 'rejected';
+    await this.logRepo.save(proposal);
+
+    this.logger.log(`Rejected proposal ${proposalId}`);
+
+    return true;
+  }
+
+  /**
+   * Get pending (unapproved/unrejected) proposals for a sensor.
+   * Returns proposals where userAction IS NULL, ordered by createdAt DESC.
+   */
+  async getPendingProposals(
+    sensorId: string,
+    tenantId: string,
+  ): Promise<ChannelDetectionLog[]> {
+    return this.logRepo.find({
+      where: {
+        sensorId,
+        tenantId,
+        userAction: IsNull(),
+      },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /**
+   * Call the AI service to analyze sensor data samples.
+   * Posts to /api/v2/ai/chat with the samples and parses tool call results.
+   */
+  private async callAiService(
+    samples: unknown[],
+  ): Promise<{ aiAnalysis: Record<string, unknown>; proposedChannels: ProposedChannel[] }> {
+    const url = `${this.aiServiceUrl}/api/v2/ai/chat`;
+    const body = {
+      message: `Analyze this sensor data and suggest channels: ${JSON.stringify(samples)}`,
+      persona: 'operator',
+    };
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `AI service returned ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const data = await response.json() as {
+      toolResults?: Array<{
+        tool: string;
+        result: Record<string, unknown>;
+      }>;
+    };
+
+    // Extract tool call results
+    let aiAnalysis: Record<string, unknown> = {};
+    let proposedChannels: ProposedChannel[] = [];
+
+    if (data.toolResults && Array.isArray(data.toolResults)) {
+      for (const toolResult of data.toolResults) {
+        if (toolResult.tool === 'analyze_sensor_data') {
+          aiAnalysis = toolResult.result;
+        }
+        if (toolResult.tool === 'suggest_sensor_channels') {
+          const result = toolResult.result as { channels?: ProposedChannel[] };
+          proposedChannels = result.channels ?? [];
+        }
+      }
+    }
+
+    // If no tool results, try to parse the response as-is
+    if (proposedChannels.length === 0) {
+      this.logger.warn('AI service returned no tool results, falling back to local analysis');
+      return this.localFallbackAnalysis(samples as unknown[]);
+    }
+
+    return { aiAnalysis, proposedChannels };
+  }
+
+  /**
+   * Local fallback analysis when AI service is unavailable.
+   * Simple heuristic: iterate sample keys, infer types from values.
+   */
+  private localFallbackAnalysis(
+    samples: unknown[],
+  ): { aiAnalysis: Record<string, unknown>; proposedChannels: ProposedChannel[] } {
+    const proposedChannels: ProposedChannel[] = [];
+    const fieldStats: Record<string, { type: string; values: unknown[] }> = {};
+
+    // Collect field info from all samples
+    for (const sample of samples) {
+      if (typeof sample !== 'object' || sample === null) continue;
+
+      for (const [key, value] of Object.entries(sample as Record<string, unknown>)) {
+        if (!fieldStats[key]) {
+          fieldStats[key] = { type: typeof value, values: [] };
+        }
+        fieldStats[key].values.push(value);
+      }
+    }
+
+    // Generate channel proposals from field stats
+    let order = 0;
+    for (const [key, stats] of Object.entries(fieldStats)) {
+      const dataType = this.inferDataType(stats.type, stats.values);
+      const displayLabel = this.formatDisplayLabel(key);
+
+      proposedChannels.push({
+        channelKey: key,
+        displayLabel,
+        dataType,
+        displayOrder: order++,
+      });
+    }
+
+    const aiAnalysis: Record<string, unknown> = {
+      source: 'local_fallback',
+      fieldsDetected: Object.keys(fieldStats).length,
+      sampleCount: samples.length,
+      fields: Object.entries(fieldStats).map(([key, stats]) => ({
+        key,
+        type: stats.type,
+        sampleValues: stats.values.slice(0, 5),
+      })),
+    };
+
+    return { aiAnalysis, proposedChannels };
+  }
+
+  /**
+   * Infer ChannelDataType string from JavaScript typeof and sample values
+   */
+  private inferDataType(jsType: string, values: unknown[]): string {
+    if (jsType === 'boolean') return ChannelDataType.BOOLEAN;
+    if (jsType === 'number') return ChannelDataType.NUMBER;
+    if (jsType === 'string') {
+      // Check if values form a small set of distinct values (enum-like)
+      const unique = new Set(values);
+      if (unique.size <= 10 && values.length >= 2) {
+        return ChannelDataType.ENUM;
+      }
+      return ChannelDataType.STRING;
+    }
+    return ChannelDataType.STRING;
+  }
+
+  /**
+   * Convert a snake_case or camelCase key into a human-readable display label.
+   */
+  private formatDisplayLabel(key: string): string {
+    return key
+      .replace(/_/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  /**
+   * Map a string data type to the ChannelDataType enum
+   */
+  private mapDataType(dataType?: string): ChannelDataType {
+    if (!dataType) return ChannelDataType.NUMBER;
+
+    switch (dataType.toLowerCase()) {
+      case 'number':
+      case 'float':
+      case 'integer':
+      case 'int':
+        return ChannelDataType.NUMBER;
+      case 'boolean':
+      case 'bool':
+        return ChannelDataType.BOOLEAN;
+      case 'enum':
+        return ChannelDataType.ENUM;
+      case 'string':
+      case 'text':
+        return ChannelDataType.STRING;
+      default:
+        return ChannelDataType.NUMBER;
+    }
+  }
+}

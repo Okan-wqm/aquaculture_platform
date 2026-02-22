@@ -23,7 +23,9 @@ import {
   Trash2,
   AlertCircle,
   Loader2,
+  Layers,
 } from 'lucide-react';
+import { ChannelManagerPanel } from '../components/channels/ChannelManagerPanel';
 
 // ============================================================================
 // Types
@@ -192,6 +194,7 @@ const DeviceDetailPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'channels'>('overview');
 
   const fetchDevice = useCallback(async () => {
     if (!deviceId) return;
@@ -321,6 +324,38 @@ const DeviceDetailPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Tab Bar */}
+      <div className="flex border-b border-gray-200">
+        <button
+          onClick={() => setActiveTab('overview')}
+          className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'overview'
+              ? 'text-cyan-600 border-cyan-600'
+              : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
+          }`}
+        >
+          <Activity className="w-4 h-4" />
+          Overview
+        </button>
+        <button
+          onClick={() => setActiveTab('channels')}
+          className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'channels'
+              ? 'text-cyan-600 border-cyan-600'
+              : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          Channels
+        </button>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'channels' && deviceId && (
+        <ChannelManagerPanel sensorId={deviceId} />
+      )}
+
+      {activeTab === 'overview' && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Device Info Card */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -500,6 +535,7 @@ const DeviceDetailPage: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 };

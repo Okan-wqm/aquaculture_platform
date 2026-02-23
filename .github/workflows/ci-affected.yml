@@ -4,6 +4,7 @@ name: CI - Affected
 # SEC-CI-002: All third-party actions pinned to full commit SHAs
 # ARCH-CI-006: Removed github.sha from NX cache key
 # ARCH-CI-007: Split lint/type-check/test into parallel jobs so build always runs
+# ARCH-CI-008: Increased timeouts (cold cache), reduced parallel=2 (memory), save Nx cache after build
 
 on:
   push:
@@ -91,7 +92,7 @@ jobs:
   lint:
     needs: install
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     continue-on-error: true
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -122,8 +123,8 @@ jobs:
             nx-ci-${{ runner.os }}-
 
       - name: Run linter (affected only)
-        run: npx nx affected -t lint --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=3
-        timeout-minutes: 12
+        run: npx nx affected -t lint --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
+        timeout-minutes: 20
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
@@ -131,7 +132,7 @@ jobs:
   type-check:
     needs: install
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     continue-on-error: true
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -162,8 +163,8 @@ jobs:
             nx-ci-${{ runner.os }}-
 
       - name: Run type check (affected only)
-        run: npx nx affected -t type-check --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=3
-        timeout-minutes: 12
+        run: npx nx affected -t type-check --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
+        timeout-minutes: 20
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
@@ -172,7 +173,7 @@ jobs:
   test:
     needs: install
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     continue-on-error: true
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -203,8 +204,8 @@ jobs:
             nx-ci-${{ runner.os }}-
 
       - name: Run tests (affected only)
-        run: npx nx affected -t test --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=3
-        timeout-minutes: 12
+        run: npx nx affected -t test --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
+        timeout-minutes: 20
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
@@ -217,7 +218,7 @@ jobs:
   build:
     needs: install
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -247,12 +248,20 @@ jobs:
             nx-ci-${{ runner.os }}-
 
       - name: Build (affected only)
-        run: npx nx affected -t build --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=3
-        timeout-minutes: 18
+        run: npx nx affected -t build --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
+        timeout-minutes: 25
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
           NODE_OPTIONS: '--max-old-space-size=4096'
+
+      # Persist Nx cache so subsequent CI runs are fast
+      - name: Save Nx cache
+        if: always()
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .nx/cache
+          key: nx-ci-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}-${{ github.sha }}
 
   docs-check:
     needs: detect-changes

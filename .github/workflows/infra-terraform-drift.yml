@@ -121,7 +121,7 @@ jobs:
       - name: Notify Slack on drift
         if: steps.plan.outputs.exit_code == '2'
         # SEC-CI-002: pinned to SHA
-        uses: 8398a7/action-slack@1eb2f4ead5f2a36c3119f7bd2b99f7c15bfee1ee # v3.18.0
+        uses: 8398a7/action-slack@047b09b154480ed39076984b64f324fff010d703 # v3.9.3
         with:
           status: failure
           channel: '#devops'

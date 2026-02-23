@@ -103,10 +103,15 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Restore node_modules
+        id: cache-nm
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+
+      - name: Fallback install if cache missed
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -138,10 +143,15 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Restore node_modules
+        id: cache-nm
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+
+      - name: Fallback install if cache missed
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -174,10 +184,15 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Restore node_modules
+        id: cache-nm
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+
+      - name: Fallback install if cache missed
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -213,10 +228,15 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Restore node_modules
+        id: cache-nm
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+
+      - name: Fallback install if cache missed
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3

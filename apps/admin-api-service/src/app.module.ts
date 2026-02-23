@@ -52,10 +52,10 @@ import { UsersModule } from './users/users.module';
         database: configService.get<string>('DATABASE_NAME', 'aquaculture'),
         schema: configService.get<string>('DATABASE_SCHEMA', 'admin'),
         autoLoadEntities: true,
-        // LOW-004 fix: synchronize:true is disabled unconditionally — even in development it
-        // risks data loss on shared databases and produces unpredictable cross-schema side effects.
-        // Use explicit TypeORM migrations for all schema changes.
-        synchronize: false,
+        // Admin-api-service owns the 'admin' schema and all its tables.
+        // synchronize:true is safe here because admin schema is exclusively owned by this service.
+        // Set DATABASE_SYNC=false to disable (e.g., after initial setup).
+        synchronize: configService.get('DATABASE_SYNC', 'true') === 'true',
         logging: configService.get<string>('NODE_ENV') === 'development',
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {

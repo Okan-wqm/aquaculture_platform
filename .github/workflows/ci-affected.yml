@@ -95,6 +95,7 @@ jobs:
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
 
       - name: Run tests (affected only)
         run: npx nx affected -t test --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=3

@@ -4,9 +4,10 @@
  * Multi-tenant database schema oluşturma, yönetim ve izolasyon servisi.
  */
 
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { SchemaManagerService } from '@platform/backend-common';
 
 import {
   TenantSchema,
@@ -32,6 +33,8 @@ export class SchemaManagementService {
     private readonly schemaRepository: Repository<TenantSchema>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    @Optional()
+    private readonly schemaManager?: SchemaManagerService,
   ) {}
 
   // ============================================================================
@@ -51,7 +54,9 @@ export class SchemaManagementService {
   }
 
   /**
-   * Create schema for new tenant
+   * Create schema for new tenant with all module tables.
+   * Delegates to backend-common SchemaManagerService for full module table creation
+   * (sensor, farm, hr, hydroponics) so tenant schemas are production-ready.
    */
   async createTenantSchema(tenantId: string): Promise<TenantSchema> {
     this.logger.log(`Creating schema for tenant: ${tenantId}`);
@@ -77,18 +82,39 @@ export class SchemaManagementService {
     await this.schemaRepository.save(schemaRecord);
 
     try {
-      // Create the actual database schema
-      await this.createDatabaseSchema(schemaName);
+      // Use backend-common SchemaManagerService for full module table creation
+      if (this.schemaManager) {
+        const allModules = ['sensor', 'farm', 'hr', 'hydroponics'];
+        const result = await this.schemaManager.createTenantSchema(tenantId, allModules);
 
-      // Create default tables
-      await this.createDefaultTables(schemaName);
+        if (!result.success && !result.partialSuccess) {
+          throw new Error(`Schema creation failed: ${result.errors.join(', ')}`);
+        }
+
+        if (result.errors.length > 0) {
+          this.logger.warn(
+            `Schema ${schemaName} created with warnings: ${result.errors.join(', ')}`,
+          );
+        }
+
+        this.logger.log(
+          `Schema ${schemaName}: ${result.tablesCreated.length} tables created via SchemaManagerService`,
+        );
+      } else {
+        // Fallback: create schema + default tables only (no module tables)
+        this.logger.warn(
+          'SchemaManagerService not available — creating schema with default tables only',
+        );
+        await this.createDatabaseSchema(schemaName);
+        await this.createDefaultTables(schemaName);
+      }
 
       // Update status to active
       schemaRecord.status = 'active';
       schemaRecord.tableCount = await this.getTableCount(schemaName);
       await this.schemaRepository.save(schemaRecord);
 
-      this.logger.log(`Schema created successfully: ${schemaName}`);
+      this.logger.log(`Schema created successfully: ${schemaName} (${schemaRecord.tableCount} tables)`);
       return schemaRecord;
     } catch (err) {
       const error = err as Error;

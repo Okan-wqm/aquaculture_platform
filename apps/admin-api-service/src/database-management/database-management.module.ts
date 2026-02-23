@@ -7,6 +7,7 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { SchemaManagerService } from '@platform/backend-common';
 
 // Entities
 import { BackupController } from './controllers/backup.controller';
@@ -51,6 +52,7 @@ import { SchemaManagementService } from './services/schema-management.service';
     DatabaseExplorerController,
   ],
   providers: [
+    SchemaManagerService,
     SchemaManagementService,
     MigrationManagementService,
     BackupRestoreService,

@@ -117,7 +117,7 @@ const PROGRAMS_QUERY = `
     automationPrograms(filter: $filter, page: $page, limit: $limit) {
       id
       programCode
-      name
+      programName
       description
       version
       programType
@@ -304,7 +304,7 @@ const ProgramCard: React.FC<{
 
       <Link to={`/sensor/automation/${program.id}`}>
         <h3 className="font-semibold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 mb-1">
-          {program.name}
+          {program.programName}
         </h3>
       </Link>
 
@@ -352,7 +352,7 @@ const ProgramRow: React.FC<{
             to={`/sensor/automation/${program.id}`}
             className="font-medium text-gray-900 dark:text-white hover:text-indigo-600"
           >
-            {program.name}
+            {program.programName}
           </Link>
         </div>
         <span className="text-xs text-gray-500 font-mono">{program.programCode}</span>
@@ -469,7 +469,7 @@ const AutomationProgramsPage: React.FC = () => {
     const term = searchTerm.toLowerCase();
     return data.automationPrograms.filter(
       (p) =>
-        p.name.toLowerCase().includes(term) ||
+        p.programName.toLowerCase().includes(term) ||
         p.programCode.toLowerCase().includes(term) ||
         p.description?.toLowerCase().includes(term)
     );
@@ -493,7 +493,7 @@ const AutomationProgramsPage: React.FC = () => {
   };
 
   const handleDelete = (program: AutomationProgram) => {
-    if (window.confirm(`"${program.name}" programini silmek istediginize emin misiniz?`)) {
+    if (window.confirm(`"${program.programName}" programini silmek istediginize emin misiniz?`)) {
       deleteMutation.mutate(program.id);
     }
   };

@@ -18,7 +18,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsUUID, IsEnum } from 'class-validator';
+import { IsNotEmpty, IsString, IsUUID, IsEnum, IsOptional, IsArray } from 'class-validator';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { SchemaStatus } from '../entities/database-management.entity';
@@ -33,6 +33,17 @@ class CreateSchemaDto {
   @IsString()
   @IsUUID()
   tenantId!: string;
+}
+
+class SyncSchemasDto {
+  @IsOptional()
+  @IsUUID()
+  tenantId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  modules?: string[];
 }
 
 class UpdateSchemaStatusDto {
@@ -88,6 +99,11 @@ export class SchemaController {
       throw new BadRequestException('tenantId is required');
     }
     return this.schemaService.createTenantSchema(dto.tenantId);
+  }
+
+  @Post('sync')
+  async syncSchemas(@Body() dto: SyncSchemasDto) {
+    return this.schemaService.syncExistingTenantSchemas(dto.tenantId, dto.modules);
   }
 
   @Post(':tenantId/suspend')

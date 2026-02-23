@@ -553,6 +553,90 @@ export class SchemaManagementService {
   }
 
   /**
+   * Sync missing tables for existing tenant schemas.
+   * If tenantId is provided, syncs only that tenant. Otherwise syncs all active tenants.
+   */
+  async syncExistingTenantSchemas(
+    tenantId?: string,
+    modules?: string[],
+  ): Promise<{
+    results: Array<{
+      tenantId: string;
+      schemaName: string;
+      created: string[];
+      skipped: string[];
+      errors: string[];
+    }>;
+    summary: { totalCreated: number; totalErrors: number; tenantsProcessed: number };
+  }> {
+    if (!this.schemaManager) {
+      throw new BadRequestException('SchemaManagerService not available');
+    }
+
+    let schemas: TenantSchema[];
+    if (tenantId) {
+      const schema = await this.schemaRepository.findOne({ where: { tenantId } });
+      schemas = schema ? [schema] : [];
+    } else {
+      schemas = await this.schemaRepository.find({
+        where: { status: 'active' as SchemaStatus },
+      });
+    }
+
+    const results: Array<{
+      tenantId: string;
+      schemaName: string;
+      created: string[];
+      skipped: string[];
+      errors: string[];
+    }> = [];
+
+    let totalCreated = 0;
+    let totalErrors = 0;
+
+    for (const schema of schemas) {
+      try {
+        const syncResult = await this.schemaManager.syncTenantSchema(
+          schema.tenantId,
+          modules,
+        );
+        results.push({
+          tenantId: schema.tenantId,
+          schemaName: schema.schemaName,
+          ...syncResult,
+        });
+        totalCreated += syncResult.created.length;
+        totalErrors += syncResult.errors.length;
+
+        // Update table count
+        if (syncResult.created.length > 0) {
+          schema.tableCount = await this.getTableCount(schema.schemaName);
+          await this.schemaRepository.save(schema);
+        }
+      } catch (err) {
+        const error = err as Error;
+        results.push({
+          tenantId: schema.tenantId,
+          schemaName: schema.schemaName,
+          created: [],
+          skipped: [],
+          errors: [error.message],
+        });
+        totalErrors++;
+      }
+    }
+
+    return {
+      results,
+      summary: {
+        totalCreated,
+        totalErrors,
+        tenantsProcessed: schemas.length,
+      },
+    };
+  }
+
+  /**
    * Get schema summary stats
    */
   async getSchemaSummary(): Promise<{

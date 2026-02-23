@@ -1380,6 +1380,125 @@ export class SchemaManagerService {
   }
 
   /**
+   * Sync existing tenant schema — add any missing tables from MODULE_SCHEMAS.
+   *
+   * Unlike createTenantSchema (which starts from scratch), this method:
+   * 1. Iterates MODULE_SCHEMAS for requested modules
+   * 2. Checks each table with tableExists()
+   * 3. Creates only the missing ones via CREATE TABLE ... LIKE ... INCLUDING ALL
+   * 4. Copies missing reference data
+   *
+   * Safe to call repeatedly (idempotent).
+   */
+  async syncTenantSchema(
+    tenantId: string,
+    modules: string[] = ['sensor', 'farm', 'hr', 'hydroponics'],
+  ): Promise<{ created: string[]; skipped: string[]; errors: string[] }> {
+    const schemaName = this.getTenantSchemaName(tenantId);
+    const created: string[] = [];
+    const skipped: string[] = [];
+    const errors: string[] = [];
+
+    // Check schema exists
+    const exists = await this.schemaExistsNoCache(schemaName);
+    if (!exists) {
+      errors.push(`Schema ${schemaName} does not exist`);
+      return { created, skipped, errors };
+    }
+
+    this.logger.log(`Syncing tenant schema ${schemaName} for modules: ${modules.join(', ')}`);
+
+    for (const moduleName of modules) {
+      const moduleSchema = MODULE_SCHEMAS.find(m => m.moduleName === moduleName);
+      if (!moduleSchema) {
+        this.logger.warn(`Module ${moduleName} not found in MODULE_SCHEMAS`);
+        continue;
+      }
+
+      for (const tableName of moduleSchema.tables) {
+        try {
+          // Check if table already exists in tenant schema
+          const alreadyExists = await this.tableExists(schemaName, tableName);
+          if (alreadyExists) {
+            skipped.push(tableName);
+            continue;
+          }
+
+          // Check if source table exists
+          const sourceExists = await this.tableExists(moduleSchema.sourceSchema, tableName);
+          if (!sourceExists) {
+            errors.push(`Source table ${moduleSchema.sourceSchema}.${tableName} does not exist`);
+            continue;
+          }
+
+          // Create table from source
+          const safeTargetSchema = validateSqlIdentifier(schemaName, 'schema');
+          const safeTableName = validateSqlIdentifier(tableName, 'table');
+          const safeSourceSchema = validateSqlIdentifier(moduleSchema.sourceSchema, 'schema');
+
+          await this.dataSource.query(`
+            CREATE TABLE "${safeTargetSchema}"."${safeTableName}"
+            (LIKE "${safeSourceSchema}"."${safeTableName}" INCLUDING ALL)
+          `);
+
+          created.push(tableName);
+          this.logger.debug(`Created missing table ${schemaName}.${tableName}`);
+
+          // Handle hypertables
+          if (tableName === 'sensor_readings') {
+            await this.createHypertable(schemaName, tableName);
+          }
+          if (tableName === 'sensor_metrics') {
+            await this.createSensorMetricsHypertable(schemaName);
+          }
+        } catch (tableError) {
+          const msg = `Failed to create ${tableName}: ${(tableError as Error).message}`;
+          errors.push(msg);
+          this.logger.error(msg);
+        }
+      }
+
+      // Copy missing reference data
+      const refTables = moduleSchema.referenceDataTables || [];
+      for (const refTable of refTables) {
+        try {
+          const rows = await this.copyReferenceDataTable(
+            schemaName,
+            moduleSchema.sourceSchema,
+            refTable,
+          );
+          if (rows > 0) {
+            this.logger.debug(`Copied ${rows} reference rows to ${schemaName}.${refTable}`);
+          }
+        } catch (copyError) {
+          errors.push(`Failed to copy ref data ${refTable}: ${(copyError as Error).message}`);
+        }
+      }
+    }
+
+    // Grant permissions on any newly created tables
+    if (created.length > 0) {
+      try {
+        const appRole = await this.getApplicationRole();
+        await this.dataSource.query(
+          `GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA "${schemaName}" TO ${appRole}`,
+        );
+        await this.dataSource.query(
+          `GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA "${schemaName}" TO ${appRole}`,
+        );
+      } catch (grantError) {
+        errors.push(`Failed to grant permissions: ${(grantError as Error).message}`);
+      }
+    }
+
+    this.logger.log(
+      `Sync ${schemaName}: ${created.length} created, ${skipped.length} skipped, ${errors.length} errors`,
+    );
+
+    return { created, skipped, errors };
+  }
+
+  /**
    * Create continuous aggregates for narrow table format (sensor_metrics)
    * Creates 1-minute, 1-hour, and 1-day aggregates
    */

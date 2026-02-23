@@ -3,6 +3,7 @@ name: CI - Affected
 # ARCH-CI-005: Replaced global npm run scripts with nx affected commands
 # SEC-CI-002: All third-party actions pinned to full commit SHAs
 # ARCH-CI-006: Removed github.sha from NX cache key
+# ARCH-CI-007: Split lint/type-check/test into parallel jobs so build always runs
 
 on:
   push:
@@ -17,10 +18,7 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      apps: ${{ steps.changes.outputs.apps }}
-      libs: ${{ steps.changes.outputs.libs }}
-      web: ${{ steps.changes.outputs.web }}
-      docs: ${{ steps.changes.outputs.docs }}
+      has_changes: ${{ steps.check.outputs.has_changes }}
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -38,34 +36,36 @@ jobs:
               - 'platform/libs/**'
             web:
               - 'web/**'
-            docs:
-              - 'docs/**'
-              - '**/*.md'
+      - id: check
+        run: |
+          if [ "${{ steps.changes.outputs.apps }}" = "true" ] || \
+             [ "${{ steps.changes.outputs.libs }}" = "true" ] || \
+             [ "${{ steps.changes.outputs.web }}" = "true" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
 
-  lint-and-test:
+  # ---------------------------------------------------------------------------
+  # Shared setup: install + cache (reusable via needs + cache restore)
+  # ---------------------------------------------------------------------------
+  install:
     needs: detect-changes
-    if: |
-      needs.detect-changes.outputs.apps == 'true' ||
-      needs.detect-changes.outputs.libs == 'true' ||
-      needs.detect-changes.outputs.web == 'true'
+    if: needs.detect-changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
-      # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
-        # SEC-CI-002: pinned to SHA
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      # ARCH-CI-006: Removed github.sha from NX cache key so primary key can hit
       - name: Cache Nx
-        # SEC-CI-002: pinned to SHA
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: .nx/cache
@@ -76,38 +76,159 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps --ignore-scripts --no-audit
 
-      # ARCH-CI-005: Use nx affected instead of global npm run scripts
-      # Lint and type-check are non-blocking (continue-on-error) to prevent
-      # ESLint worker hangs from blocking the deploy pipeline. Build is the
-      # hard gate that catches real TypeScript compilation errors.
+      # Persist node_modules for downstream jobs
+      - name: Cache node_modules
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+
+  # ---------------------------------------------------------------------------
+  # ARCH-CI-007: Lint, type-check, test run in PARALLEL — non-blocking.
+  # Each has its own timeout so one hanging step can't starve the others.
+  # continue-on-error: true prevents ESLint/tsc hangs from blocking deploy.
+  # ---------------------------------------------------------------------------
+  lint:
+    needs: install
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore node_modules
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+
+      - name: Restore Nx cache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .nx/cache
+          key: nx-ci-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            nx-ci-${{ runner.os }}-
+
       - name: Run linter (affected only)
         run: npx nx affected -t lint --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=3
-        continue-on-error: true
-        timeout-minutes: 10
+        timeout-minutes: 12
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
 
+  type-check:
+    needs: install
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore node_modules
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+
+      - name: Restore Nx cache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .nx/cache
+          key: nx-ci-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            nx-ci-${{ runner.os }}-
+
       - name: Run type check (affected only)
         run: npx nx affected -t type-check --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=3
-        continue-on-error: true
-        timeout-minutes: 10
+        timeout-minutes: 12
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
           NODE_OPTIONS: '--max-old-space-size=4096'
 
+  test:
+    needs: install
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore node_modules
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+
+      - name: Restore Nx cache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .nx/cache
+          key: nx-ci-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            nx-ci-${{ runner.os }}-
+
       - name: Run tests (affected only)
         run: npx nx affected -t test --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=3
-        continue-on-error: true
-        timeout-minutes: 10
+        timeout-minutes: 12
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
+  # ---------------------------------------------------------------------------
+  # Build is the HARD GATE — must succeed for deploy to proceed.
+  # Runs after install (not after lint/test) so hanging checks can't block it.
+  # ---------------------------------------------------------------------------
+  build:
+    needs: install
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore node_modules
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+
+      - name: Restore Nx cache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .nx/cache
+          key: nx-ci-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            nx-ci-${{ runner.os }}-
 
       - name: Build (affected only)
         run: npx nx affected -t build --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=3
-        timeout-minutes: 20
+        timeout-minutes: 18
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
@@ -115,7 +236,10 @@ jobs:
 
   docs-check:
     needs: detect-changes
-    if: needs.detect-changes.outputs.docs == 'true'
+    if: |
+      always() &&
+      contains(github.event.head_commit.modified, 'docs/') ||
+      contains(github.event.head_commit.added, 'docs/')
     runs-on: ubuntu-latest
     steps:
       # SEC-CI-002: pinned to SHA

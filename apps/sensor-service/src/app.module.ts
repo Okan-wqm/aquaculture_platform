@@ -61,6 +61,8 @@ import { FeedingParameter } from './plc-control/entities/feeding-parameter.entit
 import { PlcAlarm } from './plc-control/entities/plc-alarm.entity';
 import { PlcTelemetry } from './plc-control/entities/plc-telemetry.entity';
 import { CreateDynamicSensorTypes1740200000000 } from './database/migrations/1740200000000-CreateDynamicSensorTypes';
+import { CreateProcessesTable1740300000000 } from './database/migrations/1740300000000-CreateProcessesTable';
+import { CreateAutomationTables1740300001000 } from './database/migrations/1740300001000-CreateAutomationTables';
 
 @Module({
   imports: [
@@ -122,8 +124,10 @@ import { CreateDynamicSensorTypes1740200000000 } from './database/migrations/174
         ],
         migrations: [
           CreateDynamicSensorTypes1740200000000,
+          CreateProcessesTable1740300000000,
+          CreateAutomationTables1740300001000,
         ],
-        migrationsRun: configService.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
+        migrationsRun: true,
         synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
         // SECURITY: SSL configuration with proper certificate validation

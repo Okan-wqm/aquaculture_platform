@@ -76,7 +76,7 @@ const EmployeeDetailPage: React.FC = () => {
           </Link>
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{fullName}</h1>
-            <p className="text-gray-500 dark:text-gray-400">{employee.position?.title}</p>
+            <p className="text-gray-500 dark:text-gray-400">{employee.position}</p>
           </div>
         </div>
         <Link
@@ -93,20 +93,12 @@ const EmployeeDetailPage: React.FC = () => {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800">
           <div className="flex flex-col items-center text-center">
             <div className="w-24 h-24 rounded-full bg-violet-100 flex items-center justify-center mb-4 dark:bg-violet-900/30">
-              {employee.avatarUrl ? (
-                <img
-                  src={employee.avatarUrl}
-                  alt={fullName}
-                  className="w-24 h-24 rounded-full object-cover"
-                />
-              ) : (
-                <span className="text-3xl font-bold text-violet-600">
-                  {employee.firstName?.[0]}{employee.lastName?.[0]}
-                </span>
-              )}
+              <span className="text-3xl font-bold text-violet-600">
+                {employee.firstName?.[0]}{employee.lastName?.[0]}
+              </span>
             </div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{fullName}</h2>
-            <p className="text-gray-500 dark:text-gray-400">{employee.position?.title}</p>
+            <p className="text-gray-500 dark:text-gray-400">{employee.position}</p>
             <span className={`mt-2 px-3 py-1 rounded-full text-sm font-medium ${
               employee.status === 'active'
                 ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
@@ -121,16 +113,16 @@ const EmployeeDetailPage: React.FC = () => {
               <Mail className="w-5 h-5" />
               <span>{employee.email}</span>
             </div>
-            {employee.phone && (
+            {employee.contactInfo?.phone && (
               <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400">
                 <Phone className="w-5 h-5" />
-                <span>{employee.phone}</span>
+                <span>{employee.contactInfo.phone}</span>
               </div>
             )}
             {employee.department && (
               <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400">
                 <Building2 className="w-5 h-5" />
-                <span>{employee.department.name}</span>
+                <span>{employee.department}</span>
               </div>
             )}
             {employee.hireDate && (
@@ -158,20 +150,12 @@ const EmployeeDetailPage: React.FC = () => {
               </div>
               <div>
                 <p className="text-sm text-gray-500">Department</p>
-                <p className="font-medium text-gray-900 dark:text-white">{employee.department?.name || '-'}</p>
+                <p className="font-medium text-gray-900 dark:text-white">{employee.department || '-'}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Position</p>
-                <p className="font-medium text-gray-900 dark:text-white">{employee.position?.title || '-'}</p>
+                <p className="font-medium text-gray-900 dark:text-white">{employee.position || '-'}</p>
               </div>
-              {employee.manager && (
-                <div>
-                  <p className="text-sm text-gray-500">Manager</p>
-                  <p className="font-medium text-gray-900 dark:text-white">
-                    {employee.manager.firstName} {employee.manager.lastName}
-                  </p>
-                </div>
-              )}
               <div>
                 <p className="text-sm text-gray-500">Personnel Category</p>
                 <p className="font-medium text-gray-900 dark:text-white">{employee.personnelCategory || '-'}</p>

@@ -169,7 +169,6 @@ export function CrewAssignmentsPage() {
               <EmployeeAvatar
                 firstName={row.employee.firstName}
                 lastName={row.employee.lastName}
-                avatarUrl={row.employee.avatarUrl}
                 size="sm"
               />
               <div>
@@ -406,7 +405,6 @@ export function CrewAssignmentsPage() {
                     <EmployeeAvatar
                       firstName={employee.firstName}
                       lastName={employee.lastName}
-                      avatarUrl={employee.avatarUrl}
                       size="sm"
                     />
                     <div className="flex-1 min-w-0">
@@ -414,7 +412,7 @@ export function CrewAssignmentsPage() {
                         {employee.firstName} {employee.lastName}
                       </p>
                       <p className="truncate text-sm text-gray-500">
-                        {employee.position?.title || 'Crew Member'}
+                        {employee.position || 'Crew Member'}
                       </p>
                     </div>
                     <Anchor className="h-4 w-4 text-blue-500" />

@@ -47,7 +47,6 @@ export function EmployeeCard({
         <EmployeeAvatar
           firstName={employee.firstName}
           lastName={employee.lastName}
-          avatarUrl={employee.avatarUrl}
           size="md"
         />
         <div className="min-w-0 flex-1">
@@ -55,7 +54,7 @@ export function EmployeeCard({
             {employee.firstName} {employee.lastName}
           </p>
           <p className="truncate text-sm text-gray-500 dark:text-gray-400">
-            {employee.position?.title || employee.employeeNumber}
+            {employee.position || employee.employeeNumber}
           </p>
         </div>
         <StatusBadge
@@ -80,7 +79,6 @@ export function EmployeeCard({
         <EmployeeAvatar
           firstName={employee.firstName}
           lastName={employee.lastName}
-          avatarUrl={employee.avatarUrl}
           size="lg"
         />
 
@@ -114,7 +112,7 @@ export function EmployeeCard({
             {employee.position && (
               <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
                 <Briefcase className="h-4 w-4 flex-shrink-0" />
-                <span>{employee.position.title}</span>
+                <span>{employee.position}</span>
               </div>
             )}
 
@@ -122,9 +120,7 @@ export function EmployeeCard({
               <div className="flex items-center gap-2 text-sm">
                 <Building2 className="h-4 w-4 flex-shrink-0 text-gray-600 dark:text-gray-300" />
                 <DepartmentBadge
-                  name={employee.department.name}
-                  code={employee.department.code}
-                  colorCode={employee.department.colorCode}
+                  name={employee.department}
                   size="sm"
                 />
               </div>
@@ -143,15 +139,15 @@ export function EmployeeCard({
               </div>
             )}
 
-            {employee.phone && (
+            {employee.contactInfo?.phone && (
               <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
                 <Phone className="h-4 w-4 flex-shrink-0" />
                 <a
-                  href={`tel:${employee.phone}`}
+                  href={`tel:${employee.contactInfo.phone}`}
                   className="hover:text-indigo-600"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {employee.phone}
+                  {employee.contactInfo.phone}
                 </a>
               </div>
             )}

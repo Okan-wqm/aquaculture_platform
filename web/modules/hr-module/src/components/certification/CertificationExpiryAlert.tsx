@@ -173,7 +173,6 @@ export function CertificationExpiryAlert({
                         <EmployeeAvatar
                           firstName={cert.employee.firstName}
                           lastName={cert.employee.lastName}
-                          avatarUrl={cert.employee.avatarUrl}
                           size="xs"
                         />
                         <span className="text-sm text-gray-600 dark:text-gray-400">

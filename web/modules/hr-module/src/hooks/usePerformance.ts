@@ -45,7 +45,6 @@ import type {
   CreateGoalInput,
   UpdateGoalInput,
   UpdateGoalProgressInput,
-  PaginationInput,
   PaginatedResponse,
 } from '../types';
 
@@ -53,8 +52,8 @@ import type {
 export const reviewKeys = {
   all: ['reviews'] as const,
   lists: () => [...reviewKeys.all, 'list'] as const,
-  list: (filter?: PerformanceReviewFilterInput, pagination?: PaginationInput) =>
-    [...reviewKeys.lists(), { filter, pagination }] as const,
+  list: (filter?: PerformanceReviewFilterInput) =>
+    [...reviewKeys.lists(), { filter }] as const,
   details: () => [...reviewKeys.all, 'detail'] as const,
   detail: (id: string) => [...reviewKeys.details(), id] as const,
   my: (filter?: PerformanceReviewFilterInput) =>
@@ -70,8 +69,8 @@ export const reviewKeys = {
 export const goalKeys = {
   all: ['goals'] as const,
   lists: () => [...goalKeys.all, 'list'] as const,
-  list: (filter?: GoalFilterInput, pagination?: PaginationInput) =>
-    [...goalKeys.lists(), { filter, pagination }] as const,
+  list: (filter?: GoalFilterInput) =>
+    [...goalKeys.lists(), { filter }] as const,
   details: () => [...goalKeys.all, 'detail'] as const,
   detail: (id: string) => [...goalKeys.details(), id] as const,
   my: (filter?: GoalFilterInput) => [...goalKeys.all, 'my', { filter }] as const,
@@ -92,19 +91,20 @@ export const kpiKeys = {
 // =====================
 
 export function usePerformanceReviews(
-  filter?: PerformanceReviewFilterInput,
-  pagination?: PaginationInput
+  filter?: PerformanceReviewFilterInput
 ) {
   const client = useGraphQLClient();
 
   return useQuery({
-    queryKey: reviewKeys.list(filter, pagination),
+    queryKey: reviewKeys.list(filter),
     queryFn: () =>
       graphqlRequest<{
         performanceReviews: PaginatedResponse<PerformanceReview>;
       }, unknown>(client, GET_PERFORMANCE_REVIEWS, {
-        filter,
-        pagination,
+        employeeId: filter?.employeeId,
+        status: filter?.status,
+        limit: filter?.limit,
+        offset: filter?.offset,
       }),
     select: (data) => data.performanceReviews,
   });
@@ -135,7 +135,7 @@ export function useMyPerformanceReviews(filter?: PerformanceReviewFilterInput) {
       graphqlRequest<{ myPerformanceReviews: PerformanceReview[] }, unknown>(
         client,
         GET_MY_PERFORMANCE_REVIEWS,
-        { filter }
+        { status: filter?.status }
       ),
     select: (data) => data.myPerformanceReviews,
   });
@@ -193,16 +193,21 @@ export function usePerformanceSummary(employeeId: string) {
 // Goal Queries
 // =====================
 
-export function useGoals(filter?: GoalFilterInput, pagination?: PaginationInput) {
+export function useGoals(filter?: GoalFilterInput) {
   const client = useGraphQLClient();
 
   return useQuery({
-    queryKey: goalKeys.list(filter, pagination),
+    queryKey: goalKeys.list(filter),
     queryFn: () =>
       graphqlRequest<{ goals: PaginatedResponse<Goal> }, unknown>(
         client,
         GET_GOALS,
-        { filter, pagination }
+        {
+          employeeId: filter?.employeeId,
+          status: filter?.status,
+          limit: filter?.limit,
+          offset: filter?.offset,
+        }
       ),
     select: (data) => data.goals,
   });
@@ -234,7 +239,7 @@ export function useMyGoals(filter?: GoalFilterInput) {
       graphqlRequest<{ myGoals: Goal[] }, unknown>(
         client,
         GET_MY_GOALS,
-        { filter }
+        { status: filter?.status }
       ),
     select: (data) => data.myGoals,
   });
@@ -249,7 +254,7 @@ export function useTeamGoals(managerId: string, filter?: GoalFilterInput) {
       graphqlRequest<{ teamGoals: Goal[] }, unknown>(
         client,
         GET_TEAM_GOALS,
-        { managerId, filter }
+        { managerId, status: filter?.status }
       ),
     select: (data) => data.teamGoals,
     enabled: !!managerId,

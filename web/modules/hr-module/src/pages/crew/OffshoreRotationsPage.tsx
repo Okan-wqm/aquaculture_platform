@@ -119,7 +119,6 @@ const UpcomingTransitionCard: React.FC<{ rotation: WorkRotation }> = ({ rotation
             <EmployeeAvatar
               firstName={rotation.employee.firstName}
               lastName={rotation.employee.lastName}
-              avatarUrl={rotation.employee.avatarUrl}
               size="sm"
             />
           )}
@@ -216,7 +215,6 @@ export function OffshoreRotationsPage() {
               <EmployeeAvatar
                 firstName={row.employee.firstName}
                 lastName={row.employee.lastName}
-                avatarUrl={row.employee.avatarUrl}
                 size="sm"
               />
               <div>

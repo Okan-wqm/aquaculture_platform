@@ -265,7 +265,6 @@ export function CertificationDashboardPage() {
               <EmployeeAvatar
                 firstName={row.employee.firstName}
                 lastName={row.employee.lastName}
-                avatarUrl={row.employee.avatarUrl}
                 size="sm"
               />
               <div>

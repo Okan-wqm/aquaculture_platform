@@ -66,7 +66,6 @@ export function EmployeesListPage() {
           <EmployeeAvatar
             firstName={row.firstName}
             lastName={row.lastName}
-            avatarUrl={row.avatarUrl}
             size="sm"
           />
           <div>
@@ -85,8 +84,7 @@ export function EmployeesListPage() {
       accessor: (row) =>
         row.department ? (
           <DepartmentBadge
-            name={row.department.name}
-            colorCode={row.department.colorCode}
+            name={row.department}
             size="sm"
           />
         ) : (
@@ -98,7 +96,7 @@ export function EmployeesListPage() {
       header: 'Position',
       accessor: (row) => (
         <span className="text-gray-600 dark:text-gray-300">
-          {row.position?.title || '-'}
+          {row.position || '-'}
         </span>
       ),
     },
@@ -308,8 +306,8 @@ export function EmployeesListPage() {
                 Department
               </label>
               <select
-                value={filter.departmentId || ''}
-                onChange={(e) => handleFilterChange('departmentId', e.target.value)}
+                value={filter.department || ''}
+                onChange={(e) => handleFilterChange('department', e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               >
                 <option value="">All Departments</option>

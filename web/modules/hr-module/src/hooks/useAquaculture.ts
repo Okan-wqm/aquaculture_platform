@@ -44,7 +44,6 @@ import type {
   CrewAssignment,
   RotationCalendarEntry,
   WorkAreaOccupancyReport,
-  PaginationInput,
   PaginatedResponse,
 } from '../types';
 
@@ -66,8 +65,8 @@ export const workAreaKeys = {
 export const rotationKeys = {
   all: ['rotations'] as const,
   lists: () => [...rotationKeys.all, 'list'] as const,
-  list: (filter?: WorkRotationFilterInput, pagination?: PaginationInput) =>
-    [...rotationKeys.lists(), { filter, pagination }] as const,
+  list: (filter?: WorkRotationFilterInput) =>
+    [...rotationKeys.lists(), { filter }] as const,
   details: () => [...rotationKeys.all, 'detail'] as const,
   detail: (id: string) => [...rotationKeys.details(), id] as const,
   my: (filter?: WorkRotationFilterInput) =>
@@ -105,7 +104,12 @@ export function useWorkAreas(filter?: WorkAreaFilterInput) {
       graphqlRequest<{ workAreas: WorkArea[] }, unknown>(
         client,
         GET_WORK_AREAS,
-        { filter }
+        {
+          workAreaType: filter?.workAreaType,
+          siteId: filter?.siteId,
+          isOffshore: filter?.isOffshore,
+          isActive: filter?.isActive,
+        }
       ),
     select: (data) => data.workAreas,
   });
@@ -120,7 +124,7 @@ export function useWorkArea(id: string) {
       graphqlRequest<{
         workArea: WorkArea & {
           requiredCertifications: { id: string; code: string; name: string; category: string }[];
-          currentAssignments: { id: string; firstName: string; lastName: string; avatarUrl?: string }[];
+          currentAssignments: { id: string; firstName: string; lastName: string }[];
         };
       }, unknown>(client, GET_WORK_AREA, { id }),
     select: (data) => data.workArea,
@@ -177,19 +181,21 @@ export function useAllWorkAreaOccupancies(date: string) {
 // Work Rotation Queries
 // =====================
 
-export function useWorkRotations(
-  filter?: WorkRotationFilterInput,
-  pagination?: PaginationInput
-) {
+export function useWorkRotations(filter?: WorkRotationFilterInput) {
   const client = useGraphQLClient();
 
   return useQuery({
-    queryKey: rotationKeys.list(filter, pagination),
+    queryKey: rotationKeys.list(filter),
     queryFn: () =>
-      graphqlRequest<{ workRotations: PaginatedResponse<WorkRotation> }, unknown>(
+      graphqlRequest<{ workRotations: WorkRotation[] }, unknown>(
         client,
         GET_WORK_ROTATIONS,
-        { filter, pagination }
+        {
+          employeeId: filter?.employeeId,
+          workAreaId: filter?.workAreaId,
+          rotationType: filter?.rotationType,
+          status: filter?.status,
+        }
       ),
     select: (data) => data.workRotations,
   });
@@ -217,12 +223,12 @@ export function useMyRotations(filter?: WorkRotationFilterInput) {
   return useQuery({
     queryKey: rotationKeys.my(filter),
     queryFn: () =>
-      graphqlRequest<{ myRotations: WorkRotation[] }, unknown>(
+      graphqlRequest<{ myWorkRotations: WorkRotation[] }, unknown>(
         client,
         GET_MY_ROTATIONS,
-        { filter }
+        { status: filter?.status }
       ),
-    select: (data) => data.myRotations,
+    select: (data) => data.myWorkRotations,
   });
 }
 

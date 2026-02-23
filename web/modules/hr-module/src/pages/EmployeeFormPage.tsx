@@ -17,7 +17,7 @@ import {
   Calendar,
   AlertCircle,
 } from 'lucide-react';
-import { useEmployee, useCreateEmployee, useUpdateEmployee, useDepartments, usePositions } from '../hooks';
+import { useEmployee, useCreateEmployee, useUpdateEmployee } from '../hooks';
 import type { CreateEmployeeInput, UpdateEmployeeInput } from '../types';
 
 // ============================================================================
@@ -31,8 +31,6 @@ const EmployeeFormPage: React.FC = () => {
 
   // Fetch existing employee for edit mode
   const { data: employee, isLoading: loadingEmployee } = useEmployee(employeeId || '');
-  const { data: departments } = useDepartments();
-  const { data: positions } = usePositions();
 
   const createMutation = useCreateEmployee();
   const updateMutation = useUpdateEmployee();
@@ -45,8 +43,8 @@ const EmployeeFormPage: React.FC = () => {
     lastName: '',
     email: '',
     phone: '',
-    departmentId: '',
-    positionId: '',
+    department: '',
+    position: '',
     hireDate: '',
     employmentType: 'full_time' as const,
   });
@@ -58,9 +56,9 @@ const EmployeeFormPage: React.FC = () => {
         firstName: employee.firstName || '',
         lastName: employee.lastName || '',
         email: employee.email || '',
-        phone: employee.phone || '',
-        departmentId: employee.departmentId || '',
-        positionId: employee.positionId || '',
+        phone: employee.contactInfo?.phone || '',
+        department: employee.department || '',
+        position: employee.position || '',
         hireDate: employee.hireDate || '',
         employmentType: (employee.employmentType as typeof formData.employmentType) || 'full_time',
       });
@@ -75,7 +73,6 @@ const EmployeeFormPage: React.FC = () => {
         id: employeeId,
         firstName: formData.firstName,
         lastName: formData.lastName,
-        phone: formData.phone || undefined,
       };
       updateMutation.mutate(input, {
         onSuccess: () => navigate(`/hr/employees/${employeeId}`),
@@ -85,9 +82,8 @@ const EmployeeFormPage: React.FC = () => {
         firstName: formData.firstName,
         lastName: formData.lastName,
         email: formData.email,
-        phone: formData.phone || undefined,
-        departmentId: formData.departmentId || undefined,
-        positionId: formData.positionId || undefined,
+        department: formData.department || undefined,
+        position: formData.position || undefined,
         hireDate: formData.hireDate || undefined,
         employmentType: formData.employmentType,
       };
@@ -224,38 +220,36 @@ const EmployeeFormPage: React.FC = () => {
                 Department
               </label>
               <select
-                name="departmentId"
-                value={formData.departmentId}
+                name="department"
+                value={formData.department}
                 onChange={handleChange}
                 disabled={isEditing}
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               >
                 <option value="">Select department</option>
-                {departments?.map((dept) => (
-                  <option key={dept.id} value={dept.id}>
-                    {dept.name}
-                  </option>
-                ))}
+                <option value="operations">Operations</option>
+                <option value="maintenance">Maintenance</option>
+                <option value="biology">Biology</option>
+                <option value="engineering">Engineering</option>
+                <option value="administration">Administration</option>
+                <option value="logistics">Logistics</option>
+                <option value="quality">Quality</option>
+                <option value="safety">Safety</option>
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Position
               </label>
-              <select
-                name="positionId"
-                value={formData.positionId}
+              <input
+                type="text"
+                name="position"
+                value={formData.position}
                 onChange={handleChange}
                 disabled={isEditing}
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">Select position</option>
-                {positions?.map((pos) => (
-                  <option key={pos.id} value={pos.id}>
-                    {pos.title}
-                  </option>
-                ))}
-              </select>
+                placeholder="e.g. Site Manager, Dive Operator"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Tool } from '../core/tool.decorator';
 import { BaseTool } from '../core/base-tool';
 import { ToolExecutionContext } from '../core/tool.interface';
+import { formatLabel } from './utils';
 
 interface DetectedFieldInput {
   key: string;
@@ -110,7 +111,7 @@ export class SuggestChannelsTool extends BaseTool<
     const proposals: ChannelProposal[] = detectedFields.map((field) => {
       const proposal: ChannelProposal = {
         channelKey: this.toChannelKey(field.key),
-        displayLabel: field.suggestedLabel || this.formatLabel(field.key),
+        displayLabel: field.suggestedLabel || formatLabel(field.key),
         dataType: field.dataType,
         unit: field.suggestedUnit || '',
         widgetType: field.suggestedWidgetType || this.defaultWidget(field.dataType),
@@ -141,13 +142,6 @@ export class SuggestChannelsTool extends BaseTool<
       .toLowerCase();
   }
 
-  private formatLabel(key: string): string {
-    return key
-      .replace(/([a-z])([A-Z])/g, '$1 $2')
-      .replace(/[_-]/g, ' ')
-      .replace(/\b\w/g, (c) => c.toUpperCase());
-  }
-
   private defaultWidget(dataType: string): string {
     if (dataType === 'boolean') return 'indicator';
     if (dataType === 'string') return 'text';
@@ -162,17 +156,27 @@ export class SuggestChannelsTool extends BaseTool<
 
   /**
    * Compute alert thresholds from operational range.
-   * Warning = 10% inset from each end, Critical = full range boundaries.
+   * Warning = slightly outside normal range (10% of range beyond min/max).
+   * Critical = further outside normal range (20% of range beyond min/max).
    */
   private computeAlertThresholds(min: number, max: number): AlertThresholds {
     const range = max - min;
-    const inset = range * 0.1;
-
+    if (range === 0) {
+      const margin = Math.abs(min) * 0.1 || 1;
+      return {
+        warningLow: Math.round((min - margin) * 10000) / 10000,
+        warningHigh: Math.round((max + margin) * 10000) / 10000,
+        criticalLow: Math.round((min - margin * 2) * 10000) / 10000,
+        criticalHigh: Math.round((max + margin * 2) * 10000) / 10000,
+      };
+    }
+    const warningMargin = range * 0.1;
+    const criticalMargin = range * 0.2;
     return {
-      warningLow: Math.round((min + inset) * 10000) / 10000,
-      warningHigh: Math.round((max - inset) * 10000) / 10000,
-      criticalLow: min,
-      criticalHigh: max,
+      warningLow: Math.round((min - warningMargin) * 10000) / 10000,
+      warningHigh: Math.round((max + warningMargin) * 10000) / 10000,
+      criticalLow: Math.round((min - criticalMargin) * 10000) / 10000,
+      criticalHigh: Math.round((max + criticalMargin) * 10000) / 10000,
     };
   }
 
@@ -195,7 +199,7 @@ export class SuggestChannelsTool extends BaseTool<
   }
 
   protected isCacheable(): boolean {
-    return true;
+    return false;
   }
 
   protected getCacheTtl(): number {

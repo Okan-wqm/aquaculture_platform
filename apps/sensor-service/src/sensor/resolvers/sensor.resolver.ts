@@ -206,9 +206,9 @@ export class SensorResolver {
   ): Promise<Sensor> {
     this.logger.log(`Creating sensor ${input.name}`);
 
-    // Check for duplicate serial number
+    // Check for duplicate serial number within tenant
     const existing = await this.sensorRepository.findOne({
-      where: { serialNumber: input.serialNumber },
+      where: { serialNumber: input.serialNumber, tenantId },
     });
 
     if (existing) {

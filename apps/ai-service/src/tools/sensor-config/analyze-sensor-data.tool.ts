@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Tool } from '../core/tool.decorator';
 import { BaseTool } from '../core/base-tool';
 import { ToolExecutionContext } from '../core/tool.interface';
+import { formatLabel } from './utils';
 
 interface SensorSample {
   timestamp: string;
@@ -50,7 +51,7 @@ const UNIT_HEURISTICS: Array<{ patterns: string[]; unit: string }> = [
   { patterns: ['current', 'amp'], unit: 'A' },
   { patterns: ['power', 'watt'], unit: 'W' },
   { patterns: ['vibr'], unit: 'mm/s' },
-  { patterns: ['do', 'oxygen'], unit: 'mg/L' },
+  { patterns: ['dissolved_o', 'diss_oxy', 'do_level', 'do_mg', 'oxygen'], unit: 'mg/L' },
   { patterns: ['salinity', 'tds'], unit: 'ppt' },
 ];
 
@@ -66,13 +67,6 @@ function guessUnit(fieldName: string): string {
     }
   }
   return '';
-}
-
-function formatLabel(key: string): string {
-  return key
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/[_-]/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function suggestWidgetType(dataType: string, unit: string): string {
@@ -109,7 +103,7 @@ function suggestWidgetType(dataType: string, unit: string): string {
           required: ['timestamp', 'values'],
         },
         minItems: 1,
-        maxItems: 10000,
+        maxItems: 1000,
       },
       sensorName: {
         type: 'string',
@@ -234,7 +228,7 @@ export class AnalyzeSensorDataTool extends BaseTool<
   }
 
   protected isCacheable(): boolean {
-    return true;
+    return false;
   }
 
   protected getCacheTtl(): number {

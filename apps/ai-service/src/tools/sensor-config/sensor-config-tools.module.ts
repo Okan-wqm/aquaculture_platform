@@ -14,6 +14,6 @@ const TOOLS = [AnalyzeSensorDataTool, SuggestChannelsTool];
       useExisting: tool,
     })),
   ],
-  exports: [TOOL_PROVIDERS],
+  exports: [TOOL_PROVIDERS, AnalyzeSensorDataTool, SuggestChannelsTool],
 })
 export class SensorConfigToolsModule {}

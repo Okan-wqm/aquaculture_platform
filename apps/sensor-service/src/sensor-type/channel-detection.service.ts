@@ -69,7 +69,7 @@ export class ChannelDetectionService {
     let proposedChannels: ProposedChannel[];
 
     try {
-      const result = await this.callAiService(samples);
+      const result = await this.callAiService(samples, tenantId, sensorId);
       aiAnalysis = result.aiAnalysis;
       proposedChannels = result.proposedChannels;
     } catch (error) {
@@ -226,22 +226,38 @@ export class ChannelDetectionService {
 
   /**
    * Call the AI service to analyze sensor data samples.
-   * Posts to /api/v2/ai/chat with the samples and parses tool call results.
+   * Posts to /api/v2/ai/chat with a structured prompt that forces tool use.
+   * Includes tenant auth headers for service-to-service authentication.
    */
   private async callAiService(
     samples: unknown[],
+    tenantId: string,
+    sensorId?: string,
   ): Promise<{ aiAnalysis: Record<string, unknown>; proposedChannels: ProposedChannel[] }> {
     const url = `${this.aiServiceUrl}/api/v2/ai/chat`;
     const body = {
-      message: `Analyze this sensor data and suggest channels: ${JSON.stringify(samples)}`,
-      persona: 'operator',
+      message: [
+        'You MUST use the following tools in order to complete this task.',
+        'Step 1: Call analyze_sensor_data with the provided samples.',
+        'Step 2: Call suggest_sensor_channels with the analysis results.',
+        `Sensor ID: ${sensorId ?? 'unknown'}`,
+        `Samples: ${JSON.stringify(samples)}`,
+      ].join('\n'),
+      persona: 'operator-v1',
+      tools: ['analyze_sensor_data', 'suggest_sensor_channels'],
+    };
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-tenant-id': tenantId,
+      'x-user-payload': JSON.stringify({ sub: 'system', roles: ['supervisor'] }),
     };
 
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(30000),
     });
 
     if (!response.ok) {
@@ -250,30 +266,34 @@ export class ChannelDetectionService {
       );
     }
 
-    const data = await response.json() as {
-      toolResults?: Array<{
-        tool: string;
-        result: Record<string, unknown>;
-      }>;
-    };
-
-    // Extract tool call results
+    // The chat endpoint returns SSE events; collect tool_result events
+    const text = await response.text();
     let aiAnalysis: Record<string, unknown> = {};
     let proposedChannels: ProposedChannel[] = [];
 
-    if (data.toolResults && Array.isArray(data.toolResults)) {
-      for (const toolResult of data.toolResults) {
-        if (toolResult.tool === 'analyze_sensor_data') {
-          aiAnalysis = toolResult.result;
+    // Parse SSE events from the response
+    const lines = text.split('\n');
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      try {
+        const event = JSON.parse(line.slice(6)) as {
+          type: string;
+          name?: string;
+          result?: Record<string, unknown>;
+        };
+        if (event.type === 'tool_result' && event.name === 'analyze_sensor_data' && event.result) {
+          aiAnalysis = event.result;
         }
-        if (toolResult.tool === 'suggest_sensor_channels') {
-          const result = toolResult.result as { channels?: ProposedChannel[] };
-          proposedChannels = result.channels ?? [];
+        if (event.type === 'tool_result' && event.name === 'suggest_sensor_channels' && event.result) {
+          const result = event.result as { proposals?: ProposedChannel[] };
+          proposedChannels = result.proposals ?? [];
         }
+      } catch {
+        // Skip malformed SSE lines
       }
     }
 
-    // If no tool results, try to parse the response as-is
+    // If no tool results, fall back to local analysis
     if (proposedChannels.length === 0) {
       this.logger.warn('AI service returned no tool results, falling back to local analysis');
       return this.localFallbackAnalysis(samples as unknown[]);
@@ -298,7 +318,12 @@ export class ChannelDetectionService {
     for (const sample of samples) {
       if (typeof sample !== 'object' || sample === null) continue;
 
-      for (const [key, value] of Object.entries(sample as Record<string, unknown>)) {
+      // Unwrap nested { timestamp, values: {...} } format
+      const data = (typeof sample === 'object' && sample !== null && 'values' in (sample as Record<string, unknown>))
+        ? (sample as Record<string, unknown>).values as Record<string, unknown>
+        : sample as Record<string, unknown>;
+
+      for (const [key, value] of Object.entries(data)) {
         if (METADATA_KEYS.has(key)) continue;
         if (!fieldStats[key]) {
           fieldStats[key] = { type: typeof value, values: [] };

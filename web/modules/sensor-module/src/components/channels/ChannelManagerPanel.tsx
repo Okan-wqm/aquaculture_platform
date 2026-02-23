@@ -52,6 +52,7 @@ function toCreateInput(cfg: DataChannelConfig): CreateChannelInput {
     displayLabel: cfg.displayLabel,
     dataType: cfg.dataType,
     unit: cfg.unit,
+    unitSymbol: cfg.unit,
     operationalMin: cfg.minValue,
     operationalMax: cfg.maxValue,
     calibrationEnabled: cfg.calibrationEnabled,
@@ -71,6 +72,7 @@ function toUpdateInput(cfg: DataChannelConfig): UpdateChannelInput {
     displayLabel: cfg.displayLabel,
     dataType: cfg.dataType,
     unit: cfg.unit,
+    unitSymbol: cfg.unit,
     operationalMin: cfg.minValue,
     operationalMax: cfg.maxValue,
     calibrationEnabled: cfg.calibrationEnabled,
@@ -88,25 +90,25 @@ function getSourceBadge(source?: string) {
     case 'template':
       return (
         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-          Template
+          Sablon
         </span>
       );
     case 'manual':
       return (
         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-          Manual
+          Manuel
         </span>
       );
     case 'auto':
       return (
         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
-          Auto
+          Otomatik
         </span>
       );
     default:
       return (
         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
-          Unknown
+          Bilinmiyor
         </span>
       );
   }
@@ -119,8 +121,9 @@ function getSourceBadge(source?: string) {
 export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensorId }) => {
   const {
     channels,
-    loading,
+    fetchLoading,
     error,
+    mutationError,
     createChannel,
     updateChannel,
     deleteChannel,
@@ -131,6 +134,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
   const [editingChannel, setEditingChannel] = useState<DataChannelConfig | undefined>(undefined);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showAIDetection, setShowAIDetection] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // --- Add Channel ---
   const handleAddChannel = useCallback(() => {
@@ -144,37 +148,40 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
     setEditorOpen(true);
   }, []);
 
-  // --- Save (create or update) ---
+  // --- Save (create or update) - H4: only close on success ---
   const handleSave = useCallback(
     async (cfg: DataChannelConfig) => {
-      if (cfg.id) {
-        // Update existing channel
-        await updateChannel(cfg.id, toUpdateInput(cfg));
-      } else {
-        // Create new channel
-        await createChannel(toCreateInput(cfg));
+      const result = cfg.id
+        ? await updateChannel(cfg.id, toUpdateInput(cfg))
+        : await createChannel(toCreateInput(cfg));
+
+      if (result) {
+        setEditorOpen(false);
+        setEditingChannel(undefined);
       }
-      setEditorOpen(false);
-      setEditingChannel(undefined);
     },
     [createChannel, updateChannel],
   );
 
-  // --- Delete Channel ---
+  // --- Delete Channel (L2: Turkish confirm, M6: specific error feedback) ---
   const handleDeleteChannel = useCallback(
     async (channelId: string, channelKey: string) => {
-      if (!window.confirm(`Are you sure you want to delete channel "${channelKey}"?`)) {
+      if (!window.confirm(`"${channelKey}" kanalini silmek istediginizden emin misiniz?`)) {
         return;
       }
       setDeletingId(channelId);
-      await deleteChannel(channelId);
+      setDeleteError(null);
+      const success = await deleteChannel(channelId);
+      if (!success) {
+        setDeleteError(`"${channelKey}" kanali silinemedi. Lutfen tekrar deneyin.`);
+      }
       setDeletingId(null);
     },
     [deleteChannel],
   );
 
   // ---- Loading skeleton ----
-  if (loading && channels.length === 0) {
+  if (fetchLoading && channels.length === 0) {
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <div className="flex items-center justify-between mb-6">
@@ -204,7 +211,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
           <div>
-            <p className="text-red-800 font-medium">Failed to load channels</p>
+            <p className="text-red-800 font-medium">Kanallar yuklenemedi</p>
             <p className="text-red-600 text-sm">{error.message}</p>
           </div>
         </div>
@@ -216,7 +223,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold text-gray-900">Data Channels</h3>
+        <h3 className="text-lg font-semibold text-gray-900">Veri Kanallari</h3>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowAIDetection((prev) => !prev)}
@@ -234,7 +241,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
             className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors text-sm font-medium"
           >
             <Plus className="w-4 h-4" />
-            Add Channel
+            Kanal Ekle
           </button>
         </div>
       </div>
@@ -249,6 +256,16 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
         />
       )}
 
+      {/* M6: Mutation error feedback (separate from fetch error) */}
+      {(mutationError || deleteError) && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2 mb-4">
+          <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+          <p className="text-red-700 text-sm">
+            {deleteError || mutationError?.message || 'Islem basarisiz oldu'}
+          </p>
+        </div>
+      )}
+
       {/* Empty state */}
       {channels.length === 0 ? (
         <div className="text-center py-12">
@@ -256,7 +273,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
             <AlertCircle className="w-8 h-8 text-gray-400" />
           </div>
           <p className="text-gray-500 text-sm">
-            No channels configured. Add a channel or use AI detection.
+            Henuz kanal yapilandirilmadi. Kanal ekleyin veya AI tespiti kullanin.
           </p>
         </div>
       ) : (
@@ -265,14 +282,14 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-2 font-medium text-gray-500">Channel Key</th>
-                <th className="text-left py-3 px-2 font-medium text-gray-500">Label</th>
-                <th className="text-left py-3 px-2 font-medium text-gray-500">Type</th>
-                <th className="text-left py-3 px-2 font-medium text-gray-500">Unit</th>
-                <th className="text-left py-3 px-2 font-medium text-gray-500">Range</th>
-                <th className="text-left py-3 px-2 font-medium text-gray-500">Status</th>
-                <th className="text-left py-3 px-2 font-medium text-gray-500">Source</th>
-                <th className="text-right py-3 px-2 font-medium text-gray-500">Actions</th>
+                <th className="text-left py-3 px-2 font-medium text-gray-500">Kanal Anahtari</th>
+                <th className="text-left py-3 px-2 font-medium text-gray-500">Etiket</th>
+                <th className="text-left py-3 px-2 font-medium text-gray-500">Tip</th>
+                <th className="text-left py-3 px-2 font-medium text-gray-500">Birim</th>
+                <th className="text-left py-3 px-2 font-medium text-gray-500">Aralik</th>
+                <th className="text-left py-3 px-2 font-medium text-gray-500">Durum</th>
+                <th className="text-left py-3 px-2 font-medium text-gray-500">Kaynak</th>
+                <th className="text-right py-3 px-2 font-medium text-gray-500">Islemler</th>
               </tr>
             </thead>
             <tbody>
@@ -293,29 +310,33 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
                   <td className="py-3 px-2">
                     {ch.isEnabled ? (
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                        Enabled
+                        Aktif
                       </span>
                     ) : (
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
-                        Disabled
+                        Devre Disi
                       </span>
                     )}
                   </td>
                   <td className="py-3 px-2">{getSourceBadge(ch.discoverySource)}</td>
                   <td className="py-3 px-2 text-right">
                     <div className="flex items-center justify-end gap-1">
+                      {/* L3: aria-label */}
                       <button
                         onClick={() => handleEditChannel(ch)}
                         className="p-1.5 text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded transition-colors"
-                        title="Edit channel"
+                        aria-label="Kanali duzenle"
+                        title="Kanali duzenle"
                       >
                         <Edit className="w-4 h-4" />
                       </button>
+                      {/* L3: aria-label */}
                       <button
                         onClick={() => handleDeleteChannel(ch.id, ch.channelKey)}
                         disabled={deletingId === ch.id}
                         className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
-                        title="Delete channel"
+                        aria-label="Kanali sil"
+                        title="Kanali sil"
                       >
                         {deletingId === ch.id ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
@@ -332,7 +353,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
         </div>
       )}
 
-      {/* Channel Editor Modal */}
+      {/* Channel Editor Modal (L6: onSave accepts async) */}
       <ChannelEditorModal
         isOpen={editorOpen}
         channel={editingChannel}

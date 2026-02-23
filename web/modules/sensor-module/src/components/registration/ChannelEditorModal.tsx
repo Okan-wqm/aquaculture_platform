@@ -10,7 +10,7 @@ interface ChannelEditorModalProps {
   channel?: DataChannelConfig;
   isOpen: boolean;
   onClose: () => void;
-  onSave: (channel: DataChannelConfig) => void;
+  onSave: (channel: DataChannelConfig) => void | Promise<void>;
 }
 
 const UNIT_OPTIONS = [
@@ -127,19 +127,18 @@ export function ChannelEditorModal({
     }));
   };
 
-  // Handle save
-  const handleSave = () => {
+  // Handle save (L6: supports async onSave, doesn't close - parent controls close on success)
+  const handleSave = async () => {
     // Apply custom unit if selected
     let finalUnit = formData.unit;
     if (formData.unit === 'custom') {
       finalUnit = customUnit;
     }
 
-    onSave({
+    await onSave({
       ...formData,
       unit: finalUnit,
     });
-    onClose();
   };
 
   // Calculate calibrated value preview

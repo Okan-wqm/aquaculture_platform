@@ -2,44 +2,14 @@
  * useChannelManagement Hook
  *
  * CRUD operations for sensor data channels.
- * GraphQL mutations may not exist on the backend yet — they will be wired up in Task 9.
+ * GraphQL mutations may not exist on the backend yet -- they will be wired up in Task 9.
  */
 
-import { useState, useCallback, useEffect } from 'react';
-import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { graphqlFetch } from '../config/api';
 import {
   DataChannelConfig,
 } from '../types/registration.types';
-
-// ============================================================================
-// GraphQL Helper
-// ============================================================================
-
-const API_URL = '/graphql';
-
-async function graphqlFetch<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
-  const token = getAccessToken();
-  const tenantId = getTenantId();
-
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL Error');
-  }
-
-  return result.data;
-}
 
 // ============================================================================
 // GraphQL Queries & Mutations
@@ -120,7 +90,7 @@ export interface SensorDataChannel {
 }
 
 // ============================================================================
-// Input types for create/update
+// Input types for create/update (L5: added unitSymbol)
 // ============================================================================
 
 export interface CreateChannelInput {
@@ -128,6 +98,7 @@ export interface CreateChannelInput {
   displayLabel: string;
   dataType: string;
   unit?: string;
+  unitSymbol?: string;
   operationalMin?: number;
   operationalMax?: number;
   calibrationEnabled?: boolean;
@@ -144,6 +115,7 @@ export interface UpdateChannelInput {
   displayLabel?: string;
   dataType?: string;
   unit?: string;
+  unitSymbol?: string;
   operationalMin?: number;
   operationalMax?: number;
   calibrationEnabled?: boolean;
@@ -156,29 +128,42 @@ export interface UpdateChannelInput {
 }
 
 // ============================================================================
-// Hook
+// Hook (M2: split fetchLoading / mutating)
 // ============================================================================
 
 export function useChannelManagement(sensorId: string) {
   const [channels, setChannels] = useState<SensorDataChannel[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [fetchLoading, setFetchLoading] = useState(false);
+  const [mutating, setMutating] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [mutationError, setMutationError] = useState<Error | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const refetch = useCallback(async () => {
     if (!sensorId) return;
 
-    setLoading(true);
+    setFetchLoading(true);
     setError(null);
 
     try {
       const data = await graphqlFetch<{
         sensor: { dataChannels: SensorDataChannel[] };
       }>(GET_SENSOR_CHANNELS_QUERY, { sensorId });
+      if (!mountedRef.current) return;
       setChannels(data.sensor?.dataChannels || []);
     } catch (err) {
+      if (!mountedRef.current) return;
       setError(err as Error);
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setFetchLoading(false);
+      }
     }
   }, [sensorId]);
 
@@ -189,22 +174,26 @@ export function useChannelManagement(sensorId: string) {
 
   const createChannel = useCallback(
     async (input: CreateChannelInput): Promise<SensorDataChannel | null> => {
-      setLoading(true);
-      setError(null);
+      setMutating(true);
+      setMutationError(null);
 
       try {
         const data = await graphqlFetch<{
           createSensorDataChannel: SensorDataChannel;
         }>(CREATE_CHANNEL_MUTATION, { sensorId, input });
 
+        if (!mountedRef.current) return null;
         // Refetch the full list after creation
         await refetch();
         return data.createSensorDataChannel;
       } catch (err) {
-        setError(err as Error);
+        if (!mountedRef.current) return null;
+        setMutationError(err as Error);
         return null;
       } finally {
-        setLoading(false);
+        if (mountedRef.current) {
+          setMutating(false);
+        }
       }
     },
     [sensorId, refetch],
@@ -212,22 +201,26 @@ export function useChannelManagement(sensorId: string) {
 
   const updateChannel = useCallback(
     async (channelId: string, input: UpdateChannelInput): Promise<SensorDataChannel | null> => {
-      setLoading(true);
-      setError(null);
+      setMutating(true);
+      setMutationError(null);
 
       try {
         const data = await graphqlFetch<{
           updateSensorDataChannel: SensorDataChannel;
         }>(UPDATE_CHANNEL_MUTATION, { id: channelId, input });
 
+        if (!mountedRef.current) return null;
         // Refetch the full list after update
         await refetch();
         return data.updateSensorDataChannel;
       } catch (err) {
-        setError(err as Error);
+        if (!mountedRef.current) return null;
+        setMutationError(err as Error);
         return null;
       } finally {
-        setLoading(false);
+        if (mountedRef.current) {
+          setMutating(false);
+        }
       }
     },
     [refetch],
@@ -235,8 +228,8 @@ export function useChannelManagement(sensorId: string) {
 
   const deleteChannel = useCallback(
     async (channelId: string): Promise<boolean> => {
-      setLoading(true);
-      setError(null);
+      setMutating(true);
+      setMutationError(null);
 
       try {
         await graphqlFetch<{ deleteSensorDataChannel: boolean }>(
@@ -244,14 +237,18 @@ export function useChannelManagement(sensorId: string) {
           { id: channelId },
         );
 
+        if (!mountedRef.current) return false;
         // Refetch the full list after deletion
         await refetch();
         return true;
       } catch (err) {
-        setError(err as Error);
+        if (!mountedRef.current) return false;
+        setMutationError(err as Error);
         return false;
       } finally {
-        setLoading(false);
+        if (mountedRef.current) {
+          setMutating(false);
+        }
       }
     },
     [refetch],
@@ -259,8 +256,11 @@ export function useChannelManagement(sensorId: string) {
 
   return {
     channels,
-    loading,
+    loading: fetchLoading || mutating,
+    fetchLoading,
+    mutating,
     error,
+    mutationError,
     createChannel,
     updateChannel,
     deleteChannel,

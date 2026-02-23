@@ -2,41 +2,11 @@
  * useChannelDetection Hook
  *
  * AI-powered channel detection for sensor data.
- * GraphQL mutations may not exist on the backend yet — they will be wired up later.
+ * GraphQL mutations may not exist on the backend yet -- they will be wired up later.
  */
 
-import { useState, useCallback } from 'react';
-import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
-
-// ============================================================================
-// GraphQL Helper
-// ============================================================================
-
-const API_URL = '/graphql';
-
-async function graphqlFetch<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
-  const token = getAccessToken();
-  const tenantId = getTenantId();
-
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL Error');
-  }
-
-  return result.data;
-}
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { graphqlFetch } from '../config/api';
 
 // ============================================================================
 // GraphQL Queries & Mutations
@@ -128,7 +98,15 @@ export interface ApprovedChannel {
 export function useChannelDetection(sensorId: string) {
   const [proposals, setProposals] = useState<ChannelProposal[]>([]);
   const [detecting, setDetecting] = useState(false);
+  const [loadingPending, setLoadingPending] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const detectChannels = useCallback(
     async (samples: unknown[]): Promise<ChannelProposal | null> => {
@@ -142,6 +120,8 @@ export function useChannelDetection(sensorId: string) {
           detectSensorChannels: ChannelProposal;
         }>(DETECT_CHANNELS_MUTATION, { sensorId, samples });
 
+        if (!mountedRef.current) return null;
+
         const proposal = data.detectSensorChannels;
         // Parse proposedChannels if it comes back as a JSON string
         if (typeof proposal.proposedChannels === 'string') {
@@ -151,15 +131,19 @@ export function useChannelDetection(sensorId: string) {
         setProposals((prev) => [...prev, proposal]);
         return proposal;
       } catch (err) {
+        if (!mountedRef.current) return null;
         setError(err as Error);
         return null;
       } finally {
-        setDetecting(false);
+        if (mountedRef.current) {
+          setDetecting(false);
+        }
       }
     },
     [sensorId],
   );
 
+  // H2: Simplified filter - just match by proposal ID directly
   const approveProposal = useCallback(
     async (proposalId: string, modifications?: Record<string, unknown>): Promise<ApprovedChannel | null> => {
       setError(null);
@@ -172,18 +156,14 @@ export function useChannelDetection(sensorId: string) {
           modifications: modifications || null,
         });
 
+        if (!mountedRef.current) return null;
+
         // Remove the approved proposal from local state
-        setProposals((prev) =>
-          prev.map((p) => ({
-            ...p,
-            proposedChannels: p.proposedChannels.filter(
-              (_ch, _i) => `${p.id}:${_i}` !== proposalId && p.id !== proposalId,
-            ),
-          })).filter((p) => p.proposedChannels.length > 0),
-        );
+        setProposals((prev) => prev.filter((p) => p.id !== proposalId));
 
         return data.approveChannelProposal;
       } catch (err) {
+        if (!mountedRef.current) return null;
         setError(err as Error);
         return null;
       }
@@ -201,18 +181,14 @@ export function useChannelDetection(sensorId: string) {
           { proposalId },
         );
 
+        if (!mountedRef.current) return false;
+
         // Remove the rejected proposal from local state
-        setProposals((prev) =>
-          prev.map((p) => ({
-            ...p,
-            proposedChannels: p.proposedChannels.filter(
-              (_ch, _i) => `${p.id}:${_i}` !== proposalId && p.id !== proposalId,
-            ),
-          })).filter((p) => p.proposedChannels.length > 0),
-        );
+        setProposals((prev) => prev.filter((p) => p.id !== proposalId));
 
         return true;
       } catch (err) {
+        if (!mountedRef.current) return false;
         setError(err as Error);
         return false;
       }
@@ -220,32 +196,42 @@ export function useChannelDetection(sensorId: string) {
     [],
   );
 
+  // M4: loadingPending state
   const fetchPending = useCallback(async () => {
     if (!sensorId) return;
 
     setError(null);
+    setLoadingPending(true);
 
     try {
       const data = await graphqlFetch<{
         pendingChannelProposals: ChannelProposal[];
       }>(PENDING_PROPOSALS_QUERY, { sensorId });
 
-      const proposals = (data.pendingChannelProposals || []).map((p) => {
+      if (!mountedRef.current) return;
+
+      const parsedProposals = (data.pendingChannelProposals || []).map((p) => {
         if (typeof p.proposedChannels === 'string') {
           return { ...p, proposedChannels: JSON.parse(p.proposedChannels as unknown as string) };
         }
         return p;
       });
 
-      setProposals(proposals);
+      setProposals(parsedProposals);
     } catch (err) {
+      if (!mountedRef.current) return;
       setError(err as Error);
+    } finally {
+      if (mountedRef.current) {
+        setLoadingPending(false);
+      }
     }
   }, [sensorId]);
 
   return {
     proposals,
     detecting,
+    loadingPending,
     error,
     detectChannels,
     approveProposal,

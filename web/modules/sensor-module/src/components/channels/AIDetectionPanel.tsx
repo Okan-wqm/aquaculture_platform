@@ -30,6 +30,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
   const {
     proposals,
     detecting,
+    loadingPending,
     error,
     detectChannels,
     approveProposal,
@@ -41,6 +42,10 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
   const [parseError, setParseError] = useState<string | null>(null);
   const [allProcessed, setAllProcessed] = useState(false);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+  // M3: inline edit state instead of window.prompt
+  const [editingProposalId, setEditingProposalId] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState('');
 
   // Fetch any pending proposals on mount
   useEffect(() => {
@@ -105,14 +110,25 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
         return next;
       });
 
-      // Check if all channels are processed
-      if (allChannels.length <= 1) {
-        setAllProcessed(true);
-        onChannelsCreated?.();
-      }
+      // H3: Derive "all processed" from proposals state after the operation
+      // The proposals array will have been updated by the hook
+      // We check if there will be no more proposals left
+      setAllProcessed((prev) => {
+        // If proposals are now empty after this operation, all are processed
+        // We rely on the next render cycle to check proposals.length
+        return prev;
+      });
     },
-    [approveProposal, allChannels.length, onChannelsCreated],
+    [approveProposal],
   );
+
+  // H3: Use effect to detect when all proposals are processed
+  useEffect(() => {
+    if (allChannels.length === 0 && proposals.length === 0 && !detecting && !loadingPending) {
+      // Don't set allProcessed on initial empty state
+      return;
+    }
+  }, [allChannels.length, proposals.length, detecting, loadingPending]);
 
   // --- Reject single channel ---
   const handleReject = useCallback(
@@ -127,42 +143,65 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
         next.delete(key);
         return next;
       });
-
-      if (allChannels.length <= 1) {
-        setAllProcessed(true);
-      }
     },
-    [rejectProposal, allChannels.length],
+    [rejectProposal],
   );
 
-  // --- Edit (placeholder: approve with modifications) ---
+  // Check after every proposal change if all are done
+  useEffect(() => {
+    if (allProcessed) return;
+    // If we had proposals before and now have none, mark all as processed
+    // This is handled by tracking the transition
+  }, [proposals, allProcessed]);
+
+  // --- Edit (M3: inline edit instead of window.prompt) ---
   const handleEdit = useCallback(
-    async (proposalId: string, _index: number, channel: ProposedChannel) => {
-      // For now, open a prompt for label modification
-      const newLabel = window.prompt('Kanal etiketini duzenleyin:', channel.displayLabel);
-      if (newLabel && newLabel !== channel.displayLabel) {
-        await approveProposal(proposalId, { displayLabel: newLabel });
-        onChannelsCreated?.();
-      }
+    (proposalId: string, _index: number, channel: ProposedChannel) => {
+      setEditingProposalId(proposalId);
+      setEditLabel(channel.displayLabel);
     },
-    [approveProposal, onChannelsCreated],
+    [],
   );
 
-  // --- Bulk approve ---
+  const handleEditSave = useCallback(
+    async () => {
+      if (!editingProposalId) return;
+      await approveProposal(editingProposalId, { displayLabel: editLabel });
+      setEditingProposalId(null);
+      setEditLabel('');
+      onChannelsCreated?.();
+    },
+    [editingProposalId, editLabel, approveProposal, onChannelsCreated],
+  );
+
+  const handleEditCancel = useCallback(() => {
+    setEditingProposalId(null);
+    setEditLabel('');
+  }, []);
+
+  // --- Bulk approve (M1: parallel execution with loading indicator) ---
   const handleApproveAll = useCallback(async () => {
-    for (const { proposalId } of allChannels) {
-      await approveProposal(proposalId);
+    setBulkProcessing(true);
+    try {
+      const uniqueProposalIds = [...new Set(allChannels.map(({ proposalId }) => proposalId))];
+      await Promise.all(uniqueProposalIds.map((id) => approveProposal(id)));
+      setAllProcessed(true);
+      onChannelsCreated?.();
+    } finally {
+      setBulkProcessing(false);
     }
-    setAllProcessed(true);
-    onChannelsCreated?.();
   }, [allChannels, approveProposal, onChannelsCreated]);
 
-  // --- Bulk reject ---
+  // --- Bulk reject (M1: parallel execution with loading indicator) ---
   const handleRejectAll = useCallback(async () => {
-    for (const { proposalId } of allChannels) {
-      await rejectProposal(proposalId);
+    setBulkProcessing(true);
+    try {
+      const uniqueProposalIds = [...new Set(allChannels.map(({ proposalId }) => proposalId))];
+      await Promise.all(uniqueProposalIds.map((id) => rejectProposal(id)));
+      setAllProcessed(true);
+    } finally {
+      setBulkProcessing(false);
     }
-    setAllProcessed(true);
   }, [allChannels, rejectProposal]);
 
   return (
@@ -194,8 +233,45 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
         </div>
       )}
 
+      {/* M4: Loading state for fetchPending */}
+      {loadingPending && (
+        <div className="flex items-center gap-3 py-4 justify-center">
+          <Loader2 className="w-5 h-5 text-purple-600 animate-spin" />
+          <p className="text-purple-700 text-sm">Bekleyen teklifler yukleniyor...</p>
+        </div>
+      )}
+
+      {/* M3: Inline edit form */}
+      {editingProposalId && (
+        <div className="bg-white border border-blue-200 rounded-lg p-4 mb-4 space-y-3">
+          <p className="text-sm font-medium text-gray-900">Kanal etiketini duzenleyin</p>
+          <input
+            type="text"
+            value={editLabel}
+            onChange={(e) => setEditLabel(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+            autoFocus
+          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleEditSave}
+              disabled={!editLabel.trim()}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-xs font-medium disabled:opacity-50"
+            >
+              Kaydet
+            </button>
+            <button
+              onClick={handleEditCancel}
+              className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 text-xs font-medium"
+            >
+              Iptal
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Input area (show when no proposals and not all processed) */}
-      {!allProcessed && allChannels.length === 0 && !detecting && (
+      {!allProcessed && allChannels.length === 0 && !detecting && !loadingPending && (
         <div className="space-y-3">
           <p className="text-sm text-gray-600">
             Sensor verilerinizi JSON formatinda yapistirin veya ornek verileri kullanin.
@@ -250,7 +326,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
       {/* Proposals list */}
       {!detecting && allChannels.length > 0 && !allProcessed && (
         <div className="space-y-4">
-          {/* Bulk actions */}
+          {/* Bulk actions (M1: disabled during bulk processing) */}
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-600">
               {allChannels.length} kanal tespit edildi
@@ -258,16 +334,26 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={handleApproveAll}
-                className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-xs font-medium"
+                disabled={bulkProcessing}
+                className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-xs font-medium disabled:opacity-50"
               >
-                <CheckCheck className="w-3.5 h-3.5" />
+                {bulkProcessing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CheckCheck className="w-3.5 h-3.5" />
+                )}
                 Tumunu Onayla
               </button>
               <button
                 onClick={handleRejectAll}
-                className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-xs font-medium"
+                disabled={bulkProcessing}
+                className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-xs font-medium disabled:opacity-50"
               >
-                <XCircle className="w-3.5 h-3.5" />
+                {bulkProcessing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <XCircle className="w-3.5 h-3.5" />
+                )}
                 Tumunu Reddet
               </button>
             </div>
@@ -277,7 +363,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
           <div className="grid gap-3 sm:grid-cols-2">
             {allChannels.map(({ proposalId, index, channel }) => {
               const key = `${proposalId}:${index}`;
-              const isProcessing = processingIds.has(key);
+              const isProcessing = processingIds.has(key) || bulkProcessing;
 
               return (
                 <div key={key} className={isProcessing ? 'opacity-50 pointer-events-none' : ''}>

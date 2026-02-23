@@ -1,4 +1,4 @@
-import { ThrottlerModule, ThrottlerGuard, RedisModule } from '@aquaculture/backend-common';
+import { ThrottlerModule, RedisModule } from '@aquaculture/backend-common';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
@@ -125,10 +125,10 @@ import { UsersModule } from './users/users.module';
       provide: APP_GUARD,
       useClass: PlatformAdminGuard,
     },
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
+    // ThrottlerGuard removed: admin-api is super-admin-only (PlatformAdminGuard).
+    // Rate limiting an authenticated admin panel with ~15 concurrent dashboard
+    // requests causes 429 floods. Individual sensitive endpoints (login, password
+    // reset) still use per-route @Throttle() decorators via backend-common.
     {
       provide: APP_INTERCEPTOR,
       useClass: ResponseInterceptor,

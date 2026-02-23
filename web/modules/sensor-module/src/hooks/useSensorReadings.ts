@@ -7,13 +7,7 @@ import { useEffect, useCallback, useRef, useState } from 'react';
 import { useScadaStore, SensorReading, SensorType, SensorStatus, ScadaProcess } from '../store/scadaStore';
 import { EquipmentNodeData, ScadaNode, ScadaEdge } from '../types/scada-types';
 import { useSensorList, RegisteredSensor } from './useSensorList';
-import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
-
-// GraphQL API for fetching real readings (SEC-003: use runtime/env config, not hardcoded localhost)
-const API_URL =
-  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL) ||
-  (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__?.API_URL) ||
-  '/graphql';
+import { API_URL, getAuthHeaders } from '../config/api';
 
 interface SensorReadings {
   temperature?: number;
@@ -40,17 +34,10 @@ async function fetchLatestReadingsBatch(sensorIds: string[]): Promise<Map<string
   if (sensorIds.length === 0) return result;
 
   try {
-    const token = getAccessToken();
-    const tenantId = getTenantId();
-
     const response = await fetch(API_URL, {
       method: 'POST',
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` }),
-        ...(tenantId && { 'X-Tenant-Id': tenantId }),
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify({
         query: `
           query GetLatestReadingsBatch($sensorIds: [ID!]!) {

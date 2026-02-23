@@ -1,10 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
-
-// API base URL - uses environment variable or falls back to gateway
-const API_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
-  || (typeof window !== 'undefined' && (window as Record<string, unknown>).__RUNTIME_CONFIG__?.API_URL)
-  || '/graphql';
+import { graphqlFetch } from '../config/api';
 
 // Types
 export type ProcessStatus = 'draft' | 'active' | 'inactive' | 'archived';
@@ -330,31 +325,6 @@ const DUPLICATE_PROCESS_MUTATION = `
     }
   }
 `;
-
-// GraphQL fetch helper
-async function graphqlFetch<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
-  const token = getAccessToken();
-  const tenantId = getTenantId();
-
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL Error');
-  }
-
-  return result.data;
-}
 
 // Hook for process CRUD operations
 export function useProcess() {

@@ -7,7 +7,12 @@
 import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
 
 // GraphQL API endpoint - uses environment variable with fallback
-export const API_URL = import.meta.env.VITE_GRAPHQL_URL || '/graphql';
+// Safety guard: if a localhost URL was embedded at build-time but we're running
+// on a remote host, fall back to relative '/graphql' to avoid CSP violations.
+const envUrl = import.meta.env.VITE_GRAPHQL_URL || import.meta.env.VITE_API_URL;
+const isRemoteWithLocalUrl = envUrl?.includes('localhost') &&
+  typeof window !== 'undefined' && window.location.hostname !== 'localhost';
+export const API_URL = (!envUrl || isRemoteWithLocalUrl) ? '/graphql' : envUrl;
 
 // Helper to get auth headers
 export function getAuthHeaders(): Record<string, string> {

@@ -4,13 +4,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSensorList, RegisteredSensor } from './useSensorList';
-import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
-
-// API base URL (SEC-003: use runtime/env config, not hardcoded localhost)
-const API_URL =
-  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL) ||
-  (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__?.API_URL) ||
-  '/graphql';
+import { graphqlFetch } from '../config/api';
 
 // ============================================================================
 // Types
@@ -62,37 +56,6 @@ const UPDATE_DATA_CHANNEL_MUTATION = `
     }
   }
 `;
-
-// ============================================================================
-// GraphQL fetch helper
-// ============================================================================
-
-async function graphqlFetch<T>(
-  query: string,
-  variables?: Record<string, unknown>
-): Promise<T> {
-  const token = getAccessToken();
-  const tenantId = getTenantId();
-
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL Error');
-  }
-
-  return result.data;
-}
 
 // ============================================================================
 // Default thresholds by sensor type

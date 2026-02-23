@@ -381,13 +381,12 @@ const AdminDashboard: React.FC = () => {
     setData((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
-      const [metrics, userStats, services, logsResult, circuitBreakers, cacheStats] = await Promise.allSettled([
+      const [metrics, userStats, services, logsResult, circuitBreakers] = await Promise.allSettled([
         systemApi.getMetrics(),
         usersApi.getStats(),
         systemApi.getServicesHealth(),
         auditApi.query({ limit: 10 }),
         systemApi.getCircuitBreakers(),
-        debugApi.getCacheStats(),
       ]);
 
       setData({
@@ -396,7 +395,7 @@ const AdminDashboard: React.FC = () => {
         services: services.status === 'fulfilled' ? services.value : [],
         recentLogs: logsResult.status === 'fulfilled' ? logsResult.value.data : [],
         circuitBreakers: circuitBreakers.status === 'fulfilled' ? circuitBreakers.value : null,
-        cacheStats: cacheStats.status === 'fulfilled' ? cacheStats.value : null,
+        cacheStats: null,
         loading: false,
         error: null,
       });

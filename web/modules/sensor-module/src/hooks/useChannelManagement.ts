@@ -15,7 +15,7 @@ import {
 // GraphQL Helper
 // ============================================================================
 
-const API_URL = 'http://localhost:3000/graphql';
+const API_URL = '/graphql';
 
 async function graphqlFetch<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
   const token = getAccessToken();

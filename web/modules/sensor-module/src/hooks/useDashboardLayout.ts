@@ -10,7 +10,7 @@ import { WidgetConfig } from '../components/dashboard/types';
 import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
 
 // API base URL
-const API_URL = 'http://localhost:3000/graphql';
+const API_URL = '/graphql';
 
 // ============================================================================
 // Types

@@ -65,7 +65,7 @@ interface SensorReading {
 // API Functions
 // ============================================================================
 
-const API_URL = 'http://localhost:3000/graphql';
+const API_URL = '/graphql';
 
 const GET_SENSOR_QUERY = `
   query GetSensor($id: ID!) {

@@ -7,7 +7,7 @@
 import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
 
 // GraphQL API endpoint - uses environment variable with fallback
-export const API_URL = import.meta.env.VITE_GRAPHQL_URL || 'http://localhost:3000/graphql';
+export const API_URL = import.meta.env.VITE_GRAPHQL_URL || '/graphql';
 
 // Helper to get auth headers
 export function getAuthHeaders(): Record<string, string> {

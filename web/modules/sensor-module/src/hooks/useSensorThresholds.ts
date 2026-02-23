@@ -10,7 +10,7 @@ import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-clien
 const API_URL =
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL) ||
   (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__?.API_URL) ||
-  'http://localhost:3000/graphql';
+  '/graphql';
 
 // ============================================================================
 // Types

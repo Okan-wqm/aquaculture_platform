@@ -14,7 +14,7 @@ import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 const WS_URL =
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_WS_URL) ||
   (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__?.WS_URL) ||
-  'http://localhost:3000/sensors';
+  '/sensors';
 
 export interface SensorReading {
   sensorId: string;

@@ -4,7 +4,7 @@ import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-clien
 // API base URL - uses environment variable or falls back to gateway
 const API_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
   || (typeof window !== 'undefined' && (window as Record<string, unknown>).__RUNTIME_CONFIG__?.API_URL)
-  || 'http://localhost:3000/graphql';
+  || '/graphql';
 
 // Types
 export type ProcessStatus = 'draft' | 'active' | 'inactive' | 'archived';

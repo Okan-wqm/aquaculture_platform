@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
 
 // API base URL
-const API_URL = 'http://localhost:3000/graphql';
+const API_URL = '/graphql';
 
 // Simple GraphQL fetch helper (same pattern as useSensorRegistration)
 async function graphqlFetch<T>(query: string, variables?: Record<string, unknown>): Promise<T> {

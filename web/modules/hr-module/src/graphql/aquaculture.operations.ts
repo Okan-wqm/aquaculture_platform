@@ -15,9 +15,27 @@ import {
 // =====================
 
 export const GET_WORK_AREAS = gql`
-  query GetWorkAreas($filter: WorkAreaFilterInput) {
-    workAreas(filter: $filter) {
-      ...WorkAreaFull
+  query GetWorkAreas(
+    $workAreaType: WorkAreaType
+    $isOffshore: Boolean
+    $isActive: Boolean
+    $limit: Int
+    $offset: Int
+  ) {
+    workAreas(
+      workAreaType: $workAreaType
+      isOffshore: $isOffshore
+      isActive: $isActive
+      limit: $limit
+      offset: $offset
+    ) {
+      items {
+        ...WorkAreaFull
+      }
+      total
+      limit
+      offset
+      hasMore
     }
   }
   ${WORK_AREA_FRAGMENT}
@@ -100,10 +118,23 @@ export const GET_ALL_WORK_AREA_OCCUPANCIES = gql`
 
 export const GET_WORK_ROTATIONS = gql`
   query GetWorkRotations(
-    $filter: WorkRotationFilterInput
-    $pagination: PaginationInput
+    $employeeId: ID
+    $workAreaId: ID
+    $status: RotationStatus
+    $startDate: String
+    $endDate: String
+    $limit: Int
+    $offset: Int
   ) {
-    workRotations(filter: $filter, pagination: $pagination) {
+    workRotations(
+      employeeId: $employeeId
+      workAreaId: $workAreaId
+      status: $status
+      startDate: $startDate
+      endDate: $endDate
+      limit: $limit
+      offset: $offset
+    ) {
       items {
         ...WorkRotationFull
       }
@@ -126,8 +157,8 @@ export const GET_WORK_ROTATION = gql`
 `;
 
 export const GET_MY_ROTATIONS = gql`
-  query GetMyRotations($filter: WorkRotationFilterInput) {
-    myRotations(filter: $filter) {
+  query GetMyRotations($status: RotationStatus, $limit: Int, $offset: Int) {
+    myWorkRotations(status: $status, limit: $limit, offset: $offset) {
       ...WorkRotationFull
     }
   }
@@ -187,26 +218,11 @@ export const GET_ROTATION_CALENDAR = gql`
 export const GET_CURRENTLY_OFFSHORE = gql`
   query GetCurrentlyOffshore($workAreaId: ID) {
     currentlyOffshore(workAreaId: $workAreaId) {
-      employee {
-        ...EmployeeBasic
-      }
-      workArea {
-        id
-        code
-        name
-        workAreaType
-      }
-      rotation {
-        id
-        startDate
-        endDate
-        daysOn
-        daysOff
-      }
-      dayOnRotation
-      totalDaysOnRotation
-      estimatedReturnDate
-      transportMethod
+      ...EmployeeBasic
+      personnelCategory
+      seaWorthy
+      currentRotationId
+      farmId
     }
   }
   ${EMPLOYEE_BASIC_FRAGMENT}

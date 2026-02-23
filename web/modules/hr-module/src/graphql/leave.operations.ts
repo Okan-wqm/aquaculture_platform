@@ -14,17 +14,18 @@ import {
 // =====================
 
 export const GET_LEAVE_TYPES = gql`
-  query GetLeaveTypes($filter: LeaveTypeFilterInput) {
-    leaveTypes(filter: $filter) {
+  query GetLeaveTypes($isActive: Boolean, $category: LeaveCategory) {
+    leaveTypes(isActive: $isActive, category: $category) {
       ...LeaveTypeFull
     }
   }
   ${LEAVE_TYPE_FRAGMENT}
 `;
 
+// NOTE: leaveType(id) query not implemented in backend. Use leaveTypes list.
 export const GET_LEAVE_TYPE = gql`
-  query GetLeaveType($id: ID!) {
-    leaveType(id: $id) {
+  query GetLeaveType($isActive: Boolean) {
+    leaveTypes(isActive: $isActive) {
       ...LeaveTypeFull
     }
   }
@@ -40,32 +41,36 @@ export const GET_LEAVE_BALANCES = gql`
   ${LEAVE_BALANCE_FRAGMENT}
 `;
 
+// NOTE: leaveBalanceSummary query not yet implemented in backend.
+// Use leaveBalances query and aggregate on client side.
 export const GET_LEAVE_BALANCE_SUMMARY = gql`
-  query GetLeaveBalanceSummary($employeeId: ID!, $year: Int!) {
-    leaveBalanceSummary(employeeId: $employeeId, year: $year) {
-      totalEntitled
-      totalUsed
-      totalPending
-      totalAvailable
-      balances {
-        leaveTypeId
-        leaveTypeName
-        leaveTypeColor
-        entitled
-        used
-        pending
-        available
-      }
+  query GetLeaveBalanceSummary($employeeId: ID!, $year: Int) {
+    leaveBalances(employeeId: $employeeId, year: $year) {
+      ...LeaveBalanceFull
     }
   }
+  ${LEAVE_BALANCE_FRAGMENT}
 `;
 
 export const GET_LEAVE_REQUESTS = gql`
   query GetLeaveRequests(
-    $filter: LeaveRequestFilterInput
-    $pagination: PaginationInput
+    $employeeId: ID
+    $status: LeaveRequestStatus
+    $leaveTypeId: ID
+    $startDate: String
+    $endDate: String
+    $limit: Int
+    $offset: Int
   ) {
-    leaveRequests(filter: $filter, pagination: $pagination) {
+    leaveRequests(
+      employeeId: $employeeId
+      status: $status
+      leaveTypeId: $leaveTypeId
+      startDate: $startDate
+      endDate: $endDate
+      limit: $limit
+      offset: $offset
+    ) {
       items {
         ...LeaveRequestFull
       }
@@ -89,10 +94,20 @@ export const GET_LEAVE_REQUEST = gql`
 
 export const GET_MY_LEAVE_REQUESTS = gql`
   query GetMyLeaveRequests(
-    $filter: LeaveRequestFilterInput
-    $pagination: PaginationInput
+    $status: LeaveRequestStatus
+    $limit: Int
+    $offset: Int
   ) {
-    myLeaveRequests(filter: $filter, pagination: $pagination) {
+    myLeaveRequests(status: $status, limit: $limit, offset: $offset) {
+      ...LeaveRequestFull
+    }
+  }
+  ${LEAVE_REQUEST_FRAGMENT}
+`;
+
+export const GET_PENDING_LEAVE_APPROVALS = gql`
+  query GetPendingLeaveApprovals($departmentId: ID, $limit: Int, $offset: Int) {
+    pendingLeaveApprovals(departmentId: $departmentId, limit: $limit, offset: $offset) {
       items {
         ...LeaveRequestFull
       }
@@ -100,15 +115,6 @@ export const GET_MY_LEAVE_REQUESTS = gql`
       limit
       offset
       hasMore
-    }
-  }
-  ${LEAVE_REQUEST_FRAGMENT}
-`;
-
-export const GET_PENDING_LEAVE_APPROVALS = gql`
-  query GetPendingLeaveApprovals($approverId: ID!) {
-    pendingLeaveApprovals(approverId: $approverId) {
-      ...LeaveRequestFull
     }
   }
   ${LEAVE_REQUEST_FRAGMENT}

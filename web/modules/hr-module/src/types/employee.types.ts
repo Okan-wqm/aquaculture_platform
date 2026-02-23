@@ -70,73 +70,77 @@ export interface EmergencyInfo {
   nextOfKin?: NextOfKin;
 }
 
+export interface ContactInfo {
+  email: string;
+  phone: string;
+  emergencyContact?: string;
+  emergencyPhone?: string;
+}
+
+export interface Address {
+  street: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+}
+
 export interface Employee extends BaseEntity {
   employeeNumber: string;
   firstName: string;
   lastName: string;
   email: string;
-  phone?: string;
-  secondaryPhone?: string;
-  dateOfBirth?: string;
-  gender?: Gender;
-  nationality?: string;
-  nationalId?: string;
-  address?: string;
-  city?: string;
-  country?: string;
-  postalCode?: string;
+  contactInfo?: ContactInfo;
+  address?: Address;
   status: EmployeeStatus;
   employmentType: EmploymentType;
-  departmentId?: string;
-  department?: Department;
+  // Department is an enum string in backend (e.g., 'operations', 'maintenance')
+  department?: string;
+  // Position is a plain string in backend
+  position?: string;
+  departmentHrId?: string;
   positionId?: string;
-  position?: Position;
-  managerId?: string;
-  manager?: Employee;
+  supervisorId?: string;
+  farmId?: string;
+  userId?: string;
   hireDate: string;
   terminationDate?: string;
-  probationEndDate?: string;
-  baseSalary?: number;
   currency?: string;
-  bankAccountNumber?: string;
-  bankName?: string;
-  taxId?: string;
+  certifications?: string[];
+  skills?: string[];
   // Aquaculture-specific
   personnelCategory?: PersonnelCategory;
   assignedWorkAreas?: WorkAreaType[];
   seaWorthy: boolean;
   currentRotationId?: string;
-  emergencyInfo?: EmergencyInfo;
-  avatarUrl?: string;
+  timezone?: string;
   isFarmWorker?: boolean;
+  createdBy?: string;
+  updatedBy?: string;
+  version?: number;
 }
 
+// NOTE: Department is an enum in the backend, not a separate entity.
+// This interface is kept for backward compatibility with UI components.
 export interface Department {
-  id: string;
-  tenantId: string;
-  code: string;
+  id?: string;
+  tenantId?: string;
+  code?: string;
   name: string;
   description?: string;
-  managerId?: string;
-  manager?: Employee;
-  parentDepartmentId?: string;
-  parentDepartment?: Department;
-  employeeCount?: number;
   colorCode?: string;
-  isActive: boolean;
+  isActive?: boolean;
 }
 
+// NOTE: Position is a string field in the backend, not a separate entity.
+// This interface is kept for backward compatibility with UI components.
 export interface Position {
-  id: string;
-  tenantId: string;
-  code: string;
+  id?: string;
+  tenantId?: string;
+  code?: string;
   title: string;
   description?: string;
-  departmentId?: string;
-  department?: Department;
-  minSalary?: number;
-  maxSalary?: number;
-  isActive: boolean;
+  isActive?: boolean;
 }
 
 // =====================
@@ -147,19 +151,14 @@ export interface CreateEmployeeInput {
   firstName: string;
   lastName: string;
   email: string;
-  phone?: string;
-  dateOfBirth?: string;
-  gender?: Gender;
-  nationalId?: string;
-  address?: string;
-  city?: string;
-  country?: string;
+  contactInfo?: ContactInfo;
+  address?: Address;
   employmentType: EmploymentType;
-  departmentId?: string;
-  positionId?: string;
-  managerId?: string;
+  department?: string;
+  position?: string;
+  supervisorId?: string;
+  farmId?: string;
   hireDate: string;
-  baseSalary?: number;
   currency?: string;
   personnelCategory?: PersonnelCategory;
   assignedWorkAreas?: WorkAreaType[];
@@ -170,16 +169,19 @@ export interface UpdateEmployeeInput extends Partial<CreateEmployeeInput> {
   id: string;
   status?: EmployeeStatus;
   terminationDate?: string;
+  isFarmWorker?: boolean;
 }
 
 export interface EmployeeFilterInput {
-  search?: string;
   status?: EmployeeStatus;
   employmentType?: EmploymentType;
-  departmentId?: string;
-  positionId?: string;
+  department?: string;
+  farmId?: string;
+  supervisorId?: string;
   personnelCategory?: PersonnelCategory;
   seaWorthy?: boolean;
+  limit?: number;
+  offset?: number;
 }
 
 // =====================

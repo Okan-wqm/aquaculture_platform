@@ -15,8 +15,8 @@ import {
 // =====================
 
 export const GET_CERTIFICATION_TYPES = gql`
-  query GetCertificationTypes($filter: CertificationTypeFilterInput) {
-    certificationTypes(filter: $filter) {
+  query GetCertificationTypes($category: CertificationCategory, $isActive: Boolean) {
+    certificationTypes(category: $category, isActive: $isActive) {
       ...CertificationTypeFull
     }
   }
@@ -40,9 +40,9 @@ export const GET_CERTIFICATION_TYPE = gql`
 export const GET_EMPLOYEE_CERTIFICATIONS = gql`
   query GetEmployeeCertifications(
     $employeeId: ID!
-    $filter: CertificationFilterInput
+    $status: CertificationStatus
   ) {
-    employeeCertifications(employeeId: $employeeId, filter: $filter) {
+    employeeCertifications(employeeId: $employeeId, status: $status) {
       ...EmployeeCertificationFull
     }
   }
@@ -134,9 +134,27 @@ export const GET_CERTIFICATIONS_FOR_WORK_AREA = gql`
 // =====================
 
 export const GET_TRAINING_COURSES = gql`
-  query GetTrainingCourses($filter: TrainingCourseFilterInput) {
-    trainingCourses(filter: $filter) {
-      ...TrainingCourseFull
+  query GetTrainingCourses(
+    $trainingType: TrainingType
+    $isMandatory: Boolean
+    $isActive: Boolean
+    $limit: Int
+    $offset: Int
+  ) {
+    trainingCourses(
+      trainingType: $trainingType
+      isMandatory: $isMandatory
+      isActive: $isActive
+      limit: $limit
+      offset: $offset
+    ) {
+      items {
+        ...TrainingCourseFull
+      }
+      total
+      limit
+      offset
+      hasMore
     }
   }
   ${TRAINING_COURSE_FRAGMENT}
@@ -165,10 +183,19 @@ export const GET_TRAINING_COURSE = gql`
 
 export const GET_TRAINING_ENROLLMENTS = gql`
   query GetTrainingEnrollments(
-    $filter: TrainingEnrollmentFilterInput
-    $pagination: PaginationInput
+    $employeeId: ID
+    $trainingCourseId: ID
+    $status: EnrollmentStatus
+    $limit: Int
+    $offset: Int
   ) {
-    trainingEnrollments(filter: $filter, pagination: $pagination) {
+    trainingEnrollments(
+      employeeId: $employeeId
+      trainingCourseId: $trainingCourseId
+      status: $status
+      limit: $limit
+      offset: $offset
+    ) {
       items {
         ...TrainingEnrollmentFull
       }
@@ -182,8 +209,8 @@ export const GET_TRAINING_ENROLLMENTS = gql`
 `;
 
 export const GET_MY_TRAINING_ENROLLMENTS = gql`
-  query GetMyTrainingEnrollments($filter: TrainingEnrollmentFilterInput) {
-    myTrainingEnrollments(filter: $filter) {
+  query GetMyTrainingEnrollments($status: EnrollmentStatus, $limit: Int, $offset: Int) {
+    myTrainingEnrollments(status: $status, limit: $limit, offset: $offset) {
       ...TrainingEnrollmentFull
     }
   }

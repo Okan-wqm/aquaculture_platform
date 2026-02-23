@@ -38,10 +38,25 @@ export const GET_SHIFT = gql`
 
 export const GET_ATTENDANCE_RECORDS = gql`
   query GetAttendanceRecords(
-    $filter: AttendanceFilterInput
-    $pagination: PaginationInput
+    $employeeId: ID
+    $departmentId: ID
+    $status: AttendanceStatus
+    $approvalStatus: ApprovalStatus
+    $startDate: String
+    $endDate: String
+    $limit: Int
+    $offset: Int
   ) {
-    attendanceRecords(filter: $filter, pagination: $pagination) {
+    attendanceRecords(
+      employeeId: $employeeId
+      departmentId: $departmentId
+      status: $status
+      approvalStatus: $approvalStatus
+      startDate: $startDate
+      endDate: $endDate
+      limit: $limit
+      offset: $offset
+    ) {
       items {
         ...AttendanceRecordFull
       }
@@ -54,10 +69,13 @@ export const GET_ATTENDANCE_RECORDS = gql`
   ${ATTENDANCE_RECORD_FRAGMENT}
 `;
 
+// NOTE: Single attendanceRecord(id) query not implemented. Use attendanceRecords with filters.
 export const GET_ATTENDANCE_RECORD = gql`
-  query GetAttendanceRecord($id: ID!) {
-    attendanceRecord(id: $id) {
-      ...AttendanceRecordFull
+  query GetAttendanceRecord($employeeId: ID, $startDate: String, $endDate: String) {
+    attendanceRecords(employeeId: $employeeId, startDate: $startDate, endDate: $endDate, limit: 1) {
+      items {
+        ...AttendanceRecordFull
+      }
     }
   }
   ${ATTENDANCE_RECORD_FRAGMENT}
@@ -65,17 +83,12 @@ export const GET_ATTENDANCE_RECORD = gql`
 
 export const GET_MY_ATTENDANCE_RECORDS = gql`
   query GetMyAttendanceRecords(
-    $filter: AttendanceFilterInput
-    $pagination: PaginationInput
+    $startDate: String
+    $endDate: String
+    $limit: Int
   ) {
-    myAttendanceRecords(filter: $filter, pagination: $pagination) {
-      items {
-        ...AttendanceRecordFull
-      }
-      total
-      limit
-      offset
-      hasMore
+    myAttendanceRecords(startDate: $startDate, endDate: $endDate, limit: $limit) {
+      ...AttendanceRecordFull
     }
   }
   ${ATTENDANCE_RECORD_FRAGMENT}

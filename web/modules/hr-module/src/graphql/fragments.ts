@@ -17,8 +17,6 @@ export const EMPLOYEE_BASIC_FRAGMENT = gql`
     firstName
     lastName
     email
-    phone
-    avatarUrl
     status
     employmentType
   }
@@ -38,22 +36,12 @@ export const EMPLOYEE_LIST_FRAGMENT = gql`
     firstName
     lastName
     email
-    avatarUrl
     status
     employmentType
-    departmentId
-    department {
-      id
-      code
-      name
-      colorCode
-    }
+    department
+    position
+    departmentHrId
     positionId
-    position {
-      id
-      code
-      title
-    }
     hireDate
     personnelCategory
     seaWorthy
@@ -64,48 +52,41 @@ export const EMPLOYEE_LIST_FRAGMENT = gql`
 export const EMPLOYEE_FULL_FRAGMENT = gql`
   fragment EmployeeFull on Employee {
     ...EmployeeBasic
-    dateOfBirth
-    gender
-    nationality
-    nationalId
-    address
-    city
-    country
-    postalCode
-    secondaryPhone
-    departmentId
-    department {
-      id
-      code
-      name
-      colorCode
-    }
-    positionId
-    position {
-      id
-      code
-      title
-    }
-    managerId
-    manager {
-      id
-      firstName
-      lastName
+    contactInfo {
       email
+      phone
+      emergencyContact
+      emergencyPhone
     }
+    address {
+      street
+      city
+      state
+      postalCode
+      country
+    }
+    department
+    position
+    departmentHrId
+    positionId
+    supervisorId
+    farmId
+    userId
     hireDate
     terminationDate
-    probationEndDate
-    baseSalary
     currency
+    certifications
+    skills
     personnelCategory
     assignedWorkAreas
     seaWorthy
     currentRotationId
-    emergencyInfo
+    timezone
     isFarmWorker
     createdAt
     updatedAt
+    createdBy
+    updatedBy
     version
   }
   ${EMPLOYEE_BASIC_FRAGMENT}
@@ -115,37 +96,21 @@ export const EMPLOYEE_FULL_FRAGMENT = gql`
 // Department & Position Fragments
 // =====================
 
+// NOTE: Department is an enum in the backend (not a separate entity).
+// These fragments are kept as placeholders for future department/position entity support.
 export const DEPARTMENT_FRAGMENT = gql`
-  fragment DepartmentFull on Department {
+  fragment DepartmentFull on Employee {
     id
-    tenantId
-    code
-    name
-    description
-    managerId
-    manager {
-      id
-      firstName
-      lastName
-    }
-    parentDepartmentId
-    employeeCount
-    colorCode
-    isActive
+    department
+    departmentHrId
   }
 `;
 
 export const POSITION_FRAGMENT = gql`
-  fragment PositionFull on Position {
+  fragment PositionFull on Employee {
     id
-    tenantId
-    code
-    title
-    description
-    departmentId
-    minSalary
-    maxSalary
-    isActive
+    position
+    positionId
   }
 `;
 
@@ -156,22 +121,27 @@ export const POSITION_FRAGMENT = gql`
 export const LEAVE_TYPE_FRAGMENT = gql`
   fragment LeaveTypeFull on LeaveType {
     id
+    tenantId
     code
     name
     description
     category
+    isPaid
+    isAccrued
     defaultDaysPerYear
     maxCarryOverDays
-    requiresApproval
-    requiresDocumentation
-    minNoticeDays
     maxConsecutiveDays
-    allowsHalfDay
-    isPaid
-    requiresBalance
-    colorCode
-    displayOrder
+    minDaysNotice
+    accrualRate
+    requiresApproval
+    approvalLevels
+    isAquacultureSpecific
+    applicableForOffshore
+    color
+    sortOrder
     isActive
+    createdAt
+    updatedAt
   }
 `;
 
@@ -186,7 +156,7 @@ export const LEAVE_BALANCE_FRAGMENT = gql`
       code
       name
       category
-      colorCode
+      color
     }
     year
     openingBalance
@@ -216,7 +186,7 @@ export const LEAVE_REQUEST_FRAGMENT = gql`
       code
       name
       category
-      colorCode
+      color
     }
     startDate
     endDate
@@ -282,32 +252,28 @@ export const ATTENDANCE_RECORD_FRAGMENT = gql`
     employee {
       ...EmployeeBasic
     }
-    attendanceDate
-    scheduleId
+    date
     shiftId
-    shift {
-      id
-      code
-      name
-    }
-    clockInTime
-    clockOutTime
+    clockIn
+    clockOut
     clockInMethod
     clockOutMethod
     clockInLocation
     clockOutLocation
+    timezone
     status
-    isLate
     lateMinutes
-    isEarlyDeparture
-    earlyDepartureMinutes
+    earlyLeaveMinutes
     workedMinutes
     overtimeMinutes
-    isOffshoreWork
+    breakMinutes
+    isOffshore
     workAreaId
-    notes
+    approvalStatus
     approvedBy
     approvedAt
+    remarks
+    isManualEntry
     createdAt
     updatedAt
   }
@@ -344,34 +310,33 @@ export const EMPLOYEE_CERTIFICATION_FRAGMENT = gql`
     id
     tenantId
     employeeId
-    employee {
-      ...EmployeeBasic
-    }
     certificationTypeId
-    certificationType {
-      id
-      code
-      name
-      category
-      validityMonths
-    }
-    certificateNumber
-    issuedDate
+    certificationNumber
+    issueDate
     expiryDate
-    issuedBy
     status
+    verificationStatus
     verifiedBy
     verifiedAt
-    verificationNotes
-    attachmentUrl
-    reminderSentAt
+    issuingAuthority
+    externalCertificationId
+    notes
+    documents {
+      documentId
+      fileName
+      uploadedAt
+      documentType
+    }
     revokedBy
     revokedAt
     revocationReason
+    previousCertificationId
+    isRenewal
+    reminderSent
+    reminderSentAt
     createdAt
     updatedAt
   }
-  ${EMPLOYEE_BASIC_FRAGMENT}
 `;
 
 export const TRAINING_COURSE_FRAGMENT = gql`
@@ -457,35 +422,44 @@ export const WORK_ROTATION_FRAGMENT = gql`
     id
     tenantId
     employeeId
-    employee {
-      ...EmployeeBasic
-    }
     workAreaId
-    workArea {
-      id
-      code
-      name
-      workAreaType
-      isOffshore
-    }
     rotationType
+    status
     startDate
     endDate
-    actualStartDate
-    actualEndDate
-    status
     daysOn
     daysOff
-    transportToSite
-    transportFromSite
-    accommodationDetails
+    actualStartTime
+    actualEndTime
+    outboundTransport {
+      method
+      vehicleId
+      departurePoint
+      arrivalPoint
+      scheduledTime
+      actualTime
+      notes
+    }
+    inboundTransport {
+      method
+      vehicleId
+      departurePoint
+      arrivalPoint
+      scheduledTime
+      actualTime
+      notes
+    }
+    accommodationInfo
+    supervisorId
+    reliefEmployeeId
     notes
-    approvedBy
-    approvedAt
+    isExtended
+    extensionDays
+    extensionReason
+    lastCheckInTime
     createdAt
     updatedAt
   }
-  ${EMPLOYEE_BASIC_FRAGMENT}
 `;
 
 // =====================

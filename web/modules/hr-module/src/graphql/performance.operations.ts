@@ -13,12 +13,11 @@ import {
 // Performance Review Queries
 // =====================
 
+// NOTE: Performance module queries not yet implemented in backend (no resolver).
+// These operations are kept for future backend implementation.
 export const GET_PERFORMANCE_REVIEWS = gql`
-  query GetPerformanceReviews(
-    $filter: PerformanceReviewFilterInput
-    $pagination: PaginationInput
-  ) {
-    performanceReviews(filter: $filter, pagination: $pagination) {
+  query GetPerformanceReviews($employeeId: ID, $status: String, $limit: Int, $offset: Int) {
+    performanceReviews(employeeId: $employeeId, status: $status, limit: $limit, offset: $offset) {
       items {
         ...PerformanceReviewFull
       }
@@ -41,8 +40,8 @@ export const GET_PERFORMANCE_REVIEW = gql`
 `;
 
 export const GET_MY_PERFORMANCE_REVIEWS = gql`
-  query GetMyPerformanceReviews($filter: PerformanceReviewFilterInput) {
-    myPerformanceReviews(filter: $filter) {
+  query GetMyPerformanceReviews($status: String) {
+    myPerformanceReviews(status: $status) {
       ...PerformanceReviewFull
     }
   }
@@ -133,11 +132,8 @@ export const GET_REVIEW_CYCLE_STATUS = gql`
 // =====================
 
 export const GET_GOALS = gql`
-  query GetGoals(
-    $filter: GoalFilterInput
-    $pagination: PaginationInput
-  ) {
-    goals(filter: $filter, pagination: $pagination) {
+  query GetGoals($employeeId: ID, $status: String, $limit: Int, $offset: Int) {
+    goals(employeeId: $employeeId, status: $status, limit: $limit, offset: $offset) {
       items {
         ...GoalFull
       }
@@ -170,8 +166,8 @@ export const GET_GOAL = gql`
 `;
 
 export const GET_MY_GOALS = gql`
-  query GetMyGoals($filter: GoalFilterInput) {
-    myGoals(filter: $filter) {
+  query GetMyGoals($status: String) {
+    myGoals(status: $status) {
       ...GoalFull
     }
   }
@@ -179,8 +175,8 @@ export const GET_MY_GOALS = gql`
 `;
 
 export const GET_TEAM_GOALS = gql`
-  query GetTeamGoals($managerId: ID!, $filter: GoalFilterInput) {
-    teamGoals(managerId: $managerId, filter: $filter) {
+  query GetTeamGoals($managerId: ID!, $status: String) {
+    teamGoals(managerId: $managerId, status: $status) {
       ...GoalFull
     }
   }

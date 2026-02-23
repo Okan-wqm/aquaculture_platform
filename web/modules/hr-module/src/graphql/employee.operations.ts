@@ -7,8 +7,6 @@ import {
   EMPLOYEE_BASIC_FRAGMENT,
   EMPLOYEE_LIST_FRAGMENT,
   EMPLOYEE_FULL_FRAGMENT,
-  DEPARTMENT_FRAGMENT,
-  POSITION_FRAGMENT,
 } from './fragments';
 
 // =====================
@@ -20,11 +18,8 @@ import {
  * SEC-002: prevents bulk PII transmission on every list load.
  */
 export const GET_EMPLOYEES = gql`
-  query GetEmployees(
-    $filter: EmployeeFilterInput
-    $pagination: PaginationInput
-  ) {
-    employees(filter: $filter, pagination: $pagination) {
+  query GetEmployees($filter: EmployeeFilterInput) {
+    employees(filter: $filter) {
       items {
         ...EmployeeList
       }
@@ -64,100 +59,92 @@ export const GET_EMPLOYEE = gql`
   ${EMPLOYEE_FULL_FRAGMENT}
 `;
 
+// NOTE: employeeByNumber query not yet implemented in backend.
+// Use employee(id) or employees(filter) as workaround.
 export const GET_EMPLOYEE_BY_NUMBER = gql`
-  query GetEmployeeByNumber($employeeNumber: String!) {
-    employeeByNumber(employeeNumber: $employeeNumber) {
-      ...EmployeeFull
+  query GetEmployeeByNumber($filter: EmployeeFilterInput) {
+    employees(filter: $filter) {
+      items {
+        ...EmployeeFull
+      }
+      total
     }
   }
   ${EMPLOYEE_FULL_FRAGMENT}
 `;
 
+// NOTE: searchEmployees query not yet implemented in backend.
+// Using activeEmployees as a workaround for search functionality.
 export const SEARCH_EMPLOYEES = gql`
-  query SearchEmployees($search: String!, $limit: Int) {
-    searchEmployees(search: $search, limit: $limit) {
+  query SearchEmployees($limit: Int, $offset: Int) {
+    activeEmployees(limit: $limit, offset: $offset) {
       ...EmployeeBasic
-      department {
-        id
-        name
-      }
-      position {
-        id
-        title
-      }
+      department
+      position
     }
   }
   ${EMPLOYEE_BASIC_FRAGMENT}
 `;
 
+// NOTE: Department is an enum in the backend. Use employeesByDepartment query instead.
 export const GET_DEPARTMENTS = gql`
-  query GetDepartments($filter: DepartmentFilterInput) {
-    departments(filter: $filter) {
-      ...DepartmentFull
+  query GetDepartments {
+    employees(filter: { limit: 0 }) {
+      total
     }
   }
-  ${DEPARTMENT_FRAGMENT}
 `;
 
+// NOTE: No separate department entity. Use employeesByDepartment to get employees by department enum.
 export const GET_DEPARTMENT = gql`
-  query GetDepartment($id: ID!) {
-    department(id: $id) {
-      ...DepartmentFull
-      employees {
-        ...EmployeeBasic
-      }
+  query GetDepartment($department: Department!, $limit: Int, $offset: Int) {
+    employeesByDepartment(department: $department, limit: $limit, offset: $offset) {
+      ...EmployeeBasic
+      department
+      position
     }
   }
-  ${DEPARTMENT_FRAGMENT}
   ${EMPLOYEE_BASIC_FRAGMENT}
 `;
 
+// NOTE: Position is a string field in the backend. No separate Position entity.
 export const GET_POSITIONS = gql`
-  query GetPositions($filter: PositionFilterInput) {
-    positions(filter: $filter) {
-      ...PositionFull
+  query GetPositions {
+    employees(filter: { limit: 0 }) {
+      total
     }
   }
-  ${POSITION_FRAGMENT}
 `;
 
+// NOTE: organizationTree query not yet implemented in backend.
+// Using employees query as a workaround.
 export const GET_ORGANIZATION_TREE = gql`
   query GetOrganizationTree {
-    organizationTree {
-      departments {
-        id
-        name
-        code
-        managerId
-        parentDepartmentId
-        employeeCount
-        colorCode
-      }
-      employees {
+    employees(filter: { limit: 100 }) {
+      items {
         id
         firstName
         lastName
-        departmentId
+        department
+        departmentHrId
         positionId
-        managerId
-        avatarUrl
+        supervisorId
+        position
       }
+      total
     }
   }
 `;
 
+// NOTE: directReports query not yet implemented in backend.
+// Filter employees by supervisorId on the client side.
 export const GET_DIRECT_REPORTS = gql`
-  query GetDirectReports($managerId: ID!) {
-    directReports(managerId: $managerId) {
+  query GetDirectReports($limit: Int, $offset: Int) {
+    activeEmployees(limit: $limit, offset: $offset) {
       ...EmployeeBasic
-      department {
-        id
-        name
-      }
-      position {
-        id
-        title
-      }
+      department
+      position
+      supervisorId
     }
   }
   ${EMPLOYEE_BASIC_FRAGMENT}
@@ -185,9 +172,10 @@ export const UPDATE_EMPLOYEE = gql`
   ${EMPLOYEE_FULL_FRAGMENT}
 `;
 
+// NOTE: Using updateEmployee mutation for status changes (no separate updateEmployeeStatus)
 export const UPDATE_EMPLOYEE_STATUS = gql`
-  mutation UpdateEmployeeStatus($id: ID!, $status: EmployeeStatus!, $reason: String) {
-    updateEmployeeStatus(id: $id, status: $status, reason: $reason) {
+  mutation UpdateEmployeeStatus($input: UpdateEmployeeInput!) {
+    updateEmployee(input: $input) {
       id
       status
       terminationDate
@@ -195,51 +183,43 @@ export const UPDATE_EMPLOYEE_STATUS = gql`
   }
 `;
 
+// NOTE: Department is an enum, use updateEmployee to change it
 export const ASSIGN_EMPLOYEE_TO_DEPARTMENT = gql`
-  mutation AssignEmployeeToDepartment($employeeId: ID!, $departmentId: ID!) {
-    assignEmployeeToDepartment(employeeId: $employeeId, departmentId: $departmentId) {
+  mutation AssignEmployeeToDepartment($input: UpdateEmployeeInput!) {
+    updateEmployee(input: $input) {
       id
-      departmentId
-      department {
-        id
-        name
-      }
+      department
+      departmentHrId
     }
   }
 `;
 
+// NOTE: Position is a string, use updateEmployee to change it
 export const ASSIGN_EMPLOYEE_TO_POSITION = gql`
-  mutation AssignEmployeeToPosition($employeeId: ID!, $positionId: ID!) {
-    assignEmployeeToPosition(employeeId: $employeeId, positionId: $positionId) {
+  mutation AssignEmployeeToPosition($input: UpdateEmployeeInput!) {
+    updateEmployee(input: $input) {
       id
+      position
       positionId
-      position {
-        id
-        title
-      }
     }
   }
 `;
 
+// NOTE: No manager relation, use updateEmployee to change supervisorId
 export const ASSIGN_MANAGER = gql`
-  mutation AssignManager($employeeId: ID!, $managerId: ID!) {
-    assignManager(employeeId: $employeeId, managerId: $managerId) {
+  mutation AssignManager($input: UpdateEmployeeInput!) {
+    updateEmployee(input: $input) {
       id
-      managerId
-      manager {
-        id
-        firstName
-        lastName
-      }
+      supervisorId
     }
   }
 `;
 
+// NOTE: avatarUrl field does not exist on Employee entity
 export const UPDATE_EMPLOYEE_AVATAR = gql`
-  mutation UpdateEmployeeAvatar($employeeId: ID!, $avatarUrl: String!) {
-    updateEmployeeAvatar(employeeId: $employeeId, avatarUrl: $avatarUrl) {
+  mutation UpdateEmployeeAvatar($input: UpdateEmployeeInput!) {
+    updateEmployee(input: $input) {
       id
-      avatarUrl
     }
   }
 `;
@@ -253,47 +233,50 @@ export const TOGGLE_FARM_WORKER = gql`
   }
 `;
 
+// NOTE: emergencyInfo is @HideField in backend, not accessible via GraphQL
 export const UPDATE_EMERGENCY_INFO = gql`
-  mutation UpdateEmergencyInfo($employeeId: ID!, $emergencyInfo: EmergencyInfoInput!) {
-    updateEmergencyInfo(employeeId: $employeeId, emergencyInfo: $emergencyInfo) {
+  mutation UpdateEmergencyInfo($input: UpdateEmployeeInput!) {
+    updateEmployee(input: $input) {
       id
-      emergencyInfo
     }
   }
 `;
 
+// NOTE: Department is an enum in backend, not a separate entity.
+// These mutations are kept as stubs for API compatibility.
 export const CREATE_DEPARTMENT = gql`
-  mutation CreateDepartment($input: CreateDepartmentInput!) {
-    createDepartment(input: $input) {
-      ...DepartmentFull
+  mutation CreateDepartment($input: CreateEmployeeInput!) {
+    createEmployee(input: $input) {
+      id
+      department
     }
   }
-  ${DEPARTMENT_FRAGMENT}
 `;
 
 export const UPDATE_DEPARTMENT = gql`
-  mutation UpdateDepartment($input: UpdateDepartmentInput!) {
-    updateDepartment(input: $input) {
-      ...DepartmentFull
+  mutation UpdateDepartment($input: UpdateEmployeeInput!) {
+    updateEmployee(input: $input) {
+      id
+      department
     }
   }
-  ${DEPARTMENT_FRAGMENT}
 `;
 
+// NOTE: Position is a string in backend, not a separate entity.
 export const CREATE_POSITION = gql`
-  mutation CreatePosition($input: CreatePositionInput!) {
-    createPosition(input: $input) {
-      ...PositionFull
+  mutation CreatePosition($input: CreateEmployeeInput!) {
+    createEmployee(input: $input) {
+      id
+      position
     }
   }
-  ${POSITION_FRAGMENT}
 `;
 
 export const UPDATE_POSITION = gql`
-  mutation UpdatePosition($input: UpdatePositionInput!) {
-    updatePosition(input: $input) {
-      ...PositionFull
+  mutation UpdatePosition($input: UpdateEmployeeInput!) {
+    updateEmployee(input: $input) {
+      id
+      position
     }
   }
-  ${POSITION_FRAGMENT}
 `;

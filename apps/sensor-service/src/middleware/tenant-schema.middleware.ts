@@ -169,13 +169,19 @@ export class TenantSchemaMiddleware implements NestMiddleware {
 
   /**
    * Set search_path with SQL injection prevention
+   *
+   * Search path order:
+   * 1. Target schema (tenant-specific or sensor default)
+   * 2. Sensor schema (shared system data like sensor_protocols, sensor_type_definitions)
+   * 3. Public schema (extensions, common functions)
    */
   private async setSearchPathSafe(schemaName: string): Promise<void> {
     // Validate schema name format as additional safety
     if (!/^[a-z0-9_]+$/.test(schemaName)) {
       throw new BadRequestException('Invalid schema name');
     }
-    await this.dataSource.query(`SET search_path TO "${schemaName}", public`);
+    // Include 'sensor' schema for shared system tables (same pattern as farm-service)
+    await this.dataSource.query(`SET search_path TO "${schemaName}", sensor, public`);
   }
 
   /**

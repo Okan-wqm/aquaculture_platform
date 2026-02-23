@@ -135,25 +135,43 @@ jobs:
           fi
           echo "All SQL migration files follow Flyway naming convention."
 
-      - name: Run Flyway validate per module
+      - name: Create module schemas and run Flyway validate
         if: steps.check-sql.outputs.has_sql == 'true'
         run: |
           # Each module has its own V001..VN version sequence.
           # Flyway requires globally-unique version numbers within a single scan,
           # so we validate each subdirectory independently.
+          # Schemas must exist before Flyway validate — create them first.
           FAILED=0
           for dir in database/migrations/core database/migrations/modules/*/; do
             [ -d "$dir" ] || continue
             if find "$dir" -maxdepth 1 -name "*.sql" | grep -q .; then
               module=$(basename "$dir")
+              schema="flyway_check_${module}"
               echo "--- Validating migrations in $dir (module: $module) ---"
+
+              # Create the schema so Flyway validate can work
+              PGPASSWORD=postgres psql -h localhost -U postgres -d aquaculture_flyway_test \
+                -c "CREATE SCHEMA IF NOT EXISTS \"${schema}\";"
+
+              # Run migrate first (applies migrations), then validate (checks consistency)
               docker run --rm --network host \
                 -v "$PWD/$dir:/flyway/sql" \
                 flyway/flyway:10 \
                 -url="jdbc:postgresql://localhost:5432/aquaculture_flyway_test" \
                 -user=postgres \
                 -password=postgres \
-                -schemas="flyway_check_${module}" \
+                -schemas="${schema}" \
+                -createSchemas=false \
+                migrate || FAILED=1
+
+              docker run --rm --network host \
+                -v "$PWD/$dir:/flyway/sql" \
+                flyway/flyway:10 \
+                -url="jdbc:postgresql://localhost:5432/aquaculture_flyway_test" \
+                -user=postgres \
+                -password=postgres \
+                -schemas="${schema}" \
                 validate || FAILED=1
             fi
           done

@@ -434,15 +434,16 @@ const AdminDashboard: React.FC = () => {
 
   const [clearingCache, setClearingCache] = useState(false);
 
+  // Cache management is available in Debug Tools page (/admin/system/debug-tools)
+  // which is only accessible in non-production environments.
   const handleClearCache = useCallback(async () => {
     setClearingCache(true);
     try {
       await debugApi.invalidateCacheByPattern('*');
-      // Refresh cache stats after clearing
       const freshStats = await debugApi.getCacheStats();
       setData((prev) => ({ ...prev, cacheStats: freshStats }));
     } catch {
-      // Silently fail - cache clear is best-effort
+      // Debug endpoints are blocked in production by nginx
     } finally {
       setClearingCache(false);
     }
@@ -561,7 +562,7 @@ const AdminDashboard: React.FC = () => {
         <div className="lg:col-span-2 space-y-6">
           <ServiceStatusCard services={services} />
           <DatabaseStatsCard database={metrics?.database} />
-          <CacheStatsCard cacheStats={cacheStats} onClearCache={handleClearCache} clearing={clearingCache} />
+          {cacheStats && <CacheStatsCard cacheStats={cacheStats} onClearCache={handleClearCache} clearing={clearingCache} />}
         </div>
         <div className="space-y-6">
           <CircuitBreakerCard

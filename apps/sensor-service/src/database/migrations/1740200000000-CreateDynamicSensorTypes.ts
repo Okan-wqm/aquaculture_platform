@@ -133,6 +133,8 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
     // 3. Create channel_detection_log table
     // ──────────────────────────────────────────────
     if (!(await this.tableExists(queryRunner, 'channel_detection_log'))) {
+      // Create table without FK first — sensors table may not exist in
+      // the current schema (e.g. public). FK is added conditionally below.
       await queryRunner.query(`
         CREATE TABLE "channel_detection_log" (
           "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -143,13 +145,22 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
           "proposed_channels" JSONB NOT NULL,
           "user_action" VARCHAR(20),
           "final_channels" JSONB,
-          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          CONSTRAINT "FK_channel_detection_log_sensor"
+          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+
+      // Only add FK if sensors table exists in the current schema
+      if (await this.tableExists(queryRunner, 'sensors')) {
+        await queryRunner.query(`
+          ALTER TABLE "channel_detection_log"
+          ADD CONSTRAINT "FK_channel_detection_log_sensor"
             FOREIGN KEY ("sensor_id")
             REFERENCES "sensors" ("id")
             ON DELETE CASCADE
-        )
-      `);
+        `);
+      } else {
+        console.log('sensors table not found in current schema, skipping FK constraint for channel_detection_log');
+      }
       console.log('Created channel_detection_log table');
 
       // Indexes
@@ -178,26 +189,30 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
     // ──────────────────────────────────────────────
     // 4. Add type_definition_id to sensors table
     // ──────────────────────────────────────────────
-    if (!(await this.columnExists(queryRunner, 'sensors', 'type_definition_id'))) {
-      await queryRunner.query(`
-        ALTER TABLE "sensors"
-        ADD COLUMN "type_definition_id" UUID
-      `);
-      await queryRunner.query(`
-        ALTER TABLE "sensors"
-        ADD CONSTRAINT "FK_sensors_type_definition"
-        FOREIGN KEY ("type_definition_id")
-        REFERENCES "sensor_type_definitions" ("id")
-        ON DELETE SET NULL
-      `);
-      await queryRunner.query(`
-        CREATE INDEX "IDX_sensors_type_definition"
-        ON "sensors" ("type_definition_id")
-        WHERE "type_definition_id" IS NOT NULL
-      `);
-      console.log('Added type_definition_id column to sensors table');
+    if (await this.tableExists(queryRunner, 'sensors')) {
+      if (!(await this.columnExists(queryRunner, 'sensors', 'type_definition_id'))) {
+        await queryRunner.query(`
+          ALTER TABLE "sensors"
+          ADD COLUMN "type_definition_id" UUID
+        `);
+        await queryRunner.query(`
+          ALTER TABLE "sensors"
+          ADD CONSTRAINT "FK_sensors_type_definition"
+          FOREIGN KEY ("type_definition_id")
+          REFERENCES "sensor_type_definitions" ("id")
+          ON DELETE SET NULL
+        `);
+        await queryRunner.query(`
+          CREATE INDEX "IDX_sensors_type_definition"
+          ON "sensors" ("type_definition_id")
+          WHERE "type_definition_id" IS NOT NULL
+        `);
+        console.log('Added type_definition_id column to sensors table');
+      } else {
+        console.log('type_definition_id column already exists on sensors, skipping');
+      }
     } else {
-      console.log('type_definition_id column already exists on sensors, skipping');
+      console.log('sensors table not found in current schema, skipping type_definition_id column addition');
     }
 
     // ──────────────────────────────────────────────
@@ -213,7 +228,11 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
     // ──────────────────────────────────────────────
     // 7. Backfill type_definition_id for existing sensors
     // ──────────────────────────────────────────────
-    await this.backfillSensorTypeDefinitions(queryRunner);
+    if (await this.tableExists(queryRunner, 'sensors')) {
+      await this.backfillSensorTypeDefinitions(queryRunner);
+    } else {
+      console.log('sensors table not found in current schema, skipping backfill');
+    }
 
     console.log('CreateDynamicSensorTypes migration completed successfully');
   }

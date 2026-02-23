@@ -533,7 +533,7 @@ impl ScriptEngine {
 
         // Load variables for each active script (v1.2.0 - async API)
         let active_scripts = self.storage.get_active().await;
-        for script in active_scripts {
+        for script in active_scripts.iter() {
             let script_id = &script.definition.id;
 
             match persistence.list_async(script_id).await {
@@ -994,7 +994,7 @@ impl ScriptEngine {
 
         // v1.2.0: Use async get_active()
         let active_scripts = self.storage.get_active().await;
-        for script in active_scripts {
+        for script in active_scripts.iter() {
             let script_id = &script.definition.id;
             let priority = script.definition.priority.value();
 

@@ -314,7 +314,8 @@ pub fn check_certificate_expiry(cert_path: &str) -> CertificateExpiry {
     };
 
     // Try PEM first, fall back to DER
-    let der_data: Vec<u8> = match pem::parse(&pem_data) {
+    // Use ::pem to reference the top-level crate, not x509_parser::pem from the wildcard import
+    let der_data: Vec<u8> = match ::pem::parse(&pem_data) {
         Ok(pem_obj) => pem_obj.contents().to_vec(),
         Err(_) => pem_data.clone(), // assume DER
     };

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { ChannelDetectionLog } from '../database/entities/channel-detection-log.entity';
@@ -17,6 +18,7 @@ import { SensorTypeService } from './sensor-type.service';
  */
 @Module({
   imports: [
+    ConfigModule,
     TypeOrmModule.forFeature([
       SensorTypeDefinition,
       IndustryTemplate,

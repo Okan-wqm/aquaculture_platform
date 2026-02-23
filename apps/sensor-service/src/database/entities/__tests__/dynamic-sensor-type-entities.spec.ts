@@ -157,7 +157,7 @@ describe('ChannelDetectionLog Entity', () => {
   });
 
   it('should set optional properties', () => {
-    entity.userAction = 'accepted';
+    entity.userAction = 'approved';
     entity.finalChannels = {
       channels: [
         { key: 'temperature', unit: 'C' },
@@ -165,7 +165,7 @@ describe('ChannelDetectionLog Entity', () => {
       ],
     };
 
-    expect(entity.userAction).toBe('accepted');
+    expect(entity.userAction).toBe('approved');
     expect(entity.finalChannels).toBeDefined();
   });
 

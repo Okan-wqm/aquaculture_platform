@@ -7,9 +7,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 
 import { ChannelDetectionLog } from '../../database/entities/channel-detection-log.entity';
 import {
@@ -27,6 +28,7 @@ describe('ChannelDetectionService', () => {
   let service: ChannelDetectionService;
   let logRepo: jest.Mocked<Repository<ChannelDetectionLog>>;
   let channelRepo: jest.Mocked<Repository<SensorDataChannel>>;
+  let mockDataSource: jest.Mocked<DataSource>;
 
   const tenantId = 'tenant-123';
   const sensorId = 'sensor-456';
@@ -95,28 +97,56 @@ describe('ChannelDetectionService', () => {
   beforeEach(async () => {
     mockFetch.mockReset();
 
+    const logRepoMock = {
+      find: jest.fn(),
+      findOne: jest.fn(),
+      create: jest.fn().mockImplementation((dto) => ({ ...dto })),
+      save: jest.fn().mockImplementation((entity) =>
+        Promise.resolve({ id: 'proposal-1', ...entity }),
+      ),
+    };
+
+    const channelRepoMock = {
+      find: jest.fn(),
+      create: jest.fn().mockImplementation((dto) => ({ ...dto })),
+      save: jest.fn().mockImplementation((entity) =>
+        Array.isArray(entity)
+          ? Promise.resolve(entity.map((e, i) => ({ id: `channel-${i}`, ...e })))
+          : Promise.resolve({ id: 'channel-id', ...entity }),
+      ),
+    };
+
+    const repoMap = new Map<any, any>([
+      [ChannelDetectionLog, logRepoMock],
+      [SensorDataChannel, channelRepoMock],
+    ]);
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ChannelDetectionService,
         {
           provide: getRepositoryToken(ChannelDetectionLog),
-          useValue: {
-            find: jest.fn(),
-            findOne: jest.fn(),
-            create: jest.fn().mockImplementation((dto) => ({ ...dto })),
-            save: jest.fn().mockImplementation((entity) =>
-              Promise.resolve({ id: 'proposal-1', ...entity }),
-            ),
-          },
+          useValue: logRepoMock,
         },
         {
           provide: getRepositoryToken(SensorDataChannel),
+          useValue: channelRepoMock,
+        },
+        {
+          provide: ConfigService,
           useValue: {
-            find: jest.fn(),
-            create: jest.fn().mockImplementation((dto) => ({ ...dto })),
-            save: jest.fn().mockImplementation((entity) =>
-              Promise.resolve({ id: 'channel-id', ...entity }),
-            ),
+            get: jest.fn().mockImplementation((key: string, defaultValue?: string) => defaultValue ?? undefined),
+          },
+        },
+        {
+          provide: getDataSourceToken(),
+          useValue: {
+            transaction: jest.fn().mockImplementation(async (cb: any) => {
+              const manager = {
+                getRepository: jest.fn().mockImplementation((entity: any) => repoMap.get(entity) ?? {}),
+              };
+              return cb(manager);
+            }),
           },
         },
       ],
@@ -125,6 +155,7 @@ describe('ChannelDetectionService', () => {
     service = module.get<ChannelDetectionService>(ChannelDetectionService);
     logRepo = module.get(getRepositoryToken(ChannelDetectionLog));
     channelRepo = module.get(getRepositoryToken(SensorDataChannel));
+    mockDataSource = module.get(getDataSourceToken());
   });
 
   describe('detectChannels', () => {
@@ -201,7 +232,8 @@ describe('ChannelDetectionService', () => {
         where: { id: 'proposal-1', tenantId },
       });
       expect(channelRepo.create).toHaveBeenCalledTimes(3);
-      expect(channelRepo.save).toHaveBeenCalledTimes(3);
+      // Batch save: all channels saved in one call via transaction
+      expect(channelRepo.save).toHaveBeenCalled();
       expect(logRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
           userAction: 'approved',

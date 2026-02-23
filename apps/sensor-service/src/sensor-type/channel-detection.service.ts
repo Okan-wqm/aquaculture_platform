@@ -2,7 +2,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, IsNull, DataSource } from 'typeorm';
 
@@ -48,8 +50,9 @@ export class ChannelDetectionService {
     private readonly logRepo: Repository<ChannelDetectionLog>,
     @InjectRepository(SensorDataChannel)
     private readonly channelRepo: Repository<SensorDataChannel>,
+    private readonly configService: ConfigService,
   ) {
-    this.aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:3008';
+    this.aiServiceUrl = this.configService.get<string>('AI_SERVICE_URL', 'http://localhost:3008');
   }
 
   /**
@@ -109,6 +112,10 @@ export class ChannelDetectionService {
       throw new NotFoundException(
         `Channel detection proposal with ID "${proposalId}" not found`,
       );
+    }
+
+    if (proposal.userAction) {
+      throw new BadRequestException(`Proposal already ${proposal.userAction}`);
     }
 
     const channelsToCreate: ProposedChannel[] = modifications
@@ -282,6 +289,8 @@ export class ChannelDetectionService {
   private localFallbackAnalysis(
     samples: unknown[],
   ): { aiAnalysis: Record<string, unknown>; proposedChannels: ProposedChannel[] } {
+    const METADATA_KEYS = new Set(['id', 'sensor_id', 'sensorId', 'tenant_id', 'tenantId', 'timestamp', 'created_at', 'updated_at', 'createdAt', 'updatedAt']);
+
     const proposedChannels: ProposedChannel[] = [];
     const fieldStats: Record<string, { type: string; values: unknown[] }> = {};
 
@@ -290,6 +299,7 @@ export class ChannelDetectionService {
       if (typeof sample !== 'object' || sample === null) continue;
 
       for (const [key, value] of Object.entries(sample as Record<string, unknown>)) {
+        if (METADATA_KEYS.has(key)) continue;
         if (!fieldStats[key]) {
           fieldStats[key] = { type: typeof value, values: [] };
         }

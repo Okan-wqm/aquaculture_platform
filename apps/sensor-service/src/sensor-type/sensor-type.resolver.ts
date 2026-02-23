@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, BadRequestException } from '@nestjs/common';
 import {
   Resolver,
   Query,
@@ -113,6 +113,9 @@ export class SensorTypeResolver {
     @Args('samples', { type: () => GraphQLJSON }) samples: unknown[],
     @Tenant() tenantId: string,
   ): Promise<ChannelDetectionLog> {
+    if (!Array.isArray(samples) || samples.length === 0 || samples.length > 100) {
+      throw new BadRequestException('samples must be an array with 1-100 items');
+    }
     this.logger.log(`Detecting channels for sensor ${sensorId}`);
     return this.channelDetectionService.detectChannels(sensorId, tenantId, samples);
   }

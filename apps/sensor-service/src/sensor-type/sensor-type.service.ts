@@ -6,7 +6,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, QueryFailedError } from 'typeorm';
 
 import { SensorDataChannel, ChannelDataType, DiscoverySource } from '../database/entities/sensor-data-channel.entity';
 import { IndustryTemplate } from '../database/entities/industry-template.entity';
@@ -85,6 +85,14 @@ export class SensorTypeService {
     tenantId: string,
     input: CreateSensorTypeInput,
   ): Promise<SensorTypeDefinition> {
+    // Check for system type collision
+    const systemConflict = await this.sensorTypeRepo.findOne({
+      where: { typeKey: input.typeKey, isSystem: true },
+    });
+    if (systemConflict) {
+      throw new ConflictException(`Type key "${input.typeKey}" conflicts with a system type`);
+    }
+
     // Check for duplicate typeKey within this tenant
     const existing = await this.sensorTypeRepo.findOne({
       where: { tenantId, typeKey: input.typeKey },
@@ -230,21 +238,32 @@ export class SensorTypeService {
         continue;
       }
 
-      const sensorType = this.sensorTypeRepo.create({
-        tenantId,
-        typeKey: typeDef.typeKey,
-        displayName: typeDef.displayName,
-        description: typeDef.description,
-        icon: typeDef.icon,
-        category: typeDef.category,
-        industry: typeDef.industry,
-        defaultChannels: typeDef.defaultChannels ?? [],
-        metadata: typeDef.metadata ?? {},
-        isSystem: false,
-      });
+      try {
+        const sensorType = this.sensorTypeRepo.create({
+          tenantId,
+          typeKey: typeDef.typeKey,
+          displayName: typeDef.displayName,
+          description: typeDef.description,
+          icon: typeDef.icon,
+          category: typeDef.category,
+          industry: typeDef.industry,
+          defaultChannels: typeDef.defaultChannels ?? [],
+          metadata: typeDef.metadata ?? {},
+          isSystem: false,
+        });
 
-      const saved = await this.sensorTypeRepo.save(sensorType);
-      created.push(saved);
+        const saved = await this.sensorTypeRepo.save(sensorType);
+        created.push(saved);
+      } catch (error) {
+        // Handle race condition: concurrent applyTemplate calls may cause unique constraint violation
+        if (error instanceof QueryFailedError && (error as any).code === '23505') {
+          this.logger.debug(
+            `Skipping type "${typeDef.typeKey}" — created concurrently for tenant ${tenantId}`,
+          );
+          continue;
+        }
+        throw error;
+      }
     }
 
     this.logger.log(
@@ -291,7 +310,7 @@ export class SensorTypeService {
     });
     const existingKeys = new Set(existingChannels.map((c) => c.channelKey));
 
-    const created: SensorDataChannel[] = [];
+    const channels: SensorDataChannel[] = [];
 
     for (const chDef of channelDefs) {
       if (existingKeys.has(chDef.channelKey)) {
@@ -323,9 +342,10 @@ export class SensorTypeService {
         calibrationOffset: 0.0,
       });
 
-      const saved = await this.channelRepo.save(channel);
-      created.push(saved);
+      channels.push(channel);
     }
+
+    const created = channels.length > 0 ? await this.channelRepo.save(channels) : [];
 
     this.logger.log(
       `Created ${created.length} channels for sensor ${sensorId} from type "${typeDef.typeKey}"`,

@@ -44,7 +44,7 @@ export class ChannelDetectionLog {
 
   @Field(() => GraphQLJSON)
   @Column({ name: 'raw_sample', type: 'jsonb' })
-  rawSample!: Record<string, unknown>;
+  rawSample!: Record<string, unknown> | unknown[];
 
   @Field(() => GraphQLJSON)
   @Column({ name: 'ai_analysis', type: 'jsonb' })
@@ -52,7 +52,7 @@ export class ChannelDetectionLog {
 
   @Field(() => GraphQLJSON)
   @Column({ name: 'proposed_channels', type: 'jsonb' })
-  proposedChannels!: Record<string, unknown>;
+  proposedChannels!: Record<string, unknown>[] | Record<string, unknown>;
 
   @Field({ nullable: true })
   @Column({ name: 'user_action', length: 20, nullable: true })
@@ -60,7 +60,7 @@ export class ChannelDetectionLog {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ name: 'final_channels', type: 'jsonb', nullable: true })
-  finalChannels?: Record<string, unknown>;
+  finalChannels?: Record<string, unknown>[] | Record<string, unknown>;
 
   @Field()
   @CreateDateColumn({ name: 'created_at' })

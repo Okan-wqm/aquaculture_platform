@@ -221,6 +221,7 @@ export class SensorResolver {
 
     const sensor = this.sensorRepository.create({
       ...sensorInput,
+      typeDefinitionId: typeDefinitionId || undefined,
       tenantId,
       status: SensorStatus.ACTIVE,
       createdBy: user.sub,

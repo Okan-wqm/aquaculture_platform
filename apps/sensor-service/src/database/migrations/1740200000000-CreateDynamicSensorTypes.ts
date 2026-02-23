@@ -383,7 +383,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'environmental',
         industry: null,
         default_channels: JSON.stringify([
-          { key: 'temperature', unit: '\u00b0C', label: 'Temperature', min: -40, max: 100 },
+          { channelKey: 'temperature', unit: '\u00b0C', unitSymbol: '\u00b0C', displayLabel: 'Temperature', physicalMin: -40, physicalMax: 100 },
         ]),
       },
       {
@@ -394,7 +394,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'water_quality',
         industry: null,
         default_channels: JSON.stringify([
-          { key: 'ph', unit: 'pH', label: 'pH Level', min: 0, max: 14 },
+          { channelKey: 'ph', unit: 'pH', unitSymbol: 'pH', displayLabel: 'pH Level', physicalMin: 0, physicalMax: 14 },
         ]),
       },
       {
@@ -405,8 +405,8 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'water_quality',
         industry: 'aquaculture',
         default_channels: JSON.stringify([
-          { key: 'dissolved_oxygen', unit: 'mg/L', label: 'Dissolved Oxygen', min: 0, max: 20 },
-          { key: 'do_saturation', unit: '%', label: 'DO Saturation', min: 0, max: 200 },
+          { channelKey: 'dissolved_oxygen', unit: 'mg/L', unitSymbol: 'mg/L', displayLabel: 'Dissolved Oxygen', physicalMin: 0, physicalMax: 20 },
+          { channelKey: 'do_saturation', unit: '%', unitSymbol: '%', displayLabel: 'DO Saturation', physicalMin: 0, physicalMax: 200 },
         ]),
       },
       {
@@ -417,7 +417,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'water_quality',
         industry: 'aquaculture',
         default_channels: JSON.stringify([
-          { key: 'salinity', unit: 'ppt', label: 'Salinity', min: 0, max: 50 },
+          { channelKey: 'salinity', unit: 'ppt', unitSymbol: 'ppt', displayLabel: 'Salinity', physicalMin: 0, physicalMax: 50 },
         ]),
       },
       {
@@ -428,7 +428,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'water_quality',
         industry: 'aquaculture',
         default_channels: JSON.stringify([
-          { key: 'ammonia', unit: 'mg/L', label: 'Total Ammonia Nitrogen', min: 0, max: 10 },
+          { channelKey: 'ammonia', unit: 'mg/L', unitSymbol: 'mg/L', displayLabel: 'Total Ammonia Nitrogen', physicalMin: 0, physicalMax: 10 },
         ]),
       },
       {
@@ -439,7 +439,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'water_quality',
         industry: 'aquaculture',
         default_channels: JSON.stringify([
-          { key: 'nitrite', unit: 'mg/L', label: 'Nitrite', min: 0, max: 10 },
+          { channelKey: 'nitrite', unit: 'mg/L', unitSymbol: 'mg/L', displayLabel: 'Nitrite', physicalMin: 0, physicalMax: 10 },
         ]),
       },
       {
@@ -450,7 +450,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'water_quality',
         industry: null,
         default_channels: JSON.stringify([
-          { key: 'nitrate', unit: 'mg/L', label: 'Nitrate', min: 0, max: 100 },
+          { channelKey: 'nitrate', unit: 'mg/L', unitSymbol: 'mg/L', displayLabel: 'Nitrate', physicalMin: 0, physicalMax: 100 },
         ]),
       },
       {
@@ -461,7 +461,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'water_quality',
         industry: null,
         default_channels: JSON.stringify([
-          { key: 'turbidity', unit: 'NTU', label: 'Turbidity', min: 0, max: 1000 },
+          { channelKey: 'turbidity', unit: 'NTU', unitSymbol: 'NTU', displayLabel: 'Turbidity', physicalMin: 0, physicalMax: 1000 },
         ]),
       },
       {
@@ -472,7 +472,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'environmental',
         industry: null,
         default_channels: JSON.stringify([
-          { key: 'water_level', unit: 'm', label: 'Water Level', min: 0, max: 10 },
+          { channelKey: 'water_level', unit: 'm', unitSymbol: 'm', displayLabel: 'Water Level', physicalMin: 0, physicalMax: 10 },
         ]),
       },
       {
@@ -483,10 +483,10 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'water_quality',
         industry: null,
         default_channels: JSON.stringify([
-          { key: 'temperature', unit: '\u00b0C', label: 'Temperature', min: -5, max: 50 },
-          { key: 'ph', unit: 'pH', label: 'pH', min: 0, max: 14 },
-          { key: 'dissolved_oxygen', unit: 'mg/L', label: 'Dissolved Oxygen', min: 0, max: 20 },
-          { key: 'conductivity', unit: '\u00b5S/cm', label: 'Conductivity', min: 0, max: 100000 },
+          { channelKey: 'temperature', unit: '\u00b0C', unitSymbol: '\u00b0C', displayLabel: 'Temperature', physicalMin: -5, physicalMax: 50 },
+          { channelKey: 'ph', unit: 'pH', unitSymbol: 'pH', displayLabel: 'pH', physicalMin: 0, physicalMax: 14 },
+          { channelKey: 'dissolved_oxygen', unit: 'mg/L', unitSymbol: 'mg/L', displayLabel: 'Dissolved Oxygen', physicalMin: 0, physicalMax: 20 },
+          { channelKey: 'conductivity', unit: '\u00b5S/cm', unitSymbol: '\u00b5S/cm', displayLabel: 'Conductivity', physicalMin: 0, physicalMax: 100000 },
         ]),
       },
       {
@@ -497,8 +497,8 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'process',
         industry: null,
         default_channels: JSON.stringify([
-          { key: 'flow_rate', unit: 'L/min', label: 'Flow Rate', min: 0, max: 1000 },
-          { key: 'total_volume', unit: 'L', label: 'Total Volume', min: 0, max: null },
+          { channelKey: 'flow_rate', unit: 'L/min', unitSymbol: 'L/min', displayLabel: 'Flow Rate', physicalMin: 0, physicalMax: 1000 },
+          { channelKey: 'total_volume', unit: 'L', unitSymbol: 'L', displayLabel: 'Total Volume', physicalMin: 0, physicalMax: null },
         ]),
       },
       {
@@ -509,8 +509,8 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'water_quality',
         industry: null,
         default_channels: JSON.stringify([
-          { key: 'conductivity', unit: '\u00b5S/cm', label: 'Conductivity', min: 0, max: 100000 },
-          { key: 'tds', unit: 'mg/L', label: 'Total Dissolved Solids', min: 0, max: 50000 },
+          { channelKey: 'conductivity', unit: '\u00b5S/cm', unitSymbol: '\u00b5S/cm', displayLabel: 'Conductivity', physicalMin: 0, physicalMax: 100000 },
+          { channelKey: 'tds', unit: 'mg/L', unitSymbol: 'mg/L', displayLabel: 'Total Dissolved Solids', physicalMin: 0, physicalMax: 50000 },
         ]),
       },
       {
@@ -521,7 +521,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'water_quality',
         industry: null,
         default_channels: JSON.stringify([
-          { key: 'orp', unit: 'mV', label: 'ORP', min: -2000, max: 2000 },
+          { channelKey: 'orp', unit: 'mV', unitSymbol: 'mV', displayLabel: 'ORP', physicalMin: -2000, physicalMax: 2000 },
         ]),
       },
       {
@@ -532,8 +532,8 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'water_quality',
         industry: null,
         default_channels: JSON.stringify([
-          { key: 'free_chlorine', unit: 'mg/L', label: 'Free Chlorine', min: 0, max: 10 },
-          { key: 'total_chlorine', unit: 'mg/L', label: 'Total Chlorine', min: 0, max: 20 },
+          { channelKey: 'free_chlorine', unit: 'mg/L', unitSymbol: 'mg/L', displayLabel: 'Free Chlorine', physicalMin: 0, physicalMax: 10 },
+          { channelKey: 'total_chlorine', unit: 'mg/L', unitSymbol: 'mg/L', displayLabel: 'Total Chlorine', physicalMin: 0, physicalMax: 20 },
         ]),
       },
       {
@@ -544,7 +544,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         category: 'environmental',
         industry: null,
         default_channels: JSON.stringify([
-          { key: 'co2', unit: 'ppm', label: 'CO2 Concentration', min: 0, max: 5000 },
+          { channelKey: 'co2', unit: 'ppm', unitSymbol: 'ppm', displayLabel: 'CO2 Concentration', physicalMin: 0, physicalMax: 5000 },
         ]),
       },
     ];

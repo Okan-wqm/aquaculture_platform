@@ -3,6 +3,8 @@ import {
   IsString,
   IsOptional,
   IsNotEmpty,
+  IsArray,
+  IsObject,
   MaxLength,
   Matches,
 } from 'class-validator';
@@ -54,9 +56,11 @@ export class CreateSensorTypeInput {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
+  @IsArray()
   defaultChannels?: unknown[];
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
+  @IsObject()
   metadata?: Record<string, unknown>;
 }

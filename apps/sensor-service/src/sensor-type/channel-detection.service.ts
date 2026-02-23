@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, IsNull, DataSource } from 'typeorm';
 
-import { ChannelDetectionLog } from '../database/entities/channel-detection-log.entity';
+import { ChannelDetectionLog, UserAction } from '../database/entities/channel-detection-log.entity';
 import {
   SensorDataChannel,
   ChannelDataType,
@@ -18,7 +18,7 @@ import {
 /**
  * Channel definition proposed by AI or local fallback analysis
  */
-interface ProposedChannel {
+export interface ProposedChannel {
   channelKey: string;
   displayLabel: string;
   dataType?: string;
@@ -168,7 +168,7 @@ export class ChannelDetectionService {
       const created = await channelRepo.save(channelEntities);
 
       // Update proposal with approval
-      proposal.userAction = 'approved';
+      proposal.userAction = UserAction.APPROVED;
       proposal.finalChannels = (modifications ?? channelsToCreate) as unknown as Record<string, unknown>;
       await logRepo.save(proposal);
 
@@ -198,7 +198,7 @@ export class ChannelDetectionService {
       );
     }
 
-    proposal.userAction = 'rejected';
+    proposal.userAction = UserAction.REJECTED;
     await this.logRepo.save(proposal);
 
     this.logger.log(`Rejected proposal ${proposalId}`);
@@ -377,14 +377,30 @@ export class ChannelDetectionService {
     return ChannelDataType.STRING;
   }
 
+  /** Common abbreviations that should preserve their casing */
+  private static readonly ABBREVIATION_MAP: Record<string, string> = {
+    'ph': 'pH', 'do': 'DO', 'co2': 'CO2', 'orp': 'ORP',
+    'ec': 'EC', 'tds': 'TDS', 'bod': 'BOD', 'cod': 'COD',
+  };
+
   /**
    * Convert a snake_case or camelCase key into a human-readable display label.
+   * Handles common scientific abbreviations (pH, DO, CO2, etc.).
    */
   private formatDisplayLabel(key: string): string {
-    return key
+    // Check full key against abbreviation map first
+    const fullMatch = ChannelDetectionService.ABBREVIATION_MAP[key.toLowerCase()];
+    if (fullMatch) return fullMatch;
+
+    const label = key
       .replace(/_/g, ' ')
       .replace(/([a-z])([A-Z])/g, '$1 $2')
       .replace(/\b\w/g, (c) => c.toUpperCase());
+
+    // Replace individual words that match abbreviations
+    return label.replace(/\b\w+\b/g, (word) => {
+      return ChannelDetectionService.ABBREVIATION_MAP[word.toLowerCase()] ?? word;
+    });
   }
 
   /**

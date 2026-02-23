@@ -10,7 +10,7 @@
 
 import { SensorTypeDefinition } from '../sensor-type-definition.entity';
 import { IndustryTemplate } from '../industry-template.entity';
-import { ChannelDetectionLog } from '../channel-detection-log.entity';
+import { ChannelDetectionLog, UserAction } from '../channel-detection-log.entity';
 import { Sensor } from '../sensor.entity';
 
 describe('SensorTypeDefinition Entity', () => {
@@ -27,7 +27,7 @@ describe('SensorTypeDefinition Entity', () => {
 
   it('should set required properties', () => {
     entity.id = '11111111-1111-1111-1111-111111111111';
-    entity.tenantId = 'aaaa-bbbb-cccc-dddd';
+    entity.tenantId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     entity.typeKey = 'dissolved_oxygen';
     entity.displayName = 'Dissolved Oxygen';
     entity.isSystem = false;
@@ -35,7 +35,7 @@ describe('SensorTypeDefinition Entity', () => {
     entity.metadata = {};
 
     expect(entity.id).toBe('11111111-1111-1111-1111-111111111111');
-    expect(entity.tenantId).toBe('aaaa-bbbb-cccc-dddd');
+    expect(entity.tenantId).toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
     expect(entity.typeKey).toBe('dissolved_oxygen');
     expect(entity.displayName).toBe('Dissolved Oxygen');
     expect(entity.isSystem).toBe(false);
@@ -137,7 +137,7 @@ describe('ChannelDetectionLog Entity', () => {
 
   it('should set required properties', () => {
     entity.id = '33333333-3333-3333-3333-333333333333';
-    entity.tenantId = 'aaaa-bbbb-cccc-dddd';
+    entity.tenantId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     entity.sensorId = '44444444-4444-4444-4444-444444444444';
     entity.rawSample = { temperature: 25.3, ph: 7.2, do: 6.5 };
     entity.aiAnalysis = { confidence: 0.95, detectedType: 'multi_parameter' };
@@ -149,7 +149,7 @@ describe('ChannelDetectionLog Entity', () => {
     };
 
     expect(entity.id).toBe('33333333-3333-3333-3333-333333333333');
-    expect(entity.tenantId).toBe('aaaa-bbbb-cccc-dddd');
+    expect(entity.tenantId).toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
     expect(entity.sensorId).toBe('44444444-4444-4444-4444-444444444444');
     expect(entity.rawSample).toBeDefined();
     expect(entity.aiAnalysis).toBeDefined();
@@ -157,7 +157,7 @@ describe('ChannelDetectionLog Entity', () => {
   });
 
   it('should set optional properties', () => {
-    entity.userAction = 'approved';
+    entity.userAction = UserAction.APPROVED;
     entity.finalChannels = {
       channels: [
         { key: 'temperature', unit: 'C' },
@@ -165,7 +165,7 @@ describe('ChannelDetectionLog Entity', () => {
       ],
     };
 
-    expect(entity.userAction).toBe('approved');
+    expect(entity.userAction).toBe(UserAction.APPROVED);
     expect(entity.finalChannels).toBeDefined();
   });
 

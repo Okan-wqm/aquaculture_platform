@@ -17,6 +17,14 @@ import {
 import { Sensor } from './sensor.entity';
 
 /**
+ * Allowed user actions for channel detection proposals.
+ */
+export enum UserAction {
+  APPROVED = 'approved',
+  REJECTED = 'rejected',
+}
+
+/**
  * ChannelDetectionLog entity - logs AI-driven channel detection attempts.
  * Tracks raw samples, AI analysis results, and user decisions on proposed channels.
  */
@@ -56,7 +64,7 @@ export class ChannelDetectionLog {
 
   @Field({ nullable: true })
   @Column({ name: 'user_action', length: 20, nullable: true })
-  userAction?: string;
+  userAction?: UserAction;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ name: 'final_channels', type: 'jsonb', nullable: true })

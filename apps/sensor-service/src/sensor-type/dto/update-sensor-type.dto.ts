@@ -2,6 +2,8 @@ import { InputType, Field } from '@nestjs/graphql';
 import {
   IsString,
   IsOptional,
+  IsArray,
+  IsObject,
   MaxLength,
 } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
@@ -44,9 +46,11 @@ export class UpdateSensorTypeInput {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
+  @IsArray()
   defaultChannels?: unknown[];
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
+  @IsObject()
   metadata?: Record<string, unknown>;
 }

@@ -165,6 +165,11 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         CREATE INDEX "IDX_channel_detection_log_created"
         ON "channel_detection_log" ("created_at" DESC)
       `);
+      await queryRunner.query(`
+        CREATE INDEX IF NOT EXISTS "IDX_channel_detection_log_pending"
+        ON "channel_detection_log" ("sensor_id", "tenant_id")
+        WHERE "user_action" IS NULL
+      `);
       console.log('Created indexes for channel_detection_log');
     } else {
       console.log('channel_detection_log table already exists, skipping creation');
@@ -223,6 +228,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
     }
 
     // Drop channel_detection_log (reverse of step 3)
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_channel_detection_log_pending"`);
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_channel_detection_log_created"`);
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_channel_detection_log_sensor"`);
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_channel_detection_log_tenant"`);

@@ -8,6 +8,9 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, QueryFailedError } from 'typeorm';
 
+/** System tenant ID for built-in sensor type definitions */
+const SYSTEM_TENANT_ID = '00000000-0000-0000-0000-000000000000';
+
 import { SensorDataChannel, ChannelDataType, DiscoverySource } from '../database/entities/sensor-data-channel.entity';
 import { IndustryTemplate } from '../database/entities/industry-template.entity';
 import { SensorTypeDefinition } from '../database/entities/sensor-type-definition.entity';
@@ -285,7 +288,7 @@ export class SensorTypeService {
     const typeDef = await this.sensorTypeRepo.findOne({
       where: [
         { id: typeDefinitionId, tenantId },
-        { id: typeDefinitionId, isSystem: true },
+        { id: typeDefinitionId, isSystem: true, tenantId: SYSTEM_TENANT_ID },
       ],
     });
 

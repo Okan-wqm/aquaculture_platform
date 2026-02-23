@@ -14,7 +14,7 @@ import { SensorDataChannel } from '../database/entities/sensor-data-channel.enti
 import { IndustryTemplate } from '../database/entities/industry-template.entity';
 import { SensorTypeDefinition } from '../database/entities/sensor-type-definition.entity';
 
-import { ChannelDetectionService } from './channel-detection.service';
+import { ChannelDetectionService, ProposedChannel } from './channel-detection.service';
 import { CreateSensorTypeInput } from './dto/create-sensor-type.dto';
 import { UpdateSensorTypeInput } from './dto/update-sensor-type.dto';
 import { SensorTypeService } from './sensor-type.service';
@@ -43,7 +43,8 @@ export class SensorTypeResolver {
   }
 
   /**
-   * List all active industry templates
+   * List all active industry templates.
+   * Templates are public reference data - no role restriction needed.
    */
   @Query(() => [IndustryTemplate], { name: 'industryTemplates' })
   async getIndustryTemplates(): Promise<IndustryTemplate[]> {
@@ -134,7 +135,7 @@ export class SensorTypeResolver {
     return this.channelDetectionService.approveProposal(
       proposalId,
       tenantId,
-      modifications as any[] | undefined,
+      modifications as ProposedChannel[] | undefined,
     );
   }
 

@@ -164,30 +164,22 @@ CREATE INDEX IF NOT EXISTS "IDX_tenant_roles_tenantId" ON auth.tenant_roles ("te
 CREATE INDEX IF NOT EXISTS "IDX_tenant_roles_code" ON auth.tenant_roles (code);
 
 -- =============================================================================
--- Seed: SUPER_ADMIN user (by-okan@live.com / 12345678)
--- Only created if no users exist yet
+-- SUPER_ADMIN seeding is NOT done here.
+--
+-- Reason: PostgreSQL's pgcrypto crypt() generates bcrypt hashes that are
+-- incompatible with Node.js bcryptjs (different internal implementations).
+-- This causes "invalid password" errors on first login.
+--
+-- The auth-service SeedService handles SUPER_ADMIN creation on startup using
+-- bcryptjs with proper password strength validation and 12 salt rounds.
+-- Configure via environment variables:
+--   SUPER_ADMIN_EMAIL     — required in production
+--   SUPER_ADMIN_PASSWORD  — required, min 12 chars, mixed case + digit + special
 -- =============================================================================
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM auth.users LIMIT 1) THEN
-        INSERT INTO auth.users (
-            id, email, password, "firstName", "lastName", role,
-            "isActive", "isEmailVerified", "createdAt", "updatedAt"
-        ) VALUES (
-            '6f4a5d54-08c1-4c46-b6aa-6d160afa8ff2',
-            'by-okan@live.com',
-            crypt('12345678', gen_salt('bf', 10)),
-            'Okan', 'Admin', 'SUPER_ADMIN',
-            true, true, NOW(), NOW()
-        );
-        RAISE NOTICE 'Created default SUPER_ADMIN user: by-okan@live.com';
-    ELSE
-        RAISE NOTICE 'Users already exist, skipping SUPER_ADMIN seed';
-    END IF;
-END $$;
 
 -- Log completion
 DO $$
 BEGIN
-    RAISE NOTICE 'Database initialization completed. Auth schema tables created.';
+    RAISE NOTICE 'Database initialization completed. Auth schema tables and indexes created.';
+    RAISE NOTICE 'SUPER_ADMIN user will be seeded by auth-service on first startup.';
 END $$;

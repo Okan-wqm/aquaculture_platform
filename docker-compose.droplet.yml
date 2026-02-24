@@ -410,6 +410,7 @@ services:
         condition: service_healthy
     networks:
       - aqua-internal
+      - aqua-network  # needs internet for external SMTP email delivery
     deploy:
       resources:
         limits:
@@ -599,6 +600,7 @@ services:
         condition: service_healthy
     networks:
       - aqua-internal
+      - aqua-network  # needs internet for external SMTP email delivery
     deploy:
       resources:
         limits:

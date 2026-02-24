@@ -446,9 +446,9 @@ export class ModuleAssignmentService {
 
   private async getTenant(
     tenantId: string,
-  ): Promise<{ id: string; name: string; tier?: string } | null> {
+  ): Promise<{ id: string; name: string; plan?: string } | null> {
     const result = await this.dataSource.query(
-      `SELECT id, name, tier FROM tenants WHERE id = $1`,
+      `SELECT id, name, plan FROM tenants WHERE id = $1`,
       [tenantId],
     );
     return result[0] || null;

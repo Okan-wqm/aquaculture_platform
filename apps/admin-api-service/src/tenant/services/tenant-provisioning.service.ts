@@ -794,10 +794,11 @@ export class TenantProvisioningService {
       });
 
       // Create user permissions with TENANT_ADMIN_PERMISSIONS
+      // grantedBy is UUID type — use null for system-provisioned users
       await this.userPermissionsService.createDefaultPermissions(
         result.userId,
         tenantId,
-        'system', // grantedBy - system for initial provisioning
+        null as unknown as string, // grantedBy: null for system provisioning (column is UUID, not VARCHAR)
         true, // isAdmin - true to use TENANT_ADMIN_PERMISSIONS
       );
 

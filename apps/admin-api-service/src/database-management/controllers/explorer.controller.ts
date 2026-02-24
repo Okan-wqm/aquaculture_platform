@@ -28,7 +28,28 @@ import { IsOptional, IsNumber, IsString, IsIn, IsObject, IsBoolean } from 'class
 import { Response, Request } from 'express';
 import { DataSource } from 'typeorm';
 
+import { MODULE_SCHEMAS } from '@aqua/backend-common';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
+
+// ============================================================================
+// Module Table Access Control
+// ============================================================================
+
+/**
+ * Schemas that the superadmin database explorer is allowed to access.
+ * Tenant schemas (tenant_*) and module schemas (sensor, farm, hr, hydroponics)
+ * are intentionally excluded.
+ */
+const ALLOWED_SCHEMAS = new Set(['public', 'auth', 'admin', 'billing']);
+
+/**
+ * Table names belonging to tenant modules — derived from MODULE_SCHEMAS (single source of truth).
+ * These tables exist in the public schema but contain tenant-specific data
+ * and must not be accessible through the superadmin explorer.
+ */
+const MODULE_TABLE_NAMES: Set<string> = new Set(
+  MODULE_SCHEMAS.flatMap(m => m.tables),
+);
 
 // ============================================================================
 // Sensitive Column Masking Configuration
@@ -215,6 +236,19 @@ export class DatabaseExplorerController {
     private readonly dataSource: DataSource,
   ) {}
 
+  /**
+   * Validate that the requested schema and table are accessible via the explorer.
+   * Blocks access to module schemas, tenant schemas, and module tables.
+   */
+  private validateExplorerAccess(schema: string, table?: string): void {
+    if (!ALLOWED_SCHEMAS.has(schema)) {
+      throw new BadRequestException(`Schema '${schema}' is not accessible`);
+    }
+    if (table && MODULE_TABLE_NAMES.has(table)) {
+      throw new BadRequestException(`Table '${table}' is not accessible`);
+    }
+  }
+
   // ============================================================================
   // Table Listing
   // ============================================================================
@@ -249,6 +283,7 @@ export class DatabaseExplorerController {
     if (!this.isValidIdentifier(schema)) {
       throw new BadRequestException('Invalid schema name');
     }
+    this.validateExplorerAccess(schema);
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -267,10 +302,15 @@ export class DatabaseExplorerController {
         ORDER BY t.tablename
       `, [schema]);
 
+      // Filter out module tables from the listing
+      const filteredTables = tables.filter(
+        (t: { table_name: string }) => !MODULE_TABLE_NAMES.has(t.table_name),
+      );
+
       // Her tablo için sütun bilgilerini al
       const result: TableInfo[] = [];
 
-      for (const table of tables) {
+      for (const table of filteredTables) {
         const columns = await this.getColumnInfo(queryRunner, schema, table.table_name);
         result.push({
           tableName: table.table_name,
@@ -311,6 +351,7 @@ export class DatabaseExplorerController {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
+    this.validateExplorerAccess(schema, table);
 
     const page = Math.max(1, query.page || 1);
     const limit = Math.min(100, Math.max(1, query.limit || 50));
@@ -393,6 +434,7 @@ export class DatabaseExplorerController {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
+    this.validateExplorerAccess(schema, table);
 
     const format = query.format || 'csv';
     const limit = Math.min(10000, Math.max(1, query.limit || 1000)); // Max 10K rows for export
@@ -486,6 +528,7 @@ export class DatabaseExplorerController {
     @Param('table') table: string,
     @Query() query: TableQueryDto,
   ): Promise<TableData> {
+    this.validateExplorerAccess('public', table);
     return this.getTableData('public', table, query);
   }
 
@@ -505,6 +548,7 @@ export class DatabaseExplorerController {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
+    this.validateExplorerAccess(schema, table);
 
     if (!dto.data || Object.keys(dto.data).length === 0) {
       throw new BadRequestException('Data is required');
@@ -552,6 +596,7 @@ export class DatabaseExplorerController {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
+    this.validateExplorerAccess(schema, table);
 
     if (!dto.data || Object.keys(dto.data).length === 0) {
       throw new BadRequestException('Data is required');
@@ -608,6 +653,7 @@ export class DatabaseExplorerController {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
+    this.validateExplorerAccess(schema, table);
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -650,6 +696,7 @@ export class DatabaseExplorerController {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
+    this.validateExplorerAccess(schema, table);
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -784,6 +831,17 @@ export class DatabaseExplorerController {
       if (pattern.test(sqlWithoutComments)) {
         throw new BadRequestException('Query contains disallowed functions');
       }
+    }
+
+    // SECURITY: Block access to module schemas and tenant schemas
+    const blockedSchemas = ['sensor', 'farm', 'hr', 'hydroponics'];
+    for (const blocked of blockedSchemas) {
+      if (new RegExp(`\\b${blocked}\\.`, 'i').test(sqlWithoutComments)) {
+        throw new BadRequestException('Query references restricted schemas');
+      }
+    }
+    if (/\btenant_[a-f0-9]/i.test(sqlWithoutComments)) {
+      throw new BadRequestException('Query references restricted tenant schemas');
     }
 
     const queryRunner = this.dataSource.createQueryRunner();

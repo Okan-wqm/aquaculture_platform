@@ -14,6 +14,7 @@ import {
   CorrelationIdMiddleware,
   TenantGuard,
   RolesGuard,
+  SourceSchemaBootstrapService,
 } from '@platform/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
@@ -127,8 +128,10 @@ import { CreateAutomationTables1740300001000 } from './database/migrations/17403
           CreateProcessesTable1740300000000,
           CreateAutomationTables1740300001000,
         ],
-        migrationsRun: true,
+        // When sync is on (initial deploy), skip migrations to avoid index conflicts.
+        // When sync is off (production), run migrations for structural changes.
         synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
+        migrationsRun: configService.get('DATABASE_SYNC', 'false') !== 'true',
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {
@@ -160,6 +163,9 @@ import { CreateAutomationTables1740300001000 } from './database/migrations/17403
           // 5 minutes — prevents churn during continuous MQTT ingestion
           idleTimeoutMillis: configService.get<number>('DATABASE_IDLE_TIMEOUT_MS', 300000),
           connectionTimeoutMillis: 5000,
+          // Default search_path targets the source schema so TypeORM sync/migrations
+          // create tables there. TenantSchemaMiddleware overrides per-request.
+          options: '-c search_path=sensor,public',
         },
       };
       },
@@ -302,6 +308,8 @@ import { CreateAutomationTables1740300001000 } from './database/migrations/17403
       provide: APP_GUARD,
       useClass: RolesGuard,
     },
+    // Bootstrap source schema tables on startup (creates template tables if missing)
+    SourceSchemaBootstrapService,
   ],
 })
 export class AppModule implements NestModule {

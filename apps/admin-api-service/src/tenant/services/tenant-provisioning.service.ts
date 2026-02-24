@@ -173,7 +173,7 @@ export class TenantProvisioningService {
       // Atomically mark the tenant as being provisioned; if another process already claimed it,
       // rowsAffected will be 0 and we bail out immediately.
       const [, rowsAffected] = await this.dataSource.query(
-        `UPDATE tenants SET status = 'ACTIVE', updated_at = NOW() WHERE id = $1 AND status = $2`,
+        `UPDATE tenants SET status = 'ACTIVE', "updatedAt" = NOW() WHERE id = $1 AND status = $2`,
         [tenantId, TenantStatus.PENDING],
       );
       if ((rowsAffected as number) === 0) {
@@ -755,9 +755,9 @@ export class TenantProvisioningService {
         const userResult = await manager.query(
           `
           INSERT INTO users (
-            id, email, first_name, last_name, role, "tenantId",
-            is_active, is_email_verified, invitation_token, invitation_expires_at,
-            created_at, updated_at
+            id, email, "firstName", "lastName", role, "tenantId",
+            "isActive", "isEmailVerified", "invitationToken", "invitationExpiresAt",
+            "createdAt", "updatedAt"
           ) VALUES (
             gen_random_uuid(), $1, $2, $3, 'TENANT_ADMIN', $4,
             true, false, $5, $6,
@@ -774,8 +774,8 @@ export class TenantProvisioningService {
         await manager.query(
           `
           INSERT INTO invitations (
-            id, token, email, first_name, last_name, role, "tenantId",
-            status, expires_at, invited_by, send_count, last_sent_at, created_at, updated_at
+            id, token, email, "firstName", "lastName", role, "tenantId",
+            status, "expiresAt", "invitedBy", "sendCount", "lastSentAt", "createdAt", "updatedAt"
           ) VALUES (
             gen_random_uuid(), $1, $2, $3, $4, 'TENANT_ADMIN', $5,
             'PENDING', $6, 'system', 1, NOW(), NOW(), NOW()
@@ -837,9 +837,9 @@ export class TenantProvisioningService {
     try {
       // Build a single query with unnest for safe parameterised bulk insert
       await this.dataSource.query(
-        `INSERT INTO tenant_modules (id, "tenantId", module_id, is_active, assigned_at, created_at, updated_at)
+        `INSERT INTO tenant_modules (id, "tenantId", "moduleId", "isEnabled", "activatedAt", "createdAt", "updatedAt")
          SELECT gen_random_uuid(), $1, unnest($2::uuid[]), true, NOW(), NOW(), NOW()
-         ON CONFLICT ("tenantId", module_id) DO NOTHING`,
+         ON CONFLICT ("tenantId", "moduleId") DO NOTHING`,
         [tenantId, moduleIds],
       );
     } catch (error) {

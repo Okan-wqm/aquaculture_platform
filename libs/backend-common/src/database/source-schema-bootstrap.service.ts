@@ -55,7 +55,7 @@ export class SourceSchemaBootstrapService implements OnModuleInit {
       return;
     }
 
-    const sourceSchema = schemas[0];
+    const sourceSchema = schemas[0] as string;
     this.logger.log(`Checking source schema "${sourceSchema}" for existing tables...`);
 
     // Check if the source schema already has tables

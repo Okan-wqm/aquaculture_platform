@@ -394,11 +394,15 @@ services:
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: "false"
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      DATABASE_SYNC: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      THROTTLE_DEFAULT_LIMIT: 500
+      THROTTLE_DEFAULT_TTL: 60
     depends_on:
       postgres:
         condition: service_healthy

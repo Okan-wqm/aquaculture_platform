@@ -5,6 +5,7 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  VersionColumn,
   Index,
 } from 'typeorm';
 
@@ -143,6 +144,41 @@ export class Tenant {
   maxUsers!: number;
 
   /**
+   * Maximum storage in GB (-1 = unlimited)
+   */
+  @Field()
+  @Column({ type: 'int', default: -1, name: 'max_storage' })
+  maxStorage!: number;
+
+  /**
+   * Whether tenant is currently on an active trial
+   */
+  @Field()
+  @Column({ type: 'boolean', default: false, name: 'is_trial_active' })
+  isTrialActive!: boolean;
+
+  /**
+   * Current user count (denormalized for quick access)
+   */
+  @Field()
+  @Column({ type: 'int', default: 0, name: 'user_count' })
+  userCount!: number;
+
+  /**
+   * Current farm count (denormalized for quick access)
+   */
+  @Field()
+  @Column({ type: 'int', default: 0, name: 'farm_count' })
+  farmCount!: number;
+
+  /**
+   * Current sensor count (denormalized for quick access)
+   */
+  @Field()
+  @Column({ type: 'int', default: 0, name: 'sensor_count' })
+  sensorCount!: number;
+
+  /**
    * Trial end date (if on trial)
    */
   @Field(() => String, { nullable: true })
@@ -188,6 +224,9 @@ export class Tenant {
   @Field()
   @UpdateDateColumn()
   updatedAt!: Date;
+
+  @VersionColumn({ name: 'version' })
+  version!: number;
 
   // ============================================
   // Helper Methods

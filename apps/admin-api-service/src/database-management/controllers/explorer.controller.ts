@@ -28,7 +28,7 @@ import { IsOptional, IsNumber, IsString, IsIn, IsObject, IsBoolean } from 'class
 import { Response, Request } from 'express';
 import { DataSource } from 'typeorm';
 
-import { MODULE_SCHEMAS } from '@aqua/backend-common';
+import { MODULE_SCHEMAS } from '@platform/backend-common';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 // ============================================================================

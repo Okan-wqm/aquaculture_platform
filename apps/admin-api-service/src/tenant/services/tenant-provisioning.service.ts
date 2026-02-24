@@ -289,10 +289,11 @@ export class TenantProvisioningService {
       }
 
       // Final Step: Activate tenant
+      // Note: status was already set to ACTIVE by the atomic UPDATE in step 1.
+      // This save refreshes updatedAt and persists any in-memory changes.
       updateStep(stepIndex, 'in_progress');
       const startActivate = Date.now();
       tenant.status = TenantStatus.ACTIVE;
-      tenant.lastActivityAt = new Date();
       await this.tenantRepository.save(tenant);
       updateStep(stepIndex, 'completed', Date.now() - startActivate);
 

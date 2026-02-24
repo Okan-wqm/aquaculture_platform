@@ -172,13 +172,13 @@ export class TenantDetailService {
         `
         SELECT
           tm."moduleId" as "moduleId",
-          m.code as module_code,
-          m.name as module_name,
-          tm."isEnabled" as is_active,
-          tm."activatedAt" as assigned_at,
-          tm."expiresAt" as expires_at
-        FROM tenant_modules tm
-        JOIN modules m ON tm."moduleId" = m.id
+          m.code as "moduleCode",
+          m.name as "moduleName",
+          tm."isEnabled" as "isActive",
+          tm."activatedAt" as "assignedAt",
+          tm."expiresAt" as "expiresAt"
+        FROM auth.tenant_modules tm
+        JOIN auth.modules m ON tm."moduleId" = m.id
         WHERE tm."tenantId" = $1
         ORDER BY m.name
       `,
@@ -187,10 +187,10 @@ export class TenantDetailService {
 
       return result.map((row: Record<string, unknown>) => ({
         moduleId: row.moduleId as string,
-        moduleCode: row.module_code as string,
-        moduleName: row.module_name as string,
-        isActive: row.is_active as boolean,
-        assignedAt: row.assigned_at as Date,
+        moduleCode: row.moduleCode as string,
+        moduleName: row.moduleName as string,
+        isActive: row.isActive as boolean,
+        assignedAt: row.assignedAt as Date,
       }));
     } catch (error) {
       this.logger.warn(`Could not fetch module usage for tenant ${tenantId}`);

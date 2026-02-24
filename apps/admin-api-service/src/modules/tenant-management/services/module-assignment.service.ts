@@ -168,7 +168,7 @@ export class ModuleAssignmentService {
           const existingResult = await manager.query(
             `SELECT EXISTS(
               SELECT 1 FROM tenant_modules
-              WHERE "tenantId" = $1 AND module_id = $2 AND is_active = true
+              WHERE "tenantId" = $1 AND "moduleId" = $2 AND "isEnabled" = true
             ) as exists`,
             [tenantId, moduleId],
           );
@@ -180,8 +180,9 @@ export class ModuleAssignmentService {
             // Update quantities instead of failing
             await manager.query(
               `UPDATE tenant_modules
-               SET quantities = $3, updated_at = NOW(), assigned_by = $4
-               WHERE "tenantId" = $1 AND module_id = $2`,
+               SET configuration = jsonb_set(COALESCE(configuration, '{}')::jsonb, '{quantities}', $3::jsonb),
+                   "updatedAt" = NOW(), "assignedBy" = $4
+               WHERE "tenantId" = $1 AND "moduleId" = $2`,
               [tenantId, moduleId, JSON.stringify(quantities), assignedBy],
             );
             assignedModules.push(moduleId);
@@ -190,18 +191,18 @@ export class ModuleAssignmentService {
             // Insert new assignment
             await manager.query(
               `INSERT INTO tenant_modules (
-                id, "tenantId", module_id, is_active, assigned_at,
-                assigned_by, quantities, created_at, updated_at
+                id, "tenantId", "moduleId", "isEnabled", "activatedAt",
+                "assignedBy", configuration, "createdAt", "updatedAt"
               ) VALUES (
-                gen_random_uuid(), $1, $2, true, NOW(), $3, $4, NOW(), NOW()
+                gen_random_uuid(), $1, $2, true, NOW(), $3, jsonb_build_object('quantities', $4::jsonb), NOW(), NOW()
               )
-              ON CONFLICT ("tenantId", module_id)
+              ON CONFLICT ("tenantId", "moduleId")
               DO UPDATE SET
-                is_active = true,
-                assigned_at = NOW(),
-                assigned_by = $3,
-                quantities = $4,
-                updated_at = NOW()`,
+                "isEnabled" = true,
+                "activatedAt" = NOW(),
+                "assignedBy" = $3,
+                configuration = jsonb_set(COALESCE(tenant_modules.configuration, '{}')::jsonb, '{quantities}', $4::jsonb),
+                "updatedAt" = NOW()`,
               [tenantId, moduleId, assignedBy, JSON.stringify(quantities)],
             );
             assignedModules.push(moduleId);
@@ -302,13 +303,11 @@ export class ModuleAssignmentService {
     await this.dataSource.query(
       `
       UPDATE tenant_modules
-      SET is_active = false,
-          deactivated_at = NOW(),
-          deactivated_by = $3,
-          updated_at = NOW()
-      WHERE "tenantId" = $1 AND module_id = $2
+      SET "isEnabled" = false,
+          "updatedAt" = NOW()
+      WHERE "tenantId" = $1 AND "moduleId" = $2
       `,
-      [tenantId, moduleId, removedBy],
+      [tenantId, moduleId],
     );
 
     // Publish event
@@ -344,20 +343,20 @@ export class ModuleAssignmentService {
       SELECT
         tm.id,
         tm."tenantId",
-        tm.module_id as "moduleId",
+        tm."moduleId",
         m.code as "moduleCode",
         m.name as "moduleName",
         m.description as "moduleDescription",
         m.icon as "moduleIcon",
-        tm.is_active as "isActive",
-        tm.assigned_at as "assignedAt",
-        tm.expires_at as "expiresAt",
-        COALESCE(tm.quantities, '{}')::jsonb as quantities,
-        COALESCE(tm.monthly_price, 0) as "monthlyPrice",
+        tm."isEnabled" as "isActive",
+        tm."activatedAt" as "assignedAt",
+        tm."expiresAt",
+        COALESCE((tm.configuration->>'quantities')::jsonb, '{}')::jsonb as quantities,
+        0 as "monthlyPrice",
         COALESCE(tm.configuration, '{}')::jsonb as configuration
       FROM tenant_modules tm
-      JOIN modules m ON m.id = tm.module_id
-      WHERE tm."tenantId" = $1 AND tm.is_active = true
+      JOIN modules m ON m.id = tm."moduleId"
+      WHERE tm."tenantId" = $1 AND tm."isEnabled" = true
       ORDER BY m.name ASC
       `,
       [tenantId],
@@ -388,7 +387,7 @@ export class ModuleAssignmentService {
       `
       SELECT EXISTS(
         SELECT 1 FROM tenant_modules
-        WHERE "tenantId" = $1 AND module_id = $2 AND is_active = true
+        WHERE "tenantId" = $1 AND "moduleId" = $2 AND "isEnabled" = true
       ) as exists
       `,
       [tenantId, moduleId],
@@ -402,15 +401,9 @@ export class ModuleAssignmentService {
    * Get tenant's total monthly price for all modules
    */
   async getTenantTotalMonthlyPrice(tenantId: string): Promise<number> {
-    const result = await this.dataSource.query(
-      `
-      SELECT COALESCE(SUM(monthly_price), 0) as total
-      FROM tenant_modules
-      WHERE "tenantId" = $1 AND is_active = true
-      `,
-      [tenantId],
-    );
-    return parseFloat(result[0]?.total) || 0;
+    // monthly_price column does not exist; pricing is handled by the pricing service
+    this.logger.log(`getTenantTotalMonthlyPrice called for tenant ${tenantId} - returning 0 (use pricing service for actual price)`);
+    return 0;
   }
 
   /**
@@ -493,18 +486,18 @@ export class ModuleAssignmentService {
     await this.dataSource.query(
       `
       INSERT INTO tenant_modules (
-        id, "tenantId", module_id, is_active, assigned_at,
-        assigned_by, quantities, created_at, updated_at
+        id, "tenantId", "moduleId", "isEnabled", "activatedAt",
+        "assignedBy", configuration, "createdAt", "updatedAt"
       ) VALUES (
-        gen_random_uuid(), $1, $2, true, NOW(), $3, $4, NOW(), NOW()
+        gen_random_uuid(), $1, $2, true, NOW(), $3, jsonb_build_object('quantities', $4::jsonb), NOW(), NOW()
       )
-      ON CONFLICT ("tenantId", module_id)
+      ON CONFLICT ("tenantId", "moduleId")
       DO UPDATE SET
-        is_active = true,
-        assigned_at = NOW(),
-        assigned_by = $3,
-        quantities = $4,
-        updated_at = NOW()
+        "isEnabled" = true,
+        "activatedAt" = NOW(),
+        "assignedBy" = $3,
+        configuration = jsonb_set(COALESCE(tenant_modules.configuration, '{}')::jsonb, '{quantities}', $4::jsonb),
+        "updatedAt" = NOW()
       `,
       [tenantId, moduleId, assignedBy, JSON.stringify(quantities)],
     );
@@ -519,10 +512,10 @@ export class ModuleAssignmentService {
     await this.dataSource.query(
       `
       UPDATE tenant_modules
-      SET quantities = $3,
-          updated_at = NOW(),
-          assigned_by = $4
-      WHERE "tenantId" = $1 AND module_id = $2
+      SET configuration = jsonb_set(COALESCE(configuration, '{}')::jsonb, '{quantities}', $3::jsonb),
+          "updatedAt" = NOW(),
+          "assignedBy" = $4
+      WHERE "tenantId" = $1 AND "moduleId" = $2
       `,
       [tenantId, moduleId, JSON.stringify(quantities), updatedBy],
     );
@@ -532,14 +525,11 @@ export class ModuleAssignmentService {
     tenantId: string,
     pricing: PricingCalculation,
   ): Promise<void> {
+    // monthly_price column does not exist in tenant_modules; pricing is tracked by the pricing service.
+    // Just log the calculated pricing for observability.
     for (const moduleBreakdown of pricing.modules) {
-      await this.dataSource.query(
-        `
-        UPDATE tenant_modules
-        SET monthly_price = $3, updated_at = NOW()
-        WHERE "tenantId" = $1 AND module_id = $2
-        `,
-        [tenantId, moduleBreakdown.moduleId, moduleBreakdown.total],
+      this.logger.log(
+        `Pricing calculated for tenant ${tenantId}, module ${moduleBreakdown.moduleId}: ${moduleBreakdown.total}`,
       );
     }
   }
@@ -579,11 +569,11 @@ export class ModuleAssignmentService {
       await this.dataSource.query(
         `
         INSERT INTO audit_logs (
-          id, "tenantId", action, entity_type, entity_id,
-          details, performed_by, performed_at, created_at
+          id, "tenantId", action, "entityType", "entityId",
+          details, "performedBy", "createdAt"
         ) VALUES (
           gen_random_uuid(), $1, $2, 'tenant_modules', $1,
-          $3, $4, NOW(), NOW()
+          $3, $4, NOW()
         )
         `,
         [tenantId, action, JSON.stringify(details), performedBy],

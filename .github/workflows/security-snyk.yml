@@ -6,11 +6,7 @@ name: Security - Snyk
 #             Replaced with Node.js scan for the actual TypeScript/Node monorepo
 
 on:
-  pull_request:
-  push:
-    branches: [ main, develop ]
-  schedule:
-    - cron: '0 2 * * *'
+  workflow_dispatch:  # Manual only — no SNYK_TOKEN configured yet
 
 jobs:
   # SEC-CI-014: Removed Python snyk-backend job entirely.

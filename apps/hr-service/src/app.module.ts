@@ -17,6 +17,7 @@ import {
   CorrelationIdMiddleware,
   UserContextMiddleware,
   RolesGuard,
+  SourceSchemaBootstrapService,
 } from '@platform/backend-common';
 import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
 import { HRModule } from './hr/hr.module';
@@ -116,7 +117,7 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
           WeeklyPlanEntry,
           Holiday,
         ],
-        synchronize: false,
+        synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
         logging: configService.get('NODE_ENV') === 'development',
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {
@@ -141,6 +142,9 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
           max: configService.get<number>('DB_POOL_SIZE', 20),
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 10000,
+          // Default search_path targets the source schema so TypeORM sync/migrations
+          // create tables there. TenantSchemaMiddleware overrides per-request.
+          options: '-c search_path=hr,public',
         },
       };
       },
@@ -220,6 +224,8 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
       provide: APP_GUARD,
       useClass: RolesGuard,
     },
+    // Bootstrap source schema tables on startup (creates template tables if missing)
+    SourceSchemaBootstrapService,
   ],
 })
 export class AppModule implements NestModule {

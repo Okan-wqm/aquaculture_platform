@@ -14,6 +14,7 @@ import {
   CorrelationIdMiddleware,
   TenantGuard,
   UserContextMiddleware,
+  SourceSchemaBootstrapService,
 } from '@platform/backend-common';
 
 /**
@@ -120,6 +121,9 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
           max: configService.get<number>('DATABASE_POOL_SIZE', 50),
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 5000,
+          // Default search_path targets the source schema so TypeORM sync/migrations
+          // create tables there. TenantSchemaMiddleware overrides per-request.
+          options: '-c search_path=farm,public',
         },
       };
       },
@@ -240,6 +244,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       provide: APP_GUARD,
       useClass: TenantGuard,
     },
+    // Bootstrap source schema tables on startup (creates template tables if missing)
+    SourceSchemaBootstrapService,
   ],
 })
 export class AppModule implements NestModule {

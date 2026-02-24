@@ -71,7 +71,7 @@ const TrainingPage: React.FC = () => {
                   </span>
                 )}
               </div>
-              <h3 className="mb-1 font-medium text-gray-900 dark:text-white">{course.title}</h3>
+              <h3 className="mb-1 font-medium text-gray-900 dark:text-white">{course.name}</h3>
               {course.description && (
                 <p className="mb-3 text-sm text-gray-500 line-clamp-2">{course.description}</p>
               )}

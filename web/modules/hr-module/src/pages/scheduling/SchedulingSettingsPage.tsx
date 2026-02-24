@@ -27,6 +27,7 @@ import {
   formatMinutesAsHours,
 } from '../../hooks/useScheduling';
 import { useShifts, useCreateShift, useUpdateShift } from '../../hooks/useAttendance';
+import type { Shift, CreateShiftInput, DayOfWeek } from '../../types/attendance.types';
 import type { WeekDay, UpdateSchedulingSettingsInput } from '../../types/scheduling.types';
 
 const WEEKDAY_OPTIONS: { value: WeekDay; label: string }[] = [
@@ -193,33 +194,41 @@ export function SchedulingSettingsPage() {
     if (!shiftForm.code.trim() || !shiftForm.name.trim()) return;
     if (editingShiftId) {
       updateShiftMutation.mutate(
-        { id: editingShiftId, name: shiftForm.name, startTime: shiftForm.startTime, endTime: shiftForm.endTime, totalMinutes: shiftForm.totalMinutes, breakMinutes: shiftForm.breakMinutes, colorCode: shiftForm.colorCode },
+        { id: editingShiftId, name: shiftForm.name, startTime: shiftForm.startTime, endTime: shiftForm.endTime, colorCode: shiftForm.colorCode },
         { onSuccess: resetShiftForm }
       );
     } else {
-      createShiftMutation.mutate(
-        { code: shiftForm.code, name: shiftForm.name, startTime: shiftForm.startTime, endTime: shiftForm.endTime, totalMinutes: shiftForm.totalMinutes, breakMinutes: shiftForm.breakMinutes, crossesMidnight: false, graceMinutes: 15, earlyClockInMinutes: 30, lateClockOutMinutes: 30, colorCode: shiftForm.colorCode, displayOrder: 0, shiftType: 'REGULAR' } as any,
-        { onSuccess: resetShiftForm }
-      );
+      const createInput: CreateShiftInput = {
+        code: shiftForm.code,
+        name: shiftForm.name,
+        startTime: shiftForm.startTime,
+        endTime: shiftForm.endTime,
+        graceMinutes: 15,
+        colorCode: shiftForm.colorCode,
+        workDays: [] as DayOfWeek[],
+      };
+      createShiftMutation.mutate(createInput, { onSuccess: resetShiftForm });
     }
   };
 
-  const handleEditShift = (shift: any) => {
+  const handleEditShift = (shift: Shift) => {
     setShiftForm({
       code: shift.code,
       name: shift.name,
       startTime: shift.startTime?.substring(0, 5) || '08:00',
       endTime: shift.endTime?.substring(0, 5) || '16:00',
-      totalMinutes: shift.totalMinutes || 480,
-      breakMinutes: shift.breakMinutes || 0,
+      totalMinutes: 480,
+      breakMinutes: 0,
       colorCode: shift.colorCode || '#3B82F6',
     });
     setEditingShiftId(shift.id);
     setShowShiftForm(true);
   };
 
-  const handleToggleShiftActive = (shift: any) => {
-    updateShiftMutation.mutate({ id: shift.id, isActive: !shift.isActive });
+  const handleToggleShiftActive = (shift: Shift) => {
+    updateShiftMutation.mutate(
+      { id: shift.id, isActive: !shift.isActive } as { id: string } & Partial<CreateShiftInput>
+    );
   };
 
   // Initialize form when settings load
@@ -241,7 +250,7 @@ export function SchedulingSettingsPage() {
     }
   }, [settings]);
 
-  const handleChange = (field: keyof UpdateSchedulingSettingsInput, value: any) => {
+  const handleChange = (field: keyof UpdateSchedulingSettingsInput, value: UpdateSchedulingSettingsInput[keyof UpdateSchedulingSettingsInput]) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     setHasChanges(true);
   };
@@ -717,7 +726,7 @@ export function SchedulingSettingsPage() {
                       </div>
                       <div className="text-xs text-gray-500">
                         {shift.startTime?.substring(0, 5)} - {shift.endTime?.substring(0, 5)}
-                        {(shift as any).totalMinutes && ` (${formatMinutesAsHours((shift as any).totalMinutes)})`}
+                        {(shift as Shift & { totalMinutes?: number }).totalMinutes && ` (${formatMinutesAsHours((shift as Shift & { totalMinutes?: number }).totalMinutes!)})`}
                       </div>
                     </div>
                     <div className="flex items-center gap-1">

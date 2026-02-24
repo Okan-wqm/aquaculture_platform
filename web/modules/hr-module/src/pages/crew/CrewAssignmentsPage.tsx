@@ -82,7 +82,7 @@ const WorkAreaCard: React.FC<{ workArea: WorkArea; employeeCount: number }> = ({
     office: { icon: <Building2 className="h-5 w-5" />, color: 'text-gray-600 bg-gray-50 dark:bg-gray-700' },
   };
 
-  const config = typeConfig[workArea.type] || typeConfig.office;
+  const config = typeConfig[workArea.workAreaType] || typeConfig.office;
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800">
@@ -92,7 +92,7 @@ const WorkAreaCard: React.FC<{ workArea: WorkArea; employeeCount: number }> = ({
           <div>
             <h4 className="font-medium text-gray-900 dark:text-white">{workArea.name}</h4>
             <p className="text-sm text-gray-500 dark:text-gray-400 capitalize">
-              {workArea.type.replace(/_/g, ' ')}
+              {workArea.workAreaType.replace(/_/g, ' ')}
             </p>
           </div>
         </div>
@@ -107,12 +107,12 @@ const WorkAreaCard: React.FC<{ workArea: WorkArea; employeeCount: number }> = ({
           <Users className="h-4 w-4" />
           <span>{employeeCount} assigned</span>
         </div>
-        {workArea.coordinates && (
+        {workArea.location && (
           <div className="flex items-center gap-1 text-sm text-gray-500">
             <MapPin className="h-3 w-3" />
             {/* BUG-018: maritime GPS requires 5 decimal places (~1m precision) */}
             <span>
-              {workArea.coordinates.latitude.toFixed(5)}, {workArea.coordinates.longitude.toFixed(5)}
+              {workArea.location.latitude.toFixed(5)}, {workArea.location.longitude.toFixed(5)}
             </span>
           </div>
         )}
@@ -136,7 +136,6 @@ export function CrewAssignmentsPage() {
   const { data: employees, isLoading: loadingEmployees } = useEmployees(
     {
       ...(personnelFilter && { personnelCategory: personnelFilter }),
-      ...(searchQuery && { search: searchQuery }),
     },
     pagination
   );
@@ -159,61 +158,56 @@ export function CrewAssignmentsPage() {
   // PERF-004: memoize so the column array reference is stable across renders
   const assignmentColumns: Column<CrewAssignment>[] = useMemo(() => [
     {
-      key: 'employee',
-      header: 'Employee',
+      key: 'workArea',
+      header: 'Work Area',
       sortable: true,
       accessor: (row) => (
         <div className="flex items-center gap-3">
-          {row.employee && (
-            <>
-              <EmployeeAvatar
-                firstName={row.employee.firstName}
-                lastName={row.employee.lastName}
-                size="sm"
-              />
-              <div>
-                <p className="font-medium text-gray-900 dark:text-white">
-                  {row.employee.firstName} {row.employee.lastName}
-                </p>
-                <p className="text-sm text-gray-500">{row.employee.employeeNumber}</p>
-              </div>
-            </>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: 'workArea',
-      header: 'Work Area',
-      accessor: (row) => (
-        <div className="flex items-center gap-2">
-          {row.workArea?.type === 'sea_cage' || row.workArea?.type === 'vessel' ? (
+          {row.workArea?.workAreaType === 'sea_cage' || row.workArea?.workAreaType === 'vessel' ? (
             <Ship className="h-4 w-4 text-blue-500" />
           ) : (
             <Building2 className="h-4 w-4 text-green-500" />
           )}
-          <span className="text-gray-900 dark:text-white">{row.workArea?.name}</span>
+          <div>
+            <p className="font-medium text-gray-900 dark:text-white">{row.workArea?.name}</p>
+            <p className="text-sm text-gray-500 capitalize">{row.workArea?.workAreaType?.replace(/_/g, ' ')}</p>
+          </div>
         </div>
       ),
     },
     {
-      key: 'role',
-      header: 'Role',
+      key: 'assigned',
+      header: 'Assigned Crew',
       accessor: (row) => (
-        <span className="text-gray-600 dark:text-gray-300">{row.role || 'General'}</span>
+        <div className="flex items-center gap-2">
+          <Users className="h-4 w-4 text-gray-400" />
+          <span className="text-gray-900 dark:text-white">{row.currentCount}</span>
+          <span className="text-gray-500">/ {row.maxCapacity}</span>
+        </div>
       ),
     },
     {
-      key: 'dates',
-      header: 'Assignment Period',
+      key: 'occupancy',
+      header: 'Occupancy',
       accessor: (row) => (
-        <div className="text-sm">
-          <p className="text-gray-900 dark:text-white">
-            {new Date(row.startDate).toLocaleDateString()}
-            {row.endDate && ` - ${new Date(row.endDate).toLocaleDateString()}`}
-          </p>
-          {!row.endDate && <p className="text-gray-500">Ongoing</p>}
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-24 rounded-full bg-gray-200 dark:bg-gray-700">
+            <div
+              className="h-full rounded-full bg-indigo-500"
+              style={{ width: `${Math.min(100, row.occupancyRate)}%` }}
+            />
+          </div>
+          <span className="text-sm text-gray-600 dark:text-gray-300">{Math.round(row.occupancyRate)}%</span>
         </div>
+      ),
+    },
+    {
+      key: 'location',
+      header: 'Location',
+      accessor: (row) => (
+        <span className="text-gray-600 dark:text-gray-300">
+          {row.workArea?.isOffshore ? 'Offshore' : 'Onshore'}
+        </span>
       ),
     },
     {
@@ -221,8 +215,8 @@ export function CrewAssignmentsPage() {
       header: 'Status',
       accessor: (row) => (
         <StatusBadge
-          label={row.isActive ? 'Active' : 'Inactive'}
-          variant={row.isActive ? 'success' : 'neutral'}
+          label={row.workArea?.isActive ? 'Active' : 'Inactive'}
+          variant={row.workArea?.isActive ? 'success' : 'neutral'}
           size="sm"
         />
       ),
@@ -230,7 +224,7 @@ export function CrewAssignmentsPage() {
   ], []);
 
   // PERF-009: stable keyExtractor reference
-  const assignmentKeyExtractor = useCallback((row: CrewAssignment) => row.id, []);
+  const assignmentKeyExtractor = useCallback((row: CrewAssignment) => row.workAreaId, []);
 
   const handlePageChange = (page: number) => {
     setPagination({
@@ -379,11 +373,7 @@ export function CrewAssignmentsPage() {
                 View All
               </Link>
             </div>
-            <SeaLandSplitView
-              offshoreEmployees={offshoreList}
-              onshoreEmployees={onshoreList}
-              isLoading={loadingEmployees}
-            />
+            <SeaLandSplitView variant="full" />
           </div>
 
           {/* Currently Offshore */}
@@ -396,23 +386,23 @@ export function CrewAssignmentsPage() {
                 </h3>
               </div>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {offshoreEmployees.slice(0, 6).map((employee) => (
+                {offshoreEmployees.slice(0, 6).map((offshoreStatus) => (
                   <Link
-                    key={employee.id}
-                    to={`/hr/employees/${employee.id}`}
+                    key={offshoreStatus.employee.id}
+                    to={`/hr/employees/${offshoreStatus.employee.id}`}
                     className="flex items-center gap-3 rounded-lg border border-gray-200 p-3 transition-colors hover:border-blue-300 hover:bg-blue-50 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-900/20"
                   >
                     <EmployeeAvatar
-                      firstName={employee.firstName}
-                      lastName={employee.lastName}
+                      firstName={offshoreStatus.employee.firstName}
+                      lastName={offshoreStatus.employee.lastName}
                       size="sm"
                     />
                     <div className="flex-1 min-w-0">
                       <p className="truncate font-medium text-gray-900 dark:text-white">
-                        {employee.firstName} {employee.lastName}
+                        {offshoreStatus.employee.firstName} {offshoreStatus.employee.lastName}
                       </p>
                       <p className="truncate text-sm text-gray-500">
-                        {employee.position || 'Crew Member'}
+                        {offshoreStatus.employee.position || 'Crew Member'}
                       </p>
                     </div>
                     <Anchor className="h-4 w-4 text-blue-500" />
@@ -497,7 +487,7 @@ export function CrewAssignmentsPage() {
                   key={workArea.id}
                   workArea={workArea}
                   employeeCount={
-                    crewAssignments?.filter((a) => a.workAreaId === workArea.id && a.isActive)
+                    crewAssignments?.filter((a) => a.workAreaId === workArea.id)
                       .length || 0
                   }
                 />

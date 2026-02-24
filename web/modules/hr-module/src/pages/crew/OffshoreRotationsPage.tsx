@@ -30,6 +30,7 @@ import {
 import { DataTable, StatusBadge, EmployeeAvatar } from '../../components/common';
 import type { Column } from '../../components/common';
 import type { WorkRotation, Employee, RotationType, PaginationInput } from '../../types';
+import { RotationStatus } from '../../types';
 
 // ============================================================================
 // Types
@@ -184,13 +185,13 @@ export function OffshoreRotationsPage() {
   const { data: offshoreEmployees, isLoading: loadingOffshore } = useCurrentlyOffshore();
 
   // Calculate stats
-  const activeRotations = rotations?.filter((r) => r.status === 'active') || [];
+  const activeRotations = rotations?.filter((r) => r.status === RotationStatus.IN_PROGRESS) || [];
   const upcomingTransitions = rotations
     ?.filter((r) => {
       const endDate = new Date(r.endDate);
       const now = new Date();
       const daysUntil = Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-      return daysUntil > 0 && daysUntil <= 7 && r.status === 'active';
+      return daysUntil > 0 && daysUntil <= 7 && r.status === RotationStatus.IN_PROGRESS;
     })
     .sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime()) || [];
 
@@ -266,7 +267,7 @@ export function OffshoreRotationsPage() {
             {new Date(row.startDate).toLocaleDateString()} -{' '}
             {new Date(row.endDate).toLocaleDateString()}
           </p>
-          {row.status === 'active' && (
+          {row.status === RotationStatus.IN_PROGRESS && (
             <p className="text-gray-500">
               {Math.ceil(
                 (new Date(row.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
@@ -282,12 +283,12 @@ export function OffshoreRotationsPage() {
       header: 'Status',
       accessor: (row) => {
         const statusConfig: Record<string, { label: string; variant: 'success' | 'warning' | 'error' | 'neutral' }> = {
-          active: { label: 'Active', variant: 'success' },
-          pending: { label: 'Pending', variant: 'warning' },
+          in_progress: { label: 'Active', variant: 'success' },
+          scheduled: { label: 'Scheduled', variant: 'warning' },
           completed: { label: 'Completed', variant: 'neutral' },
           cancelled: { label: 'Cancelled', variant: 'error' },
         };
-        const config = statusConfig[row.status] || statusConfig.pending;
+        const config = statusConfig[row.status] || statusConfig.scheduled;
         return <StatusBadge label={config.label} variant={config.variant} size="sm" />;
       },
     },
@@ -527,7 +528,7 @@ export function OffshoreRotationsPage() {
                 const dayRotations = rotations?.filter((r) => {
                   const start = new Date(r.startDate);
                   const end = new Date(r.endDate);
-                  return day >= start && day <= end && r.status === 'active';
+                  return day >= start && day <= end && r.status === RotationStatus.IN_PROGRESS;
                 }) || [];
 
                 return (

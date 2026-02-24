@@ -66,7 +66,7 @@ export function AttendancePage() {
       sortable: true,
       accessor: (row) => (
         <span className="text-gray-700 dark:text-gray-300">
-          {new Date(row.date).toLocaleDateString()}
+          {new Date(row.attendanceDate).toLocaleDateString()}
         </span>
       ),
     },
@@ -191,13 +191,13 @@ export function AttendancePage() {
             <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Avg Hours Today</p>
+                  <p className="text-sm text-gray-500">Attendance Rate</p>
                   {loadingOverview ? (
                     <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200" />
                   ) : (
                     <p className="mt-1 text-2xl font-bold text-indigo-600">
-                      {overview?.averageWorkedHours?.toFixed(1) ?? '-'}
-                      <span className="text-sm font-normal text-gray-500">h</span>
+                      {overview?.attendanceRate?.toFixed(1) ?? '-'}
+                      <span className="text-sm font-normal text-gray-500">%</span>
                     </p>
                   )}
                 </div>

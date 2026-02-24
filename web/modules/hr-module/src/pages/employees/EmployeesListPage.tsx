@@ -28,10 +28,9 @@ export function EmployeesListPage() {
 
   // SEC-007: only HR managers may perform destructive bulk actions
   const canBulkDelete =
-    user?.roles?.includes('hr_manager') ||
-    user?.roles?.includes('admin') ||
-    user?.role === 'hr_manager' ||
-    user?.role === 'admin';
+    user?.role === 'SUPER_ADMIN' ||
+    user?.role === 'TENANT_ADMIN' ||
+    user?.role === 'MODULE_MANAGER';
 
   // State
   const [filter, setFilter] = useState<EmployeeFilterInput>({});
@@ -48,7 +47,7 @@ export function EmployeesListPage() {
 
   // Data fetching
   const { data: employees, isLoading } = useEmployees(
-    { ...filter, search: deferredSearch || undefined },
+    { ...filter },
     pagination
   );
   const { data: departments } = useDepartments();

@@ -184,15 +184,14 @@ export function WeeklySchedulePage() {
         };
       }, unknown>(
         gqlClient,
-        `query GetSchedulingEmployees($filter: EmployeeFilterInput, $pagination: PaginationInput) {
-          employees(filter: $filter, pagination: $pagination) {
+        `query GetSchedulingEmployees($filter: EmployeeFilterInput) {
+          employees(filter: $filter) {
             items { id firstName lastName position department }
             total
           }
         }`,
         {
-          filter: { status: 'active' },
-          pagination: { limit: 200, offset: 0 },
+          filter: { status: 'active', limit: 200, offset: 0 },
         }
       ),
     select: (data) => data.employees,

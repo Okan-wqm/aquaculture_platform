@@ -106,8 +106,8 @@ export function usePerformanceReviews(
       }, unknown>(client, GET_PERFORMANCE_REVIEWS, {
         employeeId: filter?.employeeId,
         status: filter?.status,
-        limit: filter?.limit,
-        offset: filter?.offset,
+        limit: 20,
+        offset: 0,
       }),
     select: (data) => data.performanceReviews,
     enabled: false, // Backend resolver not yet implemented
@@ -210,8 +210,8 @@ export function useGoals(filter?: GoalFilterInput) {
         {
           employeeId: filter?.employeeId,
           status: filter?.status,
-          limit: filter?.limit,
-          offset: filter?.offset,
+          limit: 20,
+          offset: 0,
         }
       ),
     select: (data) => data.goals,
@@ -232,7 +232,7 @@ export function useGoal(id: string) {
         };
       }, unknown>(client, GET_GOAL, { id }),
     select: (data) => data.goal,
-    enabled: !!id,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -248,6 +248,7 @@ export function useMyGoals(filter?: GoalFilterInput) {
         { status: filter?.status }
       ),
     select: (data) => data.myGoals,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -263,7 +264,7 @@ export function useTeamGoals(managerId: string, filter?: GoalFilterInput) {
         { managerId, status: filter?.status }
       ),
     select: (data) => data.teamGoals,
-    enabled: !!managerId,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -277,6 +278,7 @@ export function useOverdueGoals(departmentId?: string) {
         overdueGoals: (Goal & { daysOverdue: number })[];
       }, unknown>(client, GET_OVERDUE_GOALS, { departmentId }),
     select: (data) => data.overdueGoals,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -300,7 +302,7 @@ export function useEmployeeKPIs(
         { employeeId, periodStart, periodEnd }
       ),
     select: (data) => data.employeeKPIs,
-    enabled: !!employeeId,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 

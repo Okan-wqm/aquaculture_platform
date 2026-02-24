@@ -21,10 +21,9 @@ const PayrollPage: React.FC = () => {
   // SEC-003: Payroll data is sensitive PII (salary, bank info, tax ID).
   // Only privileged roles may see this page.
   const isAuthorised =
-    user?.roles?.includes('payroll_admin') ||
-    user?.roles?.includes('hr_manager') ||
-    user?.role === 'payroll_admin' ||
-    user?.role === 'hr_manager';
+    user?.role === 'SUPER_ADMIN' ||
+    user?.role === 'TENANT_ADMIN' ||
+    user?.role === 'MODULE_MANAGER';
 
   if (!isAuthorised) {
     return (

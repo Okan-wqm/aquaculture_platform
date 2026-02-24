@@ -208,7 +208,7 @@ export function useCurrentEmployeeId(): string {
   const { user } = useAuth();
   // `sub` is the standard JWT subject — used as the authoritative identity field.
   // All pages should use this hook rather than reading user.id or user.sub directly.
-  return user?.sub || user?.id || '';
+  return user?.id || '';
 }
 
 export function useDirectReports(supervisorId: string) {

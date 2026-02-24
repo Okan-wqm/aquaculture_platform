@@ -10,7 +10,7 @@ export interface BaseEntity {
   updatedAt: string;
   createdBy?: string;
   updatedBy?: string;
-  version: number;
+  version?: number;
   isDeleted: boolean;
 }
 

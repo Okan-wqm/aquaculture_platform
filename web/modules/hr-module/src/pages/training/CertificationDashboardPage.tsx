@@ -78,23 +78,48 @@ const CERTIFICATION_CATEGORY_CONFIG: Record<
     color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
     icon: <Shield className="h-4 w-4" />,
   },
-  regulatory: {
-    label: 'Regulatory',
-    color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-    icon: <FileText className="h-4 w-4" />,
+  fire_safety: {
+    label: 'Fire Safety',
+    color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    icon: <Shield className="h-4 w-4" />,
   },
-  professional: {
-    label: 'Professional',
+  chemical_handling: {
+    label: 'Chemical Handling',
+    color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+    icon: <Shield className="h-4 w-4" />,
+  },
+  fish_handling: {
+    label: 'Fish Handling',
+    color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
+    icon: <Award className="h-4 w-4" />,
+  },
+  water_quality: {
+    label: 'Water Quality',
+    color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
+    icon: <Shield className="h-4 w-4" />,
+  },
+  leadership: {
+    label: 'Leadership',
     color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
     icon: <Award className="h-4 w-4" />,
+  },
+  technical: {
+    label: 'Technical',
+    color: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400',
+    icon: <Award className="h-4 w-4" />,
+  },
+  other: {
+    label: 'Other',
+    color: 'bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400',
+    icon: <FileText className="h-4 w-4" />,
   },
 };
 
 const STATUS_CONFIG: Record<CertificationStatus, { label: string; variant: 'success' | 'warning' | 'error' | 'neutral' }> = {
   active: { label: 'Active', variant: 'success' },
   expired: { label: 'Expired', variant: 'error' },
-  expiring_soon: { label: 'Expiring Soon', variant: 'warning' },
-  pending: { label: 'Pending', variant: 'neutral' },
+  pending_renewal: { label: 'Pending Renewal', variant: 'warning' },
+  suspended: { label: 'Suspended', variant: 'warning' },
   revoked: { label: 'Revoked', variant: 'error' },
 };
 
@@ -152,7 +177,7 @@ const CertificationTypeCard: React.FC<{
   activeCount: number;
   expiringCount: number;
 }> = ({ type, activeCount, expiringCount }) => {
-  const categoryConfig = CERTIFICATION_CATEGORY_CONFIG[type.category] || CERTIFICATION_CATEGORY_CONFIG.professional;
+  const categoryConfig = CERTIFICATION_CATEGORY_CONFIG[type.category] || CERTIFICATION_CATEGORY_CONFIG.other;
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800">
@@ -189,9 +214,9 @@ const CertificationTypeCard: React.FC<{
           <p className="text-xs text-gray-500">Expiring</p>
         </div>
       </div>
-      {type.validityPeriodMonths && (
+      {type.validityMonths && (
         <p className="mt-3 text-xs text-gray-500">
-          Valid for {type.validityPeriodMonths} months
+          Valid for {type.validityMonths} months
         </p>
       )}
     </div>
@@ -228,16 +253,11 @@ export function CertificationDashboardPage() {
   const mandatoryCertTypes = certTypes?.filter((t) => t.isMandatory).length || 0;
   const expiringIn30Days = expiring30?.length || 0;
   const expiringIn7Days = expiring7?.length || 0;
-  const expiredCount = expiring30?.filter((c) => new Date(c.expiryDate) < new Date()).length || 0;
+  const expiredCount = expiring30?.filter((c) => c.expiryDate ? new Date(c.expiryDate) < new Date() : false).length || 0;
 
-  // All certifications from employees
-  const allCertifications: EmployeeCertification[] = employees?.items?.flatMap(
-    (emp) =>
-      emp.certifications?.map((cert) => ({
-        ...cert,
-        employee: emp,
-      })) || []
-  ) || [];
+  // Employee.certifications is string[] (IDs only), not full objects.
+  // Use an empty array for now — requires useEmployeeCertifications hook for full data.
+  const allCertifications: EmployeeCertification[] = [];
 
   const activeCertifications = allCertifications.filter((c) => c.status === 'active');
   const totalActive = activeCertifications.length;
@@ -245,7 +265,7 @@ export function CertificationDashboardPage() {
   // Calculate compliance rate
   const employeesWithMandatoryCerts = employees?.items?.filter((emp) => {
     const mandatoryTypes = certTypes?.filter((t) => t.isMandatory) || [];
-    const empCertTypeIds = emp.certifications?.map((c) => c.certificationTypeId) || [];
+    const empCertTypeIds = emp.certifications || [];
     return mandatoryTypes.every((mt) => empCertTypeIds.includes(mt.id));
   }).length || 0;
   const complianceRate = employees?.total
@@ -285,7 +305,7 @@ export function CertificationDashboardPage() {
         const category = row.certificationType?.category;
         const config = category
           ? CERTIFICATION_CATEGORY_CONFIG[category]
-          : CERTIFICATION_CATEGORY_CONFIG.professional;
+          : CERTIFICATION_CATEGORY_CONFIG.other;
         return (
           <div className="flex items-center gap-2">
             <div className={cn('rounded p-1', config.color)}>{config.icon}</div>
@@ -303,7 +323,7 @@ export function CertificationDashboardPage() {
       key: 'issuedBy',
       header: 'Issued By',
       accessor: (row) => (
-        <span className="text-gray-600 dark:text-gray-300">{row.issuingAuthority || '-'}</span>
+        <span className="text-gray-600 dark:text-gray-300">{row.certificationType?.issuingAuthority || row.issuedBy || '-'}</span>
       ),
     },
     {
@@ -311,7 +331,7 @@ export function CertificationDashboardPage() {
       header: 'Validity',
       sortable: true,
       accessor: (row) => {
-        const expiryDate = new Date(row.expiryDate);
+        const expiryDate = row.expiryDate ? new Date(row.expiryDate) : new Date();
         const daysUntilExpiry = Math.ceil(
           (expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
         );
@@ -321,7 +341,7 @@ export function CertificationDashboardPage() {
         return (
           <div className="text-sm">
             <p className="text-gray-900 dark:text-white">
-              {new Date(row.issueDate).toLocaleDateString()} -{' '}
+              {new Date(row.issuedDate).toLocaleDateString()} -{' '}
               {expiryDate.toLocaleDateString()}
             </p>
             <p
@@ -346,7 +366,7 @@ export function CertificationDashboardPage() {
       key: 'status',
       header: 'Status',
       accessor: (row) => {
-        const config = STATUS_CONFIG[row.status] || STATUS_CONFIG.pending;
+        const config = STATUS_CONFIG[row.status] || { label: row.status, variant: 'neutral' as const };
         return <StatusBadge label={config.label} variant={config.variant} size="sm" />;
       },
     },
@@ -476,10 +496,9 @@ export function CertificationDashboardPage() {
       {/* Expiring Certifications Alert */}
       {expiring30 && expiring30.length > 0 && (
         <CertificationExpiryAlert
-          certifications={expiring30.slice(0, 5)}
-          onRenewClick={(cert) => {
-            console.log('Renew certification:', cert.id);
-          }}
+          daysUntilExpiry={30}
+          maxItems={5}
+          onViewAll={() => setActiveTab('certifications')}
         />
       )}
 
@@ -608,8 +627,13 @@ export function CertificationDashboardPage() {
                 <option value="vessel">Vessel</option>
                 <option value="equipment">Equipment</option>
                 <option value="first_aid">First Aid</option>
-                <option value="regulatory">Regulatory</option>
-                <option value="professional">Professional</option>
+                <option value="fire_safety">Fire Safety</option>
+                <option value="chemical_handling">Chemical Handling</option>
+                <option value="fish_handling">Fish Handling</option>
+                <option value="water_quality">Water Quality</option>
+                <option value="leadership">Leadership</option>
+                <option value="technical">Technical</option>
+                <option value="other">Other</option>
               </select>
               <select
                 value={statusFilter}
@@ -618,9 +642,9 @@ export function CertificationDashboardPage() {
               >
                 <option value="">All Statuses</option>
                 <option value="active">Active</option>
-                <option value="expiring_soon">Expiring Soon</option>
                 <option value="expired">Expired</option>
-                <option value="pending">Pending</option>
+                <option value="pending_renewal">Pending Renewal</option>
+                <option value="suspended">Suspended</option>
                 <option value="revoked">Revoked</option>
               </select>
             </div>

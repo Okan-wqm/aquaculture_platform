@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom';
 import { Award, TrendingUp, Star, Target, BarChart3, Calendar, ChevronRight } from 'lucide-react';
 import { usePerformanceReviews, usePendingReviews, useCurrentEmployeeId } from '../hooks';
 import { cn } from '@aquaculture/shared-ui';
+import { ReviewStatus } from '../types';
 
 const PerformancePage: React.FC = () => {
   const employeeId = useCurrentEmployeeId();
@@ -101,7 +102,7 @@ const PerformancePage: React.FC = () => {
                   </div>
                   <div>
                     <p className="font-medium text-gray-900 dark:text-white">
-                      {review.reviewPeriod}
+                      {review.periodType ?? `${review.periodStart ?? ''} - ${review.periodEnd ?? ''}`}
                     </p>
                     <p className="text-sm text-gray-500">
                       {review.employee?.firstName} {review.employee?.lastName}
@@ -109,18 +110,18 @@ const PerformancePage: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
-                  {review.overallScore !== null && review.overallScore !== undefined && (
+                  {review.finalRating !== null && review.finalRating !== undefined && (
                     <div className="flex items-center gap-1 text-amber-600">
                       <Star className="h-4 w-4 fill-amber-500" />
-                      <span className="text-sm font-medium">{review.overallScore.toFixed(1)}</span>
+                      <span className="text-sm font-medium">{review.finalRating.toFixed(1)}</span>
                     </div>
                   )}
                   <span
                     className={cn(
                       'rounded-full px-2 py-0.5 text-xs font-medium',
-                      review.status === 'completed'
+                      review.status === ReviewStatus.FINALIZED
                         ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                        : review.status === 'in_progress'
+                        : review.status === ReviewStatus.MANAGER_REVIEW || review.status === ReviewStatus.SELF_ASSESSMENT
                         ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
                         : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
                     )}

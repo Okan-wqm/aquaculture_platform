@@ -114,7 +114,15 @@ export function useAttendanceRecords(
       graphqlRequest<{ attendanceRecords: PaginatedResponse<AttendanceRecord> }, unknown>(
         client,
         GET_ATTENDANCE_RECORDS,
-        { filter, pagination }
+        {
+          employeeId: filter?.employeeId,
+          departmentId: filter?.departmentId,
+          status: filter?.status,
+          startDate: filter?.startDate,
+          endDate: filter?.endDate,
+          limit: pagination?.limit ?? 20,
+          offset: pagination?.offset ?? 0,
+        }
       ),
     select: (data) => data.attendanceRecords,
   });
@@ -129,10 +137,14 @@ export function useMyAttendanceRecords(
   return useQuery({
     queryKey: attendanceKeys.myRecords(filter, pagination),
     queryFn: () =>
-      graphqlRequest<{ myAttendanceRecords: PaginatedResponse<AttendanceRecord> }, unknown>(
+      graphqlRequest<{ myAttendanceRecords: AttendanceRecord[] }, unknown>(
         client,
         GET_MY_ATTENDANCE_RECORDS,
-        { filter, pagination }
+        {
+          startDate: filter?.startDate,
+          endDate: filter?.endDate,
+          limit: pagination?.limit ?? 30,
+        }
       ),
     select: (data) => data.myAttendanceRecords,
   });
@@ -166,7 +178,7 @@ export function useDailyAttendanceOverview(date: string, departmentId?: string) 
         { date, departmentId }
       ),
     select: (data) => data.dailyAttendanceOverview,
-    enabled: !!date,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -184,6 +196,7 @@ export function useTodaysAttendance(departmentId?: string) {
     select: (data) => data.todaysAttendance,
     refetchInterval: 60000, // Refresh every minute
     refetchIntervalInBackground: false, // PERF-003: don't poll when tab is hidden
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -214,7 +227,7 @@ export function useEmployeeSchedule(
         endDate,
       }),
     select: (data) => data.employeeSchedule,
-    enabled: !!employeeId && !!startDate && !!endDate,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -239,6 +252,7 @@ export function useSchedules(filter?: { status?: string }) {
         }[];
       }, unknown>(client, GET_SCHEDULES, { filter }),
     select: (data) => data.schedules,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 

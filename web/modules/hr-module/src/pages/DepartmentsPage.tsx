@@ -12,7 +12,7 @@ import { useDepartments } from '../hooks';
 const DepartmentsPage: React.FC = () => {
   const { data: departments, isLoading } = useDepartments();
 
-  const totalEmployees = departments?.reduce((sum, d) => sum + (d.employeeCount || 0), 0) ?? 0;
+  const totalEmployees = 0; // Backend doesn't return employee counts per department
 
   return (
     <div className="space-y-6 p-6">
@@ -70,11 +70,6 @@ const DepartmentsPage: React.FC = () => {
                       <h3 className="font-semibold text-gray-900 dark:text-white">
                         {department.name}
                       </h3>
-                      {department.manager && (
-                        <p className="text-sm text-gray-500">
-                          {department.manager.firstName} {department.manager.lastName}
-                        </p>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -88,7 +83,7 @@ const DepartmentsPage: React.FC = () => {
                 <div className="mt-4 flex items-center justify-between">
                   <div className="flex items-center gap-2 text-gray-500">
                     <Users className="h-4 w-4" />
-                    <span className="text-sm">{department.employeeCount ?? '-'} employees</span>
+                    <span className="text-sm">{'-'} employees</span>
                   </div>
                   <Link
                     to={`/hr/employees?departmentId=${department.id}`}

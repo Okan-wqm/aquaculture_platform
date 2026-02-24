@@ -34,10 +34,9 @@ const EmployeeDetailPage: React.FC = () => {
 
   // SEC-005: only payroll-admin/manager roles should see payroll shortcut
   const isPayrollAdmin =
-    user?.roles?.includes('payroll_admin') ||
-    user?.roles?.includes('hr_manager') ||
-    user?.role === 'payroll_admin' ||
-    user?.role === 'hr_manager';
+    user?.role === 'SUPER_ADMIN' ||
+    user?.role === 'TENANT_ADMIN' ||
+    user?.role === 'MODULE_MANAGER';
 
   if (isLoading) {
     return (

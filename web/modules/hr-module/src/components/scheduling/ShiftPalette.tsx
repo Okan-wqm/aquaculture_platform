@@ -88,7 +88,7 @@ function DraggableShift({
         tabIndex={0}
         role="button"
         aria-label="Tatil - secmek icin Enter basin"
-        aria-pressed={isSelected}
+        aria-pressed={!!isSelected}
         className={cn(
           'flex items-center gap-2 px-3 py-2 rounded-lg cursor-grab',
           'bg-gray-100 border border-gray-200',
@@ -120,7 +120,7 @@ function DraggableShift({
       tabIndex={0}
       role="button"
       aria-label={`${name} vardiyasi (${startTime}-${endTime}) - secmek icin Enter basin`}
-      aria-pressed={isSelected}
+      aria-pressed={!!isSelected}
       className={cn(
         'flex items-center gap-2 px-3 py-2 rounded-lg cursor-grab',
         'border hover:opacity-80 active:cursor-grabbing',

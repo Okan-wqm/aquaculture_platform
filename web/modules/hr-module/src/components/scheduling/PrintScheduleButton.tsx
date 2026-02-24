@@ -262,7 +262,7 @@ function generatePrintableHTML(
       <div class="header">
         <h1>Haftalik Calisma Cizelgesi</h1>
         <div class="subtitle">${formatDate(weekStart)} - ${formatDate(weekEnd)}</div>
-        ${siteName || departmentName ? `<div class="meta">${[siteName, departmentName].filter(Boolean).map(s => escapeHtml(s)).join(' - ')}</div>` : ''}
+        ${siteName || departmentName ? `<div class="meta">${[siteName, departmentName].filter((s): s is string => Boolean(s)).map(s => escapeHtml(s)).join(' - ')}</div>` : ''}
       </div>
 
       <table>

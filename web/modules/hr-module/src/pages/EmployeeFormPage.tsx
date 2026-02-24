@@ -18,7 +18,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { useEmployee, useCreateEmployee, useUpdateEmployee } from '../hooks';
-import type { CreateEmployeeInput, UpdateEmployeeInput } from '../types';
+import type { CreateEmployeeInput, UpdateEmployeeInput, EmploymentType } from '../types';
 
 // ============================================================================
 // Employee Form Page
@@ -84,8 +84,8 @@ const EmployeeFormPage: React.FC = () => {
         email: formData.email,
         department: formData.department || undefined,
         position: formData.position || undefined,
-        hireDate: formData.hireDate || undefined,
-        employmentType: formData.employmentType,
+        hireDate: formData.hireDate || new Date().toISOString().split('T')[0]!,
+        employmentType: formData.employmentType as EmploymentType,
       };
       createMutation.mutate(input, {
         onSuccess: (data) => navigate(`/hr/employees/${data.createEmployee.id}`),

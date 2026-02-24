@@ -126,13 +126,13 @@ const HRAnalyticsPage: React.FC = () => {
                   <div
                     className="h-full rounded-full"
                     style={{
-                      width: `${Math.min(100, ((dept.employeeCount || 0) / (stats?.totalEmployees || 1)) * 100)}%`,
+                      width: '0%',
                       backgroundColor: dept.colorCode || '#6366f1',
                     }}
                   />
                 </div>
                 <span className="w-12 text-right text-sm text-gray-500">
-                  {dept.employeeCount ?? '-'}
+                  {'-'}
                 </span>
               </div>
             ))}

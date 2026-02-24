@@ -78,6 +78,11 @@ export class SourceSchemaBootstrapService implements OnModuleInit {
     // Ensure the schema exists
     await this.dataSource.query(`CREATE SCHEMA IF NOT EXISTS "${sourceSchema}"`);
 
+    // Drop orphaned indexes left by previous failed sync attempts.
+    // TypeORM sync can fail mid-way leaving indexes without their tables,
+    // then subsequent sync attempts crash with "relation IDX_xxx already exists".
+    await this.dropOrphanedIndexes(sourceSchema);
+
     // Run synchronize which will create tables in the source schema
     // (because the connection's search_path is set to source_schema,public)
     await this.dataSource.synchronize();
@@ -91,5 +96,31 @@ export class SourceSchemaBootstrapService implements OnModuleInit {
     this.logger.log(
       `Source schema "${sourceSchema}" bootstrap complete — created ${tablesAfter.length} tables`,
     );
+  }
+
+  /**
+   * Drop orphaned indexes in a schema that has no tables.
+   * This happens when a previous TypeORM sync failed mid-way, leaving indexes
+   * without their parent tables. Subsequent sync attempts then crash with
+   * "relation IDX_xxx already exists".
+   */
+  private async dropOrphanedIndexes(schema: string): Promise<void> {
+    const indexes = await this.dataSource.query(
+      `SELECT indexname FROM pg_indexes WHERE schemaname = $1`,
+      [schema],
+    );
+
+    if (indexes.length === 0) return;
+
+    this.logger.warn(
+      `Found ${indexes.length} orphaned indexes in empty schema "${schema}" — dropping...`,
+    );
+
+    for (const row of indexes) {
+      const indexName: string = row.indexname;
+      await this.dataSource.query(`DROP INDEX IF EXISTS "${schema}"."${indexName}"`);
+    }
+
+    this.logger.log(`Dropped ${indexes.length} orphaned indexes from "${schema}"`);
   }
 }

@@ -345,7 +345,7 @@ services:
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: "true"
+      DATABASE_SYNC: "false"
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       REDIS_HOST: redis
       REDIS_PORT: 6379

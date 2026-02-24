@@ -215,11 +215,12 @@ jobs:
           NODE_OPTIONS: '--max-old-space-size=4096'
 
   # ---------------------------------------------------------------------------
-  # Build is the HARD GATE — must succeed for deploy to proceed.
-  # Runs on both push and PR. Uses --parallel=2 for speed.
+  # Build: PR only (deploy workflow does its own build for push to main).
+  # On PR this validates the code compiles before merge.
   # ---------------------------------------------------------------------------
   build:
-    needs: install
+    needs: [install, detect-changes]
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:

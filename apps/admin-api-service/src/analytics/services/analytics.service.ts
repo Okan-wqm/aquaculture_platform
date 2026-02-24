@@ -430,7 +430,7 @@ export class AnalyticsService {
         COALESCE(SUM("amountDue") FILTER (WHERE status IN ('PENDING','SENT')),              0) AS pending_payments,
         COALESCE(SUM("amountDue") FILTER (WHERE status = 'OVERDUE'),                        0) AS overdue_payments,
         COALESCE(SUM(total)      FILTER (WHERE status = 'REFUNDED'),                        0) AS refunds
-      FROM public.invoices
+      FROM billing.invoices
     `);
     const ir = invoiceRows[0] || {};
     const totalRevenue     = Number(ir.total_revenue     || 0);

@@ -90,6 +90,9 @@ export const kpiKeys = {
 // Performance Review Queries
 // =====================
 
+// NOTE: All performance queries are disabled — backend resolvers not yet implemented.
+// Re-enable when performance module is added to hr-service.
+
 export function usePerformanceReviews(
   filter?: PerformanceReviewFilterInput
 ) {
@@ -107,6 +110,7 @@ export function usePerformanceReviews(
         offset: filter?.offset,
       }),
     select: (data) => data.performanceReviews,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -138,6 +142,7 @@ export function useMyPerformanceReviews(filter?: PerformanceReviewFilterInput) {
         { status: filter?.status }
       ),
     select: (data) => data.myPerformanceReviews,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -153,7 +158,7 @@ export function usePendingReviews(reviewerId: string) {
         { reviewerId }
       ),
     select: (data) => data.pendingReviews,
-    enabled: !!reviewerId,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -169,7 +174,7 @@ export function useTeamPerformanceOverview(departmentId: string) {
         departmentId,
       }),
     select: (data) => data.teamPerformanceOverview,
-    enabled: !!departmentId,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -185,7 +190,7 @@ export function usePerformanceSummary(employeeId: string) {
         { employeeId }
       ),
     select: (data) => data.performanceSummary,
-    enabled: !!employeeId,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -210,6 +215,7 @@ export function useGoals(filter?: GoalFilterInput) {
         }
       ),
     select: (data) => data.goals,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 

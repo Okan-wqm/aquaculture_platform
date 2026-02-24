@@ -57,7 +57,7 @@ export class SubscriptionRenewalService {
         s."planName" as "planName",
         s.status,
         s."currentPeriodEnd" as "currentPeriodEnd"
-      FROM public.subscriptions s
+      FROM billing.subscriptions s
       LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
       WHERE s.status = 'active'
         AND s."autoRenew" = true
@@ -76,7 +76,7 @@ export class SubscriptionRenewalService {
         s."planName" as "planName",
         s.status,
         s."currentPeriodEnd" as "currentPeriodEnd"
-      FROM public.subscriptions s
+      FROM billing.subscriptions s
       LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
       WHERE s.status = 'past_due'
       ORDER BY s."currentPeriodEnd" ASC
@@ -94,7 +94,7 @@ export class SubscriptionRenewalService {
         s."planName" as "planName",
         s.status,
         s."currentPeriodEnd" as "currentPeriodEnd"
-      FROM public.subscriptions s
+      FROM billing.subscriptions s
       LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
       WHERE s.status = 'past_due'
         AND s."currentPeriodEnd" < NOW() - ($1::integer * INTERVAL '1 day')
@@ -129,7 +129,7 @@ export class SubscriptionRenewalService {
         s."billingCycle" as "billingCycle",
         s.pricing,
         s."currentPeriodEnd" as "currentPeriodEnd"
-      FROM public.subscriptions s
+      FROM billing.subscriptions s
       WHERE s.status = 'active'
         AND s."autoRenew" = true
         AND s."currentPeriodEnd" <= NOW()
@@ -155,7 +155,7 @@ export class SubscriptionRenewalService {
           // Update subscription period
           await manager.query(
             `
-            UPDATE public.subscriptions SET
+            UPDATE billing.subscriptions SET
               "currentPeriodStart" = $1,
               "currentPeriodEnd" = $2,
               "updatedAt" = NOW()
@@ -167,7 +167,7 @@ export class SubscriptionRenewalService {
           // Create invoice
           await manager.query(
             `
-            INSERT INTO public.invoices (
+            INSERT INTO billing.invoices (
               id, "tenantId", "subscriptionId", "invoiceNumber", status,
               "lineItems", subtotal, total, "amountDue",
               currency, "issueDate", "dueDate", "periodStart", "periodEnd",
@@ -228,7 +228,7 @@ export class SubscriptionRenewalService {
         s."currentPeriodEnd" as "currentPeriodEnd",
         (s.pricing->>'basePrice')::decimal as "monthlyPrice",
         s."autoRenew" as "autoRenew"
-      FROM public.subscriptions s
+      FROM billing.subscriptions s
       LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
       WHERE s.status IN ('active', 'trial')
         AND s."autoRenew" = false
@@ -245,7 +245,7 @@ export class SubscriptionRenewalService {
   async markAsPastDue(subscriptionId: string): Promise<void> {
     await this.dataSource.query(
       `
-      UPDATE public.subscriptions SET
+      UPDATE billing.subscriptions SET
         status = 'past_due',
         "updatedAt" = NOW()
       WHERE id = $1
@@ -262,7 +262,7 @@ export class SubscriptionRenewalService {
   async suspendForNonPayment(subscriptionId: string): Promise<void> {
     await this.dataSource.query(
       `
-      UPDATE public.subscriptions SET
+      UPDATE billing.subscriptions SET
         status = 'suspended',
         "suspendedAt" = NOW(),
         "suspensionReason" = 'Non-payment after grace period',

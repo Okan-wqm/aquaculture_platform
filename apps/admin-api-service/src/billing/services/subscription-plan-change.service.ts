@@ -96,7 +96,7 @@ export class SubscriptionPlanChangeService {
       // Update subscription
       await manager.query(
         `
-        UPDATE public.subscriptions SET
+        UPDATE billing.subscriptions SET
           "planTier" = $1,
           "planName" = $2,
           "billingCycle" = $3,
@@ -137,7 +137,7 @@ export class SubscriptionPlanChangeService {
 
         await manager.query(
           `
-          INSERT INTO public.invoices (
+          INSERT INTO billing.invoices (
             id, "tenantId", "subscriptionId", "invoiceNumber", status,
             "lineItems", subtotal, discount, "discountCode", total, "amountDue",
             currency, "issueDate", "dueDate", "periodStart", "periodEnd",

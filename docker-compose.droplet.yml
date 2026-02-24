@@ -52,7 +52,7 @@ services:
       -c search_path=public,auth,admin
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./infrastructure/docker/init:/docker-entrypoint-initdb.d:ro
+      - ./infrastructure/docker/init-scripts:/docker-entrypoint-initdb.d:ro
     networks:
       - aqua-internal
     deploy:

@@ -119,7 +119,7 @@ export class InvoiceManagementService {
         i."periodStart" as "periodStart",
         i."periodEnd" as "periodEnd",
         i."createdAt" as "createdAt"
-      FROM public.invoices i
+      FROM billing.invoices i
       LEFT JOIN auth.tenants t ON t.id::text = i."tenantId"
       WHERE 1=1
     `;
@@ -224,7 +224,7 @@ export class InvoiceManagementService {
         i."periodStart" as "periodStart",
         i."periodEnd" as "periodEnd",
         i."createdAt" as "createdAt"
-      FROM public.invoices i
+      FROM billing.invoices i
       LEFT JOIN auth.tenants t ON t.id::text = i."tenantId"
       WHERE i.id = $1
     `,
@@ -244,7 +244,7 @@ export class InvoiceManagementService {
         COUNT(*) as count,
         COALESCE(SUM(total), 0) as "totalAmount",
         COALESCE(SUM("amountPaid"), 0) as "totalPaid"
-      FROM public.invoices
+      FROM billing.invoices
     `);
 
     const totalInvoices = parseInt(totalResult[0]?.count || '0', 10);
@@ -257,7 +257,7 @@ export class InvoiceManagementService {
         status,
         COUNT(*) as count,
         COALESCE(SUM(total), 0) as amount
-      FROM public.invoices
+      FROM billing.invoices
       GROUP BY status
     `);
 
@@ -283,7 +283,7 @@ export class InvoiceManagementService {
       SELECT
         currency,
         COALESCE(SUM(total), 0) as amount
-      FROM public.invoices
+      FROM billing.invoices
       GROUP BY currency
     `);
 
@@ -296,7 +296,7 @@ export class InvoiceManagementService {
     const paymentTimeResult = await this.dataSource.query(`
       SELECT
         AVG(EXTRACT(EPOCH FROM ("paidAt" - "issueDate")) / 86400) as "avgDays"
-      FROM public.invoices
+      FROM billing.invoices
       WHERE status = 'paid' AND "paidAt" IS NOT NULL
     `);
     const avgPaymentTime = parseFloat(paymentTimeResult[0]?.avgDays || '0');
@@ -310,7 +310,7 @@ export class InvoiceManagementService {
       SELECT
         COALESCE(SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END), 0) as paid,
         COALESCE(SUM(CASE WHEN status IN ('pending', 'sent') THEN total ELSE 0 END), 0) as pending
-      FROM public.invoices
+      FROM billing.invoices
       WHERE "issueDate" >= DATE_TRUNC('month', CURRENT_DATE)
     `);
 
@@ -359,7 +359,7 @@ export class InvoiceManagementService {
 
     await this.dataSource.query(
       `
-      UPDATE public.invoices SET
+      UPDATE billing.invoices SET
         "amountPaid" = $1,
         "amountDue" = $2,
         status = $3,
@@ -397,7 +397,7 @@ export class InvoiceManagementService {
 
     await this.dataSource.query(
       `
-      UPDATE public.invoices SET
+      UPDATE billing.invoices SET
         status = $1,
         "updatedAt" = NOW()
       WHERE id = $2
@@ -443,7 +443,7 @@ export class InvoiceManagementService {
   async updateOverdueStatus(): Promise<{ updated: number }> {
     const result = await this.dataSource.query(
       `
-      UPDATE public.invoices SET
+      UPDATE billing.invoices SET
         status = 'overdue',
         "updatedAt" = NOW()
       WHERE status IN ('pending', 'sent')

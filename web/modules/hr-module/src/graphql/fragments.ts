@@ -258,8 +258,18 @@ export const ATTENDANCE_RECORD_FRAGMENT = gql`
     clockOut
     clockInMethod
     clockOutMethod
-    clockInLocation
-    clockOutLocation
+    clockInLocation {
+      latitude
+      longitude
+      address
+      accuracy
+    }
+    clockOutLocation {
+      latitude
+      longitude
+      address
+      accuracy
+    }
     timezone
     status
     lateMinutes

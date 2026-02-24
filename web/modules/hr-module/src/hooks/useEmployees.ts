@@ -168,6 +168,10 @@ export function useSearchEmployees(search: string, limit = 10) {
 /**
  * Pre-aggregated dashboard statistics — replaces the limit:1000 employee fetch.
  * CRIT-3 / PERF-001: no raw employee records, no PII transmitted.
+ *
+ * NOTE: Backend resolver for hrDashboardStats is not yet implemented.
+ * Query is disabled to prevent 400 errors. Dashboard falls back to
+ * offshoreEmployees/departments counts via other hooks.
  */
 export function useHRDashboardStats() {
   const client = useGraphQLClient();
@@ -187,6 +191,7 @@ export function useHRDashboardStats() {
         };
       }, unknown>(client, GET_HR_DASHBOARD_STATS, {}),
     select: (data) => data.hrDashboardStats,
+    enabled: false, // Backend resolver not yet implemented
   });
 }
 

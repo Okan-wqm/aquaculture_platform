@@ -266,7 +266,7 @@ export class GetTenantUsageHandler
 
     // Get actual user count from users table in public schema
     const userCountResult = await this.dataSource.query(
-      `SELECT COUNT(*) as count FROM public.users WHERE "tenantId" = $1 AND "isActive" = true`,
+      `SELECT COUNT(*) as count FROM auth.users WHERE "tenantId" = $1 AND "isActive" = true`,
       [query.tenantId],
     );
     const currentUserCount = parseInt(userCountResult[0]?.count || '0', 10);

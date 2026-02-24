@@ -38,10 +38,10 @@ END
 $$;
 
 -- ============================================================================
--- public.subscriptions
+-- billing.subscriptions
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS public.subscriptions (
+CREATE TABLE IF NOT EXISTS billing.subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     "tenantId" TEXT NOT NULL,
     "planTier" VARCHAR(50) NOT NULL DEFAULT 'starter',
@@ -68,16 +68,16 @@ CREATE TABLE IF NOT EXISTS public.subscriptions (
     "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_subscriptions_tenant_id ON public.subscriptions ("tenantId");
-CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON public.subscriptions (status);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_tenant_id ON billing.subscriptions ("tenantId");
+CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON billing.subscriptions (status);
 
 -- ============================================================================
--- public.subscription_module_items
+-- billing.subscription_module_items
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS public.subscription_module_items (
+CREATE TABLE IF NOT EXISTS billing.subscription_module_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    "subscriptionId" UUID NOT NULL REFERENCES public.subscriptions(id) ON DELETE CASCADE,
+    "subscriptionId" UUID NOT NULL REFERENCES billing.subscriptions(id) ON DELETE CASCADE,
     "moduleId" UUID NOT NULL,
     "moduleCode" VARCHAR(50) NOT NULL,
     quantities JSONB DEFAULT '{}',
@@ -88,13 +88,13 @@ CREATE TABLE IF NOT EXISTS public.subscription_module_items (
     "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_subscription_module_items_sub_id ON public.subscription_module_items ("subscriptionId");
+CREATE INDEX IF NOT EXISTS idx_subscription_module_items_sub_id ON billing.subscription_module_items ("subscriptionId");
 
 -- ============================================================================
--- public.invoices
+-- billing.invoices
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS public.invoices (
+CREATE TABLE IF NOT EXISTS billing.invoices (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     "tenantId" TEXT NOT NULL,
     "subscriptionId" UUID,
@@ -125,9 +125,9 @@ CREATE TABLE IF NOT EXISTS public.invoices (
     "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_invoices_tenant_id ON public.invoices ("tenantId");
-CREATE INDEX IF NOT EXISTS idx_invoices_subscription_id ON public.invoices ("subscriptionId");
-CREATE INDEX IF NOT EXISTS idx_invoices_status ON public.invoices (status);
+CREATE INDEX IF NOT EXISTS idx_invoices_tenant_id ON billing.invoices ("tenantId");
+CREATE INDEX IF NOT EXISTS idx_invoices_subscription_id ON billing.invoices ("subscriptionId");
+CREATE INDEX IF NOT EXISTS idx_invoices_status ON billing.invoices (status);
 
 -- ============================================================================
 -- public.audit_logs (used by billing for subscription audit trail)
@@ -257,5 +257,7 @@ CREATE INDEX IF NOT EXISTS idx_report_executions_created_at ON admin.report_exec
 
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO aquaculture;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA admin TO aquaculture;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA billing TO aquaculture;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO aquaculture;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA admin TO aquaculture;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA billing TO aquaculture;

@@ -30,14 +30,14 @@ export class SubscriptionAnalyticsService {
   async getStats(): Promise<SubscriptionStats> {
     // Total subscriptions
     const totalResult = await this.dataSource.query(
-      `SELECT COUNT(*) as count FROM public.subscriptions`,
+      `SELECT COUNT(*) as count FROM billing.subscriptions`,
     );
     const totalSubscriptions = parseInt(totalResult[0]?.count || '0', 10);
 
     // By status
     const statusResult = await this.dataSource.query(`
       SELECT status, COUNT(*) as count
-      FROM public.subscriptions
+      FROM billing.subscriptions
       GROUP BY status
     `);
     const byStatus: Record<SubscriptionStatus, number> = {
@@ -55,7 +55,7 @@ export class SubscriptionAnalyticsService {
     // By plan tier
     const tierResult = await this.dataSource.query(`
       SELECT "planTier", COUNT(*) as count
-      FROM public.subscriptions
+      FROM billing.subscriptions
       GROUP BY "planTier"
     `);
     const byPlanTier: Record<string, number> = {};
@@ -66,7 +66,7 @@ export class SubscriptionAnalyticsService {
     // By billing cycle
     const cycleResult = await this.dataSource.query(`
       SELECT "billingCycle", COUNT(*) as count
-      FROM public.subscriptions
+      FROM billing.subscriptions
       GROUP BY "billingCycle"
     `);
     const byBillingCycle: Record<string, number> = {};
@@ -85,7 +85,7 @@ export class SubscriptionAnalyticsService {
           ELSE 0
         END
       ), 0) as mrr
-      FROM public.subscriptions
+      FROM billing.subscriptions
       WHERE status IN ('active', 'trial')
     `);
     const mrr = parseFloat(mrrResult[0]?.mrr || '0');
@@ -94,7 +94,7 @@ export class SubscriptionAnalyticsService {
     // Expiring this month
     const expiringResult = await this.dataSource.query(`
       SELECT COUNT(*) as count
-      FROM public.subscriptions
+      FROM billing.subscriptions
       WHERE status = 'active'
         AND "autoRenew" = false
         AND "currentPeriodEnd" <= NOW() + INTERVAL '30 days'
@@ -107,7 +107,7 @@ export class SubscriptionAnalyticsService {
     // Total revenue from paid invoices
     const revenueResult = await this.dataSource.query(`
       SELECT COALESCE(SUM("amountPaid"), 0) as total
-      FROM public.invoices
+      FROM billing.invoices
       WHERE status = 'paid'
     `);
     const totalRevenue = parseFloat(revenueResult[0]?.total || '0');
@@ -119,7 +119,7 @@ export class SubscriptionAnalyticsService {
     // Churn rate (cancelled in last 30 days / active at start)
     const churnResult = await this.dataSource.query(`
       SELECT COUNT(*) as count
-      FROM public.subscriptions
+      FROM billing.subscriptions
       WHERE status = 'cancelled'
         AND "cancelledAt" >= NOW() - INTERVAL '30 days'
     `);
@@ -133,7 +133,7 @@ export class SubscriptionAnalyticsService {
       SELECT
         COUNT(CASE WHEN "trialEndDate" IS NOT NULL THEN 1 END) as total_trials,
         COUNT(CASE WHEN "trialEndDate" IS NOT NULL AND status = 'active' THEN 1 END) as converted
-      FROM public.subscriptions
+      FROM billing.subscriptions
     `);
     const totalTrials = parseInt(trialConversionResult[0]?.total_trials || '0', 10);
     const convertedTrials = parseInt(trialConversionResult[0]?.converted || '0', 10);
@@ -186,7 +186,7 @@ export class SubscriptionAnalyticsService {
         ), 0)::decimal as mrr,
         COUNT(DISTINCT s.id)::integer as "activeCount"
       FROM months m
-      LEFT JOIN public.subscriptions s ON
+      LEFT JOIN billing.subscriptions s ON
         s.status IN ('active', 'trial')
         AND s."createdAt" <= m.month + INTERVAL '1 month'
         AND (s."cancelledAt" IS NULL OR s."cancelledAt" > m.month)
@@ -210,7 +210,7 @@ export class SubscriptionAnalyticsService {
     // Get churned subscriptions
     const churnedResult = await this.dataSource.query(`
       SELECT COUNT(*) as count
-      FROM public.subscriptions
+      FROM billing.subscriptions
       WHERE status = 'cancelled'
         AND "cancelledAt" >= NOW() - ($1::integer * INTERVAL '1 day')
     `, [days]);
@@ -219,7 +219,7 @@ export class SubscriptionAnalyticsService {
     // Get total at start of period
     const totalAtStartResult = await this.dataSource.query(`
       SELECT COUNT(*) as count
-      FROM public.subscriptions
+      FROM billing.subscriptions
       WHERE "createdAt" < NOW() - ($1::integer * INTERVAL '1 day')
         AND status != 'cancelled'
     `, [days]);
@@ -231,7 +231,7 @@ export class SubscriptionAnalyticsService {
       SELECT
         COALESCE("cancellationReason", 'Unknown') as reason,
         COUNT(*) as count
-      FROM public.subscriptions
+      FROM billing.subscriptions
       WHERE status = 'cancelled'
         AND "cancelledAt" >= NOW() - ($1::integer * INTERVAL '1 day')
       GROUP BY "cancellationReason"
@@ -246,7 +246,7 @@ export class SubscriptionAnalyticsService {
       SELECT
         "planTier" as tier,
         COUNT(*) as count
-      FROM public.subscriptions
+      FROM billing.subscriptions
       WHERE status = 'cancelled'
         AND "cancelledAt" >= NOW() - ($1::integer * INTERVAL '1 day')
       GROUP BY "planTier"
@@ -261,7 +261,7 @@ export class SubscriptionAnalyticsService {
       SELECT AVG(
         EXTRACT(EPOCH FROM ("cancelledAt" - "createdAt")) / (30 * 24 * 60 * 60)
       ) as avg_months
-      FROM public.subscriptions
+      FROM billing.subscriptions
       WHERE status = 'cancelled'
         AND "cancelledAt" IS NOT NULL
     `);
@@ -297,7 +297,7 @@ export class SubscriptionAnalyticsService {
           END
         ) as mrr,
         COUNT(*) as count
-      FROM public.subscriptions
+      FROM billing.subscriptions
       WHERE status IN ('active', 'trial')
       GROUP BY "planTier"
     `);
@@ -332,7 +332,7 @@ export class SubscriptionAnalyticsService {
     // New subscriptions in period
     const newResult = await this.dataSource.query(`
       SELECT COUNT(*) as count
-      FROM public.subscriptions
+      FROM billing.subscriptions
       WHERE "createdAt" >= NOW() - ($1::integer * INTERVAL '1 month')
     `, [months]);
     const newSubscriptions = parseInt(newResult[0]?.count || '0', 10);
@@ -340,7 +340,7 @@ export class SubscriptionAnalyticsService {
     // Cancelled in period
     const cancelledResult = await this.dataSource.query(`
       SELECT COUNT(*) as count
-      FROM public.subscriptions
+      FROM billing.subscriptions
       WHERE "cancelledAt" >= NOW() - ($1::integer * INTERVAL '1 month')
     `, [months]);
     const cancelled = parseInt(cancelledResult[0]?.count || '0', 10);
@@ -350,7 +350,7 @@ export class SubscriptionAnalyticsService {
     // Growth rate
     const previousResult = await this.dataSource.query(`
       SELECT COUNT(*) as count
-      FROM public.subscriptions
+      FROM billing.subscriptions
       WHERE "createdAt" < NOW() - ($1::integer * INTERVAL '1 month')
         AND status != 'cancelled'
     `, [months]);
@@ -368,7 +368,7 @@ export class SubscriptionAnalyticsService {
           ELSE 0
         END
       ) as avg_mrr
-      FROM public.subscriptions
+      FROM billing.subscriptions
       WHERE "createdAt" >= NOW() - ($1::integer * INTERVAL '1 month')
     `, [months]);
     const avgNewMrr = parseFloat(avgMrrResult[0]?.avg_mrr || '0');

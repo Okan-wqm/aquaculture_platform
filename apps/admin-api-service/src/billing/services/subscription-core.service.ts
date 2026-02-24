@@ -59,7 +59,7 @@ export class SubscriptionCoreService {
         s."trialEndDate" as "trialEndDate",
         s."cancelledAt" as "cancelledAt",
         s."createdAt" as "createdAt"
-      FROM public.subscriptions s
+      FROM billing.subscriptions s
       LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
       WHERE 1=1
     `;
@@ -150,7 +150,7 @@ export class SubscriptionCoreService {
         s."trialEndDate" as "trialEndDate",
         s."cancelledAt" as "cancelledAt",
         s."createdAt" as "createdAt"
-      FROM public.subscriptions s
+      FROM billing.subscriptions s
       LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
       WHERE s."tenantId" = $1
     `,
@@ -181,7 +181,7 @@ export class SubscriptionCoreService {
     await this.dataSource.transaction(async (manager) => {
       await manager.query(
         `
-        UPDATE public.subscriptions SET
+        UPDATE billing.subscriptions SET
           status = $1,
           "cancelledAt" = NOW(),
           "cancellationReason" = $2,
@@ -253,7 +253,7 @@ export class SubscriptionCoreService {
 
     await this.dataSource.query(
       `
-      UPDATE public.subscriptions SET
+      UPDATE billing.subscriptions SET
         status = 'active',
         "cancelledAt" = NULL,
         "cancellationReason" = NULL,
@@ -299,7 +299,7 @@ export class SubscriptionCoreService {
 
     await this.dataSource.query(
       `
-      UPDATE public.subscriptions SET
+      UPDATE billing.subscriptions SET
         "trialEndDate" = $1,
         "currentPeriodEnd" = $1,
         "updatedAt" = NOW(),
@@ -367,7 +367,7 @@ export class SubscriptionCoreService {
 
     // Check if subscription already exists
     const existingSubscription = await this.dataSource.query(
-      `SELECT id FROM public.subscriptions WHERE "tenantId" = $1`,
+      `SELECT id FROM billing.subscriptions WHERE "tenantId" = $1`,
       [tenantId],
     );
 
@@ -437,7 +437,7 @@ export class SubscriptionCoreService {
       // Create subscription record
       const subscriptionResult = await manager.query(
         `
-        INSERT INTO public.subscriptions (
+        INSERT INTO billing.subscriptions (
           id, "tenantId", "planTier", "planName", status, "billingCycle",
           "currentPeriodStart", "currentPeriodEnd", "trialEndDate",
           limits, pricing, "autoRenew", currency,
@@ -472,7 +472,7 @@ export class SubscriptionCoreService {
       for (const moduleConfig of modules) {
         const itemResult = await manager.query(
           `
-          INSERT INTO public.subscription_module_items (
+          INSERT INTO billing.subscription_module_items (
             id, "subscriptionId", "moduleId", "moduleCode",
             quantities, "monthlyPrice", "lineItems",
             "isActive", "createdAt", "updatedAt"

@@ -779,10 +779,10 @@ export class TenantProvisioningService {
             status, "expiresAt", "invitedBy", "sendCount", "lastSentAt", "createdAt", "updatedAt"
           ) VALUES (
             gen_random_uuid(), $1, $2, $3, $4, 'TENANT_ADMIN', $5,
-            'PENDING', $6, NULL, 1, NOW(), NOW(), NOW()
+            'PENDING', $6, $7, 1, NOW(), NOW(), NOW()
           )
         `,
-          [invitationToken, email, firstName, lastName, tenantId, expiresAt],
+          [invitationToken, email, firstName, lastName, tenantId, expiresAt, userId],
         );
 
         // Update tenant user count

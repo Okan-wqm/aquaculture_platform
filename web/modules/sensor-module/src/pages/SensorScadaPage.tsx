@@ -29,27 +29,6 @@ import { SensorPanel } from '../components/scada/SensorPanel';
 
 
 // ============================================================================
-// Stats Card Component
-// ============================================================================
-
-interface StatCardProps {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  iconBg: string;
-}
-
-const StatCard: React.FC<StatCardProps> = ({ icon, label, value, iconBg }) => (
-  <div className="flex items-center gap-3 px-4 py-3 bg-white rounded-lg border border-gray-200">
-    <div className={`p-2 rounded-lg ${iconBg}`}>{icon}</div>
-    <div>
-      <p className="text-lg font-semibold text-gray-900">{value}</p>
-      <p className="text-xs text-gray-500">{label}</p>
-    </div>
-  </div>
-);
-
-// ============================================================================
 // Sensor SCADA Page
 // ============================================================================
 
@@ -113,93 +92,49 @@ const SensorScadaPage: React.FC = () => {
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-100">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 shadow-sm">
-        <div className="flex items-center gap-4">
-          {/* Process Selector */}
+      {/* Compact Header Toolbar */}
+      <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200 shadow-sm">
+        <div className="flex items-center gap-3">
           <ProcessSelector />
-
-          <div className="h-8 w-px bg-gray-200" />
-
-          {/* Live Mode Toggle */}
+          <div className="h-6 w-px bg-gray-200" />
           <button
             onClick={() => setIsLiveMode(!isLiveMode)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium text-xs transition-colors ${
               isLiveMode
                 ? 'bg-green-100 text-green-700 hover:bg-green-200'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
-            {isLiveMode ? (
-              <>
-                <Play className="w-4 h-4" />
-                Canlı
-              </>
-            ) : (
-              <>
-                <Pause className="w-4 h-4" />
-                Duraklatıldı
-              </>
-            )}
+            {isLiveMode ? <><Play className="w-3.5 h-3.5" />Canlı</> : <><Pause className="w-3.5 h-3.5" />Durduruldu</>}
           </button>
-
-          {/* Last Update */}
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <Clock className="w-4 h-4" />
-            <span>Son güncelleme: {lastUpdateTime}</span>
+          <div className="h-6 w-px bg-gray-200" />
+          <div className="flex items-center gap-3 text-xs text-gray-500">
+            <span className="flex items-center gap-1"><Server className="w-3.5 h-3.5 text-cyan-600" />{stats.parentCount} cihaz</span>
+            <span className="flex items-center gap-1"><Activity className="w-3.5 h-3.5 text-blue-600" />{stats.channelCount} kanal</span>
+            <span className="flex items-center gap-1"><Wifi className="w-3.5 h-3.5 text-green-600" />{stats.onlineCount} çevrimiçi</span>
+          </div>
+          <div className="flex items-center gap-1 text-xs text-gray-400">
+            <Clock className="w-3 h-3" />
+            {lastUpdateTime}
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Stats */}
-          <div className="flex items-center gap-4 mr-4">
-            <StatCard
-              icon={<Server className="w-4 h-4 text-cyan-600" />}
-              label="Cihaz"
-              value={stats.parentCount}
-              iconBg="bg-cyan-50"
-            />
-            <StatCard
-              icon={<Activity className="w-4 h-4 text-blue-600" />}
-              label="Veri Kanalı"
-              value={stats.channelCount}
-              iconBg="bg-blue-50"
-            />
-            <StatCard
-              icon={<Wifi className="w-4 h-4 text-green-600" />}
-              label="Çevrimiçi"
-              value={stats.onlineCount}
-              iconBg="bg-green-50"
-            />
-          </div>
-
-          {/* Refresh Button */}
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              setProcesses([]); // Clear to trigger reload
-              refetchProcesses();
-            }}
-            className="flex items-center gap-2 px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            onClick={() => { setProcesses([]); refetchProcesses(); }}
+            className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+            title="Yenile"
           >
             <RefreshCw className={`w-4 h-4 ${processesLoading ? 'animate-spin' : ''}`} />
-            Yenile
           </button>
-
-          {/* Widget Dashboard Link */}
-          <Link
-            to="/sensor/widgets"
-            className="flex items-center gap-2 px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-          >
+          <Link to="/sensor/widgets" className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors" title="Widget Dashboard">
             <LayoutGrid className="w-4 h-4" />
-            Widget Dashboard
           </Link>
-
-          {/* Create New Process Button */}
           <Link
             to="/sensor/process/new"
-            className="flex items-center gap-2 px-4 py-2 text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-white text-xs bg-cyan-600 hover:bg-cyan-700 rounded-md transition-colors"
           >
-            <PlusCircle className="w-4 h-4" />
+            <PlusCircle className="w-3.5 h-3.5" />
             Yeni Proses
           </Link>
         </div>
@@ -245,31 +180,13 @@ const SensorScadaPage: React.FC = () => {
         )}
       </div>
 
-      {/* Status Bar */}
-      <div className="flex items-center justify-between px-6 py-2 bg-white border-t border-gray-200 text-xs text-gray-500">
-        <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1">
-            <Layers className="w-3 h-3" />
-            {selectedProcess ? selectedProcess.nodes.length : 0} ekipman
-          </span>
-          <span className="flex items-center gap-1">
-            <Activity className="w-3 h-3" />
-            {stats.channelCount} aktif sensör
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          {isLiveMode ? (
-            <>
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              <span>Canlı veri akışı</span>
-            </>
-          ) : (
-            <>
-              <span className="w-2 h-2 rounded-full bg-yellow-500" />
-              <span>Duraklatıldı</span>
-            </>
-          )}
-        </div>
+      {/* Minimal Status Bar */}
+      <div className="flex items-center justify-between px-4 py-1 bg-white border-t border-gray-200 text-[11px] text-gray-400">
+        <span>{selectedProcess ? selectedProcess.nodes.length : 0} ekipman · {stats.channelCount} sensör</span>
+        <span className="flex items-center gap-1.5">
+          <span className={`w-1.5 h-1.5 rounded-full ${isLiveMode ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
+          {isLiveMode ? 'Canlı' : 'Durduruldu'}
+        </span>
       </div>
     </div>
   );

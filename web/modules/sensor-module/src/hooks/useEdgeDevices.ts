@@ -46,18 +46,20 @@ export enum DeviceModel {
 }
 
 export enum IoType {
-  DI = 'digital_input',
-  DO = 'digital_output',
-  AI = 'analog_input',
-  AO = 'analog_output',
+  DI = 'DI',
+  DO = 'DO',
+  AI = 'AI',
+  AO = 'AO',
 }
 
 export enum IoDataType {
-  BOOL = 'bool',
-  INT16 = 'int16',
-  INT32 = 'int32',
-  FLOAT32 = 'float32',
-  FLOAT64 = 'float64',
+  BOOL = 'BOOL',
+  INT16 = 'INT16',
+  INT32 = 'INT32',
+  UINT16 = 'UINT16',
+  UINT32 = 'UINT32',
+  FLOAT32 = 'FLOAT32',
+  FLOAT64 = 'FLOAT64',
 }
 
 export interface DeviceIoConfig {

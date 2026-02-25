@@ -231,12 +231,6 @@ const MY_SUBSCRIPTION_QUERY = `
         basePrice
         currency
       }
-      moduleItems {
-        moduleId
-        moduleCode
-        moduleName
-        monthlyPrice
-      }
     }
   }
 `;

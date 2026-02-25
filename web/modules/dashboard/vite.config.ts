@@ -70,6 +70,7 @@ export default defineConfig({
   preview: {
     port: 3001,
   },
+  base: '/remotes/dashboard/',
   build: {
     target: 'esnext',
     // Ensure minification is enabled (default esbuild) — CRIT-1 / DASH-SEC-012

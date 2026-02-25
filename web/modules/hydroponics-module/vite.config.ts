@@ -38,6 +38,7 @@ export default defineConfig({
     cors: true,
   },
   preview: { port: 3008 },
+  base: '/remotes/hydroponics-module/',
   build: {
     target: 'esnext',
   },

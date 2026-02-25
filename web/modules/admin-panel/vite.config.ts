@@ -36,5 +36,6 @@ export default defineConfig({
   },
   server: { port: 3004, strictPort: true, cors: true },
   preview: { port: 3004 },
+  base: '/remotes/admin-panel/',
   build: { target: 'esnext' },
 });

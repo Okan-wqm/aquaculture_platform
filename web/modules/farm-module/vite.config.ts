@@ -45,6 +45,7 @@ export default defineConfig({
     cors: true,
   },
   preview: { port: 3002 },
+  base: '/remotes/farm-module/',
   build: {
     target: 'esnext',
   },

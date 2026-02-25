@@ -41,6 +41,7 @@ export default defineConfig({
     cors: true,
   },
   preview: { port: 3006 },
+  base: '/remotes/hr-module/',
   build: {
     target: 'esnext',
   },

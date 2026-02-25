@@ -51,6 +51,7 @@ export default defineConfig({
     cors: true,
   },
   preview: { port: 3005 },
+  base: '/remotes/sensor-module/',
   build: {
     target: 'esnext',
   },

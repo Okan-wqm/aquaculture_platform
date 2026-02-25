@@ -56,6 +56,7 @@ export default defineConfig({
       '@platform/shared-ui': resolve(__dirname, '../../shared-ui/src'),
     },
   },
+  base: '/remotes/tenant-admin/',
   build: {
     target: 'esnext',
   },

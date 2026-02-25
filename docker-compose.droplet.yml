@@ -401,6 +401,7 @@ services:
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      FRONTEND_URL: ${FRONTEND_URL:-https://app.suderra.com}
       THROTTLE_DEFAULT_LIMIT: 500
       THROTTLE_DEFAULT_TTL: 60
     depends_on:

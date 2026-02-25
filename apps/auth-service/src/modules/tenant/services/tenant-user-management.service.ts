@@ -579,7 +579,7 @@ export class TenantUserManagementService {
     if (!baseUrl) {
       throw new Error('APP_URL environment variable is not configured');
     }
-    const actionUrl = `${baseUrl}/auth/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(user.email)}`;
+    const actionUrl = `${baseUrl}/accept-invitation/${invitationToken}`;
 
     const event: UserInvitedEvent = {
       eventId: crypto.randomUUID(),

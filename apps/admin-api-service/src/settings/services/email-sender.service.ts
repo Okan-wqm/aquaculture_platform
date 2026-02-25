@@ -333,7 +333,7 @@ export class EmailSenderService implements OnModuleDestroy {
     options?: EmailSendOptions,
   ): Promise<EmailResult> {
     const baseUrl = process.env['FRONTEND_URL'] || 'http://localhost:8080';
-    const inviteUrl = `${baseUrl}/accept-invitation?token=${data.invitationToken}`;
+    const inviteUrl = `${baseUrl}/accept-invitation/${data.invitationToken}`;
 
     const subject = `You're invited to join ${data.tenantName} on Aquaculture Platform`;
 

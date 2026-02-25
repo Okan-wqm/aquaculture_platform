@@ -11,43 +11,42 @@ import type { Employee } from './employee.types';
 // =====================
 
 export enum CertificationCategory {
-  DIVING = 'diving',
-  SAFETY = 'safety',
-  VESSEL = 'vessel',
-  EQUIPMENT = 'equipment',
-  FIRST_AID = 'first_aid',
-  FIRE_SAFETY = 'fire_safety',
-  CHEMICAL_HANDLING = 'chemical_handling',
-  FISH_HANDLING = 'fish_handling',
-  WATER_QUALITY = 'water_quality',
-  LEADERSHIP = 'leadership',
-  TECHNICAL = 'technical',
-  OTHER = 'other',
+  DIVING = 'DIVING',
+  SAFETY = 'SAFETY',
+  VESSEL = 'VESSEL',
+  EQUIPMENT = 'EQUIPMENT',
+  FIRST_AID = 'FIRST_AID',
+  FOOD_HANDLING = 'FOOD_HANDLING',
+  ENVIRONMENTAL = 'ENVIRONMENTAL',
+  MANAGEMENT = 'MANAGEMENT',
+  TECHNICAL = 'TECHNICAL',
+  OTHER = 'OTHER',
 }
 
 export enum CertificationStatus {
-  ACTIVE = 'active',
-  EXPIRED = 'expired',
-  PENDING_RENEWAL = 'pending_renewal',
-  SUSPENDED = 'suspended',
-  REVOKED = 'revoked',
+  ACTIVE = 'ACTIVE',
+  EXPIRED = 'EXPIRED',
+  PENDING = 'PENDING',
+  EXPIRING_SOON = 'EXPIRING_SOON',
+  SUSPENDED = 'SUSPENDED',
+  REVOKED = 'REVOKED',
 }
 
 export enum TrainingDeliveryMethod {
-  IN_PERSON = 'in_person',
-  ONLINE = 'online',
-  HYBRID = 'hybrid',
-  ON_THE_JOB = 'on_the_job',
-  SELF_PACED = 'self_paced',
+  IN_PERSON = 'IN_PERSON',
+  ONLINE = 'ONLINE',
+  HYBRID = 'HYBRID',
+  ON_THE_JOB = 'ON_THE_JOB',
+  SELF_PACED = 'SELF_PACED',
 }
 
 export enum EnrollmentStatus {
-  ENROLLED = 'enrolled',
-  IN_PROGRESS = 'in_progress',
-  COMPLETED = 'completed',
-  FAILED = 'failed',
-  WITHDRAWN = 'withdrawn',
-  NO_SHOW = 'no_show',
+  ENROLLED = 'ENROLLED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+  WITHDRAWN = 'WITHDRAWN',
+  NO_SHOW = 'NO_SHOW',
 }
 
 // =====================
@@ -264,11 +263,9 @@ export const CERTIFICATION_CATEGORY_CONFIG: Record<CertificationCategory, { labe
   [CertificationCategory.VESSEL]: { label: 'Vessel Operations', icon: 'Ship' },
   [CertificationCategory.EQUIPMENT]: { label: 'Equipment', icon: 'Wrench' },
   [CertificationCategory.FIRST_AID]: { label: 'First Aid', icon: 'Heart' },
-  [CertificationCategory.FIRE_SAFETY]: { label: 'Fire Safety', icon: 'Flame' },
-  [CertificationCategory.CHEMICAL_HANDLING]: { label: 'Chemical Handling', icon: 'Flask' },
-  [CertificationCategory.FISH_HANDLING]: { label: 'Fish Handling', icon: 'Fish' },
-  [CertificationCategory.WATER_QUALITY]: { label: 'Water Quality', icon: 'Droplet' },
-  [CertificationCategory.LEADERSHIP]: { label: 'Leadership', icon: 'Users' },
+  [CertificationCategory.FOOD_HANDLING]: { label: 'Food Handling', icon: 'UtensilsCrossed' },
+  [CertificationCategory.ENVIRONMENTAL]: { label: 'Environmental', icon: 'Leaf' },
+  [CertificationCategory.MANAGEMENT]: { label: 'Management', icon: 'Users' },
   [CertificationCategory.TECHNICAL]: { label: 'Technical', icon: 'Settings' },
   [CertificationCategory.OTHER]: { label: 'Other', icon: 'FileText' },
 };
@@ -276,7 +273,8 @@ export const CERTIFICATION_CATEGORY_CONFIG: Record<CertificationCategory, { labe
 export const CERTIFICATION_STATUS_CONFIG: Record<CertificationStatus, { label: string; variant: string }> = {
   [CertificationStatus.ACTIVE]: { label: 'Active', variant: 'success' },
   [CertificationStatus.EXPIRED]: { label: 'Expired', variant: 'error' },
-  [CertificationStatus.PENDING_RENEWAL]: { label: 'Pending Renewal', variant: 'warning' },
+  [CertificationStatus.PENDING]: { label: 'Pending', variant: 'warning' },
+  [CertificationStatus.EXPIRING_SOON]: { label: 'Expiring Soon', variant: 'warning' },
   [CertificationStatus.SUSPENDED]: { label: 'Suspended', variant: 'warning' },
   [CertificationStatus.REVOKED]: { label: 'Revoked', variant: 'error' },
 };

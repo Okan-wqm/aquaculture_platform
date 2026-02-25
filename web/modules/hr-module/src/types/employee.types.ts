@@ -9,20 +9,17 @@ import type { BaseEntity, GeoLocation } from './common.types';
 // =====================
 
 export enum EmployeeStatus {
-  ACTIVE = 'active',
-  INACTIVE = 'inactive',
-  ON_LEAVE = 'on_leave',
-  SUSPENDED = 'suspended',
-  TERMINATED = 'terminated',
-  PROBATION = 'probation',
+  ACTIVE = 'ACTIVE',
+  ON_LEAVE = 'ON_LEAVE',
+  SUSPENDED = 'SUSPENDED',
+  TERMINATED = 'TERMINATED',
 }
 
 export enum EmploymentType {
-  FULL_TIME = 'full_time',
-  PART_TIME = 'part_time',
-  CONTRACT = 'contract',
-  SEASONAL = 'seasonal',
-  INTERN = 'intern',
+  FULL_TIME = 'FULL_TIME',
+  PART_TIME = 'PART_TIME',
+  CONTRACT = 'CONTRACT',
+  SEASONAL = 'SEASONAL',
 }
 
 export enum Gender {
@@ -33,22 +30,24 @@ export enum Gender {
 }
 
 export enum PersonnelCategory {
-  OFFSHORE = 'offshore',
-  ONSHORE = 'onshore',
-  HYBRID = 'hybrid',
+  OFFSHORE = 'OFFSHORE',
+  ONSHORE = 'ONSHORE',
+  HYBRID = 'HYBRID',
 }
 
 export enum WorkAreaType {
-  SHORE_FACILITY = 'shore_facility',
-  SEA_CAGE = 'sea_cage',
-  FLOATING_PLATFORM = 'floating_platform',
-  VESSEL = 'vessel',
-  FEED_BARGE = 'feed_barge',
-  PROCESSING_PLANT = 'processing_plant',
-  HATCHERY = 'hatchery',
-  WAREHOUSE = 'warehouse',
-  OFFICE = 'office',
-  LABORATORY = 'laboratory',
+  SHORE_FACILITY = 'SHORE_FACILITY',
+  SEA_CAGE = 'SEA_CAGE',
+  FLOATING_PLATFORM = 'FLOATING_PLATFORM',
+  VESSEL = 'VESSEL',
+  FEED_BARGE = 'FEED_BARGE',
+  PROCESSING_PLANT = 'PROCESSING_PLANT',
+  HATCHERY = 'HATCHERY',
+  WAREHOUSE = 'WAREHOUSE',
+  OFFICE = 'OFFICE',
+  LABORATORY = 'LABORATORY',
+  WORKSHOP = 'WORKSHOP',
+  OTHER = 'OTHER',
 }
 
 // =====================
@@ -190,11 +189,9 @@ export interface EmployeeFilterInput {
 
 export const EMPLOYEE_STATUS_CONFIG: Record<EmployeeStatus, { label: string; variant: string }> = {
   [EmployeeStatus.ACTIVE]: { label: 'Active', variant: 'success' },
-  [EmployeeStatus.INACTIVE]: { label: 'Inactive', variant: 'default' },
   [EmployeeStatus.ON_LEAVE]: { label: 'On Leave', variant: 'warning' },
   [EmployeeStatus.SUSPENDED]: { label: 'Suspended', variant: 'error' },
   [EmployeeStatus.TERMINATED]: { label: 'Terminated', variant: 'error' },
-  [EmployeeStatus.PROBATION]: { label: 'Probation', variant: 'info' },
 };
 
 export const PERSONNEL_CATEGORY_CONFIG: Record<PersonnelCategory, { label: string; variant: string }> = {
@@ -214,4 +211,6 @@ export const WORK_AREA_TYPE_LABELS: Record<WorkAreaType, string> = {
   [WorkAreaType.WAREHOUSE]: 'Warehouse',
   [WorkAreaType.OFFICE]: 'Office',
   [WorkAreaType.LABORATORY]: 'Laboratory',
+  [WorkAreaType.WORKSHOP]: 'Workshop',
+  [WorkAreaType.OTHER]: 'Other',
 };

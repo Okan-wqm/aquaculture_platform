@@ -11,26 +11,26 @@ import type { Employee, WorkAreaType } from './employee.types';
 // =====================
 
 export enum RotationType {
-  OFFSHORE = 'offshore',
-  ONSHORE = 'onshore',
-  FIELD = 'field',
-  VESSEL = 'vessel',
-  MIXED = 'mixed',
+  OFFSHORE = 'OFFSHORE',
+  ONSHORE = 'ONSHORE',
+  FIELD = 'FIELD',
+  VESSEL = 'VESSEL',
+  MIXED = 'MIXED',
 }
 
 export enum RotationStatus {
-  SCHEDULED = 'scheduled',
-  IN_PROGRESS = 'in_progress',
-  COMPLETED = 'completed',
-  CANCELLED = 'cancelled',
+  SCHEDULED = 'SCHEDULED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+  EXTENDED = 'EXTENDED',
 }
 
 export enum TransportType {
-  BOAT = 'boat',
-  HELICOPTER = 'helicopter',
-  FERRY = 'ferry',
-  VEHICLE = 'vehicle',
-  SELF = 'self',
+  BOAT = 'BOAT',
+  HELICOPTER = 'HELICOPTER',
+  VEHICLE = 'VEHICLE',
+  OTHER = 'OTHER',
 }
 
 // =====================
@@ -240,14 +240,14 @@ export const ROTATION_STATUS_CONFIG: Record<RotationStatus, { label: string; var
   [RotationStatus.IN_PROGRESS]: { label: 'In Progress', variant: 'warning' },
   [RotationStatus.COMPLETED]: { label: 'Completed', variant: 'success' },
   [RotationStatus.CANCELLED]: { label: 'Cancelled', variant: 'default' },
+  [RotationStatus.EXTENDED]: { label: 'Extended', variant: 'warning' },
 };
 
 export const TRANSPORT_TYPE_LABELS: Record<TransportType, string> = {
   [TransportType.BOAT]: 'Boat',
   [TransportType.HELICOPTER]: 'Helicopter',
-  [TransportType.FERRY]: 'Ferry',
   [TransportType.VEHICLE]: 'Vehicle',
-  [TransportType.SELF]: 'Self-arranged',
+  [TransportType.OTHER]: 'Other',
 };
 
 /**

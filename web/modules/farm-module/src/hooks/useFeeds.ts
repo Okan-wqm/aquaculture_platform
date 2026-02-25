@@ -7,28 +7,28 @@ import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
 
 // Enums
 export enum FeedType {
-  STARTER = 'starter',
-  GROWER = 'grower',
-  FINISHER = 'finisher',
-  BROODSTOCK = 'broodstock',
-  MEDICATED = 'medicated',
-  LARVAL = 'larval',
-  FRY = 'fry',
-  OTHER = 'other',
+  STARTER = 'STARTER',
+  GROWER = 'GROWER',
+  FINISHER = 'FINISHER',
+  BROODSTOCK = 'BROODSTOCK',
+  MEDICATED = 'MEDICATED',
+  LARVAL = 'LARVAL',
+  FRY = 'FRY',
+  OTHER = 'OTHER',
 }
 
 export enum FloatingType {
-  FLOATING = 'floating',
-  SINKING = 'sinking',
-  SLOW_SINKING = 'slow_sinking',
+  FLOATING = 'FLOATING',
+  SINKING = 'SINKING',
+  SLOW_SINKING = 'SLOW_SINKING',
 }
 
 export enum FeedStatus {
-  AVAILABLE = 'available',
-  LOW_STOCK = 'low_stock',
-  OUT_OF_STOCK = 'out_of_stock',
-  EXPIRED = 'expired',
-  DISCONTINUED = 'discontinued',
+  AVAILABLE = 'AVAILABLE',
+  LOW_STOCK = 'LOW_STOCK',
+  OUT_OF_STOCK = 'OUT_OF_STOCK',
+  EXPIRED = 'EXPIRED',
+  DISCONTINUED = 'DISCONTINUED',
 }
 
 // Types

@@ -10,35 +10,35 @@ import type { Employee } from './employee.types';
 // =====================
 
 export enum ReviewPeriodType {
-  ANNUAL = 'annual',
-  SEMI_ANNUAL = 'semi_annual',
-  QUARTERLY = 'quarterly',
-  PROBATION = 'probation',
-  PROJECT = 'project',
+  ANNUAL = 'ANNUAL',
+  SEMI_ANNUAL = 'SEMI_ANNUAL',
+  QUARTERLY = 'QUARTERLY',
+  PROBATION = 'PROBATION',
+  PROJECT = 'PROJECT',
 }
 
 export enum ReviewStatus {
-  DRAFT = 'draft',
-  SELF_ASSESSMENT = 'self_assessment',
-  MANAGER_REVIEW = 'manager_review',
-  CALIBRATION = 'calibration',
-  FINALIZED = 'finalized',
-  ACKNOWLEDGED = 'acknowledged',
+  DRAFT = 'DRAFT',
+  SELF_ASSESSMENT = 'SELF_ASSESSMENT',
+  MANAGER_REVIEW = 'MANAGER_REVIEW',
+  CALIBRATION = 'CALIBRATION',
+  FINALIZED = 'FINALIZED',
+  ACKNOWLEDGED = 'ACKNOWLEDGED',
 }
 
 export enum GoalStatus {
-  NOT_STARTED = 'not_started',
-  IN_PROGRESS = 'in_progress',
-  COMPLETED = 'completed',
-  CANCELLED = 'cancelled',
-  DEFERRED = 'deferred',
+  NOT_STARTED = 'NOT_STARTED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+  DEFERRED = 'DEFERRED',
 }
 
 export enum GoalPriority {
-  LOW = 'low',
-  MEDIUM = 'medium',
-  HIGH = 'high',
-  CRITICAL = 'critical',
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+  CRITICAL = 'CRITICAL',
 }
 
 export enum RatingScale {

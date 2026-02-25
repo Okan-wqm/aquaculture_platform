@@ -36,13 +36,13 @@ export enum BatchInputType {
 }
 
 export enum OperationType {
-  MORTALITY = 'mortality',
-  CULL = 'cull',
-  TRANSFER_OUT = 'transfer_out',
-  TRANSFER_IN = 'transfer_in',
-  HARVEST = 'harvest',
-  SAMPLING = 'sampling',
-  ADJUSTMENT = 'adjustment',
+  MORTALITY = 'MORTALITY',
+  CULL = 'CULL',
+  TRANSFER_OUT = 'TRANSFER_OUT',
+  TRANSFER_IN = 'TRANSFER_IN',
+  HARVEST = 'HARVEST',
+  SAMPLING = 'SAMPLING',
+  ADJUSTMENT = 'ADJUSTMENT',
 }
 
 export enum AllocationType {
@@ -55,23 +55,23 @@ export enum AllocationType {
 }
 
 export enum CullReason {
-  SMALL_SIZE = 'small_size',
-  DEFORMED = 'deformed',
-  SICK = 'sick',
-  POOR_GROWTH = 'poor_growth',
-  GRADING = 'grading',
-  OTHER = 'other',
+  SMALL_SIZE = 'SMALL_SIZE',
+  DEFORMED = 'DEFORMED',
+  SICK = 'SICK',
+  POOR_GROWTH = 'POOR_GROWTH',
+  GRADING = 'GRADING',
+  OTHER = 'OTHER',
 }
 
 export enum MortalityReason {
-  DISEASE = 'disease',
-  WATER_QUALITY = 'water_quality',
-  STRESS = 'stress',
-  HANDLING = 'handling',
-  TEMPERATURE = 'temperature',
-  OXYGEN = 'oxygen',
-  UNKNOWN = 'unknown',
-  OTHER = 'other',
+  DISEASE = 'DISEASE',
+  WATER_QUALITY = 'WATER_QUALITY',
+  STRESS = 'STRESS',
+  HANDLING = 'HANDLING',
+  TEMPERATURE = 'TEMPERATURE',
+  OXYGEN = 'OXYGEN',
+  UNKNOWN = 'UNKNOWN',
+  OTHER = 'OTHER',
 }
 
 export enum EquipmentStatus {

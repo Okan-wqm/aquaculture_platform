@@ -10,41 +10,41 @@ import type { Employee } from './employee.types';
 // =====================
 
 export enum AttendanceStatus {
-  PRESENT = 'present',
-  ABSENT = 'absent',
-  LATE = 'late',
-  EARLY_DEPARTURE = 'early_departure',
-  HALF_DAY = 'half_day',
-  ON_LEAVE = 'on_leave',
-  HOLIDAY = 'holiday',
-  OFFSHORE = 'offshore',
-  SICK = 'sick',
-  WORK_FROM_HOME = 'work_from_home',
+  PRESENT = 'PRESENT',
+  ABSENT = 'ABSENT',
+  LATE = 'LATE',
+  EARLY_LEAVE = 'EARLY_LEAVE',
+  HALF_DAY = 'HALF_DAY',
+  ON_LEAVE = 'ON_LEAVE',
+  HOLIDAY = 'HOLIDAY',
+  OFFSHORE = 'OFFSHORE',
+  REST_DAY = 'REST_DAY',
+  WORK_FROM_HOME = 'WORK_FROM_HOME',
 }
 
 export enum ClockMethod {
-  MANUAL = 'manual',
-  BIOMETRIC = 'biometric',
-  CARD = 'card',
-  GPS = 'gps',
-  WEB = 'web',
-  MOBILE = 'mobile',
+  MANUAL = 'MANUAL',
+  BIOMETRIC = 'BIOMETRIC',
+  CARD = 'CARD',
+  GPS = 'GPS',
+  WEB = 'WEB',
+  MOBILE = 'MOBILE',
 }
 
 export enum DayOfWeek {
-  MONDAY = 'monday',
-  TUESDAY = 'tuesday',
-  WEDNESDAY = 'wednesday',
-  THURSDAY = 'thursday',
-  FRIDAY = 'friday',
-  SATURDAY = 'saturday',
-  SUNDAY = 'sunday',
+  MONDAY = 'MONDAY',
+  TUESDAY = 'TUESDAY',
+  WEDNESDAY = 'WEDNESDAY',
+  THURSDAY = 'THURSDAY',
+  FRIDAY = 'FRIDAY',
+  SATURDAY = 'SATURDAY',
+  SUNDAY = 'SUNDAY',
 }
 
 export enum ScheduleStatus {
-  DRAFT = 'draft',
-  ACTIVE = 'active',
-  INACTIVE = 'inactive',
+  DRAFT = 'DRAFT',
+  ACTIVE = 'ACTIVE',
+  INACTIVE = 'INACTIVE',
 }
 
 // =====================
@@ -240,12 +240,12 @@ export const ATTENDANCE_STATUS_CONFIG: Record<AttendanceStatus, { label: string;
   [AttendanceStatus.PRESENT]: { label: 'Present', variant: 'success' },
   [AttendanceStatus.ABSENT]: { label: 'Absent', variant: 'error' },
   [AttendanceStatus.LATE]: { label: 'Late', variant: 'warning' },
-  [AttendanceStatus.EARLY_DEPARTURE]: { label: 'Early Departure', variant: 'warning' },
+  [AttendanceStatus.EARLY_LEAVE]: { label: 'Early Leave', variant: 'warning' },
   [AttendanceStatus.HALF_DAY]: { label: 'Half Day', variant: 'info' },
   [AttendanceStatus.ON_LEAVE]: { label: 'On Leave', variant: 'info' },
   [AttendanceStatus.HOLIDAY]: { label: 'Holiday', variant: 'default' },
   [AttendanceStatus.OFFSHORE]: { label: 'Offshore', variant: 'primary' },
-  [AttendanceStatus.SICK]: { label: 'Sick', variant: 'error' },
+  [AttendanceStatus.REST_DAY]: { label: 'Rest Day', variant: 'default' },
   [AttendanceStatus.WORK_FROM_HOME]: { label: 'WFH', variant: 'info' },
 };
 

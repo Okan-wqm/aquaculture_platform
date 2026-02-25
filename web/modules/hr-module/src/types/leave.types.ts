@@ -10,32 +10,33 @@ import type { Employee } from './employee.types';
 // =====================
 
 export enum LeaveCategory {
-  ANNUAL = 'annual',
-  SICK = 'sick',
-  PARENTAL = 'parental',
-  MATERNITY = 'maternity',
-  PATERNITY = 'paternity',
-  BEREAVEMENT = 'bereavement',
-  UNPAID = 'unpaid',
-  COMPENSATORY = 'compensatory',
-  SHORE_LEAVE = 'shore_leave',
-  ROTATION_BREAK = 'rotation_break',
-  EMERGENCY = 'emergency',
-  OTHER = 'other',
+  ANNUAL = 'ANNUAL',
+  SICK = 'SICK',
+  PARENTAL = 'PARENTAL',
+  BEREAVEMENT = 'BEREAVEMENT',
+  UNPAID = 'UNPAID',
+  COMPENSATORY = 'COMPENSATORY',
+  SHORE_LEAVE = 'SHORE_LEAVE',
+  ROTATION_BREAK = 'ROTATION_BREAK',
+  EMERGENCY = 'EMERGENCY',
+  PERSONAL = 'PERSONAL',
+  STUDY = 'STUDY',
+  SABBATICAL = 'SABBATICAL',
+  OTHER = 'OTHER',
 }
 
 export enum LeaveRequestStatus {
-  DRAFT = 'draft',
-  PENDING = 'pending',
-  APPROVED = 'approved',
-  REJECTED = 'rejected',
-  CANCELLED = 'cancelled',
-  WITHDRAWN = 'withdrawn',
+  DRAFT = 'DRAFT',
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  CANCELLED = 'CANCELLED',
+  WITHDRAWN = 'WITHDRAWN',
 }
 
 export enum HalfDayPeriod {
-  AM = 'am',
-  PM = 'pm',
+  AM = 'AM',
+  PM = 'PM',
 }
 
 // =====================
@@ -195,13 +196,14 @@ export const LEAVE_CATEGORY_CONFIG: Record<LeaveCategory, { label: string; icon:
   [LeaveCategory.ANNUAL]: { label: 'Annual Leave', icon: 'Sun' },
   [LeaveCategory.SICK]: { label: 'Sick Leave', icon: 'Thermometer' },
   [LeaveCategory.PARENTAL]: { label: 'Parental Leave', icon: 'Users' },
-  [LeaveCategory.MATERNITY]: { label: 'Maternity Leave', icon: 'Baby' },
-  [LeaveCategory.PATERNITY]: { label: 'Paternity Leave', icon: 'Baby' },
   [LeaveCategory.BEREAVEMENT]: { label: 'Bereavement Leave', icon: 'Heart' },
   [LeaveCategory.UNPAID]: { label: 'Unpaid Leave', icon: 'Clock' },
   [LeaveCategory.COMPENSATORY]: { label: 'Compensatory Off', icon: 'Gift' },
   [LeaveCategory.SHORE_LEAVE]: { label: 'Shore Leave', icon: 'Anchor' },
   [LeaveCategory.ROTATION_BREAK]: { label: 'Rotation Break', icon: 'RefreshCw' },
   [LeaveCategory.EMERGENCY]: { label: 'Emergency Leave', icon: 'AlertTriangle' },
+  [LeaveCategory.PERSONAL]: { label: 'Personal Leave', icon: 'User' },
+  [LeaveCategory.STUDY]: { label: 'Study Leave', icon: 'BookOpen' },
+  [LeaveCategory.SABBATICAL]: { label: 'Sabbatical', icon: 'Calendar' },
   [LeaveCategory.OTHER]: { label: 'Other Leave', icon: 'FileText' },
 };

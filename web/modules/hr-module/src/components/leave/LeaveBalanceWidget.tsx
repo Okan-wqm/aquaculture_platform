@@ -61,14 +61,15 @@ const categoryIcons: Record<LeaveCategory, React.ReactNode> = {
   [LeaveCategory.ANNUAL]: <Sun className="h-4 w-4" />,
   [LeaveCategory.SICK]: <Thermometer className="h-4 w-4" />,
   [LeaveCategory.PARENTAL]: <Calendar className="h-4 w-4" />,
-  [LeaveCategory.MATERNITY]: <Calendar className="h-4 w-4" />,
-  [LeaveCategory.PATERNITY]: <Calendar className="h-4 w-4" />,
   [LeaveCategory.BEREAVEMENT]: <Calendar className="h-4 w-4" />,
   [LeaveCategory.UNPAID]: <Clock className="h-4 w-4" />,
   [LeaveCategory.COMPENSATORY]: <Calendar className="h-4 w-4" />,
   [LeaveCategory.SHORE_LEAVE]: <Anchor className="h-4 w-4" />,
   [LeaveCategory.ROTATION_BREAK]: <Anchor className="h-4 w-4" />,
   [LeaveCategory.EMERGENCY]: <Calendar className="h-4 w-4" />,
+  [LeaveCategory.PERSONAL]: <Calendar className="h-4 w-4" />,
+  [LeaveCategory.STUDY]: <Calendar className="h-4 w-4" />,
+  [LeaveCategory.SABBATICAL]: <Calendar className="h-4 w-4" />,
   [LeaveCategory.OTHER]: <Calendar className="h-4 w-4" />,
 };
 

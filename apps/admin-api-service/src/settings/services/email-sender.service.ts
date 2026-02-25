@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 
+import { EmailTemplateService } from './email-template.service';
 import { SystemSettingService } from './system-setting.service';
 
 export interface InvitationEmailData {
@@ -59,7 +60,10 @@ export class EmailSenderService implements OnModuleDestroy {
   private static readonly FAILURE_THRESHOLD = 5;
   private static readonly RECOVERY_TIMEOUT_MS = 60_000; // 1 minute before half-open
 
-  constructor(private readonly settingsService: SystemSettingService) {}
+  constructor(
+    private readonly settingsService: SystemSettingService,
+    private readonly emailTemplateService: EmailTemplateService,
+  ) {}
 
   onModuleDestroy(): void {
     if (this.transporter) {
@@ -334,13 +338,39 @@ export class EmailSenderService implements OnModuleDestroy {
   ): Promise<EmailResult> {
     const baseUrl = process.env['FRONTEND_URL'] || 'http://localhost:8080';
     const inviteUrl = `${baseUrl}/accept-invitation/${data.invitationToken}`;
+    const expiresInDays = Math.ceil(
+      (data.expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+    );
 
-    const subject = `You're invited to join ${data.tenantName} on Aquaculture Platform`;
+    let subject: string;
+    let html: string;
+    let text: string | undefined;
 
-    const html = this.generateInvitationEmailTemplate({
-      ...data,
-      inviteUrl,
-    });
+    // Try to load template from DB first, fall back to hardcoded
+    try {
+      const rendered = await this.emailTemplateService.renderTemplate({
+        templateCode: 'invitation',
+        variables: {
+          platform_name: 'Aquaculture Platform',
+          inviter_name: data.invitedByEmail || 'System',
+          tenant_name: data.tenantName,
+          user_role: this.formatRole(data.role),
+          invitation_link: inviteUrl,
+          expiry_days: String(expiresInDays),
+          year: new Date().getFullYear().toString(),
+          user_name: `${data.firstName} ${data.lastName}`,
+          user_email: data.email,
+        },
+      });
+      subject = rendered.subject;
+      html = rendered.bodyHtml;
+      text = rendered.bodyText;
+    } catch {
+      // DB template not found or inactive — use hardcoded fallback
+      this.logger.debug('Using hardcoded invitation template (DB template not available)');
+      subject = `You're invited to join ${data.tenantName} on Aquaculture Platform`;
+      html = this.generateInvitationEmailTemplate({ ...data, inviteUrl });
+    }
 
     // Default to 3 retries for invitation emails as they are important
     const emailOptions: EmailSendOptions = {
@@ -348,7 +378,7 @@ export class EmailSenderService implements OnModuleDestroy {
       ...options,
     };
 
-    return this.sendEmail(data.email, subject, html, undefined, emailOptions);
+    return this.sendEmail(data.email, subject, html, text, emailOptions);
   }
 
   /**

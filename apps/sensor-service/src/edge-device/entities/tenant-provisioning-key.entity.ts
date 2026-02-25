@@ -15,7 +15,6 @@ import {
 
 @ObjectType()
 @Entity('tenant_provisioning_keys')
-@Index(['tenantId'])
 @Index(['keyToken'], { unique: true })
 export class TenantProvisioningKey {
   @Field(() => ID)

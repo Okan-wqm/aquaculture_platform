@@ -99,7 +99,6 @@ export type VfdProtocolConfiguration =
  */
 @ObjectType({ description: 'VFD (Variable Frequency Drive) device' })
 @Entity('vfd_devices')
-@Index(['tenantId'])
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'brand'])
 @Index(['tenantId', 'protocol'])

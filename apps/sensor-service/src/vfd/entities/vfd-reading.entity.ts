@@ -78,8 +78,6 @@ export interface VfdStatusBits {
 @Entity('vfd_readings')
 @Index(['vfdDeviceId', 'timestamp'])
 @Index(['tenantId', 'timestamp'])
-@Index(['vfdDeviceId'])
-@Index(['timestamp'])
 export class VfdReading {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

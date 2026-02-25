@@ -114,7 +114,6 @@ export interface SensorConnectionStatus {
 @ObjectType()
 @Entity('sensors')
 @Index(['tenantId', 'status'])
-@Index(['pondId'])
 @Index('IDX_sensors_serial_number', ['serialNumber'], { unique: true })
 @Index(['tenantId', 'siteId'])
 @Index(['tenantId', 'departmentId'])

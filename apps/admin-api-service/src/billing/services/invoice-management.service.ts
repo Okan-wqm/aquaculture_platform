@@ -410,7 +410,7 @@ export class InvoiceManagementService {
       `
       INSERT INTO public.audit_logs (
         id, action, "entityType", "entityId", "tenantId",
-        "userId", changes, "createdAt"
+        "performedBy", details, "createdAt"
       ) VALUES (
         gen_random_uuid(), 'INVOICE_VOIDED', 'invoice', $1, $2,
         $3, $4, NOW()

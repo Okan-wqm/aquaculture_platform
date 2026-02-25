@@ -179,7 +179,7 @@ export class SubscriptionPlanChangeService {
         `
         INSERT INTO public.audit_logs (
           id, action, "entityType", "entityId", "tenantId",
-          "userId", changes, "createdAt"
+          "performedBy", details, "createdAt"
         ) VALUES (
           gen_random_uuid(), 'PLAN_CHANGE', 'subscription', $1, $2,
           $3, $4, NOW()

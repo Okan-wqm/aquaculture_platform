@@ -136,13 +136,19 @@ CREATE INDEX IF NOT EXISTS idx_invoices_status ON billing.invoices (status);
 CREATE TABLE IF NOT EXISTS public.audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     action VARCHAR(100) NOT NULL,
-    "entityType" VARCHAR(100),
-    "entityId" TEXT,
-    "tenantId" TEXT,
-    "userId" TEXT,
-    details JSONB DEFAULT '{}',
+    "entityType" VARCHAR(50),
+    "entityId" UUID,
+    "tenantId" UUID,
+    "performedBy" VARCHAR(100) NOT NULL,
+    "performedByEmail" VARCHAR(100),
     "ipAddress" VARCHAR(45),
-    "userAgent" TEXT,
+    "userAgent" VARCHAR(500),
+    details JSONB,
+    "previousValue" JSONB,
+    "newValue" JSONB,
+    severity VARCHAR(20) NOT NULL DEFAULT 'info',
+    "requestId" VARCHAR(100),
+    "sessionId" VARCHAR(100),
     "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

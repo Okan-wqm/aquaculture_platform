@@ -205,7 +205,7 @@ export class SubscriptionCoreService {
         `
         INSERT INTO public.audit_logs (
           id, action, "entityType", "entityId", "tenantId",
-          "userId", changes, "createdAt"
+          "performedBy", details, "createdAt"
         ) VALUES (
           gen_random_uuid(), 'SUBSCRIPTION_CANCELLED', 'subscription', $1, $2,
           $3, $4, NOW()
@@ -519,7 +519,7 @@ export class SubscriptionCoreService {
         `
         INSERT INTO public.audit_logs (
           id, action, "entityType", "entityId", "tenantId",
-          "userId", changes, "createdAt"
+          "performedBy", details, "createdAt"
         ) VALUES (
           gen_random_uuid(), 'SUBSCRIPTION_CREATED', 'subscription', $1, $2,
           $3, $4, NOW()

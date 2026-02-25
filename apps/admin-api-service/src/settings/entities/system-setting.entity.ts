@@ -330,10 +330,10 @@ export const DEFAULT_SYSTEM_SETTINGS: DefaultSystemSettings[] = [
   },
   {
     key: 'email.smtp_secure',
-    value: 'true',
+    value: 'false',
     valueType: SettingValueType.BOOLEAN,
     category: SettingCategory.EMAIL,
-    description: 'Use TLS for SMTP',
+    description: 'Use TLS for SMTP (false for port 587 STARTTLS, true for port 465 SSL)',
     displayName: 'SMTP Secure',
   },
   {

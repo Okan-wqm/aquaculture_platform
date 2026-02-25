@@ -25,15 +25,15 @@ import {
 // ==================== Types ====================
 
 export enum DeviceLifecycleState {
-  REGISTERED = 'registered',
-  PROVISIONING = 'provisioning',
-  PENDING_APPROVAL = 'pending_approval',
-  ACTIVE = 'active',
-  OFFLINE = 'offline',
-  MAINTENANCE = 'maintenance',
-  ERROR = 'error',
-  REVOKED = 'revoked',
-  DECOMMISSIONED = 'decommissioned',
+  REGISTERED = 'REGISTERED',
+  PROVISIONING = 'PROVISIONING',
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
+  ACTIVE = 'ACTIVE',
+  OFFLINE = 'OFFLINE',
+  MAINTENANCE = 'MAINTENANCE',
+  ERROR = 'ERROR',
+  REVOKED = 'REVOKED',
+  DECOMMISSIONED = 'DECOMMISSIONED',
 }
 
 export enum DeviceModel {

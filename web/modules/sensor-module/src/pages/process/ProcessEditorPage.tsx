@@ -732,7 +732,7 @@ const ProcessEditorPage: React.FC = () => {
       window.location.hostname === 'localhost' && window.location.port === '3006';
     return isLocalDev
       ? '/process-editor-canvas.html'
-      : '/mf/sensor-module/process-editor-canvas.html';
+      : '/remotes/sensor-module/process-editor-canvas.html';
   };
 
   // Widget config modal handlers
@@ -887,7 +887,7 @@ const ProcessEditorPage: React.FC = () => {
             src={getCanvasUrl()}
             className="w-full h-full border-0"
             title="Process Editor Canvas"
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-same-origin"
           />
         </div>
 

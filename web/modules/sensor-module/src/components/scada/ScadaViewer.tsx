@@ -33,7 +33,7 @@ const getCanvasUrl = () => {
   // In production (Docker), use mf path
   const basePath = window.location.hostname === 'localhost' && window.location.port === '3006'
     ? '/scada-viewer-canvas.html'
-    : '/mf/sensor-module/scada-viewer-canvas.html';
+    : '/remotes/sensor-module/scada-viewer-canvas.html';
   return basePath;
 };
 
@@ -161,7 +161,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
         src={getCanvasUrl()}
         className="w-full h-full border-0"
         title="SCADA Viewer Canvas"
-        sandbox="allow-scripts"
+        sandbox="allow-scripts allow-same-origin"
       />
 
       {/* Process info panel */}

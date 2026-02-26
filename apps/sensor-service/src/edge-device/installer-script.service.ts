@@ -125,17 +125,18 @@ export class InstallerScriptService {
   /**
    * Build installer URL for a specific device
    */
-  async buildInstallerUrl(deviceCode: string): Promise<string> {
+  async buildInstallerUrl(deviceCode: string, token?: string): Promise<string> {
     const config = await this.getProvisioningConfig();
-    return `${config.apiBaseUrl}/install/${deviceCode}`;
+    const base = `${config.apiBaseUrl}/install/${deviceCode}`;
+    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
   }
 
   /**
    * Build installer command for a specific device
    */
-  async buildInstallerCommand(deviceCode: string): Promise<string> {
-    const url = await this.buildInstallerUrl(deviceCode);
-    return `curl -sSL ${url} | sudo bash`;
+  async buildInstallerCommand(deviceCode: string, token?: string): Promise<string> {
+    const url = await this.buildInstallerUrl(deviceCode, token);
+    return `curl -sSL "${url}" | sudo bash`;
   }
 
   /**

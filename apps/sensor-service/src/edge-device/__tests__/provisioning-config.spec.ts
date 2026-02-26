@@ -368,6 +368,7 @@ describe('ProvisioningService - Config Management', () => {
       });
 
       expect(result.installerUrl).toContain('https://custom-domain.example.com/install/');
+      expect(result.installerUrl).toContain('?token=');
     });
   });
 
@@ -397,7 +398,7 @@ describe('ProvisioningService - Config Management', () => {
         deviceName: 'Curl Test Device',
       });
 
-      expect(result.installerCommand).toMatch(/^curl -sSL https:\/\/edge\.example\.com\/install\/.+ \| sudo sh$/);
+      expect(result.installerCommand).toMatch(/^curl -sSL "https:\/\/edge\.example\.com\/install\/.+\?token=.+" \| sudo bash$/);
     });
   });
 

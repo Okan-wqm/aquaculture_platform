@@ -23,6 +23,7 @@ import {
 } from './dto/provisioning.dto';
 import { ProvisioningService } from './provisioning.service';
 import { SimpleRateLimitGuard, RateLimit } from '../guards/rate-limit.guard';
+import { SkipTenantGuard } from '@app/backend-common/decorators/roles.decorator';
 
 /**
  * Provisioning Controller
@@ -35,9 +36,13 @@ import { SimpleRateLimitGuard, RateLimit } from '../guards/rate-limit.guard';
  * These endpoints are called by:
  * 1. The installer script (GET /install/:deviceCode)
  * 2. The edge agent (POST /api/devices/activate)
+ *
+ * @SkipTenantGuard bypasses the global TenantGuard since these endpoints
+ * are anonymous (no tenant context). Each endpoint has its own validation.
  */
 @Controller()
 @UseGuards(SimpleRateLimitGuard)
+@SkipTenantGuard()
 export class ProvisioningController {
   private readonly logger = new Logger(ProvisioningController.name);
 

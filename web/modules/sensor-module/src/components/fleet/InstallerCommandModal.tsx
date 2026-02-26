@@ -30,11 +30,17 @@ interface InstallerCommandModalProps {
 
 // SEC-005: mask the token portion of the installer command so it isn't visible over the shoulder
 function maskInstallerCommand(cmd: string): string {
-  // Typical format: ... --token <TOKEN> ... or --bootstrap-token <TOKEN>
-  return cmd.replace(
+  // Mask --token <TOKEN> or --bootstrap-token <TOKEN> flag format
+  let masked = cmd.replace(
     /(--(?:bootstrap-)?token\s+)(\S+)/gi,
     (_, prefix, token) => `${prefix}${token.slice(0, 4)}${'*'.repeat(Math.max(8, token.length - 4))}`
   );
+  // Mask ?token=<TOKEN> URL query parameter format
+  masked = masked.replace(
+    /(\?token=)([^"&\s]+)/gi,
+    (_, prefix, token) => `${prefix}${token.slice(0, 4)}${'*'.repeat(Math.max(8, token.length - 4))}`
+  );
+  return masked;
 }
 
 export function InstallerCommandModal({

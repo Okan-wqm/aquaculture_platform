@@ -188,8 +188,8 @@ export class ProvisioningService {
     return {
       deviceId: saved.id,
       deviceCode: saved.deviceCode,
-      installerUrl: await this.installerScriptService.buildInstallerUrl(saved.deviceCode),
-      installerCommand: await this.installerScriptService.buildInstallerCommand(saved.deviceCode),
+      installerUrl: await this.installerScriptService.buildInstallerUrl(saved.deviceCode, provisioningToken),
+      installerCommand: await this.installerScriptService.buildInstallerCommand(saved.deviceCode, provisioningToken),
       tokenExpiresAt,
     };
   }
@@ -375,8 +375,8 @@ export class ProvisioningService {
     return {
       deviceId: device.id,
       deviceCode: device.deviceCode,
-      installerUrl: await this.installerScriptService.buildInstallerUrl(device.deviceCode),
-      installerCommand: await this.installerScriptService.buildInstallerCommand(device.deviceCode),
+      installerUrl: await this.installerScriptService.buildInstallerUrl(device.deviceCode, token),
+      installerCommand: await this.installerScriptService.buildInstallerCommand(device.deviceCode, token),
       tokenExpiresAt: device.tokenExpiresAt ?? new Date(),
       status: device.lifecycleState,
       provisioningToken: token,

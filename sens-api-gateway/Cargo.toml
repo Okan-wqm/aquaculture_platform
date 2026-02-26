@@ -26,11 +26,7 @@ serde_yaml = "0.9"
 # Use rustls for cross-compilation support (no OpenSSL dependency)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 
-# Vendored OpenSSL: rodbus and rumqttc depend on native OpenSSL.
-# Bundling it statically avoids "libcrypto.so.1.0.0 not found" on target devices.
-openssl = { version = "0.10", features = ["vendored"] }
-
-# MQTT client
+# MQTT client — uses rustls by default (no OpenSSL dependency)
 rumqttc = "0.25"
 
 # Logging
@@ -86,8 +82,10 @@ hostname = "0.3"
 
 # SQLite for RETAIN variable persistence (IEC 61131-3 compliance)
 # "bundled-sqlcipher" enables AES-256-CBC encryption at rest (IEC 62443 FR4).
+# "vendored-openssl" statically links OpenSSL crypto into the binary so the target
+# device does not need a matching libcrypto.so at runtime.
 # The database key is derived from the device machine-id at runtime via init_schema().
-rusqlite = { version = "0.34", features = ["bundled-sqlcipher"] }
+rusqlite = { version = "0.34", features = ["bundled-sqlcipher-vendored-openssl"] }
 
 # Bounded cache for memory management (prevents unbounded growth)
 moka = { version = "0.12", features = ["sync"] }

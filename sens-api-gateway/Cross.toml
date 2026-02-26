@@ -1,5 +1,8 @@
 # Cross compilation configuration
 # https://github.com/cross-rs/cross
+#
+# rusqlite's bundled-sqlcipher-vendored-openssl compiles OpenSSL from source,
+# which needs perl and make in the cross-compilation container.
 
 [build.env]
 passthrough = [
@@ -11,21 +14,19 @@ passthrough = [
 [target.aarch64-unknown-linux-gnu]
 image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:0.2.5"
 pre-build = [
-    "dpkg --add-architecture arm64",
-    "apt-get update && apt-get install -y perl make pkg-config"
+    "apt-get update && apt-get install -y perl make"
 ]
 
 # ARMv7 (Raspberry Pi 3, older Revolution Pi)
 [target.armv7-unknown-linux-gnueabihf]
 image = "ghcr.io/cross-rs/armv7-unknown-linux-gnueabihf:0.2.5"
 pre-build = [
-    "dpkg --add-architecture armhf",
-    "apt-get update && apt-get install -y perl make pkg-config"
+    "apt-get update && apt-get install -y perl make"
 ]
 
 # x86_64 Linux
 [target.x86_64-unknown-linux-gnu]
 image = "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:0.2.5"
 pre-build = [
-    "apt-get update && apt-get install -y perl make pkg-config"
+    "apt-get update && apt-get install -y perl make"
 ]

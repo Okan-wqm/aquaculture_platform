@@ -1640,4 +1640,52 @@ address: "192.168.1.101:502"
         assert_eq!(config.name, "PLC-002");
         assert!(!config.tls.enabled); // Default: TLS disabled
     }
+
+    // ========================================================================
+    // Installer-generated config parsing test
+    // ========================================================================
+
+    #[test]
+    fn test_parse_installer_generated_config() {
+        let yaml = r#"
+# Suderra Edge Agent Configuration
+# Generated: 2026-02-26T17:42:53.971Z
+
+device_id: "fd23af6b-167f-4afd-a62a-ceace2a4046b"
+device_code: "PI-32F7A01B"
+api_url: "https://app.suderra.com"
+provisioning_token: "06903c054e5122df8f024ca09ade5cbad8724997598712772788a023f841c552"
+
+mqtt:
+  broker: "mosquitto"
+  port: 1883
+  keepalive_secs: 60
+  clean_session: false
+
+telemetry:
+  interval_seconds: 30
+  include_cpu: true
+  include_memory: true
+  include_disk: true
+  include_temperature: true
+
+modbus: []
+
+gpio: []
+"#;
+
+        let config: AgentConfig = serde_yaml::from_str(yaml)
+            .expect("Failed to parse installer-generated config");
+
+        assert_eq!(config.device_id, "fd23af6b-167f-4afd-a62a-ceace2a4046b");
+        assert_eq!(config.device_code, "PI-32F7A01B");
+        assert_eq!(config.api_url, "https://app.suderra.com");
+        assert_eq!(config.mqtt.broker, Some("mosquitto".to_string()));
+        assert_eq!(config.mqtt.port, 1883);
+        assert_eq!(config.mqtt.keepalive_secs, 60);
+        assert!(!config.mqtt.clean_session);
+        assert_eq!(config.telemetry.interval_seconds, 30);
+        assert!(config.modbus.is_empty());
+        assert!(config.gpio.is_empty());
+    }
 }

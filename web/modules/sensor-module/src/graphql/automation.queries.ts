@@ -263,18 +263,17 @@ export const REMOVE_TRANSITION_MUTATION = `
 // Validation
 // ============================================================================
 
-// TODO: validateStructuredText resolver does not exist in the backend yet.
-// ST validation is currently handled client-side in the editor.
-// Uncomment and update when the backend resolver is implemented.
-//
-// export const VALIDATE_ST_MUTATION = `
-//   mutation ValidateST($code: String!) {
-//     validateStructuredText(code: $code) {
-//       valid
-//       errors { line column severity message code }
-//       warnings { line column severity message code }
-//       infos { line column severity message code }
-//       parsedSymbols
-//     }
-//   }
-// `;
+// NOTE: validateStructuredText resolver does not exist in the backend yet.
+// This mutation is exported so the frontend compiles; the call will fail gracefully
+// at runtime and the catch block shows a client-side error message.
+export const VALIDATE_ST_MUTATION = `
+  mutation ValidateST($code: String!) {
+    validateStructuredText(code: $code) {
+      valid
+      errors { line column severity message code }
+      warnings { line column severity message code }
+      infos { line column severity message code }
+      parsedSymbols
+    }
+  }
+`;

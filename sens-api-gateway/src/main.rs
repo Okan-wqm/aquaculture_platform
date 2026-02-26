@@ -420,7 +420,7 @@ async fn async_main() -> Result<()> {
     let result = local.run_until(run_agent(state, shutdown)).await;
 
     if let Err(e) = result {
-        error!("Agent error: {}", e);
+        error!("Agent error: {:#}", e);
         std::process::exit(1);
     }
 

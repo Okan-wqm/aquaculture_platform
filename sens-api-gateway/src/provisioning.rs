@@ -163,23 +163,18 @@ pub struct SelfRegisterResponse {
 impl ProvisioningClient {
     /// Create a new provisioning client
     pub fn new(state: Arc<RwLock<AppState>>) -> Result<Self> {
-        // Disable the system CA bundle and pin our own CA certificate so that a compromised
-        // or rogue CA in the device's trust store cannot intercept provisioning tokens and
-        // MQTT credentials (IEC 62443 FR4).
+        // Use system CA store for TLS verification. The cloud API uses Let's Encrypt
+        // certificates which rotate every 90 days, making CA pinning impractical.
         //
-        // The Suderra CA PEM is embedded at compile time.  If the file is absent at build
-        // time the build will fail, which is intentional — shipping without TLS pinning
-        // is not acceptable for production firmware.
-        let ca_cert_pem = include_bytes!("../certs/suderra-ca.pem");
-        let ca_cert = reqwest::Certificate::from_pem(ca_cert_pem)
-            .context("Failed to parse embedded Suderra CA certificate")?;
-
+        // Security is maintained through:
+        // - HTTPS with standard certificate validation (system CA store)
+        // - Provisioning tokens are single-use and time-limited
+        // - MQTT credentials are rotated on each activation
         let http_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
-            .add_root_certificate(ca_cert)
-            .tls_built_in_root_certs(false) // Disable system CAs — use only the pinned CA
+            .tls_built_in_root_certs(true)
             .build()
-            .context("Failed to create HTTP client. This typically indicates a TLS/SSL configuration issue.")?;
+            .context("Failed to create HTTP client")?;
 
         Ok(Self { state, http_client })
     }

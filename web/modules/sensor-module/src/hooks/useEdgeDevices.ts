@@ -675,9 +675,9 @@ export interface BulkAddIoConfigResult {
  * Returns platform info and discovered I/O channels for import.
  *
  * Usage:
- *   const { mutateAsync, isPending, data } = useScanHardware();
- *   const result = await mutateAsync(deviceId);
- *   if (result.success) { /* show result.discoveredChannels */ }
+ *   const scan = useScanHardware();
+ *   const result = await scan.mutateAsync(deviceId);
+ *   if (result.success) console.log(result.discoveredChannels);
  */
 export function useScanHardware() {
   const { token } = useAuth();

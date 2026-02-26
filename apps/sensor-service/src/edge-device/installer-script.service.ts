@@ -37,7 +37,7 @@ export class InstallerScriptService {
 
   constructor(private readonly configService: ConfigService) {
     this.API_BASE_URL = this.configService.get<string>('PROVISIONING_API_BASE_URL', 'http://localhost:3000');
-    this.AGENT_VERSION = this.configService.get<string>('AGENT_VERSION', '1.0.0');
+    this.AGENT_VERSION = this.configService.get<string>('AGENT_VERSION', 'latest');
     this.MQTT_BROKER = this.configService.get<string>('MQTT_BROKER_HOST', 'localhost');
     this.MQTT_PORT = this.configService.get<number>('MQTT_BROKER_PORT', 1883);
     // Pin the GitHub repo from env var to prevent the admin API from redirecting

@@ -37,8 +37,10 @@ use tracing::{debug, error, info, warn};
 /// shared constant that would make encryption meaningless across devices.
 fn apply_db_encryption_key(conn: &Connection) -> Result<()> {
     let machine_id = machine_uid::get()
-        .context("Cannot derive database encryption key: machine-id unavailable. \
-                   Ensure /etc/machine-id or /var/lib/dbus/machine-id exists.")?;
+        .map_err(|e| anyhow::anyhow!(
+            "Cannot derive database encryption key: machine-id unavailable ({}). \
+             Ensure /etc/machine-id or /var/lib/dbus/machine-id exists.", e
+        ))?;
 
     // Use hex-encoded PRAGMA key to avoid SQL injection via passphrase interpolation.
     // SQLCipher accepts "x'<hex>'" as a raw key when the hex string is exactly 64 chars (256-bit).

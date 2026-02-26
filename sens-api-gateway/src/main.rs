@@ -723,8 +723,8 @@ async fn run_agent(
             state_guard.config.tenant_token.is_some()
         };
 
-        const MAX_RETRIES: u32 = 3;
-        const INITIAL_BACKOFF_SECS: u64 = 5;
+        const MAX_RETRIES: u32 = 5;
+        const INITIAL_BACKOFF_SECS: u64 = 10;
 
         let provisioning_client = ProvisioningClient::new(state.clone())
             .context("Failed to create provisioning client")?;

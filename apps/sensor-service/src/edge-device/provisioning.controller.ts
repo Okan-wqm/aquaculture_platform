@@ -140,10 +140,11 @@ export class ProvisioningController {
    * Request: DeviceActivationRequest
    * Response: DeviceActivationResponse | ActivationErrorResponse
    *
-   * SECURITY: Limited to 3 requests per minute per IP to prevent brute-force
+   * SECURITY: Limited to 10 requests per minute per IP to prevent brute-force
+   * while allowing legitimate edge agent retries with exponential backoff.
    */
   @Post('api/devices/activate')
-  @RateLimit({ limit: 3, windowMs: 60000 })
+  @RateLimit({ limit: 10, windowMs: 60000 })
   async activateDevice(
     @Body() request: DeviceActivationRequest,
   ): Promise<DeviceActivationResponse | ActivationErrorResponse> {

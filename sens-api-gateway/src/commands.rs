@@ -1546,6 +1546,13 @@ impl CommandHandler {
             }
         };
 
+        // Reject loopback, link-local, and broadcast addresses (consistent with deploy_to_codesys)
+        if let Ok(ip) = address.parse::<std::net::Ipv4Addr>() {
+            if ip.is_loopback() || ip.is_link_local() || ip.is_broadcast() || ip.is_unspecified() {
+                return (false, json!(null), Some("PLC address cannot be loopback, link-local, or broadcast".to_string()));
+            }
+        }
+
         // Parse program
         let program: PlcProgram = match params
             .get("program")

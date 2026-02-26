@@ -27,26 +27,97 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use tracing::{debug, error, info, warn};
 
-/// Apply SQLCipher encryption key to a newly opened database connection.
+/// Derive the SQLCipher encryption key from machine-id + a device-local secret file.
 ///
-/// The key is derived from the device machine-id so it is unique per device and
-/// survives reboots.  Physical access to the storage medium does not yield a
-/// readable database without knowledge of the machine-id (IEC 62443 FR4).
+/// The key is HMAC-SHA256(machine_id, secret_key) where:
+/// - machine_id: read from /etc/machine-id (device-unique, survives reboots)
+/// - secret_key: a 32-byte random key stored at /etc/suderra/db.key (0400 permissions)
 ///
-/// Returns an error if machine-id cannot be read — refusing to fall back to a
-/// shared constant that would make encryption meaningless across devices.
-fn apply_db_encryption_key(conn: &Connection) -> Result<()> {
+/// The secret file is auto-generated on first run and is only readable by the
+/// suderra service user.  This addresses the audit finding that machine-id alone
+/// is world-readable and therefore insufficient as sole key material (IEC 62443 FR4).
+///
+/// Returns an error if machine-id or secret key cannot be obtained.
+pub(crate) fn derive_db_encryption_key() -> Result<String> {
+    use sha2::Sha256;
+    use hmac::{Hmac, Mac};
+    type HmacSha256 = Hmac<Sha256>;
+
     let machine_id = machine_uid::get()
         .map_err(|e| anyhow::anyhow!(
             "Cannot derive database encryption key: machine-id unavailable ({}). \
              Ensure /etc/machine-id or /var/lib/dbus/machine-id exists.", e
         ))?;
 
-    // Use hex-encoded PRAGMA key to avoid SQL injection via passphrase interpolation.
-    // SQLCipher accepts "x'<hex>'" as a raw key when the hex string is exactly 64 chars (256-bit).
-    use sha2::{Sha256, Digest};
-    let key_hash = Sha256::digest(machine_id.as_bytes());
-    let hex_key: String = key_hash.iter().map(|b| format!("{:02x}", b)).collect();
+    let secret_key = load_or_create_db_secret()?;
+
+    let mut mac = HmacSha256::new_from_slice(&secret_key)
+        .context("Failed to create HMAC instance")?;
+    mac.update(machine_id.as_bytes());
+    let result = mac.finalize().into_bytes();
+
+    Ok(result.iter().map(|b| format!("{:02x}", b)).collect())
+}
+
+/// Load or create the device-local secret key for database encryption.
+///
+/// The secret is stored at /etc/suderra/db.key with 0400 permissions.
+/// If the file does not exist, a 32-byte random key is generated.
+fn load_or_create_db_secret() -> Result<Vec<u8>> {
+    use std::path::Path;
+
+    let secret_path = Path::new("/etc/suderra/db.key");
+
+    if secret_path.exists() {
+        let key = std::fs::read(secret_path)
+            .context("Failed to read database secret key from /etc/suderra/db.key")?;
+        if key.len() < 16 {
+            anyhow::bail!("Database secret key is too short ({} bytes), expected >= 16", key.len());
+        }
+        return Ok(key);
+    }
+
+    // Generate new random key
+    use rand::RngCore;
+    let mut key = vec![0u8; 32];
+    rand::rng().fill_bytes(&mut key);
+
+    // Ensure parent directory exists
+    if let Some(parent) = secret_path.parent() {
+        std::fs::create_dir_all(parent)
+            .context("Failed to create /etc/suderra directory")?;
+    }
+
+    // Write with restrictive permissions from the start (no TOCTOU race)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o400)
+            .open(secret_path)
+            .context("Failed to create database secret key file at /etc/suderra/db.key")?;
+        std::io::Write::write_all(&mut file, &key)
+            .context("Failed to write database secret key")?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::write(secret_path, &key)
+            .context("Failed to write database secret key")?;
+    }
+
+    tracing::info!("Generated new database secret key at /etc/suderra/db.key");
+    Ok(key)
+}
+
+/// Apply SQLCipher encryption key to a newly opened database connection.
+///
+/// Uses HMAC-SHA256(machine_id, secret_key) as the encryption key.
+/// The hex-encoded PRAGMA key format prevents SQL injection.
+fn apply_db_encryption_key(conn: &Connection) -> Result<()> {
+    let hex_key = derive_db_encryption_key()?;
     conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
         .context("Failed to apply SQLCipher database encryption key")?;
     Ok(())

@@ -1833,6 +1833,7 @@ impl ScriptEngine {
                     .connect_timeout(std::time::Duration::from_secs(5))
                     .timeout(std::time::Duration::from_secs(10))
                     .pool_max_idle_per_host(2) // Limit idle connections
+                    .redirect(reqwest::redirect::Policy::none()) // Block redirect-based SSRF bypasses
                     .build()
                 {
                     Ok(c) => c,

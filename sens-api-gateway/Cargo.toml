@@ -106,6 +106,10 @@ flate2 = "1.0"
 # Cryptographically secure random number generation (OPC UA nonces)
 getrandom = "0.2"
 
+# HMAC-SHA256 for database encryption key derivation (IEC 62443 FR4)
+hmac = "0.12"
+rand = "0.9"
+
 # UUID generation for unique MQTT client IDs (IEC 62443 FR1 - client impersonation prevention)
 uuid = { version = "1.0", features = ["v4"] }
 

@@ -168,6 +168,20 @@ gpio: []
         env!("CARGO_PKG_VERSION")
     );
 
+    // Write with restrictive permissions from the start (no TOCTOU window)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&config_path)
+            .with_context(|| format!("Failed to create config file: {}", config_path))?;
+        std::io::Write::write_all(&mut file, content.as_bytes())
+            .with_context(|| format!("Failed to write config file: {}", config_path))?;
+    }
+    #[cfg(not(unix))]
     fs::write(&config_path, content)
         .with_context(|| format!("Failed to write config file: {}", config_path))?;
 

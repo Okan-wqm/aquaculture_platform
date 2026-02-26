@@ -264,6 +264,20 @@ export class EdgeDeviceResolver {
     return await this.provisioningService.regenerateToken(deviceId, tenantId);
   }
 
+  /**
+   * Reset a previously activated device for re-provisioning.
+   * Generates a new token and returns the installer URL/command.
+   */
+  @Mutation(() => RegenerateTokenResponse, { name: 'resetDeviceForReprovisioning' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async resetDeviceForReprovisioning(
+    @Args('deviceId', { type: () => ID }) deviceId: string,
+    @Tenant() tenantId: string,
+  ): Promise<RegenerateTokenResponse> {
+    this.logger.log(`Resetting device ${deviceId} for re-provisioning`);
+    return await this.provisioningService.resetForReprovisioning(deviceId, tenantId);
+  }
+
   // ==================== Tenant Provisioning Key Mutations ====================
 
   /**

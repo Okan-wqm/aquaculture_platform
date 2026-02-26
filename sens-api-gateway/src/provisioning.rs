@@ -173,6 +173,7 @@ impl ProvisioningClient {
         let http_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .tls_built_in_root_certs(true)
+            .redirect(reqwest::redirect::Policy::none()) // Block cross-origin redirects leaking token
             .build()
             .context("Failed to create HTTP client")?;
 

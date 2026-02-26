@@ -382,13 +382,17 @@ fn default_session_timeout() -> u32 {
 }
 
 /// OPC UA Security Policy
+///
+/// Defaults to Basic256Sha256 for secure-by-default posture.
+/// Basic128Rsa15 is deprecated (OPC Foundation 2019) and blocked in release builds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum OpcUaSecurityPolicy {
-    #[default]
     None,
+    #[cfg(debug_assertions)]
     Basic128Rsa15,
     Basic256,
+    #[default]
     Basic256Sha256,
     Aes128Sha256RsaOaep,
     Aes256Sha256RsaPss,
@@ -398,6 +402,7 @@ impl OpcUaSecurityPolicy {
     fn to_uri(&self) -> &'static str {
         match self {
             Self::None => SECURITY_POLICY_NONE,
+            #[cfg(debug_assertions)]
             Self::Basic128Rsa15 => "http://opcfoundation.org/UA/SecurityPolicy#Basic128Rsa15",
             Self::Basic256 => "http://opcfoundation.org/UA/SecurityPolicy#Basic256",
             Self::Basic256Sha256 => SECURITY_POLICY_BASIC256SHA256,
@@ -412,12 +417,14 @@ impl OpcUaSecurityPolicy {
 }
 
 /// OPC UA Security Mode
+///
+/// Defaults to SignAndEncrypt for secure-by-default posture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum OpcUaSecurityMode {
-    #[default]
     None,
     Sign,
+    #[default]
     SignAndEncrypt,
 }
 

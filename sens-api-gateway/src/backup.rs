@@ -415,15 +415,11 @@ impl BackupManager {
         Ok(decompressed)
     }
 
-    /// Calculate SHA-256 hash of data
+    /// Calculate SHA-256 hash of data for backup integrity verification.
     fn sha256_hash(data: &[u8]) -> String {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        // Simple hash for now - in production, use sha2 crate
-        let mut hasher = DefaultHasher::new();
-        data.hash(&mut hasher);
-        format!("{:016x}", hasher.finish())
+        use sha2::{Sha256, Digest};
+        let hash = Sha256::digest(data);
+        format!("{:x}", hash)
     }
 }
 

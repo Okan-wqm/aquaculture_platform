@@ -277,8 +277,9 @@ impl HardwareScanner {
             return (Vec::new(), String::new());
         }
 
-        // Run piTest -d once for both module and pin enumeration
-        match std::process::Command::new("piTest").arg("-d").output() {
+        // Run piTest -d once for both module and pin enumeration.
+        // Use absolute path to prevent PATH injection (MQTT-triggered command).
+        match std::process::Command::new("/usr/bin/piTest").arg("-d").output() {
             Ok(output) => {
                 if output.status.success() {
                     let stdout = String::from_utf8_lossy(&output.stdout).to_string();

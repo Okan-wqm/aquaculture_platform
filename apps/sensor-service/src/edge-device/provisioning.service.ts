@@ -425,6 +425,63 @@ export class ProvisioningService {
     return { ready: true };
   }
 
+  /**
+   * Reset a previously activated device for re-provisioning.
+   *
+   * Use case: device was activated but lost its config (SD card failure,
+   * re-installation, config save failure). Generates a new token so the
+   * installer flow can run again.
+   *
+   * Only TENANT_ADMIN / MODULE_MANAGER should call this (enforced by resolver).
+   */
+  async resetForReprovisioning(
+    deviceId: string,
+    tenantId: string,
+  ): Promise<RegenerateTokenResponse> {
+    const device = await this.deviceRepository.findOne({
+      where: { id: deviceId, tenantId },
+    });
+
+    if (!device) {
+      throw new NotFoundException(`Device ${deviceId} not found`);
+    }
+
+    if (device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
+      throw new BadRequestException('Cannot re-provision a decommissioned device');
+    }
+
+    // Generate fresh provisioning credentials
+    const provisioningToken = this.generateProvisioningToken();
+    const tokenExpiresAt = new Date(Date.now() + this.TOKEN_TTL_HOURS * 60 * 60 * 1000);
+
+    // Reset activation state
+    await this.deviceRepository.update(device.id, {
+      provisioningToken,
+      tokenExpiresAt,
+      tokenUsedAt: undefined as any, // TypeORM: sends SET token_used_at = NULL
+      lifecycleState: DeviceLifecycleState.REGISTERED,
+      mqttPasswordHash: undefined as any,
+      fingerprint: undefined as any,
+      agentVersion: undefined as any,
+      isOnline: false,
+    });
+
+    // Revoke old MQTT credentials
+    if (device.mqttClientId) {
+      await this.mqttAuthService.removeDeviceCredentials(device.mqttClientId);
+    }
+
+    this.logger.log(`Device ${device.deviceCode} reset for re-provisioning by tenant ${tenantId}`);
+
+    return {
+      deviceId: device.id,
+      deviceCode: device.deviceCode,
+      installerUrl: await this.installerScriptService.buildInstallerUrl(device.deviceCode, provisioningToken),
+      installerCommand: await this.installerScriptService.buildInstallerCommand(device.deviceCode, provisioningToken),
+      tokenExpiresAt,
+    };
+  }
+
   // ============================================
   // Tenant-Level Provisioning (v2.0) - Delegated
   // ============================================

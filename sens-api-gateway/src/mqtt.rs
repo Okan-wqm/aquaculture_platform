@@ -320,9 +320,19 @@ impl MqttClient {
             match poll_result {
                 Ok(Event::Incoming(Packet::Publish(publish))) => {
                     consecutive_errors = 0; // Reset on success
-                    // v1.2.6: Enhanced logging with message details
-                    info!(
-                        "📥 MQTT message received: topic='{}', size={} bytes, qos={:?}, retain={}",
+
+                    // Reject oversized payloads to prevent memory exhaustion on constrained devices.
+                    const MAX_MQTT_PAYLOAD: usize = 1_048_576; // 1 MiB
+                    if publish.payload.len() > MAX_MQTT_PAYLOAD {
+                        warn!(
+                            "Dropping oversized MQTT message on topic='{}': {} bytes > {} limit",
+                            publish.topic, publish.payload.len(), MAX_MQTT_PAYLOAD
+                        );
+                        continue;
+                    }
+
+                    debug!(
+                        "MQTT message received: topic='{}', size={} bytes, qos={:?}, retain={}",
                         publish.topic,
                         publish.payload.len(),
                         publish.qos,

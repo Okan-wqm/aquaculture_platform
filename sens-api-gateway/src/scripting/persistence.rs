@@ -24,9 +24,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use tracing::{debug, info};
-// machine_uid is used to derive the SQLCipher database encryption key
-#[allow(unused_imports)]
-use machine_uid;
+// Database encryption key derivation is now handled by crate::offline_queue::derive_db_encryption_key()
 
 // ============================================================================
 // Error Types
@@ -565,17 +563,12 @@ impl SqlitePersistence {
             PersistenceError::ConnectionFailed(format!("Cannot open database: {}", e))
         })?;
 
-        // Apply SQLCipher encryption key derived from device machine-id (IEC 62443 FR4).
-        // Must be set before any other PRAGMA or query.
-        // Uses SHA-256 hash as hex key to avoid SQL injection and ensure uniform key length.
-        let machine_id = machine_uid::get()
-            .map_err(|_| PersistenceError::ConnectionFailed(
-                "Cannot derive database encryption key: machine-id unavailable. \
-                 Ensure /etc/machine-id or /var/lib/dbus/machine-id exists.".to_string()
+        // Apply SQLCipher encryption key using HMAC-SHA256(machine_id, secret_key).
+        // Delegates to the shared key derivation in offline_queue module.
+        let hex_key = crate::offline_queue::derive_db_encryption_key()
+            .map_err(|e| PersistenceError::ConnectionFailed(
+                format!("Failed to derive database encryption key: {}", e)
             ))?;
-        use sha2::{Sha256, Digest};
-        let key_hash = Sha256::digest(machine_id.as_bytes());
-        let hex_key: String = key_hash.iter().map(|b| format!("{:02x}", b)).collect();
         conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
             .map_err(|e| PersistenceError::ConnectionFailed(
                 format!("Failed to apply database encryption key: {}", e)

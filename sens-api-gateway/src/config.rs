@@ -1176,6 +1176,22 @@ impl AgentConfig {
             anyhow::bail!("api_url must start with http:// or https://");
         }
 
+        // In release builds, block plain HTTP for provisioning API (credentials in transit)
+        #[cfg(not(debug_assertions))]
+        if self.api_url.starts_with("http://") {
+            anyhow::bail!(
+                "api_url must use https:// in production (plain HTTP exposes provisioning \
+                 credentials in transit). Use debug builds for local development."
+            );
+        }
+        #[cfg(debug_assertions)]
+        if self.api_url.starts_with("http://") {
+            tracing::warn!(
+                "api_url uses plain HTTP — provisioning credentials will be sent unencrypted. \
+                 Use https:// in production."
+            );
+        }
+
         // v1.2.5: Basic URL structure validation (must have host part)
         // v1.2.6: Enhanced validation to reject malformed domains
         let url_without_scheme = self
@@ -1439,22 +1455,34 @@ impl AgentConfig {
 
         let content = serde_yaml::to_string(self).context("Failed to serialize config")?;
 
-        fs::write(&path, &content)
-            .with_context(|| format!("Failed to write config file: {}", path.display()))?;
+        // Atomic write: write to .tmp file then rename, preventing partial writes
+        // and ensuring restrictive permissions from the start (no TOCTOU race).
+        let tmp_path = path.with_extension("yaml.tmp");
 
-        // Set restrictive permissions on Unix to protect credentials
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            let permissions = fs::Permissions::from_mode(0o600);
-            fs::set_permissions(&path, permissions).with_context(|| {
-                format!(
-                    "Failed to set permissions on config file: {}",
-                    path.display()
-                )
-            })?;
-            debug!("Set config file permissions to 0600");
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&tmp_path)
+                .with_context(|| format!("Failed to create temp config file: {}", tmp_path.display()))?;
+            std::io::Write::write_all(&mut file, content.as_bytes())
+                .with_context(|| format!("Failed to write temp config file: {}", tmp_path.display()))?;
+            file.sync_all()
+                .with_context(|| format!("Failed to sync temp config file: {}", tmp_path.display()))?;
         }
+
+        #[cfg(not(unix))]
+        {
+            fs::write(&tmp_path, &content)
+                .with_context(|| format!("Failed to write temp config file: {}", tmp_path.display()))?;
+        }
+
+        fs::rename(&tmp_path, &path)
+            .with_context(|| format!("Failed to rename config file: {} -> {}", tmp_path.display(), path.display()))?;
 
         info!("Configuration saved to {}", path.display());
         Ok(())

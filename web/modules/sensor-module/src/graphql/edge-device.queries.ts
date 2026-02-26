@@ -259,8 +259,7 @@ export const PUSH_IO_CONFIG_MUTATION = `
   mutation PushIoConfigToDevice($deviceId: ID!) {
     pushIoConfigToDevice(deviceId: $deviceId) {
       success
-      message
-      pushedAt
+      error
     }
   }
 `;

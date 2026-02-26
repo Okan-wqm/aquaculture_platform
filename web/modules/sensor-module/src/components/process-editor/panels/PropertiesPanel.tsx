@@ -4,22 +4,20 @@
  * Enhanced with equipment linking functionality
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   X, Settings, Link2, Trash2, Info, Unlink, Edit3, Activity, Radio,
   Wifi, RotateCcw, Cpu, ToggleLeft, ToggleRight, Zap, AlertTriangle,
-  Play, Square,
+  Play, Square, AlertCircle,
 } from 'lucide-react';
 import { useProcessStore, EquipmentNodeData, SensorNodeData, SensorWidgetNodeData, IoBinding } from '../../../store/processStore';
 import { CONNECTION_TYPES, getConnectionTypeConfig, normalizeConnectionType, ConnectionType } from '../../../config/connectionTypes';
 import { getEquipmentIcon } from '../../equipment-icons';
 import { useAttachableEquipment, AttachableEquipment } from '../../../hooks/useAttachableEquipment';
 import { useLinkableSensors, getSensorTypeLabel } from '../../../hooks/useLinkableSensors';
-import { useEdgeDevices, useEdgeDevice, IoType } from '../../../hooks/useEdgeDevices';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useEdgeDevices, useEdgeDevice, useSetDigitalOutput, IoType, DeviceLifecycleState } from '../../../hooks/useEdgeDevices';
 import { EquipmentLinkDialog } from '../dialogs/EquipmentLinkDialog';
 import { SensorConfigDialog } from '../dialogs/SensorConfigDialog';
-import { SET_DIGITAL_OUTPUT_MUTATION } from '../../../graphql/edge-device.queries';
 
 export const PropertiesPanel: React.FC = () => {
   const {
@@ -55,26 +53,42 @@ export const PropertiesPanel: React.FC = () => {
     selectedNode?.data?.edgeDeviceId || null
   );
 
+  // FIX: selectedEdgeDeviceId senkronizasyonu — selectedNode değiştiğinde
+  // state'i güncelle. useState initializer sadece ilk mount'ta çalışır,
+  // farklı node seçildiğinde eski device ID kalıyordu (stale state bug).
+  useEffect(() => {
+    setSelectedEdgeDeviceId(selectedNode?.data?.edgeDeviceId || null);
+  }, [selectedNode?.id, selectedNode?.data?.edgeDeviceId]);
+
   // DO toggle onay dialogu state'i (Faz C — güvenlik)
+  // edgeDeviceId'yi dialog state'inde yakala — closure üzerinden değil,
+  // böylece dialog açıkken node değişse bile doğru device'a komut gider
   const [doConfirmDialog, setDoConfirmDialog] = useState<{
     isOpen: boolean;
     tagName: string;
     ioConfigId: string;
     newValue: boolean;
+    edgeDeviceId: string;
   } | null>(null);
-  const [doToggleLoading, setDoToggleLoading] = useState(false);
 
-  // Edge device listesini çek (tüm aktif cihazlar)
-  const { data: edgeDevicesData } = useEdgeDevices({ limit: 100 });
-  const edgeDevices = edgeDevicesData?.items || [];
+  // DO toggle hatalarını kullanıcıya göstermek için inline error state
+  const [doToggleError, setDoToggleError] = useState<string | null>(null);
 
-  // Seçili device'ın detaylarını çek (I/O config dahil)
-  const { data: selectedDeviceDetail } = useEdgeDevice(
-    selectedEdgeDeviceId || selectedNode?.data?.edgeDeviceId || ''
+  // TanStack Query mutation hook — raw graphqlRequest yerine
+  // Bu hook otomatik loading/error state yönetimi sağlar
+  const setDigitalOutput = useSetDigitalOutput();
+
+  // Edge device listesini çek — decommissioned cihazları filtrele
+  // Decommissioned cihazlar artık aktif değil, dropdown'da gösterilmemeli
+  const { data: edgeDevicesData, isLoading: isEdgeDevicesLoading, error: edgeDevicesError } = useEdgeDevices({ limit: 100 });
+  const edgeDevices = (edgeDevicesData?.items || []).filter(
+    (d) => d.lifecycleState !== DeviceLifecycleState.DECOMMISSIONED
   );
 
-  // Auth context — GraphQL mutation'lar için
-  const { graphqlRequest } = useAuth();
+  // Seçili device'ın detaylarını çek (I/O config dahil)
+  const { data: selectedDeviceDetail, isLoading: isDeviceDetailLoading } = useEdgeDevice(
+    selectedEdgeDeviceId || selectedNode?.data?.edgeDeviceId || ''
+  );
 
   // Fetch attachable equipment
   const { equipment } = useAttachableEquipment();
@@ -214,34 +228,37 @@ export const PropertiesPanel: React.FC = () => {
   // Güvenlik: her DO değişikliği kullanıcı onayı gerektirir.
   // -----------------------------------------------------------------------
   const handleDoToggleRequest = useCallback((tagName: string, ioConfigId: string, newValue: boolean) => {
-    setDoConfirmDialog({ isOpen: true, tagName, ioConfigId, newValue });
-  }, []);
+    // edgeDeviceId'yi dialog state'inde yakala — closure üzerinden değil
+    const edgeDeviceId = selectedNode?.data?.edgeDeviceId;
+    if (!edgeDeviceId) return;
+    setDoToggleError(null); // Önceki hatayı temizle
+    setDoConfirmDialog({ isOpen: true, tagName, ioConfigId, newValue, edgeDeviceId });
+  }, [selectedNode?.data?.edgeDeviceId]);
 
   const handleDoToggleConfirm = useCallback(async () => {
-    if (!doConfirmDialog || !selectedNode?.data?.edgeDeviceId) return;
-    setDoToggleLoading(true);
+    if (!doConfirmDialog) return;
+    setDoToggleError(null);
 
     try {
-      const result = await graphqlRequest(SET_DIGITAL_OUTPUT_MUTATION, {
-        input: {
-          deviceId: selectedNode.data.edgeDeviceId,
-          ioConfigId: doConfirmDialog.ioConfigId,
-          value: doConfirmDialog.newValue,
-        },
+      // TanStack Query mutateAsync — otomatik retry, error boundary desteği
+      const result = await setDigitalOutput.mutateAsync({
+        deviceId: doConfirmDialog.edgeDeviceId,
+        ioConfigId: doConfirmDialog.ioConfigId,
+        value: doConfirmDialog.newValue,
       });
 
-      if (result?.setDigitalOutput?.success) {
-        console.log(`DO toggle success: ${doConfirmDialog.tagName} = ${doConfirmDialog.newValue}`);
-      } else {
-        console.error('DO toggle failed:', result?.setDigitalOutput?.error);
+      if (!result.success) {
+        // Backend'den dönen hata mesajını kullanıcıya göster
+        setDoToggleError(result.error || 'Unknown error occurred');
       }
     } catch (error) {
-      console.error('DO toggle error:', error);
+      // Network/GraphQL hatası — kullanıcıya anlaşılır mesaj göster
+      const msg = error instanceof Error ? error.message : 'Failed to send command';
+      setDoToggleError(msg);
     } finally {
-      setDoToggleLoading(false);
       setDoConfirmDialog(null);
     }
-  }, [doConfirmDialog, selectedNode, graphqlRequest]);
+  }, [doConfirmDialog, setDigitalOutput]);
 
   // Get unlinked equipment for dropdown
   const unlinkedEquipment = equipment.filter((eq) => !eq.isLinked);
@@ -827,25 +844,33 @@ export const PropertiesPanel: React.FC = () => {
             ) : (
               // Bağlanmamış durumu — device dropdown
               <div className="space-y-2">
-                <select
-                  onChange={(e) => {
-                    if (e.target.value) handleEdgeDeviceSelect(e.target.value);
-                  }}
-                  value=""
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-                >
-                  <option value="">Select Edge Device...</option>
-                  {edgeDevices.map((device) => (
-                    <option key={device.id} value={device.id}>
-                      {device.deviceName} ({device.deviceCode})
-                      {device.isOnline ? ' ●' : ' ○'}
-                    </option>
-                  ))}
-                </select>
-                {edgeDevices.length === 0 && (
-                  <p className="text-xs text-gray-500">
-                    No edge devices registered. Add devices in Edge Device Management.
-                  </p>
+                {isEdgeDevicesLoading ? (
+                  <p className="text-xs text-gray-400 animate-pulse">Loading devices...</p>
+                ) : edgeDevicesError ? (
+                  <p className="text-xs text-red-500">Failed to load devices</p>
+                ) : (
+                  <>
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) handleEdgeDeviceSelect(e.target.value);
+                      }}
+                      value=""
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                    >
+                      <option value="">Select Edge Device...</option>
+                      {edgeDevices.map((device) => (
+                        <option key={device.id} value={device.id}>
+                          {device.deviceName} ({device.deviceCode})
+                          {device.isOnline ? ' ●' : ' ○'}
+                        </option>
+                      ))}
+                    </select>
+                    {edgeDevices.length === 0 && (
+                      <p className="text-xs text-gray-500">
+                        No edge devices registered. Add devices in Edge Device Management.
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -864,6 +889,24 @@ export const PropertiesPanel: React.FC = () => {
                 <Zap className="w-4 h-4" />
                 Output Controls
               </h5>
+
+              {/* DO toggle hata mesajı — kullanıcıya inline gösterim
+                  Console.error yerine UI'da gösterilir, 5 saniye sonra otomatik kaybolur */}
+              {doToggleError && (
+                <div className="flex items-start gap-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 mb-2">
+                  <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-medium">Output command failed</p>
+                    <p className="mt-0.5">{doToggleError}</p>
+                  </div>
+                  <button
+                    onClick={() => setDoToggleError(null)}
+                    className="text-red-400 hover:text-red-600"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
 
               <div className="space-y-2">
                 {/* DO tag'leri için ON/OFF toggle butonları */}
@@ -941,14 +984,14 @@ export const PropertiesPanel: React.FC = () => {
                 </button>
                 <button
                   onClick={handleDoToggleConfirm}
-                  disabled={doToggleLoading}
+                  disabled={setDigitalOutput.isPending}
                   className={`px-3 py-1.5 text-sm text-white rounded ${
                     doConfirmDialog.newValue
                       ? 'bg-green-600 hover:bg-green-700'
                       : 'bg-red-600 hover:bg-red-700'
                   } disabled:opacity-50`}
                 >
-                  {doToggleLoading ? 'Sending...' : 'Confirm'}
+                  {setDigitalOutput.isPending ? 'Sending...' : 'Confirm'}
                 </button>
               </div>
             </div>

@@ -6,6 +6,7 @@ import {
   ObjectType,
   ID,
 } from '@nestjs/graphql';
+import { IsUUID, IsBoolean } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import {
@@ -301,13 +302,19 @@ export class PushIoConfigResult {
  */
 @InputType()
 export class SetDigitalOutputInput {
+  /** Edge device UUID — class-validator ile format doğrulaması yapılır */
   @Field(() => ID)
+  @IsUUID('4', { message: 'deviceId must be a valid UUID v4' })
   deviceId!: string;
 
+  /** DeviceIoConfig UUID — DO tipinde olmalı, service katmanında kontrol edilir */
   @Field(() => ID)
+  @IsUUID('4', { message: 'ioConfigId must be a valid UUID v4' })
   ioConfigId!: string;
 
+  /** true = ON, false = OFF — fiziksel çıkışı kontrol eder */
   @Field()
+  @IsBoolean({ message: 'value must be a boolean (true/false)' })
   value!: boolean;
 }
 

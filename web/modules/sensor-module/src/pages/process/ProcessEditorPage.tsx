@@ -13,7 +13,7 @@
  * - Seamless integration with existing MF architecture
  */
 
-import React, { useCallback, useRef, useState, useEffect } from 'react';
+import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -716,6 +716,26 @@ const ProcessEditorPage: React.FC = () => {
   // Deploy Automation modal state (Kemik Yapı — Faz D)
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
 
+  // Memoized bound devices — canvasNodes değişmedikçe yeniden hesaplanmaz.
+  // Her render'da Array.from(new Map(...)) oluşturmak gereksiz GC baskısı yaratır.
+  // DeployAutomationModal'a prop olarak geçirilir, referans stabilitesi önemli.
+  const boundDevices = useMemo(() => {
+    return Array.from(
+      new Map(
+        canvasNodes
+          .filter((n) => n.data?.edgeDeviceId)
+          .map((n) => [
+            n.data.edgeDeviceId,
+            {
+              id: n.data.edgeDeviceId!,
+              code: n.data.edgeDeviceCode || n.data.edgeDeviceId!,
+              name: n.data.edgeDeviceCode || n.data.edgeDeviceId!,
+            },
+          ])
+      ).values()
+    );
+  }, [canvasNodes]);
+
   // Widget config modal state
   const [widgetConfigModal, setWidgetConfigModal] = useState<{
     isOpen: boolean;
@@ -1208,28 +1228,15 @@ const ProcessEditorPage: React.FC = () => {
 
       {/* Deploy Automation Modal (Kemik Yapı — Faz D)
           Process'teki equipment node'larından bağlı device'ları otomatik çıkarır
-          ve deploy hedefi olarak gösterir. */}
-      <DeployAutomationModal
-        isOpen={isDeployModalOpen}
-        onClose={() => setIsDeployModalOpen(false)}
-        boundDevices={
-          // Process'teki tüm node'lardan edgeDeviceId olan benzersiz device'ları çıkar
-          Array.from(
-            new Map(
-              canvasNodes
-                .filter((n) => n.data?.edgeDeviceId)
-                .map((n) => [
-                  n.data.edgeDeviceId,
-                  {
-                    id: n.data.edgeDeviceId!,
-                    code: n.data.edgeDeviceCode || n.data.edgeDeviceId!,
-                    name: n.data.equipmentName,
-                  },
-                ])
-            ).values()
-          )
-        }
-      />
+          ve deploy hedefi olarak gösterir.
+          Conditional render — modal kapalıyken DOM'a mount etme, gereksiz render önlenir */}
+      {isDeployModalOpen && (
+        <DeployAutomationModal
+          isOpen={isDeployModalOpen}
+          onClose={() => setIsDeployModalOpen(false)}
+          boundDevices={boundDevices}
+        />
+      )}
     </div>
   );
 };

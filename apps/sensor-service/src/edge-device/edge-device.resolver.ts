@@ -400,18 +400,26 @@ export class EdgeDeviceResolver {
    * Set a digital output on an edge device
    * Process editor'dan DO tag'ini ON/OFF yapmak için.
    * Sadece DO tipi tag'lere izin verir — güvenlik katmanı.
+   *
+   * @Roles — TENANT_ADMIN ve MODULE_MANAGER yetkileri gerekli.
+   *          Fiziksel çıkış kontrolü kritik bir operasyon olduğu için
+   *          diğer write mutation'larla aynı yetki seviyesinde olmalı.
+   * @CurrentUser — Audit trail için operatörün userId'si kaydedilir.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => SetDigitalOutputResult, { name: 'setDigitalOutput' })
   async setDigitalOutput(
     @Args('input') input: SetDigitalOutputInput,
     @Tenant() tenantId: string,
+    @CurrentUser() userId: string,
   ): Promise<SetDigitalOutputResult> {
-    this.logger.log(`Setting digital output: device=${input.deviceId}, io=${input.ioConfigId}, value=${input.value}`);
+    this.logger.log(`Setting digital output: device=${input.deviceId}, io=${input.ioConfigId}, value=${input.value}, user=${userId}`);
     return await this.edgeDeviceService.setDigitalOutput(
       input.deviceId,
       input.ioConfigId,
       input.value,
       tenantId,
+      userId,
     );
   }
 

@@ -20,7 +20,7 @@
  * -----------------------------------------------------------------------
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { IoBinding } from '../../../store/processStore';
 
 interface EquipmentNodeOverlayProps {
@@ -32,6 +32,9 @@ interface EquipmentNodeOverlayProps {
  * Tek bir I/O tag'inin canlı değerini gösteren badge component.
  * DI/DO → LED ikonu (yeşil=ON, kırmızı=OFF)
  * AI/AO → numerik değer gösterimi
+ *
+ * Tailwind sınıfları kullanılır — inline style yerine tutarlılık için.
+ * Renk paleti: green-500/red-500 (LED), green-100/red-100 (bg)
  */
 const IoBadge: React.FC<{
   binding: IoBinding;
@@ -45,21 +48,17 @@ const IoBadge: React.FC<{
     const isOn = liveValue === true || liveValue === 1;
     return (
       <div
-        className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium"
-        style={{
-          backgroundColor: isOn ? '#dcfce7' : '#fee2e2',
-          color: isOn ? '#166534' : '#991b1b',
-        }}
+        className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+          isOn ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+        }`}
         title={`${binding.tagName} (${binding.ioType}): ${isOn ? 'ON' : 'OFF'}`}
       >
-        {/* LED ikonu — dolu daire: ON, boş daire: OFF */}
+        {/* LED ikonu — dolu daire: ON, boş daire: OFF
+            Aktif output'larda Tailwind animate-pulse kullanılır */}
         <span
-          className="inline-block w-2 h-2 rounded-full"
-          style={{
-            backgroundColor: isOn ? '#22c55e' : '#ef4444',
-            // Aktif output'larda pulse animasyonu — dikkat çeker
-            animation: isOn && isOutput ? 'pulse 2s infinite' : 'none',
-          }}
+          className={`inline-block w-2 h-2 rounded-full ${
+            isOn ? 'bg-green-500' : 'bg-red-500'
+          } ${isOn && isOutput ? 'animate-pulse' : ''}`}
         />
         <span className="truncate max-w-[50px]">{binding.tagName}</span>
       </div>
@@ -99,7 +98,7 @@ export const EquipmentNodeOverlay: React.FC<EquipmentNodeOverlayProps> = ({
   // aktif olacak. Edge agent'ın gönderdiği 'EdgeDeviceIoData' event'leri
   // bu state'i güncelleyecek.
   // -----------------------------------------------------------------------
-  const [liveValues, setLiveValues] = useState<Record<string, number | boolean | null>>({});
+  const [liveValues] = useState<Record<string, number | boolean | null>>({});
 
   // TODO (Faz F sonrası): WebSocket'ten gelen EdgeDeviceIoData event'lerini dinle
   // useEffect(() => {

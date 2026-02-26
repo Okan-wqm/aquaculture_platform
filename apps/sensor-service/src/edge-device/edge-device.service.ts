@@ -1134,16 +1134,22 @@ export class EdgeDeviceService implements OnModuleDestroy {
     ioConfigId: string,
     value: boolean,
     tenantId: string,
+    userId?: string,
   ): Promise<{ success: boolean; error?: string; tagName?: string; value?: boolean }> {
     // 1. Device'ı bul ve tenant sınırını kontrol et
     const device = await this.findByIdOrFail(deviceId, tenantId);
 
-    // 2. Device online kontrolü — offline cihaza komut göndermek anlamsız
+    // 2. Decommissioned device kontrolü — artık kullanılmayan cihaza komut gönderilmemeli
+    if (device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
+      return { success: false, error: 'Device is decommissioned — cannot send output command' };
+    }
+
+    // 3. Device online kontrolü — offline cihaza komut göndermek anlamsız
     if (!device.isOnline) {
       return { success: false, error: 'Device is offline — cannot send output command' };
     }
 
-    // 3. I/O config'i bul ve DO tipi olduğunu doğrula
+    // 4. I/O config'i bul ve DO tipi olduğunu doğrula
     const ioConfig = await this.ioConfigRepository.findOne({
       where: { id: ioConfigId, deviceId },
     });
@@ -1160,13 +1166,20 @@ export class EdgeDeviceService implements OnModuleDestroy {
       };
     }
 
-    // 4. MQTT bağlantısını kontrol et
-    const mqtt = this.ensureMqttAvailable();
+    // 5. MQTT bağlantısını kontrol et — diğer mutation'larla tutarlı soft-fail pattern
+    //    ensureMqttAvailable() BadRequestException fırlatır, burada yakalayıp
+    //    { success: false } döndürüyoruz ki frontend tutarlı hata yönetimi yapabilsin.
+    let mqtt: MqttClientService;
+    try {
+      mqtt = this.ensureMqttAvailable();
+    } catch {
+      return { success: false, error: 'MQTT service not available — cannot send command' };
+    }
 
     const commandId = randomUUID();
 
     try {
-      // 5. Edge agent'a set_output komutu gönder
+      // 6. Edge agent'a set_output komutu gönder
       // Topic: tenants/{tenantId}/devices/{deviceCode}/commands
       // Agent bu komutu alıp GPIO/Modbus üzerinden fiziksel çıkışı değiştirir
       await mqtt.publish(
@@ -1182,13 +1195,18 @@ export class EdgeDeviceService implements OnModuleDestroy {
             modbus_register: ioConfig.modbusRegister,
             modbus_slave_id: ioConfig.modbusSlaveId,
             io_type: ioConfig.ioType,
+            // invertValue: I/O config'de ters çevrilme ayarı varsa agent bunu uygular
+            // Ör: NO (Normally Open) röle durumlarında fiziksel çıkışı ters çevirmek gerekir
+            invert_value: ioConfig.invertValue ?? false,
           },
           timestamp: new Date().toISOString(),
+          // Audit trail — hangi kullanıcı bu komutu tetikledi
+          ...(userId ? { triggeredBy: userId } : {}),
         },
       );
 
       this.logger.log(
-        `DO command sent: ${ioConfig.tagName} = ${value} on ${device.deviceCode} (command: ${commandId})`,
+        `DO command sent: ${ioConfig.tagName} = ${value} on ${device.deviceCode} (command: ${commandId}, user: ${userId || 'system'})`,
       );
 
       return { success: true, tagName: ioConfig.tagName, value };

@@ -748,18 +748,81 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   // ================================================================
 
   /**
-   * Handle I/O data from edge agent and bridge to WebSocket
-   * Edge agent'ın scan cycle'da okuduğu I/O değerlerini frontend'e iletir
+   * Per-device I/O data throttle — yüksek frekanslı scan cycle verilerini
+   * WebSocket'e iletmeden önce frekans sınırlaması uygular.
+   * Key: "tenantId:deviceCode", Value: son publish timestamp (ms)
+   *
+   * Edge agent'lar tipik olarak 100-500ms aralıklarla I/O verisi gönderir,
+   * ancak frontend'in bu hızda güncellenmesi gereksiz ve WebSocket'i yorar.
+   * IO_DATA_THROTTLE_MS ile minimum aralık belirlenir (varsayılan 1000ms).
+   */
+  private readonly ioDataThrottleMap = new Map<string, number>();
+  private static readonly IO_DATA_THROTTLE_MS = 1000;
+
+  /** Payload boyut limiti (64 KB) — anormal büyüklükteki paketleri reddet */
+  private static readonly IO_DATA_MAX_PAYLOAD_SIZE = 65_536;
+
+  /** Maksimum tag sayısı per payload — bellek tüketimini sınırla */
+  private static readonly IO_DATA_MAX_TAGS = 256;
+
+  /**
+   * Handle I/O data from edge agent and bridge to WebSocket.
+   * Edge agent'ın scan cycle'da okuduğu I/O değerlerini frontend'e iletir.
+   *
+   * Güvenlik katmanları:
+   *   1. Payload boyut kontrolü — DDoS/memory abuse önlemi
+   *   2. Payload yapı doğrulaması — tags objesinin varlığı ve tipi
+   *   3. Tag sayısı limiti — anormal veri paketlerini reddet
+   *   4. Per-device throttle — WebSocket flooding önlemi
    */
   private async handleEdgeIoData(
     tenantId: string,
     deviceCode: string,
     payload: Record<string, unknown>,
   ): Promise<void> {
-    this.logger.debug(`I/O data from ${deviceCode}: ${JSON.stringify(payload).substring(0, 200)}`);
+    // 1. Payload boyut kontrolü — serialize edip byte cinsinden kontrol et
+    //    Anormal büyük payload'lar bellek sızıntısına veya EventBus tıkanıklığına yol açabilir
+    const payloadStr = JSON.stringify(payload);
+    if (payloadStr.length > MqttListenerService.IO_DATA_MAX_PAYLOAD_SIZE) {
+      this.logger.warn(
+        `I/O data payload too large from ${deviceCode}: ${payloadStr.length} bytes (limit: ${MqttListenerService.IO_DATA_MAX_PAYLOAD_SIZE})`,
+      );
+      return;
+    }
 
-    // EventBus üzerinden WebSocket'e ilet
-    // Frontend'deki useSensorSocket veya özel hook bu event'i dinler
+    // 2. Payload yapı doğrulaması — "tags" alanı object olmalı
+    //    Edge agent'ın beklenen formatı: { tags: { tagName: { value, quality } } }
+    const tags = payload.tags;
+    if (!tags || typeof tags !== 'object' || Array.isArray(tags)) {
+      this.logger.warn(
+        `I/O data from ${deviceCode} has invalid structure — expected { tags: {...} }, got: ${payloadStr.substring(0, 100)}`,
+      );
+      return;
+    }
+
+    // 3. Tag sayısı kontrolü — anormal miktarda tag gönderimini engelle
+    const tagCount = Object.keys(tags as Record<string, unknown>).length;
+    if (tagCount > MqttListenerService.IO_DATA_MAX_TAGS) {
+      this.logger.warn(
+        `I/O data from ${deviceCode} has ${tagCount} tags (limit: ${MqttListenerService.IO_DATA_MAX_TAGS})`,
+      );
+      return;
+    }
+
+    // 4. Per-device throttle — aynı cihazdan çok hızlı gelen verileri filtrele
+    //    Frontend 1 saniyede 1'den fazla güncellemeye ihtiyaç duymaz
+    const throttleKey = `${tenantId}:${deviceCode}`;
+    const now = Date.now();
+    const lastPublish = this.ioDataThrottleMap.get(throttleKey) || 0;
+    if (now - lastPublish < MqttListenerService.IO_DATA_THROTTLE_MS) {
+      return; // Sessizce atla — debug log bile gereksiz, çünkü çok sık olur
+    }
+    this.ioDataThrottleMap.set(throttleKey, now);
+
+    this.logger.debug(`I/O data from ${deviceCode}: ${payloadStr.substring(0, 200)}`);
+
+    // 5. EventBus üzerinden WebSocket'e ilet
+    //    Frontend'deki useSensorSocket veya özel hook bu event'i dinler
     if (this.eventBus) {
       await this.eventBus.publish({
         eventId: randomUUID(),
@@ -767,8 +830,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         timestamp: new Date(),
         tenantId,
         deviceCode,
-        // Tüm I/O tag değerlerini olduğu gibi ilet
-        tags: payload.tags || payload,
+        tags,
         version: 1,
       });
     }

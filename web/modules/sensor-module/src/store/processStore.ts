@@ -89,11 +89,24 @@ export interface SensorNodeData {
 // Process editor'da ekipman seçilip edge device + I/O tag eşlendiğinde
 // bu yapı node data'ya yazılır. Canlı değerler overlay'de gösterilir.
 // -----------------------------------------------------------------------
+/**
+ * I/O tag tipi — IEC 61131-3 standart I/O sınıflandırması.
+ * Backend'deki IoType enum ile senkronize olmalı (device-io-config.entity.ts).
+ * useEdgeDevices.ts'deki IoType enum ile de tutarlı.
+ */
+export type IoBindingType = 'DI' | 'DO' | 'AI' | 'AO';
+
+/**
+ * I/O veri tipi — PLC/edge agent'ın kullandığı veri genişliği.
+ * Backend'deki IoDataType enum ile senkronize olmalı.
+ */
+export type IoBindingDataType = 'BOOL' | 'INT16' | 'INT32' | 'UINT16' | 'UINT32' | 'FLOAT32' | 'FLOAT64';
+
 export interface IoBinding {
-  ioConfigId: string;   // DeviceIoConfig.id (backend UUID)
-  tagName: string;      // İnsan-okunur tag adı, ör: "pump1_speed"
-  ioType: string;       // 'DI' | 'DO' | 'AI' | 'AO'
-  dataType: string;     // 'bool' | 'float32' | 'int16' vb.
+  ioConfigId: string;          // DeviceIoConfig.id (backend UUID)
+  tagName: string;             // İnsan-okunur tag adı, ör: "pump1_speed"
+  ioType: IoBindingType;       // DI/DO/AI/AO — string yerine union type ile tip güvenliği
+  dataType: IoBindingDataType; // PLC veri tipi — string yerine union type ile tip güvenliği
 }
 
 // Equipment node data structure
@@ -233,6 +246,7 @@ export interface FlowSourceData {
 }
 
 // Union type for all node data types
+// Her node tipi burada olmalı — eksik tip olursa TypeScript dar tip çıkarımı bozulur
 export type ProcessNodeData =
   | EquipmentNodeData
   | BlowerNodeData
@@ -242,7 +256,9 @@ export type ProcessNodeData =
   | RadialSettlerNodeData
   | FishTankNodeData
   | ConnectionPointNodeData
-  | SensorWidgetNodeData;
+  | SensorWidgetNodeData
+  | SensorNodeData
+  | FlowSourceData;
 
 // Edge data structure (ConnectionType imported from config/connectionTypes.ts)
 export interface ProcessEdgeData {
@@ -637,11 +653,20 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
   },
 
   unlinkEquipmentFromNode: (nodeId) => {
+    // Equipment unlink edildiğinde tüm bağlı verileri temizle:
+    // - Equipment kimliği (equipmentId, equipmentName, equipmentCode)
+    // - Edge device bağlantısı (edgeDeviceId, edgeDeviceCode)
+    // - I/O tag binding'leri (ioBindings)
+    // Bu temizlik yapılmazsa orphan referanslar kalır ve
+    // re-link sırasında eski device/IO verileri görünür.
     const clearedData = {
       equipmentId: undefined,
       equipmentName: undefined,
       equipmentCode: undefined,
       status: undefined,
+      edgeDeviceId: undefined,
+      edgeDeviceCode: undefined,
+      ioBindings: [],
     };
     set((state) => {
       const node = state.nodes.find((n) => n.id === nodeId);

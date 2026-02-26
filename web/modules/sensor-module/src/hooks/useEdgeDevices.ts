@@ -21,6 +21,7 @@ import {
   PUSH_IO_CONFIG_MUTATION,
   CREATE_PROVISIONED_DEVICE_MUTATION,
   REGENERATE_DEVICE_TOKEN_MUTATION,
+  SET_DIGITAL_OUTPUT_MUTATION,
 } from '../graphql/edge-device.queries';
 
 // ==================== Types ====================
@@ -160,11 +161,12 @@ export interface PingResult {
   error?: string;
 }
 
-/** Response from pushIoConfigToDevice mutation — cihaza I/O konfigürasyonu gönderme sonucu */
+/** Response from pushIoConfigToDevice mutation — cihaza I/O konfigürasyonu gönderme sonucu.
+ *  Backend PushIoConfigResult ile senkronize: { success, error? }
+ */
 export interface PushIoConfigResult {
   success: boolean;
-  message?: string;
-  pushedAt?: string;
+  error?: string;
 }
 
 export interface EdgeDeviceFilter {
@@ -581,12 +583,47 @@ export function usePushIoConfig() {
   return useMutation({
     mutationFn: async (deviceId: string) => {
       const data = await graphqlFetch<{
-        pushIoConfigToDevice: { success: boolean; message?: string; pushedAt?: string };
+        pushIoConfigToDevice: PushIoConfigResult;
       }>(PUSH_IO_CONFIG_MUTATION, { deviceId }, token);
       return data.pushIoConfigToDevice;
     },
     onSuccess: (_, deviceId) => {
       queryClient.invalidateQueries({ queryKey: ['edgeDevice', deviceId] });
+    },
+  });
+}
+
+/**
+ * setDigitalOutput mutation sonucu — backend SetDigitalOutputResult ile senkronize.
+ * Process editor'dan DO tag'i ON/OFF yapıldığında bu sonuç döner.
+ */
+export interface SetDigitalOutputResult {
+  success: boolean;
+  error?: string;
+  tagName?: string;
+  value?: boolean;
+}
+
+/**
+ * Hook to set a digital output on an edge device.
+ * Process editor'daki Output Controls bölümünden kullanılır.
+ * Backend'de @Roles(TENANT_ADMIN, MODULE_MANAGER) gerektirir.
+ *
+ * Kullanım:
+ *   const { mutateAsync, isPending } = useSetDigitalOutput();
+ *   await mutateAsync({ deviceId, ioConfigId, value: true });
+ */
+export function useSetDigitalOutput() {
+  const { token } = useAuth();
+
+  return useMutation({
+    mutationFn: async (input: { deviceId: string; ioConfigId: string; value: boolean }) => {
+      const data = await graphqlFetch<{ setDigitalOutput: SetDigitalOutputResult }>(
+        SET_DIGITAL_OUTPUT_MUTATION,
+        { input },
+        token,
+      );
+      return data.setDigitalOutput;
     },
   });
 }

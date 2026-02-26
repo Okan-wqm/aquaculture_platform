@@ -21,7 +21,6 @@ use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, error, info, warn};
 
 use crate::AppState;
-use crate::config::GpioPlatform;
 use crate::hardware_scanner::HardwareScanner;
 use crate::mqtt::{CommandMessage, CommandResponse, IncomingMessage};
 use crate::plc_programming::{

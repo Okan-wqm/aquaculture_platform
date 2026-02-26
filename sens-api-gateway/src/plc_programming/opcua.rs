@@ -759,7 +759,8 @@ impl Variant {
         }
 
         let type_id = data[0];
-        let _offset = 1;
+        #[allow(unused_assignments)]
+        let mut offset = 1;
 
         // Check for array flag (bit 7) - decode array elements
         if type_id & 0x80 != 0 {

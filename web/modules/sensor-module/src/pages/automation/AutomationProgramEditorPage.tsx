@@ -37,8 +37,8 @@ import {
 import STEditor from '../../components/automation/STEditor';
 import DeployTargetSelector, { DeployTarget } from '../../components/automation/DeployTargetSelector';
 import CompileResultPanel, { type ValidationResult } from '../../components/automation/CompileResultPanel';
-import { useEdgeDevices, DeviceLifecycleState, getDeviceModelText } from '../../hooks/useEdgeDevices';
-import type { EdgeDevice } from '../../hooks/useEdgeDevices';
+import { useEdgeDevices, useEdgeDevice, DeviceLifecycleState, getDeviceModelText } from '../../hooks/useEdgeDevices';
+import type { EdgeDevice, DeviceIoConfig } from '../../hooks/useEdgeDevices';
 import { graphqlFetch } from '../../config/api';
 import { ProgramStatus, ProgramType, getStatusColor, getStatusText } from '../../utils/automation.utils';
 import {
@@ -103,6 +103,29 @@ interface ProgramStep {
   description?: string;
 }
 
+/** IEC 61131-3 variable scopes that map to physical I/O on an edge device */
+type IoVariableScope = 'INPUT' | 'OUTPUT' | 'IN_OUT';
+const IO_VARIABLE_SCOPES: readonly IoVariableScope[] = ['INPUT', 'OUTPUT', 'IN_OUT'] as const;
+
+/**
+ * Maps IoDataType (hardware-level types from DeviceIoConfig) to IEC 61131-3 PLC data types.
+ * The PLC runtime only understands IEC types, so we translate when binding a variable
+ * to a physical I/O tag -- e.g. a Modbus FLOAT32 register becomes a REAL variable.
+ */
+const IO_TO_IEC_DATA_TYPE: Record<string, string> = {
+  BOOL: 'BOOL',
+  INT16: 'INT',
+  INT32: 'INT',
+  UINT16: 'INT',
+  UINT32: 'INT',
+  FLOAT32: 'REAL',
+  FLOAT64: 'REAL',
+};
+
+function isIoScope(scope: string): scope is IoVariableScope {
+  return (IO_VARIABLE_SCOPES as readonly string[]).includes(scope);
+}
+
 interface ProgramVariable {
   id: string;
   varName: string;
@@ -110,6 +133,10 @@ interface ProgramVariable {
   initialValue?: string;
   scope: string;
   description?: string;
+  /** Physical I/O tag name bound to this variable (e.g. "water_temp") */
+  ioTagName?: string;
+  /** FK to DeviceIoConfig -- links this variable to a specific hardware channel */
+  ioConfigId?: string;
 }
 
 interface ProgramTransition {
@@ -194,6 +221,16 @@ const VariableRow: React.FC<{
     <td className="px-4 py-3 text-sm">{variable.dataType}</td>
     <td className="px-4 py-3 text-sm font-mono">{variable.initialValue || '-'}</td>
     <td className="px-4 py-3 text-sm">{variable.scope}</td>
+    {/* Show bound I/O tag name -- helps operators verify correct physical wiring */}
+    <td className="px-4 py-3 text-sm">
+      {variable.ioTagName ? (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 text-xs font-mono">
+          {variable.ioTagName}
+        </span>
+      ) : (
+        <span className="text-gray-400">-</span>
+      )}
+    </td>
     <td className="px-4 py-3 text-sm text-gray-500">{variable.description || '-'}</td>
     <td className="px-4 py-3">
       <button
@@ -237,7 +274,10 @@ const AutomationProgramEditorPage: React.FC = () => {
   const [showAddStep, setShowAddStep] = useState(false);
   const [showAddVariable, setShowAddVariable] = useState(false);
   const [newStep, setNewStep] = useState({ stepName: '', stepCode: '', stepOrder: 1, stepType: 'normal' });
-  const [newVariable, setNewVariable] = useState({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL' });
+  // Variable form state -- ioTagName/ioConfigId are only populated when scope is INPUT/OUTPUT/IN_OUT
+  const [newVariable, setNewVariable] = useState({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL', ioTagName: '', ioConfigId: '' });
+  // Tracks which device the user selected in the I/O picker (separate from deploy device)
+  const [ioDeviceId, setIoDeviceId] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
@@ -259,6 +299,24 @@ const AutomationProgramEditorPage: React.FC = () => {
     limit: 100,
   });
   const onlineDevices = edgeDevicesData?.items ?? [];
+
+  // Whether the I/O tag picker should be visible -- avoids unnecessary queries
+  // when the user isn't working with I/O-bound variables
+  const showIoTagPicker = showAddVariable && isIoScope(newVariable.scope);
+
+  // Fetch full device with ioConfig for the selected device in the I/O picker.
+  // Only fires when a device is actually selected (useEdgeDevice checks !!id internally).
+  const { data: ioDeviceData } = useEdgeDevice(ioDeviceId);
+  const ioTags: DeviceIoConfig[] = ioDeviceData?.ioConfig?.filter((io) => io.isActive) ?? [];
+
+  // All active devices (including offline) for the I/O binding device selector.
+  // Offline devices still have valid I/O configs; excluding them would prevent
+  // binding variables during device maintenance windows.
+  const { data: allDevicesData } = useEdgeDevices({
+    lifecycleState: DeviceLifecycleState.ACTIVE,
+    limit: 100,
+  });
+  const allActiveDevices = allDevicesData?.items ?? [];
 
   // Query
   const { data, isLoading } = useQuery({
@@ -370,7 +428,8 @@ const AutomationProgramEditorPage: React.FC = () => {
       setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
       setShowAddVariable(false);
-      setNewVariable({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL' });
+      setNewVariable({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL', ioTagName: '', ioConfigId: '' });
+      setIoDeviceId('');
     },
     onError: (error: Error) => handleMutationError(error, 'Degisken eklenemedi'),
   });
@@ -962,7 +1021,14 @@ const AutomationProgramEditorPage: React.FC = () => {
                 />
                 <select
                   value={newVariable.scope}
-                  onChange={(e) => setNewVariable({ ...newVariable, scope: e.target.value })}
+                  onChange={(e) => {
+                    const scope = e.target.value;
+                    // Clear I/O binding when switching away from an I/O-capable scope
+                    setNewVariable({ ...newVariable, scope, ioTagName: '', ioConfigId: '' });
+                    if (!isIoScope(scope)) {
+                      setIoDeviceId('');
+                    }
+                  }}
                   className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 >
                   <option value="LOCAL">LOCAL</option>
@@ -972,9 +1038,76 @@ const AutomationProgramEditorPage: React.FC = () => {
                   <option value="GLOBAL">GLOBAL</option>
                 </select>
               </div>
+              {/* I/O Tag Binding -- only INPUT/OUTPUT/IN_OUT variables can be bound to physical tags */}
+              {showIoTagPicker && (
+                <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <h4 className="text-sm font-medium text-blue-700 dark:text-blue-400 mb-3">I/O Tag Baglama</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Edge Cihazi</label>
+                      <select
+                        value={ioDeviceId}
+                        onChange={(e) => {
+                          setIoDeviceId(e.target.value);
+                          setNewVariable({ ...newVariable, ioTagName: '', ioConfigId: '' });
+                        }}
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
+                      >
+                        <option value="">Cihaz seciniz...</option>
+                        {allActiveDevices.map((device: EdgeDevice) => (
+                          <option key={device.id} value={device.id}>
+                            {device.deviceName} ({device.deviceCode}) - {getDeviceModelText(device.deviceModel)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">I/O Tag</label>
+                      <select
+                        value={newVariable.ioConfigId}
+                        onChange={(e) => {
+                          const selectedTag = ioTags.find((t) => t.id === e.target.value);
+                          if (selectedTag) {
+                            // Auto-map hardware data type to IEC 61131-3 type so the
+                            // PLC variable matches the physical I/O channel width
+                            setNewVariable({
+                              ...newVariable,
+                              ioConfigId: selectedTag.id,
+                              ioTagName: selectedTag.tagName,
+                              dataType: IO_TO_IEC_DATA_TYPE[selectedTag.dataType] || newVariable.dataType,
+                            });
+                          } else {
+                            setNewVariable({ ...newVariable, ioConfigId: '', ioTagName: '' });
+                          }
+                        }}
+                        disabled={!ioDeviceId || ioTags.length === 0}
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800"
+                      >
+                        <option value="">{!ioDeviceId ? 'Once cihaz seciniz...' : ioTags.length === 0 ? 'I/O tag bulunamadi' : 'Tag seciniz...'}</option>
+                        {ioTags.map((tag) => (
+                          <option key={tag.id} value={tag.id}>
+                            {tag.tagName} ({tag.ioType} - {tag.dataType})
+                            {tag.modbusRegister != null ? ` Modbus R${tag.modbusRegister}` : ''}
+                            {tag.gpioPin != null ? ` GPIO ${tag.gpioPin}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  {newVariable.ioTagName && (
+                    <div className="mt-2 text-xs text-blue-600 dark:text-blue-400">
+                      Bagli tag: <span className="font-mono font-medium">{newVariable.ioTagName}</span>
+                      {' | Veri tipi otomatik ayarlandi: '}<span className="font-medium">{newVariable.dataType}</span>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="flex justify-end gap-2 mt-4">
                 <button
-                  onClick={() => setShowAddVariable(false)}
+                  onClick={() => {
+                    setShowAddVariable(false);
+                    setIoDeviceId('');
+                  }}
                   className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-100"
                 >
                   Iptal
@@ -998,6 +1131,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tip</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Deger</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kapsam</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">I/O Tag</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Aciklama</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"></th>
                 </tr>
@@ -1005,7 +1139,7 @@ const AutomationProgramEditorPage: React.FC = () => {
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {variables.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
                       Henuz degisken eklenmemis
                     </td>
                   </tr>

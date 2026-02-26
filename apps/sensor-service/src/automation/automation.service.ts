@@ -14,6 +14,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, In, LessThan } from 'typeorm';
 
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
+import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
 import { DeploymentLogService } from './services/deployment-log.service';
@@ -42,9 +43,15 @@ import {
   TriggerConfig,
 } from './entities/automation-program.entity';
 import { ProgramStep, StepType } from './entities/program-step.entity';
-import { ProgramTransition } from './entities/program-transition.entity';
-import { ProgramVariable } from './entities/program-variable.entity';
-import { StepAction } from './entities/step-action.entity';
+import {
+  ProgramTransition,
+  ConditionType as TransitionConditionType,
+} from './entities/program-transition.entity';
+import { ProgramVariable, VariableScope } from './entities/program-variable.entity';
+import {
+  StepAction,
+  ActionType as StepActionType,
+} from './entities/step-action.entity';
 
 
 /**
@@ -1260,60 +1267,76 @@ export class AutomationService {
   /**
    * Translate IEC 61131-3 program to edge script format
    *
-   * This is a simplified translator. In a full implementation,
-   * this would parse ST code, SFC structure, and generate
-   * the complete edge script with function blocks.
+   * Produces a ProgramDefinition payload matching the Rust agent's expected JSON:
+   * - Loads ProgramVariable[] with I/O bindings
+   * - Resolves DeviceIoConfig for each bound variable
+   * - Builds ioMappings, functionBlocks, triggers, conditions, actions
    */
   private async translateProgramToEdgeScript(
     program: AutomationProgram,
   ): Promise<Record<string, unknown>> {
-    // Get program steps and transitions in parallel
-    const [steps, transitions] = await Promise.all([
+    // Load steps, transitions, variables, and step actions in parallel
+    const [steps, transitions, variables] = await Promise.all([
       this.stepRepo.find({ where: { programId: program.id }, order: { stepOrder: 'ASC' } }),
       this.transitionRepo.find({ where: { programId: program.id } }),
+      this.variableRepo.find({ where: { programId: program.id }, order: { varOrder: 'ASC' } }),
     ]);
 
-    // Build triggers from transition conditions
-    // Validate conditionExpression against allowed sensor reference pattern
-    const SAFE_CONDITION_PATTERN = /^[a-zA-Z0-9_\-:./]+$/;
-    const triggers = transitions.map((t) => {
-      const source = t.conditionExpression || 'manual';
-      if (source !== 'manual' && !SAFE_CONDITION_PATTERN.test(source)) {
-        this.logger.warn(
-          `Transition ${t.id} has invalid conditionExpression: ${source.substring(0, 50)}... — defaulting to manual`,
-        );
-        return { type: 'threshold', source: 'manual', operator: 'eq', value: true };
-      }
-      return { type: 'threshold', source, operator: 'eq', value: true };
-    });
+    // Load step actions for all steps
+    const stepIds = steps.map((s) => s.id);
+    const stepActions = stepIds.length > 0
+      ? await this.actionRepo.find({
+          where: { stepId: In(stepIds) },
+          order: { actionOrder: 'ASC' },
+        })
+      : [];
 
-    // Build actions from steps
-    const actions = steps.flatMap((step) => {
-      const stepActions: Array<Record<string, unknown>> = [];
+    // Group step actions by stepId for quick lookup
+    const actionsByStep = new Map<string, StepAction[]>();
+    for (const action of stepActions) {
+      const list = actionsByStep.get(action.stepId) || [];
+      list.push(action);
+      actionsByStep.set(action.stepId, list);
+    }
 
-      // Entry action
-      if (step.entryAction) {
-        stepActions.push({
-          type: 'log',
-          level: 'info',
-          message: `Entering step: ${step.stepName}`,
-        });
-      }
+    // Resolve I/O configs for variables that have ioConfigId
+    const ioConfigIds = variables
+      .filter((v) => v.ioConfigId)
+      .map((v) => v.ioConfigId!);
+    const ioConfigs = ioConfigIds.length > 0
+      ? await this.dataSource.getRepository(DeviceIoConfig).find({
+          where: { id: In(ioConfigIds) },
+        })
+      : [];
+    const ioConfigMap = new Map<string, DeviceIoConfig>();
+    for (const cfg of ioConfigs) {
+      ioConfigMap.set(cfg.id, cfg);
+    }
 
-      // Exit action
-      if (step.exitAction) {
-        stepActions.push({
-          type: 'log',
-          level: 'info',
-          message: `Exiting step: ${step.stepName}`,
-        });
-      }
+    // Build variable-to-source mapping (varName -> agent source string)
+    const varSourceMap = new Map<string, string>();
+    const ioMappings: Record<string, string> = {};
+    for (const v of variables) {
+      const source = this.resolveVariableSource(v, ioConfigMap);
+      varSourceMap.set(v.varName, source);
+      ioMappings[v.varName] = source;
+    }
 
-      return stepActions;
-    });
+    // Build function blocks from StepActions (CALL_FB type) and ST code
+    const functionBlocks = this.buildFunctionBlocks(
+      stepActions,
+      program,
+      varSourceMap,
+    );
 
-    // Build function blocks from timers/counters in ST code
-    const functionBlocks = this.extractFunctionBlocks(program);
+    // Build triggers from SFC transitions
+    const triggers = this.buildTriggers(transitions, varSourceMap);
+
+    // Build conditions (empty for SFC - conditions are encoded in transitions)
+    const conditions: Array<Record<string, unknown>> = [];
+
+    // Build actions from step actions
+    const actions = this.buildActions(steps, actionsByStep, varSourceMap);
 
     // Determine execution mode
     const executionMode =
@@ -1322,7 +1345,7 @@ export class AutomationService {
     return {
       id: program.id,
       name: program.programName,
-      description: program.description,
+      description: program.description || '',
       version: program.version,
       executionMode,
       scanCycleMs: program.scanCycleMs || 100,
@@ -1330,12 +1353,12 @@ export class AutomationService {
       script: {
         id: `script-${program.programCode}`,
         name: program.programName,
-        description: program.description,
+        description: program.description || '',
         version: program.version.toString(),
         enabled: true,
         priority: this.mapPriority(program.priority),
         triggers: triggers.length > 0 ? triggers : [{ type: 'startup' }],
-        conditions: [],
+        conditions,
         actions: actions.length > 0 ? actions : [{ type: 'noop' }],
         onError: [
           {
@@ -1350,53 +1373,500 @@ export class AutomationService {
   }
 
   /**
-   * Extract function block definitions from program
+   * Resolve a ProgramVariable to its agent source string.
+   *
+   * - Variables with ioConfigId linked to GPIO → "gpio:{pin}"
+   * - Variables with ioConfigId linked to Modbus → "sensor:{tagName}"
+   * - Variables with ioTagName but no config → "sensor:{ioTagName}"
+   * - LOCAL/RETAIN/CONSTANT variables → "var:{varName}"
    */
-  private extractFunctionBlocks(
+  private resolveVariableSource(
+    variable: ProgramVariable,
+    ioConfigMap: Map<string, DeviceIoConfig>,
+  ): string {
+    // If linked to a DeviceIoConfig, resolve from hardware mapping
+    if (variable.ioConfigId) {
+      const cfg = ioConfigMap.get(variable.ioConfigId);
+      if (cfg) {
+        // GPIO-mapped I/O
+        if (cfg.gpioPin != null) {
+          return `gpio:${cfg.gpioPin}`;
+        }
+        // Modbus or other sensor-mapped I/O: use tagName
+        return `sensor:${cfg.tagName}`;
+      }
+    }
+
+    // If ioTagName is set but no config was found, use it as sensor reference
+    if (variable.ioTagName) {
+      return `sensor:${variable.ioTagName}`;
+    }
+
+    // Local / retain / constant → variable reference
+    return `var:${variable.varName}`;
+  }
+
+  /**
+   * Build function block definitions from StepActions and ST code.
+   *
+   * Sources:
+   * 1. StepAction entities with actionType === CALL_FB
+   * 2. Regex extraction from ST code as fallback
+   * 3. sfcDefinition variables with FB references
+   */
+  private buildFunctionBlocks(
+    stepActions: StepAction[],
     program: AutomationProgram,
+    varSourceMap: Map<string, string>,
   ): Array<Record<string, unknown>> {
-    const functionBlocks: Array<Record<string, unknown>> = [];
+    const fbMap = new Map<string, Record<string, unknown>>();
 
-    // Strip IEC 61131-3 comments before applying regex to prevent comment injection
-    let stCode = program.structuredTextCode || '';
-    stCode = stCode.replace(/\(\*[\s\S]*?\*\)/g, ''); // Block comments (* ... *)
-    stCode = stCode.replace(/\/\/.*$/gm, '');           // Line comments // ...
+    // 1. Extract from StepAction CALL_FB entries
+    for (const action of stepActions) {
+      if (action.actionType !== StepActionType.CALL_FB) continue;
+      if (!action.targetRef) continue;
 
-    // Simple pattern matching for TON, TOF, TP
-    const tonMatch = stCode.match(/(\w+)\s*:\s*TON/gi);
-    if (tonMatch) {
-      tonMatch.forEach((match, index) => {
-        const name = match.split(':')[0]?.trim() || `timer_${index}`;
-        functionBlocks.push({
-          id: `fb_${name}`,
-          fbType: 'TON',
-          params: {
-            ptMs: 1000, // Default 1 second
-          },
-          inputs: {},
-          outputs: {},
-        });
+      const fbId = action.targetRef;
+      if (fbMap.has(fbId)) continue;
+
+      const params = (action.params || {}) as Record<string, unknown>;
+      const fbType = (params.fbType as string) || 'TON';
+
+      // Build input wiring from params
+      const inputs: Record<string, string> = {};
+      const outputs: Record<string, string> = {};
+
+      if (params.inputs && typeof params.inputs === 'object') {
+        for (const [key, val] of Object.entries(params.inputs as Record<string, string>)) {
+          // Resolve variable names to agent sources
+          inputs[key] = varSourceMap.get(val) || val;
+        }
+      }
+      if (params.outputs && typeof params.outputs === 'object') {
+        for (const [key, val] of Object.entries(params.outputs as Record<string, string>)) {
+          outputs[key] = varSourceMap.get(val) || val;
+        }
+      }
+
+      const fbParams: Record<string, unknown> = {};
+      if (params.ptMs != null) fbParams.ptMs = params.ptMs;
+      if (params.pv != null) fbParams.pv = params.pv;
+      if (params.kp != null) fbParams.kp = params.kp;
+      if (params.ki != null) fbParams.ki = params.ki;
+      if (params.kd != null) fbParams.kd = params.kd;
+      if (params.outMin != null) fbParams.outMin = params.outMin;
+      if (params.outMax != null) fbParams.outMax = params.outMax;
+
+      fbMap.set(fbId, {
+        id: fbId,
+        fbType,
+        params: fbParams,
+        inputs,
+        outputs,
       });
     }
 
-    // CTU pattern
-    const ctuMatch = stCode.match(/(\w+)\s*:\s*CTU/gi);
-    if (ctuMatch) {
-      ctuMatch.forEach((match, index) => {
-        const name = match.split(':')[0]?.trim() || `counter_${index}`;
-        functionBlocks.push({
-          id: `fb_${name}`,
-          fbType: 'CTU',
-          params: {
-            pv: 10, // Default preset value
-          },
-          inputs: {},
-          outputs: {},
-        });
-      });
+    // 2. Fallback: extract from ST code (for programs without StepAction FB definitions)
+    if (fbMap.size === 0 && program.structuredTextCode) {
+      let stCode = program.structuredTextCode;
+      stCode = stCode.replace(/\(\*[\s\S]*?\*\)/g, ''); // Strip block comments
+      stCode = stCode.replace(/\/\/.*$/gm, '');           // Strip line comments
+
+      const fbPattern = /(\w+)\s*:\s*(TON|TOF|TP|CTU|CTD|PID|MAVG)\b/gi;
+      let match: RegExpExecArray | null;
+      while ((match = fbPattern.exec(stCode)) !== null) {
+        const name = match[1];
+        const fbType = match[2].toUpperCase();
+        if (!fbMap.has(name)) {
+          fbMap.set(name, {
+            id: name,
+            fbType,
+            params: fbType.startsWith('CT') ? { pv: 10 } : { ptMs: 1000 },
+            inputs: {},
+            outputs: {},
+          });
+        }
+      }
     }
 
-    return functionBlocks;
+    return Array.from(fbMap.values());
+  }
+
+  /**
+   * Build triggers from SFC transitions.
+   *
+   * Parses conditionExpression into typed triggers:
+   * - "varName > 25.0" → threshold trigger with resolved source
+   * - "TRUE" / "always" → startup trigger
+   * - Timeout transitions → interval trigger
+   */
+  private buildTriggers(
+    transitions: ProgramTransition[],
+    varSourceMap: Map<string, string>,
+  ): Array<Record<string, unknown>> {
+    const triggers: Array<Record<string, unknown>> = [];
+
+    for (const t of transitions) {
+      if (!t.isActive) continue;
+
+      // Timeout-based transitions
+      if (t.conditionType === 'timeout' && t.timeoutMs) {
+        triggers.push({
+          type: 'interval',
+          intervalSecs: Math.max(1, Math.round(t.timeoutMs / 1000)),
+        });
+        continue;
+      }
+
+      // Always-true transitions
+      if (t.conditionType === 'always' || !t.conditionExpression) {
+        triggers.push({ type: 'startup' });
+        continue;
+      }
+
+      const expr = t.conditionExpression.trim();
+
+      // "TRUE" literal
+      if (expr.toUpperCase() === 'TRUE') {
+        triggers.push({ type: 'startup' });
+        continue;
+      }
+
+      // Parse comparison expressions: "varName operator value"
+      const parsed = this.parseConditionExpression(expr, varSourceMap);
+      if (parsed) {
+        triggers.push({
+          type: 'threshold',
+          source: parsed.source,
+          operator: parsed.operator,
+          value: parsed.value,
+        });
+      } else {
+        // FB output reference like "timer1.Q"
+        if (expr.includes('.')) {
+          const source = `fb:${expr}`;
+          triggers.push({
+            type: 'threshold',
+            source,
+            operator: 'eq',
+            value: true,
+          });
+        } else {
+          // Simple variable reference — treat as boolean check
+          const source = varSourceMap.get(expr) || `var:${expr}`;
+          triggers.push({
+            type: 'threshold',
+            source,
+            operator: 'eq',
+            value: true,
+          });
+        }
+      }
+    }
+
+    return triggers;
+  }
+
+  /**
+   * Parse an IEC 61131-3 condition expression into source/operator/value.
+   *
+   * Handles patterns like:
+   * - "water_temp > 25.0"
+   * - "pump_status == TRUE"
+   * - "timer1.Q = TRUE"
+   * - "level >= 10"
+   */
+  private parseConditionExpression(
+    expr: string,
+    varSourceMap: Map<string, string>,
+  ): { source: string; operator: string; value: unknown } | null {
+    // Match: identifier (optional .output) operator value
+    const conditionRegex = /^([a-zA-Z_]\w*(?:\.\w+)?)\s*(>=|<=|<>|!=|==|=|>|<)\s*(.+)$/;
+    const match = conditionRegex.exec(expr);
+    if (!match) return null;
+
+    const [, rawSource, rawOp, rawValue] = match;
+    const valueTrimmed = rawValue.trim();
+
+    // Resolve source
+    let source: string;
+    if (rawSource.includes('.')) {
+      // FB output reference: "timer1.Q" → "fb:timer1.Q"
+      source = `fb:${rawSource}`;
+    } else {
+      source = varSourceMap.get(rawSource) || `var:${rawSource}`;
+    }
+
+    // Map operator
+    const operatorMap: Record<string, string> = {
+      '>': 'gt',
+      '>=': 'gte',
+      '<': 'lt',
+      '<=': 'lte',
+      '=': 'eq',
+      '==': 'eq',
+      '<>': 'ne',
+      '!=': 'ne',
+    };
+    const operator = operatorMap[rawOp] || 'eq';
+
+    // Parse value
+    let value: unknown;
+    if (valueTrimmed.toUpperCase() === 'TRUE') {
+      value = true;
+    } else if (valueTrimmed.toUpperCase() === 'FALSE') {
+      value = false;
+    } else if (!isNaN(Number(valueTrimmed))) {
+      value = Number(valueTrimmed);
+    } else {
+      value = valueTrimmed;
+    }
+
+    return { source, operator, value };
+  }
+
+  /**
+   * Build edge script actions from SFC steps and their StepAction entities.
+   *
+   * Maps StepAction.actionType to Rust agent action types:
+   * - SET_OUTPUT → set_gpio / write_modbus (based on resolved I/O)
+   * - CALL_FB → set_variable (FB inputs are wired via functionBlocks)
+   * - ASSIGN → set_variable
+   * - LOG → log
+   * - ALARM → alert
+   * - TIMER → delay
+   * - CUSTOM_ST → log (with code reference)
+   */
+  private buildActions(
+    steps: ProgramStep[],
+    actionsByStep: Map<string, StepAction[]>,
+    varSourceMap: Map<string, string>,
+  ): Array<Record<string, unknown>> {
+    const actions: Array<Record<string, unknown>> = [];
+
+    for (const step of steps) {
+      const stepActionsList = actionsByStep.get(step.id) || [];
+
+      // Entry action log for tracing
+      actions.push({
+        type: 'log',
+        message: `SFC step [${step.stepCode}]: ${step.stepName}`,
+      });
+
+      // Process step actions
+      for (const sa of stepActionsList) {
+        if (!sa.isActive) continue;
+        const edgeAction = this.translateStepAction(sa, varSourceMap);
+        if (edgeAction) {
+          actions.push(edgeAction);
+        }
+      }
+
+      // Inline entry/exit actions from ProgramStep ST code
+      if (step.entryAction) {
+        const parsed = this.parseInlineStAction(step.entryAction, varSourceMap);
+        actions.push(...parsed);
+      }
+      if (step.exitAction) {
+        const parsed = this.parseInlineStAction(step.exitAction, varSourceMap);
+        actions.push(...parsed);
+      }
+    }
+
+    return actions;
+  }
+
+  /**
+   * Translate a single StepAction to an edge action object.
+   */
+  private translateStepAction(
+    sa: StepAction,
+    varSourceMap: Map<string, string>,
+  ): Record<string, unknown> | null {
+    switch (sa.actionType) {
+      case StepActionType.SET_OUTPUT: {
+        const target = sa.targetRef || '';
+        const resolved = varSourceMap.get(target) || target;
+        // GPIO output
+        if (resolved.startsWith('gpio:')) {
+          const pin = resolved.replace('gpio:', '');
+          // Parse value from actionCode or params
+          const value = this.parseActionValue(sa);
+          return {
+            type: 'set_gpio',
+            target: pin,
+            value,
+          };
+        }
+        // Modbus output — use write_modbus
+        if (resolved.startsWith('sensor:')) {
+          const sensorName = resolved.replace('sensor:', '');
+          const value = this.parseActionValue(sa);
+          // For Modbus writes, the target is the device name / register
+          const params = (sa.params || {}) as Record<string, unknown>;
+          return {
+            type: 'write_modbus',
+            device: (params.device as string) || sensorName,
+            address: params.address != null ? Number(params.address) : 0,
+            value,
+          };
+        }
+        // Fallback to set_variable
+        return {
+          type: 'set_variable',
+          target: resolved.replace('var:', ''),
+          value: this.parseActionValue(sa),
+        };
+      }
+
+      case StepActionType.CALL_FB: {
+        // FB calls are handled via functionBlocks wiring.
+        // Generate a set_variable to trigger the FB input if needed.
+        if (sa.targetRef) {
+          const params = (sa.params || {}) as Record<string, unknown>;
+          const inputName = (params.triggerInput as string) || 'IN';
+          const value = params.triggerValue != null ? params.triggerValue : true;
+          return {
+            type: 'set_variable',
+            target: `${sa.targetRef}_${inputName}`,
+            value,
+          };
+        }
+        return null;
+      }
+
+      case StepActionType.ASSIGN: {
+        const target = sa.targetRef || '';
+        const resolved = varSourceMap.get(target) || `var:${target}`;
+        const varName = resolved.startsWith('var:')
+          ? resolved.replace('var:', '')
+          : target;
+        return {
+          type: 'set_variable',
+          target: varName,
+          value: this.parseActionValue(sa),
+        };
+      }
+
+      case StepActionType.LOG: {
+        return {
+          type: 'log',
+          message: sa.actionCode || sa.actionName,
+        };
+      }
+
+      case StepActionType.ALARM: {
+        const params = (sa.params || {}) as Record<string, unknown>;
+        return {
+          type: 'alert',
+          level: (params.level as string) || 'warning',
+          message: sa.actionCode || sa.actionName,
+        };
+      }
+
+      case StepActionType.TIMER: {
+        return {
+          type: 'delay',
+          delayMs: sa.durationMs || sa.delayMs || 1000,
+        };
+      }
+
+      case StepActionType.CUSTOM_ST: {
+        // Parse inline ST code for common patterns
+        const parsed = this.parseInlineStAction(sa.actionCode, varSourceMap);
+        if (parsed.length > 0) return parsed[0];
+        // Fallback: log the ST code
+        return {
+          type: 'log',
+          message: `[ST] ${sa.actionCode}`,
+        };
+      }
+
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Parse a value from StepAction's actionCode or params.
+   */
+  private parseActionValue(sa: StepAction): unknown {
+    const params = (sa.params || {}) as Record<string, unknown>;
+    if (params.value != null) return params.value;
+
+    // Try parsing from actionCode: "variable := value"
+    const assignMatch = /^.+:=\s*(.+)$/.exec(sa.actionCode?.trim() || '');
+    if (assignMatch) {
+      const raw = assignMatch[1].trim().replace(/;$/, '');
+      if (raw.toUpperCase() === 'TRUE') return true;
+      if (raw.toUpperCase() === 'FALSE') return false;
+      if (!isNaN(Number(raw))) return Number(raw);
+      return raw;
+    }
+
+    return true; // Default for boolean outputs
+  }
+
+  /**
+   * Parse inline Structured Text code into edge actions.
+   *
+   * Handles common patterns:
+   * - "variable := value;" → set_variable
+   * - "output := expression;" → set_output via variable
+   */
+  private parseInlineStAction(
+    stCode: string,
+    varSourceMap: Map<string, string>,
+  ): Array<Record<string, unknown>> {
+    const actions: Array<Record<string, unknown>> = [];
+    // Split by semicolons for multiple statements
+    const statements = stCode
+      .split(';')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    for (const stmt of statements) {
+      const assignMatch = /^([a-zA-Z_]\w*)\s*:=\s*(.+)$/.exec(stmt);
+      if (assignMatch) {
+        const [, varName, rawValue] = assignMatch;
+        const resolved = varSourceMap.get(varName) || `var:${varName}`;
+
+        let value: unknown;
+        const trimmed = rawValue.trim();
+        if (trimmed.toUpperCase() === 'TRUE') value = true;
+        else if (trimmed.toUpperCase() === 'FALSE') value = false;
+        else if (!isNaN(Number(trimmed))) value = Number(trimmed);
+        else value = trimmed;
+
+        if (resolved.startsWith('gpio:')) {
+          actions.push({
+            type: 'set_gpio',
+            target: resolved.replace('gpio:', ''),
+            value,
+          });
+        } else if (resolved.startsWith('sensor:')) {
+          actions.push({
+            type: 'set_variable',
+            target: varName,
+            value,
+          });
+        } else {
+          actions.push({
+            type: 'set_variable',
+            target: varName,
+            value,
+          });
+        }
+      } else {
+        // Unrecognized ST statement — log it
+        actions.push({
+          type: 'log',
+          message: `[ST] ${stmt}`,
+        });
+      }
+    }
+
+    return actions;
   }
 
   /**

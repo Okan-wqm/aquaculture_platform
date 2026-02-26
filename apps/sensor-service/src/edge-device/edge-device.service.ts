@@ -115,6 +115,49 @@ export interface PingResult {
   error?: string;
 }
 
+// ============================================================================
+// Agent Wire Format Types
+// These interfaces mirror the Rust serde structs in config.rs.
+// Field names use snake_case to match the JSON the agent deserialises.
+// Keep in sync with: sens-api-gateway/src/config.rs
+// ============================================================================
+
+/** Matches config.rs → ModbusRegisterConfig.register_type */
+type AgentRegisterType = 'coil' | 'discrete_input' | 'holding' | 'input';
+
+/** Matches config.rs → ModbusRegisterConfig */
+interface AgentModbusRegisterConfig {
+  name: string;
+  address: number;
+  register_type: AgentRegisterType;
+  data_type: string;
+  scale: number;
+  unit: string;
+}
+
+/** Matches config.rs → ModbusDeviceConfig */
+interface AgentModbusDeviceConfig {
+  name: string;
+  connection_type: 'tcp' | 'rtu';
+  address: string;
+  slave_id: number;
+  registers: AgentModbusRegisterConfig[];
+}
+
+/** Matches config.rs → GpioConfig */
+interface AgentGpioConfig {
+  name: string;
+  pin: number;
+  direction: 'input' | 'output';
+  invert: boolean;
+}
+
+/** Top-level I/O config payload sent to the agent via MQTT */
+export interface AgentIoConfig {
+  modbus: AgentModbusDeviceConfig[];
+  gpio: AgentGpioConfig[];
+}
+
 /**
  * Pending ping request for tracking responses
  */
@@ -796,6 +839,231 @@ export class EdgeDeviceService implements OnModuleDestroy {
     } catch (error) {
       this.logger.error(`Failed to send reboot to ${device.deviceCode}: ${(error as Error).message}`);
       throw new BadRequestException(`Failed to send reboot command: ${(error as Error).message}`);
+    }
+  }
+
+  // ==================== I/O Config Push Pipeline ====================
+  //
+  // Transforms cloud-side DeviceIoConfig rows into the wire format
+  // expected by the Rust edge agent (sens-api-gateway/src/config.rs).
+  // The agent deserialises the JSON payload directly into its
+  // ModbusDeviceConfig / GpioConfig structs, so field names and
+  // value semantics here MUST stay in sync with the Rust serde model.
+  // ================================================================
+
+  /**
+   * Map Modbus function code (FC) to the Rust agent's register_type string.
+   *
+   * The Modbus standard defines four object types accessed by different
+   * function codes.  The agent's ModbusRegisterConfig.register_type field
+   * expects the lowercase string names used in config.rs.
+   *
+   * FC1 = Read Coils            -> "coil"
+   * FC2 = Read Discrete Inputs  -> "discrete_input"
+   * FC3 = Read Holding Regs     -> "holding"       (default / most common)
+   * FC4 = Read Input Regs       -> "input"
+   */
+  private static mapModbusFunctionToRegisterType(fc: number | undefined): AgentRegisterType {
+    switch (fc) {
+      case 1:  return 'coil';
+      case 2:  return 'discrete_input';
+      case 3:  return 'holding';
+      case 4:  return 'input';
+      default: return 'holding'; // safe default — FC3 is the most widely used
+    }
+  }
+
+  /**
+   * Compute a linear scale factor from raw ↔ engineering range.
+   *
+   * The agent multiplies every raw register value by `scale` before
+   * publishing telemetry, implementing the classic linear transform:
+   *
+   *   eng_value = (raw - rawMin) * scale + engMin
+   *
+   * where scale = (engMax - engMin) / (rawMax - rawMin).
+   *
+   * Returns 1.0 (identity) when ranges are missing or degenerate
+   * (rawMax === rawMin) to avoid division-by-zero on the device.
+   */
+  private static computeLinearScale(cfg: DeviceIoConfig): number {
+    const { engMax, engMin, rawMax, rawMin } = cfg;
+    if (
+      engMax == null || engMin == null ||
+      rawMax == null || rawMin == null
+    ) {
+      return 1.0;
+    }
+    const rawSpan = Number(rawMax) - Number(rawMin);
+    if (rawSpan === 0) {
+      return 1.0; // degenerate range — return identity to avoid Infinity
+    }
+    return (Number(engMax) - Number(engMin)) / rawSpan;
+  }
+
+  /**
+   * Map IoType enum to the GPIO direction string the Rust agent expects.
+   *
+   * The agent's GpioConfig.direction is validated against "input" | "output"
+   * (see config.rs validate() — valid_directions).  Digital Inputs read
+   * hardware state; Digital Outputs drive actuators.  Analog types should
+   * never reach here (they use Modbus), but we defensively fall back to
+   * "input" which is the safer default (read-only, no accidental actuation).
+   */
+  private static mapIoTypeToGpioDirection(ioType: IoType): 'input' | 'output' {
+    switch (ioType) {
+      case IoType.DI: return 'input';
+      case IoType.DO: return 'output';
+      // AI/AO should be Modbus, not GPIO — defensive fallback to read-only
+      case IoType.AI: return 'input';
+      case IoType.AO: return 'output';
+      default:        return 'input';
+    }
+  }
+
+  /**
+   * Transform DeviceIoConfig rows into the agent's expected wire format.
+   *
+   * The output structure mirrors the Rust agent's config.rs types:
+   *   - modbus[] → Vec<ModbusDeviceConfig>  (grouped by slave ID)
+   *   - gpio[]   → Vec<GpioConfig>
+   *
+   * Each Modbus slave becomes a separate ModbusDeviceConfig because the
+   * agent opens one TCP connection per slave device.  All registers that
+   * share the same slave ID are batched under a single connection.
+   *
+   * @param ioConfigs  Active I/O config rows from the database
+   * @param deviceIpAddress  The edge device's last-known IP (from heartbeat).
+   *                         Used as the Modbus TCP target; falls back to
+   *                         localhost for development/simulation.
+   */
+  transformIoConfigsToAgentFormat(
+    ioConfigs: DeviceIoConfig[],
+    deviceIpAddress?: string,
+  ): AgentIoConfig {
+    // Partition configs by protocol: GPIO uses gpioPin, Modbus uses modbusRegister.
+    // Configs with neither field set are skipped (incomplete configuration).
+    const gpioConfigs: DeviceIoConfig[] = [];
+    const modbusConfigs: DeviceIoConfig[] = [];
+
+    for (const cfg of ioConfigs) {
+      if (cfg.gpioPin != null) {
+        gpioConfigs.push(cfg);
+      } else if (cfg.modbusRegister != null) {
+        modbusConfigs.push(cfg);
+      } else {
+        this.logger.warn(
+          `I/O tag "${cfg.tagName}" has neither gpioPin nor modbusRegister — skipping`,
+        );
+      }
+    }
+
+    // Group Modbus configs by slave ID.  Each group becomes one TCP
+    // connection on the agent side (ModbusDeviceConfig).
+    const modbusGrouped = new Map<number, DeviceIoConfig[]>();
+    for (const cfg of modbusConfigs) {
+      const slaveId = cfg.modbusSlaveId ?? 1;
+      const group = modbusGrouped.get(slaveId);
+      if (group) {
+        group.push(cfg);
+      } else {
+        modbusGrouped.set(slaveId, [cfg]);
+      }
+    }
+
+    // Build ModbusDeviceConfig array
+    const modbus: AgentModbusDeviceConfig[] = Array.from(
+      modbusGrouped.entries(),
+    ).map(([slaveId, configs]) => ({
+      name: `slave_${slaveId}`,
+      connection_type: 'tcp' as const,
+      // Standard Modbus TCP port 502.  In production the device IP comes
+      // from the last heartbeat; localhost fallback is for dev/simulation.
+      address: deviceIpAddress ? `${deviceIpAddress}:502` : '127.0.0.1:502',
+      slave_id: slaveId,
+      registers: configs.map((cfg): AgentModbusRegisterConfig => ({
+        name: cfg.tagName,
+        address: cfg.modbusRegister!,
+        register_type: EdgeDeviceService.mapModbusFunctionToRegisterType(cfg.modbusFunction),
+        data_type: cfg.dataType.toLowerCase(),
+        scale: EdgeDeviceService.computeLinearScale(cfg),
+        unit: cfg.engUnit ?? '',
+      })),
+    }));
+
+    // Build GpioConfig array
+    const gpio: AgentGpioConfig[] = gpioConfigs.map((cfg): AgentGpioConfig => ({
+      name: cfg.tagName,
+      pin: cfg.gpioPin!,
+      direction: EdgeDeviceService.mapIoTypeToGpioDirection(cfg.ioType),
+      invert: cfg.invertValue ?? false,
+    }));
+
+    return { modbus, gpio };
+  }
+
+  /**
+   * Push the full I/O configuration to a device via MQTT.
+   *
+   * Loads all active ioConfigs from the DB, transforms them to the agent
+   * wire format, and publishes an `update_io_config` command to the
+   * device's MQTT command topic.  The agent will apply the config and
+   * respond with a config_ack on the responses topic (handled in
+   * mqtt-listener.service.ts → handleEdgeResponse).
+   *
+   * We always push the COMPLETE config set (not a diff) so the agent
+   * can do a full reconciliation — this avoids subtle drift issues
+   * that can occur with incremental config updates in industrial systems.
+   */
+  async pushIoConfigToDevice(
+    deviceId: string,
+    tenantId: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    const device = await this.findByIdOrFail(deviceId, tenantId);
+    const mqtt = this.ensureMqttAvailable();
+
+    // Refuse to push config to an offline device — the MQTT message
+    // would be queued (QoS 1) but the device may come back with stale
+    // config.  Operators should push config after confirming connectivity.
+    if (!device.isOnline) {
+      return { success: false, error: 'Device is offline' };
+    }
+
+    const ioConfigs = await this.ioConfigRepository.find({
+      where: { deviceId, isActive: true },
+    });
+
+    const agentConfig = this.transformIoConfigsToAgentFormat(
+      ioConfigs,
+      device.ipAddress ?? undefined,
+    );
+
+    const commandId = randomUUID();
+
+    try {
+      // Publish to the tenant-scoped command topic.
+      // Uses deviceCode (not device.id UUID) because the agent subscribes
+      // using its human-readable code from config.yaml → device_code.
+      await mqtt.publish(
+        `tenants/${device.tenantId}/devices/${device.deviceCode}/commands`,
+        {
+          commandId,
+          command: 'update_io_config',
+          params: agentConfig,
+          timestamp: new Date().toISOString(),
+        },
+      );
+
+      this.logger.log(
+        `Pushed I/O config to ${device.deviceCode}: ${ioConfigs.length} tags ` +
+        `(${agentConfig.modbus.length} modbus devices, ${agentConfig.gpio.length} gpio pins)`,
+      );
+
+      return { success: true };
+    } catch (error) {
+      const msg = (error as Error).message;
+      this.logger.error(`Failed to push I/O config to ${device.deviceCode}: ${msg}`);
+      return { success: false, error: msg };
     }
   }
 

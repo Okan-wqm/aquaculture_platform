@@ -18,6 +18,7 @@ import {
   ADD_DEVICE_IO_CONFIG_MUTATION,
   UPDATE_DEVICE_IO_CONFIG_MUTATION,
   REMOVE_DEVICE_IO_CONFIG_MUTATION,
+  PUSH_IO_CONFIG_MUTATION,
   CREATE_PROVISIONED_DEVICE_MUTATION,
   REGENERATE_DEVICE_TOKEN_MUTATION,
 } from '../graphql/edge-device.queries';
@@ -157,6 +158,13 @@ export interface PingResult {
   success: boolean;
   latencyMs?: number;
   error?: string;
+}
+
+/** Response from pushIoConfigToDevice mutation — cihaza I/O konfigürasyonu gönderme sonucu */
+export interface PushIoConfigResult {
+  success: boolean;
+  message?: string;
+  pushedAt?: string;
 }
 
 export interface EdgeDeviceFilter {
@@ -558,6 +566,26 @@ export function useRemoveDeviceIoConfig() {
       return data.removeDeviceIoConfig;
     },
     onSuccess: (_, { deviceId }) => {
+      queryClient.invalidateQueries({ queryKey: ['edgeDevice', deviceId] });
+    },
+  });
+}
+
+/**
+ * Hook to push I/O configuration to a physical device
+ */
+export function usePushIoConfig() {
+  const { token } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (deviceId: string) => {
+      const data = await graphqlFetch<{
+        pushIoConfigToDevice: { success: boolean; message?: string; pushedAt?: string };
+      }>(PUSH_IO_CONFIG_MUTATION, { deviceId }, token);
+      return data.pushIoConfigToDevice;
+    },
+    onSuccess: (_, deviceId) => {
       queryClient.invalidateQueries({ queryKey: ['edgeDevice', deviceId] });
     },
   });

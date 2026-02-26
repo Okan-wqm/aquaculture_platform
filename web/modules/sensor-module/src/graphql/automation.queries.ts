@@ -75,6 +75,8 @@ export const AUTOMATION_PROGRAM_QUERY = `
       initialValue
       scope
       description
+      ioTagName
+      ioConfigId
     }
     programTransitions(programId: $id) {
       id
@@ -230,6 +232,8 @@ export const ADD_VARIABLE_MUTATION = `
     addProgramVariable(input: $input) {
       id
       varName
+      ioTagName
+      ioConfigId
     }
   }
 `;

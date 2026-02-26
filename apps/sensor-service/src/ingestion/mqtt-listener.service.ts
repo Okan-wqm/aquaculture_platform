@@ -430,6 +430,38 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       this.edgeDeviceService.handlePingResponse(deviceCode, payload as Record<string, unknown>);
     }
 
+    // Handle I/O config update acknowledgements from the edge agent.
+    // The agent responds after applying (or rejecting) the Modbus/GPIO
+    // config pushed by pushIoConfigToDevice().  We log the outcome and
+    // publish a real-time event so the UI can show immediate feedback.
+    if (payload.command === 'update_io_config') {
+      if (payload.success) {
+        this.logger.log(
+          `I/O config accepted by ${deviceCode} (command: ${payload.commandId})`,
+        );
+      } else {
+        this.logger.warn(
+          `I/O config rejected by ${deviceCode} (command: ${payload.commandId}): ` +
+          `${payload.error || 'unknown error'}`,
+        );
+      }
+
+      // Emit event so WebSocket subscribers (dashboard UI) get instant feedback
+      if (this.eventBus) {
+        await this.eventBus.publish({
+          eventId: randomUUID(),
+          eventType: 'IoConfigPushResult',
+          timestamp: new Date(),
+          tenantId: tenantId || 'system',
+          deviceCode,
+          commandId: payload.commandId,
+          success: payload.success ?? false,
+          error: payload.error,
+          version: 1,
+        });
+      }
+    }
+
     // Route deployment responses to DeploymentLogService and AutomationService
     const isDeployCommand = payload.command === 'deploy_program'
       || payload.command === 'deploy_to_codesys'

@@ -7,7 +7,10 @@ import {
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
 
-import { IoType, IoDataType } from '../entities/device-io-config.entity';
+import {
+  IoType,
+  IoDataType,
+} from '../entities/device-io-config.entity';
 import {
   DeviceLifecycleState,
   DeviceModel,
@@ -272,5 +275,17 @@ export class PingResult {
   timestamp!: Date;
 
   @Field({ nullable: true, description: 'Error message if ping failed' })
+  error?: string;
+}
+
+/**
+ * Result of pushing I/O config to a device
+ */
+@ObjectType()
+export class PushIoConfigResult {
+  @Field()
+  success!: boolean;
+
+  @Field({ nullable: true, description: 'Error message if push failed' })
   error?: string;
 }

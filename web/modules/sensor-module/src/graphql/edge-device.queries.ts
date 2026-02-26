@@ -255,6 +255,16 @@ export const REMOVE_DEVICE_IO_CONFIG_MUTATION = `
   }
 `;
 
+export const PUSH_IO_CONFIG_MUTATION = `
+  mutation PushIoConfigToDevice($deviceId: ID!) {
+    pushIoConfigToDevice(deviceId: $deviceId) {
+      success
+      message
+      pushedAt
+    }
+  }
+`;
+
 // ==================== Provisioning Mutations ====================
 
 /**

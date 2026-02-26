@@ -25,6 +25,7 @@ import {
   EdgeDeviceConnection,
   EdgeDeviceStats,
   PingResult,
+  PushIoConfigResult,
 } from './dto/edge-device.dto';
 import {
   CreateProvisionedDeviceInput,
@@ -375,6 +376,20 @@ export class EdgeDeviceResolver {
     @Tenant() tenantId: string,
   ): Promise<boolean> {
     return await this.edgeDeviceService.removeIoConfig(id, deviceId, tenantId);
+  }
+
+  /**
+   * Push the full I/O configuration to a device via MQTT
+   * Transforms DB configs to agent format and sends update_io_config command
+   */
+  @Mutation(() => PushIoConfigResult, { name: 'pushIoConfigToDevice' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async pushIoConfigToDevice(
+    @Args('deviceId', { type: () => ID }) deviceId: string,
+    @Tenant() tenantId: string,
+  ): Promise<PushIoConfigResult> {
+    this.logger.log(`Pushing I/O config to device: ${deviceId}`);
+    return await this.edgeDeviceService.pushIoConfigToDevice(deviceId, tenantId);
   }
 
   // ==================== Field Resolvers ====================

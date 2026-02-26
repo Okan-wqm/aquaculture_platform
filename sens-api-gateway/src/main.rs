@@ -30,6 +30,7 @@ mod pwm; // v1.2.4: PWM support for motor/servo control
 mod resilience;
 mod scripting;
 mod deploy_orchestrator; // v2.2: Unified deploy orchestrator (Rust/Codesys/Setpoint)
+mod hardware_scanner; // v2.3: Platform-aware I/O auto-detection (RevPi/RPi/Generic)
 mod security; // v1.2.2: Security hardening utilities
 mod st_validator; // v2.2: IEC 61131-3 Structured Text parser and validator
 mod shutdown;
@@ -1135,4 +1136,65 @@ async fn init_hardware(state: &Arc<RwLock<AppState>>) {
         "Hardware summary: {} GPIO pins, {} Modbus devices",
         gpio_count, modbus_count
     );
+
+    // v2.3: Publish hardware capabilities report at boot.
+    // This informs the platform about what I/O hardware is available
+    // for auto-detection. Sent once — not periodic.
+    publish_capabilities(&state_guard).await;
+}
+
+/// Publish hardware capabilities to MQTT at boot time.
+///
+/// Sends a compact report of available I/O hardware to the platform.
+/// The platform caches this and uses it to populate the "Auto-Detect I/O"
+/// feature in the device management UI.
+///
+/// Topic: `tenants/{tid}/devices/{code}/capabilities`
+async fn publish_capabilities(state: &AppState) {
+    let mqtt = match &state.mqtt_client {
+        Some(m) => m,
+        None => {
+            debug!("MQTT not available — skipping capabilities report");
+            return;
+        }
+    };
+
+    let platform = state.config.gpio_platform();
+    let scanner = hardware_scanner::HardwareScanner::new(platform);
+    let modbus_configured = !state.config.modbus.is_empty();
+    let capabilities = scanner.capabilities(modbus_configured);
+
+    let tenant_id = match &state.config.tenant_id {
+        Some(tid) => tid.as_str(),
+        None => {
+            debug!("No tenant_id configured — skipping capabilities report");
+            return;
+        }
+    };
+
+    let topic = state
+        .config
+        .mqtt
+        .topics
+        .capabilities
+        .replace("{tenant_id}", tenant_id)
+        .replace("{device_id}", &state.config.device_code);
+
+    match serde_json::to_vec(&capabilities) {
+        Ok(payload) => {
+            if let Err(e) = mqtt.publish_raw(&topic, &payload).await {
+                warn!("Failed to publish capabilities: {}", e);
+            } else {
+                info!(
+                    "Hardware capabilities published: platform={}, gpio_chips={}, gpio_lines={}",
+                    capabilities.platform,
+                    capabilities.gpio_chip_count,
+                    capabilities.total_gpio_lines
+                );
+            }
+        }
+        Err(e) => {
+            warn!("Failed to serialize capabilities: {}", e);
+        }
+    }
 }

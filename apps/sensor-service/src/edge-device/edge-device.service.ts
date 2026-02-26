@@ -1216,4 +1216,293 @@ export class EdgeDeviceService implements OnModuleDestroy {
       return { success: false, error: msg };
     }
   }
+
+  // ==================== I/O Auto-Detection (v2.3) ====================
+
+  /**
+   * Pending hardware scan requests — mirrors the ping promise pattern.
+   * Each entry is keyed by commandId and resolves when the agent responds.
+   */
+  private readonly pendingScans: Map<string, PendingScan> = new Map();
+  private readonly SCAN_TIMEOUT_MS = 15000; // 15s — scanning takes longer than ping
+
+  /**
+   * Send `scan_hardware` command to the edge agent and await response.
+   *
+   * Uses the same promise-based pattern as `pingDevice()`:
+   * 1. Create promise + timeout
+   * 2. Publish MQTT command
+   * 3. Response handler resolves the promise
+   *
+   * The agent performs platform-specific enumeration:
+   * - RevPi: piControl process image (piTest -d)
+   * - RPi: BCM GPIO 2-27
+   * - Generic: /sys/class/gpio/gpiochip*
+   */
+  async scanHardware(
+    deviceId: string,
+    tenantId: string,
+  ): Promise<HardwareScanResult> {
+    const device = await this.findByIdOrFail(deviceId, tenantId);
+
+    // Only scan active/maintenance devices
+    if (device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
+      return {
+        success: false,
+        error: 'Device is decommissioned',
+        platform: 'Unknown',
+        discoveredChannels: [],
+        totalFound: 0,
+      };
+    }
+
+    if (!device.isOnline) {
+      return {
+        success: false,
+        error: 'Device is offline — cannot perform hardware scan',
+        platform: 'Unknown',
+        discoveredChannels: [],
+        totalFound: 0,
+      };
+    }
+
+    // Soft-fail MQTT check
+    let mqtt: MqttClientService;
+    try {
+      mqtt = this.ensureMqttAvailable();
+    } catch {
+      return {
+        success: false,
+        error: 'MQTT service not available',
+        platform: 'Unknown',
+        discoveredChannels: [],
+        totalFound: 0,
+      };
+    }
+
+    const commandId = randomUUID();
+    const startTime = Date.now();
+
+    // Create promise that resolves on agent response or timeout
+    const scanPromise = new Promise<HardwareScanResult>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.pendingScans.delete(commandId);
+        resolve({
+          success: false,
+          error: 'Scan timeout — device did not respond within 15 seconds',
+          platform: 'Unknown',
+          discoveredChannels: [],
+          totalFound: 0,
+        });
+      }, this.SCAN_TIMEOUT_MS);
+
+      this.pendingScans.set(commandId, {
+        commandId,
+        deviceCode: device.deviceCode,
+        startTime,
+        resolve,
+        timeout,
+      });
+    });
+
+    // Send scan_hardware command via tenant-scoped topic
+    try {
+      await mqtt.publish(
+        `tenants/${device.tenantId}/devices/${device.id}/commands`,
+        {
+          commandId,
+          command: 'scan_hardware',
+          timestamp: new Date().toISOString(),
+        },
+      );
+      this.logger.log(`scan_hardware command sent to ${device.deviceCode} (${commandId})`);
+    } catch (error) {
+      const pending = this.pendingScans.get(commandId);
+      if (pending) {
+        clearTimeout(pending.timeout);
+        this.pendingScans.delete(commandId);
+      }
+      return {
+        success: false,
+        error: `Failed to send scan command: ${(error as Error).message}`,
+        platform: 'Unknown',
+        discoveredChannels: [],
+        totalFound: 0,
+      };
+    }
+
+    return scanPromise;
+  }
+
+  /**
+   * Handle scan_hardware response from edge agent.
+   * Called by MqttListenerService when command='scan_hardware' response arrives.
+   */
+  handleScanHardwareResponse(
+    deviceCode: string,
+    payload: Record<string, unknown>,
+  ): void {
+    const commandId = payload.commandId as string;
+    if (!commandId) {
+      this.logger.warn(`Scan response without commandId from ${deviceCode}`);
+      return;
+    }
+
+    const pending = this.pendingScans.get(commandId);
+    if (!pending) {
+      this.logger.debug(`Scan response for unknown/expired command: ${commandId}`);
+      return;
+    }
+
+    clearTimeout(pending.timeout);
+    this.pendingScans.delete(commandId);
+
+    const elapsed = Date.now() - pending.startTime;
+    this.logger.log(`Scan response from ${deviceCode} in ${elapsed}ms`);
+
+    // Extract result from agent response
+    const result = (payload.result ?? payload.data ?? payload) as Record<string, unknown>;
+    const success = (payload.success as boolean) ?? true;
+
+    if (!success) {
+      pending.resolve({
+        success: false,
+        error: (payload.error as string) ?? 'Scan failed on device',
+        platform: 'Unknown',
+        discoveredChannels: [],
+        totalFound: 0,
+      });
+      return;
+    }
+
+    // Map agent's DiscoveredIo[] to backend DTO
+    const discoveredIos = (result.discovered_ios as Array<Record<string, unknown>>) ?? [];
+    const discoveredChannels = discoveredIos.map((io) => ({
+      tagName: (io.tag_name as string) ?? '',
+      ioType: (io.io_type as string) ?? 'DI',
+      dataType: (io.data_type as string) ?? 'BOOL',
+      moduleAddress: (io.module_address as number) ?? 0,
+      channel: (io.channel as number) ?? 0,
+      description: (io.description as string) ?? '',
+      gpioPin: (io.gpio_pin as number | undefined) ?? undefined,
+      source: (io.source as string) ?? 'unknown',
+    }));
+
+    pending.resolve({
+      success: true,
+      platform: (result.platform as string) ?? 'Unknown',
+      discoveredChannels,
+      totalFound: discoveredChannels.length,
+    });
+  }
+
+  /**
+   * Bulk add I/O configurations to a device.
+   *
+   * Skips channels whose tagName already exists on the device (no duplicates).
+   * Returns both created configs and skipped tag names for user feedback.
+   */
+  async bulkAddIoConfigs(
+    deviceId: string,
+    tenantId: string,
+    inputs: AddIoConfigInput[],
+  ): Promise<{ created: DeviceIoConfig[]; skipped: string[]; createdCount: number; skippedCount: number }> {
+    const device = await this.findByIdOrFail(deviceId, tenantId);
+
+    // Load existing tags for duplicate detection
+    const existingConfigs = await this.ioConfigRepository.find({
+      where: { deviceId: device.id },
+      select: ['tagName'],
+    });
+    const existingTags = new Set(existingConfigs.map((c) => c.tagName));
+
+    const created: DeviceIoConfig[] = [];
+    const skipped: string[] = [];
+
+    for (const input of inputs) {
+      // Skip duplicates
+      if (existingTags.has(input.tagName)) {
+        skipped.push(input.tagName);
+        continue;
+      }
+
+      // Create new I/O config
+      const ioConfig = this.ioConfigRepository.create({
+        id: randomUUID(),
+        deviceId: device.id,
+        tenantId: device.tenantId,
+        tagName: input.tagName,
+        description: input.description,
+        ioType: input.ioType,
+        dataType: input.dataType,
+        moduleAddress: input.moduleAddress,
+        channel: input.channel,
+        rawMin: input.rawMin,
+        rawMax: input.rawMax,
+        engMin: input.engMin,
+        engMax: input.engMax,
+        engUnit: input.engUnit,
+        modbusFunction: input.modbusFunction,
+        modbusSlaveId: input.modbusSlaveId,
+        modbusRegister: input.modbusRegister,
+        gpioPin: input.gpioPin,
+        gpioMode: input.gpioMode,
+        invertValue: input.invertValue,
+        alarmHH: input.alarmHH,
+        alarmH: input.alarmH,
+        alarmL: input.alarmL,
+        alarmLL: input.alarmLL,
+        deadband: input.deadband,
+        isActive: true,
+      });
+
+      const saved = await this.ioConfigRepository.save(ioConfig);
+      created.push(saved);
+      existingTags.add(input.tagName); // Prevent duplicates within the batch
+    }
+
+    this.logger.log(
+      `Bulk I/O import on ${device.deviceCode}: ${created.length} created, ${skipped.length} skipped`,
+    );
+
+    return {
+      created,
+      skipped,
+      createdCount: created.length,
+      skippedCount: skipped.length,
+    };
+  }
+}
+
+// ==================== Internal Types ====================
+
+/**
+ * Pending scan request — mirrors PendingPing pattern.
+ */
+interface PendingScan {
+  commandId: string;
+  deviceCode: string;
+  startTime: number;
+  resolve: (result: HardwareScanResult) => void;
+  timeout: NodeJS.Timeout;
+}
+
+/**
+ * Hardware scan result — matches the DTO returned to GraphQL.
+ */
+interface HardwareScanResult {
+  success: boolean;
+  error?: string;
+  platform: string;
+  discoveredChannels: Array<{
+    tagName: string;
+    ioType: string;
+    dataType: string;
+    moduleAddress: number;
+    channel: number;
+    description?: string;
+    gpioPin?: number;
+    source: string;
+  }>;
+  totalFound: number;
 }

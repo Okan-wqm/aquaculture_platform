@@ -22,6 +22,8 @@ import {
   CREATE_PROVISIONED_DEVICE_MUTATION,
   REGENERATE_DEVICE_TOKEN_MUTATION,
   SET_DIGITAL_OUTPUT_MUTATION,
+  SCAN_HARDWARE_MUTATION,
+  BULK_ADD_IO_CONFIG_MUTATION,
 } from '../graphql/edge-device.queries';
 
 // ==================== Types ====================
@@ -624,6 +626,101 @@ export function useSetDigitalOutput() {
         token,
       );
       return data.setDigitalOutput;
+    },
+  });
+}
+
+// ==================== I/O Auto-Detection Hooks (v2.3) ====================
+
+/**
+ * A single I/O channel discovered via hardware scan.
+ * Mirrors the backend's DiscoveredIoChannel ObjectType.
+ */
+export interface DiscoveredIoChannel {
+  tagName: string;
+  ioType: string;
+  dataType: string;
+  moduleAddress: number;
+  channel: number;
+  description?: string;
+  gpioPin?: number;
+  source: string;
+}
+
+/**
+ * Result of a hardware scan mutation.
+ */
+export interface HardwareScanResult {
+  success: boolean;
+  error?: string;
+  platform: string;
+  discoveredChannels: DiscoveredIoChannel[];
+  totalFound: number;
+}
+
+/**
+ * Result of bulk I/O config import.
+ */
+export interface BulkAddIoConfigResult {
+  created: DeviceIoConfig[];
+  skipped: string[];
+  createdCount: number;
+  skippedCount: number;
+}
+
+/**
+ * Hook to scan edge device hardware for available I/O channels.
+ *
+ * Sends a scan_hardware command to the agent via MQTT (15s timeout).
+ * Returns platform info and discovered I/O channels for import.
+ *
+ * Usage:
+ *   const { mutateAsync, isPending, data } = useScanHardware();
+ *   const result = await mutateAsync(deviceId);
+ *   if (result.success) { /* show result.discoveredChannels */ }
+ */
+export function useScanHardware() {
+  const { token } = useAuth();
+
+  return useMutation({
+    mutationFn: async (deviceId: string) => {
+      const data = await graphqlFetch<{
+        scanEdgeDeviceHardware: HardwareScanResult;
+      }>(SCAN_HARDWARE_MUTATION, { deviceId }, token);
+      return data.scanEdgeDeviceHardware;
+    },
+  });
+}
+
+/**
+ * Hook to bulk add I/O configurations from auto-detection results.
+ *
+ * Skips channels whose tagName already exists on the device (no duplicates).
+ * Invalidates the device query to refresh the I/O config list.
+ *
+ * Usage:
+ *   const { mutateAsync, isPending } = useBulkAddIoConfig();
+ *   const result = await mutateAsync({ deviceId, inputs: selectedChannels });
+ */
+export function useBulkAddIoConfig() {
+  const { token } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      deviceId,
+      inputs,
+    }: {
+      deviceId: string;
+      inputs: AddIoConfigInput[];
+    }) => {
+      const data = await graphqlFetch<{
+        bulkAddDeviceIoConfigs: BulkAddIoConfigResult;
+      }>(BULK_ADD_IO_CONFIG_MUTATION, { deviceId, inputs }, token);
+      return data.bulkAddDeviceIoConfigs;
+    },
+    onSuccess: (_, { deviceId }) => {
+      queryClient.invalidateQueries({ queryKey: ['edgeDevice', deviceId] });
     },
   });
 }

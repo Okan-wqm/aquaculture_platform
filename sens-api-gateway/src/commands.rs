@@ -21,6 +21,8 @@ use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, error, info, warn};
 
 use crate::AppState;
+use crate::config::GpioPlatform;
+use crate::hardware_scanner::HardwareScanner;
 use crate::mqtt::{CommandMessage, CommandResponse, IncomingMessage};
 use crate::plc_programming::{
     AdsClient, CodesysClient, EtherNetIpClient, OpcUaClient, PlcProgram, PlcProgrammer, S7Client,
@@ -360,6 +362,7 @@ impl CommandHandler {
             "get_info" => self.cmd_get_info().await,
             "get_config" => self.cmd_get_config().await,
             "get_hardware" => self.cmd_get_hardware().await,
+            "scan_hardware" => self.cmd_scan_hardware().await,
             "read_modbus" => self.cmd_read_modbus(&command.params).await,
             "write_modbus" => self.cmd_write_modbus(&command.params).await,
             "read_gpio" => self.cmd_read_gpio().await,
@@ -739,6 +742,39 @@ impl CommandHandler {
         });
 
         (true, hardware_info, None)
+    }
+
+    /// Scan hardware — enumerates all available I/O channels on the device.
+    ///
+    /// Platform-specific discovery:
+    /// - Revolution Pi: piControl process image (piTest -d)
+    /// - Raspberry Pi: BCM GPIO 2-27 enumeration
+    /// - Generic Linux: /sys/class/gpio/gpiochip* sysfs
+    ///
+    /// Returns a list of `DiscoveredIo` channels that can be bulk-imported
+    /// via the platform's "Auto-Detect I/O" feature.
+    async fn cmd_scan_hardware(&self) -> (bool, Value, Option<String>) {
+        info!("Executing scan_hardware command — full I/O enumeration");
+
+        let platform = {
+            let state = self.state.read().await;
+            state.config.gpio_platform()
+        };
+
+        let scanner = HardwareScanner::new(platform);
+        let result = scanner.scan();
+
+        match serde_json::to_value(&result) {
+            Ok(value) => (true, value, None),
+            Err(e) => {
+                warn!("Failed to serialize scan result: {}", e);
+                (
+                    false,
+                    json!(null),
+                    Some(format!("Serialization error: {}", e)),
+                )
+            }
+        }
     }
 
     /// Read all Modbus registers or specific device

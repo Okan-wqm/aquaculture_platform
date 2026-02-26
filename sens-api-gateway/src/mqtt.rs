@@ -530,6 +530,19 @@ impl MqttClient {
         Ok(())
     }
 
+    /// Publish raw bytes to an arbitrary MQTT topic.
+    ///
+    /// Used for one-off publishes that don't fit the standard topic patterns
+    /// (e.g. boot-time capabilities report to a dynamic topic).
+    pub async fn publish_raw(&self, topic: &str, payload: &[u8]) -> Result<()> {
+        self.client
+            .publish(topic, QoS::AtLeastOnce, false, payload)
+            .await
+            .with_context(|| format!("Failed to publish to {}", topic))?;
+        debug!("Published {} bytes to {}", payload.len(), topic);
+        Ok(())
+    }
+
     /// Receive next incoming message
     pub async fn recv(&mut self) -> Option<IncomingMessage> {
         self.message_rx.recv().await

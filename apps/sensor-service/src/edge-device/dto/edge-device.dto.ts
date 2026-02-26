@@ -10,6 +10,7 @@ import { IsUUID, IsBoolean } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import {
+  DeviceIoConfig,
   IoType,
   IoDataType,
 } from '../entities/device-io-config.entity';
@@ -331,4 +332,79 @@ export class SetDigitalOutputResult {
 
   @Field({ nullable: true })
   value?: boolean;
+}
+
+// ==================== I/O Auto-Detection (v2.3) ====================
+
+/**
+ * A single I/O channel discovered via hardware scan.
+ * Maps to the Rust agent's `DiscoveredIo` struct.
+ * Frontend uses this to display scan results in AutoDetectResultsPanel.
+ */
+@ObjectType()
+export class DiscoveredIoChannel {
+  @Field({ description: 'Auto-generated tag name (e.g. "DI_01", "GPIO_17")' })
+  tagName!: string;
+
+  @Field({ description: 'I/O type: DI, DO, AI, AO' })
+  ioType!: string;
+
+  @Field({ description: 'Data type: BOOL, INT16, INT32, FLOAT32 etc.' })
+  dataType!: string;
+
+  @Field(() => Int, { description: 'Module address (piControl byte offset or GPIO chip base)' })
+  moduleAddress!: number;
+
+  @Field(() => Int, { description: 'Channel/pin number within the module' })
+  channel!: number;
+
+  @Field({ nullable: true, description: 'Human-readable description' })
+  description?: string;
+
+  @Field(() => Int, { nullable: true, description: 'GPIO pin number (RPi only)' })
+  gpioPin?: number;
+
+  @Field({ description: 'Discovery source: picontrol, gpiochip, sysfs' })
+  source!: string;
+}
+
+/**
+ * Result of a hardware scan command sent to an edge device.
+ * Returned by the `scanEdgeDeviceHardware` mutation.
+ */
+@ObjectType()
+export class HardwareScanResultType {
+  @Field({ description: 'Whether the scan completed successfully' })
+  success!: boolean;
+
+  @Field({ nullable: true, description: 'Error message if scan failed' })
+  error?: string;
+
+  @Field({ description: 'Detected platform: RevolutionPi, RaspberryPi, GenericLinux, Unknown' })
+  platform!: string;
+
+  @Field(() => [DiscoveredIoChannel], { description: 'Discovered I/O channels' })
+  discoveredChannels!: DiscoveredIoChannel[];
+
+  @Field(() => Int, { description: 'Total number of I/O channels found' })
+  totalFound!: number;
+}
+
+/**
+ * Result of bulk I/O config import.
+ * Reports which channels were created and which were skipped (duplicates).
+ */
+@ObjectType()
+export class BulkAddIoConfigResult {
+  @Field(() => [DeviceIoConfig], { description: 'Successfully created I/O configs' })
+  created!: DeviceIoConfig[];
+
+  @Field(() => [String], { description: 'Tag names that were skipped (already exist)' })
+  skipped!: string[];
+
+  @Field(() => Int, { description: 'Number of configs created' })
+  createdCount!: number;
+
+  @Field(() => Int, { description: 'Number of configs skipped (duplicate tagName)' })
+  skippedCount!: number;
 }

@@ -8,7 +8,7 @@
  * Modbus/GPIO protokol konvansiyonlarını takip eder.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -37,6 +37,7 @@ import {
   Pencil,
   X,
   Upload,
+  Search,
 } from 'lucide-react';
 import {
   useEdgeDevice,
@@ -57,11 +58,15 @@ import {
   DeviceLifecycleState,
   IoType,
   IoDataType,
+  useScanHardware,
+  useBulkAddIoConfig,
   type EdgeDevice,
   type DeviceIoConfig,
   type AddIoConfigInput,
   type UpdateIoConfigInput,
+  type HardwareScanResult,
 } from '../hooks/useEdgeDevices';
+import { AutoDetectResultsPanel } from '../components/fleet/AutoDetectResultsPanel';
 
 // ============================================================================
 // Helper Components (shared across tabs)
@@ -816,6 +821,11 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
   const [editConfig, setEditConfig] = useState<DeviceIoConfig | undefined>();
   const [deleteTarget, setDeleteTarget] = useState<DeviceIoConfig | null>(null);
 
+  // v2.3: Auto-detection state
+  const [scanResult, setScanResult] = useState<HardwareScanResult | null>(null);
+  const scanHardware = useScanHardware();
+  const bulkAddIo = useBulkAddIoConfig();
+
   const addMutation = useAddDeviceIoConfig();
   const updateMutation = useUpdateDeviceIoConfig();
   const removeMutation = useRemoveDeviceIoConfig();
@@ -877,6 +887,33 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
     pushMutation.mutate(deviceId);
   }, [pushMutation, deviceId]);
 
+  // v2.3: Auto-detect hardware I/O channels
+  const handleAutoDetect = useCallback(async () => {
+    setScanResult(null);
+    try {
+      const result = await scanHardware.mutateAsync(deviceId);
+      setScanResult(result);
+    } catch {
+      // Error state handled by scanHardware.error
+    }
+  }, [scanHardware, deviceId]);
+
+  // v2.3: Import selected channels from auto-detect results
+  const handleAutoDetectImport = useCallback(
+    async (inputs: AddIoConfigInput[]) => {
+      const result = await bulkAddIo.mutateAsync({ deviceId, inputs });
+      refetch(); // Refresh device data to show new I/O configs
+      return result;
+    },
+    [bulkAddIo, deviceId, refetch],
+  );
+
+  // v2.3: Existing tag names for duplicate detection
+  const existingTagNames = useMemo(
+    () => new Set(configs.map((c) => c.tagName)),
+    [configs],
+  );
+
   /** Mutation hata mesajını güvenli şekilde string'e çevir */
   const getMutationError = (): string | null => {
     const err = addMutation.error || updateMutation.error;
@@ -897,13 +934,61 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
             Edge cihaza analog/digital giris-cikis kanallari ekleyerek
             saha verilerini toplamaya baslayabilirsiniz.
           </p>
-          <button
-            onClick={openAdd}
-            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Ilk I/O Kanalini Ekle
-          </button>
+          <div className="flex items-center gap-3 justify-center">
+            <button
+              onClick={handleAutoDetect}
+              disabled={scanHardware.isPending || !device.isOnline}
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-lg hover:bg-cyan-100 transition-colors disabled:opacity-50"
+              title={!device.isOnline ? 'Cihaz offline — auto-detect icin online olmali' : 'Donanimi tara'}
+            >
+              {scanHardware.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Search className="w-4 h-4" />
+              )}
+              Auto-Detect I/O
+            </button>
+            <button
+              onClick={openAdd}
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Manuel Ekle
+            </button>
+          </div>
+
+          {/* Auto-detect error feedback */}
+          {scanHardware.isError && (
+            <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2 max-w-md mx-auto">
+              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+              <span className="text-sm text-red-800">
+                {scanHardware.error instanceof Error ? scanHardware.error.message : 'Donanim taramasi basarisiz oldu'}
+              </span>
+            </div>
+          )}
+
+          {/* Auto-detect results panel */}
+          {scanResult && scanResult.success && (
+            <div className="mt-4">
+              <AutoDetectResultsPanel
+                scanResult={scanResult}
+                existingTagNames={existingTagNames}
+                onImport={handleAutoDetectImport}
+                isImporting={bulkAddIo.isPending}
+                onClose={() => setScanResult(null)}
+              />
+            </div>
+          )}
+
+          {/* Scan failed feedback */}
+          {scanResult && !scanResult.success && (
+            <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2 max-w-md mx-auto">
+              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+              <span className="text-sm text-red-800">
+                {scanResult.error || 'Donanim taramasi basarisiz oldu'}
+              </span>
+            </div>
+          )}
         </div>
         <IoConfigFormModal
           isOpen={formOpen}
@@ -939,6 +1024,20 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
             )}
             Cihaza Gonder
           </button>
+          {/* v2.3: Auto-Detect I/O — scans device hardware for available channels */}
+          <button
+            onClick={handleAutoDetect}
+            disabled={scanHardware.isPending || !device.isOnline}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-lg hover:bg-cyan-100 transition-colors disabled:opacity-50"
+            title={!device.isOnline ? 'Cihaz offline' : 'Donanimi tara ve I/O kanallarini kes\u0327fet'}
+          >
+            {scanHardware.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Search className="w-4 h-4" />
+            )}
+            Auto-Detect
+          </button>
           <button
             onClick={openAdd}
             className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors"
@@ -948,6 +1047,29 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
           </button>
         </div>
       </div>
+
+      {/* v2.3: Auto-detect results panel */}
+      {scanResult && scanResult.success && (
+        <div className="mb-4">
+          <AutoDetectResultsPanel
+            scanResult={scanResult}
+            existingTagNames={existingTagNames}
+            onImport={handleAutoDetectImport}
+            isImporting={bulkAddIo.isPending}
+            onClose={() => setScanResult(null)}
+          />
+        </div>
+      )}
+
+      {/* Scan failed feedback */}
+      {scanResult && !scanResult.success && (
+        <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+          <span className="text-sm text-red-800">
+            {scanResult.error || 'Donanim taramasi basarisiz oldu'}
+          </span>
+        </div>
+      )}
 
       {/* Push result feedback */}
       {pushMutation.isSuccess && pushMutation.data && (

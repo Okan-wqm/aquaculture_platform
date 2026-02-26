@@ -314,3 +314,52 @@ export const SET_DIGITAL_OUTPUT_MUTATION = `
     }
   }
 `;
+
+// ==================== I/O Auto-Detection (v2.3) ====================
+// Hardware scan: edge agent üzerinde platform-specific I/O enumeration tetikler.
+// - RevPi: piControl process image (piTest -d) üzerinden modül/pin keşfi
+// - RPi: BCM GPIO 2-27 enumeration
+// - Generic Linux: /sys/class/gpio sysfs tarama
+
+export const SCAN_HARDWARE_MUTATION = `
+  mutation ScanEdgeDeviceHardware($deviceId: ID!) {
+    scanEdgeDeviceHardware(deviceId: $deviceId) {
+      success
+      error
+      platform
+      discoveredChannels {
+        tagName
+        ioType
+        dataType
+        moduleAddress
+        channel
+        description
+        gpioPin
+        source
+      }
+      totalFound
+    }
+  }
+`;
+
+// Bulk I/O config import: auto-detect sonuçlarını tek seferde import eder.
+// Duplicate tagName'ler skip edilir, kullanıcıya rapor edilir.
+export const BULK_ADD_IO_CONFIG_MUTATION = `
+  mutation BulkAddDeviceIoConfigs($deviceId: ID!, $inputs: [AddIoConfigInput!]!) {
+    bulkAddDeviceIoConfigs(deviceId: $deviceId, inputs: $inputs) {
+      created {
+        id
+        tagName
+        ioType
+        dataType
+        moduleAddress
+        channel
+        engUnit
+        isActive
+      }
+      skipped
+      createdCount
+      skippedCount
+    }
+  }
+`;

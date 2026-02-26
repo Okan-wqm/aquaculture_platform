@@ -28,6 +28,8 @@ import {
   PushIoConfigResult,
   SetDigitalOutputInput,
   SetDigitalOutputResult,
+  HardwareScanResultType,
+  BulkAddIoConfigResult,
 } from './dto/edge-device.dto';
 import {
   CreateProvisionedDeviceInput,
@@ -421,6 +423,47 @@ export class EdgeDeviceResolver {
       tenantId,
       userId,
     );
+  }
+
+  // ==================== I/O Auto-Detection (v2.3) ====================
+
+  /**
+   * Scan edge device hardware for available I/O channels.
+   *
+   * Sends a `scan_hardware` command to the agent via MQTT and waits
+   * for the response (15s timeout). The agent performs platform-specific
+   * enumeration:
+   * - RevPi: piControl process image (piTest -d)
+   * - RPi: BCM GPIO 2-27 enumeration
+   * - Generic Linux: /sys/class/gpio sysfs
+   *
+   * The returned channels can be bulk-imported via `bulkAddDeviceIoConfigs`.
+   */
+  @Mutation(() => HardwareScanResultType, { name: 'scanEdgeDeviceHardware' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async scanEdgeDeviceHardware(
+    @Args('deviceId', { type: () => ID }) deviceId: string,
+    @Tenant() tenantId: string,
+  ): Promise<HardwareScanResultType> {
+    this.logger.log(`Scanning hardware on device: ${deviceId}`);
+    return await this.edgeDeviceService.scanHardware(deviceId, tenantId);
+  }
+
+  /**
+   * Bulk add I/O configurations to a device.
+   *
+   * Typically used after `scanEdgeDeviceHardware` to import discovered
+   * channels. Skips duplicates (existing tagName) and reports results.
+   */
+  @Mutation(() => BulkAddIoConfigResult, { name: 'bulkAddDeviceIoConfigs' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async bulkAddDeviceIoConfigs(
+    @Args('deviceId', { type: () => ID }) deviceId: string,
+    @Args('inputs', { type: () => [AddIoConfigInput] }) inputs: AddIoConfigInput[],
+    @Tenant() tenantId: string,
+  ): Promise<BulkAddIoConfigResult> {
+    this.logger.log(`Bulk adding ${inputs.length} I/O configs to device: ${deviceId}`);
+    return await this.edgeDeviceService.bulkAddIoConfigs(deviceId, tenantId, inputs);
   }
 
   // ==================== Field Resolvers ====================

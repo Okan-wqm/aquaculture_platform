@@ -385,6 +385,11 @@ pub struct MqttTopics {
     /// Config topic pattern (subscribe)
     #[serde(default = "default_config_topic")]
     pub config: String,
+
+    /// Capabilities topic pattern (publish at boot)
+    /// v2.3: Reports hardware capabilities for auto-detection
+    #[serde(default = "default_capabilities_topic")]
+    pub capabilities: String,
 }
 
 impl Default for MqttTopics {
@@ -395,6 +400,7 @@ impl Default for MqttTopics {
             responses: default_responses_topic(),
             commands: default_commands_topic(),
             config: default_config_topic(),
+            capabilities: default_capabilities_topic(),
         }
     }
 }
@@ -425,6 +431,10 @@ impl MqttTopics {
                 .config
                 .replace("{tenant_id}", tenant_id)
                 .replace("{device_id}", device_id),
+            capabilities: self
+                .capabilities
+                .replace("{tenant_id}", tenant_id)
+                .replace("{device_id}", device_id),
         };
 
         // v1.2.3: Validate that all placeholders were resolved
@@ -442,6 +452,8 @@ pub struct ResolvedTopics {
     pub responses: String,
     pub commands: String,
     pub config: String,
+    /// v2.3: Hardware capabilities report topic
+    pub capabilities: String,
 }
 
 impl ResolvedTopics {
@@ -461,6 +473,7 @@ impl ResolvedTopics {
             ("responses", &self.responses),
             ("commands", &self.commands),
             ("config", &self.config),
+            ("capabilities", &self.capabilities),
         ];
 
         for (name, topic) in topics {
@@ -1086,7 +1099,19 @@ fn default_config_topic() -> String {
     "tenants/{tenant_id}/devices/{device_id}/config".to_string()
 }
 
+fn default_capabilities_topic() -> String {
+    "tenants/{tenant_id}/devices/{device_id}/capabilities".to_string()
+}
+
 impl AgentConfig {
+    /// Detect the GPIO platform for this device.
+    ///
+    /// Delegates to the module-level `detect_gpio_platform()` function which
+    /// reads `/proc/device-tree/model` to identify the hardware.
+    pub fn gpio_platform(&self) -> GpioPlatform {
+        detect_gpio_platform()
+    }
+
     /// Load configuration from file
     pub fn load() -> Result<Self> {
         Self::load_from(DEFAULT_CONFIG_PATH)

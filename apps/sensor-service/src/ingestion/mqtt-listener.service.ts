@@ -431,6 +431,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       this.edgeDeviceService.handlePingResponse(deviceCode, payload as Record<string, unknown>);
     }
 
+    // v2.3: Route scan_hardware responses for promise resolution
+    if (payload.command === 'scan_hardware' && this.edgeDeviceService) {
+      this.edgeDeviceService.handleScanHardwareResponse(
+        deviceCode,
+        payload as Record<string, unknown>,
+      );
+    }
+
     // Handle I/O config update acknowledgements from the edge agent.
     // The agent responds after applying (or rejecting) the Modbus/GPIO
     // config pushed by pushIoConfigToDevice().  We log the outcome and
@@ -641,6 +649,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           await this.handleEdgeIoData(tenantId, deviceCode, payload);
           break;
 
+        case 'capabilities':
+          // v2.3: Boot-time hardware capabilities report from edge agent.
+          // Updates the device's capabilities JSONB field for UI display.
+          await this.handleEdgeCapabilities(tenantId, deviceCode, payload);
+          break;
+
         default:
           this.logger.debug(`Unknown tenant edge message type: ${messageType}`);
       }
@@ -833,6 +847,54 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         tags,
         version: 1,
       });
+    }
+  }
+
+  // ==================== Hardware Capabilities (v2.3) ====================
+
+  /**
+   * Handle boot-time hardware capabilities report from edge agent.
+   *
+   * Updates the device's `capabilities` JSONB field with the hardware
+   * summary (platform, GPIO chip count, piControl availability, etc.).
+   * This data drives the "Auto-Detect I/O" feature in the frontend.
+   *
+   * Topic: tenants/{tid}/devices/{code}/capabilities
+   */
+  private async handleEdgeCapabilities(
+    tenantId: string,
+    deviceCode: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.edgeDeviceService) return;
+
+    this.logger.log(
+      `Hardware capabilities from ${deviceCode}: platform=${payload.platform}, ` +
+      `gpio_chips=${payload.gpio_chip_count}, gpio_lines=${payload.total_gpio_lines}`,
+    );
+
+    // Build capabilities object for the JSONB column
+    const capabilities: Record<string, boolean> = {
+      hasGpio: (payload.total_gpio_lines as number) > 0,
+      hasPicontrol: (payload.has_picontrol as boolean) ?? false,
+      hasRppal: (payload.rppal_available as boolean) ?? false,
+      hasModbus: (payload.modbus_configured as boolean) ?? false,
+      autoDetectAvailable: true, // Agent supports scan_hardware command
+    };
+
+    try {
+      // Find device by code and tenant, update capabilities
+      const device = await this.edgeDeviceService.findByCode(deviceCode, tenantId);
+      if (device) {
+        await this.edgeDeviceService.updateDevice(device.id, tenantId, {
+          capabilities,
+        });
+        this.logger.debug(`Capabilities updated for ${deviceCode}`);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to update capabilities for ${deviceCode}: ${(error as Error).message}`,
+      );
     }
   }
 

@@ -102,3 +102,32 @@ MQTT/Modbus reading arrives
               → notification-service dispatches
                   → NotificationSentEvent / NotificationFailedEvent
 ```
+
+## Edge Device I/O Data Flow (Real-time)
+
+```
+Edge Agent (scan cycle, 100-500ms)
+  → MQTT publish: tenants/{tid}/devices/{code}/io_data
+    → mqtt-listener.service.ts: handleEdgeIoData()
+      → Validation (payload size ≤64KB, tags object, tag count ≤256)
+      → Per-device throttle (1s minimum interval)
+      → EventBus.publish('EdgeDeviceIoData')
+        → WebSocket → EquipmentNodeOverlay
+```
+
+**EdgeDeviceIoData event format:**
+```typescript
+{
+  eventId: string;        // UUID v4
+  eventType: 'EdgeDeviceIoData';
+  timestamp: Date;
+  tenantId: string;
+  deviceCode: string;
+  tags: Record<string, { value: number | boolean; quality: string }>;
+  version: 1;
+}
+```
+
+**NOT:** Bu event NATS JetStream üzerinden değil, doğrudan EventBus → WebSocket
+üzerinden iletilir. Yüksek frekanslı I/O verisi persist edilmez, sadece real-time
+UI güncellemesi için kullanılır.

@@ -99,6 +99,131 @@ Agent bu config'i aldığında:
 
 ---
 
+## 2b. Process Editor — Equipment ↔ Edge Device I/O Binding (Kemik Yapı)
+
+Process editor'da equipment node'ları fiziksel edge device'lara bağlanır ve
+I/O tag'leri node üzerinde canlı olarak gösterilir.
+
+### 2b.1 Veri Modeli
+
+```
+EquipmentNode (ReactFlow node.data)
+  ├── edgeDeviceId: string    → EdgeDevice.id (backend UUID)
+  ├── edgeDeviceCode: string  → EdgeDevice.deviceCode (MQTT topic'te kullanılır)
+  └── ioBindings: IoBinding[] → Node'a bağlı I/O tag listesi
+        ├── ioConfigId: string      → DeviceIoConfig.id
+        ├── tagName: string         → İnsan-okunur tag adı
+        ├── ioType: IoBindingType   → 'DI' | 'DO' | 'AI' | 'AO' (union type)
+        └── dataType: IoBindingDataType → 'BOOL' | 'FLOAT32' | ... (union type)
+```
+
+**IoBindingType / IoBindingDataType:** `processStore.ts`'de tanımlı union type'lar.
+Backend'deki `IoType` ve `IoDataType` enum'ları ile senkronize olmalı.
+
+### 2b.2 Frontend Akışı
+
+**Dosya:** `components/process-editor/panels/PropertiesPanel.tsx`
+
+| Adım | Eylem | State Değişikliği |
+|------|-------|-------------------|
+| 1 | Kullanıcı Equipment node seçer | `selectedNode` güncellenir |
+| 2 | Edge Device Binding bölümü açılır | `selectedEdgeDeviceId` → `useEffect` ile sync |
+| 3 | Dropdown'dan edge device seçilir | `handleEdgeDeviceSelect()` → node.data'ya `edgeDeviceId/Code` yazar |
+| 4 | Seçilen device'ın I/O tag listesi yüklenir | `useEdgeDevice(id)` → `selectedDeviceDetail.ioConfig` |
+| 5 | Checkbox ile tag'ler node'a bağlanır | `handleIoTagToggle()` → `node.data.ioBindings[]` güncellenir |
+| 6 | Node overlay'de bağlı tag'ler görünür | `EquipmentNodeOverlay` → `IoBadge` render |
+
+**Önemli detaylar:**
+
+- **Stale state koruması:** `selectedEdgeDeviceId`, `useEffect` ile `selectedNode.id` değişiminde
+  senkronize edilir. `useState` initializer sadece ilk mount'ta çalışır — farklı node seçildiğinde
+  eski ID kalmaması için bu senkronizasyon zorunlu.
+- **Decommissioned filtreleme:** Edge device dropdown'unda `DECOMMISSIONED` durumundaki cihazlar
+  gösterilmez (`DeviceLifecycleState.DECOMMISSIONED` filtresi).
+- **Loading/error states:** Device listesi yüklenirken "Loading..." ve hata durumunda "Failed to load"
+  mesajları gösterilir.
+- **Unlink temizliği:** Equipment unlink edildiğinde `edgeDeviceId`, `edgeDeviceCode`, `ioBindings`
+  alanları da temizlenir (`processStore.unlinkEquipmentFromNode`).
+
+### 2b.3 Digital Output (DO) Kontrolü
+
+**Akış:**
+```
+PropertiesPanel: Output Controls bölümü
+  → Kullanıcı ON/OFF butonuna tıklar
+    → Onay dialogu açılır (güvenlik — yanlışlıkla aktüatör çalıştırmayı önler)
+      → "Confirm" → useSetDigitalOutput().mutateAsync()
+        → GraphQL: setDigitalOutput mutation
+          → Backend: @Roles(TENANT_ADMIN, MODULE_MANAGER) + @CurrentUser() audit trail
+            → edge-device.service.ts: setDigitalOutput()
+              → Decommissioned/offline/non-DO kontrolleri
+              → MQTT publish: tenants/{tid}/devices/{code}/commands
+                → { command: "set_output", params: { tag_name, value, invert_value, gpio_pin, ... } }
+```
+
+**Hook:** `useEdgeDevices.ts` → `useSetDigitalOutput()`
+- TanStack Query `useMutation` hook'u — raw `graphqlRequest` yerine
+- Otomatik loading state (`isPending`), error handling
+- Hata mesajları kullanıcıya inline banner ile gösterilir (console.error yerine)
+
+**Backend güvenlik katmanları:**
+1. `@Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)` — yetki kontrolü
+2. `@IsUUID('4')` / `@IsBoolean()` — input validasyonu (class-validator)
+3. `@CurrentUser()` → `triggeredBy` MQTT payload'a eklenir (audit trail)
+4. `ensureMqttAvailable()` → try-catch ile soft-fail (tutarlı hata pattern'i)
+5. `ioConfig.ioType !== IoType.DO` → sadece DO tag'lere izin
+6. `device.lifecycleState === DECOMMISSIONED` → decommissioned cihaz koruması
+7. `ioConfig.invertValue` → MQTT payload'a `invert_value` olarak eklenir
+
+### 2b.4 I/O Data Bridge (Canlı Değerler)
+
+**Akış:**
+```
+Edge Agent (scan cycle)
+  → MQTT publish: tenants/{tid}/devices/{code}/io_data
+    → mqtt-listener.service.ts: handleEdgeIoData()
+      → Payload doğrulaması (boyut, yapı, tag sayısı)
+      → Per-device throttle (1 saniye minimum aralık)
+      → EventBus.publish('EdgeDeviceIoData')
+        → WebSocket → Frontend
+          → EquipmentNodeOverlay: IoBadge'ler güncellenir
+```
+
+**Payload doğrulaması (`mqtt-listener.service.ts`):**
+
+| Kontrol | Limit | Neden |
+|---------|-------|-------|
+| Payload boyutu | 64 KB | DDoS / memory abuse önlemi |
+| `tags` objesi yapısı | Object (non-array) gerekli | Beklenen format doğrulaması |
+| Tag sayısı | Maks 256 | Anormal büyüklükteki veri paketlerini engelle |
+| Per-device throttle | 1000 ms | WebSocket flooding önlemi |
+
+**Throttle mekanizması:** `ioDataThrottleMap` — `Map<string, number>` (key: `tenantId:deviceCode`,
+value: son publish timestamp). Agent tipik olarak 100-500ms aralıklarla I/O verisi gönderir,
+ancak frontend 1s'de bir güncellenmeye ihtiyaç duyar.
+
+### 2b.5 Overlay Render (EquipmentNodeOverlay)
+
+**Dosya:** `components/process-editor/nodes/EquipmentNodeOverlay.tsx`
+
+- **DI/DO tag'leri:** Yeşil/kırmızı LED ikonu (Tailwind class'ları: `bg-green-500`/`bg-red-500`)
+  - Aktif DO output'larda `animate-pulse` animasyonu
+- **AI/AO tag'leri:** Numerik değer badge'i (`bg-blue-50`)
+- Maksimum 4 badge gösterilir — fazlası "+N" olarak belirtilir
+- `React.memo` ile EquipmentNode'dan izole — overlay re-render node'u etkilemez
+
+### 2b.6 Deploy Automation Modal
+
+**Dosya:** `pages/process/ProcessEditorPage.tsx`
+
+- `boundDevices` → `useMemo` ile memoize edilir (canvasNodes bağımlılığı)
+  - Process'teki tüm node'lardan `edgeDeviceId` olan benzersiz device'ları çıkarır
+  - Map ile deduplication yapılır
+- Modal conditional render: `{isDeployModalOpen && <DeployAutomationModal />}`
+  - Kapalıyken DOM'da mount edilmez — gereksiz render önlenir
+
+---
+
 ## 3. Otomasyon (Soft PLC) Deploy Pipeline
 
 ### 3.1 Program Oluşturma (Frontend)
@@ -230,6 +355,11 @@ Backend:
 | Deploy | Concurrency lock, version validation, automatic rollback |
 | FB State | SQLite + sqlcipher encryption for RETAIN variables |
 | Agent | systemd sandboxing (ProtectSystem=strict, NoNewPrivileges) |
+| DO Control | @Roles(TENANT_ADMIN, MODULE_MANAGER), onay dialogu, @CurrentUser audit trail |
+| Input Validation | @IsUUID('4'), @IsBoolean() class-validator — SetDigitalOutputInput DTO |
+| I/O Data | Payload boyut limiti (64KB), tag sayısı limiti (256), yapı doğrulaması |
+| I/O Throttle | Per-device 1s rate limit — WebSocket flooding önlemi |
+| Device Lifecycle | Decommissioned cihazlara komut gönderilmez, dropdown'dan filtrelenir |
 
 ---
 
@@ -238,19 +368,24 @@ Backend:
 ### Backend (sensor-service)
 | Dosya | İçerik |
 |-------|--------|
-| `edge-device/edge-device.service.ts` | I/O CRUD, transform, push |
-| `edge-device/edge-device.resolver.ts` | pushIoConfigToDevice mutation |
+| `edge-device/dto/edge-device.dto.ts` | SetDigitalOutputInput (@IsUUID, @IsBoolean), SetDigitalOutputResult |
+| `edge-device/edge-device.service.ts` | I/O CRUD, transform, push, setDigitalOutput (DO control) |
+| `edge-device/edge-device.resolver.ts` | pushIoConfigToDevice, setDigitalOutput (@Roles, @CurrentUser) |
 | `automation/automation.service.ts` | translateProgramToEdgeScript, deploy pipeline |
-| `ingestion/mqtt-listener.service.ts` | Deploy ACK, config ACK, telemetry |
+| `ingestion/mqtt-listener.service.ts` | Deploy ACK, config ACK, I/O data bridge (throttle + validation) |
 
 ### Frontend (sensor-module)
 | Dosya | İçerik |
 |-------|--------|
 | `pages/EdgeDeviceDetailPage.tsx` | I/O Config CRUD UI |
 | `pages/automation/AutomationProgramEditorPage.tsx` | SFC editor, variable I/O binding, deploy |
-| `graphql/edge-device.queries.ts` | I/O mutations |
+| `pages/process/ProcessEditorPage.tsx` | Deploy modal (conditional render, memoized boundDevices) |
+| `components/process-editor/panels/PropertiesPanel.tsx` | Equipment ↔ Edge Device binding, DO toggle, I/O tag checkbox |
+| `components/process-editor/nodes/EquipmentNodeOverlay.tsx` | Canlı I/O badge render (DI/DO LED, AI/AO numerik) |
+| `store/processStore.ts` | IoBinding interface (union types), unlinkEquipmentFromNode, ProcessNodeData union |
+| `graphql/edge-device.queries.ts` | I/O mutations, SET_DIGITAL_OUTPUT_MUTATION, PUSH_IO_CONFIG_MUTATION |
 | `graphql/automation.queries.ts` | Automation mutations |
-| `hooks/useEdgeDevices.ts` | I/O CRUD + push hooks |
+| `hooks/useEdgeDevices.ts` | I/O CRUD + push hooks, useSetDigitalOutput, PushIoConfigResult |
 
 ### Edge Agent (sens-api-gateway)
 | Dosya | İçerik |

@@ -378,7 +378,7 @@ async fn async_main() -> Result<()> {
             cfg
         }
         Err(e) => {
-            error!("Failed to load configuration: {}", e);
+            error!("Failed to load configuration: {:#}", e);
             error!("Please ensure /etc/suderra/config.yaml exists and is valid");
             std::process::exit(1);
         }

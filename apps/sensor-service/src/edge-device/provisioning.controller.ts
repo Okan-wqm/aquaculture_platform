@@ -23,7 +23,7 @@ import {
 } from './dto/provisioning.dto';
 import { ProvisioningService } from './provisioning.service';
 import { SimpleRateLimitGuard, RateLimit } from '../guards/rate-limit.guard';
-import { SkipTenantGuard } from '@app/backend-common/decorators/roles.decorator';
+import { SkipTenantGuard } from '@platform/backend-common';
 
 /**
  * Provisioning Controller

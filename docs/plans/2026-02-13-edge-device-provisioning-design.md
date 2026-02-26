@@ -369,3 +369,46 @@ System Settings altında yeni bir sekme/bölüm:
 - Mevcut DeviceActivationRequest/Response DTO'ları yeterli
 - Bulk provisioning (TenantProvisioningKey) aynı pattern'i kullanabilir, sadece URL formatı farklı olur
 - Agent güncelleme mekanizması (OTA) bu tasarımın dışında, sonraki iterasyonda ele alınabilir
+
+---
+
+## Changelog (2026-02-26)
+
+### Bug Fix: Install endpoint 400 "Tenant ID is required"
+
+**Sorun:** `curl -sSL https://app.suderra.com/install/EDGE-XXX | sudo bash` komutu
+`{"statusCode":400,"message":"Tenant ID is required"}` hatası veriyordu.
+
+**Kök neden:** `ProvisioningController` üzerinde `@SkipTenantGuard()` dekoratörü eksikti.
+Global `TenantGuard` (APP_GUARD) anonim curl isteğini tenant context'i olmadığı için reddediyordu.
+
+**Düzeltme:** `provisioning.controller.ts`'ye `@SkipTenantGuard()` eklendi.
+Import: `import { SkipTenantGuard } from '@platform/backend-common';`
+
+**Güvenlik:** Controller kendi güvenlik katmanlarına sahip (rate limit, token validasyonu,
+device code format regex), TenantGuard bypass'ı güvenlik açığı oluşturmaz.
+
+### Bug Fix: Installer URL'de token eksik
+
+**Sorun:** `buildInstallerUrl()` ve `buildInstallerCommand()` provisioning token'ı
+URL'ye eklemiyordu ama controller `?token=` zorunlu tutuyordu.
+
+**Düzeltme:** Her iki metoda `token?` parametresi eklendi, URL'ye `?token=` ekleniyor.
+Frontend `InstallerCommandModal` mask fonksiyonu da `?token=` formatını maskeleliyor.
+
+### Bug Fix: Cihaz Modeli seçilince "Bad Request"
+
+**Sorun:** Yeni edge device eklerken Cihaz Modeli seçilirse "Bad Request" hatası,
+seçilmezse başarılı.
+
+**Kök neden:** `CreateProvisionedDeviceInput` DTO'sunun alanlarında class-validator
+dekoratörleri (`@IsOptional()`, `@IsEnum()`, `@IsString()` vb.) eksikti.
+`ValidationPipe` `forbidNonWhitelisted: true` ayarı dekoratörü olmayan property'leri
+reddediyor.
+
+**Düzeltme:** Tüm alanlara class-validator dekoratörleri eklendi:
+- `deviceModel`: `@IsOptional() @IsEnum(DeviceModel)`
+- `deviceName`: `@IsOptional() @IsString() @MaxLength(200)`
+- `description`: `@IsOptional() @IsString() @MaxLength(500)`
+- `siteId`: `@IsOptional() @IsUUID()`
+- `serialNumber`: `@IsOptional() @IsString() @MaxLength(100)`

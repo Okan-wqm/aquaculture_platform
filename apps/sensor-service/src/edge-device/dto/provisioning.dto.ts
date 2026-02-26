@@ -8,6 +8,7 @@ import {
   ValidateNested,
   IsNotEmpty,
   IsInt,
+  IsEnum,
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -25,18 +26,31 @@ import { DeviceModel } from '../entities/edge-device.entity';
 @InputType()
 export class CreateProvisionedDeviceInput {
   @Field({ nullable: true, description: 'Human-readable device name' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
   deviceName?: string;
 
   @Field({ nullable: true, description: 'Device description or location' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
   description?: string;
 
   @Field(() => DeviceModel, { nullable: true, description: 'Hardware model' })
+  @IsOptional()
+  @IsEnum(DeviceModel)
   deviceModel?: DeviceModel;
 
   @Field({ nullable: true, description: 'Site to assign device to' })
+  @IsOptional()
+  @IsUUID()
   siteId?: string;
 
   @Field({ nullable: true, description: 'Device serial number' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   serialNumber?: string;
 }
 

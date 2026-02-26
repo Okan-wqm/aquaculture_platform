@@ -29,24 +29,24 @@ import {
 // ==================== Types ====================
 
 export enum DeviceLifecycleState {
-  REGISTERED = 'registered',
-  PROVISIONING = 'provisioning',
-  PENDING_APPROVAL = 'pending_approval',
-  ACTIVE = 'active',
-  OFFLINE = 'offline',
-  MAINTENANCE = 'maintenance',
-  ERROR = 'error',
-  REVOKED = 'revoked',
-  DECOMMISSIONED = 'decommissioned',
+  REGISTERED = 'REGISTERED',
+  PROVISIONING = 'PROVISIONING',
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
+  ACTIVE = 'ACTIVE',
+  OFFLINE = 'OFFLINE',
+  MAINTENANCE = 'MAINTENANCE',
+  ERROR = 'ERROR',
+  REVOKED = 'REVOKED',
+  DECOMMISSIONED = 'DECOMMISSIONED',
 }
 
 export enum DeviceModel {
-  REVOLUTION_PI_CONNECT_4 = 'revolution_pi_connect_4',
-  REVOLUTION_PI_COMPACT = 'revolution_pi_compact',
-  RASPBERRY_PI_4 = 'raspberry_pi_4',
-  RASPBERRY_PI_5 = 'raspberry_pi_5',
-  INDUSTRIAL_PC = 'industrial_pc',
-  CUSTOM = 'custom',
+  REVOLUTION_PI_CONNECT_4 = 'REVOLUTION_PI_CONNECT_4',
+  REVOLUTION_PI_COMPACT = 'REVOLUTION_PI_COMPACT',
+  RASPBERRY_PI_4 = 'RASPBERRY_PI_4',
+  RASPBERRY_PI_5 = 'RASPBERRY_PI_5',
+  INDUSTRIAL_PC = 'INDUSTRIAL_PC',
+  CUSTOM = 'CUSTOM',
 }
 
 export enum IoType {

@@ -6,6 +6,8 @@
  * - Program list with filtering
  * - Status-based grouping
  * - Clone, archive, deploy actions
+ * - Approve/reject workflow for pending programs
+ * - Pagination controls
  */
 
 import React, { useState, useMemo } from 'react';
@@ -14,79 +16,50 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Workflow,
   Search,
-  Filter,
   Plus,
   MoreVertical,
   Play,
-  Pause,
   Copy,
   Archive,
   Edit,
   Trash2,
   CheckCircle,
   Clock,
-  AlertCircle,
   Loader2,
   LayoutGrid,
   List,
   RefreshCw,
-  ChevronDown,
-  Upload,
-  Download,
+  ThumbsUp,
+  ThumbsDown,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '@aquaculture/shared-ui';
-
-// ============================================================================
-// GraphQL Fetch Helper
-// ============================================================================
-
-async function graphqlFetch<T>(
-  query: string,
-  variables: Record<string, unknown>,
-  token?: string
-): Promise<T> {
-  const response = await fetch('/graphql', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL Error');
-  }
-
-  return result.data;
-}
+import { graphqlFetch } from '../../config/api';
+import {
+  ProgramStatus,
+  ProgramType,
+  getStatusColor,
+  getStatusText,
+  getProgramTypeText,
+} from '../../utils/automation.utils';
+import {
+  AUTOMATION_PROGRAMS_QUERY,
+  DELETE_PROGRAM_MUTATION,
+  CLONE_PROGRAM_MUTATION,
+  ARCHIVE_PROGRAM_MUTATION,
+  APPROVE_PROGRAM_MUTATION,
+  REJECT_PROGRAM_MUTATION,
+} from '../../graphql/automation.queries';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-enum ProgramStatus {
-  DRAFT = 'draft',
-  PENDING_REVIEW = 'pending_review',
-  APPROVED = 'approved',
-  DEPLOYING = 'deploying',
-  DEPLOYED = 'deployed',
-  ARCHIVED = 'archived',
-}
-
-enum ProgramType {
-  SFC = 'sfc',
-  FBD = 'fbd',
-  ST = 'st',
-  LD = 'ld',
-}
-
 interface AutomationProgram {
   id: string;
   programCode: string;
-  name: string;
+  programName: string;
   description?: string;
   version: string;
   programType: ProgramType;
@@ -109,80 +82,8 @@ interface ProgramStats {
 type ViewMode = 'grid' | 'list';
 
 // ============================================================================
-// GraphQL Queries
-// ============================================================================
-
-const PROGRAMS_QUERY = `
-  query AutomationPrograms($filter: ProgramFilterInput, $page: Int, $limit: Int) {
-    automationPrograms(filter: $filter, page: $page, limit: $limit) {
-      id
-      programCode
-      programName
-      description
-      version
-      programType
-      status
-      stepCount
-      transitionCount
-      variableCount
-      createdAt
-      updatedAt
-      approvedAt
-      approvedBy
-    }
-    automationProgramStats {
-      total
-      byStatus {
-        status
-        count
-      }
-      byType {
-        type
-        count
-      }
-    }
-  }
-`;
-
-const DELETE_PROGRAM = `
-  mutation DeleteAutomationProgram($id: ID!) {
-    deleteAutomationProgram(id: $id)
-  }
-`;
-
-const CLONE_PROGRAM = `
-  mutation CloneAutomationProgram($id: ID!, $newCode: String!) {
-    cloneAutomationProgram(id: $id, newCode: $newCode) {
-      id
-      programCode
-    }
-  }
-`;
-
-const ARCHIVE_PROGRAM = `
-  mutation ArchiveProgram($id: ID!) {
-    archiveProgram(id: $id) {
-      id
-      status
-    }
-  }
-`;
-
-// ============================================================================
 // Helper Functions
 // ============================================================================
-
-const getStatusColor = (status: ProgramStatus): string => {
-  const colors: Record<ProgramStatus, string> = {
-    [ProgramStatus.DRAFT]: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
-    [ProgramStatus.PENDING_REVIEW]: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
-    [ProgramStatus.APPROVED]: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
-    [ProgramStatus.DEPLOYING]: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
-    [ProgramStatus.DEPLOYED]: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
-    [ProgramStatus.ARCHIVED]: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500',
-  };
-  return colors[status] || colors[ProgramStatus.DRAFT];
-};
 
 const getStatusIcon = (status: ProgramStatus) => {
   const icons: Record<ProgramStatus, React.ReactNode> = {
@@ -194,28 +95,6 @@ const getStatusIcon = (status: ProgramStatus) => {
     [ProgramStatus.ARCHIVED]: <Archive className="h-3.5 w-3.5" />,
   };
   return icons[status] || icons[ProgramStatus.DRAFT];
-};
-
-const getStatusText = (status: ProgramStatus): string => {
-  const texts: Record<ProgramStatus, string> = {
-    [ProgramStatus.DRAFT]: 'Taslak',
-    [ProgramStatus.PENDING_REVIEW]: 'Inceleniyor',
-    [ProgramStatus.APPROVED]: 'Onaylandi',
-    [ProgramStatus.DEPLOYING]: 'Yukleniyor',
-    [ProgramStatus.DEPLOYED]: 'Devrede',
-    [ProgramStatus.ARCHIVED]: 'Arsivlendi',
-  };
-  return texts[status] || status;
-};
-
-const getProgramTypeText = (type: ProgramType): string => {
-  const texts: Record<ProgramType, string> = {
-    [ProgramType.SFC]: 'SFC',
-    [ProgramType.LD]: 'Ladder',
-    [ProgramType.FBD]: 'FBD',
-    [ProgramType.ST]: 'ST',
-  };
-  return texts[type] || type;
 };
 
 const formatDate = (dateStr?: string): string => {
@@ -250,7 +129,9 @@ const ProgramCard: React.FC<{
   onClone: () => void;
   onArchive: () => void;
   onDelete: () => void;
-}> = ({ program, onClone, onArchive, onDelete }) => {
+  onApprove: () => void;
+  onReject: () => void;
+}> = ({ program, onClone, onArchive, onDelete, onApprove, onReject }) => {
   const [showMenu, setShowMenu] = useState(false);
   const navigate = useNavigate();
 
@@ -324,6 +205,26 @@ const ProgramCard: React.FC<{
         </span>
       </div>
 
+      {/* Approve/Reject actions for pending programs */}
+      {program.status === ProgramStatus.PENDING_REVIEW && (
+        <div className="flex items-center gap-2 mb-3">
+          <button
+            onClick={onApprove}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-100 hover:bg-green-200 dark:text-green-300 dark:bg-green-900/30 dark:hover:bg-green-900/50 rounded-lg transition-colors"
+          >
+            <ThumbsUp className="h-3.5 w-3.5" />
+            Onayla
+          </button>
+          <button
+            onClick={onReject}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 dark:text-red-300 dark:bg-red-900/30 dark:hover:bg-red-900/50 rounded-lg transition-colors"
+          >
+            <ThumbsDown className="h-3.5 w-3.5" />
+            Reddet
+          </button>
+        </div>
+      )}
+
       <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-3 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center gap-3">
           <span>{program.stepCount ?? 0} adim</span>
@@ -340,7 +241,9 @@ const ProgramRow: React.FC<{
   onClone: () => void;
   onArchive: () => void;
   onDelete: () => void;
-}> = ({ program, onClone, onArchive, onDelete }) => {
+  onApprove: () => void;
+  onReject: () => void;
+}> = ({ program, onClone, onArchive, onDelete, onApprove, onReject }) => {
   const navigate = useNavigate();
 
   return (
@@ -374,6 +277,24 @@ const ProgramRow: React.FC<{
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-1">
+          {program.status === ProgramStatus.PENDING_REVIEW && (
+            <>
+              <button
+                onClick={onApprove}
+                className="p-1.5 rounded hover:bg-green-100 dark:hover:bg-green-900/20"
+                title="Onayla"
+              >
+                <ThumbsUp className="h-4 w-4 text-green-600" />
+              </button>
+              <button
+                onClick={onReject}
+                className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/20"
+                title="Reddet"
+              >
+                <ThumbsDown className="h-4 w-4 text-red-500" />
+              </button>
+            </>
+          )}
           <button
             onClick={() => navigate(`/sensor/automation/${program.id}`)}
             className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -430,7 +351,7 @@ const AutomationProgramsPage: React.FC = () => {
     queryKey: ['automationPrograms', statusFilter, typeFilter, page],
     queryFn: () =>
       graphqlFetch<{ automationPrograms: AutomationProgram[]; automationProgramStats: ProgramStats }>(
-        PROGRAMS_QUERY,
+        AUTOMATION_PROGRAMS_QUERY,
         {
           filter: {
             ...(statusFilter && { status: statusFilter }),
@@ -438,26 +359,36 @@ const AutomationProgramsPage: React.FC = () => {
           },
           page,
           limit,
-        },
-        token
+        }
       ),
     enabled: !!token,
   });
 
   // Mutations
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => graphqlFetch(DELETE_PROGRAM, { id }, token),
+    mutationFn: (id: string) => graphqlFetch(DELETE_PROGRAM_MUTATION, { id }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['automationPrograms'] }),
   });
 
   const cloneMutation = useMutation({
     mutationFn: ({ id, newCode }: { id: string; newCode: string }) =>
-      graphqlFetch(CLONE_PROGRAM, { id, newCode }, token),
+      graphqlFetch(CLONE_PROGRAM_MUTATION, { id, newCode }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['automationPrograms'] }),
   });
 
   const archiveMutation = useMutation({
-    mutationFn: (id: string) => graphqlFetch(ARCHIVE_PROGRAM, { id }, token),
+    mutationFn: (id: string) => graphqlFetch(ARCHIVE_PROGRAM_MUTATION, { id }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['automationPrograms'] }),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: (id: string) => graphqlFetch(APPROVE_PROGRAM_MUTATION, { id }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['automationPrograms'] }),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      graphqlFetch(REJECT_PROGRAM_MUTATION, { id, reason }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['automationPrograms'] }),
   });
 
@@ -486,6 +417,11 @@ const AutomationProgramsPage: React.FC = () => {
       : rawStats.byType,
   } as ProgramStats : undefined;
 
+  // Pagination
+  const totalPrograms = stats?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalPrograms / limit));
+  const isLastPage = page >= totalPages || (data?.automationPrograms?.length ?? 0) < limit;
+
   // Handlers
   const handleClone = (program: AutomationProgram) => {
     const newCode = `${program.programCode}_COPY_${Date.now()}`;
@@ -500,6 +436,19 @@ const AutomationProgramsPage: React.FC = () => {
 
   const handleArchive = (program: AutomationProgram) => {
     archiveMutation.mutate(program.id);
+  };
+
+  const handleApprove = (program: AutomationProgram) => {
+    if (window.confirm(`"${program.programName}" programini onaylamak istediginize emin misiniz?`)) {
+      approveMutation.mutate(program.id);
+    }
+  };
+
+  const handleReject = (program: AutomationProgram) => {
+    const reason = window.prompt(`"${program.programName}" programini reddetme sebebi:`);
+    if (reason !== null && reason.trim()) {
+      rejectMutation.mutate({ id: program.id, reason: reason.trim() });
+    }
   };
 
   return (
@@ -550,7 +499,7 @@ const AutomationProgramsPage: React.FC = () => {
 
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as ProgramStatus | '')}
+          onChange={(e) => { setStatusFilter(e.target.value as ProgramStatus | ''); setPage(1); }}
           className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
         >
           <option value="">Tum Durumlar</option>
@@ -563,7 +512,7 @@ const AutomationProgramsPage: React.FC = () => {
 
         <select
           value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as ProgramType | '')}
+          onChange={(e) => { setTypeFilter(e.target.value as ProgramType | ''); setPage(1); }}
           className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
         >
           <option value="">Tum Tipler</option>
@@ -628,6 +577,8 @@ const AutomationProgramsPage: React.FC = () => {
               onClone={() => handleClone(program)}
               onArchive={() => handleArchive(program)}
               onDelete={() => handleDelete(program)}
+              onApprove={() => handleApprove(program)}
+              onReject={() => handleReject(program)}
             />
           ))}
         </div>
@@ -653,10 +604,44 @@ const AutomationProgramsPage: React.FC = () => {
                   onClone={() => handleClone(program)}
                   onArchive={() => handleArchive(program)}
                   onDelete={() => handleDelete(program)}
+                  onApprove={() => handleApprove(program)}
+                  onReject={() => handleReject(program)}
                 />
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Pagination Controls */}
+      {!isLoading && filteredPrograms.length > 0 && (
+        <div className="flex items-center justify-between mt-6 px-1">
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            {totalPrograms > 0
+              ? `${(page - 1) * limit + 1} - ${Math.min(page * limit, totalPrograms)} / ${totalPrograms} program`
+              : `${filteredPrograms.length} program`}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Onceki
+            </button>
+            <span className="text-sm text-gray-700 dark:text-gray-300 px-2">
+              {page} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={isLastPage}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Sonraki
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
     </div>

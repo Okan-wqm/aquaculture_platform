@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RedisModule } from '@platform/backend-common';
 
+import { AutomationModule } from '../automation/automation.module';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { SensorProtocol } from '../database/entities/sensor-protocol.entity';
 import { SensorReading } from '../database/entities/sensor-reading.entity';
@@ -20,6 +21,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     ConfigModule,
     TypeOrmModule.forFeature([Sensor, SensorReading, SensorProtocol, SensorDataChannel]),
     EdgeDeviceModule, // For edge device heartbeat handling (no longer circular)
+    AutomationModule, // For deployment confirmation in MQTT responses
     // Redis for sensor-topic caching (critical for MQTT message routing performance)
     RedisModule.forRootAsync({
       imports: [ConfigModule],

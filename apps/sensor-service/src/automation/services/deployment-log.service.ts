@@ -92,6 +92,15 @@ export class DeploymentLogService {
   }
 
   /**
+   * Find a deployment log by ID with tenant isolation
+   */
+  async findById(id: string, tenantId: string): Promise<DeploymentLog | null> {
+    return this.deploymentLogRepo.findOne({
+      where: { id, tenantId },
+    });
+  }
+
+  /**
    * Get deployment history for a device
    */
   async getHistory(

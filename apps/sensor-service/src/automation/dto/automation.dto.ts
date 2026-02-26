@@ -38,6 +38,7 @@ import {
   ActionQualifier,
   ActionType,
 } from '../entities/step-action.entity';
+import { DeploymentLog } from '../entities/deployment-log.entity';
 
 // ============================================
 // Program Input Types
@@ -1013,6 +1014,28 @@ export class DeploymentStatus {
 
   @Field({ nullable: true })
   lastError?: string;
+}
+
+// ============================================
+// Deployment History Types
+// ============================================
+
+@ObjectType()
+export class DeploymentLogConnection {
+  @Field(() => [DeploymentLog])
+  items!: DeploymentLog[];
+
+  @Field(() => Int)
+  total!: number;
+
+  @Field(() => Int)
+  page!: number;
+
+  @Field(() => Int)
+  limit!: number;
+
+  @Field()
+  hasMore!: boolean;
 }
 
 // Re-export entity types for convenience

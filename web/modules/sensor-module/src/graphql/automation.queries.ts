@@ -1,0 +1,280 @@
+/**
+ * GraphQL queries and mutations for Automation Programs
+ *
+ * Shared between AutomationProgramsPage and AutomationProgramEditorPage.
+ */
+
+// ============================================================================
+// Queries
+// ============================================================================
+
+export const AUTOMATION_PROGRAMS_QUERY = `
+  query AutomationPrograms($filter: ProgramFilterInput, $page: Int, $limit: Int) {
+    automationPrograms(filter: $filter, page: $page, limit: $limit) {
+      id
+      programCode
+      programName
+      description
+      version
+      programType
+      status
+      stepCount
+      transitionCount
+      variableCount
+      createdAt
+      updatedAt
+      approvedAt
+      approvedBy
+    }
+    automationProgramStats {
+      total
+      byStatus {
+        status
+        count
+      }
+      byType {
+        type
+        count
+      }
+    }
+  }
+`;
+
+export const AUTOMATION_PROGRAM_QUERY = `
+  query AutomationProgram($id: ID!) {
+    automationProgram(id: $id) {
+      id
+      programCode
+      programName
+      description
+      version
+      programType
+      status
+      structuredTextCode
+      deployTarget
+      targetPlcAddress
+      targetPlcPort
+      targetPlcModel
+      targetPlcProtocol
+      approvedBy
+      createdAt
+      updatedAt
+    }
+    programSteps(programId: $id) {
+      id
+      stepCode
+      stepName
+      stepOrder
+      stepType
+      description
+    }
+    programVariables(programId: $id) {
+      id
+      varName
+      dataType
+      initialValue
+      scope
+      description
+    }
+    programTransitions(programId: $id) {
+      id
+      transitionCode
+      fromStepId
+      toStepId
+      conditionExpression
+      priority
+    }
+  }
+`;
+
+export const DEPLOYMENT_HISTORY_QUERY = `
+  query DeploymentHistory($deviceId: ID, $page: Int, $limit: Int) {
+    deploymentHistory(deviceId: $deviceId, page: $page, limit: $limit) {
+      items {
+        id
+        programId
+        deviceId
+        commandId
+        status
+        version
+        deployedBy
+        deployedAt
+        completedAt
+        edgeAckAt
+        errorMessage
+      }
+      total
+      page
+      limit
+      hasMore
+    }
+  }
+`;
+
+// ============================================================================
+// Program CRUD Mutations
+// ============================================================================
+
+export const CREATE_PROGRAM_MUTATION = `
+  mutation CreateAutomationProgram($input: CreateProgramInput!) {
+    createAutomationProgram(input: $input) {
+      id
+      programCode
+    }
+  }
+`;
+
+export const UPDATE_PROGRAM_MUTATION = `
+  mutation UpdateAutomationProgram($id: ID!, $input: UpdateProgramInput!) {
+    updateAutomationProgram(id: $id, input: $input) {
+      id
+      programName
+    }
+  }
+`;
+
+export const DELETE_PROGRAM_MUTATION = `
+  mutation DeleteAutomationProgram($id: ID!) {
+    deleteAutomationProgram(id: $id)
+  }
+`;
+
+export const CLONE_PROGRAM_MUTATION = `
+  mutation CloneAutomationProgram($id: ID!, $newCode: String!) {
+    cloneAutomationProgram(id: $id, newCode: $newCode) {
+      id
+      programCode
+    }
+  }
+`;
+
+export const ARCHIVE_PROGRAM_MUTATION = `
+  mutation ArchiveProgram($id: ID!) {
+    archiveProgram(id: $id) {
+      id
+      status
+    }
+  }
+`;
+
+// ============================================================================
+// Workflow Mutations
+// ============================================================================
+
+export const SUBMIT_FOR_REVIEW_MUTATION = `
+  mutation SubmitProgramForReview($id: ID!) {
+    submitProgramForReview(id: $id) {
+      id
+      status
+    }
+  }
+`;
+
+export const APPROVE_PROGRAM_MUTATION = `
+  mutation ApproveProgram($id: ID!) {
+    approveProgram(id: $id) {
+      id
+      status
+      approvedAt
+      approvedBy
+    }
+  }
+`;
+
+export const REJECT_PROGRAM_MUTATION = `
+  mutation RejectProgram($id: ID!, $reason: String!) {
+    rejectProgram(id: $id, reason: $reason) {
+      id
+      status
+      updatedAt
+    }
+  }
+`;
+
+export const DEPLOY_PROGRAM_MUTATION = `
+  mutation DeployProgram($input: DeployProgramInput!) {
+    deployProgram(input: $input) {
+      success
+      programId
+      deviceId
+      error
+    }
+  }
+`;
+
+// ============================================================================
+// Step Mutations
+// ============================================================================
+
+export const ADD_STEP_MUTATION = `
+  mutation AddProgramStep($input: CreateStepInput!) {
+    addProgramStep(input: $input) {
+      id
+      stepName
+    }
+  }
+`;
+
+export const REMOVE_STEP_MUTATION = `
+  mutation RemoveProgramStep($id: ID!) {
+    removeProgramStep(id: $id)
+  }
+`;
+
+// ============================================================================
+// Variable Mutations
+// ============================================================================
+
+export const ADD_VARIABLE_MUTATION = `
+  mutation AddProgramVariable($input: CreateVariableInput!) {
+    addProgramVariable(input: $input) {
+      id
+      varName
+    }
+  }
+`;
+
+export const REMOVE_VARIABLE_MUTATION = `
+  mutation RemoveProgramVariable($id: ID!) {
+    removeProgramVariable(id: $id)
+  }
+`;
+
+// ============================================================================
+// Transition Mutations
+// ============================================================================
+
+export const ADD_TRANSITION_MUTATION = `
+  mutation AddProgramTransition($input: CreateTransitionInput!) {
+    addProgramTransition(input: $input) {
+      id
+      transitionCode
+    }
+  }
+`;
+
+export const REMOVE_TRANSITION_MUTATION = `
+  mutation RemoveProgramTransition($id: ID!) {
+    removeProgramTransition(id: $id)
+  }
+`;
+
+// ============================================================================
+// Validation
+// ============================================================================
+
+// TODO: validateStructuredText resolver does not exist in the backend yet.
+// ST validation is currently handled client-side in the editor.
+// Uncomment and update when the backend resolver is implemented.
+//
+// export const VALIDATE_ST_MUTATION = `
+//   mutation ValidateST($code: String!) {
+//     validateStructuredText(code: $code) {
+//       valid
+//       errors { line column severity message code }
+//       warnings { line column severity message code }
+//       infos { line column severity message code }
+//       parsedSymbols
+//     }
+//   }
+// `;

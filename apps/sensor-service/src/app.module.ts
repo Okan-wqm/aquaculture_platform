@@ -6,6 +6,7 @@ import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import {
@@ -29,6 +30,7 @@ import {
   ProgramTransition,
   ProgramVariable,
 } from './automation/entities';
+import { DeploymentLog } from './automation/entities/deployment-log.entity';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { DashboardLayout } from './dashboard/entities/dashboard-layout.entity';
 import { SensorDataChannel } from './database/entities/sensor-data-channel.entity';
@@ -113,6 +115,7 @@ import { CreateAutomationTables1740300001000 } from './database/migrations/17403
           StepAction,
           ProgramTransition,
           ProgramVariable,
+          DeploymentLog,
           // PLC Control entities (OPC UA)
           PlcConnection,
           FeedingParameter,
@@ -255,6 +258,9 @@ import { CreateAutomationTables1740300001000 } from './database/migrations/17403
         signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '1d') },
       }),
     }),
+
+    // Scheduler for @Interval/@Cron decorators (deployment timeout check, etc.)
+    ScheduleModule.forRoot(),
 
     // Shared MQTT module (@Global - provides MqttClientService everywhere)
     SharedMqttModule,

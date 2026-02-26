@@ -13,80 +13,55 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Workflow,
   ArrowLeft,
   Save,
-  Play,
-  Pause,
   Upload,
   Settings,
   Plus,
   Trash2,
-  Edit,
-  ChevronRight,
   CheckCircle,
-  Clock,
   AlertCircle,
   Loader2,
   GitBranch,
   Variable,
-  Zap,
   Server,
   Send,
   Code,
-  Target,
+  XCircle,
+  History,
+  ArrowRightLeft,
+  Undo2,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
-import { useAuth } from '@aquaculture/shared-ui';
 import STEditor from '../../components/automation/STEditor';
 import DeployTargetSelector, { DeployTarget } from '../../components/automation/DeployTargetSelector';
 import CompileResultPanel, { type ValidationResult } from '../../components/automation/CompileResultPanel';
-
-// ============================================================================
-// GraphQL Fetch Helper
-// ============================================================================
-
-async function graphqlFetch<T>(
-  query: string,
-  variables: Record<string, unknown>,
-  token?: string
-): Promise<T> {
-  const response = await fetch('/graphql', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL Error');
-  }
-
-  return result.data;
-}
+import { useEdgeDevices, DeviceLifecycleState, getDeviceModelText } from '../../hooks/useEdgeDevices';
+import type { EdgeDevice } from '../../hooks/useEdgeDevices';
+import { graphqlFetch } from '../../config/api';
+import { ProgramStatus, ProgramType, getStatusColor, getStatusText } from '../../utils/automation.utils';
+import {
+  AUTOMATION_PROGRAM_QUERY,
+  CREATE_PROGRAM_MUTATION,
+  UPDATE_PROGRAM_MUTATION,
+  SUBMIT_FOR_REVIEW_MUTATION,
+  DEPLOY_PROGRAM_MUTATION,
+  APPROVE_PROGRAM_MUTATION,
+  REJECT_PROGRAM_MUTATION,
+  ADD_STEP_MUTATION,
+  REMOVE_STEP_MUTATION,
+  ADD_VARIABLE_MUTATION,
+  REMOVE_VARIABLE_MUTATION,
+  ADD_TRANSITION_MUTATION,
+  REMOVE_TRANSITION_MUTATION,
+  DEPLOYMENT_HISTORY_QUERY,
+  VALIDATE_ST_MUTATION,
+} from '../../graphql/automation.queries';
 
 // ============================================================================
 // Types
 // ============================================================================
-
-enum ProgramStatus {
-  DRAFT = 'draft',
-  PENDING_REVIEW = 'pending_review',
-  APPROVED = 'approved',
-  DEPLOYING = 'deploying',
-  DEPLOYED = 'deployed',
-  ARCHIVED = 'archived',
-}
-
-enum ProgramType {
-  SFC = 'sfc',
-  FBD = 'fbd',
-  ST = 'st',
-  LD = 'ld',
-}
 
 interface AutomationProgram {
   id: string;
@@ -102,8 +77,21 @@ interface AutomationProgram {
   targetPlcPort?: number;
   targetPlcModel?: string;
   targetPlcProtocol?: string;
+  approvedBy?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+interface DeploymentRecord {
+  id: string;
+  status: string;
+  version: number;
+  deployedBy: string;
+  deployedAt: string;
+  completedAt?: string;
+  errorMessage?: string;
+  deviceId: string;
+  commandId?: string;
 }
 
 interface ProgramStep {
@@ -130,152 +118,9 @@ interface ProgramTransition {
   fromStepId: string;
   toStepId: string;
   conditionExpression: string;
+  priority?: number;
 }
 
-// ============================================================================
-// GraphQL
-// ============================================================================
-
-const PROGRAM_QUERY = `
-  query AutomationProgram($id: ID!) {
-    automationProgram(id: $id) {
-      id
-      programCode
-      programName
-      description
-      version
-      programType
-      status
-      structuredTextCode
-      deployTarget
-      targetPlcAddress
-      targetPlcPort
-      targetPlcModel
-      targetPlcProtocol
-      createdAt
-      updatedAt
-    }
-    programSteps(programId: $id) {
-      id
-      stepCode
-      stepName
-      stepOrder
-      stepType
-      description
-    }
-    programVariables(programId: $id) {
-      id
-      varName
-      dataType
-      initialValue
-      scope
-      description
-    }
-    programTransitions(programId: $id) {
-      id
-      transitionCode
-      fromStepId
-      toStepId
-      conditionExpression
-    }
-  }
-`;
-
-const CREATE_PROGRAM = `
-  mutation CreateAutomationProgram($input: CreateProgramInput!) {
-    createAutomationProgram(input: $input) {
-      id
-      programCode
-    }
-  }
-`;
-
-const UPDATE_PROGRAM = `
-  mutation UpdateAutomationProgram($id: ID!, $input: UpdateProgramInput!) {
-    updateAutomationProgram(id: $id, input: $input) {
-      id
-      programName
-    }
-  }
-`;
-
-const SUBMIT_FOR_REVIEW = `
-  mutation SubmitProgramForReview($id: ID!) {
-    submitProgramForReview(id: $id) {
-      id
-      status
-    }
-  }
-`;
-
-const DEPLOY_PROGRAM = `
-  mutation DeployProgram($input: DeployProgramInput!) {
-    deployProgram(input: $input) {
-      success
-      programId
-      deviceId
-      error
-    }
-  }
-`;
-
-const ADD_STEP = `
-  mutation AddProgramStep($input: CreateStepInput!) {
-    addProgramStep(input: $input) {
-      id
-      stepName
-    }
-  }
-`;
-
-const REMOVE_STEP = `
-  mutation RemoveProgramStep($id: ID!) {
-    removeProgramStep(id: $id)
-  }
-`;
-
-const ADD_VARIABLE = `
-  mutation AddProgramVariable($input: CreateVariableInput!) {
-    addProgramVariable(input: $input) {
-      id
-      varName
-    }
-  }
-`;
-
-const REMOVE_VARIABLE = `
-  mutation RemoveProgramVariable($id: ID!) {
-    removeProgramVariable(id: $id)
-  }
-`;
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-const getStatusColor = (status: ProgramStatus): string => {
-  const colors: Record<ProgramStatus, string> = {
-    [ProgramStatus.DRAFT]: 'bg-gray-100 text-gray-700',
-    [ProgramStatus.PENDING_REVIEW]: 'bg-yellow-100 text-yellow-700',
-    [ProgramStatus.APPROVED]: 'bg-blue-100 text-blue-700',
-    [ProgramStatus.DEPLOYING]: 'bg-orange-100 text-orange-700',
-    [ProgramStatus.DEPLOYED]: 'bg-green-100 text-green-700',
-    [ProgramStatus.ARCHIVED]: 'bg-gray-100 text-gray-500',
-  };
-  return colors[status] || colors[ProgramStatus.DRAFT];
-};
-
-const getStatusText = (status: ProgramStatus): string => {
-  const texts: Record<ProgramStatus, string> = {
-    [ProgramStatus.DRAFT]: 'Taslak',
-    [ProgramStatus.PENDING_REVIEW]: 'Inceleniyor',
-    [ProgramStatus.APPROVED]: 'Onaylandi',
-    [ProgramStatus.DEPLOYING]: 'Yukleniyor',
-    [ProgramStatus.DEPLOYED]: 'Devrede',
-    [ProgramStatus.ARCHIVED]: 'Arsivlendi',
-  };
-  return texts[status] || status;
-};
 
 // ============================================================================
 // Components
@@ -369,11 +214,10 @@ const AutomationProgramEditorPage: React.FC = () => {
   const { programId } = useParams<{ programId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { token } = useAuth();
   const isNew = !programId || programId === 'new';
 
   // State
-  const [activeTab, setActiveTab] = useState<'info' | 'steps' | 'variables' | 'code' | 'deploy'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'steps' | 'variables' | 'code' | 'transitions' | 'deploy'>('info');
   const [formData, setFormData] = useState({
     programCode: '',
     name: '',
@@ -395,6 +239,26 @@ const AutomationProgramEditorPage: React.FC = () => {
   const [newStep, setNewStep] = useState({ stepName: '', stepCode: '', stepOrder: 1, stepType: 'normal' });
   const [newVariable, setNewVariable] = useState({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL' });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [showAddTransition, setShowAddTransition] = useState(false);
+  const [newTransition, setNewTransition] = useState({
+    transitionCode: '',
+    fromStepId: '',
+    toStepId: '',
+    conditionExpression: '',
+    priority: 1,
+  });
+
+  // Edge devices query - only active + online devices for deploy
+  const { data: edgeDevicesData } = useEdgeDevices({
+    lifecycleState: DeviceLifecycleState.ACTIVE,
+    isOnline: true,
+    limit: 100,
+  });
+  const onlineDevices = edgeDevicesData?.items ?? [];
 
   // Query
   const { data, isLoading } = useQuery({
@@ -405,8 +269,8 @@ const AutomationProgramEditorPage: React.FC = () => {
         programSteps: ProgramStep[];
         programVariables: ProgramVariable[];
         programTransitions: ProgramTransition[];
-      }>(PROGRAM_QUERY, { id: programId }, token),
-    enabled: !isNew && !!token,
+      }>(AUTOMATION_PROGRAM_QUERY, { id: programId }),
+    enabled: !isNew,
   });
 
   // Update form when data loads
@@ -440,13 +304,18 @@ const AutomationProgramEditorPage: React.FC = () => {
   const handleMutationError = (error: Error, context: string) => {
     const message = `${context}: ${error.message || 'Bilinmeyen hata'}`;
     setErrorMessage(message);
-    // Auto-clear error after 8 seconds
     setTimeout(() => setErrorMessage((prev) => (prev === message ? null : prev)), 8000);
+  };
+
+  const showSuccess = (message: string) => {
+    setSuccessMessage(message);
+    setErrorMessage(null);
+    setTimeout(() => setSuccessMessage((prev) => (prev === message ? null : prev)), 5000);
   };
 
   const createMutation = useMutation({
     mutationFn: (input: Record<string, unknown>) =>
-      graphqlFetch<{ createAutomationProgram: { id: string } }>(CREATE_PROGRAM, { input }, token),
+      graphqlFetch<{ createAutomationProgram: { id: string } }>(CREATE_PROGRAM_MUTATION, { input }),
     onSuccess: (result) => {
       setErrorMessage(null);
       navigate(`/sensor/automation/${result.createAutomationProgram.id}`);
@@ -456,7 +325,7 @@ const AutomationProgramEditorPage: React.FC = () => {
 
   const updateMutation = useMutation({
     mutationFn: (input: Record<string, unknown>) =>
-      graphqlFetch(UPDATE_PROGRAM, { id: programId, input }, token),
+      graphqlFetch(UPDATE_PROGRAM_MUTATION, { id: programId, input }),
     onSuccess: () => {
       setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
@@ -465,7 +334,7 @@ const AutomationProgramEditorPage: React.FC = () => {
   });
 
   const submitForReviewMutation = useMutation({
-    mutationFn: () => graphqlFetch(SUBMIT_FOR_REVIEW, { id: programId }, token),
+    mutationFn: () => graphqlFetch(SUBMIT_FOR_REVIEW_MUTATION, { id: programId }),
     onSuccess: () => {
       setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
@@ -475,7 +344,7 @@ const AutomationProgramEditorPage: React.FC = () => {
 
   const addStepMutation = useMutation({
     mutationFn: (input: typeof newStep & { programId: string }) =>
-      graphqlFetch(ADD_STEP, { input }, token),
+      graphqlFetch(ADD_STEP_MUTATION, { input }),
     onSuccess: () => {
       setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
@@ -486,7 +355,7 @@ const AutomationProgramEditorPage: React.FC = () => {
   });
 
   const removeStepMutation = useMutation({
-    mutationFn: (id: string) => graphqlFetch(REMOVE_STEP, { id }, token),
+    mutationFn: (id: string) => graphqlFetch(REMOVE_STEP_MUTATION, { id }),
     onSuccess: () => {
       setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
@@ -496,7 +365,7 @@ const AutomationProgramEditorPage: React.FC = () => {
 
   const addVariableMutation = useMutation({
     mutationFn: (input: typeof newVariable & { programId: string }) =>
-      graphqlFetch(ADD_VARIABLE, { input }, token),
+      graphqlFetch(ADD_VARIABLE_MUTATION, { input }),
     onSuccess: () => {
       setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
@@ -507,13 +376,84 @@ const AutomationProgramEditorPage: React.FC = () => {
   });
 
   const removeVariableMutation = useMutation({
-    mutationFn: (id: string) => graphqlFetch(REMOVE_VARIABLE, { id }, token),
+    mutationFn: (id: string) => graphqlFetch(REMOVE_VARIABLE_MUTATION, { id }),
     onSuccess: () => {
       setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
     },
     onError: (error: Error) => handleMutationError(error, 'Degisken silinemedi'),
   });
+
+  const deployMutation = useMutation({
+    mutationFn: (input: { programId: string; deviceId: string }) =>
+      graphqlFetch<{ deployProgram: { success: boolean; programId: string; deviceId: string; error?: string } }>(
+        DEPLOY_PROGRAM_MUTATION,
+        { input },
+      ),
+    onSuccess: (result) => {
+      if (result.deployProgram.success) {
+        showSuccess('Dagitim basariyla baslatildi');
+        queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+        queryClient.invalidateQueries({ queryKey: ['deploymentHistory'] });
+      } else {
+        handleMutationError(new Error(result.deployProgram.error || 'Bilinmeyen hata'), 'Dagitim basarisiz');
+      }
+    },
+    onError: (error: Error) => handleMutationError(error, 'Dagitim baslatilmadi'),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: () => graphqlFetch(APPROVE_PROGRAM_MUTATION, { id: programId }),
+    onSuccess: () => {
+      showSuccess('Program onaylandi');
+      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+    },
+    onError: (error: Error) => handleMutationError(error, 'Program onaylanamadi'),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: (reason: string) => graphqlFetch(REJECT_PROGRAM_MUTATION, { id: programId, reason }),
+    onSuccess: () => {
+      showSuccess('Program reddedildi');
+      setShowRejectModal(false);
+      setRejectReason('');
+      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+    },
+    onError: (error: Error) => handleMutationError(error, 'Program reddedilemedi'),
+  });
+
+  const addTransitionMutation = useMutation({
+    mutationFn: (input: typeof newTransition & { programId: string }) =>
+      graphqlFetch(ADD_TRANSITION_MUTATION, { input }),
+    onSuccess: () => {
+      setErrorMessage(null);
+      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+      setShowAddTransition(false);
+      setNewTransition({ transitionCode: '', fromStepId: '', toStepId: '', conditionExpression: '', priority: 1 });
+    },
+    onError: (error: Error) => handleMutationError(error, 'Gecis eklenemedi'),
+  });
+
+  const removeTransitionMutation = useMutation({
+    mutationFn: (id: string) => graphqlFetch(REMOVE_TRANSITION_MUTATION, { id }),
+    onSuccess: () => {
+      setErrorMessage(null);
+      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+    },
+    onError: (error: Error) => handleMutationError(error, 'Gecis silinemedi'),
+  });
+
+  // Deployment history query
+  const { data: deploymentHistoryData } = useQuery({
+    queryKey: ['deploymentHistory', selectedDeviceId],
+    queryFn: () =>
+      graphqlFetch<{ deploymentHistory: { items: DeploymentRecord[]; total: number; hasMore: boolean } }>(
+        DEPLOYMENT_HISTORY_QUERY,
+        { deviceId: selectedDeviceId, page: 1, limit: 10 },
+      ),
+    enabled: !isNew && !!selectedDeviceId && activeTab === 'deploy',
+  });
+  const deploymentHistory = deploymentHistoryData?.deploymentHistory?.items ?? [];
 
   // Handlers
   const handleSave = () => {
@@ -539,20 +479,33 @@ const AutomationProgramEditorPage: React.FC = () => {
   };
 
   const handleAddStep = () => {
-    if (programId && newStep.stepName) {
+    if (!isNew && programId && newStep.stepName) {
       addStepMutation.mutate({ ...newStep, programId });
     }
   };
 
   const handleAddVariable = () => {
-    if (programId && newVariable.varName) {
+    if (!isNew && programId && newVariable.varName) {
       addVariableMutation.mutate({ ...newVariable, programId });
+    }
+  };
+
+  const handleDeploy = () => {
+    if (programId && selectedDeviceId) {
+      deployMutation.mutate({ programId, deviceId: selectedDeviceId });
+    }
+  };
+
+  const handleAddTransition = () => {
+    if (!isNew && programId && newTransition.fromStepId && newTransition.toStepId && newTransition.conditionExpression) {
+      addTransitionMutation.mutate({ ...newTransition, programId });
     }
   };
 
   const program = data?.automationProgram;
   const steps = data?.programSteps || [];
   const variables = data?.programVariables || [];
+  const transitions = data?.programTransitions || [];
 
   if (!isNew && isLoading) {
     return (
@@ -578,6 +531,63 @@ const AutomationProgramEditorPage: React.FC = () => {
           >
             Kapat
           </button>
+        </div>
+      )}
+
+      {/* Success Toast */}
+      {successMessage && (
+        <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg flex items-center justify-between" role="status">
+          <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+            <CheckCircle className="h-4 w-4 flex-shrink-0" />
+            <span className="text-sm">{successMessage}</span>
+          </div>
+          <button
+            onClick={() => setSuccessMessage(null)}
+            className="text-green-500 hover:text-green-700 text-sm font-medium px-2"
+            aria-label="Dismiss success"
+          >
+            Kapat
+          </button>
+        </div>
+      )}
+
+      {/* Reject Modal */}
+      {showRejectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white">Programi Reddet</h3>
+              <button
+                onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
+                className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <XCircle className="h-5 w-5 text-gray-400" />
+              </button>
+            </div>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Red sebebini yaziniz..."
+              rows={4}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
+                className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                Iptal
+              </button>
+              <button
+                onClick={() => rejectReason.trim() && rejectMutation.mutate(rejectReason.trim())}
+                disabled={!rejectReason.trim() || rejectMutation.isPending}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {rejectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin inline mr-1" /> : null}
+                Reddet
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -615,6 +625,29 @@ const AutomationProgramEditorPage: React.FC = () => {
               Incelemeye Gonder
             </button>
           )}
+          {program?.status === ProgramStatus.PENDING_REVIEW && (
+            <>
+              <button
+                onClick={() => approveMutation.mutate()}
+                disabled={approveMutation.isPending}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+              >
+                {approveMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle className="h-4 w-4" />
+                )}
+                Onayla
+              </button>
+              <button
+                onClick={() => setShowRejectModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                <XCircle className="h-4 w-4" />
+                Reddet
+              </button>
+            </>
+          )}
           <button
             onClick={handleSave}
             disabled={createMutation.isPending || updateMutation.isPending}
@@ -629,6 +662,71 @@ const AutomationProgramEditorPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Approval/Rejection Info */}
+      {program?.approvedBy && (
+        <div className="mb-4 px-3 py-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-sm text-green-700 dark:text-green-400">
+          Onaylayan: {program.approvedBy}
+        </div>
+      )}
+      {program?.status === ProgramStatus.DRAFT && !program?.approvedBy && program?.version > 1 && (
+        <div className="mb-4 px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-400">
+          Program reddedildi
+        </div>
+      )}
+
+      {/* Status Pipeline Stepper */}
+      {program && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between">
+            {([
+              { key: ProgramStatus.DRAFT, label: 'Taslak' },
+              { key: ProgramStatus.PENDING_REVIEW, label: 'Inceleniyor' },
+              { key: ProgramStatus.APPROVED, label: 'Onaylandi' },
+              { key: ProgramStatus.DEPLOYING, label: 'Yukleniyor' },
+              { key: ProgramStatus.DEPLOYED, label: 'Devrede' },
+            ] as const).map((step, index, arr) => {
+              const statusOrder = [ProgramStatus.DRAFT, ProgramStatus.PENDING_REVIEW, ProgramStatus.APPROVED, ProgramStatus.DEPLOYING, ProgramStatus.DEPLOYED];
+              const currentIndex = statusOrder.indexOf(program.status);
+              const stepIndex = statusOrder.indexOf(step.key);
+              const isCompleted = stepIndex < currentIndex;
+              const isCurrent = stepIndex === currentIndex;
+
+              return (
+                <React.Fragment key={step.key}>
+                  <div className="flex flex-col items-center flex-1">
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
+                        isCompleted
+                          ? 'bg-green-500 text-white'
+                          : isCurrent
+                            ? 'bg-indigo-600 text-white ring-4 ring-indigo-100 dark:ring-indigo-900'
+                            : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                      }`}
+                    >
+                      {isCompleted ? <CheckCircle className="h-4 w-4" /> : index + 1}
+                    </div>
+                    <span
+                      className={`mt-1 text-xs ${
+                        isCurrent ? 'font-semibold text-indigo-600 dark:text-indigo-400' : 'text-gray-500 dark:text-gray-400'
+                      }`}
+                    >
+                      {step.label}
+                    </span>
+                  </div>
+                  {index < arr.length - 1 && (
+                    <div
+                      className={`flex-1 h-0.5 mx-1 mt-[-12px] ${
+                        stepIndex < currentIndex ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'
+                      }`}
+                    />
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       {!isNew && (
@@ -658,6 +756,13 @@ const AutomationProgramEditorPage: React.FC = () => {
             onClick={() => setActiveTab('code')}
             icon={<Code className="h-4 w-4" />}
             label="ST Kodu"
+          />
+          <TabButton
+            active={activeTab === 'transitions'}
+            onClick={() => setActiveTab('transitions')}
+            icon={<ArrowRightLeft className="h-4 w-4" />}
+            label="Gecisler"
+            count={transitions.length}
           />
           <TabButton
             active={activeTab === 'deploy'}
@@ -931,17 +1036,8 @@ const AutomationProgramEditorPage: React.FC = () => {
                 setIsValidating(true);
                 try {
                   const res = await graphqlFetch<{ validateStructuredText: ValidationResult }>(
-                    `mutation ValidateST($code: String!) {
-                      validateStructuredText(code: $code) {
-                        valid
-                        errors { line column severity message code }
-                        warnings { line column severity message code }
-                        infos { line column severity message code }
-                        parsedSymbols
-                      }
-                    }`,
+                    VALIDATE_ST_MUTATION,
                     { code: stCode },
-                    token,
                   );
                   setValidationResult(res.validateStructuredText);
                 } catch (err: any) {
@@ -973,6 +1069,133 @@ const AutomationProgramEditorPage: React.FC = () => {
         </div>
       )}
 
+      {/* Transitions Tab */}
+      {activeTab === 'transitions' && !isNew && (
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <button
+              onClick={() => setShowAddTransition(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            >
+              <Plus className="h-4 w-4" />
+              Gecis Ekle
+            </button>
+          </div>
+
+          {showAddTransition && (
+            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <h3 className="font-medium mb-3">Yeni Gecis</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <input
+                  type="text"
+                  value={newTransition.transitionCode}
+                  onChange={(e) => setNewTransition({ ...newTransition, transitionCode: e.target.value })}
+                  placeholder="Gecis kodu (T001)"
+                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
+                />
+                <select
+                  value={newTransition.fromStepId}
+                  onChange={(e) => setNewTransition({ ...newTransition, fromStepId: e.target.value })}
+                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
+                >
+                  <option value="">Kaynak adim sec...</option>
+                  {steps.map((s) => (
+                    <option key={s.id} value={s.id}>{s.stepName} ({s.stepCode})</option>
+                  ))}
+                </select>
+                <select
+                  value={newTransition.toStepId}
+                  onChange={(e) => setNewTransition({ ...newTransition, toStepId: e.target.value })}
+                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
+                >
+                  <option value="">Hedef adim sec...</option>
+                  {steps.map((s) => (
+                    <option key={s.id} value={s.id}>{s.stepName} ({s.stepCode})</option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  value={newTransition.priority}
+                  onChange={(e) => setNewTransition({ ...newTransition, priority: parseInt(e.target.value) || 1 })}
+                  placeholder="Oncelik"
+                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
+                />
+                <div className="col-span-2">
+                  <input
+                    type="text"
+                    value={newTransition.conditionExpression}
+                    onChange={(e) => setNewTransition({ ...newTransition, conditionExpression: e.target.value })}
+                    placeholder="Kosul ifadesi (ornegin: temperature > 30)"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg font-mono text-sm"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-4">
+                <button
+                  onClick={() => setShowAddTransition(false)}
+                  className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-100"
+                >
+                  Iptal
+                </button>
+                <button
+                  onClick={handleAddTransition}
+                  disabled={addTransitionMutation.isPending}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  Ekle
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-gray-50 dark:bg-gray-900">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kod</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kaynak Adim</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hedef Adim</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kosul</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Oncelik</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {transitions.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                      Henuz gecis eklenmemis
+                    </td>
+                  </tr>
+                ) : (
+                  transitions.map((t) => {
+                    const fromStep = steps.find((s) => s.id === t.fromStepId);
+                    const toStep = steps.find((s) => s.id === t.toStepId);
+                    return (
+                      <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                        <td className="px-4 py-3 text-sm font-mono">{t.transitionCode || '-'}</td>
+                        <td className="px-4 py-3 text-sm">{fromStep?.stepName || t.fromStepId}</td>
+                        <td className="px-4 py-3 text-sm">{toStep?.stepName || t.toStepId}</td>
+                        <td className="px-4 py-3 text-sm font-mono text-gray-600 dark:text-gray-400">{t.conditionExpression}</td>
+                        <td className="px-4 py-3 text-sm">{t.priority ?? '-'}</td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => removeTransitionMutation.mutate(t.id)}
+                            className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-red-500"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Deploy Tab */}
       {activeTab === 'deploy' && !isNew && (
         <div className="space-y-6">
@@ -989,6 +1212,41 @@ const AutomationProgramEditorPage: React.FC = () => {
             />
           </div>
 
+          {/* Edge Device Selector */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
+              Edge Cihazi Sec
+            </h3>
+            {onlineDevices.length === 0 ? (
+              <div className="text-center py-4 text-gray-500 text-sm">
+                <WifiOff className="h-8 w-8 mx-auto text-gray-400 mb-2" />
+                Aktif ve cevrimici cihaz bulunamadi
+              </div>
+            ) : (
+              <select
+                value={selectedDeviceId}
+                onChange={(e) => setSelectedDeviceId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+              >
+                <option value="">Cihaz seciniz...</option>
+                {onlineDevices.map((device: EdgeDevice) => (
+                  <option key={device.id} value={device.id}>
+                    {device.deviceName} ({device.deviceCode}) - {getDeviceModelText(device.deviceModel)}
+                    {device.isOnline ? ' [Cevrimici]' : ' [Cevrimdisi]'}
+                  </option>
+                ))}
+              </select>
+            )}
+            {selectedDeviceId && onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId) && (
+              <div className="mt-3 flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                <Wifi className="h-4 w-4" />
+                <span>
+                  {onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId)?.deviceName} - Cevrimici
+                </span>
+              </div>
+            )}
+          </div>
+
           {/* Deploy Action */}
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
             <div className="text-center py-4">
@@ -1001,13 +1259,103 @@ const AutomationProgramEditorPage: React.FC = () => {
                   ? `${deployTarget === DeployTarget.RUST_ENGINE ? 'Rust Engine' : deployTarget === DeployTarget.CODESYS_PLC ? 'Codesys PLC' : 'PLC Setpoint'} hedefine dagitim yapilacak`
                   : 'Program dagitilmadan once onaylanmalidir'}
               </p>
-              {program?.status === ProgramStatus.APPROVED && (
-                <button className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+              <button
+                onClick={handleDeploy}
+                disabled={
+                  program?.status !== ProgramStatus.APPROVED ||
+                  !selectedDeviceId ||
+                  deployMutation.isPending
+                }
+                className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deployMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
                   <Upload className="h-4 w-4" />
-                  Dagitim Baslat
-                </button>
+                )}
+                Dagitim Baslat
+              </button>
+              {program?.status !== ProgramStatus.APPROVED && (
+                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                  Dagitim icin programin onaylanmis olmasi gerekir.
+                </p>
+              )}
+              {program?.status === ProgramStatus.APPROVED && !selectedDeviceId && (
+                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                  Lutfen bir edge cihazi seciniz.
+                </p>
               )}
             </div>
+          </div>
+
+          {/* Deployment History */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <History className="h-4 w-4 text-gray-500" />
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Dagitim Gecmisi
+              </h3>
+            </div>
+            {deploymentHistory.length === 0 ? (
+              <div className="text-center py-6 text-gray-500 text-sm">
+                Henuz dagitim yapilmamis
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 dark:bg-gray-900">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Versiyon</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Dagitan</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tarih</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Komut ID</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {deploymentHistory.map((dep, idx) => {
+                      const statusBadge: Record<string, string> = {
+                        success: 'bg-green-100 text-green-700',
+                        failed: 'bg-red-100 text-red-700',
+                        pending: 'bg-yellow-100 text-yellow-700',
+                        in_progress: 'bg-blue-100 text-blue-700',
+                        rolled_back: 'bg-gray-100 text-gray-700',
+                      };
+                      return (
+                        <tr key={dep.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <td className="px-3 py-2">
+                            <span className={`text-xs px-2 py-0.5 rounded ${statusBadge[dep.status] || 'bg-gray-100 text-gray-600'}`}>
+                              {dep.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-sm">v{dep.version}</td>
+                          <td className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400">{dep.deployedBy}</td>
+                          <td className="px-3 py-2 text-sm text-gray-500">{new Date(dep.deployedAt).toLocaleString('tr-TR')}</td>
+                          <td className="px-3 py-2 text-xs font-mono text-gray-400">{dep.commandId || '-'}</td>
+                          <td className="px-3 py-2">
+                            {idx === 0 && dep.status === 'success' && (
+                              <button
+                                className="inline-flex items-center gap-1 text-xs px-2 py-1 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded"
+                                title="Bu versiyona geri don"
+                              >
+                                <Undo2 className="h-3 w-3" />
+                                Rollback
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {deploymentHistory.length > 0 && deploymentHistory[deploymentHistory.length - 1]?.errorMessage && (
+              <div className="mt-3 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-sm text-red-600 dark:text-red-400">
+                Son hata: {deploymentHistory[deploymentHistory.length - 1].errorMessage}
+              </div>
+            )}
           </div>
         </div>
       )}

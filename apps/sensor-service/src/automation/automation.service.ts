@@ -9,8 +9,9 @@ import {
   ForbiddenException,
   Optional,
 } from '@nestjs/common';
+import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource, In, LessThan } from 'typeorm';
 
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
@@ -1052,7 +1053,19 @@ export class AutomationService {
       );
     }
 
-    // 3. Build deployment command based on deploy target
+    // 3. Atomically increment version to prevent race conditions on concurrent deploys
+    await this.programRepo
+      .createQueryBuilder()
+      .update(AutomationProgram)
+      .set({ version: () => 'version + 1' })
+      .where('id = :id AND tenant_id = :tenantId', { id: programId, tenantId })
+      .execute();
+
+    // Reload to get the incremented version
+    const refreshedProgram = await this.findByIdOrFail(programId, tenantId);
+    program.version = refreshedProgram.version;
+
+    // 4. Build deployment command based on deploy target
     const commandId = randomUUID();
     let deployCommand: Record<string, unknown>;
 
@@ -1166,12 +1179,15 @@ export class AutomationService {
 
       // 7. Update program status to DEPLOYING (not DEPLOYED - that requires device confirmation)
       // v2.3: DEPLOYING intermediate state prevents false-positive deploy status
-      program.status = ProgramStatus.DEPLOYING;
-      program.deployedVersion = program.version;
-      program.deployedAt = new Date();
-      program.deployedBy = deployedBy;
-      program.deviceId = deviceId;  // Associate program with target device
-      await this.programRepo.save(program);
+      // v2.4: Use targeted update() instead of save() to avoid overwriting concurrent changes
+      //        (the entity was reloaded after atomic version increment but may be stale by now)
+      await this.programRepo.update(program.id, {
+        status: ProgramStatus.DEPLOYING,
+        deployedVersion: program.version,
+        deployedAt: new Date(),
+        deployedBy: deployedBy,
+        deviceId: deviceId,
+      });
 
       return {
         success: true,
@@ -1211,10 +1227,7 @@ export class AutomationService {
     program.status = ProgramStatus.DEPLOYED;
     const saved = await this.programRepo.save(program);
 
-    // Update deployment log if available
-    if (this.deploymentLogService) {
-      await this.deploymentLogService.handleResponse(commandId, true);
-    }
+    // NOTE: deployment log is already updated by mqtt-listener before calling confirmDeployment
 
     this.logger.log(`Program ${programId} deployment confirmed by device`);
     return saved;
@@ -1238,9 +1251,7 @@ export class AutomationService {
 
     const saved = await this.programRepo.save(program);
 
-    if (this.deploymentLogService) {
-      await this.deploymentLogService.handleResponse(commandId, false, errorMessage);
-    }
+    // NOTE: deployment log is already updated by mqtt-listener before calling failDeployment
 
     this.logger.error(`Program ${programId} deployment failed: ${errorMessage}`);
     return saved;
@@ -1429,16 +1440,44 @@ export class AutomationService {
 
     const commandTopic = `tenants/${tenantId}/devices/${device.id}/commands`;
 
+    // Find the currently deployed program for this device
+    const deployedProgram = await this.programRepo.findOne({
+      where: { tenantId, deviceId, status: ProgramStatus.DEPLOYED },
+    });
+
     try {
       await mqtt.publish(commandTopic, rollbackCommand);
       this.logger.log(
         `Rollback command sent to ${device.deviceCode}: ${commandId}`,
       );
 
+      // Create deployment log entry for rollback tracking
+      if (this.deploymentLogService && deployedProgram) {
+        await this.deploymentLogService.createLog({
+          tenantId,
+          programId: deployedProgram.id,
+          deviceId,
+          commandId,
+          version: deployedProgram.version,
+          deployedBy: _rolledBackBy,
+        });
+      }
+
+      // Set program status to DEPLOYING (rollback in progress)
+      // The MQTT response handler will call failDeployment() which reverts to APPROVED
+      // after the device confirms the rollback, consistent with the deploy flow pattern.
+      if (deployedProgram) {
+        deployedProgram.status = ProgramStatus.DEPLOYING;
+        await this.programRepo.save(deployedProgram);
+        this.logger.log(
+          `Program ${deployedProgram.programCode} status set to DEPLOYING during rollback`,
+        );
+      }
+
       return {
         success: true,
         message: `Rollback initiated for ${device.deviceCode}`,
-        programId: '',
+        programId: deployedProgram?.id || '',
         deviceId,
         commandId,
       };
@@ -1524,5 +1563,74 @@ export class AutomationService {
 
   async countActions(stepId: string): Promise<number> {
     return this.actionRepo.count({ where: { stepId } });
+  }
+
+  // ============================================
+  // Deploy Timeout Check
+  // ============================================
+
+  /** Maximum time a program can remain in DEPLOYING status before being timed out */
+  private static readonly DEPLOY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+  /**
+   * Check for programs stuck in DEPLOYING status and revert them.
+   *
+   * Runs every 60 seconds. Programs in DEPLOYING state for longer than
+   * 5 minutes are reverted to APPROVED and their deployment logs are
+   * marked as FAILED with a timeout message.
+   */
+  @Interval(60_000)
+  async checkDeployTimeout(): Promise<void> {
+    const cutoff = new Date(Date.now() - AutomationService.DEPLOY_TIMEOUT_MS);
+
+    try {
+      const timedOutPrograms = await this.programRepo.find({
+        where: {
+          status: ProgramStatus.DEPLOYING,
+          deployedAt: LessThan(cutoff),
+        },
+      });
+
+      if (timedOutPrograms.length === 0) return;
+
+      this.logger.warn(
+        `Found ${timedOutPrograms.length} program(s) stuck in DEPLOYING status, reverting to APPROVED`,
+      );
+
+      for (const program of timedOutPrograms) {
+        try {
+          // Revert program to APPROVED (deployable) state
+          program.status = ProgramStatus.APPROVED;
+          await this.programRepo.save(program);
+
+          // Update the corresponding deployment log to FAILED
+          if (this.deploymentLogService) {
+            // Update the most recent DEPLOYING log(s) for this program
+            await this.dataSource.query(
+              `UPDATE "sensor"."deployment_logs"
+               SET status = 'failed',
+                   completed_at = NOW(),
+                   error_message = 'Deployment timeout: no response from device within 5 minutes'
+               WHERE program_id = $1
+                 AND status = 'deploying'
+                 AND deployed_at < $2`,
+              [program.id, cutoff.toISOString()],
+            );
+
+            this.logger.warn(
+              `Program ${program.programCode} (${program.id}) deployment timed out, reverted to APPROVED`,
+            );
+          }
+        } catch (error) {
+          this.logger.error(
+            `Failed to revert timed-out program ${program.id}: ${(error as Error).message}`,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        `Deploy timeout check failed: ${(error as Error).message}`,
+      );
+    }
   }
 }

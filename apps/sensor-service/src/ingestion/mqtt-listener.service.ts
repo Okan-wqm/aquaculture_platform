@@ -6,6 +6,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
 import { Repository, DataSource } from 'typeorm';
 
+import { AutomationService } from '../automation/automation.service';
 import { DeploymentLogService } from '../automation/services/deployment-log.service';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
@@ -132,6 +133,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     private readonly mqttClient: MqttClientService | null,
     @Optional()
     private readonly deploymentLogService: DeploymentLogService | null,
+    @Optional()
+    private readonly automationService: AutomationService | null,
   ) {
     // Bind message handler to this instance
     this.messageHandler = (topic: string, message: Buffer) => {
@@ -209,13 +212,15 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       'edge/+/heartbeat',             // Device heartbeat (health metrics)
       'edge/+/birth',                 // Device birth certificate
       'edge/+/death',                 // Device death (LWT - Last Will Testament)
-      'edge/+/response',              // Command response from device
+      'edge/+/response',              // Command response from device (legacy singular)
+      'edge/+/responses',             // Command response from device (plural - Edge Agent v2.0+)
 
       // Edge device topics - Tenant-prefixed pattern (Edge Agent v2.0 default)
       // Pattern: tenants/{tenantId}/devices/{deviceCode}/{messageType}
       'tenants/+/devices/+/telemetry',  // Device telemetry (CPU, RAM, Disk, Temp)
       'tenants/+/devices/+/status',     // Device status (online/offline)
-      'tenants/+/devices/+/response',   // Command response
+      'tenants/+/devices/+/response',   // Command response (legacy singular)
+      'tenants/+/devices/+/responses',  // Command response (plural - Edge Agent v2.0+)
     ];
 
     try {
@@ -315,6 +320,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           await this.handleEdgeDeath(deviceCode);
           break;
         case 'response':
+        case 'responses':
           await this.handleEdgeResponse(deviceCode, payload as EdgeResponsePayload);
           break;
         default:
@@ -412,8 +418,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Handle edge device command response
+   * @param deviceCode The device code that sent the response
+   * @param payload The response payload from the edge device
+   * @param tenantId Optional tenantId extracted from MQTT topic (tenant-prefixed topics)
    */
-  private async handleEdgeResponse(deviceCode: string, payload: EdgeResponsePayload): Promise<void> {
+  private async handleEdgeResponse(deviceCode: string, payload: EdgeResponsePayload, tenantId?: string): Promise<void> {
     this.logger.debug(`Edge response from ${deviceCode}: ${JSON.stringify(payload)}`);
 
     // Route ping responses to EdgeDeviceService for promise resolution
@@ -421,22 +430,69 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       this.edgeDeviceService.handlePingResponse(deviceCode, payload as Record<string, unknown>);
     }
 
-    // Route deployment responses to DeploymentLogService
-    if (
-      (payload.command === 'deploy_program' || payload.command === 'rollback_program') &&
-      payload.commandId &&
-      this.deploymentLogService
-    ) {
+    // Route deployment responses to DeploymentLogService and AutomationService
+    const isDeployCommand = payload.command === 'deploy_program'
+      || payload.command === 'deploy_to_codesys'
+      || payload.command === 'deploy_auto';
+
+    if ((isDeployCommand || payload.command === 'rollback_program') && payload.commandId) {
       try {
-        if (payload.command === 'deploy_program') {
-          await this.deploymentLogService.handleResponse(
-            payload.commandId,
-            payload.success ?? false,
-            payload.error,
-          );
+        if (isDeployCommand) {
+          // Update deployment log
+          if (this.deploymentLogService) {
+            await this.deploymentLogService.handleResponse(
+              payload.commandId,
+              payload.success ?? false,
+              payload.error,
+            );
+          }
+
+          // Update program status via AutomationService (DEPLOYING -> DEPLOYED or APPROVED)
+          if (this.automationService && tenantId) {
+            const deploymentLog = this.deploymentLogService
+              ? await this.findDeploymentLogByCommandId(payload.commandId)
+              : null;
+
+            if (deploymentLog) {
+              if (payload.success) {
+                await this.automationService.confirmDeployment(
+                  deploymentLog.programId,
+                  tenantId,
+                  payload.commandId,
+                );
+              } else {
+                await this.automationService.failDeployment(
+                  deploymentLog.programId,
+                  tenantId,
+                  payload.commandId,
+                  payload.error || 'Deployment failed on device',
+                );
+              }
+            } else {
+              this.logger.warn(
+                `Cannot update program status: deployment log not found for command ${payload.commandId}`,
+              );
+            }
+          }
         } else if (payload.command === 'rollback_program') {
-          await this.deploymentLogService.markRolledBack(payload.commandId);
+          if (this.deploymentLogService) {
+            await this.deploymentLogService.markRolledBack(payload.commandId);
+          }
+
+          // On successful rollback, revert program status to APPROVED
+          if (this.automationService && tenantId && payload.success) {
+            const deploymentLog = await this.findDeploymentLogByCommandId(payload.commandId);
+            if (deploymentLog) {
+              await this.automationService.failDeployment(
+                deploymentLog.programId,
+                tenantId,
+                payload.commandId,
+                'Rolled back to previous version',
+              );
+            }
+          }
         }
+
         this.logger.log(`Deployment response processed for command ${payload.commandId}: success=${payload.success}`);
       } catch (error) {
         this.logger.error(`Failed to process deployment response: ${(error as Error).message}`);
@@ -449,7 +505,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         eventId: randomUUID(),
         eventType: 'EdgeDeviceResponse',
         timestamp: new Date(),
-        tenantId: 'system',
+        tenantId: tenantId || 'system',
         deviceCode,
         commandId: payload.commandId,
         success: payload.success,
@@ -458,6 +514,30 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         error: payload.error,
         version: 1,
       });
+    }
+  }
+
+  /**
+   * Look up deployment log by commandId for program status updates
+   * Returns the programId needed to call confirmDeployment/failDeployment
+   */
+  private async findDeploymentLogByCommandId(commandId: string): Promise<{ programId: string } | null> {
+    if (!this.deploymentLogService) return null;
+
+    try {
+      // Use the dataSource to query directly since DeploymentLogService
+      // doesn't expose a findByCommandId method
+      const result = await this.dataSource.query(
+        `SELECT program_id FROM "sensor"."deployment_logs" WHERE command_id = $1 LIMIT 1`,
+        [commandId],
+      );
+      if (result && result.length > 0 && result[0].program_id) {
+        return { programId: result[0].program_id };
+      }
+      return null;
+    } catch (error) {
+      this.logger.error(`Failed to look up deployment log for command ${commandId}: ${(error as Error).message}`);
+      return null;
     }
   }
 
@@ -518,7 +598,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           break;
 
         case 'response':
-          await this.handleEdgeResponse(deviceCode, payload as EdgeResponsePayload);
+        case 'responses':
+          await this.handleEdgeResponse(deviceCode, payload as EdgeResponsePayload, tenantId);
           break;
 
         default:

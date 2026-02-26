@@ -30,12 +30,15 @@ import {
   ProgramStats,
   DeployProgramInput,
   DeploymentResult,
+  DeploymentLogConnection,
 } from './dto/automation.dto';
 import { AutomationProgram } from './entities/automation-program.entity';
+import { DeploymentLog } from './entities/deployment-log.entity';
 import { ProgramStep } from './entities/program-step.entity';
 import { ProgramTransition } from './entities/program-transition.entity';
 import { ProgramVariable } from './entities/program-variable.entity';
 import { StepAction } from './entities/step-action.entity';
+import { DeploymentLogService } from './services/deployment-log.service';
 
 
 /**
@@ -59,6 +62,7 @@ export class AutomationResolver {
   constructor(
     private readonly automationService: AutomationService,
     private readonly edgeDeviceService: EdgeDeviceService,
+    private readonly deploymentLogService: DeploymentLogService,
   ) {}
 
   // ============================================
@@ -173,6 +177,45 @@ export class AutomationResolver {
     @Tenant() tenantId: string,
   ): Promise<StepAction[]> {
     return this.automationService.getActions(stepId, tenantId);
+  }
+
+  // ============================================
+  // Deployment History Queries
+  // ============================================
+
+  /**
+   * Get deployment history with pagination
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
+  @Query(() => DeploymentLogConnection, { name: 'deploymentHistory' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async getDeploymentHistory(
+    @Tenant() tenantId: string,
+    @Args('deviceId', { type: () => ID, nullable: true }) deviceId?: string,
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
+  ): Promise<DeploymentLogConnection> {
+    const result = await this.deploymentLogService.getHistory(tenantId, deviceId, page, limit);
+    return {
+      items: result.items,
+      total: result.total,
+      page: page || 1,
+      limit: limit || 20,
+      hasMore: (page || 1) * (limit || 20) < result.total,
+    };
+  }
+
+  /**
+   * Get a single deployment log by ID
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
+  @Query(() => DeploymentLog, { name: 'deploymentLog', nullable: true })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async getDeploymentLog(
+    @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
+  ): Promise<DeploymentLog | null> {
+    return this.deploymentLogService.findById(id, tenantId);
   }
 
   // ============================================

@@ -156,7 +156,7 @@ export interface EdgeDeviceStats {
 export interface PingResult {
   success: boolean;
   latencyMs?: number;
-  message?: string;
+  error?: string;
 }
 
 export interface EdgeDeviceFilter {

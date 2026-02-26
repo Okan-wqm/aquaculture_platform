@@ -209,7 +209,7 @@ export const PING_EDGE_DEVICE_MUTATION = `
     pingEdgeDevice(id: $id) {
       success
       latencyMs
-      message
+      error
     }
   }
 `;

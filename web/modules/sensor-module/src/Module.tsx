@@ -13,6 +13,7 @@ import SensorDashboardPage from './pages/SensorDashboardPage';
 import IndustrySetupPage from './pages/IndustrySetupPage';
 import DevicesPage from './pages/DevicesPage';
 import DeviceDetailPage from './pages/DeviceDetailPage';
+import EdgeDeviceDetailPage from './pages/EdgeDeviceDetailPage';
 import ReadingsPage from './pages/ReadingsPage';
 import AlertsPage from './pages/AlertsPage';
 import ThresholdsPage from './pages/ThresholdsPage';
@@ -62,6 +63,8 @@ const SensorModule: React.FC = () => {
         {/* Devices */}
         <Route path="devices" element={<DevicesPage />} />
         <Route path="devices/:deviceId" element={<DeviceDetailPage />} />
+        <Route path="devices/edge/:deviceId" element={<EdgeDeviceDetailPage />} />
+        <Route path="devices/edge/:deviceId/config" element={<EdgeDeviceDetailPage />} />
 
         {/* Readings */}
         <Route path="readings" element={<ReadingsPage />} />

@@ -567,9 +567,16 @@ impl SqlitePersistence {
 
         // Apply SQLCipher encryption key derived from device machine-id (IEC 62443 FR4).
         // Must be set before any other PRAGMA or query.
+        // Uses SHA-256 hash as hex key to avoid SQL injection and ensure uniform key length.
         let machine_id = machine_uid::get()
-            .unwrap_or_else(|_| "suderra-fallback-device-key-v1".to_string());
-        conn.execute_batch(&format!("PRAGMA key = '{}';", machine_id.replace('\'', "''")))
+            .map_err(|_| PersistenceError::ConnectionFailed(
+                "Cannot derive database encryption key: machine-id unavailable. \
+                 Ensure /etc/machine-id or /var/lib/dbus/machine-id exists.".to_string()
+            ))?;
+        use sha2::{Sha256, Digest};
+        let key_hash = Sha256::digest(machine_id.as_bytes());
+        let hex_key: String = key_hash.iter().map(|b| format!("{:02x}", b)).collect();
+        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
             .map_err(|e| PersistenceError::ConnectionFailed(
                 format!("Failed to apply database encryption key: {}", e)
             ))?;

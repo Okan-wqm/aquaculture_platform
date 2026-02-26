@@ -33,13 +33,19 @@ use tracing::{debug, error, info, warn};
 /// survives reboots.  Physical access to the storage medium does not yield a
 /// readable database without knowledge of the machine-id (IEC 62443 FR4).
 ///
-/// On platforms where machine-uid is unavailable the key falls back to a
-/// compile-time constant — still better than no encryption.
+/// Returns an error if machine-id cannot be read — refusing to fall back to a
+/// shared constant that would make encryption meaningless across devices.
 fn apply_db_encryption_key(conn: &Connection) -> Result<()> {
     let machine_id = machine_uid::get()
-        .unwrap_or_else(|_| "suderra-fallback-device-key-v1".to_string());
-    // SQLCipher PRAGMA key accepts an arbitrary passphrase
-    conn.execute_batch(&format!("PRAGMA key = '{}';", machine_id.replace('\'', "''")))
+        .context("Cannot derive database encryption key: machine-id unavailable. \
+                   Ensure /etc/machine-id or /var/lib/dbus/machine-id exists.")?;
+
+    // Use hex-encoded PRAGMA key to avoid SQL injection via passphrase interpolation.
+    // SQLCipher accepts "x'<hex>'" as a raw key when the hex string is exactly 64 chars (256-bit).
+    use sha2::{Sha256, Digest};
+    let key_hash = Sha256::digest(machine_id.as_bytes());
+    let hex_key: String = key_hash.iter().map(|b| format!("{:02x}", b)).collect();
+    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
         .context("Failed to apply SQLCipher database encryption key")?;
     Ok(())
 }
@@ -394,7 +400,7 @@ impl OfflineQueue {
         // Check current queue size
         let mut current_size: usize = conn
             .query_row("SELECT COUNT(*) FROM message_queue", [], |row| row.get(0))
-            .unwrap_or(0);
+            .context("Failed to query queue size")?;
 
         // If at message count capacity, remove oldest low-priority message
         if current_size >= self.max_size {
@@ -617,7 +623,7 @@ impl OfflineQueue {
                 "DELETE FROM message_queue WHERE created_at < ?1",
                 params![cutoff],
             )
-            .unwrap_or(0);
+            .context("Failed to cleanup expired messages")?;
 
         if deleted > 0 {
             info!("Cleaned up {} expired messages from offline queue", deleted);
@@ -632,7 +638,7 @@ impl OfflineQueue {
 
         let total_messages: usize = conn
             .query_row("SELECT COUNT(*) FROM message_queue", [], |row| row.get(0))
-            .unwrap_or(0);
+            .context("Failed to query message count")?;
 
         // Count by priority
         // v1.2.4: Priority array for Low(0), Normal(1), High(2), Critical(3)
@@ -674,7 +680,7 @@ impl OfflineQueue {
                 [],
                 |row| row.get(0),
             )
-            .unwrap_or(0);
+            .context("Failed to query total bytes")?;
 
         // v1.2.0: Database file size
         let db_size_bytes = self.get_db_size(&conn);
@@ -792,10 +798,10 @@ impl OfflineQueue {
         // Check freelist pages (space available for reuse)
         let freelist_count: i64 = conn
             .query_row("PRAGMA freelist_count", [], |row| row.get(0))
-            .unwrap_or(0);
+            .context("Failed to query freelist count")?;
         let page_count: i64 = conn
             .query_row("PRAGMA page_count", [], |row| row.get(0))
-            .unwrap_or(1);
+            .unwrap_or(1); // Safe: page_count is always >= 1
 
         let freelist_ratio = freelist_count as f64 / page_count as f64;
 

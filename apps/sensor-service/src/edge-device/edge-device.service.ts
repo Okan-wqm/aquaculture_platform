@@ -219,6 +219,19 @@ export class EdgeDeviceService implements OnModuleDestroy {
     // Clear all pending pings with rejection
     this.clearAllPendingPings('Service shutting down');
 
+    // Clear all pending scans with timeout resolution
+    for (const [, pending] of this.pendingScans) {
+      clearTimeout(pending.timeout);
+      pending.resolve({
+        success: false,
+        error: 'Service shutting down',
+        platform: 'Unknown',
+        discoveredChannels: [],
+        totalFound: 0,
+      });
+    }
+    this.pendingScans.clear();
+
     this.logger.log('EdgeDeviceService cleanup complete');
   }
 
@@ -274,8 +287,9 @@ export class EdgeDeviceService implements OnModuleDestroy {
         error: errorMessage,
       });
     }
+    const pingCount = this.pendingPings.size;
     this.pendingPings.clear();
-    this.logger.debug(`Cleared ${this.pendingPings.size} pending pings`);
+    this.logger.debug(`Cleared ${pingCount} pending pings`);
   }
 
   /**
@@ -1354,6 +1368,14 @@ export class EdgeDeviceService implements OnModuleDestroy {
       return;
     }
 
+    // Validate deviceCode matches pending request (defense-in-depth)
+    if (pending.deviceCode !== deviceCode) {
+      this.logger.warn(
+        `Scan response deviceCode mismatch: expected=${pending.deviceCode}, got=${deviceCode}, commandId=${commandId}`,
+      );
+      return;
+    }
+
     clearTimeout(pending.timeout);
     this.pendingScans.delete(commandId);
 
@@ -1416,50 +1438,58 @@ export class EdgeDeviceService implements OnModuleDestroy {
     });
     const existingTags = new Set(existingConfigs.map((c) => c.tagName));
 
-    const created: DeviceIoConfig[] = [];
     const skipped: string[] = [];
+    const toCreate: AddIoConfigInput[] = [];
 
     for (const input of inputs) {
-      // Skip duplicates
       if (existingTags.has(input.tagName)) {
         skipped.push(input.tagName);
-        continue;
+      } else {
+        toCreate.push(input);
+        existingTags.add(input.tagName); // Prevent duplicates within the batch
+      }
+    }
+
+    // Use transaction for atomicity — all or nothing
+    const created = await this.dataSource.transaction(async (manager) => {
+      const ioConfigRepo = manager.getRepository(DeviceIoConfig);
+      const results: DeviceIoConfig[] = [];
+
+      for (const input of toCreate) {
+        const ioConfig = ioConfigRepo.create({
+          id: randomUUID(),
+          deviceId: device.id,
+          tagName: input.tagName,
+          description: input.description,
+          ioType: input.ioType,
+          dataType: input.dataType,
+          moduleAddress: input.moduleAddress,
+          channel: input.channel,
+          rawMin: input.rawMin,
+          rawMax: input.rawMax,
+          engMin: input.engMin,
+          engMax: input.engMax,
+          engUnit: input.engUnit,
+          modbusFunction: input.modbusFunction,
+          modbusSlaveId: input.modbusSlaveId,
+          modbusRegister: input.modbusRegister,
+          gpioPin: input.gpioPin,
+          gpioMode: input.gpioMode,
+          invertValue: input.invertValue,
+          alarmHH: input.alarmHH,
+          alarmH: input.alarmH,
+          alarmL: input.alarmL,
+          alarmLL: input.alarmLL,
+          deadband: input.deadband,
+          isActive: true,
+        });
+
+        const saved = await ioConfigRepo.save(ioConfig);
+        results.push(saved);
       }
 
-      // Create new I/O config
-      const ioConfig = this.ioConfigRepository.create({
-        id: randomUUID(),
-        deviceId: device.id,
-        tenantId: device.tenantId,
-        tagName: input.tagName,
-        description: input.description,
-        ioType: input.ioType,
-        dataType: input.dataType,
-        moduleAddress: input.moduleAddress,
-        channel: input.channel,
-        rawMin: input.rawMin,
-        rawMax: input.rawMax,
-        engMin: input.engMin,
-        engMax: input.engMax,
-        engUnit: input.engUnit,
-        modbusFunction: input.modbusFunction,
-        modbusSlaveId: input.modbusSlaveId,
-        modbusRegister: input.modbusRegister,
-        gpioPin: input.gpioPin,
-        gpioMode: input.gpioMode,
-        invertValue: input.invertValue,
-        alarmHH: input.alarmHH,
-        alarmH: input.alarmH,
-        alarmL: input.alarmL,
-        alarmLL: input.alarmLL,
-        deadband: input.deadband,
-        isActive: true,
-      });
-
-      const saved = await this.ioConfigRepository.save(ioConfig);
-      created.push(saved);
-      existingTags.add(input.tagName); // Prevent duplicates within the batch
-    }
+      return results;
+    });
 
     this.logger.log(
       `Bulk I/O import on ${device.deviceCode}: ${created.length} created, ${skipped.length} skipped`,

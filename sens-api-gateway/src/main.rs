@@ -1172,13 +1172,9 @@ async fn publish_capabilities(state: &AppState) {
         }
     };
 
-    let topic = state
-        .config
-        .mqtt
-        .topics
-        .capabilities
-        .replace("{tenant_id}", tenant_id)
-        .replace("{device_id}", &state.config.device_code);
+    // Use resolved topics for consistency and placeholder validation
+    let resolved = state.config.mqtt.topics.resolve(tenant_id, &state.config.device_id);
+    let topic = &resolved.capabilities;
 
     match serde_json::to_vec(&capabilities) {
         Ok(payload) => {

@@ -222,6 +222,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       'tenants/+/devices/+/response',   // Command response (legacy singular)
       'tenants/+/devices/+/responses',  // Command response (plural - Edge Agent v2.0+)
       'tenants/+/devices/+/io_data',     // I/O tag canlı değerleri (Edge Agent → Frontend bridge)
+      'tenants/+/devices/+/capabilities', // v2.3: Boot-time hardware capabilities report
     ];
 
     try {
@@ -875,10 +876,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
     // Build capabilities object for the JSONB column
     const capabilities: Record<string, boolean> = {
-      hasGpio: (payload.total_gpio_lines as number) > 0,
-      hasPicontrol: (payload.has_picontrol as boolean) ?? false,
-      hasRppal: (payload.rppal_available as boolean) ?? false,
-      hasModbus: (payload.modbus_configured as boolean) ?? false,
+      hasGpio: Number(payload.total_gpio_lines ?? 0) > 0,
+      hasPicontrol: !!payload.has_picontrol,
+      hasRppal: !!payload.rppal_available,
+      hasModbus: !!payload.modbus_configured,
       autoDetectAvailable: true, // Agent supports scan_hardware command
     };
 

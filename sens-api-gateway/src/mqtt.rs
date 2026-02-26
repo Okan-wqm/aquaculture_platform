@@ -164,6 +164,7 @@ pub struct GpioPinData {
 
 /// Command message (received from cloud)
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct CommandMessage {
     pub command_id: String,
@@ -175,6 +176,7 @@ pub struct CommandMessage {
 
 /// Command response message
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CommandResponse {
     pub command_id: String,
     pub device_id: String,

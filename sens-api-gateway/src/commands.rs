@@ -761,8 +761,17 @@ impl CommandHandler {
             state.config.gpio_platform()
         };
 
-        let scanner = HardwareScanner::new(platform);
-        let result = scanner.scan();
+        // Wrap in spawn_blocking — scan performs blocking I/O (piTest subprocess, sysfs reads)
+        let result = match tokio::task::spawn_blocking(move || {
+            let scanner = HardwareScanner::new(platform);
+            scanner.scan()
+        }).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("Scan task panicked: {}", e);
+                return (false, json!(null), Some(format!("Scan task failed: {}", e)));
+            }
+        };
 
         match serde_json::to_value(&result) {
             Ok(value) => (true, value, None),

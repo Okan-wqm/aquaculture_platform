@@ -142,14 +142,14 @@ impl HardwareScanner {
         let start = std::time::Instant::now();
 
         let gpio_chips = self.enumerate_gpio_chips();
-        let picontrol_modules = self.scan_picontrol();
+        let (picontrol_modules, pitest_output) = self.scan_picontrol();
         let mut discovered_ios = Vec::new();
 
         // Platform-specific I/O discovery
         match self.platform {
             GpioPlatform::RevolutionPi => {
                 // Primary: piControl modules (DIO, AIO, etc.)
-                discovered_ios.extend(self.discover_picontrol_ios(&picontrol_modules));
+                discovered_ios.extend(self.discover_picontrol_ios(&picontrol_modules, &pitest_output));
                 // Fallback: also report GPIO chips if any
                 if discovered_ios.is_empty() {
                     discovered_ios.extend(self.discover_gpio_ios(&gpio_chips));
@@ -265,37 +265,40 @@ impl HardwareScanner {
     ///
     /// The `piTest` utility lists all modules in the piControl process image.
     /// If `piTest` is not available, falls back to checking `/dev/piControl0`.
-    fn scan_picontrol(&self) -> Vec<PiControlModule> {
+    /// Run `piTest -d` once and return (modules, raw_output).
+    /// The raw output is reused by `discover_picontrol_ios` to avoid a second invocation.
+    fn scan_picontrol(&self) -> (Vec<PiControlModule>, String) {
         if self.platform != GpioPlatform::RevolutionPi {
-            return Vec::new();
+            return (Vec::new(), String::new());
         }
 
         if !Path::new("/dev/piControl0").exists() {
             debug!("No /dev/piControl0 — piControl scanning skipped");
-            return Vec::new();
+            return (Vec::new(), String::new());
         }
 
-        // Try piTest -d for module enumeration
+        // Run piTest -d once for both module and pin enumeration
         match std::process::Command::new("piTest").arg("-d").output() {
             Ok(output) => {
                 if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    self.parse_pitest_output(&stdout)
+                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                    let modules = self.parse_pitest_output(&stdout);
+                    (modules, stdout)
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     warn!("piTest -d failed: {}", stderr);
-                    Vec::new()
+                    (Vec::new(), String::new())
                 }
             }
             Err(e) => {
                 warn!("piTest not found or failed to execute: {}", e);
                 // Fallback: at least report that piControl exists
-                vec![PiControlModule {
+                (vec![PiControlModule {
                     device_name: "piControl0".to_string(),
                     model: "unknown".to_string(),
                     offset: 0,
                     length: 0,
-                }]
+                }], String::new())
             }
         }
     }
@@ -369,22 +372,15 @@ impl HardwareScanner {
 
     /// Discover I/O channels from piControl modules.
     ///
-    /// Uses `piTest -d` output to find individual I/O pins (Inp/Out lines).
+    /// Uses the cached `piTest -d` output to find individual I/O pins (Inp/Out lines).
     /// If detailed pin info isn't available, generates standard DIO/AIO channels
     /// based on known module types.
-    fn discover_picontrol_ios(&self, modules: &[PiControlModule]) -> Vec<DiscoveredIo> {
+    fn discover_picontrol_ios(&self, modules: &[PiControlModule], pitest_output: &str) -> Vec<DiscoveredIo> {
         let mut ios = Vec::new();
 
-        // Try piTest -d again for detailed pin listing
-        let pin_lines = match std::process::Command::new("piTest").arg("-d").output() {
-            Ok(output) if output.status.success() => {
-                String::from_utf8_lossy(&output.stdout).to_string()
-            }
-            _ => String::new(),
-        };
-
-        if !pin_lines.is_empty() {
-            ios.extend(self.parse_pitest_pins(&pin_lines, modules));
+        // Reuse the piTest -d output captured in scan_picontrol()
+        if !pitest_output.is_empty() {
+            ios.extend(self.parse_pitest_pins(pitest_output, modules));
         }
 
         // If no pins found via piTest, generate based on known module types
@@ -445,14 +441,29 @@ impl HardwareScanner {
             let size = parts[2]; // "bit", "word", "dword"
 
             // Parse offset.bit (e.g. "484.0" or "490")
-            let offset_str = parts.get(3).unwrap_or(&"0");
+            let offset_str = match parts.get(3) {
+                Some(s) => s,
+                None => {
+                    warn!("piTest pin line missing offset: '{}'", trimmed);
+                    continue;
+                }
+            };
             let (byte_offset, bit_pos) = if let Some(dot_pos) = offset_str.find('.') {
-                let byte_off: u32 = offset_str[..dot_pos].parse().unwrap_or(0);
-                let bit: u32 = offset_str[dot_pos + 1..].parse().unwrap_or(0);
-                (byte_off, bit)
+                match (offset_str[..dot_pos].parse::<u32>(), offset_str[dot_pos + 1..].parse::<u32>()) {
+                    (Ok(byte_off), Ok(bit)) => (byte_off, bit),
+                    _ => {
+                        warn!("piTest pin line malformed offset '{}': '{}'", offset_str, trimmed);
+                        continue;
+                    }
+                }
             } else {
-                let byte_off: u32 = offset_str.parse().unwrap_or(0);
-                (byte_off, 0)
+                match offset_str.parse::<u32>() {
+                    Ok(byte_off) => (byte_off, 0),
+                    Err(_) => {
+                        warn!("piTest pin line malformed offset '{}': '{}'", offset_str, trimmed);
+                        continue;
+                    }
+                }
             };
 
             // Determine I/O type and data type

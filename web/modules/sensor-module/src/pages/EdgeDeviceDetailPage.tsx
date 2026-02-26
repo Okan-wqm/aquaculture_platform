@@ -890,13 +890,15 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
   // v2.3: Auto-detect hardware I/O channels
   const handleAutoDetect = useCallback(async () => {
     setScanResult(null);
+    scanHardware.reset(); // Clear stale error state from previous attempts
     try {
       const result = await scanHardware.mutateAsync(deviceId);
       setScanResult(result);
     } catch {
       // Error state handled by scanHardware.error
     }
-  }, [scanHardware, deviceId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId]);
 
   // v2.3: Import selected channels from auto-detect results
   const handleAutoDetectImport = useCallback(
@@ -905,7 +907,8 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
       refetch(); // Refresh device data to show new I/O configs
       return result;
     },
-    [bulkAddIo, deviceId, refetch],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [deviceId, refetch],
   );
 
   // v2.3: Existing tag names for duplicate detection

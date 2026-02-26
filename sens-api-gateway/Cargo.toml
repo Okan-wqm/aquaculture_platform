@@ -26,6 +26,10 @@ serde_yaml = "0.9"
 # Use rustls for cross-compilation support (no OpenSSL dependency)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 
+# Vendored OpenSSL: rodbus and rumqttc depend on native OpenSSL.
+# Bundling it statically avoids "libcrypto.so.1.0.0 not found" on target devices.
+openssl = { version = "0.10", features = ["vendored"] }
+
 # MQTT client
 rumqttc = "0.25"
 

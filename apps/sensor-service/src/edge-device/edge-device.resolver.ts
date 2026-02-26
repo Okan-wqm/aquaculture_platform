@@ -26,6 +26,8 @@ import {
   EdgeDeviceStats,
   PingResult,
   PushIoConfigResult,
+  SetDigitalOutputInput,
+  SetDigitalOutputResult,
 } from './dto/edge-device.dto';
 import {
   CreateProvisionedDeviceInput,
@@ -390,6 +392,27 @@ export class EdgeDeviceResolver {
   ): Promise<PushIoConfigResult> {
     this.logger.log(`Pushing I/O config to device: ${deviceId}`);
     return await this.edgeDeviceService.pushIoConfigToDevice(deviceId, tenantId);
+  }
+
+  // ==================== Digital Output Control ====================
+
+  /**
+   * Set a digital output on an edge device
+   * Process editor'dan DO tag'ini ON/OFF yapmak için.
+   * Sadece DO tipi tag'lere izin verir — güvenlik katmanı.
+   */
+  @Mutation(() => SetDigitalOutputResult, { name: 'setDigitalOutput' })
+  async setDigitalOutput(
+    @Args('input') input: SetDigitalOutputInput,
+    @Tenant() tenantId: string,
+  ): Promise<SetDigitalOutputResult> {
+    this.logger.log(`Setting digital output: device=${input.deviceId}, io=${input.ioConfigId}, value=${input.value}`);
+    return await this.edgeDeviceService.setDigitalOutput(
+      input.deviceId,
+      input.ioConfigId,
+      input.value,
+      tenantId,
+    );
   }
 
   // ==================== Field Resolvers ====================

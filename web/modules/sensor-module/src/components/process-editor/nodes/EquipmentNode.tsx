@@ -7,8 +7,9 @@ import React, { memo, useState, useCallback } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { getEquipmentIcon } from '../../equipment-icons/EquipmentIconLoader';
 import { getEquipmentSize, ConnectionPointPosition, ConnectionPointType } from '../../equipment-icons/equipmentTypes';
-import { EquipmentNodeData, useProcessStore } from '../../../store/processStore';
+import { EquipmentNodeData, IoBinding, useProcessStore } from '../../../store/processStore';
 import { ConnectionPointContextMenu } from '../components/ConnectionPointContextMenu';
+import { EquipmentNodeOverlay } from './EquipmentNodeOverlay';
 
 // Status colors for equipment
 const statusColors: Record<string, { bg: string; border: string; text: string }> = {
@@ -211,6 +212,19 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<EquipmentNo
               {(data.status || 'standby').charAt(0).toUpperCase() + (data.status || 'standby').slice(1).replace('_', ' ')}
             </span>
           </div>
+
+          {/* ---------------------------------------------------------------
+            I/O Binding Overlay (Kemik Yapı — Faz B)
+            Node'a bağlı I/O tag'lerinin canlı değerlerini gösterir.
+            DI/DO → yeşil/kırmızı LED ikonu, AI/AO → numerik değer.
+            Overlay, EquipmentNodeOverlay component'ını kullanır.
+            --------------------------------------------------------------- */}
+          {data.ioBindings && data.ioBindings.length > 0 && (
+            <EquipmentNodeOverlay
+              ioBindings={data.ioBindings}
+              edgeDeviceCode={data.edgeDeviceCode}
+            />
+          )}
         </div>
       </div>
 

@@ -4,6 +4,7 @@ import {
   Int,
   Float,
   ObjectType,
+  ID,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
 
@@ -288,4 +289,39 @@ export class PushIoConfigResult {
 
   @Field({ nullable: true, description: 'Error message if push failed' })
   error?: string;
+}
+
+/**
+ * setDigitalOutput Mutation Input/Result
+ * -----------------------------------------------------------------------
+ * Process editor'dan DO (Digital Output) tag'ini ON/OFF yapmak için
+ * kullanılır. Güvenlik: sadece DO tipi tag'lere izin verir,
+ * device online olmalı, MQTT üzerinden edge agent'a gönderilir.
+ * -----------------------------------------------------------------------
+ */
+@InputType()
+export class SetDigitalOutputInput {
+  @Field(() => ID)
+  deviceId!: string;
+
+  @Field(() => ID)
+  ioConfigId!: string;
+
+  @Field()
+  value!: boolean;
+}
+
+@ObjectType()
+export class SetDigitalOutputResult {
+  @Field()
+  success!: boolean;
+
+  @Field({ nullable: true })
+  error?: string;
+
+  @Field({ nullable: true })
+  tagName?: string;
+
+  @Field({ nullable: true })
+  value?: boolean;
 }

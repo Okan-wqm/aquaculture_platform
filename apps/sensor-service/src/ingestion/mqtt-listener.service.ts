@@ -221,6 +221,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       'tenants/+/devices/+/status',     // Device status (online/offline)
       'tenants/+/devices/+/response',   // Command response (legacy singular)
       'tenants/+/devices/+/responses',  // Command response (plural - Edge Agent v2.0+)
+      'tenants/+/devices/+/io_data',     // I/O tag canlı değerleri (Edge Agent → Frontend bridge)
     ];
 
     try {
@@ -634,6 +635,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           await this.handleEdgeResponse(deviceCode, payload as EdgeResponsePayload, tenantId);
           break;
 
+        case 'io_data':
+          // Edge agent'ın gönderdiği I/O tag değerlerini WebSocket'e bridge et
+          // Bu sayede process editor'daki equipment node'ları canlı I/O verisi gösterebilir
+          await this.handleEdgeIoData(tenantId, deviceCode, payload);
+          break;
+
         default:
           this.logger.debug(`Unknown tenant edge message type: ${messageType}`);
       }
@@ -719,6 +726,51 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`Tenant ${tenantId} edge device offline: ${deviceCode}`);
       // Pass tenantId so updateHeartbeat enforces tenant boundary check
       await this.handleEdgeDeath(deviceCode, tenantId);
+    }
+  }
+
+  // ==================== I/O Data Bridge (Faz F — Kemik Yapı) ====================
+  //
+  // Edge agent, scan cycle'da okuduğu I/O değerlerini
+  // tenants/{tid}/devices/{code}/io_data topic'ine publish eder.
+  // Bu handler, gelen veriyi EventBus üzerinden WebSocket'e iletir.
+  // Frontend'deki EquipmentNodeOverlay bu event'i dinleyerek
+  // canlı I/O değerlerini node üzerinde gösterir.
+  //
+  // Beklenen payload formatı (edge agent'tan):
+  // {
+  //   "timestamp": "2026-01-15T12:00:00Z",
+  //   "tags": {
+  //     "pump1_run": { "value": true, "quality": "good" },
+  //     "temp_inlet": { "value": 23.5, "quality": "good" }
+  //   }
+  // }
+  // ================================================================
+
+  /**
+   * Handle I/O data from edge agent and bridge to WebSocket
+   * Edge agent'ın scan cycle'da okuduğu I/O değerlerini frontend'e iletir
+   */
+  private async handleEdgeIoData(
+    tenantId: string,
+    deviceCode: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    this.logger.debug(`I/O data from ${deviceCode}: ${JSON.stringify(payload).substring(0, 200)}`);
+
+    // EventBus üzerinden WebSocket'e ilet
+    // Frontend'deki useSensorSocket veya özel hook bu event'i dinler
+    if (this.eventBus) {
+      await this.eventBus.publish({
+        eventId: randomUUID(),
+        eventType: 'EdgeDeviceIoData',
+        timestamp: new Date(),
+        tenantId,
+        deviceCode,
+        // Tüm I/O tag değerlerini olduğu gibi ilet
+        tags: payload.tags || payload,
+        version: 1,
+      });
     }
   }
 

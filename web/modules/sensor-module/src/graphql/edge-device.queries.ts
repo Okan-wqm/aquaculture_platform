@@ -299,3 +299,19 @@ export const REGENERATE_DEVICE_TOKEN_MUTATION = `
     }
   }
 `;
+
+// ==================== Digital Output Control (Kemik Yapı — Faz C) ====================
+// Process editor'dan DO (Digital Output) tag'ini ON/OFF yapmak için
+// Backend'deki setDigitalOutput mutation'ını çağırır.
+// Güvenlik: sadece DO tipi tag'lere izin verir.
+
+export const SET_DIGITAL_OUTPUT_MUTATION = `
+  mutation SetDigitalOutput($input: SetDigitalOutputInput!) {
+    setDigitalOutput(input: $input) {
+      success
+      error
+      tagName
+      value
+    }
+  }
+`;

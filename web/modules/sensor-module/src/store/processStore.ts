@@ -84,6 +84,18 @@ export interface SensorNodeData {
   lastUpdated?: string;
 }
 
+// -----------------------------------------------------------------------
+// I/O Binding: bir equipment node'unun fiziksel I/O kanalına bağlanması.
+// Process editor'da ekipman seçilip edge device + I/O tag eşlendiğinde
+// bu yapı node data'ya yazılır. Canlı değerler overlay'de gösterilir.
+// -----------------------------------------------------------------------
+export interface IoBinding {
+  ioConfigId: string;   // DeviceIoConfig.id (backend UUID)
+  tagName: string;      // İnsan-okunur tag adı, ör: "pump1_speed"
+  ioType: string;       // 'DI' | 'DO' | 'AI' | 'AO'
+  dataType: string;     // 'bool' | 'float32' | 'int16' vb.
+}
+
 // Equipment node data structure
 export interface EquipmentNodeData {
   // equipmentId is only set when node is linked to real equipment
@@ -104,6 +116,19 @@ export interface EquipmentNodeData {
   connectionPoints?: ConnectionPointState;
   // Sensor mappings for this equipment
   sensorMappings?: SensorMapping[];
+
+  // -----------------------------------------------------------------------
+  // Edge Device Binding (Faz A — Kemik Yapı)
+  // Equipment node'u fiziksel bir edge device'a bağlar.
+  // Bu sayede node üzerinden canlı I/O verisi gösterilebilir
+  // ve kontrol komutları (DO toggle, VFD start/stop) gönderilebilir.
+  // -----------------------------------------------------------------------
+  edgeDeviceId?: string;     // EdgeDevice.id UUID
+  edgeDeviceCode?: string;   // EdgeDevice.deviceCode (MQTT topic'te kullanılır)
+
+  // I/O tag binding'leri — bu node'a bağlı fiziksel I/O kanalları.
+  // Her binding bir DeviceIoConfig kaydına referans verir.
+  ioBindings?: IoBinding[];
 }
 
 // Handle type for new node components

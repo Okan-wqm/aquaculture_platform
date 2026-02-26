@@ -4,15 +4,22 @@
  * Enhanced with equipment linking functionality
  */
 
-import React, { useState } from 'react';
-import { X, Settings, Link2, Trash2, Info, Unlink, Edit3, Activity, Radio, Wifi, RotateCcw } from 'lucide-react';
-import { useProcessStore, EquipmentNodeData, SensorNodeData, SensorWidgetNodeData } from '../../../store/processStore';
+import React, { useState, useCallback } from 'react';
+import {
+  X, Settings, Link2, Trash2, Info, Unlink, Edit3, Activity, Radio,
+  Wifi, RotateCcw, Cpu, ToggleLeft, ToggleRight, Zap, AlertTriangle,
+  Play, Square,
+} from 'lucide-react';
+import { useProcessStore, EquipmentNodeData, SensorNodeData, SensorWidgetNodeData, IoBinding } from '../../../store/processStore';
 import { CONNECTION_TYPES, getConnectionTypeConfig, normalizeConnectionType, ConnectionType } from '../../../config/connectionTypes';
 import { getEquipmentIcon } from '../../equipment-icons';
 import { useAttachableEquipment, AttachableEquipment } from '../../../hooks/useAttachableEquipment';
 import { useLinkableSensors, getSensorTypeLabel } from '../../../hooks/useLinkableSensors';
+import { useEdgeDevices, useEdgeDevice, IoType } from '../../../hooks/useEdgeDevices';
+import { useAuth } from '@aquaculture/shared-ui';
 import { EquipmentLinkDialog } from '../dialogs/EquipmentLinkDialog';
 import { SensorConfigDialog } from '../dialogs/SensorConfigDialog';
+import { SET_DIGITAL_OUTPUT_MUTATION } from '../../../graphql/edge-device.queries';
 
 export const PropertiesPanel: React.FC = () => {
   const {
@@ -38,6 +45,36 @@ export const PropertiesPanel: React.FC = () => {
 
   // Sensor config dialog state
   const [isSensorConfigDialogOpen, setIsSensorConfigDialogOpen] = useState(false);
+
+  // -----------------------------------------------------------------------
+  // Edge Device Binding State (Kemik Yapı — Faz A)
+  // Equipment node'larına fiziksel edge device bağlamak için.
+  // Device seçilince o device'ın I/O tag listesi yüklenir.
+  // -----------------------------------------------------------------------
+  const [selectedEdgeDeviceId, setSelectedEdgeDeviceId] = useState<string | null>(
+    selectedNode?.data?.edgeDeviceId || null
+  );
+
+  // DO toggle onay dialogu state'i (Faz C — güvenlik)
+  const [doConfirmDialog, setDoConfirmDialog] = useState<{
+    isOpen: boolean;
+    tagName: string;
+    ioConfigId: string;
+    newValue: boolean;
+  } | null>(null);
+  const [doToggleLoading, setDoToggleLoading] = useState(false);
+
+  // Edge device listesini çek (tüm aktif cihazlar)
+  const { data: edgeDevicesData } = useEdgeDevices({ limit: 100 });
+  const edgeDevices = edgeDevicesData?.items || [];
+
+  // Seçili device'ın detaylarını çek (I/O config dahil)
+  const { data: selectedDeviceDetail } = useEdgeDevice(
+    selectedEdgeDeviceId || selectedNode?.data?.edgeDeviceId || ''
+  );
+
+  // Auth context — GraphQL mutation'lar için
+  const { graphqlRequest } = useAuth();
 
   // Fetch attachable equipment
   const { equipment } = useAttachableEquipment();
@@ -112,6 +149,99 @@ export const PropertiesPanel: React.FC = () => {
     });
     setIsEditingName(false);
   };
+
+  // -----------------------------------------------------------------------
+  // Edge Device Binding Handler (Kemik Yapı — Faz A)
+  // Device seçildiğinde node data'ya edgeDeviceId/Code kaydeder.
+  // Böylece node fiziksel bir cihaza bağlanmış olur.
+  // -----------------------------------------------------------------------
+  const handleEdgeDeviceSelect = useCallback((deviceId: string) => {
+    if (!selectedNode) return;
+    const device = edgeDevices.find((d) => d.id === deviceId);
+    if (!device) return;
+
+    setSelectedEdgeDeviceId(deviceId);
+    // Node data'ya edge device bilgilerini kaydet
+    updateNodeData(selectedNode.id, {
+      edgeDeviceId: device.id,
+      edgeDeviceCode: device.deviceCode,
+      // Device değiştiğinde eski I/O binding'leri temizle
+      ioBindings: [],
+    });
+  }, [selectedNode, edgeDevices, updateNodeData]);
+
+  // Edge device bağlantısını kaldır
+  const handleEdgeDeviceUnlink = useCallback(() => {
+    if (!selectedNode) return;
+    setSelectedEdgeDeviceId(null);
+    updateNodeData(selectedNode.id, {
+      edgeDeviceId: undefined,
+      edgeDeviceCode: undefined,
+      ioBindings: [],
+    });
+  }, [selectedNode, updateNodeData]);
+
+  // -----------------------------------------------------------------------
+  // I/O Tag Binding Handler (Kemik Yapı — Faz A)
+  // Bir I/O tag'i node'a bağlar veya çıkarır.
+  // ioBindings array'i node data'da tutulur.
+  // -----------------------------------------------------------------------
+  const handleIoTagToggle = useCallback((ioConfig: { id: string; tagName: string; ioType: string; dataType: string }) => {
+    if (!selectedNode) return;
+    const currentBindings: IoBinding[] = selectedNode.data.ioBindings || [];
+    const exists = currentBindings.some((b) => b.ioConfigId === ioConfig.id);
+
+    let newBindings: IoBinding[];
+    if (exists) {
+      // Binding'i kaldır
+      newBindings = currentBindings.filter((b) => b.ioConfigId !== ioConfig.id);
+    } else {
+      // Yeni binding ekle
+      newBindings = [...currentBindings, {
+        ioConfigId: ioConfig.id,
+        tagName: ioConfig.tagName,
+        ioType: ioConfig.ioType,
+        dataType: ioConfig.dataType,
+      }];
+    }
+
+    updateNodeData(selectedNode.id, { ioBindings: newBindings });
+  }, [selectedNode, updateNodeData]);
+
+  // -----------------------------------------------------------------------
+  // DO (Digital Output) Toggle Handler (Kemik Yapı — Faz C)
+  // Onay dialogu açar, onaylandığında setDigitalOutput mutation çağırır.
+  // Güvenlik: her DO değişikliği kullanıcı onayı gerektirir.
+  // -----------------------------------------------------------------------
+  const handleDoToggleRequest = useCallback((tagName: string, ioConfigId: string, newValue: boolean) => {
+    setDoConfirmDialog({ isOpen: true, tagName, ioConfigId, newValue });
+  }, []);
+
+  const handleDoToggleConfirm = useCallback(async () => {
+    if (!doConfirmDialog || !selectedNode?.data?.edgeDeviceId) return;
+    setDoToggleLoading(true);
+
+    try {
+      const result = await graphqlRequest(SET_DIGITAL_OUTPUT_MUTATION, {
+        input: {
+          deviceId: selectedNode.data.edgeDeviceId,
+          ioConfigId: doConfirmDialog.ioConfigId,
+          value: doConfirmDialog.newValue,
+        },
+      });
+
+      if (result?.setDigitalOutput?.success) {
+        console.log(`DO toggle success: ${doConfirmDialog.tagName} = ${doConfirmDialog.newValue}`);
+      } else {
+        console.error('DO toggle failed:', result?.setDigitalOutput?.error);
+      }
+    } catch (error) {
+      console.error('DO toggle error:', error);
+    } finally {
+      setDoToggleLoading(false);
+      setDoConfirmDialog(null);
+    }
+  }, [doConfirmDialog, selectedNode, graphqlRequest]);
 
   // Get unlinked equipment for dropdown
   const unlinkedEquipment = equipment.filter((eq) => !eq.isLinked);
@@ -605,6 +735,225 @@ export const PropertiesPanel: React.FC = () => {
             )}
           </div>
         </div>
+
+        {/* ===============================================================
+          Edge Device Binding (Kemik Yapı — Faz A)
+          Equipment node'una fiziksel edge device bağlama bölümü.
+          Device seçildiğinde o device'ın I/O tag listesi görünür.
+          Tag'ler checkbox ile node'a bind edilir.
+          =============================================================== */}
+          <div className="pt-3 border-t border-gray-200">
+            <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+              <Cpu className="w-4 h-4" />
+              Edge Device Binding
+            </h5>
+
+            {selectedNode.data.edgeDeviceId ? (
+              // Bağlı durumu — device bilgisi + unlink butonu
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-2 bg-indigo-50 rounded-lg border border-indigo-200">
+                  <div>
+                    <span className="text-sm text-indigo-700 font-medium">
+                      {edgeDevices.find((d) => d.id === selectedNode.data.edgeDeviceId)?.deviceName
+                        || selectedNode.data.edgeDeviceCode || 'Connected'}
+                    </span>
+                    <p className="text-xs text-indigo-500">{selectedNode.data.edgeDeviceCode}</p>
+                  </div>
+                  <button
+                    onClick={handleEdgeDeviceUnlink}
+                    className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1 px-2 py-1 hover:bg-red-50 rounded transition-colors"
+                  >
+                    <Unlink className="w-3 h-3" />
+                    Unbind
+                  </button>
+                </div>
+
+                {/* -------------------------------------------------------
+                  I/O Tag Listesi (Faz A devamı)
+                  Device'ın tüm I/O tag'lerini checkbox ile göster.
+                  Seçilenler node'un ioBindings array'ine eklenir.
+                  ------------------------------------------------------- */}
+                {selectedDeviceDetail?.ioConfig && selectedDeviceDetail.ioConfig.length > 0 && (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">I/O Tags — bind to node:</label>
+                    <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+                      {selectedDeviceDetail.ioConfig.filter((io) => io.isActive).map((io) => {
+                        const isBound = (selectedNode.data.ioBindings || []).some(
+                          (b: IoBinding) => b.ioConfigId === io.id
+                        );
+                        return (
+                          <label
+                            key={io.id}
+                            className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors text-sm ${
+                              isBound ? 'bg-indigo-50' : 'hover:bg-gray-50'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isBound}
+                              onChange={() => handleIoTagToggle({
+                                id: io.id,
+                                tagName: io.tagName,
+                                ioType: io.ioType,
+                                dataType: io.dataType,
+                              })}
+                              className="text-indigo-600 rounded focus:ring-indigo-500"
+                            />
+                            <span className={`inline-block w-6 text-center text-[10px] font-bold rounded px-1 ${
+                              io.ioType === 'DI' ? 'bg-green-100 text-green-700' :
+                              io.ioType === 'DO' ? 'bg-orange-100 text-orange-700' :
+                              io.ioType === 'AI' ? 'bg-blue-100 text-blue-700' :
+                              'bg-purple-100 text-purple-700'
+                            }`}>
+                              {io.ioType}
+                            </span>
+                            <span className="flex-1 truncate text-gray-700">{io.tagName}</span>
+                            {io.engUnit && (
+                              <span className="text-xs text-gray-400">{io.engUnit}</span>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {selectedDeviceDetail?.ioConfig && selectedDeviceDetail.ioConfig.filter((io) => io.isActive).length === 0 && (
+                  <p className="text-xs text-gray-500">
+                    No active I/O tags on this device. Configure I/O in device settings.
+                  </p>
+                )}
+              </div>
+            ) : (
+              // Bağlanmamış durumu — device dropdown
+              <div className="space-y-2">
+                <select
+                  onChange={(e) => {
+                    if (e.target.value) handleEdgeDeviceSelect(e.target.value);
+                  }}
+                  value=""
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                >
+                  <option value="">Select Edge Device...</option>
+                  {edgeDevices.map((device) => (
+                    <option key={device.id} value={device.id}>
+                      {device.deviceName} ({device.deviceCode})
+                      {device.isOnline ? ' ●' : ' ○'}
+                    </option>
+                  ))}
+                </select>
+                {edgeDevices.length === 0 && (
+                  <p className="text-xs text-gray-500">
+                    No edge devices registered. Add devices in Edge Device Management.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ===============================================================
+            Control Section (Kemik Yapı — Faz C)
+            Bağlı I/O tag'leri için kontrol butonları:
+            - DO tag'leri → ON/OFF toggle switch
+            - VFD bağlı ise → Start/Stop + hız slider
+            Her DO değişikliği onay dialogu gerektirir (güvenlik).
+            =============================================================== */}
+          {selectedNode.data.ioBindings && selectedNode.data.ioBindings.length > 0 && (
+            <div className="pt-3 border-t border-gray-200">
+              <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+                <Zap className="w-4 h-4" />
+                Output Controls
+              </h5>
+
+              <div className="space-y-2">
+                {/* DO tag'leri için ON/OFF toggle butonları */}
+                {selectedNode.data.ioBindings
+                  .filter((b: IoBinding) => b.ioType === 'DO')
+                  .map((binding: IoBinding) => (
+                    <div
+                      key={binding.ioConfigId}
+                      className="flex items-center justify-between p-2 bg-gray-50 rounded-lg"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block w-6 text-center text-[10px] font-bold rounded px-1 bg-orange-100 text-orange-700">
+                          DO
+                        </span>
+                        <span className="text-sm text-gray-700">{binding.tagName}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {/* OFF butonu */}
+                        <button
+                          onClick={() => handleDoToggleRequest(binding.tagName, binding.ioConfigId, false)}
+                          className="px-2 py-1 text-xs rounded transition-colors bg-red-100 text-red-700 hover:bg-red-200"
+                          title={`${binding.tagName} OFF`}
+                        >
+                          <Square className="w-3 h-3 inline mr-0.5" />
+                          OFF
+                        </button>
+                        {/* ON butonu */}
+                        <button
+                          onClick={() => handleDoToggleRequest(binding.tagName, binding.ioConfigId, true)}
+                          className="px-2 py-1 text-xs rounded transition-colors bg-green-100 text-green-700 hover:bg-green-200"
+                          title={`${binding.tagName} ON`}
+                        >
+                          <Play className="w-3 h-3 inline mr-0.5" />
+                          ON
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                {/* AI/AO tag'leri bilgi gösterimi (sadece okunur) */}
+                {selectedNode.data.ioBindings
+                  .filter((b: IoBinding) => b.ioType === 'AI' || b.ioType === 'AO')
+                  .length > 0 && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Analog tags are read-only in process editor.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+        {/* DO Toggle Onay Dialogu (Kemik Yapı — Faz C — Güvenlik)
+            Kullanıcı bir DO tag'ini ON/OFF yapmak istediğinde
+            onay dialogu gösterilir. Yanlışlıkla aktüatör çalıştırmayı önler. */}
+        {doConfirmDialog?.isOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/30" onClick={() => setDoConfirmDialog(null)} />
+            <div className="relative bg-white rounded-lg shadow-xl p-6 w-80">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle className="w-5 h-5 text-amber-500" />
+                <h4 className="font-semibold text-gray-900">Output Control</h4>
+              </div>
+              <p className="text-sm text-gray-600 mb-4">
+                Set <strong>{doConfirmDialog.tagName}</strong> to{' '}
+                <strong className={doConfirmDialog.newValue ? 'text-green-600' : 'text-red-600'}>
+                  {doConfirmDialog.newValue ? 'ON' : 'OFF'}
+                </strong>?
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setDoConfirmDialog(null)}
+                  className="px-3 py-1.5 text-sm text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDoToggleConfirm}
+                  disabled={doToggleLoading}
+                  className={`px-3 py-1.5 text-sm text-white rounded ${
+                    doConfirmDialog.newValue
+                      ? 'bg-green-600 hover:bg-green-700'
+                      : 'bg-red-600 hover:bg-red-700'
+                  } disabled:opacity-50`}
+                >
+                  {doToggleLoading ? 'Sending...' : 'Confirm'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Equipment Link Dialog */}
         <EquipmentLinkDialog

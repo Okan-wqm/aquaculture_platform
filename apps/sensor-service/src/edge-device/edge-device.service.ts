@@ -1109,4 +1109,93 @@ export class EdgeDeviceService implements OnModuleDestroy {
       throw new BadRequestException(`Failed to send config: ${(error as Error).message}`);
     }
   }
+
+  // ==================== Digital Output Control ====================
+  //
+  // Process editor'dan DO (Digital Output) tag'ini ON/OFF yapmak için.
+  // Güvenlik kontrolleri:
+  //   1. Device var mı ve online mı?
+  //   2. IoConfig gerçekten DO tipinde mi?
+  //   3. MQTT bağlantısı aktif mi?
+  // Edge agent, set_output komutunu alıp fiziksel GPIO/Modbus çıkışını değiştirir.
+  // ================================================================
+
+  /**
+   * Set a digital output value on an edge device
+   * Frontend'den DO kontrolü: ON/OFF toggle
+   *
+   * @param deviceId   - Edge device UUID
+   * @param ioConfigId - DeviceIoConfig UUID (DO tipinde olmalı)
+   * @param value      - true = ON, false = OFF
+   * @param tenantId   - Tenant izolasyonu için
+   */
+  async setDigitalOutput(
+    deviceId: string,
+    ioConfigId: string,
+    value: boolean,
+    tenantId: string,
+  ): Promise<{ success: boolean; error?: string; tagName?: string; value?: boolean }> {
+    // 1. Device'ı bul ve tenant sınırını kontrol et
+    const device = await this.findByIdOrFail(deviceId, tenantId);
+
+    // 2. Device online kontrolü — offline cihaza komut göndermek anlamsız
+    if (!device.isOnline) {
+      return { success: false, error: 'Device is offline — cannot send output command' };
+    }
+
+    // 3. I/O config'i bul ve DO tipi olduğunu doğrula
+    const ioConfig = await this.ioConfigRepository.findOne({
+      where: { id: ioConfigId, deviceId },
+    });
+
+    if (!ioConfig) {
+      return { success: false, error: `I/O config '${ioConfigId}' not found on device` };
+    }
+
+    // Sadece DO (Digital Output) tipine izin ver — güvenlik katmanı
+    if (ioConfig.ioType !== IoType.DO) {
+      return {
+        success: false,
+        error: `Tag '${ioConfig.tagName}' is type '${ioConfig.ioType}', not DO. Only DO tags can be toggled.`,
+      };
+    }
+
+    // 4. MQTT bağlantısını kontrol et
+    const mqtt = this.ensureMqttAvailable();
+
+    const commandId = randomUUID();
+
+    try {
+      // 5. Edge agent'a set_output komutu gönder
+      // Topic: tenants/{tenantId}/devices/{deviceCode}/commands
+      // Agent bu komutu alıp GPIO/Modbus üzerinden fiziksel çıkışı değiştirir
+      await mqtt.publish(
+        `tenants/${device.tenantId}/devices/${device.deviceCode}/commands`,
+        {
+          commandId,
+          command: 'set_output',
+          params: {
+            tag_name: ioConfig.tagName,
+            value,
+            // Agent'ın hangi pini/register'ı kullanacağını bilmesi için
+            gpio_pin: ioConfig.gpioPin,
+            modbus_register: ioConfig.modbusRegister,
+            modbus_slave_id: ioConfig.modbusSlaveId,
+            io_type: ioConfig.ioType,
+          },
+          timestamp: new Date().toISOString(),
+        },
+      );
+
+      this.logger.log(
+        `DO command sent: ${ioConfig.tagName} = ${value} on ${device.deviceCode} (command: ${commandId})`,
+      );
+
+      return { success: true, tagName: ioConfig.tagName, value };
+    } catch (error) {
+      const msg = (error as Error).message;
+      this.logger.error(`Failed to send DO command to ${device.deviceCode}: ${msg}`);
+      return { success: false, error: msg };
+    }
+  }
 }

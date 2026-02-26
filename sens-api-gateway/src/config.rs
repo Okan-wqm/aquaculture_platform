@@ -150,6 +150,7 @@ pub struct AgentConfig {
     /// Provisioning token — zeroized on drop via Secret<String> (IEC 62443 FR4 / MED-30).
     /// Cleared from config after successful activation.
     #[serde(
+        default,
         skip_serializing_if = "Option::is_none",
         serialize_with = "serialize_secret_option",
         deserialize_with = "deserialize_secret_option"
@@ -159,6 +160,7 @@ pub struct AgentConfig {
     /// Tenant provisioning token for self-registration (v2.0) — zeroized on drop.
     /// Cleared after successful self-registration.
     #[serde(
+        default,
         skip_serializing_if = "Option::is_none",
         serialize_with = "serialize_secret_option",
         deserialize_with = "deserialize_secret_option"

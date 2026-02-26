@@ -23,7 +23,7 @@ import {
 } from './dto/provisioning.dto';
 import { ProvisioningService } from './provisioning.service';
 import { SimpleRateLimitGuard, RateLimit } from '../guards/rate-limit.guard';
-import { SkipTenantGuard } from '@platform/backend-common';
+import { Public, SkipTenantGuard } from '@platform/backend-common';
 
 /**
  * Provisioning Controller
@@ -41,6 +41,7 @@ import { SkipTenantGuard } from '@platform/backend-common';
  * are anonymous (no tenant context). Each endpoint has its own validation.
  */
 @Controller()
+@Public()
 @UseGuards(SimpleRateLimitGuard)
 @SkipTenantGuard()
 export class ProvisioningController {

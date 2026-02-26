@@ -859,7 +859,7 @@ impl S7Client {
     }
 
     /// Convert ST program to S7 AWL/MC7 format
-    fn compile_to_mc7(&self, program: &PlcProgram) -> Result<Vec<u8>> {
+    fn compile_to_mc7(&self, _program: &PlcProgram) -> Result<Vec<u8>> {
         // In a real implementation, this would compile ST to MC7 bytecode.
         // For now, we create a placeholder that demonstrates the structure.
         //
@@ -1041,7 +1041,7 @@ impl S7Client {
         }
 
         // Get data length from header
-        let data_length = ((s7[8] as usize) << 8) | s7[9] as usize;
+        let _data_length = ((s7[8] as usize) << 8) | s7[9] as usize;
         let param_length = ((s7[6] as usize) << 8) | s7[7] as usize;
 
         let data_start = 10 + param_length;

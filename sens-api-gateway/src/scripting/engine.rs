@@ -21,7 +21,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use super::{
     Action, ActionResult, ActionType, AlertLevel, ComparisonOperator, Condition, ConditionType,
@@ -1667,13 +1667,13 @@ impl ScriptEngine {
 
     /// Publish MQTT message action
     async fn action_publish_mqtt(&self, action: &Action) -> ActionResult {
-        let message = match &action.message {
+        let _message = match &action.message {
             Some(m) => self.context.interpolate(m),
             None => return ActionResult::failure(ActionType::PublishMqtt, "Missing message"),
         };
 
         // Target is the topic
-        let topic = if action.target.is_empty() {
+        let _topic = if action.target.is_empty() {
             "scripts/output".to_string()
         } else {
             self.context.interpolate(&action.target)

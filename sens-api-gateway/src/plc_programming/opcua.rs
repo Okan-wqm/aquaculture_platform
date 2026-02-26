@@ -759,7 +759,7 @@ impl Variant {
         }
 
         let type_id = data[0];
-        let mut offset = 1;
+        let _offset = 1;
 
         // Check for array flag (bit 7) - decode array elements
         if type_id & 0x80 != 0 {
@@ -1545,7 +1545,7 @@ impl OpcUaClient {
             // The first chunk has: header(8) + security_header(8) + sequence_header(8) + payload
             // Continuation chunks have: header(8) + security_header(8) + sequence_header(8) + payload
             // We concatenate only the payload portions (skip duplicate headers in continuations)
-            let first_payload_start = 24; // 8 (msg header) + 8 (security) + 8 (sequence)
+            let _first_payload_start = 24; // 8 (msg header) + 8 (security) + 8 (sequence)
             let mut total_chunks = 1u32;
             let max_chunks = 1000u32; // Safety limit
 
@@ -2977,7 +2977,7 @@ impl OpcUaClient {
         token_id: Arc<Mutex<u32>>,
         sequence_number: Arc<Mutex<u32>>,
         request_id: Arc<Mutex<u32>>,
-        session_id: Arc<Mutex<Option<Vec<u8>>>>,
+        _session_id: Arc<Mutex<Option<Vec<u8>>>>,
         auth_token: Arc<Mutex<Option<Vec<u8>>>>,
         token_created_at: Arc<Mutex<std::time::Instant>>,
         token_lifetime_ms: Arc<Mutex<u32>>,
@@ -3334,7 +3334,7 @@ impl OpcUaClient {
 
     /// Browse all references from a node, automatically following continuation points
     async fn browse_all(&self, node_id: &NodeId, reference_type: u32) -> Result<Vec<BrowseReference>> {
-        let mut all_refs = self.browse_nodes(node_id, reference_type).await?;
+        let all_refs = self.browse_nodes(node_id, reference_type).await?;
 
         // The initial browse_nodes doesn't return continuation points currently,
         // but if we had one, we'd follow it here. This method serves as a higher-level
@@ -3773,7 +3773,7 @@ impl OpcUaClient {
 
             // NotificationData is an ExtensionObject
             // TypeId
-            let (notif_type_id, consumed) = NodeId::decode(&body[offset..])
+            let (_notif_type_id, consumed) = NodeId::decode(&body[offset..])
                 .unwrap_or((NodeId::null(), 0));
             offset += consumed;
 
@@ -3785,7 +3785,7 @@ impl OpcUaClient {
             if encoding == 0x01 {
                 // Has binary body
                 if body.len() < offset + 4 { break; }
-                let body_len = u32::from_le_bytes([
+                let _body_len = u32::from_le_bytes([
                     body[offset], body[offset + 1], body[offset + 2], body[offset + 3],
                 ]) as usize;
                 offset += 4;
@@ -3976,7 +3976,7 @@ impl PlcProgrammer for OpcUaClient {
 
         // Start background keepalive task
         self.shutdown_signal.store(false, Ordering::Release);
-        let connected_arc = Arc::new(AtomicBool::new(true));
+        let _connected_arc = Arc::new(AtomicBool::new(true));
         // Share the connected state with the keepalive via a cloned reference
         let keepalive_handle = Self::start_keepalive(
             Arc::clone(&self.connection),

@@ -476,7 +476,11 @@ AGENT_VERSION="${safeAgentVersion}"
 if [ "$AGENT_VERSION" = "latest" ]; then
     LATEST_TAG=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep '"tag_name"' | cut -d '"' -f 4)
 else
-    LATEST_TAG="$AGENT_VERSION"
+    # GitHub release tags use "agent-v" prefix (e.g., "agent-v1.0.0")
+    case "$AGENT_VERSION" in
+        agent-v*) LATEST_TAG="$AGENT_VERSION" ;;
+        *)        LATEST_TAG="agent-v$AGENT_VERSION" ;;
+    esac
 fi
 
 if [ -z "$LATEST_TAG" ]; then

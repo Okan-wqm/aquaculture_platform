@@ -292,8 +292,15 @@ export class ProvisioningService {
     // Hash both tokens to get constant-length buffers, preventing length-based timing leaks
     const tokenHash = crypto.createHash('sha256').update(token).digest();
     const storedHash = crypto.createHash('sha256').update(device.provisioningToken || '').digest();
+    // DEBUG: Log token diagnostics (hash prefixes only - no credential exposure)
+    this.logger.debug(
+      `Token check for ${device.deviceCode}: received_len=${token.length}, stored_len=${(device.provisioningToken || '').length}, ` +
+      `received_hash=${tokenHash.toString('hex').substring(0, 12)}, stored_hash=${storedHash.toString('hex').substring(0, 12)}, ` +
+      `received_first4=${token.substring(0, 4)}****, stored_first4=${(device.provisioningToken || '').substring(0, 4)}****`
+    );
     if (!device.provisioningToken || !crypto.timingSafeEqual(tokenHash, storedHash)) {
-      this.logger.warn(`Activation failed: invalid token for device ${device.deviceCode}`);
+      this.logger.warn(`Activation failed: invalid token for device ${device.deviceCode}. ` +
+        `received_hash_prefix=${tokenHash.toString('hex').substring(0, 12)}, stored_hash_prefix=${storedHash.toString('hex').substring(0, 12)}`);
       throw new UnauthorizedException({
         success: false,
         error: 'Invalid provisioning token',

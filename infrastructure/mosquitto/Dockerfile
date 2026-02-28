@@ -10,22 +10,34 @@
 # Eclipse Mosquitto image, enabling HTTP-based authentication
 # against the sensor-service database.
 #
-FROM eclipse-mosquitto:2.0.18
+# NOTE: Uses Debian-based image because mosquitto-go-auth (Go c-shared)
+# is incompatible with Alpine's musl libc (golang/go#54805).
+#
+FROM debian:bookworm-slim
+
+# Install Mosquitto and dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    mosquitto \
+    curl \
+    unzip \
+    netcat-openbsd \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install mosquitto-go-auth plugin
-ARG GO_AUTH_VERSION=2.1.0
+ARG GO_AUTH_VERSION=3.0.0
 ARG TARGETARCH=amd64
 
-# Install required dependencies for the go-auth plugin
-# NOTE: libcurl is kept because go-auth.so links against it at runtime
-USER root
-RUN apk add --no-cache curl libcurl && \
-    ARCH_NAME=${TARGETARCH} && \
-    curl -fsSL "https://github.com/iegomez/mosquitto-go-auth/releases/download/v${GO_AUTH_VERSION}/mosquitto-go-auth_${GO_AUTH_VERSION}_linux_${ARCH_NAME}.tar.gz" \
-    -o /tmp/go-auth.tar.gz && \
-    tar -xzf /tmp/go-auth.tar.gz -C /tmp/ && \
-    cp /tmp/go-auth.so /mosquitto/go-auth.so && \
+RUN ARCH_NAME=${TARGETARCH} && \
+    curl -fsSL "https://github.com/iegomez/mosquitto-go-auth/releases/download/${GO_AUTH_VERSION}/linux-${ARCH_NAME}.zip" \
+    -o /tmp/go-auth.zip && \
+    unzip /tmp/go-auth.zip -d /tmp/go-auth && \
+    find /tmp/go-auth -name "go-auth.so" -exec cp {} /usr/lib/go-auth.so \; && \
     rm -rf /tmp/go-auth*
+
+# Create mosquitto directories
+RUN mkdir -p /mosquitto/config /mosquitto/data /mosquitto/log && \
+    chown -R mosquitto:mosquitto /mosquitto
 
 # Copy HTTP auth configuration
 COPY mosquitto-production.conf /mosquitto/config/mosquitto.conf

@@ -115,6 +115,8 @@ pub struct ActivationResponse {
     pub device_code: String,
     #[serde(default)]
     pub config: Option<serde_json::Value>,
+    #[serde(default)]
+    pub mqtt_tls_enabled: Option<bool>,
 }
 
 /// Error response from cloud API
@@ -158,6 +160,8 @@ pub struct SelfRegisterResponse {
     pub tenant_id: String,
     #[serde(default)]
     pub config: Option<serde_json::Value>,
+    #[serde(default)]
+    pub mqtt_tls_enabled: Option<bool>,
 }
 
 impl ProvisioningClient {

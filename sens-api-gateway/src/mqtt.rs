@@ -630,9 +630,37 @@ impl MqttClient {
         // Note: rumqttc requires explicit CA certificate for TLS validation
         // If no CA cert is provided, return error (security requirement)
         if ca_cert.is_empty() {
-            return Err(anyhow::anyhow!(
-                "TLS enabled but no CA certificate provided. Set mqtt.tls.ca_cert_path in config."
-            ));
+            // No custom CA certificate — use system CA store.
+            // Let's Encrypt certificates are pre-installed on most Linux distributions
+            // including Raspberry Pi OS, so this works out of the box for production.
+            use rustls_native_certs::load_native_certs;
+            let native_certs = load_native_certs();
+            if !native_certs.errors.is_empty() {
+                for err in &native_certs.errors {
+                    warn!("Error loading native certificate: {:?}", err);
+                }
+            }
+            let mut root_store = rumqttc::tokio_rustls::rustls::RootCertStore::empty();
+            for cert in native_certs.certs {
+                if let Err(e) = root_store.add(cert) {
+                    warn!("Failed to add native certificate to root store: {:?}", e);
+                }
+            }
+            if root_store.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "TLS enabled but no CA certificates available (neither custom CA path nor system CA store). \
+                     Ensure system CA certificates are installed (e.g., ca-certificates package)."
+                ));
+            }
+            info!("Loaded {} system CA certificates for MQTT TLS", root_store.len());
+
+            let mut client_config = rumqttc::tokio_rustls::rustls::ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth();
+            client_config.alpn_protocols = vec![b"mqtt".to_vec()];
+
+            let tls = TlsConfiguration::Rustls(Arc::new(client_config));
+            return Ok(Transport::Tls(tls));
         }
 
         let tls = TlsConfiguration::Simple {
@@ -664,6 +692,12 @@ impl MqttClient {
         options.set_credentials(username, password.expose_secret());
         options.set_keep_alive(Duration::from_secs(config.mqtt.keepalive_secs));
         options.set_clean_session(config.mqtt.clean_session);
+
+        // Apply TLS transport if enabled (failover connections must also use TLS)
+        if config.mqtt.tls.enabled {
+            let tls_config = Self::configure_tls(&config.mqtt.tls)?;
+            options.set_transport(tls_config);
+        }
 
         Ok(options)
     }

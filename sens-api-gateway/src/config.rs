@@ -214,7 +214,7 @@ pub struct AgentConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MqttTlsConfig {
     /// Enable TLS encryption
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub enabled: bool,
 
     /// CA certificate path for server verification
@@ -935,7 +935,7 @@ pub struct GpioConfig {
 
 // Default value functions
 fn default_mqtt_port() -> u16 {
-    1883
+    8883
 }
 fn default_keepalive() -> u64 {
     30
@@ -1396,6 +1396,15 @@ impl AgentConfig {
             anyhow::bail!(
                 "Telemetry interval {} is too high: maximum is 3600 seconds (1 hour)",
                 self.telemetry.interval_seconds
+            );
+        }
+
+        // Warn if TLS is disabled in release builds
+        #[cfg(not(debug_assertions))]
+        if !self.mqtt.tls.enabled {
+            warn!(
+                "MQTT TLS is disabled in a release build. This is insecure for production deployments. \
+                 Set mqtt.tls.enabled: true in config.yaml."
             );
         }
 

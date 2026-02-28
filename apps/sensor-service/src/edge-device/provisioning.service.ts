@@ -349,6 +349,7 @@ export class ProvisioningService {
         mqtt_password: mqttPassword,
         tenant_id: device.tenantId,
         device_code: device.deviceCode,
+        mqtt_tls_enabled: config.mqttPort === 8883,
         config: device.config,
       };
     });
@@ -666,6 +667,7 @@ export class ProvisioningService {
       mqtt_username: mqttClientId,
       mqtt_password: mqttPassword,
       tenant_id: key.tenantId,
+      mqtt_tls_enabled: config.mqttPort === 8883,
     };
   }
 

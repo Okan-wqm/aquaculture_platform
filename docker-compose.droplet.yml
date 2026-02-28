@@ -111,26 +111,25 @@ services:
       retries: 6
 
   mosquitto:
-    image: eclipse-mosquitto:2
+    build: ./infrastructure/mosquitto
     container_name: aqua-mosquitto
     restart: unless-stopped
+    # Inject MQTT_AUTH_SECRET into mosquitto config at startup (replaces placeholder)
+    entrypoint: ["/bin/sh", "-c", "sed -i \"s|__MQTT_AUTH_SECRET__|$MQTT_AUTH_SECRET|g\" /mosquitto/config/mosquitto.conf && exec mosquitto -c /mosquitto/config/mosquitto.conf"]
+    environment:
+      MQTT_AUTH_SECRET: ${MQTT_AUTH_SECRET:?MQTT_AUTH_SECRET required}
     volumes:
-      - ./infrastructure/mosquitto/mosquitto-production.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
-    ports:
-      - "1883:1883"
-      - "9001:9001"
     networks:
       - aqua-internal
-      - aqua-network
     deploy:
       resources:
         limits:
-          memory: 64M
+          memory: 128M
           cpus: '0.15'
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_pub -h localhost -p 1883 -t 'healthcheck' -m 'ok' 2>/dev/null || exit 1"]
+      test: ["CMD-SHELL", "nc -z localhost 1883 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -352,9 +351,10 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
-      MQTT_AUTH_SECRET: ${MQTT_AUTH_SECRET:-default-mqtt-secret}
-      MQTT_BROKER_HOST: mosquitto
-      MQTT_BROKER_PORT: 1883
+      MQTT_AUTH_MODE: http
+      MQTT_AUTH_SECRET: ${MQTT_AUTH_SECRET:?MQTT_AUTH_SECRET required}
+      MQTT_BROKER_HOST: app.suderra.com
+      MQTT_BROKER_PORT: 8883
       MQTT_BROKER_URL: mqtt://mosquitto:1883
       EDGE_AGENT_GITHUB_REPO: Okan-wqm/aquaculture_platform
       PROVISIONING_API_BASE_URL: ${PROVISIONING_API_BASE_URL:-https://app.suderra.com}
@@ -845,6 +845,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "8883:8883"
     volumes:
       - ./infrastructure/nginx/droplet.conf:/etc/nginx/nginx.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
@@ -852,6 +853,7 @@ services:
     depends_on:
       - gateway-api
       - shell
+      - mosquitto
     networks:
       - aqua-network
       - aqua-internal

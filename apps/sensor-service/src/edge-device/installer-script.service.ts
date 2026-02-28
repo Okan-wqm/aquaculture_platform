@@ -13,6 +13,7 @@ export interface ProvisioningConfig {
   agentVersion: string;
   githubRepo: string;
   githubReleaseUrl: string;
+  mqttTlsEnabled: boolean;
 }
 
 /**
@@ -28,6 +29,7 @@ export class InstallerScriptService {
   private readonly AGENT_VERSION: string;
   private readonly MQTT_BROKER: string;
   private readonly MQTT_PORT: number;
+  private readonly MQTT_TLS_ENABLED: boolean;
   /** Pinned GitHub repo — never overridden by remote config to prevent supply-chain attacks */
   private readonly PINNED_GITHUB_REPO: string;
 
@@ -38,8 +40,13 @@ export class InstallerScriptService {
   constructor(private readonly configService: ConfigService) {
     this.API_BASE_URL = this.configService.get<string>('PROVISIONING_API_BASE_URL', 'http://localhost:3000');
     this.AGENT_VERSION = this.configService.get<string>('AGENT_VERSION', 'latest');
-    this.MQTT_BROKER = this.configService.get<string>('MQTT_BROKER_HOST', 'localhost');
-    this.MQTT_PORT = this.configService.get<number>('MQTT_BROKER_PORT', 1883);
+    // Public broker host for edge agents (external access). Falls back to MQTT_BROKER_HOST
+    // which may be an internal Docker hostname — override with MQTT_PUBLIC_BROKER_HOST in production.
+    const apiBaseUrl = this.configService.get<string>('PROVISIONING_API_BASE_URL', 'http://localhost:3000');
+    const defaultPublicHost = (() => { try { return new URL(apiBaseUrl).hostname; } catch { return 'localhost'; } })();
+    this.MQTT_BROKER = this.configService.get<string>('MQTT_PUBLIC_BROKER_HOST', defaultPublicHost);
+    this.MQTT_PORT = Number(this.configService.get('MQTT_BROKER_PORT', 1883));
+    this.MQTT_TLS_ENABLED = Number(this.configService.get('MQTT_BROKER_PORT', 1883)) === 8883;
     // Pin the GitHub repo from env var to prevent the admin API from redirecting
     // edge agent downloads to an attacker-controlled repository (MED-07)
     this.PINNED_GITHUB_REPO = this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/aquaculture_platform');
@@ -88,6 +95,7 @@ export class InstallerScriptService {
           // Always use the pinned value — never trust the remote config for the repo URL
           githubRepo: this.PINNED_GITHUB_REPO,
           githubReleaseUrl: `https://github.com/${this.PINNED_GITHUB_REPO}/releases`,
+          mqttTlsEnabled: config.mqttTlsEnabled ?? this.MQTT_TLS_ENABLED,
         };
         this.configCacheExpiry = new Date(Date.now() + this.CONFIG_CACHE_TTL_MS);
         return this.cachedConfig;
@@ -105,6 +113,7 @@ export class InstallerScriptService {
       // Always use the pinned repo, even in fallback path
       githubRepo: this.PINNED_GITHUB_REPO,
       githubReleaseUrl: `https://github.com/${this.PINNED_GITHUB_REPO}/releases`,
+      mqttTlsEnabled: this.MQTT_TLS_ENABLED,
     };
     this.cachedConfig = fallbackConfig;
     this.configCacheExpiry = new Date(Date.now() + 15000); // 15s TTL for fallback
@@ -201,6 +210,8 @@ provisioning_token: "${safeProvisioningToken}"
 mqtt:
   broker: "${safeMqttBroker}"
   port: ${safeMqttPort}
+  tls:
+    enabled: true
   keepalive_secs: 60
   clean_session: false
 
@@ -292,6 +303,8 @@ tenant_token: "${safeTenantToken}"
 mqtt:
   broker: "${safeMqttBroker}"
   port: ${safeMqttPort}
+  tls:
+    enabled: true
   keepalive_secs: 60
   clean_session: false
 

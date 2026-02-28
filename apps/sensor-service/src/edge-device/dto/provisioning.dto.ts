@@ -175,6 +175,7 @@ export interface DeviceActivationResponse {
   mqtt_password: string;
   tenant_id: string;
   device_code: string;
+  mqtt_tls_enabled?: boolean;
   config?: Record<string, unknown>;
 }
 
@@ -314,6 +315,7 @@ export interface SelfRegisterResponse {
   mqtt_username: string;
   mqtt_password: string;
   tenant_id: string;
+  mqtt_tls_enabled?: boolean;
   config?: Record<string, unknown>;
 }
 

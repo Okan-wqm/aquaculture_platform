@@ -29,6 +29,9 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 # MQTT client — uses rustls by default (no OpenSSL dependency)
 rumqttc = "0.25"
 
+# System CA store for TLS (Let's Encrypt certs are pre-installed on most Linux systems)
+rustls-native-certs = "0.8"
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }

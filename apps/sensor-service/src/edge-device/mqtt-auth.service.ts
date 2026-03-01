@@ -171,14 +171,28 @@ export class MqttAuthService implements OnModuleInit {
       return this.configService.get('NODE_ENV') !== 'production';
     }
 
-    // Tenant-scoped topics: tenants/{tenant_id}/devices/{device_username}/...
+    // Tenant-scoped topics: tenants/{tenant_id}/devices/{device_identifier}/...
+    // device_identifier can be either mqttClientId (e.g. "edge-c2447348-pi-a36c09d4")
+    // or device UUID (e.g. "0cfb7dad-9d5d-4309-82b0-fe7c378caa8d").
+    // The edge agent uses device UUID in topic paths while authenticating with mqttClientId.
     const tenantTopicMatch = topic.match(/^tenants\/([a-f0-9-]+)\/devices\/([^/]+)\//);
     if (tenantTopicMatch && tenantTopicMatch[1] && tenantTopicMatch[2]) {
       const topicTenantId = tenantTopicMatch[1];
       const topicDeviceId = tenantTopicMatch[2];
 
-      // Device can only access its own device namespace
-      if (topicDeviceId !== username) {
+      // Device can only access its own device namespace.
+      // Match by mqttClientId (username) OR by device UUID (looked up from DB).
+      let isOwnDevice = topicDeviceId === username;
+      if (!isOwnDevice) {
+        // Topic uses device UUID — verify the UUID belongs to this mqttClientId
+        const device = await this.deviceRepository.findOne({
+          where: { mqttClientId: username },
+          select: ['id'],
+        });
+        isOwnDevice = !!device && device.id === topicDeviceId;
+      }
+
+      if (!isOwnDevice) {
         return false;
       }
 

@@ -599,6 +599,11 @@ impl MqttClient {
     fn configure_tls(tls_config: &crate::config::MqttTlsConfig) -> Result<Transport> {
         use rumqttc::TlsConfiguration;
 
+        // rustls 0.23+ requires explicit CryptoProvider when both ring and aws-lc-rs
+        // are compiled in. Install ring (portable, good ARM cross-compilation support).
+        // install_default() returns Err if already installed — ignore that.
+        let _ = rumqttc::tokio_rustls::rustls::crypto::ring::default_provider().install_default();
+
         // Read CA certificate for server verification
         let ca_cert = if let Some(ref ca_path) = tls_config.ca_cert_path {
             let ca_bytes = std::fs::read(ca_path)

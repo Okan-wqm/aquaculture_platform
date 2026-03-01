@@ -128,14 +128,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus | null,
     @Optional()
+    @Inject(EdgeDeviceService)
     private readonly edgeDeviceService: EdgeDeviceService | null,
     @Optional()
+    @Inject(SensorTopicCacheService)
     private readonly sensorTopicCache: SensorTopicCacheService | null,
-    @Inject(MqttClientService)
-    private readonly mqttClient: MqttClientService,
     @Optional()
+    @Inject(MqttClientService)
+    private readonly mqttClient: MqttClientService | null,
+    @Optional()
+    @Inject(DeploymentLogService)
     private readonly deploymentLogService: DeploymentLogService | null,
     @Optional()
+    @Inject(AutomationService)
     private readonly automationService: AutomationService | null,
   ) {
     // Bind message handler to this instance

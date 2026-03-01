@@ -845,7 +845,12 @@ async fn run_agent(
                         state_guard.config.mqtt.username = Some(response.mqtt_username);
                         state_guard.config.mqtt.password =
                             Some(secrecy::Secret::new(response.mqtt_password));
+                        // Enable TLS if the server indicated it (port 8883)
+                        if response.mqtt_tls_enabled.unwrap_or(response.mqtt_port == 8883) {
+                            state_guard.config.mqtt.tls.enabled = true;
+                        }
                         state_guard.tenant_id = Some(response.tenant_id.clone());
+                        state_guard.config.tenant_id = Some(response.tenant_id);
                         state_guard.is_activated = true;
 
                         // SECURITY: Clear provisioning token from memory

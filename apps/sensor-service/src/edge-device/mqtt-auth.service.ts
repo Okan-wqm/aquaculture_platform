@@ -156,6 +156,11 @@ export class MqttAuthService implements OnModuleInit {
    * @param acc - Access type: 1=subscribe, 2=publish
    */
   async checkTopicAccess(username: string, topic: string, acc: number): Promise<boolean> {
+    // acc=4 is explicit deny from Mosquitto — always reject
+    if (acc === 4) {
+      return false;
+    }
+
     // Service accounts: per-topic-pattern grants scoped to tenants
     if (this.serviceAccountNames.has(username)) {
       return this.checkServiceAccountAccess(username, topic, acc);
@@ -240,8 +245,13 @@ export class MqttAuthService implements OnModuleInit {
       case 'sensor_service':
         // sensor_service: read/write on tenant-scoped sensor and device topics
         if (isTenantTopic) return true;
+        // Wildcard subscription patterns (acc=1 subscribe, acc=3 subscribe+publish)
+        if ((acc === 1 || acc === 3) && /^tenants\/\+\/devices\/\+\//.test(topic)) return true;
         // Legacy topics during migration
-        if (topic.startsWith('sensor/') || topic.startsWith('edge/')) return true;
+        if (topic.startsWith('sensor/') || topic.startsWith('sensors/') || topic.startsWith('edge/')) return true;
+        if (topic.startsWith('aquaculture/')) return true;
+        // Wildcard legacy patterns
+        if (topic.includes('+') && (acc === 1 || acc === 3)) return true;
         // $SYS read-only for monitoring
         if (topic.startsWith('$SYS/') && acc === 1) return true;
         return false;

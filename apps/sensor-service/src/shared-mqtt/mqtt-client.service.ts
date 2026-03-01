@@ -67,10 +67,18 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // Connect in background - don't fail service startup if broker unavailable
-    this.connect().catch((error) => {
-      this.logger.warn(`MQTT broker unavailable at startup: ${error.message}. Will retry in background.`);
-    });
+    // Delay MQTT connection to allow HTTP server to fully start first.
+    // go-auth calls back to our /mqtt/auth endpoint during CONNECT,
+    // so the HTTP server must be listening before we attempt MQTT connection.
+    const startupDelayMs = 5000;
+    this.logger.log(`Delaying MQTT connection by ${startupDelayMs}ms to ensure HTTP server is ready`);
+    setTimeout(() => {
+      if (this.isShuttingDown) return;
+      this.connect().catch((error) => {
+        this.logger.warn(`MQTT broker unavailable at startup: ${error.message}. Will retry in background.`);
+        this.scheduleReconnect();
+      });
+    }, startupDelayMs);
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -161,8 +169,8 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
         this.connectionState = MqttConnectionState.DISCONNECTED;
         this.logger.warn('MQTT connection closed');
 
-        // Trigger reconnection if we were previously connected
-        if (wasConnected && !this.isShuttingDown) {
+        // Trigger reconnection for any unexpected close (not just after successful connection)
+        if (!this.isShuttingDown) {
           this.scheduleReconnect();
         }
       });

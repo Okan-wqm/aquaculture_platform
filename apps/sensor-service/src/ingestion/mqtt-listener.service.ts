@@ -162,8 +162,18 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     // Register as message handler
     this.mqttClient.addMessageHandler(this.messageHandler);
 
-    // Subscribe to topics
-    await this.subscribeToTopics();
+    // If MQTT client is already connected, subscribe now; otherwise wait for connection
+    if (this.mqttClient.isConnectedToBroker()) {
+      await this.subscribeToTopics();
+    } else {
+      this.logger.log('MQTT client not yet connected, will subscribe when connection is established');
+      this.mqttClient.onConnected(() => {
+        this.logger.log('MQTT client connected — subscribing to topics now');
+        this.subscribeToTopics().catch((err) => {
+          this.logger.error(`Failed to subscribe after deferred connect: ${err}`);
+        });
+      });
+    }
 
     // Start lastSeenAt flush timer
     this.lastSeenFlushTimer = setInterval(() => {

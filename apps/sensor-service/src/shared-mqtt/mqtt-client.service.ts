@@ -56,6 +56,7 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   private circuitResetTimeout: NodeJS.Timeout | null = null;
   private readonly circuitResetDelayMs = 300000; // 5 minutes circuit breaker reset
   private isShuttingDown = false;
+  private connectCallbacks: Array<() => void | Promise<void>> = [];
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -149,9 +150,13 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
 
         // Resubscribe to previously subscribed topics (await for reliability)
         this.resubscribeToTopics()
-          .then(() => resolve())
+          .then(() => {
+            this.fireConnectCallbacks();
+            resolve();
+          })
           .catch((err) => {
             this.logger.error(`Failed to resubscribe: ${err.message}`);
+            this.fireConnectCallbacks();
             resolve(); // Don't fail connection for subscription errors
           });
       });
@@ -261,6 +266,30 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
    */
   getConnectionState(): MqttConnectionState {
     return this.connectionState;
+  }
+
+  /**
+   * Register a callback to be invoked when MQTT connection is established.
+   * If already connected, the callback is invoked immediately.
+   */
+  onConnected(callback: () => void | Promise<void>): void {
+    if (this.connectionState === MqttConnectionState.CONNECTED) {
+      Promise.resolve(callback()).catch((err) =>
+        this.logger.error(`onConnected callback error: ${err}`),
+      );
+    } else {
+      this.connectCallbacks.push(callback);
+    }
+  }
+
+  private fireConnectCallbacks(): void {
+    const callbacks = [...this.connectCallbacks];
+    this.connectCallbacks = [];
+    for (const cb of callbacks) {
+      Promise.resolve(cb()).catch((err) =>
+        this.logger.error(`Connect callback error: ${err}`),
+      );
+    }
   }
 
   /**

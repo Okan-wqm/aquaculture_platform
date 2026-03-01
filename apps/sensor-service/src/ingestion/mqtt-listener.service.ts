@@ -733,7 +733,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     deviceCode: string,
     payload: TenantEdgeStatusPayload,
   ): Promise<void> {
-    const isOnline = payload.online ?? payload.isOnline ?? payload.status === 'online' ?? false;
+    const isOnline = payload.online ?? payload.isOnline ?? (payload.status === 'online');
 
     if (isOnline) {
       this.logger.log(`Tenant ${tenantId} edge device online: ${deviceCode}`);

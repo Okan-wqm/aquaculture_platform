@@ -131,8 +131,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     private readonly edgeDeviceService: EdgeDeviceService | null,
     @Optional()
     private readonly sensorTopicCache: SensorTopicCacheService | null,
-    @Optional()
-    private readonly mqttClient: MqttClientService | null,
+    @Inject(MqttClientService)
+    private readonly mqttClient: MqttClientService,
     @Optional()
     private readonly deploymentLogService: DeploymentLogService | null,
     @Optional()

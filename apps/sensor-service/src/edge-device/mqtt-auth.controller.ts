@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Public, SkipTenantGuard } from '@platform/backend-common';
 
 import { SimpleRateLimitGuard, RateLimit } from '../guards/rate-limit.guard';
 import { MqttAuthService } from './mqtt-auth.service';
@@ -45,6 +46,8 @@ class MqttAuthDeniedException extends HttpException {
  * Response convention: HTTP 200 = allowed, HTTP 403 = denied
  */
 @Controller('mqtt')
+@Public()
+@SkipTenantGuard()
 @UseGuards(SimpleRateLimitGuard)
 export class MqttAuthController {
   private readonly logger = new Logger(MqttAuthController.name);

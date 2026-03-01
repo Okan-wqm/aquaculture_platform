@@ -500,7 +500,12 @@ export class EdgeDeviceService implements OnModuleDestroy {
    * Update device heartbeat (called from MQTT listener)
    */
   async updateHeartbeat(heartbeat: DeviceHeartbeat): Promise<EdgeDevice | null> {
-    const whereCondition: Record<string, unknown> = { deviceCode: heartbeat.deviceCode };
+    // Device identifier from MQTT topic can be either deviceCode (e.g. "PI-A36C09D4")
+    // or device UUID (e.g. "0cfb7dad-..."). The edge agent uses UUID in topic paths.
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(heartbeat.deviceCode);
+    const whereCondition: Record<string, unknown> = isUuid
+      ? { id: heartbeat.deviceCode }
+      : { deviceCode: heartbeat.deviceCode };
     if (heartbeat.tenantId) {
       whereCondition.tenantId = heartbeat.tenantId;
     }
@@ -528,8 +533,11 @@ export class EdgeDeviceService implements OnModuleDestroy {
     // Update connection quality based on frequency of heartbeats
     device.connectionQuality = heartbeat.isOnline ? 100 : 0;
 
-    // Transition state from OFFLINE if coming back online
-    if (heartbeat.isOnline && device.lifecycleState === DeviceLifecycleState.OFFLINE) {
+    // Transition to ACTIVE when device comes online from OFFLINE or PROVISIONING state
+    if (heartbeat.isOnline && (
+      device.lifecycleState === DeviceLifecycleState.OFFLINE ||
+      device.lifecycleState === DeviceLifecycleState.PROVISIONING
+    )) {
       device.lifecycleState = DeviceLifecycleState.ACTIVE;
     }
 

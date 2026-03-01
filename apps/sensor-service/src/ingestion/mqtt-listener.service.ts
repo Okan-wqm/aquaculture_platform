@@ -83,6 +83,8 @@ interface TenantEdgeTelemetryPayload {
 interface TenantEdgeStatusPayload {
   online?: boolean;
   isOnline?: boolean;
+  /** Edge agent sends status as string: "online" | "offline" | "maintenance" | "error" */
+  status?: string;
   timestamp?: string;
 }
 
@@ -731,7 +733,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     deviceCode: string,
     payload: TenantEdgeStatusPayload,
   ): Promise<void> {
-    const isOnline = payload.online ?? payload.isOnline ?? false;
+    const isOnline = payload.online ?? payload.isOnline ?? payload.status === 'online' ?? false;
 
     if (isOnline) {
       this.logger.log(`Tenant ${tenantId} edge device online: ${deviceCode}`);

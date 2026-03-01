@@ -59,14 +59,15 @@ export class MqttAuthController {
   ) {
     this.mqttAuthSecret = this.configService.get<string>('MQTT_AUTH_SECRET');
 
-    // MQTT_AUTH_SECRET must be set in production to prevent unauthorized access
-    const nodeEnv = this.configService.get<string>('NODE_ENV');
-    if (!this.mqttAuthSecret && nodeEnv === 'production') {
-      this.logger.error('MQTT_AUTH_SECRET is not set in production — MQTT auth endpoints are unprotected');
-      throw new Error('MQTT_AUTH_SECRET must be configured in production environments');
-    }
-    if (!this.mqttAuthSecret) {
-      this.logger.warn('MQTT_AUTH_SECRET is not set — MQTT auth endpoints are unprotected (acceptable in development only)');
+    // Note: mosquitto-go-auth does NOT support custom HTTP headers (auth_opt_http_headers
+    // is not a real config option). The shared secret validation is only effective when
+    // a reverse proxy or custom MQTT auth client injects the header. For the default
+    // go-auth HTTP backend, security relies on Docker network isolation (only Mosquitto
+    // can reach these endpoints on the internal network).
+    if (this.mqttAuthSecret) {
+      this.logger.log('MQTT_AUTH_SECRET is configured — header validation enabled for clients that send X-Mosquitto-Auth');
+    } else {
+      this.logger.warn('MQTT_AUTH_SECRET is not set — relying on Docker network isolation for MQTT auth endpoint security');
     }
   }
 
@@ -75,8 +76,21 @@ export class MqttAuthController {
    * If MQTT_AUTH_SECRET is configured, the X-Mosquitto-Auth header must match.
    * If not configured, skip validation (development only).
    */
+  /**
+   * Validate the shared secret from Mosquitto (when available).
+   *
+   * mosquitto-go-auth does NOT support auth_opt_http_headers, so the header
+   * is only present when a custom proxy or client sends it. When the header
+   * is absent we allow the request through — security is provided by Docker
+   * network isolation (only Mosquitto on the internal network can reach this
+   * endpoint; Nginx does NOT proxy /mqtt/* to the outside).
+   */
   private validateMosquittoSecret(headers: Record<string, string>): void {
-    if (this.mqttAuthSecret && headers['x-mosquitto-auth'] !== this.mqttAuthSecret) {
+    if (!this.mqttAuthSecret) return;
+
+    const headerValue = headers['x-mosquitto-auth'];
+    // If the header IS present, it must match (prevents misuse from other internal services)
+    if (headerValue && headerValue !== this.mqttAuthSecret) {
       throw new MqttAuthDeniedException();
     }
   }

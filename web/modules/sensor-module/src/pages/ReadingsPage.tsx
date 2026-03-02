@@ -294,7 +294,7 @@ const DeviceGroupCard: React.FC<{
                     <td className="px-6 py-4 text-right">
                       {reading ? (
                         <span className="font-semibold text-gray-900">
-                          {reading.value.toFixed(2)} <span className="text-gray-500 font-normal">{reading.unit}</span>
+                          {(reading.value ?? 0).toFixed(2)} <span className="text-gray-500 font-normal">{reading.unit}</span>
                         </span>
                       ) : (
                         <span className="text-gray-400">-</span>
@@ -359,7 +359,7 @@ const StandaloneSensorCard: React.FC<{
           {reading ? (
             <>
               <p className="text-xl font-bold text-gray-900">
-                {reading.value.toFixed(2)} <span className="text-sm font-normal text-gray-500">{reading.unit}</span>
+                {(reading.value ?? 0).toFixed(2)} <span className="text-sm font-normal text-gray-500">{reading.unit}</span>
               </p>
               <StatusBadge status={reading.status} />
             </>

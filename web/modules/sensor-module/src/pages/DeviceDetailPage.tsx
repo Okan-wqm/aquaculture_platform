@@ -486,7 +486,7 @@ const DeviceDetailPage: React.FC = () => {
                       {new Date(reading.timestamp).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
                     </span>
                     <span className="font-medium text-gray-900">
-                      {reading.value.toFixed(2)} {unit}
+                      {(reading.value ?? 0).toFixed(2)} {unit}
                     </span>
                   </div>
                 ))

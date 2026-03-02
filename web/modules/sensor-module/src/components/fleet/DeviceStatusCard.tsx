@@ -267,7 +267,7 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
               label="Storage"
               icon={<HardDrive size={14} />}
             />
-            {device.temperatureCelsius !== undefined && (
+            {device.temperatureCelsius != null && (
               <div className="flex items-center gap-2">
                 <div className="text-gray-400 w-5">
                   <Thermometer size={14} />

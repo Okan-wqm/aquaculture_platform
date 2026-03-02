@@ -689,12 +689,13 @@ log "[3/7] Downloading edge-agent from GitHub..."
 # Get latest release tag or use pinned version
 AGENT_VERSION="${safeAgentVersion}"
 if [ "$AGENT_VERSION" = "latest" ]; then
-    LATEST_TAG=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep '"tag_name"' | cut -d '"' -f 4)
+    # Fetch most recent release tag (any prefix: v*, agent-v*)
+    LATEST_TAG=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases?per_page=10" | grep '"tag_name"' | head -1 | cut -d '"' -f 4)
 else
-    # GitHub release tags use "agent-v" prefix (e.g., "agent-v1.0.0")
+    # GitHub release tags may use "agent-v" or "v" prefix
     case "$AGENT_VERSION" in
-        agent-v*) LATEST_TAG="$AGENT_VERSION" ;;
-        *)        LATEST_TAG="agent-v$AGENT_VERSION" ;;
+        agent-v*|v*) LATEST_TAG="$AGENT_VERSION" ;;
+        *)           LATEST_TAG="agent-v$AGENT_VERSION" ;;
     esac
 fi
 

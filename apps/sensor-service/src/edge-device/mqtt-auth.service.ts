@@ -251,8 +251,8 @@ export class MqttAuthService implements OnModuleInit {
         // Legacy topics during migration
         if (topic.startsWith('sensor/') || topic.startsWith('sensors/') || topic.startsWith('edge/')) return true;
         if (topic.startsWith('aquaculture/')) return true;
-        // Wildcard legacy patterns
-        if (topic.includes('+') && (acc === 1 || acc === 3)) return true;
+        // Wildcard subscription patterns for known topic prefixes
+        if ((acc === 1 || acc === 3) && /^(sensors|edge|aquaculture|tenants)\//.test(topic)) return true;
         // $SYS read-only for monitoring
         if (topic.startsWith('$SYS/') && acc === 1) return true;
         return false;

@@ -716,11 +716,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       deviceCode,
       tenantId,
       isOnline: true,
-      cpuUsage: m.cpu_usage_percent ?? m.cpuUsage,
-      memoryUsage: m.memory_usage_percent ?? m.memoryUsage,
-      storageUsage: m.disk_usage_percent ?? m.storageUsage,
+      cpuUsage: m.cpu_usage_percent != null ? Math.round(m.cpu_usage_percent) : m.cpuUsage,
+      memoryUsage: m.memory_usage_percent != null ? Math.round(m.memory_usage_percent) : m.memoryUsage,
+      storageUsage: m.disk_usage_percent != null ? Math.round(m.disk_usage_percent) : m.storageUsage,
       temperatureCelsius: m.temperature_celsius ?? m.temperatureCelsius,
-      uptimeSeconds: m.uptime_secs ?? m.uptimeSeconds,
+      uptimeSeconds: m.uptime_secs != null ? Math.round(m.uptime_secs) : m.uptimeSeconds,
       firmwareVersion: m.agent_version ?? m.firmwareVersion,
     };
 

@@ -169,7 +169,7 @@ export class MqttAuthController {
     const isAllowed = await this.mqttAuthService.checkTopicAccess(username, topic, Number(acc));
 
     if (!isAllowed) {
-      this.logger.debug(`MQTT ACL denied: user=${username} topic=${topic} acc=${acc}`);
+      this.logger.warn(`MQTT ACL denied: user=${username} topic=${topic} acc=${acc}`);
       throw new MqttAuthDeniedException();
     }
 

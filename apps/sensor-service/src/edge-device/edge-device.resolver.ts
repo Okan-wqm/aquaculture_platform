@@ -30,6 +30,7 @@ import {
   SetDigitalOutputResult,
   HardwareScanResultType,
   BulkAddIoConfigResult,
+  DeviceInstallCommands,
 } from './dto/edge-device.dto';
 import {
   CreateProvisionedDeviceInput,
@@ -127,6 +128,19 @@ export class EdgeDeviceResolver {
     @Tenant() tenantId: string,
   ): Promise<EdgeDeviceStats> {
     return await this.edgeDeviceService.getStats(tenantId);
+  }
+
+  /**
+   * Get install/uninstall commands for a device
+   * Always available in device settings tab
+   */
+  @Query(() => DeviceInstallCommands, { name: 'deviceInstallCommands' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async getDeviceInstallCommands(
+    @Args('deviceId', { type: () => ID }) deviceId: string,
+    @Tenant() tenantId: string,
+  ): Promise<DeviceInstallCommands> {
+    return await this.edgeDeviceService.getInstallCommands(deviceId, tenantId);
   }
 
   // ==================== Mutations ====================

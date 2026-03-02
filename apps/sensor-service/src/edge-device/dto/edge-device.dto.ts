@@ -352,6 +352,26 @@ export class SetDigitalOutputResult {
   value?: boolean;
 }
 
+// ==================== Install Commands ====================
+
+/**
+ * Install/uninstall commands for edge device setup
+ */
+@ObjectType()
+export class DeviceInstallCommands {
+  @Field({ description: 'curl command to install the agent' })
+  installCommand!: string;
+
+  @Field({ description: 'curl command to uninstall the agent' })
+  uninstallCommand!: string;
+
+  @Field({ description: 'Direct URL to the install script' })
+  installUrl!: string;
+
+  @Field({ description: 'Direct URL to the uninstall script' })
+  uninstallUrl!: string;
+}
+
 // ==================== I/O Auto-Detection (v2.3) ====================
 
 @ObjectType()

@@ -24,6 +24,7 @@ import {
   SET_DIGITAL_OUTPUT_MUTATION,
   SCAN_HARDWARE_MUTATION,
   BULK_ADD_IO_CONFIG_MUTATION,
+  DEVICE_INSTALL_COMMANDS_QUERY,
 } from '../graphql/edge-device.queries';
 
 // ==================== Types ====================
@@ -246,6 +247,15 @@ export interface UpdateIoConfigInput {
   alarmLL?: number;
   deadband?: number;
   isActive?: boolean;
+}
+
+// ==================== Install Commands Types ====================
+
+export interface DeviceInstallCommands {
+  installCommand: string;
+  uninstallCommand: string;
+  installUrl: string;
+  uninstallUrl: string;
 }
 
 // ==================== Provisioning Types ====================
@@ -762,6 +772,30 @@ export function useBulkAddIoConfig() {
     onSuccess: (_, { deviceId }) => {
       queryClient.invalidateQueries({ queryKey: ['edgeDevice', deviceId] });
     },
+  });
+}
+
+// ==================== Install Commands Hook ====================
+
+/**
+ * Hook to fetch install/uninstall commands for a device
+ * Used in device settings tab
+ */
+export function useDeviceInstallCommands(deviceId: string) {
+  const { token } = useAuth();
+
+  return useQuery({
+    queryKey: ['deviceInstallCommands', deviceId],
+    queryFn: async () => {
+      const data = await graphqlFetch<{ deviceInstallCommands: DeviceInstallCommands }>(
+        DEVICE_INSTALL_COMMANDS_QUERY,
+        { deviceId },
+        token
+      );
+      return data.deviceInstallCommands;
+    },
+    staleTime: 60000, // 1 minute — commands don't change often
+    enabled: !!token && !!deviceId,
   });
 }
 

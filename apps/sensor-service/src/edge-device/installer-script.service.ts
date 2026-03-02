@@ -352,6 +352,130 @@ log ""
     );
   }
 
+  /**
+   * Build uninstall URL for a specific device
+   */
+  async buildUninstallUrl(deviceCode: string): Promise<string> {
+    const config = await this.getProvisioningConfig();
+    return `${config.apiBaseUrl}/install/${deviceCode}/uninstall`;
+  }
+
+  /**
+   * Build uninstall command for a specific device
+   */
+  async buildUninstallCommand(deviceCode: string): Promise<string> {
+    const url = await this.buildUninstallUrl(deviceCode);
+    return `curl -sSL "${url}" | sudo bash`;
+  }
+
+  /**
+   * Render uninstall script for removing the edge agent from a device
+   */
+  renderUninstallScript(deviceCode?: string): string {
+    const safeDeviceCode = deviceCode ? this.sanitizeForShell(deviceCode) : '';
+    const now = new Date().toISOString();
+
+    return `#!/bin/bash
+set -euo pipefail
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Suderra Edge Agent Uninstaller
+${safeDeviceCode ? `#  Device: ${safeDeviceCode}\n` : ''}#  Generated: ${now}
+# ══════════════════════════════════════════════════════════════════════════════
+
+INSTALL_DIR="/opt/suderra"
+CONFIG_DIR="/etc/suderra"
+DATA_DIR="/var/lib/suderra"
+LOG_DIR="/var/log/suderra"
+SERVICE="suderra-agent"
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"; }
+
+log "╔══════════════════════════════════════════════════════════════╗"
+log "║           Suderra Edge Agent Uninstaller                    ║"
+log "╚══════════════════════════════════════════════════════════════╝"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 1: Root Check
+# ─────────────────────────────────────────────────────────────────────────────
+if [ "$(id -u)" -ne 0 ]; then
+    log "ERROR: This script must be run as root"
+    exit 1
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 2: Stop and Disable Service
+# ─────────────────────────────────────────────────────────────────────────────
+log "[1/5] Stopping $SERVICE service..."
+if systemctl is-active "$SERVICE" &>/dev/null; then
+    systemctl stop "$SERVICE"
+    log "Service stopped"
+else
+    log "Service was not running"
+fi
+
+if systemctl is-enabled "$SERVICE" &>/dev/null; then
+    systemctl disable "$SERVICE"
+    log "Service disabled"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 3: Remove Service File
+# ─────────────────────────────────────────────────────────────────────────────
+log "[2/5] Removing systemd service..."
+if [ -f "/etc/systemd/system/$SERVICE.service" ]; then
+    rm -f "/etc/systemd/system/$SERVICE.service"
+    systemctl daemon-reload
+    log "Service file removed and daemon reloaded"
+else
+    log "Service file not found (already removed)"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 4: Remove Files and Directories
+# ─────────────────────────────────────────────────────────────────────────────
+log "[3/5] Removing files and directories..."
+
+for dir in "$INSTALL_DIR" "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"; do
+    if [ -d "$dir" ]; then
+        rm -rf "$dir"
+        log "Removed $dir"
+    fi
+done
+
+# Remove install log
+if [ -f "/var/log/suderra-install.log" ]; then
+    rm -f "/var/log/suderra-install.log"
+    log "Removed install log"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 5: Remove Service User
+# ─────────────────────────────────────────────────────────────────────────────
+log "[4/5] Removing suderra user..."
+if id suderra &>/dev/null; then
+    userdel suderra 2>/dev/null || true
+    log "User 'suderra' removed"
+else
+    log "User 'suderra' not found (already removed)"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Done
+# ─────────────────────────────────────────────────────────────────────────────
+log "[5/5] Cleanup complete"
+
+log ""
+log "══════════════════════════════════════════════════════════════════════════════"
+log "                    UNINSTALL COMPLETE!"
+log "══════════════════════════════════════════════════════════════════════════════"
+log ""
+log "  The Suderra Edge Agent has been completely removed from this device."
+log "  Removed: binary, config, data, logs, service, and user."
+log ""
+`;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Shared script fragment helpers
   // ═══════════════════════════════════════════════════════════════════════════

@@ -299,6 +299,23 @@ export const REGENERATE_DEVICE_TOKEN_MUTATION = `
   }
 `;
 
+// ==================== Install Commands ====================
+
+/**
+ * Get install/uninstall commands for a device
+ * Used in device settings tab to show installer commands
+ */
+export const DEVICE_INSTALL_COMMANDS_QUERY = `
+  query DeviceInstallCommands($deviceId: ID!) {
+    deviceInstallCommands(deviceId: $deviceId) {
+      installCommand
+      uninstallCommand
+      installUrl
+      uninstallUrl
+    }
+  }
+`;
+
 // ==================== Digital Output Control (Kemik Yapı — Faz C) ====================
 // Process editor'dan DO (Digital Output) tag'ini ON/OFF yapmak için
 // Backend'deki setDigitalOutput mutation'ını çağırır.

@@ -16,6 +16,7 @@ import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
 
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
+import { InstallerScriptService } from './installer-script.service';
 import { DeviceIoConfig, IoType, IoDataType } from './entities/device-io-config.entity';
 import {
   EdgeDevice,
@@ -207,6 +208,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     @Optional()
     @Inject(MqttClientService)
     private readonly mqttClient: MqttClientService | null,
+    private readonly installerScriptService: InstallerScriptService,
   ) {
     // Start periodic cleanup of stale pending pings
     this.startPendingPingsCleanup();
@@ -754,6 +756,35 @@ export class EdgeDeviceService implements OnModuleDestroy {
     return await this.ioConfigRepository.findOne({
       where: { deviceId, tagName },
     });
+  }
+
+  // ==================== Install Commands ====================
+
+  /**
+   * Get install and uninstall commands for a device.
+   * Used by the frontend device settings tab to display commands.
+   */
+  async getInstallCommands(
+    deviceId: string,
+    tenantId: string,
+  ): Promise<{
+    installCommand: string;
+    uninstallCommand: string;
+    installUrl: string;
+    uninstallUrl: string;
+  }> {
+    const device = await this.findByIdOrFail(deviceId, tenantId);
+
+    // Build install URL/command — use token if available (not yet activated)
+    const token = (device as any).provisioningToken || undefined;
+    const installUrl = await this.installerScriptService.buildInstallerUrl(device.deviceCode, token);
+    const installCommand = await this.installerScriptService.buildInstallerCommand(device.deviceCode, token);
+
+    // Build uninstall URL/command — always available
+    const uninstallUrl = await this.installerScriptService.buildUninstallUrl(device.deviceCode);
+    const uninstallCommand = await this.installerScriptService.buildUninstallCommand(device.deviceCode);
+
+    return { installCommand, uninstallCommand, installUrl, uninstallUrl };
   }
 
   // ==================== MQTT Command Methods ====================

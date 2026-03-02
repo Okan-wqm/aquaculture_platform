@@ -38,6 +38,8 @@ import {
   X,
   Upload,
   Search,
+  Copy,
+  Download,
 } from 'lucide-react';
 import {
   useEdgeDevice,
@@ -60,6 +62,7 @@ import {
   IoDataType,
   useScanHardware,
   useBulkAddIoConfig,
+  useDeviceInstallCommands,
   type EdgeDevice,
   type DeviceIoConfig,
   type AddIoConfigInput,
@@ -1175,6 +1178,110 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
 };
 
 // ============================================================================
+// Install Commands Section — Device Settings Tab
+// ============================================================================
+
+interface InstallCommandsSectionProps {
+  deviceId: string;
+}
+
+const InstallCommandsSection: React.FC<InstallCommandsSectionProps> = ({ deviceId }) => {
+  const { data: commands, isLoading } = useDeviceInstallCommands(deviceId);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const handleCopy = useCallback(async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    }
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div className="flex items-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+          <span className="text-sm text-gray-500">Kurulum komutlari yukleniyor...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!commands) return null;
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Download className="w-5 h-5 text-gray-600" />
+        <h3 className="text-lg font-semibold text-gray-900">Kurulum Komutlari</h3>
+      </div>
+
+      <div className="space-y-4">
+        {/* Install Command */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Kurulum Komutu (Install)
+          </label>
+          <div className="relative group">
+            <pre className="bg-gray-900 text-green-400 rounded-lg p-4 pr-12 text-sm font-mono overflow-x-auto whitespace-pre-wrap break-all">
+              {commands.installCommand}
+            </pre>
+            <button
+              onClick={() => handleCopy(commands.installCommand, 'install')}
+              className="absolute top-3 right-3 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white transition-colors"
+              title="Kopyala"
+            >
+              {copiedField === 'install' ? (
+                <CheckCircle className="w-4 h-4 text-green-400" />
+              ) : (
+                <Copy className="w-4 h-4" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Uninstall Command */}
+        <div>
+          <label className="block text-sm font-medium text-red-700 mb-1.5">
+            Kaldirma Komutu (Uninstall)
+          </label>
+          <div className="relative group">
+            <pre className="bg-gray-900 text-red-400 rounded-lg p-4 pr-12 text-sm font-mono overflow-x-auto whitespace-pre-wrap break-all border border-red-900/30">
+              {commands.uninstallCommand}
+            </pre>
+            <button
+              onClick={() => handleCopy(commands.uninstallCommand, 'uninstall')}
+              className="absolute top-3 right-3 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white transition-colors"
+              title="Kopyala"
+            >
+              {copiedField === 'uninstall' ? (
+                <CheckCircle className="w-4 h-4 text-green-400" />
+              ) : (
+                <Copy className="w-4 h-4" />
+              )}
+            </button>
+          </div>
+          <p className="mt-1.5 text-xs text-red-600">
+            Bu komut cihazdan Suderra Edge Agent'i tamamen kaldirir (binary, config, data, servis).
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
 // Edge Device Detail Page
 // ============================================================================
 
@@ -1453,6 +1560,9 @@ const EdgeDeviceDetailPage: React.FC = () => {
       {/* CONFIG TAB */}
       {activeTab === 'config' && (
         <div className="space-y-6">
+          {/* Install Commands */}
+          <InstallCommandsSection deviceId={device.id} />
+
           {/* Tags */}
           {device.tags && device.tags.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">

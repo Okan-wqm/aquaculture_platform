@@ -490,6 +490,14 @@ export class ProvisioningService {
     };
   }
 
+  /**
+   * Generate uninstall script for a device.
+   * No token required — the script only performs local cleanup.
+   */
+  async generateUninstallScript(deviceCode: string): Promise<string> {
+    return this.installerScriptService.renderUninstallScript(deviceCode);
+  }
+
   // ============================================
   // Tenant-Level Provisioning (v2.0) - Delegated
   // ============================================

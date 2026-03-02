@@ -460,13 +460,13 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private async handleEdgeResponse(deviceCode: string, payload: EdgeResponsePayload, tenantId?: string): Promise<void> {
     this.logger.debug(`Edge response from ${deviceCode}: ${JSON.stringify(payload)}`);
 
-    // Route ping responses to EdgeDeviceService for promise resolution
-    if (payload.command === 'ping' && this.edgeDeviceService) {
+    // Edge agent's CommandResponse does NOT include a "command" field —
+    // only commandId, deviceId, success, result, error, timestamp.
+    // Route by commandId: try all pending promise maps (ping, scan).
+    if (this.edgeDeviceService && payload.commandId) {
+      // Try ping first (most common)
       this.edgeDeviceService.handlePingResponse(deviceCode, payload as Record<string, unknown>);
-    }
-
-    // v2.3: Route scan_hardware responses for promise resolution
-    if (payload.command === 'scan_hardware' && this.edgeDeviceService) {
+      // Try scan_hardware
       this.edgeDeviceService.handleScanHardwareResponse(
         deviceCode,
         payload as Record<string, unknown>,

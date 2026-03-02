@@ -43,11 +43,11 @@ jobs:
 
       - name: Build (native)
         if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --features gpio --target ${{ matrix.target }}
 
       - name: Build (cross)
         if: matrix.target != 'x86_64-unknown-linux-gnu'
-        run: cross build --release --target ${{ matrix.target }}
+        run: cross build --release --features gpio --target ${{ matrix.target }}
 
       - name: Package
         run: |

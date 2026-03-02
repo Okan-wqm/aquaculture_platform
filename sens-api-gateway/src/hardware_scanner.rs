@@ -105,7 +105,7 @@ pub struct DiscoveredIo {
     /// Bus type: "i2c" | "spi" | "uart" (None for GPIO-based channels)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bus_type: Option<String>,
-    /// I2C bus number (0 or 1)
+    /// I2C bus number (0-7)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub i2c_bus: Option<u8>,
     /// I2C device address (0x03..0x77)
@@ -311,7 +311,7 @@ impl HardwareScanner {
         let rppal_available = cfg!(feature = "gpio");
 
         // Count I2C buses
-        let i2c_bus_count = (0u8..=1)
+        let i2c_bus_count = (0u8..=7)
             .filter(|bus| Path::new(&format!("/dev/i2c-{}", bus)).exists())
             .count();
 
@@ -854,14 +854,15 @@ impl HardwareScanner {
     // I2C Bus Scanning
     // ========================================================================
 
-    /// Scan I2C buses (0 and 1) for connected devices.
+    /// Scan I2C buses (0-7) for connected devices.
     ///
-    /// Uses rppal I2C to probe addresses 0x03..=0x77 on each available bus.
-    /// Returns empty Vec on non-Linux or when compiled without the "gpio" feature.
+    /// Uses rppal I2C (with `gpio` feature) or i2cdetect command (fallback)
+    /// to probe addresses 0x03..=0x77 on each available bus.
     fn scan_i2c_buses(&self) -> Vec<I2cBusScanInfo> {
         let mut results = Vec::new();
 
-        for bus_num in 0u8..=1 {
+        // Scan buses 0-7 to cover SBCs with multiple I2C controllers / muxes
+        for bus_num in 0u8..=7 {
             let dev_path = format!("/dev/i2c-{}", bus_num);
             if !Path::new(&dev_path).exists() {
                 continue;
@@ -919,10 +920,97 @@ impl HardwareScanner {
         devices
     }
 
-    /// Fallback for non-gpio builds: return empty device list.
+    /// Fallback for non-gpio builds: use i2cdetect command to probe I2C bus.
+    /// Uses absolute path to prevent PATH injection (same pattern as piTest).
     #[cfg(not(feature = "gpio"))]
-    fn probe_i2c_bus(&self, _bus: u8) -> Vec<I2cDeviceInfo> {
-        Vec::new()
+    fn probe_i2c_bus(&self, bus: u8) -> Vec<I2cDeviceInfo> {
+        use std::process::Command;
+
+        // Try absolute path first, fall back to PATH lookup
+        let i2cdetect = if Path::new("/usr/sbin/i2cdetect").exists() {
+            "/usr/sbin/i2cdetect"
+        } else if Path::new("/usr/bin/i2cdetect").exists() {
+            "/usr/bin/i2cdetect"
+        } else {
+            "i2cdetect"
+        };
+
+        let output = match Command::new(i2cdetect)
+            .args(["-y", &bus.to_string()])
+            .output()
+        {
+            Ok(o) => o,
+            Err(e) => {
+                warn!("i2cdetect not available for bus {}: {}", bus, e);
+                return Vec::new();
+            }
+        };
+
+        if !output.status.success() {
+            warn!("i2cdetect failed for bus {}: {}", bus,
+                  String::from_utf8_lossy(&output.stderr));
+            return Vec::new();
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        Self::parse_i2cdetect_output(&stdout)
+    }
+
+    /// Parse i2cdetect -y output into I2cDeviceInfo list.
+    ///
+    /// Output format:
+    /// ```text
+    ///      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+    /// 00:          -- -- -- -- -- -- -- -- -- -- -- -- --
+    /// 10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+    /// 20: -- -- -- -- -- -- -- 27 -- -- -- -- -- -- -- --
+    /// 70: -- -- -- -- -- -- 76 --
+    /// ```
+    ///
+    /// The 00: row starts at column 3 (addresses 0x03-0x0f), all other rows
+    /// have 16 columns (0x0-0xf offset from row base).
+    fn parse_i2cdetect_output(stdout: &str) -> Vec<I2cDeviceInfo> {
+        let mut devices = Vec::new();
+
+        for line in stdout.lines() {
+            let line = line.trim();
+            let Some(colon_pos) = line.find(':') else {
+                continue;
+            };
+            let row_prefix = &line[..colon_pos];
+            let Ok(row_base) = u8::from_str_radix(row_prefix.trim(), 16) else {
+                continue;
+            };
+
+            // Parse each token after the colon.
+            // i2cdetect tokens are hex addresses ("27", "76") or placeholders ("--", "UU").
+            // We use the token value itself as the address (not column position)
+            // because the 00: row has a variable number of columns.
+            for token in line[colon_pos + 1..].split_whitespace() {
+                if token == "--" || token == "UU" {
+                    continue;
+                }
+                if let Ok(addr) = u8::from_str_radix(token, 16) {
+                    // Sanity check: address should be in the same row
+                    if addr >= row_base && addr < row_base.saturating_add(16)
+                        && addr >= 0x03 && addr <= 0x77
+                    {
+                        let known = identify_i2c_device(addr);
+                        devices.push(I2cDeviceInfo {
+                            address: addr,
+                            address_hex: format!("0x{:02X}", addr),
+                            device_name: known.map(|(name, _, _, _)| name.to_string()),
+                            device_description: known.map(|(_, desc, _, _)| desc.to_string()),
+                        });
+                    }
+                }
+            }
+        }
+
+        if !devices.is_empty() {
+            info!("i2cdetect found {} devices", devices.len());
+        }
+        devices
     }
 
     /// Convert an I2C bus scan result into DiscoveredIo entries.
@@ -933,16 +1021,16 @@ impl HardwareScanner {
             let known = identify_i2c_device(device.address);
             let (tag_name, io_type, data_type, description) = match known {
                 Some((name, desc, io, dt)) => (
-                    name.to_string(),
+                    format!("{}_B{}_{}", name, bus_info.bus, device.address_hex),
                     io.to_string(),
                     dt.to_string(),
-                    format!("I2C-{} @ 0x{:02X}: {}", bus_info.bus, device.address, desc),
+                    format!("I2C-{} @ {}: {}", bus_info.bus, device.address_hex, desc),
                 ),
                 None => (
-                    format!("I2C_{}_{}", bus_info.bus, device.address_hex),
+                    format!("I2C_B{}_{}", bus_info.bus, device.address_hex),
                     "AI".to_string(),
                     "FLOAT32".to_string(),
-                    format!("Unknown I2C device @ bus {} addr 0x{:02X}", bus_info.bus, device.address),
+                    format!("Unknown I2C device @ bus {} addr {}", bus_info.bus, device.address_hex),
                 ),
             };
 

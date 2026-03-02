@@ -571,6 +571,84 @@ if [ -f "$CONFIG_DIR/config.yaml" ]; then
     cp "$CONFIG_DIR/config.yaml" "$CONFIG_DIR/config.yaml.bak.$(date +%s)"
     log "Backed up existing configuration"
 fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 1b: Enable Hardware Interfaces (I2C, SPI, UART)
+# ─────────────────────────────────────────────────────────────────────────────
+log "Enabling hardware interfaces (I2C, SPI, UART)..."
+
+# Install i2c-tools for bus scanning
+if ! command -v i2cdetect &>/dev/null; then
+    log "Installing i2c-tools..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq 2>/dev/null
+    apt-get install -y -qq i2c-tools 2>/dev/null && log "i2c-tools installed" || log "WARNING: Could not install i2c-tools"
+fi
+
+# Load kernel modules for I2C and SPI
+for mod in i2c-dev spidev; do
+    modprobe "$mod" 2>/dev/null && log "Loaded $mod module" || true
+done
+
+# Ensure modules load on boot
+for mod in i2c-dev spidev; do
+    if ! grep -q "^$mod" /etc/modules 2>/dev/null; then
+        echo "$mod" >> /etc/modules
+    fi
+done
+
+# Raspberry Pi: enable I2C, SPI, UART in config.txt
+NEEDS_REBOOT=false
+for cfg in /boot/firmware/config.txt /boot/config.txt; do
+    if [ -f "$cfg" ]; then
+        log "Configuring hardware interfaces in $cfg..."
+        # Enable I2C
+        if grep -q "^#.*dtparam=i2c_arm" "$cfg" 2>/dev/null; then
+            sed -i 's/^#.*dtparam=i2c_arm.*/dtparam=i2c_arm=on/' "$cfg"
+            NEEDS_REBOOT=true
+        elif ! grep -q "^dtparam=i2c_arm" "$cfg" 2>/dev/null; then
+            echo "dtparam=i2c_arm=on" >> "$cfg"
+            NEEDS_REBOOT=true
+        fi
+        # Enable SPI
+        if grep -q "^#.*dtparam=spi" "$cfg" 2>/dev/null; then
+            sed -i 's/^#.*dtparam=spi.*/dtparam=spi=on/' "$cfg"
+            NEEDS_REBOOT=true
+        elif ! grep -q "^dtparam=spi" "$cfg" 2>/dev/null; then
+            echo "dtparam=spi=on" >> "$cfg"
+            NEEDS_REBOOT=true
+        fi
+        # Enable UART
+        if grep -q "^#.*enable_uart" "$cfg" 2>/dev/null; then
+            sed -i 's/^#.*enable_uart.*/enable_uart=1/' "$cfg"
+            NEEDS_REBOOT=true
+        elif ! grep -q "^enable_uart" "$cfg" 2>/dev/null; then
+            echo "enable_uart=1" >> "$cfg"
+            NEEDS_REBOOT=true
+        fi
+        log "Hardware interfaces enabled in $cfg"
+        break
+    fi
+done
+
+# Create spi group if it doesn't exist
+if ! getent group spi &>/dev/null; then
+    groupadd -r spi 2>/dev/null || true
+fi
+
+# Add udev rules for hardware access
+cat > /etc/udev/rules.d/99-suderra-hw.rules << 'UDEVEOF'
+# Suderra Edge Agent — hardware interface access
+SUBSYSTEM=="i2c-dev", GROUP="i2c", MODE="0660"
+SUBSYSTEM=="spidev", GROUP="spi", MODE="0660"
+KERNEL=="ttyAMA[0-9]*|ttyS[0-9]*|ttyUSB[0-9]*|ttyACM[0-9]*", GROUP="dialout", MODE="0660"
+UDEVEOF
+udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger 2>/dev/null || true
+
+if [ "$NEEDS_REBOOT" = true ]; then
+    log "NOTE: Hardware changes require a reboot to take full effect"
+fi
 `;
   }
 
@@ -683,7 +761,7 @@ elif [ "$(id -u suderra)" -ge 1000 ]; then
     log "WARNING: suderra user exists as regular user (UID=$(id -u suderra)), securing..."
     usermod --shell /usr/sbin/nologin suderra
 fi
-for grp in dialout gpio i2c; do
+for grp in dialout gpio i2c spi; do
     getent group "$grp" &>/dev/null && usermod -aG "$grp" suderra 2>/dev/null || true
 done
 chown -R suderra:suderra "$DATA_DIR"

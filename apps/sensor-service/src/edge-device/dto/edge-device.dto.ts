@@ -134,6 +134,24 @@ export class AddIoConfigInput {
   gpioMode?: string;
 
   @Field({ nullable: true })
+  busType?: string;
+
+  @Field(() => Int, { nullable: true })
+  i2cBus?: number;
+
+  @Field(() => Int, { nullable: true })
+  i2cAddress?: number;
+
+  @Field(() => Int, { nullable: true })
+  spiBus?: number;
+
+  @Field(() => Int, { nullable: true })
+  spiCs?: number;
+
+  @Field({ nullable: true })
+  uartPort?: string;
+
+  @Field({ nullable: true })
   invertValue?: boolean;
 
   @Field(() => Float, { nullable: true })
@@ -336,6 +354,54 @@ export class SetDigitalOutputResult {
 
 // ==================== I/O Auto-Detection (v2.3) ====================
 
+@ObjectType()
+export class I2cDeviceInfo {
+  @Field(() => Int, { description: 'I2C device address (0x03-0x77)' })
+  address!: number;
+
+  @Field({ description: 'Hex representation of address (e.g. "0x76")' })
+  addressHex!: string;
+
+  @Field({ nullable: true, description: 'Known device name (e.g. "BME280")' })
+  deviceName?: string;
+
+  @Field({ nullable: true, description: 'Device description' })
+  deviceDescription?: string;
+}
+
+@ObjectType()
+export class I2cBusScanInfo {
+  @Field(() => Int, { description: 'I2C bus number (e.g. 0 or 1)' })
+  bus!: number;
+
+  @Field(() => Int, { description: 'Number of devices found on this bus' })
+  deviceCount!: number;
+
+  @Field(() => [I2cDeviceInfo], { description: 'Devices found on this bus' })
+  devices!: I2cDeviceInfo[];
+}
+
+@ObjectType()
+export class SpiBusInfo {
+  @Field({ description: 'Device path (e.g. "/dev/spidev0.0")' })
+  devicePath!: string;
+
+  @Field(() => Int, { description: 'SPI bus number' })
+  bus!: number;
+
+  @Field(() => Int, { description: 'Chip select number' })
+  chipSelect!: number;
+}
+
+@ObjectType()
+export class UartPortInfo {
+  @Field({ description: 'Device path (e.g. "/dev/ttyAMA0")' })
+  devicePath!: string;
+
+  @Field({ description: 'Port type: hardware, software, usb-serial, usb-acm' })
+  portType!: string;
+}
+
 /**
  * A single I/O channel discovered via hardware scan.
  * Maps to the Rust agent's `DiscoveredIo` struct.
@@ -366,6 +432,27 @@ export class DiscoveredIoChannel {
 
   @Field({ description: 'Discovery source: picontrol, gpiochip, sysfs' })
   source!: string;
+
+  @Field({ nullable: true, description: 'Bus type: i2c, spi, uart' })
+  busType?: string;
+
+  @Field(() => Int, { nullable: true, description: 'I2C bus number' })
+  i2cBus?: number;
+
+  @Field(() => Int, { nullable: true, description: 'I2C device address' })
+  i2cAddress?: number;
+
+  @Field({ nullable: true, description: 'Known I2C device name' })
+  i2cDeviceName?: string;
+
+  @Field(() => Int, { nullable: true, description: 'SPI bus number' })
+  spiBus?: number;
+
+  @Field(() => Int, { nullable: true, description: 'SPI chip select' })
+  spiCs?: number;
+
+  @Field({ nullable: true, description: 'UART port path' })
+  uartPort?: string;
 }
 
 /**
@@ -388,6 +475,15 @@ export class HardwareScanResultType {
 
   @Field(() => Int, { description: 'Total number of I/O channels found' })
   totalFound!: number;
+
+  @Field(() => [I2cBusScanInfo], { nullable: true, description: 'I2C bus scan results' })
+  i2cBuses?: I2cBusScanInfo[];
+
+  @Field(() => [SpiBusInfo], { nullable: true, description: 'SPI bus info' })
+  spiBuses?: SpiBusInfo[];
+
+  @Field(() => [UartPortInfo], { nullable: true, description: 'UART port info' })
+  uartPorts?: UartPortInfo[];
 }
 
 /**

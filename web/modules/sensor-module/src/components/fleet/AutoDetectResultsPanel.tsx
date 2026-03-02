@@ -34,6 +34,8 @@ import {
   CheckCircle,
   X,
   Cpu,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 
 import type {
@@ -100,6 +102,28 @@ const IoTypeBadge: React.FC<{ ioType: string }> = ({ ioType }) => (
 );
 
 // ============================================================================
+// Source Badge (I2C / SPI / UART / GPIO / piControl / sysfs)
+// ============================================================================
+
+const sourceBadgeConfig: Record<string, { label: string; color: string }> = {
+  picontrol: { label: 'piControl', color: 'bg-purple-100 text-purple-800' },
+  gpiochip: { label: 'GPIO', color: 'bg-green-100 text-green-800' },
+  sysfs: { label: 'sysfs', color: 'bg-blue-100 text-blue-800' },
+  i2c: { label: 'I2C', color: 'bg-indigo-100 text-indigo-800' },
+  spi: { label: 'SPI', color: 'bg-violet-100 text-violet-800' },
+  uart: { label: 'UART', color: 'bg-rose-100 text-rose-800' },
+};
+
+const SourceBadge: React.FC<{ source: string }> = ({ source }) => {
+  const config = sourceBadgeConfig[source] ?? { label: source, color: 'bg-gray-100 text-gray-600' };
+  return (
+    <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${config.color}`}>
+      {config.label}
+    </span>
+  );
+};
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -124,6 +148,7 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
 
   const [importResult, setImportResult] = useState<BulkAddIoConfigResult | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   // Channels that can be selected (not already existing)
   const selectableChannels = useMemo(
@@ -132,6 +157,37 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
   );
 
   const allSelected = selectedTags.size === selectableChannels.length && selectableChannels.length > 0;
+
+  // Group channels by source for collapsible sections
+  const sourceOrder = ['picontrol', 'gpiochip', 'sysfs', 'i2c', 'spi', 'uart'];
+  const groupedChannels = useMemo(() => {
+    const groups = new Map<string, DiscoveredIoChannel[]>();
+    for (const ch of scanResult.discoveredChannels) {
+      const source = ch.source || 'unknown';
+      if (!groups.has(source)) groups.set(source, []);
+      groups.get(source)!.push(ch);
+    }
+    const sorted: Array<[string, DiscoveredIoChannel[]]> = [];
+    for (const src of sourceOrder) {
+      if (groups.has(src)) {
+        sorted.push([src, groups.get(src)!]);
+        groups.delete(src);
+      }
+    }
+    for (const [src, chs] of groups) {
+      sorted.push([src, chs]);
+    }
+    return sorted;
+  }, [scanResult.discoveredChannels]);
+
+  const toggleGroup = useCallback((source: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(source)) next.delete(source);
+      else next.add(source);
+      return next;
+    });
+  }, []);
 
   // Toggle a single channel
   const toggleChannel = useCallback((tagName: string) => {
@@ -176,6 +232,12 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
       moduleAddress: ch.moduleAddress,
       channel: ch.channel,
       gpioPin: ch.gpioPin,
+      busType: ch.busType,
+      i2cBus: ch.i2cBus,
+      i2cAddress: ch.i2cAddress,
+      spiBus: ch.spiBus,
+      spiCs: ch.spiCs,
+      uartPort: ch.uartPort,
     }));
 
     try {
@@ -272,49 +334,106 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {scanResult.discoveredChannels.map((ch) => {
-              const exists = existingTagNames.has(ch.tagName);
-              const isSelected = selectedTags.has(ch.tagName);
-
+            {groupedChannels.map(([source, channels]) => {
+              const isCollapsed = collapsedGroups.has(source);
               return (
-                <tr
-                  key={`${ch.tagName}-${ch.channel}`}
-                  className={`${exists ? 'opacity-50 bg-gray-50' : 'hover:bg-gray-50 cursor-pointer'}`}
-                  onClick={() => !exists && toggleChannel(ch.tagName)}
-                >
-                  <td className="px-3 py-2">
-                    {exists ? (
-                      <span className="text-gray-300">—</span>
-                    ) : isSelected ? (
-                      <CheckSquare className="w-4 h-4 text-cyan-600" />
-                    ) : (
-                      <Square className="w-4 h-4 text-gray-300" />
-                    )}
-                  </td>
-                  <td className="px-3 py-2 font-medium text-gray-900">{ch.tagName}</td>
-                  <td className="px-3 py-2"><IoTypeBadge ioType={ch.ioType} /></td>
-                  <td className="px-3 py-2 text-gray-600 font-mono text-xs">{ch.dataType}</td>
-                  <td className="px-3 py-2 text-gray-600">
-                    {ch.moduleAddress}/{ch.channel}
-                    {ch.gpioPin != null && <span className="text-gray-400 ml-1">(GPIO {ch.gpioPin})</span>}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
-                      {ch.source}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    {exists ? (
-                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">
-                        Zaten mevcut
-                      </span>
-                    ) : (
-                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">
-                        Yeni
-                      </span>
-                    )}
-                  </td>
-                </tr>
+                <React.Fragment key={source}>
+                  <tr
+                    className="bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => toggleGroup(source)}
+                  >
+                    <td colSpan={7} className="px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        {isCollapsed ? (
+                          <ChevronRight className="w-4 h-4 text-gray-400" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-gray-400" />
+                        )}
+                        <SourceBadge source={source} />
+                        <span className="text-xs text-gray-500">
+                          {channels.length} kanal
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                  {!isCollapsed && channels.map((ch) => {
+                    const exists = existingTagNames.has(ch.tagName);
+                    const isSelected = selectedTags.has(ch.tagName);
+
+                    // Build module/channel display based on source/busType
+                    let moduleChannelDisplay: React.ReactNode;
+                    if (ch.source === 'i2c' || ch.busType === 'i2c') {
+                      const addrHex = ch.i2cAddress != null
+                        ? `0x${ch.i2cAddress.toString(16).toUpperCase().padStart(2, '0')}`
+                        : '?';
+                      moduleChannelDisplay = (
+                        <>
+                          Bus {ch.i2cBus ?? '?'} @ {addrHex}
+                          {ch.i2cDeviceName && (
+                            <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-indigo-50 text-indigo-600">
+                              {ch.i2cDeviceName}
+                            </span>
+                          )}
+                        </>
+                      );
+                    } else if (ch.source === 'spi' || ch.busType === 'spi') {
+                      moduleChannelDisplay = (
+                        <>Bus {ch.spiBus ?? '?'} CS{ch.spiCs ?? '?'}</>
+                      );
+                    } else if (ch.source === 'uart' || ch.busType === 'uart') {
+                      moduleChannelDisplay = (
+                        <>{ch.uartPort ?? '?'}</>
+                      );
+                    } else {
+                      moduleChannelDisplay = (
+                        <>
+                          {ch.moduleAddress}/{ch.channel}
+                          {ch.gpioPin != null && (
+                            <span className="text-gray-400 ml-1">(GPIO {ch.gpioPin})</span>
+                          )}
+                        </>
+                      );
+                    }
+
+                    return (
+                      <tr
+                        key={`${ch.tagName}-${ch.channel}`}
+                        className={`${exists ? 'opacity-50 bg-gray-50' : 'hover:bg-gray-50 cursor-pointer'}`}
+                        onClick={() => !exists && toggleChannel(ch.tagName)}
+                      >
+                        <td className="px-3 py-2">
+                          {exists ? (
+                            <span className="text-gray-300">--</span>
+                          ) : isSelected ? (
+                            <CheckSquare className="w-4 h-4 text-cyan-600" />
+                          ) : (
+                            <Square className="w-4 h-4 text-gray-300" />
+                          )}
+                        </td>
+                        <td className="px-3 py-2 font-medium text-gray-900">{ch.tagName}</td>
+                        <td className="px-3 py-2"><IoTypeBadge ioType={ch.ioType} /></td>
+                        <td className="px-3 py-2 text-gray-600 font-mono text-xs">{ch.dataType}</td>
+                        <td className="px-3 py-2 text-gray-600">
+                          {moduleChannelDisplay}
+                        </td>
+                        <td className="px-3 py-2">
+                          <SourceBadge source={ch.source} />
+                        </td>
+                        <td className="px-3 py-2">
+                          {exists ? (
+                            <span className="text-[11px] px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">
+                              Zaten mevcut
+                            </span>
+                          ) : (
+                            <span className="text-[11px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">
+                              Yeni
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
               );
             })}
           </tbody>

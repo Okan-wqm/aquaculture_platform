@@ -218,6 +218,12 @@ export interface AddIoConfigInput {
   modbusRegister?: number;
   gpioPin?: number;
   gpioMode?: string;
+  busType?: string;
+  i2cBus?: number;
+  i2cAddress?: number;
+  spiBus?: number;
+  spiCs?: number;
+  uartPort?: string;
   invertValue?: boolean;
   alarmHH?: number;
   alarmH?: number;
@@ -645,6 +651,37 @@ export interface DiscoveredIoChannel {
   description?: string;
   gpioPin?: number;
   source: string;
+  busType?: string;
+  i2cBus?: number;
+  i2cAddress?: number;
+  i2cDeviceName?: string;
+  spiBus?: number;
+  spiCs?: number;
+  uartPort?: string;
+}
+
+export interface I2cDeviceInfo {
+  address: number;
+  addressHex: string;
+  deviceName?: string;
+  deviceDescription?: string;
+}
+
+export interface I2cBusScanInfo {
+  bus: number;
+  deviceCount: number;
+  devices: I2cDeviceInfo[];
+}
+
+export interface SpiBusInfo {
+  devicePath: string;
+  bus: number;
+  chipSelect: number;
+}
+
+export interface UartPortInfo {
+  devicePath: string;
+  portType: string;
 }
 
 /**
@@ -656,6 +693,9 @@ export interface HardwareScanResult {
   platform: string;
   discoveredChannels: DiscoveredIoChannel[];
   totalFound: number;
+  i2cBuses?: I2cBusScanInfo[];
+  spiBuses?: SpiBusInfo[];
+  uartPorts?: UartPortInfo[];
 }
 
 /**

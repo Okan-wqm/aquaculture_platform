@@ -71,6 +71,12 @@ export interface AddIoConfigInput {
   modbusRegister?: number;
   gpioPin?: number;
   gpioMode?: string;
+  busType?: string;
+  i2cBus?: number;
+  i2cAddress?: number;
+  spiBus?: number;
+  spiCs?: number;
+  uartPort?: string;
   invertValue?: boolean;
   alarmHH?: number;
   alarmH?: number;
@@ -1436,6 +1442,38 @@ export class EdgeDeviceService implements OnModuleDestroy {
       description: (io.description as string) ?? '',
       gpioPin: (io.gpio_pin as number | undefined) ?? undefined,
       source: (io.source as string) ?? 'unknown',
+      busType: (io.bus_type as string | undefined) ?? undefined,
+      i2cBus: (io.i2c_bus as number | undefined) ?? undefined,
+      i2cAddress: (io.i2c_address as number | undefined) ?? undefined,
+      i2cDeviceName: (io.i2c_device_name as string | undefined) ?? undefined,
+      spiBus: (io.spi_bus as number | undefined) ?? undefined,
+      spiCs: (io.spi_cs as number | undefined) ?? undefined,
+      uartPort: (io.uart_port as string | undefined) ?? undefined,
+    }));
+
+    // Map I2C bus info
+    const i2cBuses = ((result.i2c_buses as Array<Record<string, unknown>>) ?? []).map((bus) => ({
+      bus: (bus.bus as number) ?? 0,
+      deviceCount: (bus.device_count as number) ?? 0,
+      devices: ((bus.devices as Array<Record<string, unknown>>) ?? []).map((dev) => ({
+        address: (dev.address as number) ?? 0,
+        addressHex: (dev.address_hex as string) ?? '0x00',
+        deviceName: (dev.device_name as string | undefined) ?? undefined,
+        deviceDescription: (dev.device_description as string | undefined) ?? undefined,
+      })),
+    }));
+
+    // Map SPI bus info
+    const spiBuses = ((result.spi_buses as Array<Record<string, unknown>>) ?? []).map((spi) => ({
+      devicePath: (spi.device_path as string) ?? '',
+      bus: (spi.bus as number) ?? 0,
+      chipSelect: (spi.chip_select as number) ?? 0,
+    }));
+
+    // Map UART port info
+    const uartPorts = ((result.uart_ports as Array<Record<string, unknown>>) ?? []).map((uart) => ({
+      devicePath: (uart.device_path as string) ?? '',
+      portType: (uart.port_type as string) ?? 'unknown',
     }));
 
     pending.resolve({
@@ -1443,6 +1481,9 @@ export class EdgeDeviceService implements OnModuleDestroy {
       platform: (result.platform as string) ?? 'Unknown',
       discoveredChannels,
       totalFound: discoveredChannels.length,
+      i2cBuses: i2cBuses.length > 0 ? i2cBuses : undefined,
+      spiBuses: spiBuses.length > 0 ? spiBuses : undefined,
+      uartPorts: uartPorts.length > 0 ? uartPorts : undefined,
     });
   }
 
@@ -1503,6 +1544,12 @@ export class EdgeDeviceService implements OnModuleDestroy {
           modbusRegister: input.modbusRegister,
           gpioPin: input.gpioPin,
           gpioMode: input.gpioMode,
+          busType: input.busType,
+          i2cBus: input.i2cBus,
+          i2cAddress: input.i2cAddress,
+          spiBus: input.spiBus,
+          spiCs: input.spiCs,
+          uartPort: input.uartPort,
           invertValue: input.invertValue,
           alarmHH: input.alarmHH,
           alarmH: input.alarmH,
@@ -1562,6 +1609,32 @@ interface HardwareScanResult {
     description?: string;
     gpioPin?: number;
     source: string;
+    busType?: string;
+    i2cBus?: number;
+    i2cAddress?: number;
+    i2cDeviceName?: string;
+    spiBus?: number;
+    spiCs?: number;
+    uartPort?: string;
   }>;
   totalFound: number;
+  i2cBuses?: Array<{
+    bus: number;
+    deviceCount: number;
+    devices: Array<{
+      address: number;
+      addressHex: string;
+      deviceName?: string;
+      deviceDescription?: string;
+    }>;
+  }>;
+  spiBuses?: Array<{
+    devicePath: string;
+    bus: number;
+    chipSelect: number;
+  }>;
+  uartPorts?: Array<{
+    devicePath: string;
+    portType: string;
+  }>;
 }

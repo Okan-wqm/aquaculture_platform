@@ -39,6 +39,15 @@ pub struct HardwareScanResult {
     pub picontrol_modules: Vec<PiControlModule>,
     /// Normalized I/O channel list ready for backend import
     pub discovered_ios: Vec<DiscoveredIo>,
+    /// I2C buses and discovered devices
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub i2c_buses: Vec<I2cBusScanInfo>,
+    /// SPI bus/chip-select pairs
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub spi_buses: Vec<SpiBusInfo>,
+    /// UART serial ports
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub uart_ports: Vec<UartPortInfo>,
     /// ISO 8601 timestamp of scan completion
     pub scan_timestamp: String,
     /// Total number of discovered I/O channels
@@ -91,8 +100,63 @@ pub struct DiscoveredIo {
     /// GPIO pin number (Raspberry Pi only)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gpio_pin: Option<u32>,
-    /// Discovery source: "picontrol" | "gpiochip" | "sysfs"
+    /// Discovery source: "picontrol" | "gpiochip" | "sysfs" | "i2c" | "spi" | "uart"
     pub source: String,
+    /// Bus type: "i2c" | "spi" | "uart" (None for GPIO-based channels)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bus_type: Option<String>,
+    /// I2C bus number (0 or 1)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i2c_bus: Option<u8>,
+    /// I2C device address (0x03..0x77)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i2c_address: Option<u8>,
+    /// Known I2C device name (e.g. "BME280", "ADS1115")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i2c_device_name: Option<String>,
+    /// SPI bus number
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spi_bus: Option<u8>,
+    /// SPI chip select number
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spi_cs: Option<u8>,
+    /// UART port device path
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uart_port: Option<String>,
+}
+
+/// Information about a single I2C device discovered on a bus.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct I2cDeviceInfo {
+    pub address: u8,
+    pub address_hex: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_description: Option<String>,
+}
+
+/// Result of scanning a single I2C bus.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct I2cBusScanInfo {
+    pub bus: u8,
+    pub device_count: usize,
+    pub devices: Vec<I2cDeviceInfo>,
+}
+
+/// SPI bus/chip-select pair discovered via /dev/spidevX.Y.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpiBusInfo {
+    pub device_path: String,
+    pub bus: u8,
+    pub chip_select: u8,
+}
+
+/// UART port discovered via /dev/tty*.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UartPortInfo {
+    pub device_path: String,
+    pub port_type: String,
 }
 
 /// Compact capabilities report sent at boot — lighter than full scan.
@@ -110,6 +174,12 @@ pub struct HardwareCapabilities {
     pub rppal_available: bool,
     /// Whether Modbus is configured
     pub modbus_configured: bool,
+    /// Number of I2C buses found
+    pub i2c_bus_count: usize,
+    /// Number of SPI buses found
+    pub spi_bus_count: usize,
+    /// Number of UART ports found
+    pub uart_port_count: usize,
     /// Scan timestamp
     pub timestamp: String,
 }
@@ -117,6 +187,27 @@ pub struct HardwareCapabilities {
 // ============================================================================
 // Hardware Scanner
 // ============================================================================
+
+/// Identify a known I2C device by its bus address.
+/// Returns (device_name, description, io_type, data_type) if recognized.
+fn identify_i2c_device(address: u8) -> Option<(&'static str, &'static str, &'static str, &'static str)> {
+    match address {
+        0x76 | 0x77 => Some(("BME280", "Temperature/Humidity/Pressure sensor", "AI", "FLOAT32")),
+        0x44 | 0x45 => Some(("SHT31", "Temperature/Humidity sensor", "AI", "FLOAT32")),
+        0x48..=0x4B => Some(("ADS1115", "16-bit 4-channel ADC", "AI", "INT16")),
+        0x61 => Some(("ATLAS_ORP", "Atlas Scientific ORP sensor", "AI", "FLOAT32")),
+        0x62 => Some(("ATLAS_DO", "Atlas Scientific Dissolved Oxygen", "AI", "FLOAT32")),
+        0x63 => Some(("ATLAS_PH", "Atlas Scientific pH sensor", "AI", "FLOAT32")),
+        0x64 => Some(("ATLAS_EC", "Atlas Scientific Conductivity", "AI", "FLOAT32")),
+        0x66 => Some(("ATLAS_RTD", "Atlas Scientific RTD Temperature", "AI", "FLOAT32")),
+        0x10 => Some(("VEML7700", "Ambient Light sensor", "AI", "FLOAT32")),
+        0x23 => Some(("BH1750", "Digital Light sensor", "AI", "FLOAT32")),
+        0x20..=0x22 | 0x24..=0x27 => Some(("PCF8574", "8-bit I/O Expander", "DI", "BOOL")),
+        0x60 => Some(("MCP4725", "12-bit DAC", "AO", "UINT16")),
+        0x68 => Some(("DS3231", "RTC / MPU6050 IMU", "AI", "INT32")),
+        _ => None,
+    }
+}
 
 /// Platform-aware hardware scanner.
 ///
@@ -169,6 +260,24 @@ impl HardwareScanner {
             }
         }
 
+        // I2C bus scanning
+        let i2c_buses = self.scan_i2c_buses();
+        for bus in &i2c_buses {
+            discovered_ios.extend(self.i2c_bus_to_discovered_ios(bus));
+        }
+
+        // SPI bus enumeration
+        let spi_buses = self.enumerate_spi_buses();
+        for spi in &spi_buses {
+            discovered_ios.extend(self.spi_to_discovered_ios(spi));
+        }
+
+        // UART port enumeration
+        let uart_ports = self.enumerate_uart_ports();
+        for uart in &uart_ports {
+            discovered_ios.extend(self.uart_to_discovered_ios(uart));
+        }
+
         let total_found = discovered_ios.len();
         let elapsed = start.elapsed();
         info!(
@@ -181,6 +290,9 @@ impl HardwareScanner {
             gpio_chips,
             picontrol_modules,
             discovered_ios,
+            i2c_buses,
+            spi_buses,
+            uart_ports,
             scan_timestamp: chrono::Utc::now().to_rfc3339(),
             total_found,
         }
@@ -198,6 +310,41 @@ impl HardwareScanner {
         // rppal availability is a compile-time feature gate
         let rppal_available = cfg!(feature = "gpio");
 
+        // Count I2C buses
+        let i2c_bus_count = (0u8..=1)
+            .filter(|bus| Path::new(&format!("/dev/i2c-{}", bus)).exists())
+            .count();
+
+        // Count SPI buses
+        let spi_bus_count = std::fs::read_dir("/dev")
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter(|e| {
+                        e.file_name()
+                            .to_string_lossy()
+                            .starts_with("spidev")
+                    })
+                    .count()
+            })
+            .unwrap_or(0);
+
+        // Count UART ports
+        let uart_port_count = std::fs::read_dir("/dev")
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter(|e| {
+                        let name = e.file_name().to_string_lossy().to_string();
+                        name.starts_with("ttyAMA")
+                            || name.starts_with("ttyS")
+                            || name.starts_with("ttyUSB")
+                            || name.starts_with("ttyACM")
+                    })
+                    .count()
+            })
+            .unwrap_or(0);
+
         HardwareCapabilities {
             platform: format!("{:?}", self.platform),
             has_picontrol,
@@ -205,6 +352,9 @@ impl HardwareScanner {
             total_gpio_lines: total_lines,
             rppal_available,
             modbus_configured,
+            i2c_bus_count,
+            spi_bus_count,
+            uart_port_count,
             timestamp: chrono::Utc::now().to_rfc3339(),
         }
     }
@@ -509,6 +659,13 @@ impl HardwareScanner {
                 description: format!("{}, {} ({})", module_name, pin_name, size),
                 gpio_pin: None,
                 source: "picontrol".to_string(),
+                bus_type: None,
+                i2c_bus: None,
+                i2c_address: None,
+                i2c_device_name: None,
+                spi_bus: None,
+                spi_cs: None,
+                uart_port: None,
             });
         }
 
@@ -539,6 +696,13 @@ impl HardwareScanner {
                     description: format!("{}, Digital Input {}", module.device_name, i),
                     gpio_pin: None,
                     source: "picontrol".to_string(),
+                    bus_type: None,
+                    i2c_bus: None,
+                    i2c_address: None,
+                    i2c_device_name: None,
+                    spi_bus: None,
+                    spi_cs: None,
+                    uart_port: None,
                 });
             }
             for i in 1..=14 {
@@ -551,6 +715,13 @@ impl HardwareScanner {
                     description: format!("{}, Digital Output {}", module.device_name, i),
                     gpio_pin: None,
                     source: "picontrol".to_string(),
+                    bus_type: None,
+                    i2c_bus: None,
+                    i2c_address: None,
+                    i2c_device_name: None,
+                    spi_bus: None,
+                    spi_cs: None,
+                    uart_port: None,
                 });
             }
         } else if name_lower.contains("aio") {
@@ -565,6 +736,13 @@ impl HardwareScanner {
                     description: format!("{}, Analog Input {}", module.device_name, i),
                     gpio_pin: None,
                     source: "picontrol".to_string(),
+                    bus_type: None,
+                    i2c_bus: None,
+                    i2c_address: None,
+                    i2c_device_name: None,
+                    spi_bus: None,
+                    spi_cs: None,
+                    uart_port: None,
                 });
             }
             for i in 1..=2 {
@@ -577,6 +755,13 @@ impl HardwareScanner {
                     description: format!("{}, Analog Output {}", module.device_name, i),
                     gpio_pin: None,
                     source: "picontrol".to_string(),
+                    bus_type: None,
+                    i2c_bus: None,
+                    i2c_address: None,
+                    i2c_device_name: None,
+                    spi_bus: None,
+                    spi_cs: None,
+                    uart_port: None,
                 });
             }
         }
@@ -613,6 +798,13 @@ impl HardwareScanner {
                 description: format!("Raspberry Pi BCM GPIO {}", pin),
                 gpio_pin: Some(pin),
                 source: "gpiochip".to_string(),
+                bus_type: None,
+                i2c_bus: None,
+                i2c_address: None,
+                i2c_device_name: None,
+                spi_bus: None,
+                spi_cs: None,
+                uart_port: None,
             });
         }
 
@@ -644,11 +836,268 @@ impl HardwareScanner {
                     description: format!("{} line {} ({})", chip.name, line, chip.label),
                     gpio_pin: Some(chip.base + line),
                     source: "sysfs".to_string(),
+                    bus_type: None,
+                    i2c_bus: None,
+                    i2c_address: None,
+                    i2c_device_name: None,
+                    spi_bus: None,
+                    spi_cs: None,
+                    uart_port: None,
                 });
             }
         }
 
         ios
+    }
+
+    // ========================================================================
+    // I2C Bus Scanning
+    // ========================================================================
+
+    /// Scan I2C buses (0 and 1) for connected devices.
+    ///
+    /// Uses rppal I2C to probe addresses 0x03..=0x77 on each available bus.
+    /// Returns empty Vec on non-Linux or when compiled without the "gpio" feature.
+    fn scan_i2c_buses(&self) -> Vec<I2cBusScanInfo> {
+        let mut results = Vec::new();
+
+        for bus_num in 0u8..=1 {
+            let dev_path = format!("/dev/i2c-{}", bus_num);
+            if !Path::new(&dev_path).exists() {
+                continue;
+            }
+
+            let devices = self.probe_i2c_bus(bus_num);
+            let device_count = devices.len();
+            if device_count > 0 {
+                info!("I2C bus {}: {} devices found", bus_num, device_count);
+            } else {
+                debug!("I2C bus {}: no devices found", bus_num);
+            }
+
+            results.push(I2cBusScanInfo {
+                bus: bus_num,
+                device_count,
+                devices,
+            });
+        }
+
+        results
+    }
+
+    /// Probe a single I2C bus for responsive addresses.
+    #[cfg(feature = "gpio")]
+    fn probe_i2c_bus(&self, bus: u8) -> Vec<I2cDeviceInfo> {
+        let mut devices = Vec::new();
+
+        let i2c = match rppal::i2c::I2c::with_bus(bus) {
+            Ok(i2c) => i2c,
+            Err(e) => {
+                warn!("Failed to open I2C bus {}: {}", bus, e);
+                return devices;
+            }
+        };
+
+        for addr in 0x03u8..=0x77 {
+            if i2c.set_slave_address(addr as u16).is_err() {
+                continue;
+            }
+
+            // Probe with a zero-byte read
+            let mut buf = [0u8; 1];
+            if i2c.read(&mut buf).is_ok() {
+                let known = identify_i2c_device(addr);
+                devices.push(I2cDeviceInfo {
+                    address: addr,
+                    address_hex: format!("0x{:02X}", addr),
+                    device_name: known.map(|(name, _, _, _)| name.to_string()),
+                    device_description: known.map(|(_, desc, _, _)| desc.to_string()),
+                });
+            }
+        }
+
+        devices
+    }
+
+    /// Fallback for non-gpio builds: return empty device list.
+    #[cfg(not(feature = "gpio"))]
+    fn probe_i2c_bus(&self, _bus: u8) -> Vec<I2cDeviceInfo> {
+        Vec::new()
+    }
+
+    /// Convert an I2C bus scan result into DiscoveredIo entries.
+    fn i2c_bus_to_discovered_ios(&self, bus_info: &I2cBusScanInfo) -> Vec<DiscoveredIo> {
+        let mut ios = Vec::new();
+
+        for device in &bus_info.devices {
+            let known = identify_i2c_device(device.address);
+            let (tag_name, io_type, data_type, description) = match known {
+                Some((name, desc, io, dt)) => (
+                    name.to_string(),
+                    io.to_string(),
+                    dt.to_string(),
+                    format!("I2C-{} @ 0x{:02X}: {}", bus_info.bus, device.address, desc),
+                ),
+                None => (
+                    format!("I2C_{}_{}", bus_info.bus, device.address_hex),
+                    "AI".to_string(),
+                    "FLOAT32".to_string(),
+                    format!("Unknown I2C device @ bus {} addr 0x{:02X}", bus_info.bus, device.address),
+                ),
+            };
+
+            ios.push(DiscoveredIo {
+                tag_name,
+                io_type,
+                data_type,
+                module_address: bus_info.bus as u32,
+                channel: device.address as u32,
+                description,
+                gpio_pin: None,
+                source: "i2c".to_string(),
+                bus_type: Some("i2c".to_string()),
+                i2c_bus: Some(bus_info.bus),
+                i2c_address: Some(device.address),
+                i2c_device_name: device.device_name.clone(),
+                spi_bus: None,
+                spi_cs: None,
+                uart_port: None,
+            });
+        }
+
+        ios
+    }
+
+    // ========================================================================
+    // SPI Bus Enumeration
+    // ========================================================================
+
+    /// Enumerate SPI device nodes from /dev/spidevX.Y.
+    fn enumerate_spi_buses(&self) -> Vec<SpiBusInfo> {
+        let mut results = Vec::new();
+
+        let entries = match std::fs::read_dir("/dev") {
+            Ok(e) => e,
+            Err(e) => {
+                debug!("Cannot read /dev for SPI enumeration: {}", e);
+                return results;
+            }
+        };
+
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with("spidev") {
+                continue;
+            }
+
+            // Parse "spidevX.Y"
+            let suffix = &name["spidev".len()..];
+            if let Some(dot_pos) = suffix.find('.') {
+                if let (Ok(bus), Ok(cs)) = (
+                    suffix[..dot_pos].parse::<u8>(),
+                    suffix[dot_pos + 1..].parse::<u8>(),
+                ) {
+                    results.push(SpiBusInfo {
+                        device_path: format!("/dev/{}", name),
+                        bus,
+                        chip_select: cs,
+                    });
+                }
+            }
+        }
+
+        results.sort_by_key(|s| (s.bus, s.chip_select));
+        debug!("Found {} SPI devices", results.len());
+        results
+    }
+
+    /// Convert an SPI bus info into a DiscoveredIo entry.
+    fn spi_to_discovered_ios(&self, spi: &SpiBusInfo) -> Vec<DiscoveredIo> {
+        vec![DiscoveredIo {
+            tag_name: format!("SPI_{}_CS{}", spi.bus, spi.chip_select),
+            io_type: "AI".to_string(),
+            data_type: "FLOAT32".to_string(),
+            module_address: spi.bus as u32,
+            channel: spi.chip_select as u32,
+            description: format!("SPI bus {} chip select {} ({})", spi.bus, spi.chip_select, spi.device_path),
+            gpio_pin: None,
+            source: "spi".to_string(),
+            bus_type: Some("spi".to_string()),
+            i2c_bus: None,
+            i2c_address: None,
+            i2c_device_name: None,
+            spi_bus: Some(spi.bus),
+            spi_cs: Some(spi.chip_select),
+            uart_port: None,
+        }]
+    }
+
+    // ========================================================================
+    // UART Port Enumeration
+    // ========================================================================
+
+    /// Enumerate UART serial ports from /dev/tty*.
+    fn enumerate_uart_ports(&self) -> Vec<UartPortInfo> {
+        let mut results = Vec::new();
+
+        let entries = match std::fs::read_dir("/dev") {
+            Ok(e) => e,
+            Err(e) => {
+                debug!("Cannot read /dev for UART enumeration: {}", e);
+                return results;
+            }
+        };
+
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            let port_type = if name.starts_with("ttyAMA") {
+                "hardware"
+            } else if name.starts_with("ttyS") {
+                "software"
+            } else if name.starts_with("ttyUSB") {
+                "usb-serial"
+            } else if name.starts_with("ttyACM") {
+                "usb-acm"
+            } else {
+                continue;
+            };
+
+            results.push(UartPortInfo {
+                device_path: format!("/dev/{}", name),
+                port_type: port_type.to_string(),
+            });
+        }
+
+        results.sort_by(|a, b| a.device_path.cmp(&b.device_path));
+        debug!("Found {} UART ports", results.len());
+        results
+    }
+
+    /// Convert a UART port info into a DiscoveredIo entry.
+    fn uart_to_discovered_ios(&self, uart: &UartPortInfo) -> Vec<DiscoveredIo> {
+        let name = uart
+            .device_path
+            .strip_prefix("/dev/")
+            .unwrap_or(&uart.device_path);
+
+        vec![DiscoveredIo {
+            tag_name: format!("UART_{}", name),
+            io_type: "AI".to_string(),
+            data_type: "FLOAT32".to_string(),
+            module_address: 0,
+            channel: 0,
+            description: format!("UART {} port ({})", uart.port_type, uart.device_path),
+            gpio_pin: None,
+            source: "uart".to_string(),
+            bus_type: Some("uart".to_string()),
+            i2c_bus: None,
+            i2c_address: None,
+            i2c_device_name: None,
+            spi_bus: None,
+            spi_cs: None,
+            uart_port: Some(uart.device_path.clone()),
+        }]
     }
 }
 
@@ -775,5 +1224,114 @@ device_name:    RevPi DIO
         assert_eq!(ios[3].tag_name, "InputValue_1");
         assert_eq!(ios[3].io_type, "AI");
         assert_eq!(ios[3].data_type, "INT16");
+        // Verify bus fields are None for picontrol sources
+        assert!(ios[0].bus_type.is_none());
+        assert!(ios[0].i2c_bus.is_none());
+        assert!(ios[0].spi_bus.is_none());
+        assert!(ios[0].uart_port.is_none());
+    }
+
+    #[test]
+    fn test_identify_i2c_device() {
+        let bme = identify_i2c_device(0x76);
+        assert!(bme.is_some());
+        let (name, _, io, dt) = bme.unwrap();
+        assert_eq!(name, "BME280");
+        assert_eq!(io, "AI");
+        assert_eq!(dt, "FLOAT32");
+
+        let atlas_ph = identify_i2c_device(0x63);
+        assert!(atlas_ph.is_some());
+        assert_eq!(atlas_ph.unwrap().0, "ATLAS_PH");
+
+        let pcf = identify_i2c_device(0x20);
+        assert!(pcf.is_some());
+        assert_eq!(pcf.unwrap().0, "PCF8574");
+        assert_eq!(pcf.unwrap().2, "DI");
+
+        assert!(identify_i2c_device(0x01).is_none());
+    }
+
+    #[test]
+    fn test_i2c_bus_to_discovered_ios() {
+        let scanner = HardwareScanner::new(GpioPlatform::RaspberryPi);
+        let bus_info = I2cBusScanInfo {
+            bus: 1,
+            device_count: 2,
+            devices: vec![
+                I2cDeviceInfo {
+                    address: 0x76,
+                    address_hex: "0x76".to_string(),
+                    device_name: Some("BME280".to_string()),
+                    device_description: Some("Temperature/Humidity/Pressure sensor".to_string()),
+                },
+                I2cDeviceInfo {
+                    address: 0x55,
+                    address_hex: "0x55".to_string(),
+                    device_name: None,
+                    device_description: None,
+                },
+            ],
+        };
+
+        let ios = scanner.i2c_bus_to_discovered_ios(&bus_info);
+        assert_eq!(ios.len(), 2);
+        // Known device
+        assert_eq!(ios[0].tag_name, "BME280");
+        assert_eq!(ios[0].io_type, "AI");
+        assert_eq!(ios[0].source, "i2c");
+        assert_eq!(ios[0].bus_type, Some("i2c".to_string()));
+        assert_eq!(ios[0].i2c_bus, Some(1));
+        assert_eq!(ios[0].i2c_address, Some(0x76));
+        assert_eq!(ios[0].i2c_device_name, Some("BME280".to_string()));
+        // Unknown device
+        assert_eq!(ios[1].tag_name, "I2C_1_0x55");
+        assert!(ios[1].i2c_device_name.is_none());
+    }
+
+    #[test]
+    fn test_spi_to_discovered_ios() {
+        let scanner = HardwareScanner::new(GpioPlatform::RaspberryPi);
+        let spi = SpiBusInfo {
+            device_path: "/dev/spidev0.0".to_string(),
+            bus: 0,
+            chip_select: 0,
+        };
+
+        let ios = scanner.spi_to_discovered_ios(&spi);
+        assert_eq!(ios.len(), 1);
+        assert_eq!(ios[0].tag_name, "SPI_0_CS0");
+        assert_eq!(ios[0].source, "spi");
+        assert_eq!(ios[0].bus_type, Some("spi".to_string()));
+        assert_eq!(ios[0].spi_bus, Some(0));
+        assert_eq!(ios[0].spi_cs, Some(0));
+    }
+
+    #[test]
+    fn test_uart_to_discovered_ios() {
+        let scanner = HardwareScanner::new(GpioPlatform::RaspberryPi);
+        let uart = UartPortInfo {
+            device_path: "/dev/ttyUSB0".to_string(),
+            port_type: "usb-serial".to_string(),
+        };
+
+        let ios = scanner.uart_to_discovered_ios(&uart);
+        assert_eq!(ios.len(), 1);
+        assert_eq!(ios[0].tag_name, "UART_ttyUSB0");
+        assert_eq!(ios[0].source, "uart");
+        assert_eq!(ios[0].bus_type, Some("uart".to_string()));
+        assert_eq!(ios[0].uart_port, Some("/dev/ttyUSB0".to_string()));
+    }
+
+    #[test]
+    fn test_rpi_gpio_has_none_bus_fields() {
+        let scanner = HardwareScanner::new(GpioPlatform::RaspberryPi);
+        let ios = scanner.discover_rpi_gpio();
+        for io in &ios {
+            assert!(io.bus_type.is_none());
+            assert!(io.i2c_bus.is_none());
+            assert!(io.spi_bus.is_none());
+            assert!(io.uart_port.is_none());
+        }
     }
 }

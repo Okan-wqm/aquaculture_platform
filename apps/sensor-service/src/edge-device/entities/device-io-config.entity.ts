@@ -66,7 +66,6 @@ export class DeviceIoConfig {
 
   @Field()
   @Column({ name: 'device_id' })
-  @Index()
   deviceId!: string;
 
   @Field(() => EdgeDevice)
@@ -143,6 +142,31 @@ export class DeviceIoConfig {
   @Field({ nullable: true })
   @Column({ name: 'gpio_mode', length: 20, nullable: true })
   gpioMode?: string; // 'input', 'output', 'pwm'
+
+  // Bus Protocol Specific (I2C/SPI/UART)
+  @Field({ nullable: true })
+  @Column({ name: 'bus_type', length: 10, nullable: true })
+  busType?: string;
+
+  @Field(() => Int, { nullable: true })
+  @Column({ name: 'i2c_bus', type: 'smallint', nullable: true })
+  i2cBus?: number;
+
+  @Field(() => Int, { nullable: true })
+  @Column({ name: 'i2c_address', type: 'smallint', nullable: true })
+  i2cAddress?: number;
+
+  @Field(() => Int, { nullable: true })
+  @Column({ name: 'spi_bus', type: 'smallint', nullable: true })
+  spiBus?: number;
+
+  @Field(() => Int, { nullable: true })
+  @Column({ name: 'spi_cs', type: 'smallint', nullable: true })
+  spiCs?: number;
+
+  @Field({ nullable: true })
+  @Column({ name: 'uart_port', length: 50, nullable: true })
+  uartPort?: string;
 
   // Value Inversion
   @Field()

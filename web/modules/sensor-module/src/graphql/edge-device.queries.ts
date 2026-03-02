@@ -336,8 +336,34 @@ export const SCAN_HARDWARE_MUTATION = `
         description
         gpioPin
         source
+        busType
+        i2cBus
+        i2cAddress
+        i2cDeviceName
+        spiBus
+        spiCs
+        uartPort
       }
       totalFound
+      i2cBuses {
+        bus
+        deviceCount
+        devices {
+          address
+          addressHex
+          deviceName
+          deviceDescription
+        }
+      }
+      spiBuses {
+        devicePath
+        bus
+        chipSelect
+      }
+      uartPorts {
+        devicePath
+        portType
+      }
     }
   }
 `;

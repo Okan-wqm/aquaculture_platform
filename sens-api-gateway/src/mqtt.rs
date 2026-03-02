@@ -264,12 +264,14 @@ impl MqttClient {
 
         // Spawn event loop handler with exponential backoff config (v1.2.6: track handle)
         let topics_clone = topics.clone();
+        let client_clone = client.clone();
         let min_backoff = config.runtime.mqtt_reconnect_min_secs;
         let max_backoff = config.runtime.mqtt_reconnect_max_secs;
         let event_loop_handle = tokio::spawn(async move {
             Self::handle_events(
                 &mut eventloop,
                 message_tx,
+                client_clone,
                 topics_clone,
                 min_backoff,
                 max_backoff,
@@ -299,11 +301,13 @@ impl MqttClient {
     async fn handle_events(
         eventloop: &mut rumqttc::EventLoop,
         message_tx: mpsc::Sender<IncomingMessage>,
-        _topics: ResolvedTopics, // Available for future topic filtering
+        client: AsyncClient,
+        topics: ResolvedTopics,
         min_backoff_secs: u64,
         max_backoff_secs: u64,
     ) {
         let mut consecutive_errors: u32 = 0;
+        let mut first_connect = true;
 
         loop {
             // Poll the event loop or detect that the message receiver has been dropped
@@ -393,11 +397,32 @@ impl MqttClient {
                 }
                 Ok(Event::Incoming(Packet::ConnAck(connack))) => {
                     consecutive_errors = 0; // Reset on successful connection
-                    // v1.2.6: Enhanced connection logging
                     info!(
                         "🟢 MQTT CONNECTED: code={:?}, session_present={}",
                         connack.code, connack.session_present
                     );
+
+                    // Resubscribe after reconnection: when clean_session=true (default),
+                    // the broker drops all subscriptions on disconnect. Skip on first
+                    // connect since new() already calls subscribe().
+                    if !first_connect || !connack.session_present {
+                        if !first_connect {
+                            info!("Resubscribing to topics after reconnection...");
+                        }
+                        if let Err(e) = client
+                            .subscribe(&topics.commands, QoS::AtLeastOnce)
+                            .await
+                        {
+                            error!("Failed to resubscribe to commands: {:?}", e);
+                        }
+                        if let Err(e) = client
+                            .subscribe(&topics.config, QoS::AtLeastOnce)
+                            .await
+                        {
+                            error!("Failed to resubscribe to config: {:?}", e);
+                        }
+                    }
+                    first_connect = false;
                 }
                 Ok(Event::Incoming(Packet::SubAck(suback))) => {
                     // v1.2.6: Log subscription acknowledgment with QoS

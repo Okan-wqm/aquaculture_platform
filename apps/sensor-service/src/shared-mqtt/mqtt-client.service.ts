@@ -241,6 +241,7 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
 
     // Disconnect any existing client
     if (this.client) {
+      this.client.removeAllListeners();
       this.client.end(true);
       this.client = null;
     }
@@ -268,14 +269,11 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     return this.connectionState;
   }
 
-  /**
-   * Register a callback to be invoked when MQTT connection is established.
-   * If already connected, the callback is invoked immediately.
-   */
-  onConnected(callback: () => void | Promise<void>): void {
+  /** One-shot callback. Fired on the next successful connect, then removed. */
+  onceConnected(callback: () => void | Promise<void>): void {
     if (this.connectionState === MqttConnectionState.CONNECTED) {
       Promise.resolve(callback()).catch((err) =>
-        this.logger.error(`onConnected callback error: ${err}`),
+        this.logger.error(`onceConnected callback error: ${err}`),
       );
     } else {
       this.connectCallbacks.push(callback);

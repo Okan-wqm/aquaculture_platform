@@ -156,9 +156,9 @@ export class MqttAuthService implements OnModuleInit {
    * @param acc - Access type: 1=subscribe, 2=publish
    */
   async checkTopicAccess(username: string, topic: string, acc: number): Promise<boolean> {
-    // acc=4 is explicit deny from Mosquitto — always reject
+    // acc=4 means unsubscribe in mosquitto-go-auth — always allow (no security impact)
     if (acc === 4) {
-      return false;
+      return true;
     }
 
     // Service accounts: per-topic-pattern grants scoped to tenants

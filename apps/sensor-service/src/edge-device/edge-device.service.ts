@@ -9,6 +9,7 @@ import {
   Optional,
   OnModuleDestroy,
 } from '@nestjs/common';
+import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
 
@@ -95,6 +96,7 @@ export interface DeviceHeartbeat {
   deviceCode: string;
   tenantId?: string;
   isOnline: boolean;
+  status?: string;
   cpuUsage?: number;
   memoryUsage?: number;
   storageUsage?: number;
@@ -533,12 +535,23 @@ export class EdgeDeviceService implements OnModuleDestroy {
     // Update connection quality based on frequency of heartbeats
     device.connectionQuality = heartbeat.isOnline ? 100 : 0;
 
-    // Transition to ACTIVE when device comes online from OFFLINE or PROVISIONING state
-    if (heartbeat.isOnline && (
+    // Map status string to lifecycle state (skip DECOMMISSIONED/REVOKED — those are admin-only)
+    const status = heartbeat.status;
+    if (status === 'error') {
+      device.lifecycleState = DeviceLifecycleState.ERROR;
+    } else if (status === 'maintenance') {
+      device.lifecycleState = DeviceLifecycleState.MAINTENANCE;
+    } else if (status === 'offline' && device.lifecycleState === DeviceLifecycleState.ACTIVE) {
+      device.lifecycleState = DeviceLifecycleState.OFFLINE;
+    } else if (heartbeat.isOnline && (
       device.lifecycleState === DeviceLifecycleState.OFFLINE ||
       device.lifecycleState === DeviceLifecycleState.PROVISIONING
     )) {
+      // Transition to ACTIVE when device comes online from OFFLINE or PROVISIONING state
       device.lifecycleState = DeviceLifecycleState.ACTIVE;
+    } else if (!heartbeat.isOnline && device.lifecycleState === DeviceLifecycleState.ACTIVE) {
+      // Transition to OFFLINE when device goes offline while in ACTIVE state
+      device.lifecycleState = DeviceLifecycleState.OFFLINE;
     }
 
     return await this.deviceRepository.save(device);
@@ -547,6 +560,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
   /**
    * Mark devices as offline if no heartbeat received
    */
+  @Interval(60_000)
   async markStaleDevicesOffline(timeoutMinutes = 5): Promise<number> {
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
 
@@ -559,8 +573,11 @@ export class EdgeDeviceService implements OnModuleDestroy {
       })
       .where('isOnline = :online', { online: true })
       .andWhere('lastSeenAt < :cutoff', { cutoff })
-      .andWhere('lifecycleState != :decommissioned', {
-        decommissioned: DeviceLifecycleState.DECOMMISSIONED,
+      .andWhere('lifecycleState NOT IN (:...excluded)', {
+        excluded: [
+          DeviceLifecycleState.DECOMMISSIONED,
+          DeviceLifecycleState.MAINTENANCE,
+        ],
       })
       .execute();
 
@@ -1064,10 +1081,9 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     try {
       // Publish to the tenant-scoped command topic.
-      // Uses deviceCode (not device.id UUID) because the agent subscribes
-      // using its human-readable code from config.yaml → device_code.
+      // Uses device.id (UUID) — the edge agent resolves topics via device_id.
       await mqtt.publish(
-        `tenants/${device.tenantId}/devices/${device.deviceCode}/commands`,
+        `tenants/${device.tenantId}/devices/${device.id}/commands`,
         {
           commandId,
           command: 'update_io_config',
@@ -1202,10 +1218,10 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     try {
       // 6. Edge agent'a set_output komutu gönder
-      // Topic: tenants/{tenantId}/devices/{deviceCode}/commands
+      // Topic: tenants/{tenantId}/devices/{device.id}/commands
       // Agent bu komutu alıp GPIO/Modbus üzerinden fiziksel çıkışı değiştirir
       await mqtt.publish(
-        `tenants/${device.tenantId}/devices/${device.deviceCode}/commands`,
+        `tenants/${device.tenantId}/devices/${device.id}/commands`,
         {
           commandId,
           command: 'set_output',

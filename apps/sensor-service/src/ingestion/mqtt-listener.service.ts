@@ -33,6 +33,7 @@ interface ParsedTopic {
  */
 interface EdgeHeartbeatPayload {
   isOnline?: boolean;
+  status?: string;
   cpuUsage?: number;
   memoryUsage?: number;
   storageUsage?: number;
@@ -172,7 +173,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       await this.subscribeToTopics();
     } else {
       this.logger.log('MQTT client not yet connected, will subscribe when connection is established');
-      this.mqttClient.onConnected(() => {
+      this.mqttClient.onceConnected(() => {
         this.logger.log('MQTT client connected — subscribing to topics now');
         this.subscribeToTopics().catch((err) => {
           this.logger.error(`Failed to subscribe after deferred connect: ${err}`);
@@ -360,6 +361,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     const heartbeat: DeviceHeartbeat = {
       deviceCode,
       isOnline: payload.isOnline ?? true,
+      status: payload.status,
       cpuUsage: payload.cpuUsage,
       memoryUsage: payload.memoryUsage,
       storageUsage: payload.storageUsage,

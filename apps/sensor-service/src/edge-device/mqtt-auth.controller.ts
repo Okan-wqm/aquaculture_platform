@@ -7,12 +7,9 @@ import {
   HttpStatus,
   Headers,
   Logger,
-  UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Public, SkipTenantGuard } from '@platform/backend-common';
-
-import { SimpleRateLimitGuard, RateLimit } from '../guards/rate-limit.guard';
 import { MqttAuthService } from './mqtt-auth.service';
 
 /**
@@ -40,15 +37,14 @@ class MqttAuthDeniedException extends HttpException {
  * - No file locking or atomic write complexity
  *
  * Security:
- * - Rate limited to prevent brute-force attacks
- * - Optional shared secret (MQTT_AUTH_SECRET) to ensure only Mosquitto calls these endpoints
+ * - Docker network isolation (only Mosquitto on internal network can reach these endpoints)
+ * - Optional shared secret (MQTT_AUTH_SECRET) for additional validation when header is present
  *
  * Response convention: HTTP 200 = allowed, HTTP 403 = denied
  */
 @Controller('mqtt')
 @Public()
 @SkipTenantGuard()
-@UseGuards(SimpleRateLimitGuard)
 export class MqttAuthController {
   private readonly logger = new Logger(MqttAuthController.name);
   private readonly mqttAuthSecret: string | undefined;
@@ -71,11 +67,6 @@ export class MqttAuthController {
     }
   }
 
-  /**
-   * Validate the shared secret from Mosquitto.
-   * If MQTT_AUTH_SECRET is configured, the X-Mosquitto-Auth header must match.
-   * If not configured, skip validation (development only).
-   */
   /**
    * Validate the shared secret from Mosquitto (when available).
    *

@@ -153,10 +153,11 @@ export class MqttAuthService implements OnModuleInit {
    *
    * @param username - MQTT username (mqtt_client_id)
    * @param topic - MQTT topic being accessed
-   * @param acc - Access type: 1=subscribe, 2=publish
+   * @param acc - Access type: 1=read, 2=write/publish, 4=subscribe (MOSQ_ACL_SUBSCRIBE)
    */
   async checkTopicAccess(username: string, topic: string, acc: number): Promise<boolean> {
-    // acc=4 means unsubscribe in mosquitto-go-auth — always allow (no security impact)
+    // acc=4 (MOSQ_ACL_SUBSCRIBE) is the pattern-level subscribe check.
+    // Allow all subscribes — actual message delivery is separately gated by acc=1 (READ).
     if (acc === 4) {
       return true;
     }

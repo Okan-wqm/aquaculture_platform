@@ -152,7 +152,7 @@ export class MqttAuthController {
    * Enforces tenant isolation: devices can only access topics under their own tenant.
    *
    * Body: { username: string, topic: string, clientid?: string, acc: number }
-   * acc values: 1=subscribe, 2=publish, 3=subscribe+publish, 4=deny
+   * acc values: 1=read, 2=write/publish, 4=subscribe (MOSQ_ACL_SUBSCRIBE)
    * Returns: 200 if allowed, 403 if denied
    */
   @Post('acl')
@@ -165,7 +165,8 @@ export class MqttAuthController {
 
     const { username, topic, acc } = body;
 
-    const isAllowed = await this.mqttAuthService.checkTopicAccess(username, topic, acc);
+    // mosquitto-go-auth sends form-urlencoded data — acc arrives as string
+    const isAllowed = await this.mqttAuthService.checkTopicAccess(username, topic, Number(acc));
 
     if (!isAllowed) {
       this.logger.debug(`MQTT ACL denied: user=${username} topic=${topic} acc=${acc}`);

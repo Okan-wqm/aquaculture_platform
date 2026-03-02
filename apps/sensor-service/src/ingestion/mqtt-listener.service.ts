@@ -61,9 +61,9 @@ interface EdgeResponsePayload {
 }
 
 /**
- * Tenant edge telemetry payload (Edge Agent TelemetryMetrics format)
+ * Edge Agent TelemetryMetrics fields (snake_case from Rust serde)
  */
-interface TenantEdgeTelemetryPayload {
+interface TelemetryMetricsFields {
   cpu_usage_percent?: number;
   cpuUsage?: number;
   memory_usage_percent?: number;
@@ -76,6 +76,20 @@ interface TenantEdgeTelemetryPayload {
   uptimeSeconds?: number;
   agent_version?: string;
   firmwareVersion?: string;
+}
+
+/**
+ * Tenant edge telemetry payload (Edge Agent TelemetryMessage format)
+ *
+ * Edge agent sends: { device_id, device_code, timestamp, metrics: { cpu_usage_percent, ... } }
+ * The actual metrics are NESTED under "metrics" key.
+ * We also support flat format for backward compatibility.
+ */
+interface TenantEdgeTelemetryPayload extends TelemetryMetricsFields {
+  device_id?: string;
+  device_code?: string;
+  timestamp?: string;
+  metrics?: TelemetryMetricsFields;
 }
 
 /**
@@ -692,19 +706,22 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     deviceCode: string,
     payload: TenantEdgeTelemetryPayload,
   ): Promise<void> {
-    // Edge Agent TelemetryMetrics uses snake_case field names
+    // Edge Agent sends metrics nested under "metrics" key:
+    //   { device_id, device_code, timestamp, metrics: { cpu_usage_percent, ... } }
+    // Unwrap nested metrics, fall back to flat fields for backward compatibility
+    const m: TelemetryMetricsFields = payload.metrics ?? payload;
+
     // Include tenantId from the MQTT topic so updateHeartbeat enforces tenant boundary
     const heartbeat: DeviceHeartbeat = {
       deviceCode,
       tenantId,
       isOnline: true,
-      cpuUsage: payload.cpu_usage_percent ?? payload.cpuUsage,
-      memoryUsage: payload.memory_usage_percent ?? payload.memoryUsage,
-      storageUsage: payload.disk_usage_percent ?? payload.storageUsage,
-      temperatureCelsius: payload.temperature_celsius ?? payload.temperatureCelsius,
-      uptimeSeconds: payload.uptime_secs ?? payload.uptimeSeconds,
-      // Additional fields from Edge Agent
-      firmwareVersion: payload.agent_version ?? payload.firmwareVersion,
+      cpuUsage: m.cpu_usage_percent ?? m.cpuUsage,
+      memoryUsage: m.memory_usage_percent ?? m.memoryUsage,
+      storageUsage: m.disk_usage_percent ?? m.storageUsage,
+      temperatureCelsius: m.temperature_celsius ?? m.temperatureCelsius,
+      uptimeSeconds: m.uptime_secs ?? m.uptimeSeconds,
+      firmwareVersion: m.agent_version ?? m.firmwareVersion,
     };
 
     if (!this.edgeDeviceService) return;

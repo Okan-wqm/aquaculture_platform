@@ -1339,6 +1339,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
       this.pendingScans.set(commandId, {
         commandId,
         deviceCode: device.deviceCode,
+        deviceId: device.id,
         startTime,
         resolve,
         timeout,
@@ -1394,10 +1395,11 @@ export class EdgeDeviceService implements OnModuleDestroy {
       return;
     }
 
-    // Validate deviceCode matches pending request (defense-in-depth)
-    if (pending.deviceCode !== deviceCode) {
+    // Validate device identifier matches pending request (defense-in-depth)
+    // The identifier from MQTT topic can be either deviceCode or device UUID
+    if (pending.deviceCode !== deviceCode && pending.deviceId !== deviceCode) {
       this.logger.warn(
-        `Scan response deviceCode mismatch: expected=${pending.deviceCode}, got=${deviceCode}, commandId=${commandId}`,
+        `Scan response device mismatch: expected=${pending.deviceCode}/${pending.deviceId}, got=${deviceCode}, commandId=${commandId}`,
       );
       return;
     }
@@ -1538,6 +1540,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
 interface PendingScan {
   commandId: string;
   deviceCode: string;
+  deviceId: string;
   startTime: number;
   resolve: (result: HardwareScanResult) => void;
   timeout: NodeJS.Timeout;

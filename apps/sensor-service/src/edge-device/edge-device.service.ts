@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 
 import {
   Injectable,
+  Inject,
   Logger,
   NotFoundException,
   ConflictException,
@@ -198,6 +199,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     @Optional()
+    @Inject(MqttClientService)
     private readonly mqttClient: MqttClientService | null,
   ) {
     // Start periodic cleanup of stale pending pings

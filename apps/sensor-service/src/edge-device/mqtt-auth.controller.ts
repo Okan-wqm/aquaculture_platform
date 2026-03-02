@@ -96,7 +96,6 @@ export class MqttAuthController {
    */
   @Post('auth')
   @HttpCode(HttpStatus.OK)
-  @RateLimit({ limit: 30, windowMs: 60000 })
   async authenticate(
     @Headers() headers: Record<string, string>,
     @Body() body: { username: string; password: string; clientid?: string },
@@ -158,7 +157,6 @@ export class MqttAuthController {
    */
   @Post('acl')
   @HttpCode(HttpStatus.OK)
-  @RateLimit({ limit: 60, windowMs: 60000 })
   async checkAcl(
     @Headers() headers: Record<string, string>,
     @Body() body: { username: string; topic: string; clientid?: string; acc: number },

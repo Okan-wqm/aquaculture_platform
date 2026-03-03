@@ -696,39 +696,43 @@ fn setup_shutdown_handler(
                                     Ok(()) => {
                                         let mut state_guard = state.write().await;
 
-                                        // LoRa config degistiyse actor'u yeniden baslat
+                                        // LoRa config degisikligi kontrol (config atamasindan ONCE)
+                                        #[cfg(feature = "lorawan")]
                                         let lora_changed = state_guard.config.lorawan != new_config.lorawan;
 
                                         state_guard.config = new_config.clone();
 
                                         // LoRa actor yeniden baslatma (config degistiyse)
-                                        if lora_changed {
-                                            info!("LoRa yapilandirmasi degisti — actor yeniden baslatiliyor...");
-                                            // Eski actor handle'ini al ve write lock'u birak
-                                            // (actor icinde state.read() cagrilir, write lock tutulursa deadlock olusur)
-                                            let old_lora_handle = state_guard.lora_handle.take();
-                                            drop(state_guard);
+                                        #[cfg(feature = "lorawan")]
+                                        {
+                                            if lora_changed {
+                                                info!("LoRa yapilandirmasi degisti — actor yeniden baslatiliyor...");
+                                                // Eski actor handle'ini al ve write lock'u birak
+                                                // (actor icinde state.read() cagrilir, write lock tutulursa deadlock olusur)
+                                                let old_lora_handle = state_guard.lora_handle.take();
+                                                drop(state_guard);
 
-                                            // Lock disinda shutdown yap — actor artik read lock alabilir ve kapanabilir
-                                            if let Some(handle) = old_lora_handle {
-                                                handle.shutdown().await;
-                                            }
+                                                // Lock disinda shutdown yap — actor artik read lock alabilir ve kapanabilir
+                                                if let Some(handle) = old_lora_handle {
+                                                    handle.shutdown().await;
+                                                }
 
-                                            // Yeni config ile yeniden baslat
-                                            if let Some(ref lora_cfg) = new_config.lorawan {
-                                                if lora_cfg.enabled {
-                                                    let new_handle = crate::lora::LoRaHandle::new(
-                                                        lora_cfg,
-                                                        state.clone(),
-                                                    );
-                                                    match new_handle.init().await {
-                                                        Ok(()) => {
-                                                            let mut state_guard = state.write().await;
-                                                            state_guard.lora_handle = Some(new_handle);
-                                                            info!("LoRa actor yeniden baslatildi (SIGHUP)");
-                                                        }
-                                                        Err(e) => {
-                                                            warn!("LoRa actor yeniden baslatma hatasi: {}", e);
+                                                // Yeni config ile yeniden baslat
+                                                if let Some(ref lora_cfg) = new_config.lorawan {
+                                                    if lora_cfg.enabled {
+                                                        let new_handle = crate::lora::LoRaHandle::new(
+                                                            lora_cfg,
+                                                            state.clone(),
+                                                        );
+                                                        match new_handle.init().await {
+                                                            Ok(()) => {
+                                                                let mut state_guard = state.write().await;
+                                                                state_guard.lora_handle = Some(new_handle);
+                                                                info!("LoRa actor yeniden baslatildi (SIGHUP)");
+                                                            }
+                                                            Err(e) => {
+                                                                warn!("LoRa actor yeniden baslatma hatasi: {}", e);
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -1132,6 +1136,7 @@ async fn run_agent(
     }
 
     // LoRa gateway shutdown
+    #[cfg(feature = "lorawan")]
     {
         let state_guard = state.read().await;
         if let Some(ref handle) = state_guard.lora_handle {

@@ -353,6 +353,212 @@ log ""
   }
 
   /**
+   * Build update URL for a specific device
+   */
+  async buildUpdateUrl(deviceCode: string): Promise<string> {
+    const config = await this.getProvisioningConfig();
+    return `${config.apiBaseUrl}/install/${deviceCode}/update`;
+  }
+
+  /**
+   * Build update command for a specific device
+   */
+  async buildUpdateCommand(deviceCode: string): Promise<string> {
+    const url = await this.buildUpdateUrl(deviceCode);
+    return `curl -sSL "${url}" | sudo bash`;
+  }
+
+  /**
+   * Render update script for upgrading the edge agent in-place
+   * Preserves configuration, only replaces the binary.
+   */
+  renderUpdateScript(deviceCode?: string): string {
+    const safeDeviceCode = deviceCode ? this.sanitizeForShell(deviceCode) : '';
+    const GITHUB_REPO = this.sanitizeForShell(this.PINNED_GITHUB_REPO);
+    const now = new Date().toISOString();
+
+    return `#!/bin/bash
+set -euo pipefail
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Suderra Edge Agent Updater
+${safeDeviceCode ? `#  Device: ${safeDeviceCode}\n` : ''}#  Generated: ${now}
+# ══════════════════════════════════════════════════════════════════════════════
+
+GITHUB_REPO="${GITHUB_REPO}"
+INSTALL_DIR="/opt/suderra"
+SERVICE="suderra-agent"
+BINARY="$INSTALL_DIR/edge-agent"
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"; }
+
+download_with_retry() {
+    local url="$1" dest="$2" max_retries=5 retry=0
+    while [ $retry -lt $max_retries ]; do
+        if curl -fsSL --connect-timeout 30 --max-time 300 -o "$dest" "$url"; then
+            return 0
+        fi
+        retry=$((retry + 1))
+        wait_time=$((retry * retry * 5))
+        log "Download failed, retry $retry/$max_retries in \${wait_time}s..."
+        sleep "$wait_time"
+    done
+    log "ERROR: Download failed after $max_retries attempts: $url"
+    return 1
+}
+
+WORK_DIR=$(mktemp -d /tmp/suderra-update.XXXXXX)
+cleanup() { rm -rf "$WORK_DIR" 2>/dev/null || true; }
+trap cleanup EXIT
+
+log "╔══════════════════════════════════════════════════════════════╗"
+log "║           Suderra Edge Agent Updater                        ║"
+log "╚══════════════════════════════════════════════════════════════╝"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 1: Prerequisites
+# ─────────────────────────────────────────────────────────────────────────────
+log "[1/6] Checking prerequisites..."
+if [ "$(id -u)" -ne 0 ]; then
+    log "ERROR: This script must be run as root"
+    exit 1
+fi
+
+if [ ! -f "$BINARY" ]; then
+    log "ERROR: Agent not installed at $BINARY"
+    log "Please run the installer first."
+    exit 1
+fi
+
+CURRENT_VERSION=$("$BINARY" --version 2>/dev/null || echo "unknown")
+log "Current version: $CURRENT_VERSION"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 2: Detect Architecture
+# ─────────────────────────────────────────────────────────────────────────────
+log "[2/6] Detecting architecture..."
+ARCH=$(uname -m)
+case $ARCH in
+    x86_64)   ARCHIVE_NAME="suderra-agent-x86_64-linux" ;;
+    aarch64)  ARCHIVE_NAME="suderra-agent-aarch64-linux" ;;
+    armv7l)   ARCHIVE_NAME="suderra-agent-armv7-linux" ;;
+    *)
+        log "ERROR: Unsupported architecture: $ARCH"
+        exit 1
+        ;;
+esac
+log "Architecture: $ARCH -> $ARCHIVE_NAME"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 3: Download Latest Release
+# ─────────────────────────────────────────────────────────────────────────────
+log "[3/6] Fetching latest release from GitHub..."
+
+LATEST_TAG=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases?per_page=10" | grep '"tag_name"' | head -1 | cut -d '"' -f 4)
+
+if [ -z "$LATEST_TAG" ]; then
+    log "ERROR: Could not determine latest release from GitHub API."
+    exit 1
+fi
+
+log "Latest version: $LATEST_TAG"
+
+# Check if already up to date
+if echo "$CURRENT_VERSION" | grep -q "$LATEST_TAG" 2>/dev/null; then
+    log "Agent is already up to date ($CURRENT_VERSION)"
+    exit 0
+fi
+
+TARBALL="\${ARCHIVE_NAME}.tar.gz"
+CHECKSUM_FILE="\${TARBALL}.sha256"
+DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/$LATEST_TAG/\${TARBALL}"
+CHECKSUM_URL="https://github.com/$GITHUB_REPO/releases/download/$LATEST_TAG/\${CHECKSUM_FILE}"
+
+log "Downloading $DOWNLOAD_URL ..."
+download_with_retry "$DOWNLOAD_URL" "$WORK_DIR/\${TARBALL}"
+download_with_retry "$CHECKSUM_URL" "$WORK_DIR/\${CHECKSUM_FILE}"
+
+# Verify SHA256 checksum
+log "Verifying SHA256 checksum..."
+if (cd "$WORK_DIR" && sha256sum -c "\$CHECKSUM_FILE"); then
+    log "Checksum verified"
+else
+    log "ERROR: Checksum verification failed! Binary may be corrupted."
+    exit 1
+fi
+
+# Extract to temp
+tar -xzf "$WORK_DIR/\${TARBALL}" -C "$WORK_DIR/"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 4: Stop Service
+# ─────────────────────────────────────────────────────────────────────────────
+log "[4/6] Stopping agent service..."
+if systemctl is-active "$SERVICE" &>/dev/null; then
+    systemctl stop "$SERVICE"
+    log "Service stopped"
+else
+    log "Service was not running"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 5: Replace Binary
+# ─────────────────────────────────────────────────────────────────────────────
+log "[5/6] Updating binary..."
+
+# Backup current binary
+cp "$BINARY" "$BINARY.bak"
+log "Backed up current binary to $BINARY.bak"
+
+# Replace with new version
+cp "$WORK_DIR/edge-agent" "$BINARY"
+chmod +x "$BINARY"
+
+NEW_VERSION=$("$BINARY" --version 2>/dev/null || echo "unknown")
+log "New version: $NEW_VERSION"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 6: Start & Verify
+# ─────────────────────────────────────────────────────────────────────────────
+log "[6/6] Starting agent service..."
+systemctl start "$SERVICE"
+sleep 3
+
+STATUS=$(systemctl is-active "$SERVICE")
+if [ "$STATUS" = "active" ]; then
+    log "Agent is running"
+    # Remove backup on success
+    rm -f "$BINARY.bak"
+else
+    log "ERROR: Agent failed to start after update!"
+    log "Rolling back to previous version..."
+    cp "$BINARY.bak" "$BINARY"
+    chmod +x "$BINARY"
+    systemctl start "$SERVICE"
+    sleep 2
+    ROLLBACK_STATUS=$(systemctl is-active "$SERVICE")
+    if [ "$ROLLBACK_STATUS" = "active" ]; then
+        log "Rollback successful, running previous version"
+    else
+        log "CRITICAL: Rollback also failed! Check: journalctl -u $SERVICE -n 50"
+    fi
+    exit 1
+fi
+
+log ""
+log "══════════════════════════════════════════════════════════════════════════════"
+log "                    UPDATE COMPLETE!"
+log "══════════════════════════════════════════════════════════════════════════════"
+log ""
+log "  Previous: $CURRENT_VERSION"
+log "  Current:  $NEW_VERSION"
+log "  Status:   $STATUS"
+log "  Config:   /etc/suderra/config.yaml (preserved)"
+log ""
+`;
+  }
+
+  /**
    * Build uninstall URL for a specific device
    */
   async buildUninstallUrl(deviceCode: string): Promise<string> {

@@ -176,6 +176,50 @@ export class ProvisioningController {
   }
 
   /**
+   * GET /install/:deviceCode/update
+   *
+   * Returns the update script for a device.
+   * This is called by: curl -sSL "http://host/install/{deviceCode}/update" | sudo bash
+   *
+   * Returns: Shell script (text/x-shellscript)
+   *
+   * SECURITY: No token required — the update script only replaces the binary
+   * and does not contain any secrets. Config is preserved.
+   * Rate limited to 5 requests per minute per IP.
+   */
+  @Get('install/:deviceCode/update')
+  @RateLimit({ limit: 5, windowMs: 60000 })
+  async getUpdateScript(
+    @Param('deviceCode') deviceCode: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    // Validate device code format to prevent injection
+    if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
+      res.status(HttpStatus.BAD_REQUEST).contentType('text/plain').send('Invalid device code format');
+      return;
+    }
+
+    this.logger.log(`Update script requested for device: ${deviceCode}`);
+
+    try {
+      const script = await this.provisioningService.generateUpdateScript(deviceCode);
+
+      res
+        .status(HttpStatus.OK)
+        .contentType('text/x-shellscript')
+        .set('Content-Disposition', `attachment; filename="update-${deviceCode}.sh"`)
+        .send(script);
+    } catch (error) {
+      this.logger.error(`Failed to generate update script for ${deviceCode}:`, error);
+
+      res
+        .status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .contentType('text/plain')
+        .send('Failed to generate update script');
+    }
+  }
+
+  /**
    * POST /api/devices/activate
    *
    * Public endpoint for device activation (v1.1 - no version prefix).

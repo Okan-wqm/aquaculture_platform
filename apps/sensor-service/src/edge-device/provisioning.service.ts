@@ -498,6 +498,14 @@ export class ProvisioningService {
     return this.installerScriptService.renderUninstallScript(deviceCode);
   }
 
+  /**
+   * Generate update script for a device.
+   * No token required — the script only replaces the binary, config is preserved.
+   */
+  async generateUpdateScript(deviceCode: string): Promise<string> {
+    return this.installerScriptService.renderUpdateScript(deviceCode);
+  }
+
   // ============================================
   // Tenant-Level Provisioning (v2.0) - Delegated
   // ============================================

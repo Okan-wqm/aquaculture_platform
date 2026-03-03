@@ -792,8 +792,10 @@ export class EdgeDeviceService implements OnModuleDestroy {
   ): Promise<{
     installCommand: string;
     uninstallCommand: string;
+    updateCommand: string;
     installUrl: string;
     uninstallUrl: string;
+    updateUrl: string;
   }> {
     const device = await this.findByIdOrFail(deviceId, tenantId);
 
@@ -806,7 +808,11 @@ export class EdgeDeviceService implements OnModuleDestroy {
     const uninstallUrl = await this.installerScriptService.buildUninstallUrl(device.deviceCode);
     const uninstallCommand = await this.installerScriptService.buildUninstallCommand(device.deviceCode);
 
-    return { installCommand, uninstallCommand, installUrl, uninstallUrl };
+    // Build update URL/command — always available
+    const updateUrl = await this.installerScriptService.buildUpdateUrl(device.deviceCode);
+    const updateCommand = await this.installerScriptService.buildUpdateCommand(device.deviceCode);
+
+    return { installCommand, uninstallCommand, updateCommand, installUrl, uninstallUrl, updateUrl };
   }
 
   // ==================== MQTT Command Methods ====================

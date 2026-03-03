@@ -370,11 +370,17 @@ export class DeviceInstallCommands {
   @Field({ description: 'curl command to uninstall the agent' })
   uninstallCommand!: string;
 
+  @Field({ description: 'curl command to update the agent to latest version' })
+  updateCommand!: string;
+
   @Field({ description: 'Direct URL to the install script' })
   installUrl!: string;
 
   @Field({ description: 'Direct URL to the uninstall script' })
   uninstallUrl!: string;
+
+  @Field({ description: 'Direct URL to the update script' })
+  updateUrl!: string;
 }
 
 // ==================== I/O Auto-Detection (v2.3) ====================

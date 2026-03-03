@@ -16,6 +16,8 @@ use std::fs;
 use std::path::PathBuf;
 use tracing::{debug, info, warn};
 
+use crate::i2c::I2cDeviceConfig;
+
 // ============================================================================
 // Secret<String> Serialization Helpers (v1.2.2)
 // ============================================================================
@@ -192,6 +194,10 @@ pub struct AgentConfig {
     /// GPIO configuration
     #[serde(default)]
     pub gpio: Vec<GpioConfig>,
+
+    /// I2C device configuration
+    #[serde(default)]
+    pub i2c: Vec<I2cDeviceConfig>,
 
     /// Scripting configuration
     #[serde(default)]
@@ -392,6 +398,14 @@ pub struct MqttTopics {
     /// v2.3: Reports hardware capabilities for auto-detection
     #[serde(default = "default_capabilities_topic")]
     pub capabilities: String,
+
+    /// I/O data topic pattern (publish process image values)
+    #[serde(default = "default_io_data_topic")]
+    pub io_data: String,
+
+    /// Alarms topic pattern (publish alarm events)
+    #[serde(default = "default_alarms_topic")]
+    pub alarms: String,
 }
 
 impl Default for MqttTopics {
@@ -403,6 +417,8 @@ impl Default for MqttTopics {
             commands: default_commands_topic(),
             config: default_config_topic(),
             capabilities: default_capabilities_topic(),
+            io_data: default_io_data_topic(),
+            alarms: default_alarms_topic(),
         }
     }
 }
@@ -437,6 +453,14 @@ impl MqttTopics {
                 .capabilities
                 .replace("{tenant_id}", tenant_id)
                 .replace("{device_id}", device_id),
+            io_data: self
+                .io_data
+                .replace("{tenant_id}", tenant_id)
+                .replace("{device_id}", device_id),
+            alarms: self
+                .alarms
+                .replace("{tenant_id}", tenant_id)
+                .replace("{device_id}", device_id),
         };
 
         // v1.2.3: Validate that all placeholders were resolved
@@ -456,6 +480,10 @@ pub struct ResolvedTopics {
     pub config: String,
     /// v2.3: Hardware capabilities report topic
     pub capabilities: String,
+    /// I/O data topic for process image values
+    pub io_data: String,
+    /// Alarm events topic
+    pub alarms: String,
 }
 
 impl ResolvedTopics {
@@ -476,6 +504,8 @@ impl ResolvedTopics {
             ("commands", &self.commands),
             ("config", &self.config),
             ("capabilities", &self.capabilities),
+            ("io_data", &self.io_data),
+            ("alarms", &self.alarms),
         ];
 
         for (name, topic) in topics {
@@ -541,6 +571,14 @@ pub struct TelemetryConfig {
     #[serde(default = "default_true")]
     pub include_gpio: bool,
 
+    /// Include I2C device readings
+    #[serde(default = "default_true")]
+    pub include_i2c: bool,
+
+    /// I/O data publish interval in milliseconds
+    #[serde(default = "default_io_data_interval")]
+    pub io_data_interval_ms: u64,
+
     /// OpenTelemetry OTLP export configuration (optional)
     #[serde(default)]
     pub otlp: OtlpConfig,
@@ -557,6 +595,8 @@ impl Default for TelemetryConfig {
             include_system: true,
             include_modbus: true,
             include_gpio: true,
+            include_i2c: true,
+            io_data_interval_ms: default_io_data_interval(),
             otlp: OtlpConfig::default(),
         }
     }
@@ -946,6 +986,9 @@ fn default_true() -> bool {
 fn default_telemetry_interval() -> u64 {
     30
 }
+fn default_io_data_interval() -> u64 {
+    1000
+}
 
 // OpenTelemetry OTLP defaults
 fn default_service_name() -> String {
@@ -1103,6 +1146,14 @@ fn default_config_topic() -> String {
 
 fn default_capabilities_topic() -> String {
     "tenants/{tenant_id}/devices/{device_id}/capabilities".to_string()
+}
+
+fn default_io_data_topic() -> String {
+    "tenants/{tenant_id}/devices/{device_id}/io_data".to_string()
+}
+
+fn default_alarms_topic() -> String {
+    "tenants/{tenant_id}/devices/{device_id}/alarms".to_string()
 }
 
 impl AgentConfig {

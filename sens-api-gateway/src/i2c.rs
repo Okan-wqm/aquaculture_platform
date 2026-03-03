@@ -19,7 +19,6 @@
 //! - Block read/write support
 //! - Device scanning
 
-#![allow(dead_code)]
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

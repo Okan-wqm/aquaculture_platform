@@ -78,6 +78,7 @@ export interface AddIoConfigInput {
   spiBus?: number;
   spiCs?: number;
   uartPort?: string;
+  driverType?: string;
   invertValue?: boolean;
   alarmHH?: number;
   alarmH?: number;
@@ -162,10 +163,31 @@ interface AgentGpioConfig {
   invert: boolean;
 }
 
+/** Matches config.rs → I2cDeviceConfig */
+interface AgentI2cDeviceConfig {
+  name: string;
+  bus: number;
+  address: number;
+  driver_type: Record<string, unknown>;
+  io_type: string;
+  data_type: string;
+  raw_min: number | null;
+  raw_max: number | null;
+  eng_min: number | null;
+  eng_max: number | null;
+  eng_unit: string | null;
+  alarm_hh: number | null;
+  alarm_h: number | null;
+  alarm_l: number | null;
+  alarm_ll: number | null;
+  deadband: number | null;
+}
+
 /** Top-level I/O config payload sent to the agent via MQTT */
 export interface AgentIoConfig {
   modbus: AgentModbusDeviceConfig[];
   gpio: AgentGpioConfig[];
+  i2c: AgentI2cDeviceConfig[];
 }
 
 /**
@@ -1000,6 +1022,47 @@ export class EdgeDeviceService implements OnModuleDestroy {
   }
 
   /**
+   * Infer the I2C driver type configuration for the Rust agent.
+   *
+   * Priority:
+   * 1. Explicit driverType column (e.g. "atlas_ezo_ph", "generic_register")
+   * 2. Well-known Atlas Scientific EZO addresses (0x61–0x66)
+   * 3. Fallback: generic_direct (raw byte read)
+   */
+  private inferI2cDriverType(
+    cfg: DeviceIoConfig,
+  ): Record<string, unknown> {
+    // If explicitly set via driverType column
+    if (cfg.driverType) {
+      if (cfg.driverType.startsWith('atlas_ezo_')) {
+        const sensorType = cfg.driverType.replace('atlas_ezo_', '');
+        return { atlas_ezo: { sensor_type: sensorType } };
+      }
+      if (cfg.driverType === 'generic_register') {
+        return { generic_register: { read_register: 0, read_length: 4 } };
+      }
+      return { generic_direct: { read_length: 4 } };
+    }
+
+    // Infer from known Atlas Scientific EZO addresses
+    const atlasAddressMap: Record<number, string> = {
+      0x61: 'do',
+      0x62: 'orp',
+      0x63: 'ph',
+      0x64: 'ec',
+      0x66: 'temp',
+    };
+
+    const addr = cfg.i2cAddress;
+    if (addr != null && atlasAddressMap[addr]) {
+      return { atlas_ezo: { sensor_type: atlasAddressMap[addr] } };
+    }
+
+    // Default: generic direct read
+    return { generic_direct: { read_length: 4 } };
+  }
+
+  /**
    * Transform DeviceIoConfig rows into the agent's expected wire format.
    *
    * The output structure mirrors the Rust agent's config.rs types:
@@ -1029,11 +1092,30 @@ export class EdgeDeviceService implements OnModuleDestroy {
         gpioConfigs.push(cfg);
       } else if (cfg.modbusRegister != null) {
         modbusConfigs.push(cfg);
+      } else if (cfg.busType === 'i2c' && cfg.i2cAddress != null) {
+        // I2C configs handled below
+      } else if (cfg.busType === 'spi' || cfg.busType === 'uart') {
+        // SPI/UART not yet supported — logged below
       } else {
         this.logger.warn(
           `I/O tag "${cfg.tagName}" has neither gpioPin nor modbusRegister — skipping`,
         );
       }
+    }
+
+    // I2C partition
+    const i2cConfigs = ioConfigs.filter(
+      (cfg) => cfg.busType === 'i2c' && cfg.i2cAddress != null,
+    );
+
+    // SPI/UART warning
+    const unsupported = ioConfigs.filter(
+      (cfg) => cfg.busType === 'spi' || cfg.busType === 'uart',
+    );
+    if (unsupported.length > 0) {
+      this.logger.warn(
+        `${unsupported.length} SPI/UART configs skipped (not yet supported)`,
+      );
     }
 
     // Group Modbus configs by slave ID.  Each group becomes one TCP
@@ -1077,7 +1159,27 @@ export class EdgeDeviceService implements OnModuleDestroy {
       invert: cfg.invertValue ?? false,
     }));
 
-    return { modbus, gpio };
+    // Build I2C device config array
+    const i2c: AgentI2cDeviceConfig[] = i2cConfigs.map((cfg) => ({
+      name: cfg.tagName,
+      bus: cfg.i2cBus ?? 1,
+      address: cfg.i2cAddress!,
+      driver_type: this.inferI2cDriverType(cfg),
+      io_type: cfg.ioType,
+      data_type: cfg.dataType.toLowerCase(),
+      raw_min: cfg.rawMin ? Number(cfg.rawMin) : null,
+      raw_max: cfg.rawMax ? Number(cfg.rawMax) : null,
+      eng_min: cfg.engMin ? Number(cfg.engMin) : null,
+      eng_max: cfg.engMax ? Number(cfg.engMax) : null,
+      eng_unit: cfg.engUnit ?? null,
+      alarm_hh: cfg.alarmHH ? Number(cfg.alarmHH) : null,
+      alarm_h: cfg.alarmH ? Number(cfg.alarmH) : null,
+      alarm_l: cfg.alarmL ? Number(cfg.alarmL) : null,
+      alarm_ll: cfg.alarmLL ? Number(cfg.alarmLL) : null,
+      deadband: cfg.deadband ? Number(cfg.deadband) : null,
+    }));
+
+    return { modbus, gpio, i2c };
   }
 
   /**
@@ -1133,7 +1235,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
       this.logger.log(
         `Pushed I/O config to ${device.deviceCode}: ${ioConfigs.length} tags ` +
-        `(${agentConfig.modbus.length} modbus devices, ${agentConfig.gpio.length} gpio pins)`,
+        `(${agentConfig.modbus.length} modbus devices, ${agentConfig.gpio.length} gpio pins, ${agentConfig.i2c.length} i2c devices)`,
       );
 
       return { success: true };
@@ -1581,6 +1683,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
           spiBus: input.spiBus,
           spiCs: input.spiCs,
           uartPort: input.uartPort,
+          driverType: input.driverType,
           invertValue: input.invertValue,
           alarmHH: input.alarmHH,
           alarmH: input.alarmH,

@@ -168,6 +168,10 @@ export class DeviceIoConfig {
   @Column({ name: 'uart_port', length: 50, nullable: true })
   uartPort?: string;
 
+  @Field({ nullable: true })
+  @Column({ name: 'driver_type', length: 50, nullable: true })
+  driverType?: string;
+
   // Value Inversion
   @Field()
   @Column({ name: 'invert_value', default: false })

@@ -20,8 +20,9 @@
  * -----------------------------------------------------------------------
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import { IoBinding } from '../../../store/processStore';
+import { useEdgeIoSocket } from '../../../hooks/useEdgeIoSocket';
 
 interface EquipmentNodeOverlayProps {
   ioBindings: IoBinding[];
@@ -92,20 +93,16 @@ export const EquipmentNodeOverlay: React.FC<EquipmentNodeOverlayProps> = ({
   ioBindings,
   edgeDeviceCode,
 }) => {
-  // -----------------------------------------------------------------------
-  // Canlı I/O değerleri state'i
-  // Şimdilik boş başlatıyoruz — WebSocket entegrasyonu Faz F'den sonra
-  // aktif olacak. Edge agent'ın gönderdiği 'EdgeDeviceIoData' event'leri
-  // bu state'i güncelleyecek.
-  // -----------------------------------------------------------------------
-  const [liveValues] = useState<Record<string, number | boolean | null>>({});
-
-  // TODO (Faz F sonrası): WebSocket'ten gelen EdgeDeviceIoData event'lerini dinle
-  // useEffect(() => {
-  //   if (!edgeDeviceCode) return;
-  //   // Socket.IO veya EventSource ile dinleme
-  //   // event.tags → { tagName: { value, quality } }
-  // }, [edgeDeviceCode]);
+  // Canli I/O degerleri — WebSocket uzerinden edge device'den alinir
+  const { tags } = useEdgeIoSocket(edgeDeviceCode);
+  const liveValues: Record<string, number | boolean | null> = {};
+  if (tags) {
+    for (const [key, tagValue] of Object.entries(tags)) {
+      liveValues[key] = typeof tagValue.value === 'boolean'
+        ? tagValue.value
+        : Number(tagValue.value);
+    }
+  }
 
   // Maksimum 4 badge göster (node küçük olduğu için)
   const visibleBindings = ioBindings.slice(0, 4);

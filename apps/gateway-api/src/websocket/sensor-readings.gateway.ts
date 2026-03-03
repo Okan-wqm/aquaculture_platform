@@ -321,6 +321,84 @@ export class SensorReadingsGateway
   }
 
   /**
+   * Client subscribes to edge device I/O data stream
+   */
+  @SubscribeMessage('subscribeEdgeIo')
+  handleSubscribeEdgeIo(
+    client: Socket,
+    payload: { deviceCode: string },
+  ): { success: boolean } {
+    const clientData = this.clients.get(client.id);
+    if (!clientData || !payload?.deviceCode) {
+      return { success: false };
+    }
+
+    const room = `edgeIo:${clientData.tenantId}:${payload.deviceCode}`;
+    void client.join(room);
+    this.logger.debug(
+      `Client ${client.id} subscribed to edge I/O: ${payload.deviceCode}`,
+    );
+    return { success: true };
+  }
+
+  /**
+   * Client unsubscribes from edge device I/O data stream
+   */
+  @SubscribeMessage('unsubscribeEdgeIo')
+  handleUnsubscribeEdgeIo(
+    client: Socket,
+    payload: { deviceCode: string },
+  ): { success: boolean } {
+    const clientData = this.clients.get(client.id);
+    if (!clientData || !payload?.deviceCode) {
+      return { success: false };
+    }
+
+    const room = `edgeIo:${clientData.tenantId}:${payload.deviceCode}`;
+    void client.leave(room);
+    this.logger.debug(
+      `Client ${client.id} unsubscribed from edge I/O: ${payload.deviceCode}`,
+    );
+    return { success: true };
+  }
+
+  /**
+   * Broadcast edge device I/O data to subscribed clients
+   * Called by NATS bridge for EdgeDeviceIoData events
+   */
+  broadcastEdgeIoData(event: {
+    tenantId: string;
+    deviceCode: string;
+    tags: Record<string, unknown>;
+    timestamp: string;
+  }): void {
+    const room = `edgeIo:${event.tenantId}:${event.deviceCode}`;
+    this.server.to(room).emit('edgeIoData', {
+      deviceCode: event.deviceCode,
+      tags: event.tags,
+      timestamp: event.timestamp,
+    });
+  }
+
+  /**
+   * Broadcast edge device alarm events to subscribed clients
+   * Called by NATS bridge for EdgeDeviceAlarm events
+   */
+  broadcastEdgeAlarm(event: {
+    tenantId: string;
+    deviceCode: string;
+    alarms: unknown[];
+    timestamp: string;
+  }): void {
+    const room = `edgeIo:${event.tenantId}:${event.deviceCode}`;
+    this.server.to(room).emit('edgeAlarm', {
+      deviceCode: event.deviceCode,
+      alarms: event.alarms,
+      timestamp: event.timestamp,
+    });
+  }
+
+  /**
    * Broadcast sensor reading to subscribed clients
    * Called by NATS event handler
    *

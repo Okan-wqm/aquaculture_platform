@@ -107,6 +107,12 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
       // Subscribe to sensor reading events
       this.subscribeToSensorEvents();
 
+      // Subscribe to edge device I/O data events
+      this.subscribeToEdgeIoEvents();
+
+      // Subscribe to edge device alarm events
+      this.subscribeToEdgeAlarmEvents();
+
       // Handle connection events
       this.handleConnectionEvents();
     } catch (error) {
@@ -155,6 +161,60 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private subscribeToEdgeIoEvents(): void {
+    if (!this.connection) return;
+
+    const sub = this.connection.subscribe('events.EdgeDeviceIoData.>');
+    this.logger.log('Subscribed to edge device I/O data events');
+
+    (async () => {
+      for await (const msg of sub) {
+        try {
+          const data = JSON.parse(this.sc.decode(msg.data));
+          const { tenantId, deviceCode, tags, timestamp } = data;
+
+          if (!tenantId || !deviceCode) {
+            this.logger.warn('EdgeDeviceIoData event missing tenantId or deviceCode, dropping');
+            continue;
+          }
+
+          this.sensorGateway.broadcastEdgeIoData({ tenantId, deviceCode, tags, timestamp });
+        } catch (e) {
+          this.logger.warn(`Failed to process EdgeDeviceIoData: ${(e as Error).message}`);
+        }
+      }
+    })().catch((error) => {
+      this.logger.error(`NATS EdgeDeviceIoData subscription loop error: ${(error as Error).message}`);
+    });
+  }
+
+  private subscribeToEdgeAlarmEvents(): void {
+    if (!this.connection) return;
+
+    const sub = this.connection.subscribe('events.EdgeDeviceAlarm.>');
+    this.logger.log('Subscribed to edge device alarm events');
+
+    (async () => {
+      for await (const msg of sub) {
+        try {
+          const data = JSON.parse(this.sc.decode(msg.data));
+          const { tenantId, deviceCode, alarms, timestamp } = data;
+
+          if (!tenantId || !deviceCode) {
+            this.logger.warn('EdgeDeviceAlarm event missing tenantId or deviceCode, dropping');
+            continue;
+          }
+
+          this.sensorGateway.broadcastEdgeAlarm({ tenantId, deviceCode, alarms, timestamp });
+        } catch (e) {
+          this.logger.warn(`Failed to process EdgeDeviceAlarm: ${(e as Error).message}`);
+        }
+      }
+    })().catch((error) => {
+      this.logger.error(`NATS EdgeDeviceAlarm subscription loop error: ${(error as Error).message}`);
+    });
+  }
+
   private handleSensorReadingEvent(event: NatsEvent): void {
     if (event.eventType !== 'SensorReadingReceived') {
       return;
@@ -200,10 +260,12 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
             this.logger.warn('NATS disconnected');
             break;
           case 'reconnect':
-            this.logger.log('NATS reconnected - re-subscribing to sensor events');
+            this.logger.log('NATS reconnected - re-subscribing to events');
             // Re-subscribe after reconnect; the previous subscription's
             // async iterator terminates on disconnect.
             this.subscribeToSensorEvents();
+            this.subscribeToEdgeIoEvents();
+            this.subscribeToEdgeAlarmEvents();
             break;
           case 'error':
             this.logger.error(`NATS error: ${String(status.data)}`);

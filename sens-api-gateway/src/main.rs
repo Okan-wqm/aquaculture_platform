@@ -31,6 +31,9 @@ mod resilience;
 mod scripting;
 mod deploy_orchestrator; // v2.2: Unified deploy orchestrator (Rust/Codesys/Setpoint)
 mod hardware_scanner; // v2.3: Platform-aware I/O auto-detection (RevPi/RPi/Generic)
+mod process_image;
+mod atlas_ezo;
+mod io_poll;
 mod security; // v1.2.2: Security hardening utilities
 mod st_validator; // v2.2: IEC 61131-3 Structured Text parser and validator
 mod shutdown;
@@ -43,11 +46,14 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
+use crate::alarms::AlarmManager;
 use crate::commands::CommandHandler;
 use crate::config::AgentConfig;
 use crate::gpio::GpioHandle;
+use crate::i2c::I2cHandle;
 use crate::modbus::ModbusHandle;
 use crate::mqtt::MqttClient;
+use crate::process_image::ProcessImage;
 use crate::provisioning::ProvisioningClient;
 use crate::scripting::{ScriptEngine, ScriptStorage, SqlitePersistence};
 use crate::shutdown::ShutdownCoordinator;
@@ -223,6 +229,15 @@ pub struct AppState {
     /// GPIO handle (actor pattern - thread-safe, v2.0)
     pub gpio_handle: Option<GpioHandle>,
 
+    /// I2C handle (actor pattern - thread-safe)
+    pub i2c_handle: Option<I2cHandle>,
+
+    /// Process image holding all tag values
+    pub process_image: ProcessImage,
+
+    /// Alarm manager for I/O alarm evaluation
+    pub alarm_manager: Arc<RwLock<AlarmManager>>,
+
     /// Shared script storage (v2.2 - singleton for CommandHandler and ScriptEngine)
     /// This ensures both components see the same script state
     /// v1.2.0: Internal RwLock for thread-safe access (no external lock needed)
@@ -248,6 +263,9 @@ impl AppState {
             mqtt_client: None,
             modbus_handle: None,
             gpio_handle: None,
+            i2c_handle: None,
+            process_image: ProcessImage::new(),
+            alarm_manager: Arc::new(RwLock::new(AlarmManager::new())),
             script_storage: Arc::new(script_storage),
             is_activated: false,
             tenant_id: None,
@@ -283,6 +301,16 @@ impl AppState {
             info!(
                 "GPIO actor initialized with {} pins",
                 self.config.gpio.len()
+            );
+        }
+
+        // Initialize I2C actor
+        if !self.config.i2c.is_empty() {
+            let handle = I2cHandle::new(self.config.i2c.clone());
+            self.i2c_handle = Some(handle);
+            info!(
+                "I2C actor initialized with {} devices",
+                self.config.i2c.len()
             );
         }
     }
@@ -923,6 +951,9 @@ async fn run_agent(
     });
     shutdown_coordinator.register_task("telemetry", telemetry_handle);
 
+    // Step 6b: Start I/O poll loop
+    tokio::spawn(io_poll::io_poll_loop(state.clone()));
+
     // Step 7: Start command handler with shutdown awareness
     let command_handler = CommandHandler::new(state.clone()).await;
     let command_shutdown = shutdown_coordinator.subscribe();
@@ -1101,6 +1132,25 @@ async fn init_hardware(state: &Arc<RwLock<AppState>>) {
         }
     } else {
         debug!("No GPIO pins configured");
+    }
+
+    // Initialize I2C devices via handle
+    let i2c_handle = {
+        let state_guard = state.read().await;
+        state_guard.i2c_handle.clone()
+    };
+
+    if let Some(handle) = i2c_handle {
+        match handle.init().await {
+            Ok(()) => {
+                info!("I2C devices initialized successfully");
+            }
+            Err(e) => {
+                warn!("I2C initialization failed: {}", e);
+            }
+        }
+    } else {
+        debug!("No I2C devices configured");
     }
 
     // Connect to Modbus devices via handle

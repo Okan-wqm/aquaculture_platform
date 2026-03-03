@@ -567,6 +567,24 @@ impl MqttClient {
         Ok(())
     }
 
+    /// Publish I/O data (QoS 0, not retained - latest value is what matters)
+    pub async fn publish_io_data(&self, payload: &impl serde::Serialize) -> Result<()> {
+        let data = serde_json::to_vec(payload)?;
+        self.client
+            .publish(&self.topics.io_data, rumqttc::QoS::AtMostOnce, false, data)
+            .await?;
+        Ok(())
+    }
+
+    /// Publish alarm events (QoS 1, not retained - must be delivered)
+    pub async fn publish_alarms(&self, payload: &impl serde::Serialize) -> Result<()> {
+        let data = serde_json::to_vec(payload)?;
+        self.client
+            .publish(&self.topics.alarms, rumqttc::QoS::AtLeastOnce, false, data)
+            .await?;
+        Ok(())
+    }
+
     /// Publish raw bytes to an arbitrary MQTT topic.
     ///
     /// Used for one-off publishes that don't fit the standard topic patterns

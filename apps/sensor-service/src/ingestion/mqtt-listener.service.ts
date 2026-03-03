@@ -12,6 +12,8 @@ import { SensorDataChannel } from '../database/entities/sensor-data-channel.enti
 import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor, SensorStatus } from '../database/entities/sensor.entity';
+import { DeviceEvent, DeviceEventType, DeviceEventSeverity } from '../edge-device/entities/device-event.entity';
+import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
@@ -118,6 +120,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   // Channel lookup cache: sensorId -> { channels, expiresAt }
   private readonly channelCache = new Map<string, { channels: SensorDataChannel[]; expiresAt: number }>();
   private readonly CHANNEL_CACHE_TTL_MS = 60_000; // 60 seconds
+
+  // Cache for device lookups (tenantId:deviceCode -> device entity)
+  private readonly deviceCache = new Map<string, { device: any; expiry: number }>();
+  // Cache for io configs (deviceId -> ioConfigs[])
+  private readonly ioConfigCache = new Map<string, { configs: DeviceIoConfig[]; expiry: number }>();
+  private readonly DEVICE_CACHE_TTL_MS = 30_000; // 30 seconds
 
   // lastSeenAt debounce: sensorId -> last flush timestamp
   private readonly lastSeenPending = new Map<string, Date>();
@@ -254,6 +262,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       'tenants/+/devices/+/response',   // Command response (legacy singular)
       'tenants/+/devices/+/responses',  // Command response (plural - Edge Agent v2.0+)
       'tenants/+/devices/+/io_data',     // I/O tag canlı değerleri (Edge Agent → Frontend bridge)
+      'tenants/+/devices/+/alarms',       // I/O alarm events (Edge Agent → Backend persist + WS bridge)
       'tenants/+/devices/+/capabilities', // v2.3: Boot-time hardware capabilities report
     ];
 
@@ -683,6 +692,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           await this.handleEdgeIoData(tenantId, deviceCode, payload);
           break;
 
+        case 'alarms':
+          // Edge agent alarm event'lerini EventBus + device_events tablosuna persist et
+          await this.handleEdgeAlarms(tenantId, deviceCode, payload);
+          break;
+
         case 'capabilities':
           // v2.3: Boot-time hardware capabilities report from edge agent.
           // Updates the device's capabilities JSONB field for UI display.
@@ -885,6 +899,220 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         version: 1,
       });
     }
+
+    // 6. Persist to sensor_metrics for historical data
+    await this.persistIoDataToMetrics(
+      tenantId,
+      deviceCode,
+      tags as Record<string, { value: any; quality: string }>,
+    );
+  }
+
+  // ==================== I/O Data Persistence ====================
+
+  /**
+   * Persist io_data tag values to sensor_metrics for historical trending.
+   * Maps edge device → sensor, ioConfig → channel.
+   */
+  private async persistIoDataToMetrics(
+    tenantId: string,
+    deviceCode: string,
+    tags: Record<string, { value: any; quality: string }>,
+  ): Promise<void> {
+    try {
+      // Lookup device (cached)
+      const device = await this.getCachedDevice(tenantId, deviceCode);
+      if (!device) {
+        this.logger.warn(`Device not found for io_data persist: ${deviceCode}`);
+        return;
+      }
+
+      // Lookup io configs (cached)
+      const ioConfigs = await this.getCachedIoConfigs(device.id);
+
+      // Build tag->config map
+      const configMap = new Map(ioConfigs.map((c: DeviceIoConfig) => [c.tagName, c]));
+
+      // Quality code mapping (edge agent quality strings → OPC-UA quality codes)
+      const qualityMap: Record<string, number> = {
+        good: 192,
+        uncertain: 64,
+        bad: 0,
+        comm_failure: 24,
+        not_initialized: 32,
+      };
+
+      // Batch insert into sensor_metrics
+      const timestamp = new Date();
+      const params: (string | number | null)[] = [];
+      const valuePlaceholders: string[] = [];
+      let paramIdx = 1;
+
+      for (const [tagName, tagData] of Object.entries(tags)) {
+        const config = configMap.get(tagName);
+        if (!config) continue;
+
+        const numericValue = typeof tagData.value === 'boolean'
+          ? (tagData.value ? 1.0 : 0.0)
+          : Number(tagData.value);
+
+        if (isNaN(numericValue)) continue;
+
+        const qualityCode = qualityMap[tagData.quality] ?? 0;
+
+        // Build parameterized value row: (time, sensor_id, channel_id, tenant_id, raw_value, value, quality_code, quality_bits, source_protocol, source_timestamp, ingestion_latency_ms, batch_id)
+        const placeholders = [];
+        for (const val of [
+          timestamp.toISOString(),  // time
+          device.id,                // sensor_id (device acts as sensor)
+          config.id,                // channel_id (ioConfig acts as channel)
+          tenantId,                 // tenant_id
+          null, null, null, null, null, null, null, // site_id .. farm_id
+          numericValue,             // raw_value
+          numericValue,             // value (no calibration on io_data)
+          qualityCode,              // quality_code
+          0,                        // quality_bits
+          'edge_io',                // source_protocol
+          timestamp.toISOString(),  // source_timestamp
+          0,                        // ingestion_latency_ms
+          null,                     // batch_id
+        ]) {
+          placeholders.push(`$${paramIdx}`);
+          params.push(val as string | number | null);
+          paramIdx++;
+        }
+        valuePlaceholders.push(`(${placeholders.join(', ')})`);
+      }
+
+      if (valuePlaceholders.length > 0) {
+        await this.dataSource.query(`
+          INSERT INTO sensor_metrics (
+            time, sensor_id, channel_id, tenant_id,
+            site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
+            raw_value, value, quality_code, quality_bits,
+            source_protocol, source_timestamp, ingestion_latency_ms, batch_id
+          ) VALUES ${valuePlaceholders.join(',\n')}
+          ON CONFLICT (time, sensor_id, channel_id) DO UPDATE SET
+            value = EXCLUDED.value,
+            raw_value = EXCLUDED.raw_value,
+            quality_code = EXCLUDED.quality_code
+        `, params);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to persist io_data for ${deviceCode}: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Get device from cache or fetch from DB.
+   */
+  private async getCachedDevice(tenantId: string, deviceCode: string): Promise<any | null> {
+    const cacheKey = `${tenantId}:${deviceCode}`;
+    const cached = this.deviceCache.get(cacheKey);
+    if (cached && cached.expiry > Date.now()) {
+      return cached.device;
+    }
+
+    const device = await this.edgeDeviceService?.findByCode(deviceCode, tenantId);
+    if (device) {
+      this.deviceCache.set(cacheKey, { device, expiry: Date.now() + this.DEVICE_CACHE_TTL_MS });
+    }
+    return device ?? null;
+  }
+
+  /**
+   * Get active I/O configs for a device from cache or fetch from DB.
+   */
+  private async getCachedIoConfigs(deviceId: string): Promise<DeviceIoConfig[]> {
+    const cached = this.ioConfigCache.get(deviceId);
+    if (cached && cached.expiry > Date.now()) {
+      return cached.configs;
+    }
+
+    const configs = await this.dataSource
+      .getRepository(DeviceIoConfig)
+      .find({ where: { deviceId, isActive: true } });
+
+    this.ioConfigCache.set(deviceId, { configs, expiry: Date.now() + this.DEVICE_CACHE_TTL_MS });
+    return configs;
+  }
+
+  // ==================== Alarm Handler ====================
+
+  /**
+   * Handle alarm events from edge agent.
+   * Publishes to EventBus for WebSocket bridge and persists to device_events table.
+   *
+   * Expected payload format:
+   * {
+   *   "timestamp": "2026-03-03T12:00:00Z",
+   *   "alarms": [
+   *     { "tag": "temp_inlet", "type": "HH", "priority": "critical", "state": "active",
+   *       "value": 32.5, "setpoint": 30.0, "message": "Temperature High-High alarm" }
+   *   ]
+   * }
+   */
+  private async handleEdgeAlarms(
+    tenantId: string,
+    deviceCode: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      const alarms = (payload.alarms ?? []) as Array<Record<string, unknown>>;
+
+      // Publish to EventBus for WebSocket bridge
+      if (this.eventBus) {
+        await this.eventBus.publish({
+          eventId: randomUUID(),
+          eventType: 'EdgeDeviceAlarm',
+          timestamp: new Date(),
+          tenantId,
+          deviceCode,
+          alarms,
+          version: 1,
+        });
+      }
+
+      // Persist to device_events
+      const device = await this.getCachedDevice(tenantId, deviceCode);
+      if (!device) return;
+
+      const events = alarms.map((alarm) => {
+        const event = new DeviceEvent();
+        event.tenantId = tenantId;
+        event.deviceId = device.id;
+        event.eventType = DeviceEventType.ALARM;
+        event.severity = this.mapAlarmPriorityToSeverity(alarm.priority as string);
+        event.message = (alarm.message as string) ||
+          `Alarm ${alarm.type} on ${alarm.tag}: value=${alarm.value}, setpoint=${alarm.setpoint}`;
+        event.metadata = {
+          tagName: alarm.tag,
+          alarmType: alarm.type,
+          priority: alarm.priority,
+          state: alarm.state,
+          value: alarm.value,
+          setpoint: alarm.setpoint,
+        };
+        return event;
+      });
+
+      if (events.length > 0) {
+        await this.dataSource.getRepository(DeviceEvent).save(events);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to handle alarms from ${deviceCode}: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Map edge agent alarm priority string to DeviceEventSeverity enum.
+   */
+  private mapAlarmPriorityToSeverity(priority: string): DeviceEventSeverity {
+    const lower = (priority ?? '').toLowerCase();
+    if (lower.includes('critical')) return DeviceEventSeverity.CRITICAL;
+    if (lower.includes('high')) return DeviceEventSeverity.ERROR;
+    if (lower.includes('medium')) return DeviceEventSeverity.WARNING;
+    return DeviceEventSeverity.INFO;
   }
 
   // ==================== Hardware Capabilities (v2.3) ====================

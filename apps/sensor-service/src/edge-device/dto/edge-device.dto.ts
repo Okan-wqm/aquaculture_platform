@@ -6,7 +6,7 @@ import {
   ObjectType,
   ID,
 } from '@nestjs/graphql';
-import { IsUUID, IsBoolean } from 'class-validator';
+import { IsUUID, IsBoolean, IsOptional, IsString } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import {
@@ -150,6 +150,11 @@ export class AddIoConfigInput {
 
   @Field({ nullable: true })
   uartPort?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  driverType?: string;
 
   @Field({ nullable: true })
   invertValue?: boolean;

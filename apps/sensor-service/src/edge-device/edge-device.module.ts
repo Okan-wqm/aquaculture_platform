@@ -12,6 +12,7 @@ import { EdgeDeviceResolver } from './edge-device.resolver';
 import { EdgeDeviceService } from './edge-device.service';
 import { DeviceIoConfig } from './entities/device-io-config.entity';
 import { EdgeDevice } from './entities/edge-device.entity';
+import { LoRaDevice } from './entities/lora-device.entity';
 import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
 import { DeviceEvent } from './entities/device-event.entity';
 import { InstallerScriptService } from './installer-script.service';
@@ -27,6 +28,7 @@ import { TenantKeyService } from './tenant-key.service';
     TypeOrmModule.forFeature([
       EdgeDevice,
       DeviceIoConfig,
+      LoRaDevice,
       TenantProvisioningKey,
       DeviceEvent,
       // Additional entities for field resolver counts

@@ -264,6 +264,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       'tenants/+/devices/+/io_data',     // I/O tag canlı değerleri (Edge Agent → Frontend bridge)
       'tenants/+/devices/+/alarms',       // I/O alarm events (Edge Agent → Backend persist + WS bridge)
       'tenants/+/devices/+/capabilities', // v2.3: Boot-time hardware capabilities report
+      'tenants/+/devices/+/lora_events',   // LoRaWAN events (join_accept, uplink_summary)
     ];
 
     try {
@@ -701,6 +702,13 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           // v2.3: Boot-time hardware capabilities report from edge agent.
           // Updates the device's capabilities JSONB field for UI display.
           await this.handleEdgeCapabilities(tenantId, deviceCode, payload);
+          break;
+
+        case 'lora_events':
+          // LoRaWAN event'leri: join_accept, uplink_summary
+          // Edge agent, SX1302 concentrator üzerinden LoRa cihazlarının
+          // durumunu bu topic'e publish eder.
+          await this.handleLoRaEvents(tenantId, deviceCode, payload);
           break;
 
         default:
@@ -1160,6 +1168,101 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(
         `Failed to update capabilities for ${deviceCode}: ${(error as Error).message}`,
       );
+    }
+  }
+
+  // ==================== LoRaWAN Event Handler ====================
+
+  /**
+   * Handle LoRaWAN events from edge agent.
+   *
+   * Edge agent, SX1302 concentrator üzerinden LoRa cihazlarının
+   * join ve uplink durumlarını bu topic'e publish eder:
+   *   tenants/{tid}/devices/{code}/lora_events
+   *
+   * Event tipleri:
+   * - join_accept: Cihaz ağa başarıyla katıldı (OTAA). DevAddr atandı.
+   * - uplink_summary: Uplink alındı. RSSI, SNR, frame counter güncellenir.
+   *
+   * Beklenen payload formatı:
+   * {
+   *   "event_type": "join_accept" | "uplink_summary",
+   *   "dev_eui": "0011223344556677",
+   *   "dev_addr": "26011234",           // join_accept'te
+   *   "rssi": -65,                      // uplink_summary'de
+   *   "snr": 8.5,                       // uplink_summary'de
+   *   "frame_count_up": 42,             // uplink_summary'de
+   *   "timestamp": "2026-03-03T12:00:00Z"
+   * }
+   */
+  private async handleLoRaEvents(
+    tenantId: string,
+    deviceCode: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.edgeDeviceService) return;
+
+    // Hem eski hem yeni alan adlarını kabul et (backward compat)
+    const eventType = (payload.event_type ?? payload.type) as string;
+    const devEui = payload.dev_eui as string;
+
+    if (!eventType || !devEui) {
+      this.logger.warn(`Invalid lora_events payload from ${deviceCode}: missing event_type or dev_eui`);
+      return;
+    }
+
+    try {
+      switch (eventType) {
+        case 'join_accept': {
+          // Cihaz OTAA ile ağa katıldı — isJoined ve devAddr güncelle
+          this.logger.log(`LoRa join_accept: DevEUI=${devEui}, DevAddr=${payload.dev_addr} via ${deviceCode}`);
+          await this.edgeDeviceService.updateLoRaDeviceStatus(devEui, {
+            isJoined: true,
+            joinedAt: new Date(),
+            devAddr: (payload.dev_addr as string) ?? undefined,
+          });
+          break;
+        }
+
+        case 'uplink_summary': {
+          // Uplink alındı — radio metrics güncelle
+          // Hem eski hem yeni alan adlarını kabul et (backward compat)
+          const frameCountUp = payload.frame_count_up ?? payload.f_cnt;
+          this.logger.debug(
+            `LoRa uplink: DevEUI=${devEui}, RSSI=${payload.rssi}, SNR=${payload.snr}, FCntUp=${frameCountUp}`,
+          );
+          await this.edgeDeviceService.updateLoRaDeviceStatus(devEui, {
+            lastSeenAt: new Date(),
+            lastRssi: payload.rssi != null ? Number(payload.rssi) : undefined,
+            lastSnr: payload.snr != null ? Number(payload.snr) : undefined,
+            frameCountUp: frameCountUp != null ? Number(frameCountUp) : undefined,
+          });
+          break;
+        }
+
+        default:
+          this.logger.debug(`Unknown lora_events type: ${eventType} from ${deviceCode}`);
+      }
+
+      // Publish to EventBus for WebSocket bridge — frontend LoRa device listesini canlı günceller
+      if (this.eventBus) {
+        await this.eventBus.publish({
+          eventId: randomUUID(),
+          eventType: 'LoRaDeviceEvent',
+          timestamp: new Date(),
+          tenantId,
+          deviceCode,
+          loraEventType: eventType,
+          devEui,
+          rssi: payload.rssi,
+          snr: payload.snr,
+          frameCountUp: payload.frame_count_up,
+          devAddr: payload.dev_addr,
+          version: 1,
+        });
+      }
+    } catch (error) {
+      this.logger.error(`Failed to handle lora_events from ${deviceCode}: ${(error as Error).message}`);
     }
   }
 

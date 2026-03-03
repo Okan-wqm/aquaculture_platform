@@ -1,6 +1,6 @@
 [package]
 name = "suderra-agent"
-version = "1.4.0"
+version = "1.5.0"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Suderra <info@suderra.com>"]
@@ -126,6 +126,15 @@ pem = "3.0"
 # SHA-256 hashing for GDPR-compliant MAC address pseudonymisation in DeviceFingerprint (LOW-45)
 sha2 = "0.10"
 
+# LoRaWAN cryptography and packet encoding (optional, activated by `lorawan` feature)
+aes = { version = "0.8", optional = true }
+cmac = { version = "0.12", optional = true }
+lorawan-encoding = { version = "0.9", optional = true }
+# Constant-time comparison for MIC verification (timing side-channel protection)
+subtle = { version = "2", optional = true }
+# Zeroize sensitive key material on drop (IEC 62443 FR4)
+zeroize = { version = "1", features = ["derive"], optional = true }
+
 # HTTP server for health check endpoint
 axum = { version = "0.8", optional = true }
 
@@ -154,6 +163,14 @@ telemetry = ["opentelemetry", "opentelemetry-otlp", "opentelemetry_sdk", "tracin
 metrics = ["dep:metrics", "metrics-exporter-prometheus"]
 # v1.2.4: Strict security mode - enables additional security checks in production
 strict-security = []
+# LoRaWAN SX1302 concentrator support (requires vendor/sx1302_hal C sources)
+lorawan = ["dep:aes", "dep:cmac", "dep:lorawan-encoding", "dep:subtle", "dep:zeroize", "dep:cc", "dep:bindgen", "dep:glob"]
+
+[build-dependencies]
+# SX1302 HAL derleme araclari (sadece `lorawan` feature ile aktif)
+cc = { version = "1.0", optional = true }
+bindgen = { version = "0.70", optional = true }
+glob = { version = "0.3", optional = true }
 
 [dev-dependencies]
 # Temporary directories for testing (v1.2.4)

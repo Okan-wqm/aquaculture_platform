@@ -214,6 +214,10 @@ pub struct AgentConfig {
     /// Circuit breaker configuration (v1.2.0)
     #[serde(default)]
     pub circuit_breaker: CircuitBreakerConfig,
+
+    /// LoRaWAN gateway configuration (v1.5.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lorawan: Option<LoRaWanConfig>,
 }
 
 /// MQTT TLS configuration (IEC 62443 SL2 FR4: Data Confidentiality)
@@ -406,6 +410,10 @@ pub struct MqttTopics {
     /// Alarms topic pattern (publish alarm events)
     #[serde(default = "default_alarms_topic")]
     pub alarms: String,
+
+    /// LoRa events topic pattern (v1.5.0: publish LoRaWAN uplink/join events)
+    #[serde(default = "default_lora_events_topic")]
+    pub lora_events: String,
 }
 
 impl Default for MqttTopics {
@@ -419,6 +427,7 @@ impl Default for MqttTopics {
             capabilities: default_capabilities_topic(),
             io_data: default_io_data_topic(),
             alarms: default_alarms_topic(),
+            lora_events: default_lora_events_topic(),
         }
     }
 }
@@ -461,6 +470,10 @@ impl MqttTopics {
                 .alarms
                 .replace("{tenant_id}", tenant_id)
                 .replace("{device_id}", device_id),
+            lora_events: self
+                .lora_events
+                .replace("{tenant_id}", tenant_id)
+                .replace("{device_id}", device_id),
         };
 
         // v1.2.3: Validate that all placeholders were resolved
@@ -484,6 +497,8 @@ pub struct ResolvedTopics {
     pub io_data: String,
     /// Alarm events topic
     pub alarms: String,
+    /// LoRa events topic (v1.5.0)
+    pub lora_events: String,
 }
 
 impl ResolvedTopics {
@@ -506,6 +521,7 @@ impl ResolvedTopics {
             ("capabilities", &self.capabilities),
             ("io_data", &self.io_data),
             ("alarms", &self.alarms),
+            ("lora_events", &self.lora_events),
         ];
 
         for (name, topic) in topics {
@@ -797,6 +813,141 @@ impl Default for LoggingConfig {
             file: default_log_file(),
         }
     }
+}
+
+// ============================================================================
+// LoRaWAN Configuration (v1.5.0)
+// ============================================================================
+
+/// LoRaWAN gateway configuration
+///
+/// Configures the SX1302 concentrator, regional parameters,
+/// and pre-registered LoRa end-devices.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoRaWanConfig {
+    /// Enable LoRaWAN gateway functionality
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// LoRa frequency region plan (EU868, US915, AS923, etc.)
+    pub region: String,
+
+    /// Network ID — 3-byte hex string (e.g. "000001")
+    pub net_id: String,
+
+    /// SPI device path for SX1302 (e.g. "/dev/spidev0.0")
+    #[serde(default = "default_spi_device")]
+    pub spi_device: String,
+
+    /// GPIO pin for SX1302 hardware reset (0 = no hardware reset)
+    #[serde(default)]
+    pub reset_gpio_pin: u8,
+
+    /// Channel frequency configuration (optional, uses region defaults if empty)
+    #[serde(default)]
+    pub channels: Vec<LoRaChannelConfig>,
+
+    /// Pre-registered LoRa end-devices
+    #[serde(default)]
+    pub devices: Vec<LoRaDeviceConfigYaml>,
+
+    /// RX1 receive window delay (seconds, default 1)
+    #[serde(default = "default_rx1_delay")]
+    pub rx1_delay: u8,
+
+    /// Maximum number of LoRa devices (default 100)
+    #[serde(default = "default_max_devices")]
+    pub max_devices: usize,
+
+    /// SQLite session database path
+    #[serde(default = "default_session_db_path")]
+    pub session_db_path: String,
+}
+
+/// LoRa channel frequency configuration
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoRaChannelConfig {
+    /// Channel index (0-7 for SX1302)
+    pub index: u8,
+    /// Center frequency in Hz (e.g. 868100000)
+    pub freq_hz: u32,
+    /// Minimum spreading factor (7-12)
+    #[serde(default = "default_sf_min")]
+    pub sf_min: u8,
+    /// Maximum spreading factor (7-12)
+    #[serde(default = "default_sf_max")]
+    pub sf_max: u8,
+    /// Bandwidth in kHz (125, 250, 500)
+    #[serde(default = "default_bandwidth")]
+    pub bandwidth_khz: u32,
+}
+
+/// LoRa device YAML configuration (string-based for config file)
+///
+/// Parsed into `LoRaDeviceConfig` at runtime.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoRaDeviceConfigYaml {
+    /// Device EUI (16 hex chars, e.g. "0102030405060708")
+    pub dev_eui: String,
+    /// Application EUI (16 hex chars)
+    pub app_eui: String,
+    /// Application Key (32 hex chars)
+    pub app_key: String,
+    /// Activation mode: "otaa" or "abp"
+    #[serde(default = "default_activation")]
+    pub activation: String,
+    /// Device class: "A", "B", or "C"
+    #[serde(default = "default_device_class")]
+    pub device_class: String,
+    /// Tag name prefix for process image (e.g. "lora_sensor1_")
+    #[serde(default)]
+    pub tag_prefix: String,
+    /// Payload codec: "cayenne_lpp", "raw_binary", or custom decoder name
+    #[serde(default = "default_codec")]
+    pub codec: String,
+    /// RX1 delay override (seconds)
+    #[serde(default)]
+    pub rx1_delay_secs: Option<u32>,
+    /// RX2 data rate override
+    #[serde(default)]
+    pub rx2_datarate: Option<u8>,
+    /// RX2 frequency override (Hz)
+    #[serde(default)]
+    pub rx2_freq_hz: Option<u32>,
+    /// Adaptive Data Rate enabled
+    #[serde(default)]
+    pub adr_enabled: bool,
+}
+
+fn default_spi_device() -> String {
+    "/dev/spidev0.0".to_string()
+}
+fn default_rx1_delay() -> u8 {
+    1
+}
+fn default_max_devices() -> usize {
+    100
+}
+fn default_session_db_path() -> String {
+    "/var/lib/suderra/lora_sessions.db".to_string()
+}
+fn default_sf_min() -> u8 {
+    7
+}
+fn default_sf_max() -> u8 {
+    12
+}
+fn default_bandwidth() -> u32 {
+    125
+}
+fn default_activation() -> String {
+    "otaa".to_string()
+}
+fn default_device_class() -> String {
+    "A".to_string()
+}
+fn default_codec() -> String {
+    "cayenne_lpp".to_string()
 }
 
 /// Modbus security configuration (IEC 62443 SL2 FR3/FR5)
@@ -1156,6 +1307,10 @@ fn default_alarms_topic() -> String {
     "tenants/{tenant_id}/devices/{device_id}/alarms".to_string()
 }
 
+fn default_lora_events_topic() -> String {
+    "tenants/{tenant_id}/devices/{device_id}/lora_events".to_string()
+}
+
 impl AgentConfig {
     /// Detect the GPIO platform for this device.
     ///
@@ -1493,6 +1648,62 @@ impl AgentConfig {
                 anyhow::bail!(
                     "MQTT mTLS requires both client_cert_path and client_key_path to be set"
                 );
+            }
+        }
+
+        // LoRaWAN yapilandirma validasyonu (v1.5.0)
+        if let Some(ref lora) = self.lorawan {
+            if lora.enabled {
+                // Bolge gecerli mi?
+                let valid_regions = ["EU868", "US915", "CN470", "AU915", "AS923", "KR920", "IN865"];
+                if !valid_regions.contains(&lora.region.to_uppercase().as_str()) {
+                    anyhow::bail!(
+                        "Gecersiz LoRa bolgesi '{}': gecerli bolgeler: {:?}",
+                        lora.region, valid_regions
+                    );
+                }
+
+                // net_id 6 hex karakter mi?
+                let net_id_clean = lora.net_id.trim_start_matches("0x").trim_start_matches("0X");
+                if net_id_clean.len() != 6 || !net_id_clean.chars().all(|c| c.is_ascii_hexdigit()) {
+                    anyhow::bail!(
+                        "LoRa net_id '{}' gecersiz: 6 hex karakter olmali (orn: '000001')",
+                        lora.net_id
+                    );
+                }
+
+                // rx1_delay 0-15 araliginda mi?
+                if lora.rx1_delay > 15 {
+                    anyhow::bail!(
+                        "LoRa rx1_delay {} gecersiz: 0-15 araliginda olmali",
+                        lora.rx1_delay
+                    );
+                }
+
+                // Her cihaz config'inde dev_eui, app_eui, app_key format kontrolu
+                for (i, device) in lora.devices.iter().enumerate() {
+                    // dev_eui: 16 hex karakter
+                    if device.dev_eui.len() != 16 || !device.dev_eui.chars().all(|c| c.is_ascii_hexdigit()) {
+                        anyhow::bail!(
+                            "LoRa cihaz [{}] dev_eui '{}' gecersiz: 16 hex karakter olmali",
+                            i, device.dev_eui
+                        );
+                    }
+                    // app_eui: 16 hex karakter
+                    if device.app_eui.len() != 16 || !device.app_eui.chars().all(|c| c.is_ascii_hexdigit()) {
+                        anyhow::bail!(
+                            "LoRa cihaz [{}] app_eui '{}' gecersiz: 16 hex karakter olmali",
+                            i, device.app_eui
+                        );
+                    }
+                    // app_key: 32 hex karakter
+                    if device.app_key.len() != 32 || !device.app_key.chars().all(|c| c.is_ascii_hexdigit()) {
+                        anyhow::bail!(
+                            "LoRa cihaz [{}] app_key gecersiz: 32 hex karakter olmali",
+                            i
+                        );
+                    }
+                }
             }
         }
 

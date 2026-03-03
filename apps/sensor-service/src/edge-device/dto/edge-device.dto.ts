@@ -6,7 +6,7 @@ import {
   ObjectType,
   ID,
 } from '@nestjs/graphql';
-import { IsUUID, IsBoolean, IsOptional, IsString } from 'class-validator';
+import { IsUUID, IsBoolean, IsOptional, IsString, IsHexadecimal, Length, IsEnum, Matches, Min, Max } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import {
@@ -19,6 +19,10 @@ import {
   DeviceModel,
   EdgeDevice,
 } from '../entities/edge-device.entity';
+import {
+  LoRaActivationMode,
+  LoRaDeviceClass,
+} from '../entities/lora-device.entity';
 
 // Re-export enums for GraphQL schema
 export { DeviceLifecycleState, DeviceModel };
@@ -534,4 +538,186 @@ export class BulkAddIoConfigResult {
 
   @Field(() => Int, { description: 'Number of configs skipped (duplicate tagName)' })
   skippedCount!: number;
+}
+
+// ==================== LoRaWAN Device Management ====================
+
+/**
+ * Input for adding a LoRaWAN end-device to an edge gateway.
+ *
+ * DevEUI, AppKey gibi LoRaWAN kimlik bilgileri cihaz üreticisinin
+ * etiketinden veya provisioning kartından alınır. OTAA modunda
+ * AppEUI ve AppKey zorunludur; ABP modunda DevAddr gerekir.
+ */
+@InputType()
+export class AddLoRaDeviceInput {
+  /** DevEUI: 16 hex karakter — cihazın globally unique tanımlayıcısı */
+  @Field({ description: 'Device EUI - 16 hex character unique identifier' })
+  @IsHexadecimal({ message: 'devEui must be a hex string' })
+  @Length(16, 16, { message: 'devEui must be exactly 16 hex characters' })
+  devEui!: string;
+
+  /** AppEUI/JoinEUI: OTAA için gerekli */
+  @Field({ nullable: true, description: 'Application EUI for OTAA activation (16 hex chars)' })
+  @IsOptional()
+  @IsHexadecimal({ message: 'appEui must be a hex string' })
+  @Length(16, 16, { message: 'appEui must be exactly 16 hex characters' })
+  appEui?: string;
+
+  /** AppKey: 128-bit root key, OTAA join için zorunlu */
+  @Field({ description: 'Application Key for OTAA (32 hex chars)' })
+  @IsHexadecimal({ message: 'appKey must be a hex string' })
+  @Length(32, 32, { message: 'appKey must be exactly 32 hex characters' })
+  appKey!: string;
+
+  @Field({ description: 'Human-friendly device name' })
+  @IsString()
+  @Length(1, 50)
+  name!: string;
+
+  /** I/O tag prefix — edge agent bu prefix ile decoded değerleri yayınlar */
+  @Field({ description: 'Tag name prefix for I/O data (e.g. "LORA_PH")' })
+  @IsString()
+  @Length(1, 30)
+  @Matches(/^[A-Za-z0-9_]+$/, { message: 'tagPrefix must contain only letters, numbers, and underscores' })
+  tagPrefix!: string;
+
+  @Field(() => LoRaActivationMode, { nullable: true, defaultValue: LoRaActivationMode.OTAA })
+  @IsOptional()
+  @IsEnum(LoRaActivationMode)
+  activationMode?: LoRaActivationMode;
+
+  @Field(() => LoRaDeviceClass, { nullable: true, defaultValue: LoRaDeviceClass.A })
+  @IsOptional()
+  @IsEnum(LoRaDeviceClass)
+  deviceClass?: LoRaDeviceClass;
+
+  /** Payload codec: cayenne_lpp (varsayılan), raw, json */
+  @Field({ nullable: true, defaultValue: 'cayenne_lpp', description: 'Payload codec: cayenne_lpp, raw, json' })
+  @IsOptional()
+  @IsString()
+  codec?: string;
+
+  /** ADR: Adaptive Data Rate etkin mi? Varsayılan true. */
+  @Field({ nullable: true, defaultValue: true, description: 'Enable Adaptive Data Rate' })
+  @IsOptional()
+  @IsBoolean()
+  adrEnabled?: boolean;
+}
+
+/**
+ * GraphQL output type for LoRaWAN device.
+ * Entity'nin tüm alanlarını GraphQL schema'da expose eder.
+ */
+@ObjectType()
+export class LoRaDeviceType {
+  @Field(() => ID)
+  id!: string;
+
+  @Field(() => ID)
+  edgeDeviceId!: string;
+
+  @Field()
+  devEui!: string;
+
+  @Field({ nullable: true })
+  appEui?: string;
+
+  // appKey: GraphQL'den expose edilmez — güvenlik için maskelenmiş versiyonu kullanılır
+  appKey!: string;
+
+  /** Maskelenmiş AppKey — ilk 4 ve son 4 karakter gösterilir, ortası yıldızlı */
+  @Field({ description: 'Masked application key (first 4 + last 4 chars)' })
+  get appKeyMasked(): string {
+    if (!this.appKey) return '';
+    return `${this.appKey.slice(0, 4)}${'*'.repeat(24)}${this.appKey.slice(-4)}`;
+  }
+
+  @Field({ nullable: true })
+  devAddr?: string;
+
+  @Field(() => LoRaActivationMode)
+  activationMode!: LoRaActivationMode;
+
+  @Field(() => LoRaDeviceClass)
+  deviceClass!: LoRaDeviceClass;
+
+  @Field()
+  name!: string;
+
+  @Field()
+  tagPrefix!: string;
+
+  @Field()
+  codec!: string;
+
+  @Field()
+  adrEnabled!: boolean;
+
+  @Field(() => Int)
+  fPort!: number;
+
+  @Field({ nullable: true })
+  lastSeenAt?: Date;
+
+  @Field(() => Float, { nullable: true, description: 'RSSI in dBm' })
+  lastRssi?: number;
+
+  @Field(() => Float, { nullable: true, description: 'SNR in dB' })
+  lastSnr?: number;
+
+  @Field(() => Int, { nullable: true, description: 'Uplink frame counter' })
+  frameCountUp?: number;
+
+  @Field({ description: 'Whether device has successfully joined the network' })
+  isJoined!: boolean;
+
+  @Field({ nullable: true })
+  joinedAt?: Date;
+
+  @Field()
+  tenantId!: string;
+
+  @Field()
+  createdAt!: Date;
+
+  @Field()
+  updatedAt!: Date;
+}
+
+/**
+ * LoRa downlink gönderimi için input DTO.
+ * Frontend'in beklediği format: payload (hex string), fPort, confirmed flag.
+ */
+@InputType()
+export class SendLoRaDownlinkInput {
+  /** Hex string olarak downlink payload (ör: "01FF0A") */
+  @Field({ description: 'Downlink payload as hex string' })
+  @IsString()
+  payload!: string;
+
+  /** LoRaWAN uygulama katmanı port numarası (1-223 arası) */
+  @Field(() => Int, { nullable: true, defaultValue: 1, description: 'Application port (1-223)' })
+  @IsOptional()
+  @Min(1, { message: 'fPort must be at least 1' })
+  @Max(223, { message: 'fPort must be at most 223' })
+  fPort?: number;
+
+  /** Confirmed downlink: cihazdan ACK beklenir mi? */
+  @Field({ nullable: true, defaultValue: false, description: 'Request confirmed downlink (device ACK)' })
+  @IsOptional()
+  @IsBoolean()
+  confirmed?: boolean;
+}
+
+/**
+ * Result of a LoRa downlink send operation
+ */
+@ObjectType()
+export class SendLoRaDownlinkResult {
+  @Field()
+  success!: boolean;
+
+  @Field({ nullable: true })
+  error?: string;
 }

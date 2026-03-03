@@ -38,6 +38,10 @@ pub enum TagSource {
     Spi,
     Uart,
     Script,
+    /// LoRaWAN sensor data (v1.5.0)
+    /// serde rename_all="snake_case" "lo_ra" uretir, bu yanlis — explicit "lora" kullaniyoruz
+    #[serde(rename = "lora")]
+    LoRa,
 }
 
 /// I/O type (IEC 61131-3)

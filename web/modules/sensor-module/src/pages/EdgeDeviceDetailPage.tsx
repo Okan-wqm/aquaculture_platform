@@ -40,6 +40,7 @@ import {
   Search,
   Copy,
   Download,
+  Radio,
 } from 'lucide-react';
 import {
   useEdgeDevice,
@@ -72,6 +73,9 @@ import {
 } from '../hooks/useEdgeDevices';
 import { AutoDetectResultsPanel } from '../components/fleet/AutoDetectResultsPanel';
 import { useEdgeIoSocket, type IoTagValue } from '../hooks/useEdgeIoSocket';
+import LoRaDevicesPanel from '../components/lora/LoRaDevicesPanel';
+import LoRaStatsCard from '../components/lora/LoRaStatsCard';
+import { useLoRaDevices } from '../hooks/useLoRaDevices';
 
 // ============================================================================
 // Helper Components (shared across tabs)
@@ -1408,6 +1412,29 @@ const InstallCommandsSection: React.FC<InstallCommandsSectionProps> = ({ deviceI
 };
 
 // ============================================================================
+// LoRa Section — Stats + Device Panel
+// ============================================================================
+
+interface LoRaSectionProps {
+  device: EdgeDevice;
+}
+
+/**
+ * LoRa tab icerik bileseni.
+ * LoRaStatsCard ile ozet istatistikler + LoRaDevicesPanel ile cihaz yonetimi.
+ */
+const LoRaSection: React.FC<LoRaSectionProps> = ({ device }) => {
+  const { data: loraDevices = [] } = useLoRaDevices(device.id);
+
+  return (
+    <div className="space-y-6">
+      <LoRaStatsCard devices={loraDevices} />
+      <LoRaDevicesPanel edgeDeviceId={device.id} />
+    </div>
+  );
+};
+
+// ============================================================================
 // Edge Device Detail Page
 // ============================================================================
 
@@ -1416,7 +1443,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const isConfigRoute = location.pathname.endsWith('/config');
-  const [activeTab, setActiveTab] = useState<'overview' | 'io' | 'config'>(isConfigRoute ? 'config' : 'overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'io' | 'config' | 'lora'>(isConfigRoute ? 'config' : 'overview');
 
   const { data: device, isLoading, error, refetch } = useEdgeDevice(deviceId || '');
   const approveMutation = useApproveEdgeDevice();
@@ -1552,6 +1579,28 @@ const EdgeDeviceDetailPage: React.FC = () => {
             {tab === 'config' && <><Cpu className="w-4 h-4" />Cihaz Ayarlari</>}
           </button>
         ))}
+        {/* LoRa tab — sadece lorawan capability aktifse gosterilir */}
+        {(() => {
+          const loraCapability = (device.capabilities as Record<string, unknown>)?.lorawan;
+          const isLoRaEnabled = typeof loraCapability === 'object' && loraCapability !== null
+            ? (loraCapability as Record<string, unknown>).enabled === true
+            : loraCapability === true;
+          return isLoRaEnabled;
+        })() && (
+          <button
+            role="tab"
+            aria-selected={activeTab === 'lora'}
+            onClick={() => setActiveTab('lora')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'lora'
+                ? 'text-cyan-600 border-cyan-600'
+                : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <Radio className="w-4 h-4" />
+            LoRa Cihazlar
+          </button>
+        )}
       </div>
 
       {/* OVERVIEW TAB */}
@@ -1736,6 +1785,11 @@ const EdgeDeviceDetailPage: React.FC = () => {
             <p className="text-gray-600">{device.description || 'Aciklama eklenmemis.'}</p>
           </div>
         </div>
+      )}
+
+      {/* LORA TAB */}
+      {activeTab === 'lora' && (
+        <LoRaSection device={device} />
       )}
 
       {/* Ping result toast */}

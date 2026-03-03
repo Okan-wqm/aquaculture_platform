@@ -585,6 +585,15 @@ impl MqttClient {
         Ok(())
     }
 
+    /// Publish LoRa event (v1.5.0: uplink/join/downlink events, QoS 0)
+    pub async fn publish_lora_event(&self, payload: &impl serde::Serialize) -> Result<()> {
+        let data = serde_json::to_vec(payload)?;
+        self.client
+            .publish(&self.topics.lora_events, rumqttc::QoS::AtMostOnce, false, data)
+            .await?;
+        Ok(())
+    }
+
     /// Publish raw bytes to an arbitrary MQTT topic.
     ///
     /// Used for one-off publishes that don't fit the standard topic patterns

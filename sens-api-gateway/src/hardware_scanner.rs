@@ -180,6 +180,8 @@ pub struct HardwareCapabilities {
     pub spi_bus_count: usize,
     /// Number of UART ports found
     pub uart_port_count: usize,
+    /// Whether LoRaWAN concentrator is available (v1.5.0)
+    pub has_lorawan: bool,
     /// Scan timestamp
     pub timestamp: String,
 }
@@ -345,6 +347,9 @@ impl HardwareScanner {
             })
             .unwrap_or(0);
 
+        // LoRaWAN: SX1302 concentrator is available when lorawan feature is compiled
+        let has_lorawan = cfg!(feature = "lorawan");
+
         HardwareCapabilities {
             platform: format!("{:?}", self.platform),
             has_picontrol,
@@ -355,6 +360,7 @@ impl HardwareScanner {
             i2c_bus_count,
             spi_bus_count,
             uart_port_count,
+            has_lorawan,
             timestamp: chrono::Utc::now().to_rfc3339(),
         }
     }

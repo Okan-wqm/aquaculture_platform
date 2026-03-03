@@ -23,6 +23,7 @@ import {
   DeviceLifecycleState,
   DeviceModel,
 } from './entities/edge-device.entity';
+import { LoRaDevice, LoRaActivationMode, LoRaDeviceClass } from './entities/lora-device.entity';
 
 
 /**
@@ -183,11 +184,50 @@ interface AgentI2cDeviceConfig {
   deadband: number | null;
 }
 
+// ============================================================================
+// LoRaWAN Agent Wire Format
+// Matches config.rs → LoRaWanConfig / LoRaDeviceConfig
+// snake_case field names — Rust serde deserialise uyumu için.
+// ============================================================================
+
+/**
+ * Matches config.rs → LoRaDeviceConfig
+ *
+ * Her LoRa end-device'ın agent tarafında karşılığı.
+ * Edge agent bu yapıyı kullanarak SX1302 concentrator üzerinden
+ * cihazla iletişim kurar ve join/uplink işlemlerini yönetir.
+ */
+interface AgentLoRaDeviceConfig {
+  dev_eui: string;
+  app_eui: string;           // Rust String — null olmaz, varsayılan '0000000000000000'
+  app_key: string;
+  dev_addr: string | null;
+  activation: string;        // Rust serde küçük harf: 'otaa' | 'abp'
+  device_class: string;      // Rust serde küçük harf: 'a' | 'b' | 'c'
+  name: string;
+  tag_prefix: string;
+  codec: string;
+  adr_enabled: boolean;
+  f_port: number;
+}
+
+/**
+ * Matches config.rs → LoRaWanConfig
+ *
+ * Üst seviye LoRaWAN yapılandırması. enabled=true olduğunda
+ * agent, SX1302 HAL'ı başlatır ve devices listesindeki cihazları yönetir.
+ */
+export interface AgentLoRaWanConfig {
+  enabled: boolean;
+  devices: AgentLoRaDeviceConfig[];
+}
+
 /** Top-level I/O config payload sent to the agent via MQTT */
 export interface AgentIoConfig {
   modbus: AgentModbusDeviceConfig[];
   gpio: AgentGpioConfig[];
   i2c: AgentI2cDeviceConfig[];
+  lorawan?: AgentLoRaWanConfig;
 }
 
 /**
@@ -225,6 +265,8 @@ export class EdgeDeviceService implements OnModuleDestroy {
     private readonly deviceRepository: Repository<EdgeDevice>,
     @InjectRepository(DeviceIoConfig)
     private readonly ioConfigRepository: Repository<DeviceIoConfig>,
+    @InjectRepository(LoRaDevice)
+    private readonly loraDeviceRepository: Repository<LoRaDevice>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     @Optional()
@@ -1185,6 +1227,9 @@ export class EdgeDeviceService implements OnModuleDestroy {
       deadband: cfg.deadband ? Number(cfg.deadband) : null,
     }));
 
+    // Build LoRaWAN config if available
+    // Not included in transformIoConfigsToAgentFormat since LoRa devices
+    // are in a separate table — use buildLoRaWanConfig() and merge externally.
     return { modbus, gpio, i2c };
   }
 
@@ -1224,6 +1269,12 @@ export class EdgeDeviceService implements OnModuleDestroy {
       device.ipAddress ?? undefined,
     );
 
+    // LoRaWAN config'i ayrı tablodan al ve merge et
+    const loraConfig = await this.buildLoRaWanConfig(deviceId);
+    if (loraConfig) {
+      agentConfig.lorawan = loraConfig;
+    }
+
     const commandId = randomUUID();
 
     try {
@@ -1239,9 +1290,25 @@ export class EdgeDeviceService implements OnModuleDestroy {
         },
       );
 
+      // LoRa config push (ayrı komut) — agent LoRa cihaz listesini bağımsız olarak günceller
+      if (agentConfig.lorawan && agentConfig.lorawan.devices.length > 0) {
+        const loraCommand = {
+          commandId: randomUUID(),
+          command: 'update_lora_devices',
+          params: { devices: agentConfig.lorawan.devices },
+          timestamp: new Date().toISOString(),
+        };
+        await mqtt.publish(
+          `tenants/${device.tenantId}/devices/${device.id}/commands`,
+          loraCommand,
+        );
+      }
+
+      const loraCount = loraConfig?.devices.length ?? 0;
       this.logger.log(
         `Pushed I/O config to ${device.deviceCode}: ${ioConfigs.length} tags ` +
-        `(${agentConfig.modbus.length} modbus devices, ${agentConfig.gpio.length} gpio pins, ${agentConfig.i2c.length} i2c devices)`,
+        `(${agentConfig.modbus.length} modbus devices, ${agentConfig.gpio.length} gpio pins, ` +
+        `${agentConfig.i2c.length} i2c devices, ${loraCount} lora devices)`,
       );
 
       return { success: true };
@@ -1716,6 +1783,324 @@ export class EdgeDeviceService implements OnModuleDestroy {
       createdCount: created.length,
       skippedCount: skipped.length,
     };
+  }
+
+  // ==================== LoRaWAN Device Management ====================
+  //
+  // Edge device'a bağlı LoRa end-device'ların CRUD operasyonları.
+  // Her LoRa cihazı, SX1302 concentrator HAT takılı bir Raspberry Pi
+  // (EdgeDevice) üzerinden yönetilir. Agent, bu cihazların join ve
+  // uplink/downlink işlemlerini otomatik olarak gerçekleştirir.
+  // ================================================================
+
+  /**
+   * Build LoRaWAN config section for the agent wire format.
+   *
+   * EdgeDevice'a bağlı tüm LoRa cihazları sorgulanır ve Rust agent'ın
+   * beklediği snake_case formatına dönüştürülür. Cihaz yoksa null döner
+   * (agent LoRa modülünü başlatmaz).
+   */
+  async buildLoRaWanConfig(edgeDeviceId: string): Promise<AgentLoRaWanConfig | null> {
+    const loraDevices = await this.loraDeviceRepository.find({
+      where: { edgeDeviceId },
+    });
+
+    if (loraDevices.length === 0) {
+      return null;
+    }
+
+    return {
+      enabled: true,
+      devices: loraDevices.map((dev): AgentLoRaDeviceConfig => ({
+        dev_eui: dev.devEui,
+        // Rust String bekler, null olmaz — varsayılan sıfır EUI kullan
+        app_eui: dev.appEui ?? '0000000000000000',
+        app_key: dev.appKey,
+        dev_addr: dev.devAddr ?? null,
+        // Rust serde küçük harf bekler: "otaa" | "abp"
+        activation: dev.activationMode.toLowerCase(),
+        // Rust serde küçük harf bekler: "a" | "b" | "c"
+        device_class: dev.deviceClass.toLowerCase(),
+        name: dev.name,
+        tag_prefix: dev.tagPrefix,
+        codec: dev.codec,
+        adr_enabled: dev.adrEnabled,
+        f_port: dev.fPort,
+      })),
+    };
+  }
+
+  /**
+   * Get all LoRa devices for an edge device.
+   */
+  async getLoRaDevices(edgeDeviceId: string, tenantId: string): Promise<LoRaDevice[]> {
+    // Tenant boundary check
+    await this.findByIdOrFail(edgeDeviceId, tenantId);
+
+    return await this.loraDeviceRepository.find({
+      where: { edgeDeviceId, tenantId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /**
+   * Add a LoRa end-device to an edge gateway.
+   *
+   * DevEUI uniqueness DB seviyesinde unique index ile korunur.
+   * Aynı DevEUI ile ikinci kayıt ConflictException fırlatır.
+   */
+  async addLoRaDevice(
+    edgeDeviceId: string,
+    tenantId: string,
+    input: {
+      devEui: string;
+      appEui?: string;
+      appKey: string;
+      name: string;
+      tagPrefix: string;
+      activationMode?: LoRaActivationMode;
+      deviceClass?: LoRaDeviceClass;
+      codec?: string;
+      adrEnabled?: boolean;
+    },
+  ): Promise<LoRaDevice> {
+    // Verify edge device exists and belongs to tenant
+    await this.findByIdOrFail(edgeDeviceId, tenantId);
+
+    // Check DevEUI uniqueness
+    const existing = await this.loraDeviceRepository.findOne({
+      where: { devEui: input.devEui.toUpperCase() },
+    });
+    if (existing) {
+      throw new ConflictException(
+        `LoRa device with DevEUI '${input.devEui}' already exists`,
+      );
+    }
+
+    const device = this.loraDeviceRepository.create({
+      edgeDeviceId,
+      tenantId,
+      devEui: input.devEui.toUpperCase(),
+      appEui: input.appEui?.toUpperCase(),
+      appKey: input.appKey.toUpperCase(),
+      name: input.name,
+      tagPrefix: input.tagPrefix,
+      activationMode: input.activationMode ?? LoRaActivationMode.OTAA,
+      deviceClass: input.deviceClass ?? LoRaDeviceClass.A,
+      codec: input.codec ?? 'cayenne_lpp',
+      adrEnabled: input.adrEnabled ?? true,
+      fPort: 1,
+      isJoined: false,
+    });
+
+    const saved = await this.loraDeviceRepository.save(device);
+    this.logger.log(
+      `Added LoRa device: ${saved.name} (DevEUI: ${saved.devEui}) to edge ${edgeDeviceId}`,
+    );
+
+    // Ekleme sonrası agent'a güncel LoRa config gönder
+    const edgeDevice = await this.deviceRepository.findOne({ where: { id: edgeDeviceId } });
+    if (edgeDevice) {
+      await this.pushLoRaConfigToDevice(edgeDevice);
+    }
+
+    return saved;
+  }
+
+  /**
+   * Remove a LoRa device by ID.
+   * Tenant boundary check yapılır — farklı tenant'ın cihazı silinemez.
+   */
+  async removeLoRaDevice(edgeDeviceId: string, id: string, tenantId: string): Promise<boolean> {
+    const device = await this.loraDeviceRepository.findOne({
+      where: { id, tenantId },
+    });
+    if (!device) {
+      throw new NotFoundException(`LoRa device with ID '${id}' not found`);
+    }
+
+    await this.loraDeviceRepository.delete({ id });
+    this.logger.log(`Removed LoRa device: ${device.name} (DevEUI: ${device.devEui})`);
+
+    // Silme sonrası agent'a güncel LoRa config gönder
+    const edgeDevice = await this.deviceRepository.findOne({ where: { id: edgeDeviceId } });
+    if (edgeDevice) {
+      await this.pushLoRaConfigToDevice(edgeDevice);
+    }
+
+    return true;
+  }
+
+  /**
+   * Sadece LoRa config'ini agent'a push et.
+   * addLoRaDevice ve removeLoRaDevice sonrası çağrılır —
+   * agent'ın LoRa cihaz listesini güncel tutmak için.
+   * Device offline ise sessizce atlanır (log ile bildirilir).
+   */
+  private async pushLoRaConfigToDevice(edgeDevice: EdgeDevice): Promise<void> {
+    if (!edgeDevice.isOnline) {
+      this.logger.debug(
+        `Skipping LoRa config push to ${edgeDevice.deviceCode} — device is offline`,
+      );
+      return;
+    }
+
+    let mqtt: MqttClientService;
+    try {
+      mqtt = this.ensureMqttAvailable();
+    } catch {
+      this.logger.warn('MQTT not available — skipping LoRa config push');
+      return;
+    }
+
+    const loraConfig = await this.buildLoRaWanConfig(edgeDevice.id);
+
+    // Cihaz listesi boşsa agent'a LoRa modülünü kapatması için boş liste gönder
+    const devices = loraConfig?.devices ?? [];
+
+    try {
+      await mqtt.publish(
+        `tenants/${edgeDevice.tenantId}/devices/${edgeDevice.id}/commands`,
+        {
+          commandId: randomUUID(),
+          command: 'update_lora_devices',
+          params: { devices },
+          timestamp: new Date().toISOString(),
+        },
+      );
+      this.logger.log(
+        `Pushed LoRa config to ${edgeDevice.deviceCode}: ${devices.length} devices`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to push LoRa config to ${edgeDevice.deviceCode}: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Send a downlink payload to a LoRa end-device via MQTT.
+   *
+   * Edge agent, MQTT command topic'inden gelen downlink komutunu alır
+   * ve SX1302 üzerinden ilgili cihazın bir sonraki RX window'unda
+   * payload'ı iletir. Class A cihazlarda bu bir sonraki uplink'i
+   * bekler; Class C cihazlarda hemen gönderilir.
+   *
+   * @param edgeDeviceId  Edge device (gateway) UUID
+   * @param loraDeviceId  LoRa device UUID
+   * @param payload       Hex string downlink payload
+   * @param fPort         Application port (1-223)
+   * @param tenantId      Tenant isolation
+   * @param confirmed     Confirmed downlink — cihazdan ACK beklenir mi
+   */
+  async sendLoRaDownlink(
+    edgeDeviceId: string,
+    loraDeviceId: string,
+    payload: string,
+    fPort: number,
+    tenantId: string,
+    confirmed = false,
+  ): Promise<{ success: boolean; error?: string }> {
+    const loraDevice = await this.loraDeviceRepository.findOne({
+      where: { id: loraDeviceId, tenantId },
+    });
+    if (!loraDevice) {
+      return { success: false, error: `LoRa device '${loraDeviceId}' not found` };
+    }
+
+    // DevAddr null kontrolü — join olmamış cihaza downlink gönderilemez
+    if (!loraDevice.devAddr) {
+      return {
+        success: false,
+        error: `LoRa device '${loraDevice.name}' has not joined the network yet (devAddr is null). ` +
+               `Wait for join_accept before sending downlink.`,
+      };
+    }
+
+    // Edge device'ı bul — MQTT topic için gerekli
+    const edgeDevice = await this.deviceRepository.findOne({
+      where: { id: edgeDeviceId, tenantId },
+    });
+    if (!edgeDevice) {
+      return { success: false, error: 'Parent edge device not found' };
+    }
+
+    if (!edgeDevice.isOnline) {
+      return { success: false, error: 'Edge device is offline' };
+    }
+
+    let mqtt: MqttClientService;
+    try {
+      mqtt = this.ensureMqttAvailable();
+    } catch {
+      return { success: false, error: 'MQTT service not available' };
+    }
+
+    const commandId = randomUUID();
+
+    try {
+      await mqtt.publish(
+        `tenants/${edgeDevice.tenantId}/devices/${edgeDevice.id}/commands`,
+        {
+          commandId,
+          command: 'lora_downlink',
+          params: {
+            dev_addr: loraDevice.devAddr,  // dev_eui DEĞİL — LoRa downlink devAddr üzerinden çalışır
+            payload,                        // hex string olarak (frontend'ten gelen hex doğrudan iletilir)
+            f_port: fPort,
+            confirmed,
+          },
+          timestamp: new Date().toISOString(),
+        },
+      );
+
+      this.logger.log(
+        `LoRa downlink sent to ${loraDevice.name} (DevAddr: ${loraDevice.devAddr}) ` +
+        `via ${edgeDevice.deviceCode} (fPort: ${fPort}, confirmed: ${confirmed})`,
+      );
+      return { success: true };
+    } catch (error) {
+      const msg = (error as Error).message;
+      this.logger.error(`Failed to send LoRa downlink: ${msg}`);
+      return { success: false, error: msg };
+    }
+  }
+
+  /**
+   * Update LoRa device runtime status from MQTT lora_events.
+   *
+   * Edge agent, join_accept ve uplink_summary event'lerini publish eder.
+   * Bu metod ilgili LoRa cihazının durum alanlarını günceller.
+   */
+  async updateLoRaDeviceStatus(
+    devEui: string,
+    update: {
+      isJoined?: boolean;
+      joinedAt?: Date;
+      lastSeenAt?: Date;
+      lastRssi?: number;
+      lastSnr?: number;
+      frameCountUp?: number;
+      devAddr?: string;
+    },
+  ): Promise<void> {
+    const device = await this.loraDeviceRepository.findOne({
+      where: { devEui: devEui.toUpperCase() },
+    });
+    if (!device) {
+      this.logger.warn(`LoRa event for unknown DevEUI: ${devEui}`);
+      return;
+    }
+
+    if (update.isJoined !== undefined) device.isJoined = update.isJoined;
+    if (update.joinedAt) device.joinedAt = update.joinedAt;
+    if (update.lastSeenAt) device.lastSeenAt = update.lastSeenAt;
+    if (update.lastRssi !== undefined) device.lastRssi = update.lastRssi;
+    if (update.lastSnr !== undefined) device.lastSnr = update.lastSnr;
+    if (update.frameCountUp !== undefined) device.frameCountUp = update.frameCountUp;
+    if (update.devAddr) device.devAddr = update.devAddr;
+
+    await this.loraDeviceRepository.save(device);
   }
 }
 

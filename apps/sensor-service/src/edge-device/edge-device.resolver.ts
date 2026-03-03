@@ -31,6 +31,10 @@ import {
   HardwareScanResultType,
   BulkAddIoConfigResult,
   DeviceInstallCommands,
+  AddLoRaDeviceInput,
+  LoRaDeviceType,
+  SendLoRaDownlinkResult,
+  SendLoRaDownlinkInput,
 } from './dto/edge-device.dto';
 import {
   CreateProvisionedDeviceInput,
@@ -45,6 +49,7 @@ import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity
 import { EdgeDeviceService } from './edge-device.service';
 import { DeviceIoConfig } from './entities/device-io-config.entity';
 import { EdgeDevice, DeviceLifecycleState } from './entities/edge-device.entity';
+import { LoRaDevice } from './entities/lora-device.entity';
 import { ProvisioningService } from './provisioning.service';
 
 /**
@@ -492,6 +497,75 @@ export class EdgeDeviceResolver {
   ): Promise<BulkAddIoConfigResult> {
     this.logger.log(`Bulk adding ${inputs.length} I/O configs to device: ${deviceId}`);
     return await this.edgeDeviceService.bulkAddIoConfigs(deviceId, tenantId, inputs);
+  }
+
+  // ==================== LoRaWAN Device Management ====================
+
+  /**
+   * List all LoRa end-devices attached to an edge gateway.
+   * Edge device'a bağlı SX1302 concentrator üzerinden yönetilen cihazlar.
+   */
+  @Query(() => [LoRaDeviceType], { name: 'loraDevices' })
+  async getLoRaDevices(
+    @Args('edgeDeviceId', { type: () => ID }) edgeDeviceId: string,
+    @Tenant() tenantId: string,
+  ): Promise<LoRaDevice[]> {
+    return await this.edgeDeviceService.getLoRaDevices(edgeDeviceId, tenantId);
+  }
+
+  /**
+   * Add a LoRa end-device to an edge gateway.
+   * DevEUI globally unique olmalı — duplicate kayıt ConflictException fırlatır.
+   */
+  @Mutation(() => LoRaDeviceType, { name: 'addLoRaDevice' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async addLoRaDevice(
+    @Args('edgeDeviceId', { type: () => ID }) edgeDeviceId: string,
+    @Args('input') input: AddLoRaDeviceInput,
+    @Tenant() tenantId: string,
+  ): Promise<LoRaDevice> {
+    this.logger.log(`Adding LoRa device: ${input.name} (DevEUI: ${input.devEui}) to edge ${edgeDeviceId}`);
+    return await this.edgeDeviceService.addLoRaDevice(edgeDeviceId, tenantId, input);
+  }
+
+  /**
+   * Remove a LoRa device by ID.
+   * Frontend edgeDeviceId + loraDeviceId gönderir — config push için edgeDeviceId gerekli.
+   */
+  @Mutation(() => Boolean, { name: 'removeLoRaDevice' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async removeLoRaDevice(
+    @Args('edgeDeviceId', { type: () => ID }) edgeDeviceId: string,
+    @Args('loraDeviceId', { type: () => ID }) loraDeviceId: string,
+    @Tenant() tenantId: string,
+  ): Promise<boolean> {
+    this.logger.log(`Removing LoRa device: ${loraDeviceId} from edge ${edgeDeviceId}`);
+    return await this.edgeDeviceService.removeLoRaDevice(edgeDeviceId, loraDeviceId, tenantId);
+  }
+
+  /**
+   * Send a downlink payload to a LoRa end-device.
+   *
+   * Class A cihazlarda payload, bir sonraki uplink'in RX window'unda iletilir.
+   * Class C cihazlarda hemen gönderilir. fPort uygulama katmanı portudur (1-223).
+   */
+  @Mutation(() => SendLoRaDownlinkResult, { name: 'sendLoRaDownlink' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async sendLoRaDownlink(
+    @Args('edgeDeviceId', { type: () => ID }) edgeDeviceId: string,
+    @Args('loraDeviceId', { type: () => ID }) loraDeviceId: string,
+    @Args('input') input: SendLoRaDownlinkInput,
+    @Tenant() tenantId: string,
+  ): Promise<SendLoRaDownlinkResult> {
+    this.logger.log(`Sending LoRa downlink to device: ${loraDeviceId} via edge ${edgeDeviceId}, fPort: ${input.fPort}`);
+    return await this.edgeDeviceService.sendLoRaDownlink(
+      edgeDeviceId,
+      loraDeviceId,
+      input.payload,
+      input.fPort ?? 1,
+      tenantId,
+      input.confirmed ?? false,
+    );
   }
 
   // ==================== Field Resolvers ====================

@@ -44,6 +44,10 @@ export enum DeviceModel {
   REVOLUTION_PI_COMPACT = 'revolution_pi_compact',
   RASPBERRY_PI_4 = 'raspberry_pi_4',
   RASPBERRY_PI_5 = 'raspberry_pi_5',
+  /** Raspberry Pi 4 with SX1302 LoRa concentrator HAT */
+  RASPBERRY_PI_4_LORA = 'raspberry_pi_4_lora',
+  /** Raspberry Pi 5 with SX1302 LoRa concentrator HAT */
+  RASPBERRY_PI_5_LORA = 'raspberry_pi_5_lora',
   INDUSTRIAL_PC = 'industrial_pc',
   CUSTOM = 'custom',
 }
@@ -268,6 +272,7 @@ export class EdgeDevice {
     serial?: boolean;
     canBus?: boolean;
     profinet?: boolean;
+    lorawan?: boolean;
   };
 
   @Field(() => GraphQLJSON, { nullable: true })

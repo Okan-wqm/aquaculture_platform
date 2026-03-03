@@ -39,6 +39,8 @@ mod st_validator; // v2.2: IEC 61131-3 Structured Text parser and validator
 mod shutdown;
 mod spi;
 mod telemetry; // v1.2.4: SPI support for high-speed peripherals
+#[cfg(feature = "lorawan")]
+mod lora; // v1.5.0: LoRaWAN SX1302 gateway support
 
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -243,6 +245,10 @@ pub struct AppState {
     /// v1.2.0: Internal RwLock for thread-safe access (no external lock needed)
     pub script_storage: Arc<ScriptStorage>,
 
+    /// LoRa gateway handle (actor pattern, v1.5.0)
+    #[cfg(feature = "lorawan")]
+    pub lora_handle: Option<crate::lora::LoRaHandle>,
+
     /// Activation state
     pub is_activated: bool,
     pub tenant_id: Option<String>,
@@ -267,6 +273,8 @@ impl AppState {
             process_image: ProcessImage::new(),
             alarm_manager: Arc::new(RwLock::new(AlarmManager::new())),
             script_storage: Arc::new(script_storage),
+            #[cfg(feature = "lorawan")]
+            lora_handle: None,
             is_activated: false,
             tenant_id: None,
         }
@@ -687,7 +695,46 @@ fn setup_shutdown_handler(
                                 match new_config.validate() {
                                     Ok(()) => {
                                         let mut state_guard = state.write().await;
-                                        state_guard.config = new_config;
+
+                                        // LoRa config degistiyse actor'u yeniden baslat
+                                        let lora_changed = state_guard.config.lorawan != new_config.lorawan;
+
+                                        state_guard.config = new_config.clone();
+
+                                        // LoRa actor yeniden baslatma (config degistiyse)
+                                        if lora_changed {
+                                            info!("LoRa yapilandirmasi degisti — actor yeniden baslatiliyor...");
+                                            // Eski actor handle'ini al ve write lock'u birak
+                                            // (actor icinde state.read() cagrilir, write lock tutulursa deadlock olusur)
+                                            let old_lora_handle = state_guard.lora_handle.take();
+                                            drop(state_guard);
+
+                                            // Lock disinda shutdown yap — actor artik read lock alabilir ve kapanabilir
+                                            if let Some(handle) = old_lora_handle {
+                                                handle.shutdown().await;
+                                            }
+
+                                            // Yeni config ile yeniden baslat
+                                            if let Some(ref lora_cfg) = new_config.lorawan {
+                                                if lora_cfg.enabled {
+                                                    let new_handle = crate::lora::LoRaHandle::new(
+                                                        lora_cfg,
+                                                        state.clone(),
+                                                    );
+                                                    match new_handle.init().await {
+                                                        Ok(()) => {
+                                                            let mut state_guard = state.write().await;
+                                                            state_guard.lora_handle = Some(new_handle);
+                                                            info!("LoRa actor yeniden baslatildi (SIGHUP)");
+                                                        }
+                                                        Err(e) => {
+                                                            warn!("LoRa actor yeniden baslatma hatasi: {}", e);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
                                         info!(
                                             "Configuration reloaded successfully. \
                                              Security-sensitive fields (MQTT credentials, \
@@ -1084,6 +1131,15 @@ async fn run_agent(
         info!("Modbus devices disconnected");
     }
 
+    // LoRa gateway shutdown
+    {
+        let state_guard = state.read().await;
+        if let Some(ref handle) = state_guard.lora_handle {
+            handle.shutdown().await;
+            info!("LoRa gateway shutdown completed");
+        }
+    }
+
     // Disconnect MQTT gracefully
     {
         let mut state_guard = state.write().await;
@@ -1194,6 +1250,36 @@ async fn init_hardware(state: &Arc<RwLock<AppState>>) {
         }
     } else {
         debug!("No Modbus devices configured");
+    }
+
+    // Initialize LoRaWAN gateway (v1.5.0)
+    #[cfg(feature = "lorawan")]
+    {
+        let should_init = {
+            let state_guard = state.read().await;
+            state_guard.config.lorawan.as_ref().map_or(false, |c| c.enabled)
+        };
+
+        if should_init {
+            let lora_handle = {
+                let state_guard = state.read().await;
+                let lora_cfg = state_guard.config.lorawan.as_ref().unwrap();
+                crate::lora::LoRaHandle::new(lora_cfg, state.clone())
+            };
+
+            match lora_handle.init().await {
+                Ok(()) => {
+                    info!("LoRaWAN gateway initialized successfully");
+                    let mut state_guard = state.write().await;
+                    state_guard.lora_handle = Some(lora_handle);
+                }
+                Err(e) => {
+                    warn!("LoRaWAN initialization failed: {}", e);
+                }
+            }
+        } else {
+            debug!("LoRaWAN not configured or disabled");
+        }
     }
 
     // Log hardware summary

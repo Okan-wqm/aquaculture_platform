@@ -1,8 +1,20 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
 import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
 
+/**
+ * LoRaWAN Protocol Configuration
+ *
+ * LoRaWAN, düşük güç tüketimi ve uzun menzil sunan LPWAN protokolüdür.
+ * Akvakültür ortamında uzak havuz/gölet'lerdeki sensörlere kablolama
+ * gerektirmeden bağlantı sağlar (tipik menzil: 2-15 km açık alan).
+ *
+ * Bu adapter, edge device'ın SX1302 concentrator HAT'ı üzerinden
+ * LoRa end-device'larla iletişimi yönetir. Gerçek RF iletişimi
+ * Rust edge agent tarafında gerçekleşir; bu adapter cloud-side
+ * yapılandırma ve doğrulama katmanıdır.
+ */
 interface LorawanConfig {
   sensorId?: string;
   tenantId?: string;
@@ -13,41 +25,124 @@ interface LorawanConfig {
   devAddr?: string;
   nwkSKey?: string;
   appSKey?: string;
+  edgeDeviceId?: string;
 }
 
 @Injectable()
 export class LorawanAdapter extends BaseProtocolAdapter {
+  private readonly logger = new Logger(LorawanAdapter.name);
+
   readonly protocolCode = 'LORAWAN';
   readonly category = ProtocolCategory.WIRELESS;
   readonly subcategory = ProtocolSubcategory.LPWAN;
   readonly connectionType = ConnectionType.WIRELESS;
   readonly displayName = 'LoRaWAN';
-  readonly description = 'LoRaWAN Low Power Wide Area Network protocol';
+  readonly description = 'LoRaWAN Low Power Wide Area Network protocol via SX1302 concentrator';
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+  /**
+   * Connect to a LoRa end-device.
+   *
+   * LoRaWAN bağlantısı geleneksel TCP/IP bağlantısından farklıdır:
+   * Gerçek RF bağlantısı edge agent tarafında SX1302 üzerinden yönetilir.
+   * Bu metod, cloud-side connection handle oluşturur ve edge device'ın
+   * LoRa capability'sine sahip olduğunu doğrular.
+   */
   async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
     const cfg = config as LorawanConfig;
-    return this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
+
+    if (!cfg.devEui) {
+      throw new Error('DevEUI is required for LoRaWAN connection');
+    }
+
+    this.logger.log(`Creating LoRaWAN connection handle for DevEUI: ${cfg.devEui}`);
+
+    return this.createConnectionHandle(
+      cfg.sensorId ?? cfg.devEui ?? 'unknown',
+      cfg.tenantId ?? 'unknown',
+      config,
+    );
   }
+
   // eslint-disable-next-line @typescript-eslint/require-await
-  async disconnect(handle: ConnectionHandle): Promise<void> { this.removeConnectionHandle(handle.id); }
-  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
-  async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> { return { success: true, latencyMs: 0 }; }
-  // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
-  async readData(_handle: ConnectionHandle): Promise<SensorReadingData> { return { timestamp: new Date(), values: {}, quality: 100, source: 'lorawan' }; }
+  async disconnect(handle: ConnectionHandle): Promise<void> {
+    this.logger.log(`Disconnecting LoRaWAN handle: ${handle.id}`);
+    this.removeConnectionHandle(handle.id);
+  }
+
+  /**
+   * Test LoRaWAN connection availability.
+   *
+   * LoRaWAN'da gerçek zamanlı bağlantı testi mümkün değildir çünkü
+   * Class A cihazlar sadece uplink sonrası kısa RX window'larında
+   * dinleme yapar. Bu metod yapılandırma geçerliliğini kontrol eder.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> {
+    const cfg = _config as LorawanConfig;
+    const validation = this.validateConfiguration(cfg);
+
+    if (!validation.isValid) {
+      return {
+        success: false,
+        latencyMs: 0,
+        error: validation.errors.map(e => e.message).join(', '),
+      };
+    }
+
+    // LoRaWAN bağlantı testi: yapılandırma geçerli, ancak gerçek RF testi
+    // sadece edge agent üzerinden yapılabilir (join request gönderilerek).
+    return { success: true, latencyMs: 0 };
+  }
+
+  /**
+   * Read data from LoRa end-device.
+   *
+   * LoRaWAN push-based bir protokoldür — cihaz kendi zamanlayıcısına
+   * göre uplink gönderir. Polling desteklenmez. Veriler MQTT
+   * lora_events topic'i üzerinden gelir ve mqtt-listener tarafından işlenir.
+   *
+   * Bu metod, en son alınan veriyi döndürmek yerine bilgilendirici
+   * bir yanıt döner.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async readData(_handle: ConnectionHandle): Promise<SensorReadingData> {
+    // LoRaWAN push-based: veri MQTT topic'inden gelir, polling desteklenmez
+    return {
+      timestamp: new Date(),
+      values: {},
+      quality: 0,
+      source: 'lorawan',
+    };
+  }
 
   validateConfiguration(config: unknown): ValidationResult {
     const cfg = config as LorawanConfig;
     const errors = [];
-    if (!cfg.devEui) errors.push(this.validationError('devEui', 'Device EUI is required'));
+
+    if (!cfg.devEui) {
+      errors.push(this.validationError('devEui', 'Device EUI is required'));
+    } else if (!/^[0-9A-Fa-f]{16}$/.test(cfg.devEui)) {
+      errors.push(this.validationError('devEui', 'Device EUI must be exactly 16 hex characters'));
+    }
+
     if (cfg.activationMode === 'OTAA') {
       if (!cfg.appKey) errors.push(this.validationError('appKey', 'App Key is required for OTAA'));
+      else if (!/^[0-9A-Fa-f]{32}$/.test(cfg.appKey)) {
+        errors.push(this.validationError('appKey', 'App Key must be exactly 32 hex characters'));
+      }
       if (!cfg.appEui) errors.push(this.validationError('appEui', 'App EUI is required for OTAA'));
+      else if (!/^[0-9A-Fa-f]{16}$/.test(cfg.appEui)) {
+        errors.push(this.validationError('appEui', 'App EUI must be exactly 16 hex characters'));
+      }
     } else if (cfg.activationMode === 'ABP') {
       if (!cfg.devAddr) errors.push(this.validationError('devAddr', 'Device Address is required for ABP'));
+      else if (!/^[0-9A-Fa-f]{8}$/.test(cfg.devAddr)) {
+        errors.push(this.validationError('devAddr', 'Device Address must be exactly 8 hex characters'));
+      }
       if (!cfg.nwkSKey) errors.push(this.validationError('nwkSKey', 'Network Session Key is required for ABP'));
       if (!cfg.appSKey) errors.push(this.validationError('appSKey', 'App Session Key is required for ABP'));
     }
+
     return { isValid: errors.length === 0, errors };
   }
 

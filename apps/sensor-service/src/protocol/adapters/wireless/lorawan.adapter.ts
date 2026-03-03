@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import { ProtocolCategory, ProtocolSubcategory, ConnectionType, ProtocolConfigurationSchema } from '../../../database/entities/sensor-protocol.entity';
 import { BaseProtocolAdapter, ConnectionHandle, ConnectionTestResult, SensorReadingData, ValidationResult, ProtocolCapabilities } from '../base-protocol.adapter';
@@ -30,8 +30,6 @@ interface LorawanConfig {
 
 @Injectable()
 export class LorawanAdapter extends BaseProtocolAdapter {
-  private readonly logger = new Logger(LorawanAdapter.name);
-
   readonly protocolCode = 'LORAWAN';
   readonly category = ProtocolCategory.WIRELESS;
   readonly subcategory = ProtocolSubcategory.LPWAN;

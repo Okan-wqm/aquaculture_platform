@@ -144,6 +144,15 @@ impl TelemetryCollector {
             metrics.network_tx_mb = Some(tx_bytes as f64 / 1024.0 / 1024.0);
         }
 
+        // Detect outbound IP address (routing table only, no DNS)
+        if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+            if socket.connect("8.8.8.8:80").is_ok() {
+                if let Ok(addr) = socket.local_addr() {
+                    metrics.ip_address = Some(addr.ip().to_string());
+                }
+            }
+        }
+
         // Collect hardware data (Modbus, GPIO)
         self.collect_hardware_data(&mut metrics).await;
 
@@ -312,6 +321,7 @@ mod tests {
             temperature_celsius: Some(55.0),
             network_rx_mb: None,
             network_tx_mb: None,
+            ip_address: None,
             modbus: None,
             gpio: None,
         };
@@ -336,6 +346,7 @@ mod tests {
             temperature_celsius: None,
             network_rx_mb: None,
             network_tx_mb: None,
+            ip_address: None,
             modbus: Some(vec![ModbusDeviceData {
                 device_name: "PLC-1".to_string(),
                 registers: vec![ModbusRegisterData {

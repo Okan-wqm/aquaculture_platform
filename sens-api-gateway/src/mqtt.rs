@@ -94,6 +94,7 @@ pub struct TelemetryMessage {
     pub device_id: String,
     pub device_code: String,
     pub timestamp: String,
+    pub agent_version: String,
     pub metrics: TelemetryMetrics,
 }
 
@@ -124,6 +125,10 @@ pub struct TelemetryMetrics {
     pub network_rx_mb: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub network_tx_mb: Option<f64>,
+
+    // Network identity
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ip_address: Option<String>,
 
     // Hardware metrics (PLC/Sensors via Modbus)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -525,6 +530,7 @@ impl MqttClient {
             device_id: self.device_id.clone(),
             device_code: self.device_code.clone(),
             timestamp: now_ts,
+            agent_version: env!("CARGO_PKG_VERSION").to_string(),
             metrics,
         };
 

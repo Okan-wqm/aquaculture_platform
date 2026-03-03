@@ -78,6 +78,8 @@ interface TelemetryMetricsFields {
   uptimeSeconds?: number;
   agent_version?: string;
   firmwareVersion?: string;
+  ip_address?: string;
+  ipAddress?: string;
 }
 
 /**
@@ -91,6 +93,7 @@ interface TenantEdgeTelemetryPayload extends TelemetryMetricsFields {
   device_id?: string;
   device_code?: string;
   timestamp?: string;
+  agent_version?: string;
   metrics?: TelemetryMetricsFields;
 }
 
@@ -103,6 +106,10 @@ interface TenantEdgeStatusPayload {
   /** Edge agent sends status as string: "online" | "offline" | "maintenance" | "error" */
   status?: string;
   timestamp?: string;
+  /** Edge agent includes its version in status messages */
+  agent_version?: string;
+  /** Edge agent includes uptime in status messages */
+  uptime_seconds?: number;
 }
 
 /**
@@ -743,7 +750,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       storageUsage: m.disk_usage_percent != null ? Math.round(m.disk_usage_percent) : m.storageUsage,
       temperatureCelsius: m.temperature_celsius ?? m.temperatureCelsius,
       uptimeSeconds: m.uptime_secs != null ? Math.round(m.uptime_secs) : m.uptimeSeconds,
-      firmwareVersion: m.agent_version ?? m.firmwareVersion,
+      firmwareVersion: m.agent_version ?? m.firmwareVersion ?? payload.agent_version,
+      ipAddress: m.ip_address ?? m.ipAddress,
     };
 
     if (!this.edgeDeviceService) return;
@@ -793,12 +801,33 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
     if (isOnline) {
       this.logger.log(`Tenant ${tenantId} edge device online: ${deviceCode}`);
-      // Pass tenantId so updateHeartbeat enforces tenant boundary check
-      await this.handleEdgeBirth(deviceCode, { firmwareVersion: undefined, ipAddress: undefined }, tenantId);
+      // Build heartbeat directly from status payload fields —
+      // the Rust agent sends agent_version, uptime_seconds, and status in StatusMessage.
+      // Previously this called handleEdgeBirth with { firmwareVersion: undefined, ipAddress: undefined }
+      // which would risk clearing those fields if updateHeartbeat guards ever changed.
+      const heartbeat: DeviceHeartbeat = {
+        deviceCode,
+        tenantId,
+        isOnline: true,
+        status: payload.status,
+        firmwareVersion: payload.agent_version,
+        uptimeSeconds: payload.uptime_seconds != null ? Math.round(payload.uptime_seconds) : undefined,
+      };
+
+      if (!this.edgeDeviceService) return;
+      await this.edgeDeviceService.updateHeartbeat(heartbeat);
     } else {
       this.logger.warn(`Tenant ${tenantId} edge device offline: ${deviceCode}`);
-      // Pass tenantId so updateHeartbeat enforces tenant boundary check
-      await this.handleEdgeDeath(deviceCode, tenantId);
+      // Build heartbeat with status for lifecycle state mapping
+      const heartbeat: DeviceHeartbeat = {
+        deviceCode,
+        tenantId,
+        isOnline: false,
+        status: payload.status,
+      };
+
+      if (!this.edgeDeviceService) return;
+      await this.edgeDeviceService.updateHeartbeat(heartbeat);
     }
   }
 

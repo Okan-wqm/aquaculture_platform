@@ -89,7 +89,7 @@ jobs:
 
       - name: Build release binary
         working-directory: sens-api-gateway
-        run: cross build --release --target ${{ matrix.target }}
+        run: cross build --release --target ${{ matrix.target }} --features scada-display
 
       - name: Strip binary (x86_64 only)
         if: matrix.strip

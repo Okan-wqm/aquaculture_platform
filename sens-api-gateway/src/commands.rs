@@ -700,6 +700,10 @@ impl CommandHandler {
             s.config.device_id.clone()
         };
 
+        // Clone for return value (originals moved into async closure)
+        let target_version_ack = target_version.clone();
+        let current_version_ack = current_version.clone();
+
         // Spawn async update task
         // Fire-and-forget: JoinHandle intentionally not tracked (agent restarting on success)
         let _ = tokio::spawn(async move {
@@ -1000,8 +1004,8 @@ impl CommandHandler {
             true,
             json!({
                 "accepted": true,
-                "target_version": target_version,
-                "current_version": current_version,
+                "target_version": target_version_ack,
+                "current_version": current_version_ack,
                 "note": "Firmware update accepted. Progress will be reported via MQTT."
             }),
             None,

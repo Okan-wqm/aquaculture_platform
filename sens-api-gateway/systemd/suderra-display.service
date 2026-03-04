@@ -32,7 +32,7 @@ Environment=WLR_RENDERER=pixman
 SupplementaryGroups=video
 
 # Wait for agent HTTP to be ready (up to 30s, fail if not reachable)
-ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do /usr/bin/curl -sf http://localhost:8080/health && exit 0; sleep 1; done; echo "Agent health check failed"; exit 1'
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do /usr/bin/curl -sf http://localhost:6526/health && exit 0; sleep 1; done; echo "Agent health check failed"; exit 1'
 
 ExecStart=/usr/bin/cage -s -- /usr/bin/chromium-browser \
     --kiosk \
@@ -48,7 +48,7 @@ ExecStart=/usr/bin/cage -s -- /usr/bin/chromium-browser \
     --overscroll-history-navigation=0 \
     --check-for-update-interval=31536000 \
     --disable-gpu \
-    --app=http://localhost:8080/scada
+    --app=http://localhost:6526/scada
 
 Restart=on-failure
 RestartSec=5s

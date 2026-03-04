@@ -1081,7 +1081,7 @@ Environment=WLR_LIBINPUT_NO_DEVICES=1
 Environment=WLR_RENDERER=pixman
 
 # Wait for agent HTTP to be ready
-ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do /usr/bin/curl -sf http://localhost:8080/health > /dev/null 2>&1 && exit 0 || sleep 1; done; exit 1'
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do /usr/bin/curl -sf http://localhost:6526/health > /dev/null 2>&1 && exit 0 || sleep 1; done; exit 1'
 
 ExecStart=/usr/bin/cage -s -- chromium-browser \\
     --kiosk \\
@@ -1097,7 +1097,7 @@ ExecStart=/usr/bin/cage -s -- chromium-browser \\
     --disable-gpu \\
     --overscroll-history-navigation=0 \\
     --check-for-update-interval=31536000 \\
-    --app=http://localhost:8080/scada
+    --app=http://localhost:6526/scada
 
 Restart=on-failure
 RestartSec=5
@@ -1174,7 +1174,7 @@ fi
 
 # Check display status
 if systemctl is-active suderra-display.service &>/dev/null; then
-    log "✅ SCADA display is running (http://localhost:8080/scada)"
+    log "✅ SCADA display is running (http://localhost:6526/scada)"
 elif systemctl is-enabled suderra-display.service &>/dev/null; then
     log "⏳ SCADA display service is enabled but not yet active"
     log "  It will start once the agent is ready and a process is deployed"

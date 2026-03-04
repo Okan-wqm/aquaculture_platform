@@ -141,10 +141,10 @@ cmd_status() {
     echo
 
     echo -e "${BLUE}=== Agent Health ===${NC}"
-    if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+    if curl -sf http://localhost:6526/health >/dev/null 2>&1; then
         ok "Agent HTTP health check: OK"
     else
-        warn "Agent HTTP health check: FAILED (http://localhost:8080/health)"
+        warn "Agent HTTP health check: FAILED (http://localhost:6526/health)"
     fi
     echo
 

@@ -1,4 +1,4 @@
-# SCADA Process Diagram - Edge Device Deployment (v1.5.2)
+# SCADA Process Diagram - Edge Device Deployment (v1.5.3)
 
 ## Overview
 
@@ -15,7 +15,7 @@ CLOUD (app.suderra.com)                    EDGE DEVICE (RPi + Ekran)
 +---------------------------+              |                                            |
                                            | suderra-display.service                    |
                                            |  - cage + chromium --kiosk                  |
-                                           |  - http://localhost:8080/scada              |
+                                           |  - http://localhost:6526/scada              |
                                            +--------------------------------------------+
 ```
 
@@ -200,7 +200,7 @@ sudo ./scripts/setup-display.sh uninstall
 `suderra-display.service` cage Wayland compositor ile chromium'u kiosk modunda calistirir:
 
 ```
-http://localhost:8080/scada
+http://localhost:6526/scada
 ```
 
 **Ozellikler:**
@@ -264,7 +264,7 @@ web/modules/sensor-module/src/
 systemctl status suderra-agent.service
 
 # SCADA endpoint'i test et
-curl http://localhost:8080/scada
+curl http://localhost:6526/scada
 
 # Display service loglarini kontrol et
 journalctl -u suderra-display.service -f

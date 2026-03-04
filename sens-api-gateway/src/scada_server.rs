@@ -366,7 +366,7 @@ pub fn build_scada_router(state: ScadaState) -> Router {
 
 /// Start the SCADA display HTTP + WebSocket server
 ///
-/// Listens on `0.0.0.0:8080` by default (configurable via `SUDERRA_SCADA_PORT` env var).
+/// Listens on `0.0.0.0:6526` by default (configurable via `SUDERRA_SCADA_PORT` env var).
 pub async fn start_scada_server(state: ScadaState) -> tokio::task::JoinHandle<()> {
     // Load persistent process
     state.load_persistent_process().await;
@@ -374,7 +374,7 @@ pub async fn start_scada_server(state: ScadaState) -> tokio::task::JoinHandle<()
     let port: u16 = std::env::var("SUDERRA_SCADA_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
-        .unwrap_or(8080);
+        .unwrap_or(6526);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let app = build_scada_router(state);

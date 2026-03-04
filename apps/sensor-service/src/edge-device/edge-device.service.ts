@@ -2103,18 +2103,36 @@ export class EdgeDeviceService implements OnModuleDestroy {
     const url = `https://api.github.com/repos/${repo}/releases`;
 
     try {
-      const response = await fetch(url, {
-        headers: {
-          Accept: 'application/vnd.github.v3+json',
-          'User-Agent': 'aquaculture-platform-sensor-service',
-        },
+      // Use Node.js https module for better compatibility across environments
+      const https = await import('https');
+      const body = await new Promise<string>((resolve, reject) => {
+        const req = https.get(
+          url,
+          {
+            headers: {
+              Accept: 'application/vnd.github.v3+json',
+              'User-Agent': 'aquaculture-platform-sensor-service',
+            },
+          },
+          (res) => {
+            if (res.statusCode !== 200) {
+              reject(new Error(`GitHub API responded with ${res.statusCode}`));
+              res.resume();
+              return;
+            }
+            const chunks: Buffer[] = [];
+            res.on('data', (chunk) => chunks.push(chunk));
+            res.on('end', () => resolve(Buffer.concat(chunks).toString()));
+            res.on('error', reject);
+          },
+        );
+        req.on('error', reject);
+        req.setTimeout(15_000, () => {
+          req.destroy(new Error('GitHub API request timed out'));
+        });
       });
 
-      if (!response.ok) {
-        throw new Error(`GitHub API responded with ${response.status}`);
-      }
-
-      const releases = (await response.json()) as Array<{
+      const releases = JSON.parse(body) as Array<{
         tag_name: string;
         name: string;
         published_at: string;
@@ -2133,7 +2151,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
       this.firmwareVersionsCache = { data: filtered, fetchedAt: Date.now() };
       return filtered;
     } catch (error) {
-      this.logger.error(`Failed to fetch firmware versions: ${(error as Error).message}`);
+      this.logger.error(`Failed to fetch firmware versions from ${url}: ${(error as Error).message}`);
       // Return stale cache if available
       if (this.firmwareVersionsCache) {
         return this.firmwareVersionsCache.data;

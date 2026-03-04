@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SCADA Edge Display</title>
+  <!-- React -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-is@18/umd/react-is.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
+  <!-- ReactFlow -->
+  <link href="https://unpkg.com/reactflow@11.11.4/dist/style.css" rel="stylesheet" />
+  <script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+  <!-- Recharts for Chart Widgets -->
+  <script src="https://cdn.jsdelivr.net/npm/recharts@2/umd/Recharts.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #root {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    /* Kiosk fullscreen styles */
+    .scada-container {
+      width: 100%; height: 100%;
+      display: flex; flex-direction: column;
+    }
+    .scada-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 16px;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      height: 48px; min-height: 48px;
+    }
+    .scada-header-title {
+      font-size: 16px; font-weight: 600; color: #f1f5f9;
+    }
+    .scada-header-status {
+      display: flex; align-items: center; gap: 8px; font-size: 13px;
+    }
+    .status-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      display: inline-block;
+    }
+    .status-dot.connected { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    .status-dot.connecting { background: #eab308; animation: pulse 1.5s infinite; }
+    .status-dot.disconnected { background: #ef4444; }
+    .scada-canvas {
+      flex: 1; position: relative;
+    }
+    /* ReactFlow overrides for dark theme */
+    .react-flow__background { background: #0f172a !important; }
+    .react-flow__controls { box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+    .react-flow__controls-button { background: #1e293b; border-color: #475569; color: #e2e8f0; }
+    .react-flow__controls-button:hover { background: #334155; }
+    .react-flow__minimap { background: #1e293b; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+    /* Node styles */
+    .react-flow__node-scadaEquipment,
+    .react-flow__node-equipment,
+    .react-flow__node-blower,
+    .react-flow__node-drumFilter,
+    .react-flow__node-uvUnit,
+    .react-flow__node-radialSettler,
+    .react-flow__node-fishTank,
+    .react-flow__node-connectionPoint,
+    .react-flow__node-tankInlet {
+      padding: 0; border-radius: 8px;
+      background: #1e293b; border: 1px solid #334155;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      color: #e2e8f0;
+    }
+    .react-flow__node-algaeBagRed,
+    .react-flow__node-algaeBagGreen,
+    .react-flow__node-algaeBagYellow,
+    .react-flow__node-demandFeeder,
+    .react-flow__node-automaticFeeder {
+      padding: 0; background: transparent; border: none; box-shadow: none;
+    }
+    .react-flow__node-connectionPoint { border-radius: 50%; }
+    .react-flow__handle {
+      width: 10px; height: 10px;
+      background: #1e293b; border: 2px solid #60a5fa;
+    }
+    .react-flow__edge-path { stroke-width: 2; }
+    .sensor-badge {
+      display: inline-flex; align-items: center; gap: 2px;
+      padding: 2px 6px; border-radius: 4px;
+      font-size: 10px; font-weight: 600;
+    }
+    .sensor-badge.normal { background: #14532d; color: #86efac; border: 1px solid #22c55e; }
+    .sensor-badge.warning { background: #713f12; color: #fde047; border: 1px solid #eab308; }
+    .sensor-badge.critical { background: #7f1d1d; color: #fca5a5; border: 1px solid #ef4444; }
+    .sensor-badge.offline { background: #1e293b; color: #64748b; border: 1px solid #475569; }
+    .scada-node-wrapper { position: relative; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.15); }
+    }
+    .clock { font-size: 13px; color: #94a3b8; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/javascript">
+    const { createElement: h, useState, useCallback, useRef, useEffect, useMemo } = React;
+    const { createRoot } = ReactDOM;
+    const {
+      ReactFlow, ReactFlowProvider, useNodesState, useEdgesState,
+      Controls, Background, MiniMap, Handle, Position, MarkerType,
+    } = window.ReactFlow;
+
+    // ============================================
+    // WebSocket Connection Manager
+    // ============================================
+    const RECONNECT_DELAY_MS = 3000;
+
+    function useScadaWebSocket(url) {
+      const [status, setStatus] = useState('disconnected');
+      const wsRef = useRef(null);
+      const [lastMessage, setLastMessage] = useState(null);
+      const reconnectTimer = useRef(null);
+
+      const connect = useCallback(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
+
+        setStatus('connecting');
+        const ws = new WebSocket(url);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          console.log('[scada-edge] WebSocket connected');
+          setStatus('connected');
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            setLastMessage(msg);
+          } catch (e) {
+            console.warn('[scada-edge] Invalid WS message:', e);
+          }
+        };
+
+        ws.onclose = () => {
+          console.log('[scada-edge] WebSocket disconnected, reconnecting in ' + RECONNECT_DELAY_MS + 'ms...');
+          setStatus('disconnected');
+          wsRef.current = null;
+          reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY_MS);
+        };
+
+        ws.onerror = (err) => {
+          console.error('[scada-edge] WebSocket error:', err);
+          ws.close();
+        };
+      }, [url]);
+
+      useEffect(() => {
+        connect();
+        return () => {
+          if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+          if (wsRef.current) wsRef.current.close();
+        };
+      }, [connect]);
+
+      return { status, lastMessage };
+    }
+
+    // ============================================
+    // Sensor data store (mutable, shared)
+    // ============================================
+    let sensorDataStore = {};
+
+    // Status helpers
+    const getStatusColor = (status) => {
+      if (status === 'operational' || status === 'active') return '#22c55e';
+      if (status === 'maintenance') return '#eab308';
+      if (status === 'out_of_service') return '#ef4444';
+      return '#94a3b8';
+    };
+    const getSensorStatusColor = (status) => {
+      if (status === 'normal') return 'normal';
+      if (status === 'warning') return 'warning';
+      if (status === 'critical') return 'critical';
+      return 'offline';
+    };
+
+    // ============================================
+    // Generic SCADA Equipment Node
+    // ============================================
+    function ScadaEquipmentNode({ data }) {
+      const equipmentId = data?.equipmentId || data?.id;
+      const sensors = equipmentId ? (sensorDataStore[equipmentId] || []) : [];
+      const statusColor = getStatusColor(data?.status);
+
+      return h('div', {
+        style: {
+          padding: '8px 12px', minWidth: 120, position: 'relative',
+          background: '#1e293b', borderRadius: 8
+        }
+      }, [
+        h(Handle, { key: 'target', type: 'target', position: Position.Left }),
+        h(Handle, { key: 'source', type: 'source', position: Position.Right }),
+        h('div', {
+          key: 'header',
+          style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }
+        }, [
+          h('div', {
+            key: 'status-dot',
+            style: {
+              width: 8, height: 8, borderRadius: '50%',
+              background: statusColor, flexShrink: 0
+            }
+          }),
+          h('div', {
+            key: 'label',
+            style: { fontSize: 12, fontWeight: 600, color: '#f1f5f9' }
+          }, data?.label || 'Equipment'),
+        ]),
+        sensors.length > 0 && h('div', {
+          key: 'sensors',
+          style: { display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }
+        }, sensors.slice(0, 4).map((s, i) =>
+          h('span', {
+            key: i,
+            className: 'sensor-badge ' + getSensorStatusColor(s.status),
+          }, s.value.toFixed(1) + ' ' + s.unit)
+        ))
+      ]);
+    }
+
+    // ============================================
+    // SCADA Node Wrapper — adds sensor overlay to any base node
+    // ============================================
+    function createScadaNode(BaseNodeComponent) {
+      return function ScadaWrapper(props) {
+        const { data } = props;
+        const equipmentId = data?.equipmentId;
+        const sensors = equipmentId ? (sensorDataStore[equipmentId] || []) : [];
+        const hasAlerts = sensors.some(s => s.status === 'warning' || s.status === 'critical');
+        const scadaProps = { ...props, data: { ...props.data, isScadaMode: true } };
+
+        return h('div', { className: 'scada-node-wrapper', style: { position: 'relative' } }, [
+          h(BaseNodeComponent, { ...scadaProps, key: 'base' }),
+          sensors.length > 0 && h('div', {
+            key: 'overlay',
+            style: {
+              position: 'absolute', top: -8, right: -8, zIndex: 20,
+              display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end'
+            }
+          }, sensors.slice(0, 3).map((s, i) =>
+            h('span', { key: i, className: 'sensor-badge ' + getSensorStatusColor(s.status) },
+              s.value.toFixed(1) + ' ' + s.unit
+            )
+          )),
+          hasAlerts && h('div', {
+            key: 'alert',
+            style: {
+              position: 'absolute', top: -4, left: -4, width: 12, height: 12,
+              borderRadius: '50%',
+              background: sensors.some(s => s.status === 'critical') ? '#ef4444' : '#eab308',
+              animation: 'pulse 1.5s infinite', zIndex: 20
+            }
+          })
+        ]);
+      };
+    }
+
+    // ============================================
+    // Node types — use UMD bundle if available, fallback to generic
+    // ============================================
+    const AQ = window.AquacultureNodes || {};
+    const hasBundle = !!AQ.EquipmentNode;
+
+    const nodeTypes = hasBundle ? {
+      scadaEquipment: ScadaEquipmentNode,
+      equipment: createScadaNode(AQ.EquipmentNode),
+      blower: createScadaNode(AQ.BlowerNode),
+      drumFilter: createScadaNode(AQ.DrumFilterNode),
+      uvUnit: createScadaNode(AQ.UVUnitNode),
+      radialSettler: createScadaNode(AQ.RadialSettlerNode),
+      fishTank: createScadaNode(AQ.FishTankNode),
+      connectionPoint: AQ.ConnectionPointNode,
+      tankInlet: AQ.TankInletNode,
+      sensor: AQ.SensorNode,
+      algaeBagRed: AQ.AlgaeBagNode,
+      algaeBagGreen: AQ.AlgaeBagNode,
+      algaeBagYellow: AQ.AlgaeBagNode,
+      demandFeeder: AQ.DemandFeederNode,
+      automaticFeeder: AQ.AutomaticFeederNode,
+      pump: createScadaNode(AQ.PumpNode),
+      valve: createScadaNode(AQ.ValveNode),
+      heater: createScadaNode(AQ.HeaterNode),
+      dosingPump: createScadaNode(AQ.DosingPumpNode),
+    } : {
+      scadaEquipment: ScadaEquipmentNode,
+    };
+
+    const edgeTypes = AQ.edgeTypes || {};
+    const getEdgeStyle = AQ.getEdgeStyle || (() => ({ stroke: '#475569', strokeWidth: 2 }));
+
+    // ============================================
+    // Clock Component
+    // ============================================
+    function Clock() {
+      const [time, setTime] = useState(new Date());
+      useEffect(() => {
+        const id = setInterval(() => setTime(new Date()), 1000);
+        return () => clearInterval(id);
+      }, []);
+      return h('span', { className: 'clock' }, time.toLocaleTimeString());
+    }
+
+    // ============================================
+    // Main App
+    // ============================================
+    function ScadaEdgeApp() {
+      const wsUrl = 'ws://' + window.location.host + '/ws/scada';
+      const { status, lastMessage } = useScadaWebSocket(wsUrl);
+      const [nodes, setNodes, onNodesChange] = useNodesState([]);
+      const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+      const [processName, setProcessName] = useState('');
+      const [reactFlowInstance, setReactFlowInstance] = useState(null);
+      const [, forceUpdate] = useState(0);
+
+      // Handle incoming WebSocket messages
+      useEffect(() => {
+        if (!lastMessage) return;
+        const { type, data } = lastMessage;
+
+        if (type === 'setProcess' && data) {
+          setProcessName(data.name || 'SCADA');
+          const processedNodes = (data.nodes || [])
+            .filter(n => n && n.id)
+            .map(n => ({
+              ...n,
+              position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
+              data: { ...n.data, isScadaMode: true }
+            }));
+          setNodes(processedNodes);
+
+          const processedEdges = (data.edges || []).map(e => ({
+            ...e,
+            type: e.type || 'orthogonal',
+            style: getEdgeStyle(e.data?.connectionType || 'process-pipe'),
+            data: { connectionType: 'process-pipe', midX1: null, midY: null, midX2: null, ...(e.data || {}) }
+          }));
+          setEdges(processedEdges);
+
+          setTimeout(() => {
+            if (reactFlowInstance) reactFlowInstance.fitView({ padding: 0.15 });
+          }, 150);
+        }
+
+        if (type === 'sensorData' && data && data.equipmentData) {
+          // Update sensor data store
+          Object.entries(data.equipmentData).forEach(([eqId, readings]) => {
+            sensorDataStore[eqId] = readings;
+          });
+          forceUpdate(n => n + 1);
+        }
+      }, [lastMessage, reactFlowInstance, setNodes, setEdges]);
+
+      // Fit view on init
+      useEffect(() => {
+        if (reactFlowInstance && nodes.length > 0) {
+          setTimeout(() => reactFlowInstance.fitView({ padding: 0.15 }), 200);
+        }
+      }, [reactFlowInstance]);
+
+      const statusLabel = status === 'connected' ? 'Bagli' : status === 'connecting' ? 'Baglaniyor...' : 'Bagli Degil';
+
+      return h('div', { className: 'scada-container' }, [
+        // Header bar
+        h('div', { key: 'header', className: 'scada-header' }, [
+          h('div', { key: 'title', className: 'scada-header-title' },
+            processName || 'SCADA Edge Display'
+          ),
+          h('div', { key: 'status', className: 'scada-header-status' }, [
+            h(Clock, { key: 'clock' }),
+            h('span', { key: 'sep', style: { color: '#475569' } }, '|'),
+            h('span', { key: 'dot', className: 'status-dot ' + status }),
+            h('span', { key: 'label', style: { color: status === 'connected' ? '#86efac' : '#94a3b8' } }, statusLabel),
+          ])
+        ]),
+        // Canvas
+        h('div', { key: 'canvas', className: 'scada-canvas' },
+          h(ReactFlow, {
+            nodes, edges,
+            onNodesChange, onEdgesChange,
+            onInit: setReactFlowInstance,
+            nodeTypes, edgeTypes,
+            defaultEdgeOptions: { type: 'orthogonal', style: getEdgeStyle('process-pipe') },
+            nodesDraggable: false, nodesConnectable: false,
+            elementsSelectable: false,
+            panOnDrag: true, zoomOnScroll: true, zoomOnPinch: true,
+            fitView: true, fitViewOptions: { padding: 0.15 },
+            minZoom: 0.1, maxZoom: 3,
+          }, [
+            h(Controls, { key: 'ctrl', position: 'bottom-left', showInteractive: false }),
+            h(MiniMap, {
+              key: 'mm', position: 'bottom-right',
+              nodeColor: (n) => getStatusColor(n.data?.status),
+              maskColor: 'rgba(0,0,0,0.3)',
+              style: { width: 150, height: 100, background: '#1e293b' }
+            }),
+            h(Background, { key: 'bg', variant: 'dots', gap: 24, size: 1, color: '#1e293b' })
+          ])
+        )
+      ]);
+    }
+
+    // Render
+    const root = createRoot(document.getElementById('root'));
+    root.render(h(ReactFlowProvider, null, h(ScadaEdgeApp)));
+  </script>
+</body>
+</html>

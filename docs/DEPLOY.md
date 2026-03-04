@@ -220,7 +220,21 @@ npm run infra:up
 
 ---
 
-## 9. CI/CD Pipeline
+## 9. Edge Device - SCADA Display Deployment
+
+Edge device'lara SCADA proses diyagrami deploy etmek icin [SCADA Edge Deploy Guide](./SCADA_EDGE_DEPLOY.md) dokumantasyonuna bakiniz.
+
+```bash
+# Edge device'da display kurulumu
+sudo ./sens-api-gateway/scripts/setup-display.sh install
+
+# Agent'i scada-display feature ile derle
+cargo build --release --features scada-display
+```
+
+---
+
+## 10. CI/CD Pipeline
 
 ### Workflow Overview
 ```

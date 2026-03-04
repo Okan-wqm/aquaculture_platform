@@ -252,3 +252,18 @@ export class DeleteProcessResultType {
   @Field(() => ID, { nullable: true })
   deletedId?: string;
 }
+
+@ObjectType()
+export class DeployProcessResultType {
+  @Field()
+  success!: boolean;
+
+  @Field({ nullable: true })
+  message?: string;
+
+  @Field(() => ID, { nullable: true })
+  processId?: string;
+
+  @Field(() => ID, { nullable: true })
+  deviceId?: string;
+}

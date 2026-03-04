@@ -41,6 +41,8 @@ mod spi;
 mod telemetry; // v1.2.4: SPI support for high-speed peripherals
 #[cfg(feature = "lorawan")]
 mod lora; // v1.5.0: LoRaWAN SX1302 gateway support
+#[cfg(feature = "scada-display")]
+mod scada_server; // v1.6.0: SCADA display server for local HMI
 
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -249,6 +251,10 @@ pub struct AppState {
     #[cfg(feature = "lorawan")]
     pub lora_handle: Option<crate::lora::LoRaHandle>,
 
+    /// SCADA display state (v1.6.0)
+    #[cfg(feature = "scada-display")]
+    pub scada_state: Option<scada_server::ScadaState>,
+
     /// Activation state
     pub is_activated: bool,
     pub tenant_id: Option<String>,
@@ -275,6 +281,8 @@ impl AppState {
             script_storage: Arc::new(script_storage),
             #[cfg(feature = "lorawan")]
             lora_handle: None,
+            #[cfg(feature = "scada-display")]
+            scada_state: None,
             is_activated: false,
             tenant_id: None,
         }
@@ -1004,6 +1012,18 @@ async fn run_agent(
 
     // Step 6b: Start I/O poll loop
     tokio::spawn(io_poll::io_poll_loop(state.clone()));
+
+    // Step 6c: Start SCADA display server (v1.6.0)
+    #[cfg(feature = "scada-display")]
+    {
+        let scada_state = scada_server::ScadaState::new();
+        let _scada_handle = scada_server::start_scada_server(scada_state.clone()).await;
+        {
+            let mut state_guard = state.write().await;
+            state_guard.scada_state = Some(scada_state);
+        }
+        info!("SCADA display server started");
+    }
 
     // Step 7: Start command handler with shutdown awareness
     let command_handler = CommandHandler::new(state.clone()).await;

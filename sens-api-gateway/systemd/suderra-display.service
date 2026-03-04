@@ -1,0 +1,74 @@
+# Suderra SCADA Display (Kiosk Mode)
+# Runs Chromium in cage Wayland compositor for headless kiosk display
+#
+# Installation:
+#   sudo cp suderra-display.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable suderra-display
+#   sudo systemctl start suderra-display
+#
+# Or use the setup script:
+#   sudo ./scripts/setup-display.sh install
+
+[Unit]
+Description=Suderra SCADA Display (Kiosk)
+Documentation=https://docs.suderra.com/edge/display
+After=suderra-agent.service network-online.target
+Wants=suderra-agent.service network-online.target
+ConditionPathExists=/dev/dri/card0
+
+[Service]
+Type=simple
+User=suderra
+Group=suderra
+
+# Wayland/DRM environment
+RuntimeDirectory=suderra-display
+Environment=XDG_RUNTIME_DIR=%t/suderra-display
+Environment=WLR_LIBINPUT_NO_DEVICES=1
+Environment=WLR_RENDERER=pixman
+
+# DRM access requires video group
+SupplementaryGroups=video
+
+# Wait for agent HTTP to be ready (up to 30s, fail if not reachable)
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do /usr/bin/curl -sf http://localhost:8080/health && exit 0; sleep 1; done; echo "Agent health check failed"; exit 1'
+
+ExecStart=/usr/bin/cage -s -- /usr/bin/chromium-browser \
+    --kiosk \
+    --noerrdialogs \
+    --disable-infobars \
+    --disable-translate \
+    --disable-features=TranslateUI \
+    --disable-session-crashed-bubble \
+    --disable-component-update \
+    --no-first-run \
+    --autoplay-policy=no-user-gesture-required \
+    --disable-pinch \
+    --overscroll-history-navigation=0 \
+    --check-for-update-interval=31536000 \
+    --disable-gpu \
+    --app=http://localhost:8080/scada
+
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=60
+
+# Resource limits for embedded devices
+MemoryMax=512M
+CPUQuota=80%
+
+# Security hardening (IEC 62443 SL2 FR3)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=%t/suderra-display
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=suderra-display
+
+[Install]
+WantedBy=multi-user.target

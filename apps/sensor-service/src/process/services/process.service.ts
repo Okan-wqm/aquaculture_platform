@@ -1,6 +1,11 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike } from 'typeorm';
+
+import { EdgeDeviceService } from '../../edge-device/edge-device.service';
+import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
 
 import {
   CreateProcessInput,
@@ -25,6 +30,12 @@ export class ProcessService {
   constructor(
     @InjectRepository(Process)
     private readonly processRepository: Repository<Process>,
+    @Optional()
+    @Inject(MqttClientService)
+    private readonly mqttClient: MqttClientService | null,
+    @Optional()
+    @Inject(EdgeDeviceService)
+    private readonly edgeDeviceService: EdgeDeviceService | null,
   ) {}
 
   /**
@@ -282,5 +293,97 @@ export class ProcessService {
     }
 
     return this.duplicateProcess(templateId, name, tenantId, userId);
+  }
+
+  /**
+   * Deploy a SCADA process to an edge device via MQTT.
+   *
+   * 1. Process'i DB'den yükle
+   * 2. Edge device'ı doğrula (aktif mi, online mı)
+   * 3. Node'lardaki sensorMappings → tagMappings dönüşümü
+   * 4. MQTT command publish (deploy_process)
+   */
+  async deployProcessToEdge(
+    processId: string,
+    deviceId: string,
+    tenantId: string,
+    userId?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    // 1. Process'i yükle
+    const process = await this.getProcessOrFail(processId, tenantId);
+
+    // 2. Edge device service kontrolü
+    if (!this.edgeDeviceService) {
+      throw new BadRequestException('Edge device service not available');
+    }
+
+    const device = await this.edgeDeviceService.findByIdOrFail(deviceId, tenantId);
+
+    if (!device.isOnline) {
+      return { success: false, message: 'Device is offline — cannot deploy process' };
+    }
+
+    // 3. MQTT kontrolü
+    if (!this.mqttClient) {
+      throw new BadRequestException('MQTT service not available');
+    }
+    if (!this.mqttClient.isConnectedToBroker()) {
+      throw new BadRequestException('Not connected to MQTT broker');
+    }
+
+    // 4. sensorMappings → tagMappings dönüşümü
+    const tagMappings: Record<string, {
+      equipmentId: string;
+      equipmentName: string;
+      tags: Array<{
+        tagName: string;
+        sensorType: string;
+        unit: string;
+        displayName: string;
+      }>;
+    }> = {};
+
+    for (const node of process.nodes) {
+      if (node.data?.equipmentId && node.data?.sensorMappings?.length) {
+        tagMappings[node.data.equipmentId] = {
+          equipmentId: node.data.equipmentId,
+          equipmentName: node.data.equipmentName,
+          tags: node.data.sensorMappings.map((sm) => ({
+            tagName: sm.channelName || sm.dataPath,
+            sensorType: sm.dataType,
+            unit: sm.unit || '',
+            displayName: sm.sensorName,
+          })),
+        };
+      }
+    }
+
+    // 5. MQTT deploy_process komutu publish
+    const topic = `tenants/${tenantId}/devices/${device.id}/commands`;
+    const payload = {
+      commandId: randomUUID(),
+      command: 'deploy_process',
+      params: {
+        processId,
+        name: process.name,
+        nodes: process.nodes,
+        edges: process.edges,
+        tagMappings,
+        version: 1,
+      },
+      timestamp: new Date().toISOString(),
+    };
+
+    try {
+      await this.mqttClient.publish(topic, payload);
+      this.logger.log(
+        `Process "${process.name}" deployed to device ${device.deviceCode} (process: ${processId}, user: ${userId || 'system'})`,
+      );
+      return { success: true, message: 'Process deployed to edge device successfully' };
+    } catch (error) {
+      const msg = (error as Error).message;
+      this.logger.error(`Failed to deploy process to ${device.deviceCode}: ${msg}`);
+      return { success: false, message: `Failed to deploy process: ${msg}` };
+    }
   }
 }

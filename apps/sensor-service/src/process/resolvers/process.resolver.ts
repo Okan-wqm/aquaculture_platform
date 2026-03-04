@@ -10,6 +10,7 @@ import {
   ProcessResultType,
   ProcessListType,
   DeleteProcessResultType,
+  DeployProcessResultType,
 } from '../dto/process.dto';
 import { Process } from '../entities/process.entity';
 import { ProcessService } from '../services/process.service';
@@ -198,6 +199,39 @@ export class ProcessResolver {
       return {
         success: false,
         message: (error as Error).message || 'Failed to create process from template',
+      };
+    }
+  }
+
+  /**
+   * Deploy a process to an edge device
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
+  @Mutation(() => DeployProcessResultType, { name: 'deployProcessToEdge' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async deployProcessToEdge(
+    @Args('processId', { type: () => ID }) processId: string,
+    @Args('deviceId', { type: () => ID }) deviceId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<DeployProcessResultType> {
+    try {
+      const result = await this.processService.deployProcessToEdge(
+        processId,
+        deviceId,
+        tenantId,
+        user.sub,
+      );
+      return {
+        success: result.success,
+        message: result.message,
+        processId: result.success ? processId : undefined,
+        deviceId: result.success ? deviceId : undefined,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: (error as Error).message || 'Failed to deploy process',
       };
     }
   }

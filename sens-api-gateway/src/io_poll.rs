@@ -196,6 +196,19 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
         }
     }
 
+    // --- SCADA display broadcast ---
+    #[cfg(feature = "scada-display")]
+    {
+        if let Some(ref scada_state) = s.scada_state {
+            if let Some(process) = scada_state.get_process().await {
+                let sensor_data = crate::scada_server::build_scada_sensor_data(&process_image, &process).await;
+                if !sensor_data.equipment_data.is_empty() {
+                    scada_state.broadcast_sensor_data(&sensor_data);
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 

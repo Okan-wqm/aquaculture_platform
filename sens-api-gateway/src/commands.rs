@@ -347,7 +347,7 @@ impl CommandHandler {
                 | "rollback_program" | "plc_upload" | "plc_start" | "plc_stop"
                 | "plc_delete" | "write_modbus" | "write_gpio" | "reboot"
                 | "restart_agent" | "delete_script"
-                | "update_io_config" | "set_output"
+                | "update_io_config" | "set_output" | "deploy_process"
         );
         if is_safety_critical {
             warn!(
@@ -403,6 +403,15 @@ impl CommandHandler {
             // I/O config and output commands
             "update_io_config" => self.cmd_update_io_config(&command.params).await,
             "set_output" => self.cmd_set_output(&command.params).await,
+            // SCADA display commands (v1.6.0)
+            #[cfg(feature = "scada-display")]
+            "deploy_process" => self.cmd_deploy_process(&command.params).await,
+            #[cfg(feature = "scada-display")]
+            "display_on" => self.cmd_display_on().await,
+            #[cfg(feature = "scada-display")]
+            "display_off" => self.cmd_display_off().await,
+            #[cfg(feature = "scada-display")]
+            "get_display_status" => self.cmd_get_display_status().await,
             // LoRaWAN commands (v1.5.0)
             #[cfg(feature = "lorawan")]
             "update_lora_devices" => self.cmd_update_lora_devices(&command.params).await,
@@ -3507,6 +3516,106 @@ impl CommandHandler {
                 )
             }
             Err(e) => (false, json!(null), Some(format!("Downlink queue failed: {}", e))),
+        }
+    }
+
+    // ========================================================================
+    // SCADA Display Commands (v1.6.0)
+    // ========================================================================
+
+    /// Deploy a SCADA process definition to the edge display
+    #[cfg(feature = "scada-display")]
+    async fn cmd_deploy_process(&self, params: &Value) -> (bool, Value, Option<String>) {
+        let process: crate::scada_server::ScadaProcess = match serde_json::from_value(params.clone()) {
+            Ok(p) => p,
+            Err(e) => {
+                return (false, json!(null), Some(format!("Invalid process definition: {}", e)));
+            }
+        };
+
+        let state_guard = self.state.read().await;
+        let scada_state = match &state_guard.scada_state {
+            Some(s) => s.clone(),
+            None => {
+                return (false, json!(null), Some("SCADA display feature not initialized".to_string()));
+            }
+        };
+        drop(state_guard);
+
+        match scada_state.deploy_process(process).await {
+            Ok(()) => {
+                let p = scada_state.get_process().await;
+                (
+                    true,
+                    json!({
+                        "name": p.as_ref().map(|p| p.name.as_str()),
+                        "version": p.as_ref().map(|p| p.version),
+                        "deployed_at": p.as_ref().and_then(|p| p.deployed_at.as_deref()),
+                    }),
+                    None,
+                )
+            }
+            Err(e) => (false, json!(null), Some(e)),
+        }
+    }
+
+    /// Turn on the SCADA display (mark as active)
+    #[cfg(feature = "scada-display")]
+    async fn cmd_display_on(&self) -> (bool, Value, Option<String>) {
+        let state_guard = self.state.read().await;
+        if let Some(ref scada_state) = state_guard.scada_state {
+            scada_state.set_display_active(true).await;
+            info!("SCADA display turned ON");
+            (true, json!({ "display": "on" }), None)
+        } else {
+            (false, json!(null), Some("SCADA display feature not initialized".to_string()))
+        }
+    }
+
+    /// Turn off the SCADA display (mark as inactive)
+    #[cfg(feature = "scada-display")]
+    async fn cmd_display_off(&self) -> (bool, Value, Option<String>) {
+        let state_guard = self.state.read().await;
+        if let Some(ref scada_state) = state_guard.scada_state {
+            scada_state.set_display_active(false).await;
+            info!("SCADA display turned OFF");
+            (true, json!({ "display": "off" }), None)
+        } else {
+            (false, json!(null), Some("SCADA display feature not initialized".to_string()))
+        }
+    }
+
+    /// Get the current SCADA display status
+    #[cfg(feature = "scada-display")]
+    async fn cmd_get_display_status(&self) -> (bool, Value, Option<String>) {
+        let state_guard = self.state.read().await;
+        if let Some(ref scada_state) = state_guard.scada_state {
+            let active = scada_state.is_display_active().await;
+            let has_process = scada_state.get_process().await.is_some();
+            let process_info = if let Some(p) = scada_state.get_process().await {
+                json!({
+                    "name": p.name,
+                    "version": p.version,
+                    "deployed_at": p.deployed_at,
+                    "node_count": p.nodes.len(),
+                    "edge_count": p.edges.len(),
+                    "mapping_count": p.tag_mappings.len(),
+                })
+            } else {
+                json!(null)
+            };
+
+            (
+                true,
+                json!({
+                    "display_active": active,
+                    "has_process": has_process,
+                    "process": process_info,
+                }),
+                None,
+            )
+        } else {
+            (false, json!(null), Some("SCADA display feature not initialized".to_string()))
         }
     }
 }

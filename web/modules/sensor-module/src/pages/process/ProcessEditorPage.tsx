@@ -35,6 +35,7 @@ import {
   Cpu,
   CheckCircle,
   AlertCircle,
+  Monitor,
 } from 'lucide-react';
 
 import { useProcessStore, EquipmentNodeData } from '../../store/processStore';
@@ -47,6 +48,7 @@ import { NodeTemplate } from '../../components/process-editor/panels/EquipmentPa
 import { useProcess } from '../../hooks/useProcess';
 import { useDataChannelList, DataChannel } from '../../hooks/useDataChannelList';
 import { WIDGET_TYPES, TIME_RANGES, REFRESH_INTERVALS, WidgetType } from '../../components/dashboard/types';
+import { DeployToEdgeDialog } from '../../components/process-editor/dialogs/DeployToEdgeDialog';
 
 // Message types for iframe communication
 interface IframeMessage {
@@ -716,6 +718,9 @@ const ProcessEditorPage: React.FC = () => {
   // Deploy Automation modal state (Kemik Yapı — Faz D)
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
 
+  // Edge Deploy dialog state (SCADA process deploy)
+  const [isEdgeDeployOpen, setIsEdgeDeployOpen] = useState(false);
+
   // Memoized bound devices — canvasNodes değişmedikçe yeniden hesaplanmaz.
   // Her render'da Array.from(new Map(...)) oluşturmak gereksiz GC baskısı yaratır.
   // DeployAutomationModal'a prop olarak geçirilir, referans stabilitesi önemli.
@@ -1114,6 +1119,19 @@ const ProcessEditorPage: React.FC = () => {
             Deploy
           </button>
 
+          {/* Edge Deploy Butonu — SCADA process'i edge device'a deploy et */}
+          {processId && processId !== 'new' && (
+            <button
+              onClick={() => setIsEdgeDeployOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-lg hover:bg-cyan-100 disabled:opacity-50 transition-colors"
+              disabled={!isCanvasReady}
+              title="SCADA proses diyagramini edge device'a deploy et"
+            >
+              <Monitor className="w-4 h-4" />
+              Edge'e Deploy
+            </button>
+          )}
+
           <button
             onClick={handleSave}
             disabled={isSaving || !isDirty || !isCanvasReady}
@@ -1235,6 +1253,16 @@ const ProcessEditorPage: React.FC = () => {
           isOpen={isDeployModalOpen}
           onClose={() => setIsDeployModalOpen(false)}
           boundDevices={boundDevices}
+        />
+      )}
+
+      {/* Edge Deploy Dialog — SCADA process'i edge device'a deploy et */}
+      {isEdgeDeployOpen && processId && processId !== 'new' && (
+        <DeployToEdgeDialog
+          processId={processId}
+          processName={processName}
+          isOpen={isEdgeDeployOpen}
+          onClose={() => setIsEdgeDeployOpen(false)}
         />
       )}
     </div>

@@ -1,12 +1,17 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { EdgeDeviceModule } from '../edge-device/edge-device.module';
 
 import { Process } from './entities/process.entity';
 import { ProcessResolver } from './resolvers/process.resolver';
 import { ProcessService } from './services/process.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Process])],
+  imports: [
+    TypeOrmModule.forFeature([Process]),
+    forwardRef(() => EdgeDeviceModule),
+  ],
   providers: [ProcessService, ProcessResolver],
   exports: [ProcessService],
 })

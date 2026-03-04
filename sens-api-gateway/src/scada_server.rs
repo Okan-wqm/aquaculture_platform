@@ -8,6 +8,10 @@
 //! - `GET /health` — Health check (JSON)
 //! - `GET /scada` — Serve the SCADA viewer HTML page
 //! - `GET /scada/process` — Get the current SCADA process definition (JSON)
+//! - `GET /libs/aquaculture-nodes.umd.js` — Node/edge component bundle (SVG shapes, P&ID styles)
+//! - `GET /manifest.webmanifest` — PWA manifest
+//! - `GET /icons/scada-{192,512}.svg` — PWA icons
+//! - `GET /sw.js` — Service worker (fetch passthrough)
 //! - `WS /ws/scada` — WebSocket for live sensor data broadcast
 //!
 //! # Architecture
@@ -27,7 +31,8 @@ use axum::{
     Json, Router,
     extract::State as AxumState,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    http::{HeaderValue, Method, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
+    middleware,
     response::{Html, IntoResponse, Redirect},
     routing::get,
 };
@@ -50,6 +55,94 @@ const BROADCAST_CAPACITY: usize = 64;
 
 /// Maximum concurrent WebSocket connections (DoS protection)
 const MAX_WS_CONNECTIONS: usize = 16;
+
+/// Embedded UMD bundle for SCADA node/edge components (SVG shapes, edge styles)
+const NODE_BUNDLE_JS: &[u8] = include_bytes!("../static/aquaculture-nodes.umd.js");
+
+/// PWA manifest
+const PWA_MANIFEST: &str = r#"{
+  "name": "Suderra SCADA",
+  "short_name": "SCADA",
+  "display": "standalone",
+  "orientation": "landscape",
+  "theme_color": "#0f172a",
+  "background_color": "#0f172a",
+  "start_url": "/scada",
+  "scope": "/",
+  "icons": [
+    { "src": "/icons/scada-192.svg", "sizes": "192x192", "type": "image/svg+xml" },
+    { "src": "/icons/scada-512.svg", "sizes": "512x512", "type": "image/svg+xml" }
+  ]
+}"#;
+
+/// SVG icon for PWA (water/SCADA themed)
+const SCADA_ICON_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0f172a"/>
+  <g transform="translate(256,256)">
+    <circle r="160" fill="none" stroke="#3b82f6" stroke-width="16" opacity="0.3"/>
+    <circle r="100" fill="none" stroke="#3b82f6" stroke-width="12" opacity="0.5"/>
+    <circle r="40" fill="#3b82f6" opacity="0.8"/>
+    <line x1="-140" y1="0" x2="-50" y2="0" stroke="#60a5fa" stroke-width="8" stroke-linecap="round"/>
+    <line x1="50" y1="0" x2="140" y2="0" stroke="#60a5fa" stroke-width="8" stroke-linecap="round"/>
+    <line x1="0" y1="-140" x2="0" y2="-50" stroke="#60a5fa" stroke-width="8" stroke-linecap="round"/>
+    <line x1="0" y1="50" x2="0" y2="140" stroke="#60a5fa" stroke-width="8" stroke-linecap="round"/>
+  </g>
+</svg>"#;
+
+/// Service worker with cache-first strategy for PWA offline support
+const SERVICE_WORKER_JS: &str = r#"const CACHE_NAME = 'scada-v1';
+const PRECACHE_URLS = [
+  '/scada',
+  '/libs/aquaculture-nodes.umd.js',
+  '/manifest.webmanifest',
+  '/icons/scada-192.svg',
+  'https://unpkg.com/react@18/umd/react.production.min.js',
+  'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
+  'https://unpkg.com/react-is@18/umd/react-is.production.min.js',
+  'https://unpkg.com/prop-types@15/prop-types.min.js',
+  'https://unpkg.com/reactflow@11.11.4/dist/style.css',
+  'https://unpkg.com/reactflow@11.11.4/dist/umd/index.js',
+  'https://cdn.jsdelivr.net/npm/recharts@2/umd/Recharts.min.js'
+];
+
+self.addEventListener('install', function(event) {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(function(cache) {
+      return cache.addAll(PRECACHE_URLS);
+    })
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', function(event) {
+  event.waitUntil(
+    caches.keys().then(function(names) {
+      return Promise.all(
+        names.filter(function(n) { return n !== CACHE_NAME; })
+             .map(function(n) { return caches.delete(n); })
+      );
+    })
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', function(event) {
+  event.respondWith(
+    caches.match(event.request).then(function(cached) {
+      return cached || fetch(event.request).then(function(response) {
+        if (response.ok && event.request.method === 'GET') {
+          var clone = response.clone();
+          caches.open(CACHE_NAME).then(function(cache) {
+            cache.put(event.request, clone);
+          });
+        }
+        return response;
+      });
+    }).catch(function() {
+      return new Response('Offline', { status: 503 });
+    })
+  );
+});"#;
 
 // ============================================================================
 // Data Structures
@@ -235,6 +328,31 @@ impl ScadaState {
 }
 
 // ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Check if an origin URL belongs to a private network (RFC 1918)
+fn is_private_network_origin(origin: &str) -> bool {
+    // Extract host from origin URL
+    let host = origin
+        .strip_prefix("http://")
+        .or_else(|| origin.strip_prefix("https://"))
+        .unwrap_or(origin)
+        .split(':')
+        .next()
+        .unwrap_or("");
+
+    host.starts_with("192.168.")
+        || host.starts_with("10.")
+        || host.starts_with("172.16.")
+        || host.starts_with("172.17.")
+        || host.starts_with("172.18.")
+        || host.starts_with("172.19.")
+        || host.starts_with("172.2")
+        || host.starts_with("172.3")
+}
+
+// ============================================================================
 // Axum Handlers
 // ============================================================================
 
@@ -258,6 +376,7 @@ async fn scada_process_handler(
 /// WebSocket upgrade handler for live SCADA data
 async fn scada_ws_handler(
     ws: WebSocketUpgrade,
+    headers: HeaderMap,
     AxumState(state): AxumState<ScadaState>,
 ) -> impl IntoResponse {
     // DoS protection: limit concurrent WebSocket connections
@@ -265,6 +384,21 @@ async fn scada_ws_handler(
     if current >= MAX_WS_CONNECTIONS {
         warn!("SCADA WebSocket connection rejected: limit reached ({}/{})", current, MAX_WS_CONNECTIONS);
         return (StatusCode::SERVICE_UNAVAILABLE, "Too many WebSocket connections").into_response();
+    }
+
+    // Origin validation: allow localhost and private network IPs
+    if let Some(origin) = headers.get(header::ORIGIN) {
+        if let Ok(origin_str) = origin.to_str() {
+            let is_allowed = origin_str.starts_with("http://localhost")
+                || origin_str.starts_with("http://127.0.0.1")
+                || origin_str.starts_with("https://localhost")
+                || origin_str.starts_with("https://127.0.0.1")
+                || is_private_network_origin(origin_str);
+            if !is_allowed {
+                warn!("SCADA WebSocket rejected: invalid origin '{}'", origin_str);
+                return (StatusCode::FORBIDDEN, "Invalid Origin").into_response();
+            }
+        }
     }
 
     ws.max_message_size(64 * 1024) // 64 KB max incoming message
@@ -355,17 +489,63 @@ async fn root_redirect_handler() -> Redirect {
     Redirect::permanent("/scada")
 }
 
+/// Serve the UMD node/edge component bundle
+async fn node_bundle_handler() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "application/javascript")], NODE_BUNDLE_JS)
+}
+
+/// Serve PWA manifest
+async fn manifest_handler() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "application/manifest+json")], PWA_MANIFEST)
+}
+
+/// Serve PWA icon (same SVG for both sizes)
+async fn icon_handler() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "image/svg+xml")], SCADA_ICON_SVG)
+}
+
+/// Serve minimal service worker
+async fn sw_handler() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "application/javascript")], SERVICE_WORKER_JS)
+}
+
+// ============================================================================
+// Security Middleware
+// ============================================================================
+
+/// Security headers middleware for SCADA display server
+///
+/// Adds standard security headers to all responses:
+/// - X-Frame-Options: DENY — Prevents clickjacking attacks
+/// - X-Content-Type-Options: nosniff — Prevents MIME-type sniffing
+/// - Referrer-Policy: no-referrer — Prevents referrer leakage to external sites
+/// - Permissions-Policy: Disables geolocation, camera, microphone, payment, USB APIs
+async fn security_headers_middleware(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> impl IntoResponse {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert("X-Frame-Options", HeaderValue::from_static("DENY"));
+    headers.insert("X-Content-Type-Options", HeaderValue::from_static("nosniff"));
+    headers.insert("Referrer-Policy", HeaderValue::from_static("no-referrer"));
+    headers.insert("Permissions-Policy", HeaderValue::from_static("geolocation=(), camera=(), microphone=(), payment=(), usb=()"));
+    response
+}
+
 // ============================================================================
 // Server Startup
 // ============================================================================
 
 /// Build the axum router for the SCADA display server
 pub fn build_scada_router(state: ScadaState) -> Router {
-    // CORS: restrict to localhost origins only (kiosk mode)
+    // CORS: restrict to localhost origins and private network IPs
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
             if let Ok(s) = origin.to_str() {
-                s.starts_with("http://localhost") || s.starts_with("http://127.0.0.1")
+                s.starts_with("http://localhost")
+                    || s.starts_with("http://127.0.0.1")
+                    || is_private_network_origin(s)
             } else {
                 false
             }
@@ -378,7 +558,13 @@ pub fn build_scada_router(state: ScadaState) -> Router {
         .route("/scada", get(scada_page_handler))
         .route("/scada/process", get(scada_process_handler))
         .route("/ws/scada", get(scada_ws_handler))
+        .route("/libs/aquaculture-nodes.umd.js", get(node_bundle_handler))
+        .route("/manifest.webmanifest", get(manifest_handler))
+        .route("/icons/scada-192.svg", get(icon_handler))
+        .route("/icons/scada-512.svg", get(icon_handler))
+        .route("/sw.js", get(sw_handler))
         .layer(cors)
+        .layer(middleware::from_fn(security_headers_middleware))
         .with_state(state)
 }
 

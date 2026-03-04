@@ -3,18 +3,27 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' ws://localhost:* ws://127.0.0.1:*; img-src 'self' data:;" />
-  <title>SCADA Edge Display</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' ws: wss:; img-src 'self' data:; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'; object-src 'none';" />
+  <meta name="theme-color" content="#0f172a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="SCADA">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/scada-192.svg">
+  <title>Suderra SCADA</title>
   <!-- React -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-is@18/umd/react-is.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
+  <script crossorigin="anonymous" src="https://unpkg.com/react@18/umd/react.production.min.js" integrity="sha384-MhvFknC0AhqKZXwSCyPeIirpE1IhTafmLXTvTCai5pxjAqFcqEAAqKH/2lXrFVPn"></script>
+  <script crossorigin="anonymous" src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" integrity="sha384-VQePqH/QE94Buf4g/4MI5NrqDYjdqT7JW6KzhieQUlw6w7U7VD59fPqCAunpXEu6"></script>
+  <script crossorigin="anonymous" src="https://unpkg.com/react-is@18/umd/react-is.production.min.js" integrity="sha384-OImdaOjLJHCk2joNQN3ZBEx/H7txIsCwKqglkCehcoRk2khn93c8jMpZzSX+1xP2"></script>
+  <script crossorigin="anonymous" src="https://unpkg.com/prop-types@15/prop-types.min.js" integrity="sha384-bIF5YacYXTVEAZd6r73Or8Zi+w7JSTlt+VwM4flwmUOWV2hr6ZmaMgxOAu0MxnxO"></script>
   <!-- ReactFlow -->
-  <link href="https://unpkg.com/reactflow@11.11.4/dist/style.css" rel="stylesheet" />
-  <script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+  <link href="https://unpkg.com/reactflow@11.11.4/dist/style.css" rel="stylesheet" integrity="sha384-uySezIHhsCs2A2+GIarZ89Bi2gd6yjY0I1FFVamfrk6hgEUWLuBYlXA7bYr6dHaJ" crossorigin="anonymous" />
+  <script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js" integrity="sha384-lA1w00Vex5qXDv4/xYJO/e8SCjfdlNghbTP+s+2zl37rCEAC7trsSRpYrv/JQy5y" crossorigin="anonymous"></script>
   <!-- Recharts for Chart Widgets -->
-  <script src="https://cdn.jsdelivr.net/npm/recharts@2/umd/Recharts.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/recharts@2/umd/Recharts.min.js" integrity="sha384-s+7pcrm/Pv4ijV339ExtI9MX+r6WdM5N4r7Wub6Q1GwupdIgUg87zbXCh1xNyXc6" crossorigin="anonymous"></script>
+  <!-- Aquaculture node/edge components (SVG shapes, P&ID edge styles) -->
+  <script src="/libs/aquaculture-nodes.umd.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body, #root {
@@ -164,6 +173,35 @@
     .ws-status-bar.ws-connected { border-color: rgba(34,197,94,0.3); }
     .ws-status-bar.ws-connecting { border-color: rgba(234,179,8,0.3); }
     .ws-status-bar.ws-disconnected { border-color: rgba(239,68,68,0.3); }
+    /* Portrait orientation warning overlay */
+    @media (orientation: portrait) {
+      .scada-container::after {
+        content: 'Lutfen cihazi yatay konuma cevirin';
+        position: fixed; inset: 0; z-index: 9999;
+        display: flex; align-items: center; justify-content: center;
+        background: #0f172a; color: #94a3b8;
+        font-size: 18px; text-align: center; padding: 24px;
+      }
+    }
+    /* Larger touch targets for ReactFlow controls */
+    .react-flow__controls-button {
+      width: 48px !important; height: 48px !important;
+      font-size: 18px !important;
+    }
+    /* Responsive sensor badge font */
+    .sensor-badge { font-size: 12px; }
+    /* Hide MiniMap on small screens */
+    @media (max-width: 600px) {
+      .react-flow__minimap { display: none !important; }
+    }
+    /* iOS safe area insets */
+    .scada-header {
+      padding-left: max(16px, env(safe-area-inset-left));
+      padding-right: max(16px, env(safe-area-inset-right));
+    }
+    .scada-container {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
   </style>
 </head>
 <body>
@@ -179,16 +217,24 @@
     // ============================================
     // WebSocket Connection Manager
     // ============================================
-    const RECONNECT_DELAY_MS = 3000;
+    const MAX_RECONNECT_ATTEMPTS = 15;
+    const BASE_RECONNECT_DELAY = 3000;
 
     function useScadaWebSocket(url) {
       const [status, setStatus] = useState('disconnected');
       const wsRef = useRef(null);
       const [lastMessage, setLastMessage] = useState(null);
       const reconnectTimer = useRef(null);
+      const retryCount = useRef(0);
 
       const connect = useCallback(() => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
+
+        if (retryCount.current >= MAX_RECONNECT_ATTEMPTS) {
+          console.error('[scada-edge] Max reconnect attempts reached (' + MAX_RECONNECT_ATTEMPTS + ')');
+          setStatus('failed');
+          return;
+        }
 
         setStatus('connecting');
         const ws = new WebSocket(url);
@@ -197,6 +243,7 @@
         ws.onopen = () => {
           console.log('[scada-edge] WebSocket connected');
           setStatus('connected');
+          retryCount.current = 0;
         };
 
         ws.onmessage = (event) => {
@@ -209,10 +256,12 @@
         };
 
         ws.onclose = () => {
-          console.log('[scada-edge] WebSocket disconnected, reconnecting in ' + RECONNECT_DELAY_MS + 'ms...');
           setStatus('disconnected');
           wsRef.current = null;
-          reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY_MS);
+          var delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(1.5, retryCount.current), 30000);
+          retryCount.current++;
+          console.log('[scada-edge] WebSocket disconnected, retry ' + retryCount.current + '/' + MAX_RECONNECT_ATTEMPTS + ' in ' + Math.round(delay) + 'ms');
+          reconnectTimer.current = setTimeout(connect, delay);
         };
 
         ws.onerror = (err) => {
@@ -220,6 +269,13 @@
           ws.close();
         };
       }, [url]);
+
+      const reconnect = useCallback(() => {
+        retryCount.current = 0;
+        if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+        if (wsRef.current) wsRef.current.close();
+        connect();
+      }, [connect]);
 
       useEffect(() => {
         connect();
@@ -229,7 +285,7 @@
         };
       }, [connect]);
 
-      return { status, lastMessage };
+      return { status, lastMessage, reconnect };
     }
 
     // ============================================
@@ -338,6 +394,10 @@
     const AQ = window.AquacultureNodes || {};
     const hasBundle = !!AQ.EquipmentNode;
 
+    if (!hasBundle) {
+      console.warn('[scada-edge] UMD bundle yuklenemedi. P&ID sembolizm devre disi, fallback generic node kullaniliyor.');
+    }
+
     const nodeTypes = hasBundle ? {
       scadaEquipment: ScadaEquipmentNode,
       equipment: createScadaNode(AQ.EquipmentNode),
@@ -349,18 +409,46 @@
       connectionPoint: AQ.ConnectionPointNode,
       tankInlet: AQ.TankInletNode,
       sensor: AQ.SensorNode,
+      chartWidget: AQ.ChartWidgetNode ? createScadaNode(AQ.ChartWidgetNode) : undefined,
       algaeBagRed: AQ.AlgaeBagNode,
       algaeBagGreen: AQ.AlgaeBagNode,
       algaeBagYellow: AQ.AlgaeBagNode,
-      demandFeeder: AQ.DemandFeederNode,
-      automaticFeeder: AQ.AutomaticFeederNode,
+      demandFeeder: createScadaNode(AQ.DemandFeederNode),
+      automaticFeeder: createScadaNode(AQ.AutomaticFeederNode),
       pump: createScadaNode(AQ.PumpNode),
       valve: createScadaNode(AQ.ValveNode),
       heater: createScadaNode(AQ.HeaterNode),
       dosingPump: createScadaNode(AQ.DosingPumpNode),
+      ultrafiltration: createScadaNode(AQ.UltrafiltrationNode),
+      dualDrainTank: createScadaNode(AQ.DualDrainTankNode),
+      cleanWaterTank: createScadaNode(AQ.CleanWaterTankNode),
+      dirtyWaterTank: createScadaNode(AQ.DirtyWaterTankNode),
+      waterSupply: createScadaNode(AQ.WaterSupplyNode),
+      waterDischarge: createScadaNode(AQ.WaterDischargeNode),
+      mbbr: createScadaNode(AQ.MBBRNode),
+      hepaFilter: createScadaNode(AQ.HEPAFilterNode),
+      shellAndTubeHeatExchanger: createScadaNode(AQ.ShellTubeHeatExchangerNode),
+      plateHeatExchanger: createScadaNode(AQ.PlateHeatExchangerNode),
+      chiller: createScadaNode(AQ.ChillerNode),
+      gasGenerator: createScadaNode(AQ.GasGeneratorNode),
+      dieselGenerator: createScadaNode(AQ.DieselGeneratorNode),
+      ozoneGenerator: createScadaNode(AQ.OzoneGeneratorNode),
+      oxygenGenerator: createScadaNode(AQ.OxygenGeneratorNode),
     } : {
       scadaEquipment: ScadaEquipmentNode,
     };
+
+    // Proxy fallback for unknown node types
+    const safeNodeTypes = typeof Proxy !== 'undefined' ? new Proxy(nodeTypes, {
+      get: function(target, prop) {
+        if (prop in target) return target[prop];
+        if (typeof prop === 'string' && prop !== 'then' && prop !== 'toJSON' && !prop.startsWith('$$')) {
+          console.warn('[scada-edge] Unknown node type: ' + prop + ', using fallback');
+          return ScadaEquipmentNode;
+        }
+        return undefined;
+      }
+    }) : nodeTypes;
 
     const edgeTypes = AQ.edgeTypes || {};
     const getEdgeStyle = AQ.getEdgeStyle || (() => ({ stroke: '#475569', strokeWidth: 2 }));
@@ -380,8 +468,8 @@
     // ============================================
     // Waiting Screen Component
     // ============================================
-    function WaitingScreen({ status, deviceInfo }) {
-      const statusLabel = status === 'connected' ? 'Bagli' : status === 'connecting' ? 'Baglaniyor...' : 'Bagli Degil';
+    function WaitingScreen({ status, deviceInfo, reconnect }) {
+      const statusLabel = status === 'connected' ? 'Bagli' : status === 'connecting' ? 'Baglaniyor...' : status === 'failed' ? 'Baglanti Basarisiz' : 'Bagli Degil';
       const wsClass = 'ws-' + status;
 
       const scadaIcon = h('svg', {
@@ -399,12 +487,14 @@
           h('div', { key: 'icon', className: 'waiting-icon' }, scadaIcon),
           h('div', { key: 'spinner', className: 'waiting-spinner' }),
           h('div', { key: 'title', className: 'waiting-title' },
-            status !== 'connected' ? 'Sunucuya baglaniliyor...' : 'Proses bekleniyor...'
+            status === 'failed' ? 'Baglanti kurulamadi' : status !== 'connected' ? 'Sunucuya baglaniliyor...' : 'Proses bekleniyor...'
           ),
           h('div', { key: 'subtitle', className: 'waiting-subtitle' },
-            status !== 'connected'
-              ? 'SCADA edge agent sunucusuna baglantiyi bekliyor.'
-              : 'Cloud panelden bu cihaza proses deploy edin.'
+            status === 'failed'
+              ? 'Sunucu erisilemiyor. Lütfen baglantıyı kontrol edin.'
+              : status !== 'connected'
+                ? 'SCADA edge agent sunucusuna baglantiyi bekliyor.'
+                : 'Cloud panelden bu cihaza proses deploy edin.'
           ),
           // Device info chips
           deviceInfo && h('div', { key: 'device', className: 'waiting-device-info' }, [
@@ -426,6 +516,16 @@
             h('span', { key: 'dot', className: 'status-dot ' + status }),
             h('span', { key: 'label', style: { color: status === 'connected' ? '#86efac' : status === 'connecting' ? '#fde047' : '#fca5a5' } }, statusLabel),
           ]),
+          // Reconnect button when failed
+          status === 'failed' && h('button', {
+            key: 'retry',
+            onClick: reconnect,
+            style: {
+              marginTop: 16, padding: '10px 24px', borderRadius: 8,
+              background: '#3b82f6', color: '#fff', border: 'none',
+              fontSize: 14, fontWeight: 600, cursor: 'pointer'
+            }
+          }, 'Yeniden Baglan')
         ]),
       ]);
     }
@@ -435,7 +535,7 @@
     // ============================================
     function ScadaEdgeApp() {
       const wsUrl = 'ws://' + window.location.host + '/ws/scada';
-      const { status, lastMessage } = useScadaWebSocket(wsUrl);
+      const { status, lastMessage, reconnect } = useScadaWebSocket(wsUrl);
       const [nodes, setNodes, onNodesChange] = useNodesState([]);
       const [edges, setEdges, onEdgesChange] = useEdgesState([]);
       const [processName, setProcessName] = useState('');
@@ -469,13 +569,16 @@
           const processedEdges = (data.edges || []).map(e => ({
             ...e,
             type: e.type || 'orthogonal',
+            markerEnd: e.markerEnd || { type: MarkerType.ArrowClosed, width: 20, height: 20, color: '#64748b' },
             style: getEdgeStyle(e.data?.connectionType || 'process-pipe'),
             data: { connectionType: 'process-pipe', midX1: null, midY: null, midX2: null, ...(e.data || {}) }
           }));
           setEdges(processedEdges);
 
           setTimeout(() => {
-            if (reactFlowInstance) reactFlowInstance.fitView({ padding: 0.15 });
+            if (reactFlowInstance) {
+              try { reactFlowInstance.fitView({ padding: 0.15 }); } catch(e) { console.warn('[scada-edge] fitView failed:', e); }
+            }
           }, 150);
         }
 
@@ -491,7 +594,9 @@
       // Fit view on init
       useEffect(() => {
         if (reactFlowInstance && nodes.length > 0) {
-          setTimeout(() => reactFlowInstance.fitView({ padding: 0.15 }), 200);
+          setTimeout(() => {
+            try { reactFlowInstance.fitView({ padding: 0.15 }); } catch(e) { console.warn('[scada-edge] fitView failed:', e); }
+          }, 200);
         }
       }, [reactFlowInstance]);
 
@@ -513,14 +618,15 @@
         ]),
         // Waiting screen or SCADA canvas
         showWaiting
-          ? h(WaitingScreen, { key: 'waiting', status, deviceInfo })
+          ? h(WaitingScreen, { key: 'waiting', status, deviceInfo, reconnect })
           : h('div', { key: 'canvas', className: 'scada-canvas' },
               h(ReactFlow, {
                 nodes, edges,
                 onNodesChange, onEdgesChange,
                 onInit: setReactFlowInstance,
-                nodeTypes, edgeTypes,
-                defaultEdgeOptions: { type: 'orthogonal', style: getEdgeStyle('process-pipe') },
+                nodeTypes: safeNodeTypes,
+                edgeTypes,
+                defaultEdgeOptions: { type: 'orthogonal', markerEnd: { type: MarkerType.ArrowClosed }, style: getEdgeStyle('process-pipe') },
                 nodesDraggable: false, nodesConnectable: false,
                 elementsSelectable: false,
                 panOnDrag: true, zoomOnScroll: true, zoomOnPinch: true,
@@ -543,6 +649,13 @@
     // Render
     const root = createRoot(document.getElementById('root'));
     root.render(h(ReactFlowProvider, null, h(ScadaEdgeApp)));
+
+    // Register PWA service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(function(err) {
+        console.warn('[scada-edge] Service Worker registration failed:', err);
+      });
+    }
   </script>
 </body>
 </html>

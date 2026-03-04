@@ -2126,7 +2126,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
         .map((r) => ({
           tag: r.tag_name,
           name: r.name || r.tag_name,
-          publishedAt: r.published_at,
+          publishedAt: new Date(r.published_at),
           prerelease: r.prerelease,
         }));
 
@@ -2283,7 +2283,7 @@ interface PendingScan {
 export interface FirmwareVersionInfo {
   tag: string;
   name: string;
-  publishedAt: string;
+  publishedAt: Date;
   prerelease: boolean;
 }
 

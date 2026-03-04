@@ -240,12 +240,9 @@ export class EdgeDeviceResolver {
   @Roles(Role.TENANT_ADMIN)
   async rebootEdgeDevice(
     @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
     @Args('reason', { type: () => String, nullable: true }) reason?: string,
-    @Tenant() tenantId?: string,
   ): Promise<boolean> {
-    if (!tenantId) {
-      throw new Error('Tenant context is required');
-    }
     this.logger.log(`Rebooting edge device: ${id}, reason: ${reason || 'User requested'}`);
     return await this.edgeDeviceService.rebootDevice(id, tenantId, reason);
   }
@@ -589,8 +586,8 @@ export class EdgeDeviceResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateEdgeDeviceFirmware(
     @Args('id', { type: () => ID }) id: string,
-    @Args('targetVersion', { nullable: true }) targetVersion?: string,
     @Tenant() tenantId: string,
+    @Args('targetVersion', { nullable: true }) targetVersion?: string,
   ): Promise<boolean> {
     this.logger.log(`Firmware update requested for device: ${id}, version: ${targetVersion || 'latest'}`);
     await this.edgeDeviceService.updateDeviceFirmware(id, tenantId, targetVersion);
@@ -604,8 +601,8 @@ export class EdgeDeviceResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async bulkUpdateEdgeDeviceFirmware(
     @Args('deviceIds', { type: () => [ID] }) deviceIds: string[],
-    @Args('targetVersion', { nullable: true }) targetVersion?: string,
     @Tenant() tenantId: string,
+    @Args('targetVersion', { nullable: true }) targetVersion?: string,
   ): Promise<BulkFirmwareUpdateResult> {
     this.logger.log(`Bulk firmware update requested for ${deviceIds.length} devices, version: ${targetVersion || 'latest'}`);
     return await this.edgeDeviceService.bulkUpdateDeviceFirmware(deviceIds, tenantId, targetVersion);

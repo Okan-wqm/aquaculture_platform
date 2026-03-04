@@ -454,7 +454,7 @@ log "Architecture: $ARCH -> $ARCHIVE_NAME"
 # ─────────────────────────────────────────────────────────────────────────────
 log "[3/6] Fetching latest release from GitHub..."
 
-LATEST_TAG=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases?per_page=10" | grep '"tag_name"' | head -1 | cut -d '"' -f 4)
+LATEST_TAG=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases?per_page=20" | grep '"tag_name"' | grep 'agent-v' | head -1 | cut -d '"' -f 4)
 
 if [ -z "$LATEST_TAG" ]; then
     log "ERROR: Could not determine latest release from GitHub API."
@@ -895,8 +895,8 @@ log "[3/7] Downloading edge-agent from GitHub..."
 # Get latest release tag or use pinned version
 AGENT_VERSION="${safeAgentVersion}"
 if [ "$AGENT_VERSION" = "latest" ]; then
-    # Fetch most recent release tag (any prefix: v*, agent-v*)
-    LATEST_TAG=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases?per_page=10" | grep '"tag_name"' | head -1 | cut -d '"' -f 4)
+    # Fetch most recent edge agent release tag (agent-v* prefix only)
+    LATEST_TAG=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases?per_page=20" | grep '"tag_name"' | grep 'agent-v' | head -1 | cut -d '"' -f 4)
 else
     # GitHub release tags may use "agent-v" or "v" prefix
     case "$AGENT_VERSION" in

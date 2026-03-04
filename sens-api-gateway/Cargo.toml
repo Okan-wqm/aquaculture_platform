@@ -137,6 +137,8 @@ zeroize = { version = "1", features = ["derive"], optional = true }
 
 # HTTP server for health check endpoint (ws feature needed for scada-display)
 axum = { version = "0.8", features = ["ws"], optional = true }
+# CORS middleware for SCADA display server (security hardening)
+tower-http = { version = "0.6", features = ["cors"], optional = true }
 
 # OpenTelemetry for distributed tracing (optional)
 opentelemetry = { version = "0.27", optional = true }
@@ -164,7 +166,7 @@ metrics = ["dep:metrics", "metrics-exporter-prometheus"]
 # v1.2.4: Strict security mode - enables additional security checks in production
 strict-security = []
 # SCADA display server (embedded web UI for local HMI/kiosk)
-scada-display = ["axum"]
+scada-display = ["axum", "tower-http"]
 # LoRaWAN SX1302 concentrator support (requires vendor/sx1302_hal C sources)
 lorawan = ["dep:aes", "dep:cmac", "dep:lorawan", "dep:subtle", "dep:zeroize", "dep:cc", "dep:bindgen", "dep:glob"]
 

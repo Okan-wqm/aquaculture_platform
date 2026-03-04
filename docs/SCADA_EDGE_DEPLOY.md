@@ -65,20 +65,20 @@ cargo build --release --features "gpio,health,scada-display,telemetry,lorawan"
     "name": "RAS Sistemi A",
     "nodes": [...],
     "edges": [...],
-    "tagMappings": {
-      "equip-uuid-1": {
+    "tagMappings": [
+      {
+        "tagName": "df1_pressure",
         "equipmentId": "equip-uuid-1",
-        "equipmentName": "Drum Filter 1",
-        "tags": [
-          {
-            "tagName": "df1_pressure",
-            "sensorType": "pressure",
-            "unit": "bar",
-            "displayName": "Basinc"
-          }
-        ]
+        "sensorType": "pressure",
+        "unit": "bar"
+      },
+      {
+        "tagName": "df1_flow",
+        "equipmentId": "equip-uuid-1",
+        "sensorType": "flow",
+        "unit": "L/min"
       }
-    },
+    ],
     "version": 1
   },
   "timestamp": "2026-03-04T12:00:00Z"
@@ -135,8 +135,8 @@ mutation DeployProcessToEdge($processId: ID!, $deviceId: ID!) {
 
 ```
 ProcessNode.data.sensorMappings (DB)    ->    tagMappings (MQTT)
-  sensorName                            ->    displayName
   channelName / dataPath                ->    tagName
+  node.data.equipmentId                 ->    equipmentId
   dataType                              ->    sensorType
   unit                                  ->    unit
 ```

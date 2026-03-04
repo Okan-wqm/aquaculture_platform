@@ -332,29 +332,25 @@ export class ProcessService {
     }
 
     // 4. sensorMappings → tagMappings dönüşümü
-    const tagMappings: Record<string, {
+    // Rust ScadaProcess expects tagMappings as Vec<TagMapping> (flat array),
+    // where each TagMapping = { tagName, equipmentId, sensorType, unit }
+    const tagMappings: Array<{
+      tagName: string;
       equipmentId: string;
-      equipmentName: string;
-      tags: Array<{
-        tagName: string;
-        sensorType: string;
-        unit: string;
-        displayName: string;
-      }>;
-    }> = {};
+      sensorType: string;
+      unit: string;
+    }> = [];
 
     for (const node of process.nodes) {
       if (node.data?.equipmentId && node.data?.sensorMappings?.length) {
-        tagMappings[node.data.equipmentId] = {
-          equipmentId: node.data.equipmentId,
-          equipmentName: node.data.equipmentName,
-          tags: node.data.sensorMappings.map((sm) => ({
+        for (const sm of node.data.sensorMappings) {
+          tagMappings.push({
             tagName: sm.channelName || sm.dataPath,
+            equipmentId: node.data.equipmentId,
             sensorType: sm.dataType,
             unit: sm.unit || '',
-            displayName: sm.sensorName,
-          })),
-        };
+          });
+        }
       }
     }
 

@@ -3524,12 +3524,30 @@ impl CommandHandler {
     // ========================================================================
 
     /// Deploy a SCADA process definition to the edge display
+    ///
+    /// Accepts the cloud deploy payload format:
+    /// ```json
+    /// { "processId": "...", "name": "...", "nodes": [...], "edges": [...],
+    ///   "tagMappings": { "<equipmentId>": { "equipmentId": "...", "tags": [...] } },
+    ///   "version": 1 }
+    /// ```
+    /// and converts the nested tagMappings map into the flat Vec<TagMapping> used internally.
     #[cfg(feature = "scada-display")]
     async fn cmd_deploy_process(&self, params: &Value) -> (bool, Value, Option<String>) {
+        // Acquire deploy lock to prevent concurrent SCADA process deployments
+        let _deploy_guard = self.deploy_lock.lock().await;
+
+        // Try direct deserialization first (flat tagMappings format)
         let process: crate::scada_server::ScadaProcess = match serde_json::from_value(params.clone()) {
             Ok(p) => p,
-            Err(e) => {
-                return (false, json!(null), Some(format!("Invalid process definition: {}", e)));
+            Err(_) => {
+                // Fallback: convert cloud deploy payload format (nested tagMappings map)
+                match Self::convert_cloud_deploy_payload(params) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        return (false, json!(null), Some(format!("Invalid process definition: {}", e)));
+                    }
+                }
             }
         };
 
@@ -3591,8 +3609,9 @@ impl CommandHandler {
         let state_guard = self.state.read().await;
         if let Some(ref scada_state) = state_guard.scada_state {
             let active = scada_state.is_display_active().await;
-            let has_process = scada_state.get_process().await.is_some();
-            let process_info = if let Some(p) = scada_state.get_process().await {
+            let process_opt = scada_state.get_process().await;
+            let has_process = process_opt.is_some();
+            let process_info = if let Some(p) = process_opt {
                 json!({
                     "name": p.name,
                     "version": p.version,
@@ -3617,6 +3636,79 @@ impl CommandHandler {
         } else {
             (false, json!(null), Some("SCADA display feature not initialized".to_string()))
         }
+    }
+
+    /// Convert cloud deploy payload (nested tagMappings map) to ScadaProcess
+    ///
+    /// The cloud sends tagMappings as:
+    ///   { "eqId": { "equipmentId": "...", "equipmentName": "...", "tags": [{ "tagName", "sensorType", "unit", "displayName" }] } }
+    ///
+    /// The edge expects a flat Vec<TagMapping>:
+    ///   [{ "tagName", "equipmentId", "sensorType", "unit" }]
+    #[cfg(feature = "scada-display")]
+    fn convert_cloud_deploy_payload(params: &Value) -> Result<crate::scada_server::ScadaProcess, String> {
+        let name = params.get("name")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing 'name' field")?
+            .to_string();
+
+        let version = params.get("version")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1) as u32;
+
+        let nodes: Vec<Value> = params.get("nodes")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+
+        let edges: Vec<Value> = params.get("edges")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+
+        // Convert nested tagMappings map to flat Vec<TagMapping>
+        let mut tag_mappings = Vec::new();
+        if let Some(mappings_obj) = params.get("tagMappings").and_then(|v| v.as_object()) {
+            for (_eq_key, eq_val) in mappings_obj {
+                let equipment_id = eq_val.get("equipmentId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                if let Some(tags) = eq_val.get("tags").and_then(|v| v.as_array()) {
+                    for tag in tags {
+                        let tag_name = tag.get("tagName")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let sensor_type = tag.get("sensorType")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let unit = tag.get("unit")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+
+                        if !tag_name.is_empty() {
+                            tag_mappings.push(crate::scada_server::TagMapping {
+                                tag_name,
+                                equipment_id: equipment_id.clone(),
+                                sensor_type,
+                                unit,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(crate::scada_server::ScadaProcess {
+            name,
+            version,
+            nodes,
+            edges,
+            tag_mappings,
+            deployed_at: None,
+        })
     }
 }
 

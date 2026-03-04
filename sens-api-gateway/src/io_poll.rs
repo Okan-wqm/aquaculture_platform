@@ -134,9 +134,11 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
         }
     }
 
+    // --- Snapshot all tags once (reused for alarms, io_data, and SCADA) ---
+    let all_tags = process_image.get_all_tags().await;
+
     // --- Alarm evaluation ---
     {
-        let all_tags = process_image.get_all_tags().await;
         let mut alarm_events = Vec::new();
 
         {
@@ -163,7 +165,6 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     }
 
     // --- Build and publish io_data ---
-    let all_tags = process_image.get_all_tags().await;
     let mut io_tags = HashMap::new();
 
     for (name, tag) in &all_tags {
@@ -196,12 +197,12 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
         }
     }
 
-    // --- SCADA display broadcast ---
+    // --- SCADA display broadcast (reuses all_tags snapshot) ---
     #[cfg(feature = "scada-display")]
     {
         if let Some(ref scada_state) = s.scada_state {
             if let Some(process) = scada_state.get_process().await {
-                let sensor_data = crate::scada_server::build_scada_sensor_data(&process_image, &process).await;
+                let sensor_data = crate::scada_server::build_scada_sensor_data_from_tags(&all_tags, &process);
                 if !sensor_data.equipment_data.is_empty() {
                     scada_state.broadcast_sensor_data(&sensor_data);
                 }

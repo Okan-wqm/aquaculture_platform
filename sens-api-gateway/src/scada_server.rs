@@ -25,12 +25,14 @@ use axum::{
     Json, Router,
     extract::State as AxumState,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    http::StatusCode,
+    http::{HeaderValue, Method, StatusCode},
     response::{Html, IntoResponse},
     routing::get,
 };
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, RwLock};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tracing::{debug, error, info, warn};
 
 use crate::process_image::{ProcessImage, TagQuality};
@@ -43,6 +45,9 @@ const SCADA_HTML: &str = include_str!("../static/scada-edge.html");
 
 /// Maximum number of WebSocket broadcast subscribers
 const BROADCAST_CAPACITY: usize = 64;
+
+/// Maximum concurrent WebSocket connections (DoS protection)
+const MAX_WS_CONNECTIONS: usize = 16;
 
 // ============================================================================
 // Data Structures
@@ -122,6 +127,8 @@ struct ScadaStateInner {
     broadcast_tx: broadcast::Sender<String>,
     /// Whether the display is currently active
     display_active: RwLock<bool>,
+    /// Active WebSocket connection count (DoS protection)
+    ws_connection_count: AtomicUsize,
 }
 
 impl ScadaState {
@@ -134,6 +141,7 @@ impl ScadaState {
                 process: RwLock::new(None),
                 broadcast_tx,
                 display_active: RwLock::new(false),
+                ws_connection_count: AtomicUsize::new(0),
             }),
         };
 
@@ -199,8 +207,15 @@ impl ScadaState {
     }
 
     /// Broadcast sensor data to all connected WebSocket clients
+    ///
+    /// Pre-wraps the data in the `{"type":"sensorData","data":...}` envelope
+    /// so WebSocket handlers can forward the string directly without re-parsing.
     pub fn broadcast_sensor_data(&self, data: &ScadaSensorData) {
-        match serde_json::to_string(data) {
+        let envelope = serde_json::json!({
+            "type": "sensorData",
+            "data": data,
+        });
+        match serde_json::to_string(&envelope) {
             Ok(json) => {
                 // broadcast::send returns Err only if there are no receivers — that's fine
                 let _ = self.inner.broadcast_tx.send(json);
@@ -243,11 +258,30 @@ async fn scada_ws_handler(
     ws: WebSocketUpgrade,
     AxumState(state): AxumState<ScadaState>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_scada_ws(socket, state))
+    // DoS protection: limit concurrent WebSocket connections
+    let current = state.inner.ws_connection_count.load(Ordering::Relaxed);
+    if current >= MAX_WS_CONNECTIONS {
+        warn!("SCADA WebSocket connection rejected: limit reached ({}/{})", current, MAX_WS_CONNECTIONS);
+        return (StatusCode::SERVICE_UNAVAILABLE, "Too many WebSocket connections").into_response();
+    }
+
+    ws.max_message_size(64 * 1024) // 64 KB max incoming message
+        .on_upgrade(move |socket| handle_scada_ws(socket, state))
+        .into_response()
+}
+
+/// RAII guard to decrement WebSocket connection count on drop
+struct WsConnectionGuard(Arc<ScadaStateInner>);
+impl Drop for WsConnectionGuard {
+    fn drop(&mut self) {
+        self.0.ws_connection_count.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 /// Handle a single WebSocket connection
 async fn handle_scada_ws(mut socket: WebSocket, state: ScadaState) {
+    state.inner.ws_connection_count.fetch_add(1, Ordering::Relaxed);
+    let _guard = WsConnectionGuard(Arc::clone(&state.inner));
     info!("SCADA WebSocket client connected");
 
     // Send current process definition on connect
@@ -273,14 +307,9 @@ async fn handle_scada_ws(mut socket: WebSocket, state: ScadaState) {
             result = rx.recv() => {
                 match result {
                     Ok(msg) => {
-                        let ws_msg = serde_json::json!({
-                            "type": "sensorData",
-                            "data": serde_json::from_str::<serde_json::Value>(&msg).unwrap_or_default(),
-                        });
-                        if let Ok(json) = serde_json::to_string(&ws_msg) {
-                            if socket.send(Message::Text(json.into())).await.is_err() {
-                                break;
-                            }
+                        // Message is already a complete JSON envelope from broadcast_sensor_data
+                        if socket.send(Message::Text(msg.into())).await.is_err() {
+                            break;
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
@@ -316,10 +345,22 @@ async fn handle_scada_ws(mut socket: WebSocket, state: ScadaState) {
 
 /// Build the axum router for the SCADA display server
 pub fn build_scada_router(state: ScadaState) -> Router {
+    // CORS: restrict to localhost origins only (kiosk mode)
+    let cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
+            if let Ok(s) = origin.to_str() {
+                s.starts_with("http://localhost") || s.starts_with("http://127.0.0.1")
+            } else {
+                false
+            }
+        }))
+        .allow_methods([Method::GET]);
+
     Router::new()
         .route("/scada", get(scada_page_handler))
         .route("/scada/process", get(scada_process_handler))
         .route("/ws/scada", get(scada_ws_handler))
+        .layer(cors)
         .with_state(state)
 }
 
@@ -359,24 +400,20 @@ pub async fn start_scada_server(state: ScadaState) -> tokio::task::JoinHandle<()
 // Sensor Data Builder
 // ============================================================================
 
-/// Build SCADA sensor data from the process image using tag mappings
+/// Build SCADA sensor data from pre-fetched tag values using tag mappings
 ///
-/// Reads current tag values from the process image and groups them
-/// by equipment ID according to the tag mappings in the SCADA process.
-pub async fn build_scada_sensor_data(
-    process_image: &ProcessImage,
+/// Accepts a pre-snapshotted tag map to avoid redundant process image locks
+/// when the caller already has a recent snapshot (e.g., io_poll cycle).
+pub fn build_scada_sensor_data_from_tags(
+    all_tags: &HashMap<String, crate::process_image::TagValue>,
     process: &ScadaProcess,
 ) -> ScadaSensorData {
-    let all_tags = process_image.get_all_tags().await;
     let mut equipment_data: HashMap<String, Vec<SensorReading>> = HashMap::new();
 
     for mapping in &process.tag_mappings {
         if let Some(tag_value) = all_tags.get(&mapping.tag_name) {
             let status = match tag_value.quality {
-                TagQuality::Good => {
-                    // Could be extended with alarm threshold checks
-                    "normal"
-                }
+                TagQuality::Good => "normal",
                 TagQuality::Uncertain => "warning",
                 _ => "offline",
             };
@@ -401,6 +438,18 @@ pub async fn build_scada_sensor_data(
         timestamp: chrono::Utc::now().to_rfc3339(),
         equipment_data,
     }
+}
+
+/// Build SCADA sensor data from the process image using tag mappings
+///
+/// Convenience wrapper that fetches tags from the process image.
+/// Prefer `build_scada_sensor_data_from_tags` when a tag snapshot is already available.
+pub async fn build_scada_sensor_data(
+    process_image: &ProcessImage,
+    process: &ScadaProcess,
+) -> ScadaSensorData {
+    let all_tags = process_image.get_all_tags().await;
+    build_scada_sensor_data_from_tags(&all_tags, process)
 }
 
 // ============================================================================

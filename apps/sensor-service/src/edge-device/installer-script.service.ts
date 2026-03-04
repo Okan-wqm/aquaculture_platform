@@ -194,7 +194,7 @@ set -euo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 4: Create Configuration
 # ─────────────────────────────────────────────────────────────────────────────
-log "[4/7] Creating configuration..."
+log "[4/9] Creating configuration..."
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$DATA_DIR"
 
@@ -254,6 +254,7 @@ log ""
       this.renderArchDetectAndDownload(GITHUB_REPO, safeAgentVersion) +
       configStep +
       this.renderSystemdService() +
+      this.renderDisplaySetup() +
       this.renderStartAndVerify() +
       verifyFooter
     );
@@ -286,7 +287,7 @@ set -euo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 4: Create Configuration (Tenant Self-Registration Mode)
 # ─────────────────────────────────────────────────────────────────────────────
-log "[4/7] Creating configuration (self-registration mode)..."
+log "[4/9] Creating configuration (self-registration mode)..."
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$DATA_DIR"
 
@@ -347,6 +348,7 @@ log ""
       this.renderArchDetectAndDownload(GITHUB_REPO, safeAgentVersion) +
       configStep +
       this.renderSystemdService() +
+      this.renderDisplaySetup() +
       this.renderStartAndVerify() +
       verifyFooter
     );
@@ -744,7 +746,7 @@ ${bannerLine3 ? bannerLine3 + '\n' : ''}log "╚══════════�
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 1: Prerequisites
 # ─────────────────────────────────────────────────────────────────────────────
-log "[1/7] Checking prerequisites..."
+log "[1/9] Checking prerequisites..."
 if [ "$(id -u)" -ne 0 ]; then
     log "ERROR: This script must be run as root"
     exit 1
@@ -866,7 +868,7 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 2: Detect Architecture
 # ─────────────────────────────────────────────────────────────────────────────
-log "[2/7] Detecting architecture..."
+log "[2/9] Detecting architecture..."
 ARCH=$(uname -m)
 case $ARCH in
     x86_64)   ARCHIVE_NAME="suderra-agent-x86_64-linux" ;;
@@ -890,7 +892,7 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 3: Download from GitHub Releases
 # ─────────────────────────────────────────────────────────────────────────────
-log "[3/7] Downloading edge-agent from GitHub..."
+log "[3/9] Downloading edge-agent from GitHub..."
 
 # Get latest release tag or use pinned version
 AGENT_VERSION="${safeAgentVersion}"
@@ -958,7 +960,7 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 5: Create Systemd Service
 # ─────────────────────────────────────────────────────────────────────────────
-log "[5/7] Installing systemd service..."
+log "[5/9] Installing systemd service..."
 
 # Create dedicated service user
 if ! id suderra &>/dev/null; then
@@ -1013,14 +1015,134 @@ SERVICEEOF
   }
 
   /**
-   * Render Steps 6-7: Start service and verify installation
+   * Render Step 6: Detect display and install SCADA kiosk (cage + chromium)
+   */
+  private renderDisplaySetup(): string {
+    return `
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 6: SCADA Display Setup (auto-detect)
+# ─────────────────────────────────────────────────────────────────────────────
+log "[6/9] Checking for display hardware..."
+
+DISPLAY_DETECTED=false
+
+# Check for DRM/GPU device (HDMI/DSI display connected)
+if [ -e /dev/dri/card0 ] || [ -d /sys/class/drm/card0 ]; then
+    DISPLAY_DETECTED=true
+    log "Display hardware detected (/dev/dri/card0)"
+elif ls /sys/class/drm/card*/status 2>/dev/null | xargs grep -l "connected" &>/dev/null; then
+    DISPLAY_DETECTED=true
+    log "Display hardware detected (DRM connector)"
+fi
+
+if [ "$DISPLAY_DETECTED" = "true" ]; then
+    log "Installing SCADA display packages..."
+
+    # Install cage (Wayland compositor) and chromium
+    apt-get update -qq
+    apt-get install -y -qq cage chromium-browser fonts-noto-core 2>/dev/null || \\
+    apt-get install -y -qq cage chromium fonts-noto-core 2>/dev/null || \\
+    {
+        log "WARNING: Could not install display packages (cage/chromium)."
+        log "  Display kiosk will not be available."
+        log "  You can install manually: apt-get install cage chromium-browser"
+        DISPLAY_DETECTED=false
+    }
+fi
+
+if [ "$DISPLAY_DETECTED" = "true" ]; then
+    # Add suderra user to video group for DRM access
+    usermod -aG video suderra 2>/dev/null || true
+    usermod -aG render suderra 2>/dev/null || true
+
+    # Create SCADA data directory
+    mkdir -p /var/lib/suderra/scada
+    chown suderra:suderra /var/lib/suderra/scada
+
+    # Install display service
+    cat > /etc/systemd/system/suderra-display.service << 'DISPLAYEOF'
+[Unit]
+Description=Suderra SCADA Display (Kiosk)
+Documentation=https://docs.suderra.com/edge/display
+After=suderra-agent.service network-online.target
+Wants=suderra-agent.service network-online.target
+ConditionPathExists=/dev/dri/card0
+
+[Service]
+Type=simple
+User=suderra
+Group=suderra
+SupplementaryGroups=video render
+
+# Wayland/DRM environment
+RuntimeDirectory=suderra-display
+Environment=XDG_RUNTIME_DIR=%t/suderra-display
+Environment=WLR_LIBINPUT_NO_DEVICES=1
+Environment=WLR_RENDERER=pixman
+
+# Wait for agent HTTP to be ready
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do /usr/bin/curl -sf http://localhost:8080/health > /dev/null 2>&1 && exit 0 || sleep 1; done; exit 1'
+
+ExecStart=/usr/bin/cage -s -- chromium-browser \\
+    --kiosk \\
+    --noerrdialogs \\
+    --disable-infobars \\
+    --disable-translate \\
+    --disable-features=TranslateUI \\
+    --disable-session-crashed-bubble \\
+    --disable-component-update \\
+    --no-first-run \\
+    --autoplay-policy=no-user-gesture-required \\
+    --disable-pinch \\
+    --disable-gpu \\
+    --overscroll-history-navigation=0 \\
+    --check-for-update-interval=31536000 \\
+    --app=http://localhost:8080/scada
+
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=60
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=%t/suderra-display /tmp
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target
+DISPLAYEOF
+
+    systemctl daemon-reload
+    systemctl enable suderra-display.service
+    log "SCADA display service installed and enabled"
+    log "  Display will start automatically after agent is ready"
+else
+    log "No display detected — skipping SCADA kiosk setup"
+    log "  To install later: /opt/suderra/setup-display.sh install"
+fi
+`;
+  }
+
+  /**
+   * Render Steps 7-9: Start service and verify installation
    */
   private renderStartAndVerify(): string {
     return `
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 6: Start Service
 # ─────────────────────────────────────────────────────────────────────────────
-log "[6/7] Starting edge-agent service..."
+log "[7/9] Starting edge-agent service..."
 systemctl daemon-reload
 systemctl enable suderra-agent
 systemctl start suderra-agent
@@ -1028,10 +1150,18 @@ systemctl start suderra-agent
 # Wait for activation
 sleep 5
 
+# Start display service if installed
+if systemctl list-unit-files suderra-display.service &>/dev/null && systemctl is-enabled suderra-display.service &>/dev/null; then
+    log "[8/9] Starting SCADA display service..."
+    systemctl start suderra-display.service || log "WARNING: Display service failed to start (agent may still be initializing)"
+else
+    log "[8/9] No display service installed, skipping..."
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 7: Verify Installation
+# Step 9: Verify Installation
 # ─────────────────────────────────────────────────────────────────────────────
-log "[7/7] Verifying installation..."
+log "[9/9] Verifying installation..."
 
 STATUS=$(systemctl is-active suderra-agent)
 if [ "$STATUS" = "active" ]; then
@@ -1040,6 +1170,14 @@ else
     log "❌ Edge agent failed to start"
     log "Check logs: journalctl -u suderra-agent -n 50"
     exit 1
+fi
+
+# Check display status
+if systemctl is-active suderra-display.service &>/dev/null; then
+    log "✅ SCADA display is running (http://localhost:8080/scada)"
+elif systemctl is-enabled suderra-display.service &>/dev/null; then
+    log "⏳ SCADA display service is enabled but not yet active"
+    log "  It will start once the agent is ready and a process is deployed"
 fi
 `;
   }

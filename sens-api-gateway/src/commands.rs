@@ -3921,7 +3921,7 @@ impl CommandHandler {
         };
 
         let state_guard = self.state.read().await;
-        let scada_state = match &state_guard.scada_state {
+        let scada_state: crate::scada_server::ScadaState = match &state_guard.scada_state {
             Some(s) => s.clone(),
             None => {
                 return (false, json!(null), Some("SCADA display feature not initialized".to_string()));
@@ -3931,7 +3931,7 @@ impl CommandHandler {
 
         match scada_state.deploy_process(process).await {
             Ok(()) => {
-                let p = scada_state.get_process().await;
+                let p: Option<crate::scada_server::ScadaProcess> = scada_state.get_process().await;
                 (
                     true,
                     json!({
@@ -3978,7 +3978,7 @@ impl CommandHandler {
         let state_guard = self.state.read().await;
         if let Some(ref scada_state) = state_guard.scada_state {
             let active = scada_state.is_display_active().await;
-            let process_opt = scada_state.get_process().await;
+            let process_opt: Option<crate::scada_server::ScadaProcess> = scada_state.get_process().await;
             let has_process = process_opt.is_some();
             let process_info = if let Some(p) = process_opt {
                 json!({

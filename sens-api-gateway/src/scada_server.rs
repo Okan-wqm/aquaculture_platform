@@ -60,7 +60,7 @@ const MAX_WS_CONNECTIONS: usize = 16;
 const NODE_BUNDLE_JS: &[u8] = include_bytes!("../static/aquaculture-nodes.umd.js");
 
 /// PWA manifest
-const PWA_MANIFEST: &str = r#"{
+const PWA_MANIFEST: &str = r##"{
   "name": "Suderra SCADA",
   "short_name": "SCADA",
   "display": "standalone",
@@ -73,10 +73,10 @@ const PWA_MANIFEST: &str = r#"{
     { "src": "/icons/scada-192.svg", "sizes": "192x192", "type": "image/svg+xml" },
     { "src": "/icons/scada-512.svg", "sizes": "512x512", "type": "image/svg+xml" }
   ]
-}"#;
+}"##;
 
 /// SVG icon for PWA (water/SCADA themed)
-const SCADA_ICON_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+const SCADA_ICON_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="96" fill="#0f172a"/>
   <g transform="translate(256,256)">
     <circle r="160" fill="none" stroke="#3b82f6" stroke-width="16" opacity="0.3"/>
@@ -87,7 +87,7 @@ const SCADA_ICON_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox=
     <line x1="0" y1="-140" x2="0" y2="-50" stroke="#60a5fa" stroke-width="8" stroke-linecap="round"/>
     <line x1="0" y1="50" x2="0" y2="140" stroke="#60a5fa" stroke-width="8" stroke-linecap="round"/>
   </g>
-</svg>"#;
+</svg>"##;
 
 /// Service worker with cache-first strategy for PWA offline support
 const SERVICE_WORKER_JS: &str = r#"const CACHE_NAME = 'scada-v1';

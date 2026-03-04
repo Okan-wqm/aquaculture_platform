@@ -35,6 +35,8 @@ import {
   LoRaDeviceType,
   SendLoRaDownlinkResult,
   SendLoRaDownlinkInput,
+  FirmwareVersionInfo,
+  BulkFirmwareUpdateResult,
 } from './dto/edge-device.dto';
 import {
   CreateProvisionedDeviceInput,
@@ -566,6 +568,47 @@ export class EdgeDeviceResolver {
       tenantId,
       input.confirmed ?? false,
     );
+  }
+
+  // ==================== OTA Firmware Update ====================
+
+  /**
+   * List available firmware versions from GitHub releases
+   */
+  @Query(() => [FirmwareVersionInfo], { name: 'availableFirmwareVersions' })
+  async getAvailableFirmwareVersions(
+    @Tenant() tenantId: string,
+  ): Promise<FirmwareVersionInfo[]> {
+    return await this.edgeDeviceService.getAvailableFirmwareVersions();
+  }
+
+  /**
+   * Trigger OTA firmware update on a single edge device
+   */
+  @Mutation(() => Boolean, { name: 'updateEdgeDeviceFirmware' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async updateEdgeDeviceFirmware(
+    @Args('id', { type: () => ID }) id: string,
+    @Args('targetVersion', { nullable: true }) targetVersion?: string,
+    @Tenant() tenantId: string,
+  ): Promise<boolean> {
+    this.logger.log(`Firmware update requested for device: ${id}, version: ${targetVersion || 'latest'}`);
+    await this.edgeDeviceService.updateDeviceFirmware(id, tenantId, targetVersion);
+    return true;
+  }
+
+  /**
+   * Trigger OTA firmware update on multiple edge devices
+   */
+  @Mutation(() => BulkFirmwareUpdateResult, { name: 'bulkUpdateEdgeDeviceFirmware' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async bulkUpdateEdgeDeviceFirmware(
+    @Args('deviceIds', { type: () => [ID] }) deviceIds: string[],
+    @Args('targetVersion', { nullable: true }) targetVersion?: string,
+    @Tenant() tenantId: string,
+  ): Promise<BulkFirmwareUpdateResult> {
+    this.logger.log(`Bulk firmware update requested for ${deviceIds.length} devices, version: ${targetVersion || 'latest'}`);
+    return await this.edgeDeviceService.bulkUpdateDeviceFirmware(deviceIds, tenantId, targetVersion);
   }
 
   // ==================== Field Resolvers ====================

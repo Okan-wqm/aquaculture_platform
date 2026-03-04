@@ -25,6 +25,9 @@ import {
   SCAN_HARDWARE_MUTATION,
   BULK_ADD_IO_CONFIG_MUTATION,
   DEVICE_INSTALL_COMMANDS_QUERY,
+  AVAILABLE_FIRMWARE_VERSIONS_QUERY,
+  UPDATE_EDGE_DEVICE_FIRMWARE_MUTATION,
+  BULK_UPDATE_EDGE_DEVICE_FIRMWARE_MUTATION,
 } from '../graphql/edge-device.queries';
 
 // ==================== Types ====================
@@ -844,6 +847,86 @@ export function useRegenerateDeviceToken() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['edgeDevice', data.deviceId] });
+    },
+  });
+}
+
+// ==================== Firmware Management Hooks ====================
+
+export interface FirmwareVersionInfo {
+  tag: string;
+  name: string;
+  publishedAt: string;
+  prerelease: boolean;
+}
+
+export interface BulkFirmwareUpdateResult {
+  success: string[];
+  failed: { id: string; error: string }[];
+}
+
+/**
+ * Hook to fetch available firmware versions from GitHub releases
+ */
+export function useAvailableFirmwareVersions() {
+  const { token } = useAuth();
+
+  return useQuery({
+    queryKey: ['availableFirmwareVersions'],
+    queryFn: async () => {
+      const data = await graphqlFetch<{ availableFirmwareVersions: FirmwareVersionInfo[] }>(
+        AVAILABLE_FIRMWARE_VERSIONS_QUERY,
+        {},
+        token
+      );
+      return data.availableFirmwareVersions;
+    },
+    staleTime: 60000, // 1 minute — releases don't change often
+    enabled: !!token,
+  });
+}
+
+/**
+ * Hook to trigger firmware update on a single edge device
+ */
+export function useUpdateEdgeDeviceFirmware() {
+  const { token } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, targetVersion }: { id: string; targetVersion?: string }) => {
+      const data = await graphqlFetch<{ updateEdgeDeviceFirmware: boolean }>(
+        UPDATE_EDGE_DEVICE_FIRMWARE_MUTATION,
+        { id, targetVersion },
+        token
+      );
+      return data.updateEdgeDeviceFirmware;
+    },
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['edgeDevices'] });
+      queryClient.invalidateQueries({ queryKey: ['edgeDevice', id] });
+    },
+  });
+}
+
+/**
+ * Hook to trigger firmware update on multiple edge devices
+ */
+export function useBulkUpdateEdgeDeviceFirmware() {
+  const { token } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ deviceIds, targetVersion }: { deviceIds: string[]; targetVersion?: string }) => {
+      const data = await graphqlFetch<{ bulkUpdateEdgeDeviceFirmware: BulkFirmwareUpdateResult }>(
+        BULK_UPDATE_EDGE_DEVICE_FIRMWARE_MUTATION,
+        { deviceIds, targetVersion },
+        token
+      );
+      return data.bulkUpdateEdgeDeviceFirmware;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['edgeDevices'] });
     },
   });
 }

@@ -1011,6 +1011,89 @@ CPUQuota=80%
 [Install]
 WantedBy=multi-user.target
 SERVICEEOF
+
+# Create update helper script
+cat > /opt/suderra/suderra-update.sh << 'UPDATEEOF'
+#!/bin/bash
+set -euo pipefail
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Suderra Edge Agent — Local Update Helper
+#  Usage: sudo /opt/suderra/suderra-update.sh /path/to/new/edge-agent
+# ══════════════════════════════════════════════════════════════════════════════
+
+INSTALL_DIR="/opt/suderra"
+SERVICE="suderra-agent"
+BINARY="$INSTALL_DIR/edge-agent"
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"; }
+
+if [ "$(id -u)" -ne 0 ]; then
+    log "ERROR: This script must be run as root"
+    exit 1
+fi
+
+if [ $# -lt 1 ]; then
+    log "ERROR: Usage: $0 <path-to-new-binary>"
+    exit 1
+fi
+
+NEW_BINARY="$1"
+
+if [ ! -f "$NEW_BINARY" ]; then
+    log "ERROR: File not found: $NEW_BINARY"
+    exit 1
+fi
+
+if [ ! -f "$BINARY" ]; then
+    log "ERROR: Current binary not found at $BINARY"
+    exit 1
+fi
+
+CURRENT_VERSION=$("$BINARY" --version 2>/dev/null || echo "unknown")
+log "Current version: $CURRENT_VERSION"
+
+# Step 1: Backup current binary
+log "Backing up current binary..."
+cp "$BINARY" "$BINARY.bak"
+
+# Step 2: Copy new binary
+log "Installing new binary..."
+cp "$NEW_BINARY" "$BINARY"
+chmod +x "$BINARY"
+
+NEW_VERSION=$("$BINARY" --version 2>/dev/null || echo "unknown")
+log "New version: $NEW_VERSION"
+
+# Step 3: Restart service
+log "Restarting $SERVICE..."
+systemctl restart "$SERVICE"
+sleep 3
+
+# Step 4: Verify
+STATUS=$(systemctl is-active "$SERVICE")
+if [ "$STATUS" = "active" ]; then
+    log "Agent is running ($NEW_VERSION)"
+    rm -f "$BINARY.bak"
+    log "Update complete"
+else
+    log "ERROR: Agent failed to start after update!"
+    log "Rolling back to previous version..."
+    cp "$BINARY.bak" "$BINARY"
+    chmod +x "$BINARY"
+    systemctl restart "$SERVICE"
+    sleep 2
+    ROLLBACK_STATUS=$(systemctl is-active "$SERVICE")
+    if [ "$ROLLBACK_STATUS" = "active" ]; then
+        log "Rollback successful, running previous version ($CURRENT_VERSION)"
+    else
+        log "CRITICAL: Rollback also failed! Check: journalctl -u $SERVICE -n 50"
+    fi
+    exit 1
+fi
+UPDATEEOF
+chmod +x /opt/suderra/suderra-update.sh
+log "Update helper installed at /opt/suderra/suderra-update.sh"
 `;
   }
 

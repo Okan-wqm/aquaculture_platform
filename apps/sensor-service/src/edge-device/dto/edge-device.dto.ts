@@ -721,3 +721,47 @@ export class SendLoRaDownlinkResult {
   @Field({ nullable: true })
   error?: string;
 }
+
+// ==================== OTA Firmware Update ====================
+
+/**
+ * Available firmware version info from GitHub releases
+ */
+@ObjectType()
+export class FirmwareVersionInfo {
+  @Field()
+  tag!: string;
+
+  @Field()
+  name!: string;
+
+  @Field()
+  publishedAt!: Date;
+
+  @Field()
+  prerelease!: boolean;
+}
+
+/**
+ * Individual failure entry for bulk firmware update
+ */
+@ObjectType()
+export class BulkFirmwareUpdateFailure {
+  @Field(() => ID)
+  id!: string;
+
+  @Field()
+  error!: string;
+}
+
+/**
+ * Result of a bulk firmware update operation
+ */
+@ObjectType()
+export class BulkFirmwareUpdateResult {
+  @Field(() => [ID])
+  success!: string[];
+
+  @Field(() => [BulkFirmwareUpdateFailure])
+  failed!: BulkFirmwareUpdateFailure[];
+}

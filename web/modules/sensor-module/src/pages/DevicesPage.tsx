@@ -32,6 +32,9 @@ import {
   RefreshCw,
   AlertTriangle,
   Settings,
+  Upload,
+  CheckCircle,
+  X,
 } from 'lucide-react';
 import { SensorRegistrationWizard } from '../components/registration/SensorRegistrationWizard';
 import { VfdRegistrationWizard } from '../components/vfd/VfdRegistrationWizard';
@@ -40,6 +43,8 @@ import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
 import {
   useEdgeDevices,
   useEdgeDeviceStats,
+  useAvailableFirmwareVersions,
+  useBulkUpdateEdgeDeviceFirmware,
   DeviceLifecycleState,
   DeviceModel,
   EdgeDevice,
@@ -194,7 +199,9 @@ const EdgeFilterDropdown: React.FC<{
 const EdgeDeviceListRow: React.FC<{
   device: EdgeDevice;
   onClick: () => void;
-}> = ({ device, onClick }) => {
+  isSelected?: boolean;
+  onSelect?: (checked: boolean) => void;
+}> = ({ device, onClick, isSelected, onSelect }) => {
   const isOnline = device.isOnline;
   const lastSeenText =
     device.lastSeenAt && !isOnline
@@ -208,6 +215,16 @@ const EdgeDeviceListRow: React.FC<{
       className="hover:bg-gray-50 cursor-pointer transition-colors"
       onClick={onClick}
     >
+      {onSelect && (
+        <td className="px-4 py-3 w-10" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={isSelected || false}
+            onChange={(e) => onSelect(e.target.checked)}
+            className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+          />
+        </td>
+      )}
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
           <div
@@ -401,6 +418,10 @@ const DevicesPage: React.FC = () => {
   const [expandedDevices, setExpandedDevices] = useState<Set<string>>(new Set());
 
   // Edge Controllers state
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<string>>(new Set());
+  const [showBulkFirmwareModal, setShowBulkFirmwareModal] = useState(false);
+  const [bulkFirmwareVersion, setBulkFirmwareVersion] = useState('');
+  const [bulkUpdateResult, setBulkUpdateResult] = useState<{ success: boolean; failed: { id: string; error: string }[] } | null>(null);
   const [edgeViewMode, setEdgeViewMode] = useState<ViewMode>('grid');
   const [edgeSearchTerm, setEdgeSearchTerm] = useState('');
   const [edgeStateFilter, setEdgeStateFilter] = useState('');
@@ -427,6 +448,8 @@ const DevicesPage: React.FC = () => {
   });
 
   const { data: edgeStats, isLoading: edgeStatsLoading } = useEdgeDeviceStats();
+  const { data: firmwareVersions = [] } = useAvailableFirmwareVersions();
+  const bulkFirmwareMutation = useBulkUpdateEdgeDeviceFirmware();
 
   // Edge device filter options
   const edgeStateOptions = Object.values(DeviceLifecycleState).map((state) => ({
@@ -465,6 +488,42 @@ const DevicesPage: React.FC = () => {
 
   const handleEdgeConfigure = (device: EdgeDevice) => {
     navigate(`/sensor/devices/edge/${device.id}/config`);
+  };
+
+  const toggleDeviceSelection = (deviceId: string, checked: boolean) => {
+    setSelectedDeviceIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(deviceId);
+      } else {
+        next.delete(deviceId);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllDeviceSelection = (checked: boolean) => {
+    if (checked) {
+      setSelectedDeviceIds(new Set(edgeDevices.map((d) => d.id)));
+    } else {
+      setSelectedDeviceIds(new Set());
+    }
+  };
+
+  const handleBulkFirmwareUpdate = () => {
+    if (!bulkFirmwareVersion || selectedDeviceIds.size === 0) return;
+    bulkFirmwareMutation.mutate(
+      { deviceIds: Array.from(selectedDeviceIds), targetVersion: bulkFirmwareVersion },
+      {
+        onSuccess: (result) => {
+          setBulkUpdateResult(result);
+          if (result.success && result.failed.length === 0) {
+            setSelectedDeviceIds(new Set());
+          }
+          refetchEdge();
+        },
+      },
+    );
   };
 
   // Group sensors by parent device
@@ -765,6 +824,21 @@ const DevicesPage: React.FC = () => {
                 )}
               </div>
 
+              {/* Bulk Firmware Update */}
+              {selectedDeviceIds.size > 0 && (
+                <button
+                  onClick={() => {
+                    setBulkFirmwareVersion('');
+                    setBulkUpdateResult(null);
+                    setShowBulkFirmwareModal(true);
+                  }}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors"
+                >
+                  <Upload size={16} />
+                  Toplu Firmware Guncelle ({selectedDeviceIds.size})
+                </button>
+              )}
+
               {/* View Mode Toggle */}
               <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
                 <button
@@ -853,12 +927,21 @@ const DevicesPage: React.FC = () => {
           {!edgeLoading && edgeDevices.length > 0 && edgeViewMode === 'grid' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {edgeDevices.map((device) => (
-                <DeviceStatusCard
-                  key={device.id}
-                  device={device}
-                  onViewDetail={handleEdgeDeviceClick}
-                  onConfigure={handleEdgeConfigure}
-                />
+                <div key={device.id} className="relative">
+                  <div className="absolute top-3 left-3 z-10" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedDeviceIds.has(device.id)}
+                      onChange={(e) => toggleDeviceSelection(device.id, e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500 bg-white"
+                    />
+                  </div>
+                  <DeviceStatusCard
+                    device={device}
+                    onViewDetail={handleEdgeDeviceClick}
+                    onConfigure={handleEdgeConfigure}
+                  />
+                </div>
               ))}
             </div>
           )}
@@ -869,6 +952,14 @@ const DevicesPage: React.FC = () => {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
+                    <th className="px-4 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={edgeDevices.length > 0 && edgeDevices.every((d) => selectedDeviceIds.has(d.id))}
+                        onChange={(e) => toggleAllDeviceSelection(e.target.checked)}
+                        className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+                      />
+                    </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Cihaz
                     </th>
@@ -898,6 +989,8 @@ const DevicesPage: React.FC = () => {
                       key={device.id}
                       device={device}
                       onClick={() => handleEdgeDeviceClick(device)}
+                      isSelected={selectedDeviceIds.has(device.id)}
+                      onSelect={(checked) => toggleDeviceSelection(device.id, checked)}
                     />
                   ))}
                 </tbody>
@@ -1072,6 +1165,121 @@ const DevicesPage: React.FC = () => {
         onClose={() => setIsEdgeWizardOpen(false)}
         onSuccess={handleEdgeWizardSuccess}
       />
+
+      {/* Bulk Firmware Update Modal */}
+      {showBulkFirmwareModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowBulkFirmwareModal(false); setBulkUpdateResult(null); } }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Toplu Firmware Guncelleme"
+        >
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Toplu Firmware Guncelle</h3>
+              <button
+                onClick={() => { setShowBulkFirmwareModal(false); setBulkUpdateResult(null); }}
+                className="p-1 hover:bg-gray-100 rounded-lg"
+                aria-label="Kapat"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-4">
+              <strong>{selectedDeviceIds.size}</strong> cihaz guncellenecek
+            </p>
+
+            {/* Version selector */}
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Hedef Surum</label>
+              <select
+                value={bulkFirmwareVersion}
+                onChange={(e) => setBulkFirmwareVersion(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+              >
+                <option value="">Surum secin...</option>
+                {firmwareVersions.map((v) => (
+                  <option key={v.tag} value={v.tag}>
+                    {v.tag}{v.prerelease ? ' [pre-release]' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Result summary */}
+            {bulkUpdateResult && (
+              <div className="mb-4">
+                {bulkUpdateResult.success && bulkUpdateResult.failed.length === 0 ? (
+                  <div className="p-3 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+                    <span className="text-sm text-green-800">
+                      Tum cihazlara firmware guncelleme komutu gonderildi
+                    </span>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {bulkUpdateResult.success && (
+                      <div className="p-2 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+                        <span className="text-sm text-green-800">
+                          {selectedDeviceIds.size - bulkUpdateResult.failed.length} cihaz basarili
+                        </span>
+                      </div>
+                    )}
+                    {bulkUpdateResult.failed.length > 0 && (
+                      <div className="p-2 rounded-lg bg-red-50 border border-red-200">
+                        <div className="flex items-center gap-2 mb-1">
+                          <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                          <span className="text-sm font-medium text-red-800">
+                            {bulkUpdateResult.failed.length} cihaz basarisiz
+                          </span>
+                        </div>
+                        <ul className="text-xs text-red-700 ml-6 list-disc">
+                          {bulkUpdateResult.failed.map((f) => (
+                            <li key={f.id}>{f.id}: {f.error}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Mutation error */}
+            {bulkFirmwareMutation.isError && (
+              <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                <span className="text-sm text-red-800">
+                  {bulkFirmwareMutation.error instanceof Error ? bulkFirmwareMutation.error.message : 'Guncelleme basarisiz oldu'}
+                </span>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setShowBulkFirmwareModal(false); setBulkUpdateResult(null); }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                {bulkUpdateResult ? 'Kapat' : 'Iptal'}
+              </button>
+              {!bulkUpdateResult && (
+                <button
+                  onClick={handleBulkFirmwareUpdate}
+                  disabled={!bulkFirmwareVersion || bulkFirmwareMutation.isPending}
+                  className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {bulkFirmwareMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Devam
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

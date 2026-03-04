@@ -4,6 +4,8 @@
 //! on the edge device itself (kiosk mode, local HMI panel, or tablet access).
 //!
 //! # Endpoints
+//! - `GET /` — Redirect to `/scada`
+//! - `GET /health` — Health check (JSON)
 //! - `GET /scada` — Serve the SCADA viewer HTML page
 //! - `GET /scada/process` — Get the current SCADA process definition (JSON)
 //! - `WS /ws/scada` — WebSocket for live sensor data broadcast
@@ -26,7 +28,7 @@ use axum::{
     extract::State as AxumState,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     http::{HeaderValue, Method, StatusCode},
-    response::{Html, IntoResponse},
+    response::{Html, IntoResponse, Redirect},
     routing::get,
 };
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -339,6 +341,20 @@ async fn handle_scada_ws(mut socket: WebSocket, state: ScadaState) {
     info!("SCADA WebSocket client disconnected");
 }
 
+/// Health check endpoint
+async fn health_handler() -> impl IntoResponse {
+    Json(serde_json::json!({
+        "status": "ok",
+        "service": "scada-display",
+        "version": env!("CARGO_PKG_VERSION"),
+    }))
+}
+
+/// Root redirect to /scada
+async fn root_redirect_handler() -> Redirect {
+    Redirect::permanent("/scada")
+}
+
 // ============================================================================
 // Server Startup
 // ============================================================================
@@ -357,6 +373,8 @@ pub fn build_scada_router(state: ScadaState) -> Router {
         .allow_methods([Method::GET]);
 
     Router::new()
+        .route("/", get(root_redirect_handler))
+        .route("/health", get(health_handler))
         .route("/scada", get(scada_page_handler))
         .route("/scada/process", get(scada_process_handler))
         .route("/ws/scada", get(scada_ws_handler))

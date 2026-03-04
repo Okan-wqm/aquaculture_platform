@@ -41,6 +41,8 @@ cargo build --release --features "gpio,health,scada-display,telemetry,lorawan"
 
 | Endpoint | Method | Aciklama |
 |----------|--------|----------|
+| `/` | GET | `/scada`'ya redirect |
+| `/health` | GET | `{"status":"ok","service":"scada-display","version":"..."}` |
 | `/scada` | GET | SCADA viewer HTML sayfasi (kiosk modu) |
 | `/scada/process` | GET | Deploy edilmis proses JSON |
 | `/ws/scada` | WebSocket | Canli sensor verisi broadcast |
@@ -103,6 +105,16 @@ io_poll_loop (her cycle)
 ### Persistent Storage
 
 Deploy edilen proses `/var/lib/suderra/scada/process.json` dosyasina kaydedilir. Agent yeniden basladiginda otomatik yuklenir.
+
+### Bekleme Ekrani
+
+Henuz proses deploy edilmemisse, SCADA viewer bilgilendirici bir bekleme ekrani gosterir:
+
+- Device bilgisi (device code, agent version)
+- WebSocket baglanti durumu (connected/disconnected)
+- "Proses bekleniyor..." mesaji
+
+Proses deploy edildiginde sayfa otomatik olarak SCADA gorunumune gecis yapar.
 
 ---
 

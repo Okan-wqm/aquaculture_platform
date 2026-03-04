@@ -260,6 +260,10 @@ export class EdgeDeviceService implements OnModuleDestroy {
   private cleanupIntervalId: NodeJS.Timeout | null = null;
   private isShuttingDown = false;
 
+  // Firmware version cache
+  private firmwareVersionsCache: { data: FirmwareVersionInfo[]; fetchedAt: number } | null = null;
+  private readonly FIRMWARE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
   constructor(
     @InjectRepository(EdgeDevice)
     private readonly deviceRepository: Repository<EdgeDevice>,
@@ -603,7 +607,21 @@ export class EdgeDeviceService implements OnModuleDestroy {
     if (heartbeat.storageUsage !== undefined) device.storageUsage = heartbeat.storageUsage;
     if (heartbeat.temperatureCelsius !== undefined) device.temperatureCelsius = heartbeat.temperatureCelsius;
     if (heartbeat.uptimeSeconds !== undefined) device.uptimeSeconds = heartbeat.uptimeSeconds;
-    if (heartbeat.firmwareVersion) device.firmwareVersion = heartbeat.firmwareVersion;
+    if (heartbeat.firmwareVersion) {
+      device.firmwareVersion = heartbeat.firmwareVersion;
+
+      // Check if firmware update target has been reached
+      if (device.targetFirmwareVersion) {
+        const normalize = (v: string) => v.replace(/^agent-v/, '');
+        if (normalize(heartbeat.firmwareVersion) === normalize(device.targetFirmwareVersion)) {
+          device.firmwareUpdatedAt = new Date();
+          device.targetFirmwareVersion = undefined;
+          this.logger.log(
+            `Device ${device.deviceCode} firmware updated to ${heartbeat.firmwareVersion}`,
+          );
+        }
+      }
+    }
     if (heartbeat.ipAddress) device.ipAddress = heartbeat.ipAddress;
 
     // Update connection quality based on frequency of heartbeats
@@ -2066,6 +2084,147 @@ export class EdgeDeviceService implements OnModuleDestroy {
     }
   }
 
+  // ==================== Firmware Update Methods ====================
+
+  /**
+   * Fetch available firmware versions from GitHub releases.
+   * Results are cached for 5 minutes to avoid rate limiting.
+   */
+  async getAvailableFirmwareVersions(): Promise<FirmwareVersionInfo[]> {
+    // Return cached data if still valid
+    if (
+      this.firmwareVersionsCache &&
+      Date.now() - this.firmwareVersionsCache.fetchedAt < this.FIRMWARE_CACHE_TTL_MS
+    ) {
+      return this.firmwareVersionsCache.data;
+    }
+
+    const repo = process.env.GITHUB_REPO || 'Okan-wqm/aquaculture_platform';
+    const url = `https://api.github.com/repos/${repo}/releases`;
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'aquaculture-platform-sensor-service',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`GitHub API responded with ${response.status}`);
+      }
+
+      const releases = (await response.json()) as Array<{
+        tag_name: string;
+        name: string;
+        published_at: string;
+        prerelease: boolean;
+      }>;
+
+      const filtered: FirmwareVersionInfo[] = releases
+        .filter((r) => r.tag_name.startsWith('agent-v'))
+        .map((r) => ({
+          tag: r.tag_name,
+          name: r.name || r.tag_name,
+          publishedAt: r.published_at,
+          prerelease: r.prerelease,
+        }));
+
+      this.firmwareVersionsCache = { data: filtered, fetchedAt: Date.now() };
+      return filtered;
+    } catch (error) {
+      this.logger.error(`Failed to fetch firmware versions: ${(error as Error).message}`);
+      // Return stale cache if available
+      if (this.firmwareVersionsCache) {
+        return this.firmwareVersionsCache.data;
+      }
+      throw new BadRequestException(`Failed to fetch firmware versions: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Trigger firmware update on a single edge device.
+   * Sets targetFirmwareVersion and sends MQTT command.
+   */
+  async updateDeviceFirmware(
+    deviceId: string,
+    tenantId: string,
+    targetVersion?: string,
+  ): Promise<EdgeDevice> {
+    // Validate targetVersion format — must be 'latest' or match 'agent-v*' tag pattern
+    if (targetVersion && targetVersion !== 'latest') {
+      if (!/^agent-v\d+\.\d+\.\d+/.test(targetVersion)) {
+        throw new BadRequestException(
+          `Invalid firmware version format: '${targetVersion}'. Expected 'agent-vX.Y.Z' or 'latest'.`,
+        );
+      }
+    }
+
+    const device = await this.findByIdOrFail(deviceId, tenantId);
+
+    if (device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
+      throw new BadRequestException('Cannot update firmware on decommissioned device');
+    }
+
+    // Send MQTT command first — only persist targetFirmwareVersion if
+    // the command was successfully published.  This prevents the DB from
+    // recording a pending update that was never actually sent.
+    const mqtt = this.ensureMqttAvailable();
+    const repo = process.env.GITHUB_REPO || 'Okan-wqm/aquaculture_platform';
+    const resolvedVersion = targetVersion || 'latest';
+
+    await mqtt.publish(
+      `tenants/${device.tenantId}/devices/${device.id}/commands`,
+      {
+        commandId: randomUUID(),
+        command: 'update_firmware',
+        params: {
+          target_version: resolvedVersion,
+          github_repo: repo,
+        },
+        timestamp: new Date().toISOString(),
+      },
+    );
+
+    // Persist after successful MQTT publish
+    device.targetFirmwareVersion = resolvedVersion;
+    const saved = await this.deviceRepository.save(device);
+
+    this.logger.log(
+      `Firmware update command sent to ${device.deviceCode}: target=${resolvedVersion}`,
+    );
+
+    return saved;
+  }
+
+  /**
+   * Trigger firmware update on multiple edge devices.
+   * Collects results without throwing on individual failures.
+   */
+  async bulkUpdateDeviceFirmware(
+    deviceIds: string[],
+    tenantId: string,
+    targetVersion?: string,
+  ): Promise<{ success: string[]; failed: { id: string; error: string }[] }> {
+    const success: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+
+    for (const deviceId of deviceIds) {
+      try {
+        await this.updateDeviceFirmware(deviceId, tenantId, targetVersion);
+        success.push(deviceId);
+      } catch (error) {
+        failed.push({ id: deviceId, error: (error as Error).message });
+      }
+    }
+
+    this.logger.log(
+      `Bulk firmware update: ${success.length} succeeded, ${failed.length} failed`,
+    );
+
+    return { success, failed };
+  }
+
   /**
    * Update LoRa device runtime status from MQTT lora_events.
    *
@@ -2116,6 +2275,16 @@ interface PendingScan {
   startTime: number;
   resolve: (result: HardwareScanResult) => void;
   timeout: NodeJS.Timeout;
+}
+
+/**
+ * Firmware version info from GitHub releases.
+ */
+export interface FirmwareVersionInfo {
+  tag: string;
+  name: string;
+  publishedAt: string;
+  prerelease: boolean;
 }
 
 /**

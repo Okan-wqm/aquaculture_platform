@@ -385,6 +385,37 @@ export const SCAN_HARDWARE_MUTATION = `
   }
 `;
 
+// ==================== Firmware Management ====================
+
+export const AVAILABLE_FIRMWARE_VERSIONS_QUERY = `
+  query AvailableFirmwareVersions {
+    availableFirmwareVersions {
+      tag
+      name
+      publishedAt
+      prerelease
+    }
+  }
+`;
+
+export const UPDATE_EDGE_DEVICE_FIRMWARE_MUTATION = `
+  mutation UpdateEdgeDeviceFirmware($id: ID!, $targetVersion: String) {
+    updateEdgeDeviceFirmware(id: $id, targetVersion: $targetVersion)
+  }
+`;
+
+export const BULK_UPDATE_EDGE_DEVICE_FIRMWARE_MUTATION = `
+  mutation BulkUpdateEdgeDeviceFirmware($deviceIds: [ID!]!, $targetVersion: String) {
+    bulkUpdateEdgeDeviceFirmware(deviceIds: $deviceIds, targetVersion: $targetVersion) {
+      success
+      failed {
+        id
+        error
+      }
+    }
+  }
+`;
+
 // Bulk I/O config import: auto-detect sonuçlarını tek seferde import eder.
 // Duplicate tagName'ler skip edilir, kullanıcıya rapor edilir.
 export const BULK_ADD_IO_CONFIG_MUTATION = `

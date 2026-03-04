@@ -222,7 +222,7 @@ tenants/{tenantId}/devices/{deviceCode}/response     → command responses
 
 **MQTT Topics (Cloud → Edge Agent):**
 ```
-tenants/{tenantId}/devices/{deviceId}/commands       → deploy_program, ping, reboot
+tenants/{tenantId}/devices/{deviceId}/commands       → deploy_program, ping, reboot, update_firmware
 ```
 
 ---
@@ -315,6 +315,28 @@ PENDING → DEPLOYING → SUCCESS
                     → FAILED
                     → ROLLED_BACK
 ```
+
+---
+
+## OTA Firmware Yönetimi
+
+Web panelden firmware sürümü seçilerek edge cihazlara uzaktan güncelleme gönderilebilir. `update_firmware` MQTT komutu ile GitHub Releases'den otomatik indirme, doğrulama ve kurulum gerçekleştirilir.
+
+**Özellikler:**
+- Upgrade ve downgrade desteklenir
+- Toplu güncelleme (bulk update) desteği: Birden fazla cihaza aynı anda firmware güncellemesi gönderilebilir
+
+**MQTT Komutu:**
+```
+tenants/{tenantId}/devices/{deviceId}/commands → update_firmware
+```
+
+**Flow:**
+1. Tenant admin panelden hedef firmware sürümü seçilir
+2. Cloud, `update_firmware` komutunu MQTT üzerinden cihaza gönderir
+3. Edge agent, GitHub Releases'den ilgili binary'yi indirir
+4. İndirilen dosya doğrulanır (checksum)
+5. Mevcut agent binary'si güncellenir ve servis yeniden başlatılır
 
 ---
 

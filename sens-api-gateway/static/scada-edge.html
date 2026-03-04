@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="tr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -101,6 +101,69 @@
       50% { opacity: 0.6; transform: scale(1.15); }
     }
     .clock { font-size: 13px; color: #94a3b8; font-variant-numeric: tabular-nums; }
+
+    /* Waiting screen styles */
+    .waiting-screen {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: #0f172a; position: relative; overflow: hidden;
+    }
+    .waiting-screen::before {
+      content: ''; position: absolute; inset: 0;
+      background: radial-gradient(ellipse at 50% 50%, rgba(59,130,246,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .waiting-content {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 32px; z-index: 1; text-align: center; padding: 24px;
+    }
+    .waiting-icon {
+      width: 80px; height: 80px; border-radius: 20px;
+      background: linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%);
+      border: 1px solid #334155;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+    }
+    .waiting-icon svg { width: 40px; height: 40px; color: #3b82f6; }
+    .waiting-spinner {
+      width: 48px; height: 48px; border-radius: 50%;
+      border: 3px solid #1e293b;
+      border-top-color: #3b82f6;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .waiting-title {
+      font-size: 22px; font-weight: 600; color: #f1f5f9;
+      letter-spacing: -0.01em;
+    }
+    .waiting-subtitle {
+      font-size: 14px; color: #64748b; max-width: 380px;
+      line-height: 1.5;
+    }
+    .waiting-device-info {
+      display: flex; flex-wrap: wrap; gap: 12px;
+      justify-content: center; margin-top: 8px;
+    }
+    .waiting-device-chip {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 14px; border-radius: 8px;
+      background: #1e293b; border: 1px solid #334155;
+      font-size: 13px; color: #94a3b8;
+    }
+    .waiting-device-chip .chip-label { color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .waiting-device-chip .chip-value { color: #e2e8f0; font-weight: 500; }
+    .ws-status-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 16px; border-radius: 8px;
+      background: #1e293b; border: 1px solid #334155;
+      font-size: 13px;
+    }
+    .ws-status-bar .status-dot { width: 8px; height: 8px; }
+    .ws-status-bar.ws-connected { border-color: rgba(34,197,94,0.3); }
+    .ws-status-bar.ws-connecting { border-color: rgba(234,179,8,0.3); }
+    .ws-status-bar.ws-disconnected { border-color: rgba(239,68,68,0.3); }
   </style>
 </head>
 <body>
@@ -315,6 +378,59 @@
     }
 
     // ============================================
+    // Waiting Screen Component
+    // ============================================
+    function WaitingScreen({ status, deviceInfo }) {
+      const statusLabel = status === 'connected' ? 'Bagli' : status === 'connecting' ? 'Baglaniyor...' : 'Bagli Degil';
+      const wsClass = 'ws-' + status;
+
+      const scadaIcon = h('svg', {
+        viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5,
+        strokeLinecap: 'round', strokeLinejoin: 'round'
+      }, [
+        h('rect', { key: '1', x: 2, y: 3, width: 20, height: 14, rx: 2 }),
+        h('line', { key: '2', x1: 8, y1: 21, x2: 16, y2: 21 }),
+        h('line', { key: '3', x1: 12, y1: 17, x2: 12, y2: 21 }),
+        h('path', { key: '4', d: 'M7 8h2v4H7zM11 9h2v3h-2zM15 7h2v5h-2z' }),
+      ]);
+
+      return h('div', { className: 'waiting-screen' }, [
+        h('div', { key: 'content', className: 'waiting-content' }, [
+          h('div', { key: 'icon', className: 'waiting-icon' }, scadaIcon),
+          h('div', { key: 'spinner', className: 'waiting-spinner' }),
+          h('div', { key: 'title', className: 'waiting-title' },
+            status !== 'connected' ? 'Sunucuya baglaniliyor...' : 'Proses bekleniyor...'
+          ),
+          h('div', { key: 'subtitle', className: 'waiting-subtitle' },
+            status !== 'connected'
+              ? 'SCADA edge agent sunucusuna baglantiyi bekliyor.'
+              : 'Cloud panelden bu cihaza proses deploy edin.'
+          ),
+          // Device info chips
+          deviceInfo && h('div', { key: 'device', className: 'waiting-device-info' }, [
+            deviceInfo.hostname && h('div', { key: 'host', className: 'waiting-device-chip' }, [
+              h('span', { key: 'l', className: 'chip-label' }, 'Cihaz'),
+              h('span', { key: 'v', className: 'chip-value' }, deviceInfo.hostname),
+            ]),
+            deviceInfo.ip && h('div', { key: 'ip', className: 'waiting-device-chip' }, [
+              h('span', { key: 'l', className: 'chip-label' }, 'IP'),
+              h('span', { key: 'v', className: 'chip-value' }, deviceInfo.ip),
+            ]),
+            deviceInfo.agentVersion && h('div', { key: 'ver', className: 'waiting-device-chip' }, [
+              h('span', { key: 'l', className: 'chip-label' }, 'Agent'),
+              h('span', { key: 'v', className: 'chip-value' }, 'v' + deviceInfo.agentVersion),
+            ]),
+          ]),
+          // WebSocket status bar
+          h('div', { key: 'ws', className: 'ws-status-bar ' + wsClass }, [
+            h('span', { key: 'dot', className: 'status-dot ' + status }),
+            h('span', { key: 'label', style: { color: status === 'connected' ? '#86efac' : status === 'connecting' ? '#fde047' : '#fca5a5' } }, statusLabel),
+          ]),
+        ]),
+      ]);
+    }
+
+    // ============================================
     // Main App
     // ============================================
     function ScadaEdgeApp() {
@@ -323,6 +439,8 @@
       const [nodes, setNodes, onNodesChange] = useNodesState([]);
       const [edges, setEdges, onEdgesChange] = useEdgesState([]);
       const [processName, setProcessName] = useState('');
+      const [hasProcess, setHasProcess] = useState(false);
+      const [deviceInfo, setDeviceInfo] = useState(null);
       const [reactFlowInstance, setReactFlowInstance] = useState(null);
       const [, forceUpdate] = useState(0);
 
@@ -331,7 +449,13 @@
         if (!lastMessage) return;
         const { type, data } = lastMessage;
 
+        if (type === 'deviceInfo' && data) {
+          setDeviceInfo(data);
+        }
+
         if (type === 'setProcess' && data) {
+          sensorDataStore = {};
+          setHasProcess(true);
           setProcessName(data.name || 'SCADA');
           const processedNodes = (data.nodes || [])
             .filter(n => n && n.id)
@@ -372,6 +496,7 @@
       }, [reactFlowInstance]);
 
       const statusLabel = status === 'connected' ? 'Bagli' : status === 'connecting' ? 'Baglaniyor...' : 'Bagli Degil';
+      const showWaiting = !hasProcess;
 
       return h('div', { className: 'scada-container' }, [
         // Header bar
@@ -386,30 +511,32 @@
             h('span', { key: 'label', style: { color: status === 'connected' ? '#86efac' : '#94a3b8' } }, statusLabel),
           ])
         ]),
-        // Canvas
-        h('div', { key: 'canvas', className: 'scada-canvas' },
-          h(ReactFlow, {
-            nodes, edges,
-            onNodesChange, onEdgesChange,
-            onInit: setReactFlowInstance,
-            nodeTypes, edgeTypes,
-            defaultEdgeOptions: { type: 'orthogonal', style: getEdgeStyle('process-pipe') },
-            nodesDraggable: false, nodesConnectable: false,
-            elementsSelectable: false,
-            panOnDrag: true, zoomOnScroll: true, zoomOnPinch: true,
-            fitView: true, fitViewOptions: { padding: 0.15 },
-            minZoom: 0.1, maxZoom: 3,
-          }, [
-            h(Controls, { key: 'ctrl', position: 'bottom-left', showInteractive: false }),
-            h(MiniMap, {
-              key: 'mm', position: 'bottom-right',
-              nodeColor: (n) => getStatusColor(n.data?.status),
-              maskColor: 'rgba(0,0,0,0.3)',
-              style: { width: 150, height: 100, background: '#1e293b' }
-            }),
-            h(Background, { key: 'bg', variant: 'dots', gap: 24, size: 1, color: '#1e293b' })
-          ])
-        )
+        // Waiting screen or SCADA canvas
+        showWaiting
+          ? h(WaitingScreen, { key: 'waiting', status, deviceInfo })
+          : h('div', { key: 'canvas', className: 'scada-canvas' },
+              h(ReactFlow, {
+                nodes, edges,
+                onNodesChange, onEdgesChange,
+                onInit: setReactFlowInstance,
+                nodeTypes, edgeTypes,
+                defaultEdgeOptions: { type: 'orthogonal', style: getEdgeStyle('process-pipe') },
+                nodesDraggable: false, nodesConnectable: false,
+                elementsSelectable: false,
+                panOnDrag: true, zoomOnScroll: true, zoomOnPinch: true,
+                fitView: true, fitViewOptions: { padding: 0.15 },
+                minZoom: 0.1, maxZoom: 3,
+              }, [
+                h(Controls, { key: 'ctrl', position: 'bottom-left', showInteractive: false }),
+                h(MiniMap, {
+                  key: 'mm', position: 'bottom-right',
+                  nodeColor: (n) => getStatusColor(n.data?.status),
+                  maskColor: 'rgba(0,0,0,0.3)',
+                  style: { width: 150, height: 100, background: '#1e293b' }
+                }),
+                h(Background, { key: 'bg', variant: 'dots', gap: 24, size: 1, color: '#1e293b' })
+              ])
+            )
       ]);
     }
 

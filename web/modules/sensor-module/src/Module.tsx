@@ -26,6 +26,10 @@ const ProcessListPage = lazy(() => import('./pages/process/ProcessListPage'));
 const ProcessEditorPage = lazy(() => import('./pages/process/ProcessEditorPage'));
 const ProcessTemplatesPage = lazy(() => import('./pages/process/ProcessTemplatesPage'));
 
+// SCADA Package Pages (lazy loaded)
+const ScadaPackageListPage = lazy(() => import('./pages/scada/ScadaPackageListPage'));
+const ScadaPackageBuilderPage = lazy(() => import('./pages/scada/ScadaPackageBuilderPage'));
+
 // Automation Pages (lazy loaded)
 const AutomationProgramsPage = lazy(() => import('./pages/automation/AutomationProgramsPage'));
 const AutomationProgramEditorPage = lazy(() => import('./pages/automation/AutomationProgramEditorPage'));
@@ -86,6 +90,11 @@ const SensorModule: React.FC = () => {
         <Route path="process/new" element={<ProcessEditorPage />} />
         <Route path="process/:processId" element={<ProcessEditorPage />} />
         <Route path="processes/templates" element={<ProcessTemplatesPage />} />
+
+        {/* SCADA Package Builder */}
+        <Route path="scada-packages" element={<ScadaPackageListPage />} />
+        <Route path="scada-builder/new" element={<ScadaPackageBuilderPage />} />
+        <Route path="scada-builder/:packageId" element={<ScadaPackageBuilderPage />} />
 
         {/* Automation Programs */}
         <Route path="automation" element={<AutomationProgramsPage />} />

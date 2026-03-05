@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Save,
@@ -704,6 +704,7 @@ const DeployAutomationModal: React.FC<DeployModalProps> = ({ isOpen, onClose, bo
 
 const ProcessEditorPage: React.FC = () => {
   const { processId } = useParams<{ processId: string }>();
+  const navigate = useNavigate();
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Iframe state
@@ -1131,6 +1132,16 @@ const ProcessEditorPage: React.FC = () => {
               Edge'e Deploy
             </button>
           )}
+
+          {/* SCADA Paketi Olustur Butonu */}
+          <button
+            onClick={() => navigate(`/sensor/scada-builder/new${processId && processId !== 'new' ? `?processId=${processId}` : ''}`)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+            title="SCADA Paketi Olustur"
+          >
+            <Monitor className="w-4 h-4" />
+            SCADA Paketi
+          </button>
 
           <button
             onClick={handleSave}

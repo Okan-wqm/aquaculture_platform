@@ -28,21 +28,21 @@ import {
 
 export type ScadaWidgetType =
   | 'gauge'
-  | 'numeric-display'
-  | 'status-indicator'
-  | 'tank-level'
-  | 'toggle-switch'
+  | 'numericDisplay'
+  | 'statusIndicator'
+  | 'tankLevel'
+  | 'toggleSwitch'
   | 'slider'
-  | 'numeric-input'
-  | 'push-button'
-  | 'emergency-stop'
-  | 'trend-chart'
-  | 'alarm-banner'
-  | 'alarm-list'
-  | 'calibration-wizard'
-  | 'calibration-history'
-  | 'calibration-status'
-  | 'process-view';
+  | 'numericInput'
+  | 'pushButton'
+  | 'emergencyStop'
+  | 'trendChart'
+  | 'alarmBanner'
+  | 'alarmList'
+  | 'calibrationWizard'
+  | 'calibrationHistory'
+  | 'calibrationStatus'
+  | 'processView';
 
 interface WidgetDefinition {
   type: ScadaWidgetType;
@@ -62,46 +62,46 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
     name: 'Gosterge',
     widgets: [
       { type: 'gauge', label: 'Gauge', icon: <Gauge className="w-4 h-4" />, defaultW: 3, defaultH: 4 },
-      { type: 'numeric-display', label: 'NumericDisplay', icon: <Hash className="w-4 h-4" />, defaultW: 2, defaultH: 2 },
-      { type: 'status-indicator', label: 'StatusIndicator', icon: <Activity className="w-4 h-4" />, defaultW: 2, defaultH: 2 },
-      { type: 'tank-level', label: 'TankLevel', icon: <Droplets className="w-4 h-4" />, defaultW: 3, defaultH: 4 },
+      { type: 'numericDisplay', label: 'NumericDisplay', icon: <Hash className="w-4 h-4" />, defaultW: 2, defaultH: 2 },
+      { type: 'statusIndicator', label: 'StatusIndicator', icon: <Activity className="w-4 h-4" />, defaultW: 2, defaultH: 2 },
+      { type: 'tankLevel', label: 'TankLevel', icon: <Droplets className="w-4 h-4" />, defaultW: 3, defaultH: 4 },
     ],
   },
   {
     name: 'Kontrol',
     widgets: [
-      { type: 'toggle-switch', label: 'ToggleSwitch', icon: <ToggleLeft className="w-4 h-4" />, defaultW: 2, defaultH: 2 },
+      { type: 'toggleSwitch', label: 'ToggleSwitch', icon: <ToggleLeft className="w-4 h-4" />, defaultW: 2, defaultH: 2 },
       { type: 'slider', label: 'Slider', icon: <SlidersHorizontal className="w-4 h-4" />, defaultW: 3, defaultH: 2 },
-      { type: 'numeric-input', label: 'NumericInput', icon: <Keyboard className="w-4 h-4" />, defaultW: 2, defaultH: 2 },
-      { type: 'push-button', label: 'PushButton', icon: <CircleDot className="w-4 h-4" />, defaultW: 2, defaultH: 2 },
-      { type: 'emergency-stop', label: 'EmergencyStop', icon: <OctagonAlert className="w-4 h-4" />, defaultW: 2, defaultH: 3 },
+      { type: 'numericInput', label: 'NumericInput', icon: <Keyboard className="w-4 h-4" />, defaultW: 2, defaultH: 2 },
+      { type: 'pushButton', label: 'PushButton', icon: <CircleDot className="w-4 h-4" />, defaultW: 2, defaultH: 2 },
+      { type: 'emergencyStop', label: 'EmergencyStop', icon: <OctagonAlert className="w-4 h-4" />, defaultW: 2, defaultH: 3 },
     ],
   },
   {
     name: 'Trend',
     widgets: [
-      { type: 'trend-chart', label: 'TrendChart', icon: <TrendingUp className="w-4 h-4" />, defaultW: 6, defaultH: 4 },
+      { type: 'trendChart', label: 'TrendChart', icon: <TrendingUp className="w-4 h-4" />, defaultW: 6, defaultH: 4 },
     ],
   },
   {
     name: 'Alarm',
     widgets: [
-      { type: 'alarm-banner', label: 'AlarmBanner', icon: <Bell className="w-4 h-4" />, defaultW: 12, defaultH: 2 },
-      { type: 'alarm-list', label: 'AlarmList', icon: <List className="w-4 h-4" />, defaultW: 6, defaultH: 4 },
+      { type: 'alarmBanner', label: 'AlarmBanner', icon: <Bell className="w-4 h-4" />, defaultW: 12, defaultH: 2 },
+      { type: 'alarmList', label: 'AlarmList', icon: <List className="w-4 h-4" />, defaultW: 6, defaultH: 4 },
     ],
   },
   {
     name: 'Kalibrasyon',
     widgets: [
-      { type: 'calibration-wizard', label: 'CalibrationWizard', icon: <Wrench className="w-4 h-4" />, defaultW: 4, defaultH: 4 },
-      { type: 'calibration-history', label: 'CalibrationHistory', icon: <History className="w-4 h-4" />, defaultW: 6, defaultH: 4 },
-      { type: 'calibration-status', label: 'CalibrationStatus', icon: <CheckCircle className="w-4 h-4" />, defaultW: 3, defaultH: 3 },
+      { type: 'calibrationWizard', label: 'CalibrationWizard', icon: <Wrench className="w-4 h-4" />, defaultW: 4, defaultH: 4 },
+      { type: 'calibrationHistory', label: 'CalibrationHistory', icon: <History className="w-4 h-4" />, defaultW: 6, defaultH: 4 },
+      { type: 'calibrationStatus', label: 'CalibrationStatus', icon: <CheckCircle className="w-4 h-4" />, defaultW: 3, defaultH: 3 },
     ],
   },
   {
     name: 'Proses',
     widgets: [
-      { type: 'process-view', label: 'ProcessView', icon: <LayoutDashboard className="w-4 h-4" />, defaultW: 12, defaultH: 6 },
+      { type: 'processView', label: 'ProcessView', icon: <LayoutDashboard className="w-4 h-4" />, defaultW: 12, defaultH: 6 },
     ],
   },
 ];

@@ -1,21 +1,9 @@
 import { create } from 'zustand';
+import type { WidgetPosition, ScreenWidget } from '../types/scada-package.types';
+export type { WidgetPosition, ScreenWidget } from '../types/scada-package.types';
 
 // Screen type
 export type ScreenType = 'dashboard' | 'process' | 'alarms' | 'trends' | 'calibration' | 'control';
-
-export interface WidgetPosition {
-  col: number;
-  row: number;
-  w: number;
-  h: number;
-}
-
-export interface ScreenWidget {
-  id: string;
-  widgetType: string;
-  position: WidgetPosition;
-  config: Record<string, any>;
-}
 
 export interface ScreenDef {
   id: string;
@@ -121,6 +109,14 @@ const SCREEN_ICONS: Record<ScreenType, string> = {
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+}
+
+/** Normalize widget type to camelCase (handles legacy kebab-case values). */
+function normalizeWidgetType(type: string): string {
+  if (type.includes('-')) {
+    return type.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  }
+  return type;
 }
 
 const defaultControlPermissions: ControlPermissionsDef = {
@@ -292,6 +288,7 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
     const state = get();
     return {
       meta: {
+        version: 1,
         packageName: state.packageName,
         processId: state.processId,
       },
@@ -335,7 +332,7 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
       layout: s.layout || { type: 'grid', cols: 12, rows: 8 },
       widgets: (s.widgets || []).map((w: any) => ({
         id: w.id || generateId(),
-        widgetType: w.widgetType || 'unknown',
+        widgetType: normalizeWidgetType(w.widgetType || 'unknown'),
         position: w.position || { col: 0, row: 0, w: 2, h: 2 },
         config: w.config || {},
       })),

@@ -248,7 +248,26 @@
     // ============================================
     var tagStore = {};
     var trendDataStore = {};
+    var TAG_STORE_STALE_MS = 5 * 60 * 1000; // 5 min stale threshold
+    var TREND_MAX_POINTS = 1000; // max data points per tag (FIFO)
     var activeAlarms = [];
+
+    // Periodic cleanup of stale tags (runs every 60s)
+    setInterval(function() {
+      var now = Date.now();
+      Object.keys(tagStore).forEach(function(key) {
+        var tag = tagStore[key];
+        if (tag && tag._lastSeen && (now - tag._lastSeen) > TAG_STORE_STALE_MS) {
+          delete tagStore[key];
+        }
+      });
+      // Trim trend data that exceeds max points
+      Object.keys(trendDataStore).forEach(function(key) {
+        if (trendDataStore[key] && trendDataStore[key].length > TREND_MAX_POINTS) {
+          trendDataStore[key] = trendDataStore[key].slice(-TREND_MAX_POINTS);
+        }
+      });
+    }, 60000);
     var emergencyActive = false;
     var pinSessionValid = false;
     var currentPackage = null;
@@ -894,7 +913,7 @@
         return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'rgba(239,68,68,0.15)', borderRadius: 12, border: '2px solid #ef4444' } }, [
           h('div', { key: 't', style: { fontSize: 18, fontWeight: 700, color: '#ef4444', animation: 'pulse 1s infinite' } }, '\u26A0 ACIL DURUM AKTIF'),
           h('button', { key: 'reset', onClick: function() {
-            if (onPin) onPin({ tag: '_emergency_reset', onSuccess: function() { send({ type: 'emergencyReset' }); } });
+            if (onPin) onPin({ tag: '_emergency_reset', onSuccess: function(pin) { send({ type: 'emergencyReset', pin: pin }); } });
           }, style: { marginTop: 16, padding: '8px 24px', borderRadius: 8, background: '#334155', color: '#e2e8f0', border: '1px solid #475569', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' } }, 'Sifirla (PIN Gerekli)'),
         ]);
       }
@@ -1330,7 +1349,8 @@
     // Main App
     // ============================================
     function ScadaEdgeApp() {
-      var wsUrl = 'ws://' + window.location.host + '/ws/scada';
+      var wsProto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+      var wsUrl = wsProto + window.location.host + '/ws/scada';
       var ws = useScadaWebSocket(wsUrl);
       var status = ws.status, lastMessage = ws.lastMessage, reconnect = ws.reconnect, send = ws.send;
 
@@ -1356,8 +1376,31 @@
       var calibState = calibStateHolder[0], setCalibState = calibStateHolder[1];
       var deviceInfoState = useState(null);
       var deviceInfo = deviceInfoState[0], setDeviceInfo = deviceInfoState[1];
-      var forceState = useState(0);
-      var forceUpdate = forceState[1];
+      var trendTickState = useState(0);
+      var trendTick = trendTickState[0], setTrendTick = trendTickState[1];
+
+      // Debounced tag update via requestAnimationFrame
+      var tagUpdatePending = useRef(false);
+      var scheduledTagUpdate = function() {
+        if (!tagUpdatePending.current) {
+          tagUpdatePending.current = true;
+          requestAnimationFrame(function() {
+            scheduledTagUpdate();
+            tagUpdatePending.current = false;
+          });
+        }
+      };
+      // Debounced trend tick via requestAnimationFrame
+      var trendUpdatePending = useRef(false);
+      var scheduledTrendUpdate = function() {
+        if (!trendUpdatePending.current) {
+          trendUpdatePending.current = true;
+          requestAnimationFrame(function() {
+            scheduledTrendUpdate();
+            trendUpdatePending.current = false;
+          });
+        }
+      };
 
       // Auto-dismiss toasts
       useEffect(function() {
@@ -1406,6 +1449,7 @@
         }
 
         if (type === 'sensorData' && data) {
+          var _now = Date.now();
           if (data.equipmentData || data.equipment_data) {
             var eqData = data.equipmentData || data.equipment_data;
             Object.entries(eqData).forEach(function(entry) {
@@ -1413,28 +1457,27 @@
               if (Array.isArray(readings)) {
                 readings.forEach(function(r) {
                   var rName = r.tagName || r.tag_name || r.tag || r.name;
-                  if (rName) tagStore[rName] = r;
+                  if (rName) tagStore[rName] = Object.assign({}, r, { _lastSeen: _now });
                 });
               } else if (typeof readings === 'object') {
-                tagStore[eqId] = readings;
+                tagStore[eqId] = Object.assign({}, readings, { _lastSeen: _now });
               }
             });
           }
-          setAllTags(Object.assign({}, tagStore));
-          forceUpdate(function(n) { return n + 1; });
+          scheduledTagUpdate();
           return;
         }
 
         if (type === 'allTags' && data) {
+          var _nowTags = Date.now();
           var tagsArr = Array.isArray(data) ? data : (data.tags || []);
           tagsArr.forEach(function(t) {
             var name = t.tagName || t.tag_name || t.tag;
             if (name) {
-              tagStore[name] = Object.assign(tagStore[name] || {}, t, { value: t.value, quality: t.quality, unit: t.unit || tagStore[name] && tagStore[name].unit });
+              tagStore[name] = Object.assign(tagStore[name] || {}, t, { value: t.value, quality: t.quality, unit: t.unit || tagStore[name] && tagStore[name].unit, _lastSeen: _nowTags });
             }
           });
-          setAllTags(Object.assign({}, tagStore));
-          forceUpdate(function(n) { return n + 1; });
+          scheduledTagUpdate();
           return;
         }
 
@@ -1477,11 +1520,11 @@
         if (type === 'trendData') {
           var tTag = msg.tag;
           if (tTag && Array.isArray(data)) {
-            trendDataStore[tTag] = data;
+            trendDataStore[tTag] = data.length > TREND_MAX_POINTS ? data.slice(-TREND_MAX_POINTS) : data;
           } else if (tTag && data && Array.isArray(data.data)) {
-            trendDataStore[tTag] = data.data;
+            trendDataStore[tTag] = data.data.length > TREND_MAX_POINTS ? data.data.slice(-TREND_MAX_POINTS) : data.data;
           }
-          forceUpdate(function(n) { return n + 1; });
+          scheduledTrendUpdate();
           return;
         }
 
@@ -1542,7 +1585,7 @@
           ? h(WaitingScreen, { key: 'waiting', status: status, deviceInfo: deviceInfo, reconnect: reconnect })
           : h('div', { key: 'body', className: 'scada-body' },
               hasPackage && activeScreenObj
-                ? h(ScreenRenderer, { screen: activeScreenObj, send: send, onConfirm: onConfirm, onPin: onPin, calibState: calibState, setCalibState: setCalibState, tick: forceState[0] })
+                ? h(ScreenRenderer, { screen: activeScreenObj, send: send, onConfirm: onConfirm, onPin: onPin, calibState: calibState, setCalibState: setCalibState, tick: trendTick })
                 : h(TagDashboard, { tagStore: tagStore })
             ),
 

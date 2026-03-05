@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { graphqlFetch } from '../config/api';
 import {
@@ -9,110 +9,41 @@ import {
   DELETE_SCADA_PACKAGE,
   DEPLOY_SCADA_PACKAGE,
 } from '../graphql/scada-package.queries';
+import type {
+  ScadaPackage,
+  ScadaPackageData,
+  ScadaPackageFilter,
+  ScadaPackageListResult,
+  ScadaPackageStatus,
+} from '../types/scada-package.types';
 
-// Types
-
-export type ScadaPackageStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
-
-export interface WidgetPosition {
-  col: number;
-  row: number;
-  w: number;
-  h: number;
-}
-
-export interface ScreenWidget {
-  id: string;
-  widgetType: string;
-  position: WidgetPosition;
-  config: Record<string, any>;
-}
-
-export interface Screen {
-  id: string;
-  name: string;
-  screenType: string;
-  isDefault: boolean;
-  icon: string;
-  layout: { type: string; cols: number; rows: number };
-  widgets: ScreenWidget[];
-}
-
-export interface AlarmRule {
-  id: string;
-  tag: string;
-  condition: string;
-  value: number;
-  severity: 'critical' | 'high' | 'warning' | 'info';
-  message: string;
-  deadband?: number;
-  delay?: number;
-}
-
-export interface ControlPermissions {
-  securityLevels: { none: string[]; confirm: string[]; pin: string[] };
-  pinHash: string | null;
-  emergencyStop: {
-    holdDuration: number;
-    affectedTags: string[];
-    resetRequiresPin: boolean;
-  } | null;
-}
-
-export interface TrendConfig {
-  retentionDays: number;
-  sampleIntervalSec: number;
-  tags: string[];
-}
-
-export interface PackageMeta {
-  author?: string;
-  description?: string;
-  [key: string]: any;
-}
-
-export interface ScadaPackageData {
-  meta?: PackageMeta;
-  screens: Screen[];
-  alarmRules: AlarmRule[];
-  controlPermissions: ControlPermissions;
-  trendConfig: TrendConfig;
-}
-
-export interface ScadaPackage {
-  id: string;
-  name: string;
-  description?: string;
-  version: number;
-  processId?: string;
-  processName?: string;
-  packageData: ScadaPackageData;
-  status: ScadaPackageStatus;
-  createdBy?: string;
-  updatedBy?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ScadaPackageFilter {
-  status?: ScadaPackageStatus;
-  processId?: string;
-  searchTerm?: string;
-}
-
-export interface ScadaPackageListResult {
-  items: ScadaPackage[];
-  total: number;
-  offset: number;
-  limit: number;
-  hasMore: boolean;
-}
+// Re-export types for backwards compatibility
+export type {
+  ScadaPackageStatus,
+  WidgetPosition,
+  ScreenWidget,
+  Screen,
+  AlarmRule,
+  ControlPermissions,
+  TrendConfig,
+  PackageMeta,
+  ScadaPackageData,
+  ScadaPackage,
+  ScadaPackageFilter,
+  ScadaPackageListResult,
+} from '../types/scada-package.types';
 
 // Hook for fetching SCADA packages list
 export function useScadaPackages(filter?: ScadaPackageFilter) {
   const [packages, setPackages] = useState<ScadaPackage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Stabilize filter by individual fields instead of object reference
+  const filterStatus = filter?.status;
+  const filterProcessId = filter?.processId;
+  const filterSearchTerm = filter?.searchTerm;
 
   const fetchPackages = useCallback(async () => {
     setLoading(true);
@@ -121,7 +52,7 @@ export function useScadaPackages(filter?: ScadaPackageFilter) {
     try {
       const result = await graphqlFetch<{ scadaPackages: ScadaPackageListResult }>(
         GET_SCADA_PACKAGES,
-        { filter },
+        { filter: { status: filterStatus, processId: filterProcessId, searchTerm: filterSearchTerm } },
       );
       setPackages(result.scadaPackages.items);
     } catch (err) {
@@ -131,11 +62,14 @@ export function useScadaPackages(filter?: ScadaPackageFilter) {
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filterStatus, filterProcessId, filterSearchTerm]);
 
+  // Debounce searchTerm changes (300ms), immediate for other filter changes
   useEffect(() => {
-    fetchPackages();
-  }, [fetchPackages]);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(fetchPackages, filterSearchTerm ? 300 : 0);
+    return () => clearTimeout(debounceRef.current);
+  }, [fetchPackages, filterSearchTerm]);
 
   const refetch = useCallback(() => {
     fetchPackages();

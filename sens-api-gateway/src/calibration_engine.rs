@@ -116,6 +116,27 @@ impl CalibrationEngine {
 
     /// Start calibration for a tag
     pub fn start(&mut self, config: &CalibSensorConfig) -> CalibStateMsg {
+        // Guard: at least one calibration point is required
+        let first_point = match config.points.first() {
+            Some(p) => p,
+            None => {
+                warn!("Calibration rejected for tag {}: empty points list", config.tag);
+                return CalibStateMsg {
+                    tag: config.tag.clone(),
+                    state: "error".to_string(),
+                    step: 0,
+                    total_steps: 0,
+                    instruction: None,
+                    reference_value: None,
+                    current_raw: None,
+                    stable: false,
+                    stable_progress: None,
+                    result: None,
+                    error: Some("Calibration config has no reference points".to_string()),
+                };
+            }
+        };
+
         let total_steps = (config.points.len() as u32) * 2 + 1; // wait+confirm per point + calculate
 
         let session = CalibSession {
@@ -134,10 +155,9 @@ impl CalibrationEngine {
             started_at: Instant::now(),
         };
 
-        let point = &config.points[0];
         let instruction = format!(
             "{} çözeltisine/ortamına sensörü yerleştirin",
-            point.label
+            first_point.label
         );
 
         self.sessions.insert(config.tag.clone(), session);
@@ -150,7 +170,7 @@ impl CalibrationEngine {
             step: 1,
             total_steps,
             instruction: Some(instruction),
-            reference_value: point.reference_value,
+            reference_value: first_point.reference_value,
             current_raw: None,
             stable: false,
             stable_progress: None,

@@ -28,7 +28,7 @@
 //! This module is only compiled when the `scada-display` feature is enabled.
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -267,6 +267,8 @@ struct ScadaStateInner {
     emergency_active: AtomicBool,
     /// Tags affected by emergency stop
     emergency_tags: RwLock<Vec<String>>,
+    /// Global PIN lockout state (persists across WS reconnections)
+    pin_lockout: tokio::sync::Mutex<PinLockoutState>,
 }
 
 impl ScadaState {
@@ -289,6 +291,7 @@ impl ScadaState {
                 command_tx: None,
                 emergency_active: AtomicBool::new(false),
                 emergency_tags: RwLock::new(Vec::new()),
+                pin_lockout: tokio::sync::Mutex::new(PinLockoutState::new()),
             }),
         }
     }
@@ -337,6 +340,7 @@ impl ScadaState {
                 command_tx: Some(command_tx),
                 emergency_active: AtomicBool::new(false),
                 emergency_tags: RwLock::new(Vec::new()),
+                pin_lockout: tokio::sync::Mutex::new(PinLockoutState::new()),
             }),
         }
     }
@@ -594,7 +598,7 @@ impl ScadaState {
 
     /// Check if emergency stop is active
     pub fn is_emergency_active(&self) -> bool {
-        self.inner.emergency_active.load(Ordering::Relaxed)
+        self.inner.emergency_active.load(Ordering::Acquire)
     }
 }
 
@@ -616,7 +620,7 @@ fn active_alarm_to_info(alarm: &ActiveAlarm) -> ActiveAlarmInfo {
     }
 }
 
-/// Check if an origin URL belongs to a private network (RFC 1918)
+/// Check if an origin URL belongs to a private network (RFC 1918 + loopback)
 fn is_private_network_origin(origin: &str) -> bool {
     // Extract host from origin URL
     let host = origin
@@ -627,14 +631,21 @@ fn is_private_network_origin(origin: &str) -> bool {
         .next()
         .unwrap_or("");
 
-    host.starts_with("192.168.")
-        || host.starts_with("10.")
-        || host.starts_with("172.16.")
-        || host.starts_with("172.17.")
-        || host.starts_with("172.18.")
-        || host.starts_with("172.19.")
-        || host.starts_with("172.2")
-        || host.starts_with("172.3")
+    // Allow "localhost" hostname
+    if host == "localhost" {
+        return true;
+    }
+
+    // Parse as IPv4 and check RFC 1918 ranges + loopback
+    if let Ok(ip) = host.parse::<Ipv4Addr>() {
+        let octets = ip.octets();
+        return octets[0] == 10                                           // 10.0.0.0/8
+            || (octets[0] == 172 && (16..=31).contains(&octets[1]))      // 172.16.0.0/12
+            || (octets[0] == 192 && octets[1] == 168)                    // 192.168.0.0/16
+            || octets[0] == 127;                                         // 127.0.0.0/8
+    }
+
+    false
 }
 
 /// Determine the security level for a tag based on package control permissions
@@ -659,13 +670,52 @@ enum SecurityLevel {
     Pin,
 }
 
-/// Verify a PIN against the package's pin_hash using SHA-256
+/// Global PIN lockout state — shared across all WS sessions so attackers
+/// cannot bypass lockout by reconnecting.
+struct PinLockoutState {
+    failed_attempts: u32,
+    lockout_until: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl PinLockoutState {
+    fn new() -> Self {
+        Self {
+            failed_attempts: 0,
+            lockout_until: None,
+        }
+    }
+
+    fn is_locked_out(&self) -> bool {
+        if let Some(lockout) = self.lockout_until {
+            chrono::Utc::now() < lockout
+        } else {
+            false
+        }
+    }
+
+    fn record_failure(&mut self) {
+        self.failed_attempts += 1;
+        if self.failed_attempts >= MAX_PIN_FAILURES {
+            self.lockout_until = Some(chrono::Utc::now() + chrono::Duration::seconds(PIN_LOCKOUT_SECS));
+            warn!("Global PIN lockout triggered after {} failed attempts", self.failed_attempts);
+        }
+    }
+
+    fn reset(&mut self) {
+        self.failed_attempts = 0;
+        self.lockout_until = None;
+    }
+}
+
+/// Verify a PIN against the package's pin_hash using SHA-256 with constant-time comparison
 fn verify_pin(input: &str, pin_hash: &str) -> bool {
     use sha2::{Digest, Sha256};
+    use subtle::ConstantTimeEq;
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
     let result = format!("{:x}", hasher.finalize());
-    result == pin_hash
+    // Constant-time comparison prevents timing side-channel attacks
+    result.as_bytes().ct_eq(pin_hash.as_bytes()).into()
 }
 
 // ============================================================================
@@ -811,19 +861,22 @@ async fn scada_ws_handler(
         return (StatusCode::SERVICE_UNAVAILABLE, "Too many WebSocket connections").into_response();
     }
 
-    // Origin validation: allow localhost and private network IPs
-    if let Some(origin) = headers.get(header::ORIGIN) {
-        if let Ok(origin_str) = origin.to_str() {
-            let is_allowed = origin_str.starts_with("http://localhost")
-                || origin_str.starts_with("http://127.0.0.1")
-                || origin_str.starts_with("https://localhost")
-                || origin_str.starts_with("https://127.0.0.1")
-                || is_private_network_origin(origin_str);
-            if !is_allowed {
-                warn!("SCADA WebSocket rejected: invalid origin '{}'", origin_str);
-                return (StatusCode::FORBIDDEN, "Invalid Origin").into_response();
-            }
+    // Origin validation: require Origin header, allow only localhost/private network IPs
+    let origin = match headers.get(header::ORIGIN) {
+        Some(o) => o,
+        None => {
+            warn!("SCADA WebSocket rejected: missing Origin header");
+            return (StatusCode::FORBIDDEN, "Origin header required").into_response();
         }
+    };
+    if let Ok(origin_str) = origin.to_str() {
+        if !is_private_network_origin(origin_str) {
+            warn!("SCADA WebSocket rejected: invalid origin '{}'", origin_str);
+            return (StatusCode::FORBIDDEN, "Invalid Origin").into_response();
+        }
+    } else {
+        warn!("SCADA WebSocket rejected: non-ASCII Origin header");
+        return (StatusCode::FORBIDDEN, "Invalid Origin").into_response();
     }
 
     ws.max_message_size(64 * 1024) // 64 KB max incoming message
@@ -888,7 +941,17 @@ impl WsSession {
 
 /// Handle a single WebSocket connection with bidirectional messaging
 async fn handle_scada_ws(mut socket: WebSocket, state: ScadaState) {
-    state.inner.ws_connection_count.fetch_add(1, Ordering::Relaxed);
+    // Atomically claim a connection slot (TOCTOU-safe: increment first, check after)
+    let prev = state.inner.ws_connection_count.fetch_add(1, Ordering::Relaxed);
+    if prev >= MAX_WS_CONNECTIONS {
+        state.inner.ws_connection_count.fetch_sub(1, Ordering::Relaxed);
+        warn!("SCADA WebSocket dropped post-upgrade: limit reached ({}/{})", prev, MAX_WS_CONNECTIONS);
+        let _ = socket.send(axum::extract::ws::Message::Close(Some(axum::extract::ws::CloseFrame {
+            code: 1013, // Try Again Later
+            reason: "Too many connections".into(),
+        }))).await;
+        return;
+    }
     let _guard = WsConnectionGuard(Arc::clone(&state.inner));
     info!("SCADA WebSocket client connected");
 
@@ -959,7 +1022,7 @@ async fn handle_scada_ws(mut socket: WebSocket, state: ScadaState) {
 
     // 4. Send emergency state
     {
-        let is_emergency = state.inner.emergency_active.load(Ordering::Relaxed);
+        let is_emergency = state.inner.emergency_active.load(Ordering::Acquire);
         let msg = serde_json::json!({
             "type": "emergency",
             "active": is_emergency,
@@ -1065,7 +1128,7 @@ async fn handle_ws_message(
             handle_request_trend(socket, state, &tag, from, to).await
         }
         WsClientMessage::EmergencyStop => {
-            handle_emergency_stop(socket, state).await
+            handle_emergency_stop(socket, state, session).await
         }
         WsClientMessage::EmergencyReset { pin } => {
             handle_emergency_reset(socket, state, session, &pin).await
@@ -1088,7 +1151,7 @@ async fn handle_command_or_setpoint(
     value: f64,
 ) {
     // Check emergency stop
-    if state.inner.emergency_active.load(Ordering::Relaxed) {
+    if state.inner.emergency_active.load(Ordering::Acquire) {
         let msg = serde_json::json!({
             "type": "commandResult",
             "tag": tag,
@@ -1248,13 +1311,24 @@ async fn handle_confirm_response(
 ) {
     if let Some(pending) = session.pending_confirms.remove(request_id) {
         if confirmed {
+            // Route emergency stop confirmations to the dedicated handler
+            if pending.tag == "__emergency_stop__" {
+                execute_emergency_stop(socket, state).await;
+                return;
+            }
             execute_command(socket, state, &pending.tag, pending.value, pending.source_ip, false).await;
         } else {
             // Audit the rejection
+            let action_type = if pending.tag == "__emergency_stop__" {
+                info!("Emergency stop cancelled by user");
+                "emergency_stop_cancelled"
+            } else {
+                "command_rejected"
+            };
             if let Some(ref db) = state.inner.db {
                 let _ = db.insert_audit(
                     pending.source_ip.as_deref(),
-                    "command_rejected",
+                    action_type,
                     Some(&pending.tag),
                     None,
                     Some(pending.value),
@@ -1284,18 +1358,21 @@ async fn handle_pin_response(
     request_id: &str,
     pin: &str,
 ) {
-    // Check lockout
-    if session.is_locked_out() {
-        let msg = serde_json::json!({
-            "type": "commandResult",
-            "tag": "",
-            "success": false,
-            "error": "Too many failed PIN attempts. Try again later.",
-        });
-        if let Ok(json) = serde_json::to_string(&msg) {
-            let _ = socket.send(Message::Text(json.into())).await;
+    // Check GLOBAL lockout (persists across WS reconnections)
+    {
+        let lockout = state.inner.pin_lockout.lock().await;
+        if lockout.is_locked_out() {
+            let msg = serde_json::json!({
+                "type": "commandResult",
+                "tag": "",
+                "success": false,
+                "error": "Too many failed PIN attempts. Try again later.",
+            });
+            if let Ok(json) = serde_json::to_string(&msg) {
+                let _ = socket.send(Message::Text(json.into())).await;
+            }
+            return;
         }
-        return;
     }
 
     // Get pin_hash from package
@@ -1320,7 +1397,12 @@ async fn handle_pin_response(
     };
 
     if verify_pin(pin, &pin_hash) {
-        // PIN correct — create session
+        // PIN correct — reset global lockout and create session
+        {
+            let mut lockout = state.inner.pin_lockout.lock().await;
+            lockout.reset();
+        }
+
         let timeout = state.inner.package.read().await
             .as_ref()
             .and_then(|pkg| pkg.control_permissions.pin_timeout)
@@ -1337,17 +1419,14 @@ async fn handle_pin_response(
             execute_command(socket, state, &pending.tag, pending.value, pending.source_ip, true).await;
         }
     } else {
-        // PIN wrong — track failures
-        let ps = session.pin_session.get_or_insert(PinSession {
-            valid_until: chrono::Utc::now(), // expired
-            failed_attempts: 0,
-            lockout_until: None,
-        });
-        ps.failed_attempts += 1;
-
-        if ps.failed_attempts >= MAX_PIN_FAILURES {
-            ps.lockout_until = Some(chrono::Utc::now() + chrono::Duration::seconds(PIN_LOCKOUT_SECS));
-            warn!("PIN lockout triggered after {} failed attempts", ps.failed_attempts);
+        // PIN wrong — track failures in GLOBAL state
+        let is_locked;
+        let attempts;
+        {
+            let mut lockout = state.inner.pin_lockout.lock().await;
+            lockout.record_failure();
+            is_locked = lockout.is_locked_out();
+            attempts = lockout.failed_attempts;
         }
 
         // Audit
@@ -1360,7 +1439,7 @@ async fn handle_pin_response(
                 None,
                 true,
                 false,
-                Some(&format!("Attempt {}/{}", ps.failed_attempts, MAX_PIN_FAILURES)),
+                Some(&format!("Attempt {}/{}", attempts, MAX_PIN_FAILURES)),
             );
         }
 
@@ -1368,7 +1447,7 @@ async fn handle_pin_response(
             "type": "commandResult",
             "tag": "",
             "success": false,
-            "error": if ps.lockout_until.is_some() {
+            "error": if is_locked {
                 "Too many failed PIN attempts. Locked out for 60 seconds."
             } else {
                 "Invalid PIN"
@@ -1487,14 +1566,45 @@ async fn handle_request_trend(
     }
 }
 
-/// Handle emergency stop
+/// Handle emergency stop with Confirm-level auth
+///
+/// Safety note: Emergency stop uses SecurityLevel::Confirm (client-side confirmation)
+/// rather than PIN auth. In a real emergency, requiring a PIN could delay critical
+/// shutdown and endanger safety. A simple "Are you sure?" is the right balance between
+/// preventing accidental activation and allowing rapid response.
 async fn handle_emergency_stop(
-    _socket: &mut WebSocket,
+    socket: &mut WebSocket,
+    state: &ScadaState,
+    session: &mut WsSession,
+) {
+    // Send confirm request to client — emergency stop should be quick but deliberate
+    let request_id = uuid::Uuid::new_v4().to_string();
+    session.pending_confirms.insert(request_id.clone(), PendingConfirm {
+        tag: "__emergency_stop__".to_string(),
+        value: 0.0,
+        source_ip: None,
+    });
+    let msg = serde_json::json!({
+        "type": "confirmRequest",
+        "requestId": request_id,
+        "tag": "__emergency_stop__",
+        "text": "ACIL DURDURMA: Tum kontrol cikislari sifirlanacak. Onayliyor musunuz?",
+    });
+    if let Ok(json) = serde_json::to_string(&msg) {
+        let _ = socket.send(Message::Text(json.into())).await;
+    }
+    info!("Emergency stop confirm request sent to client (request_id={})", request_id);
+}
+
+/// Execute the actual emergency stop after confirmation
+async fn execute_emergency_stop(
+    socket: &mut WebSocket,
     state: &ScadaState,
 ) {
-    info!("EMERGENCY STOP activated via WebSocket");
+    info!("EMERGENCY STOP activated via WebSocket (confirmed)");
 
-    state.inner.emergency_active.store(true, Ordering::Relaxed);
+    // Release ordering ensures all prior writes are visible before the flag is seen
+    state.inner.emergency_active.store(true, Ordering::Release);
 
     // Get affected tags from package
     let affected_tags = if let Some(ref pkg) = *state.inner.package.read().await {
@@ -1508,10 +1618,13 @@ async fn handle_emergency_stop(
     // Store emergency tags
     *state.inner.emergency_tags.write().await = affected_tags.clone();
 
-    // Send commands to set all affected tags to 0
+    // Send commands to set all affected tags to 0, await each response
+    let mut failed_tags: Vec<String> = Vec::new();
+    let mut success_count: usize = 0;
+
     if let Some(ref cmd_tx) = state.inner.command_tx {
         for tag in &affected_tags {
-            let (resp_tx, _resp_rx) = tokio::sync::oneshot::channel();
+            let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
             let command = ScadaCommand {
                 tag: tag.clone(),
                 value: 0.0,
@@ -1520,12 +1633,48 @@ async fn handle_emergency_stop(
             };
             if let Err(e) = cmd_tx.send(command).await {
                 warn!("Failed to send emergency stop command for {}: {}", tag, e);
+                failed_tags.push(tag.clone());
+                continue;
+            }
+
+            // Wait for command result with 5-second timeout
+            match tokio::time::timeout(std::time::Duration::from_secs(5), resp_rx).await {
+                Ok(Ok(Ok(_))) => {
+                    info!("Emergency stop: tag '{}' set to 0 successfully", tag);
+                    success_count += 1;
+                }
+                Ok(Ok(Err(e))) => {
+                    warn!("Emergency stop: tag '{}' command failed: {}", tag, e);
+                    failed_tags.push(tag.clone());
+                }
+                Ok(Err(_)) => {
+                    warn!("Emergency stop: tag '{}' command handler dropped", tag);
+                    failed_tags.push(tag.clone());
+                }
+                Err(_) => {
+                    warn!("Emergency stop: tag '{}' command timed out (5s)", tag);
+                    failed_tags.push(tag.clone());
+                }
             }
         }
     }
 
+    if !failed_tags.is_empty() {
+        error!(
+            "EMERGENCY STOP: {}/{} tags failed: {:?}",
+            failed_tags.len(),
+            affected_tags.len(),
+            failed_tags,
+        );
+    }
+
     // Audit
     if let Some(ref db) = state.inner.db {
+        let error_detail = if failed_tags.is_empty() {
+            None
+        } else {
+            Some(format!("Failed tags: {:?}", failed_tags))
+        };
         let _ = db.insert_audit(
             None,
             "emergency_stop",
@@ -1533,9 +1682,21 @@ async fn handle_emergency_stop(
             None,
             None,
             false,
-            true,
-            None,
+            failed_tags.is_empty(),
+            error_detail.as_deref(),
         );
+    }
+
+    // Notify the requesting client about results
+    let result_msg = serde_json::json!({
+        "type": "emergencyStopResult",
+        "success": failed_tags.is_empty(),
+        "totalTags": affected_tags.len(),
+        "successCount": success_count,
+        "failedTags": failed_tags,
+    });
+    if let Ok(json) = serde_json::to_string(&result_msg) {
+        let _ = socket.send(Message::Text(json.into())).await;
     }
 
     // Broadcast emergency state to all clients
@@ -1553,6 +1714,23 @@ async fn handle_emergency_reset(
     session: &mut WsSession,
     pin: &str,
 ) {
+    // Check global lockout before attempting PIN verification
+    {
+        let lockout = state.inner.pin_lockout.lock().await;
+        if lockout.is_locked_out() {
+            let msg = serde_json::json!({
+                "type": "commandResult",
+                "tag": "",
+                "success": false,
+                "error": "Too many failed PIN attempts. Try again later.",
+            });
+            if let Ok(json) = serde_json::to_string(&msg) {
+                let _ = socket.send(Message::Text(json.into())).await;
+            }
+            return;
+        }
+    }
+
     // Get pin_hash from package
     let pin_hash = state.inner.package.read().await
         .as_ref()
@@ -1568,6 +1746,12 @@ async fn handle_emergency_reset(
     };
 
     if verify_pin(pin, &pin_hash) {
+        // Reset global lockout on success
+        {
+            let mut lockout = state.inner.pin_lockout.lock().await;
+            lockout.reset();
+        }
+
         // Establish PIN session as well
         let timeout = state.inner.package.read().await
             .as_ref()
@@ -1582,6 +1766,12 @@ async fn handle_emergency_reset(
 
         do_emergency_reset(state).await;
     } else {
+        // Track failure in global state
+        {
+            let mut lockout = state.inner.pin_lockout.lock().await;
+            lockout.record_failure();
+        }
+
         let msg = serde_json::json!({
             "type": "commandResult",
             "tag": "",
@@ -1612,7 +1802,7 @@ async fn handle_emergency_reset(
 async fn do_emergency_reset(state: &ScadaState) {
     info!("EMERGENCY STOP cleared via WebSocket");
 
-    state.inner.emergency_active.store(false, Ordering::Relaxed);
+    state.inner.emergency_active.store(false, Ordering::Release);
     state.inner.emergency_tags.write().await.clear();
 
     // Audit
@@ -1690,6 +1880,21 @@ async fn security_headers_middleware(
     headers.insert("X-Content-Type-Options", HeaderValue::from_static("nosniff"));
     headers.insert("Referrer-Policy", HeaderValue::from_static("no-referrer"));
     headers.insert("Permissions-Policy", HeaderValue::from_static("geolocation=(), camera=(), microphone=(), payment=(), usb=()"));
+    headers.insert(
+        "Content-Security-Policy",
+        HeaderValue::from_static(
+            "default-src 'self'; \
+             script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; \
+             style-src 'self' 'unsafe-inline' https://unpkg.com; \
+             connect-src 'self' ws: wss:; \
+             img-src 'self' data:; \
+             manifest-src 'self'; \
+             frame-ancestors 'none'; \
+             base-uri 'self'; \
+             form-action 'none'; \
+             object-src 'none';"
+        ),
+    );
     response
 }
 

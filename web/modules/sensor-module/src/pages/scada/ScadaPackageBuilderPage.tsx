@@ -18,6 +18,7 @@ import {
   Loader2,
   X,
 } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 
 import { useScadaPackageStore } from '../../store/scadaPackageStore';
 import { WidgetPalette } from '../../components/scada-builder/WidgetPalette';
@@ -45,7 +46,21 @@ const ScadaPackageBuilderPage: React.FC = () => {
     isDirty,
     loadFromJSON,
     importProcessAsWidget,
-  } = useScadaPackageStore();
+  } = useScadaPackageStore(useShallow((s) => ({
+    packageName: s.packageName,
+    setPackageName: s.setPackageName,
+    setPackageId: s.setPackageId,
+    setProcessId: s.setProcessId,
+    screens: s.screens,
+    activeScreenId: s.activeScreenId,
+    setActiveScreen: s.setActiveScreen,
+    addScreen: s.addScreen,
+    removeScreen: s.removeScreen,
+    selectedWidgetId: s.selectedWidgetId,
+    isDirty: s.isDirty,
+    loadFromJSON: s.loadFromJSON,
+    importProcessAsWidget: s.importProcessAsWidget,
+  })));
 
   // Load existing package or import from process on mount
   useEffect(() => {
@@ -53,7 +68,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
       // In a real implementation, this would fetch from API and call loadFromJSON
       setPackageId(packageId);
     } else if (processId) {
-      // Import process as a process-view widget
+      // Import process as a processView widget
       setProcessId(processId);
       importProcessAsWidget({ id: processId, name: 'Process', nodes: [], edges: [] });
     }
@@ -85,7 +100,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
     (sum, s) =>
       sum +
       s.widgets.filter(
-        (w) => w.widgetType === 'alarm-banner' || w.widgetType === 'alarm-list'
+        (w) => w.widgetType === 'alarmBanner' || w.widgetType === 'alarmList'
       ).length,
     0
   );

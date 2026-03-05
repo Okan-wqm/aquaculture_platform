@@ -1,5 +1,5 @@
 import { InputType, ObjectType, Field, ID, Int } from '@nestjs/graphql';
-import { IsString, IsOptional, IsEnum, IsUUID, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsUUID, MaxLength, IsObject } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { ScadaPackageStatus } from '../entities/scada-package.entity';
@@ -26,6 +26,7 @@ export class CreateScadaPackageInput {
   processId?: string;
 
   @Field(() => GraphQLJSON)
+  @IsObject()
   packageData!: Record<string, unknown>;
 }
 
@@ -53,6 +54,7 @@ export class UpdateScadaPackageInput {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
+  @IsObject()
   packageData?: Record<string, unknown>;
 
   @Field(() => ScadaPackageStatus, { nullable: true })

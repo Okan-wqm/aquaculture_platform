@@ -1055,19 +1055,25 @@ async fn run_agent(
             s.process_image.clone()
         };
 
-        // Create SCADA state with full runtime
-        let scada_state = scada_server::ScadaState::new_with_runtime(
-            process_image,
-            scada_db.clone().expect("scada_db must be initialized before SCADA runtime"),
-            cmd_tx,
-        );
-        let _scada_handle = scada_server::start_scada_server(scada_state.clone()).await;
+        // Create SCADA state with full runtime (only if DB is available)
+        if let Some(db) = scada_db.clone() {
+            let scada_state = scada_server::ScadaState::new_with_runtime(
+                process_image,
+                db,
+                cmd_tx,
+            );
+            let _scada_handle = scada_server::start_scada_server(scada_state.clone()).await;
 
-        // Store in app state
-        {
+            // Store in app state
+            {
+                let mut state_guard = state.write().await;
+                state_guard.scada_state = Some(scada_state.clone());
+                state_guard.scada_db = scada_db;
+            }
+        } else {
+            warn!("SCADA database unavailable — SCADA display server will NOT start. Device operates in sensor-only mode.");
             let mut state_guard = state.write().await;
-            state_guard.scada_state = Some(scada_state.clone());
-            state_guard.scada_db = scada_db;
+            state_guard.scada_db = None;
         }
 
         // Spawn command executor task

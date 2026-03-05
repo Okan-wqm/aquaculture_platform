@@ -23,11 +23,15 @@ import {
 import { Process } from '../entities/process.entity';
 import { ScadaPackage } from '../entities/scada-package.entity';
 import { ProcessService } from '../services/process.service';
+import { ScadaPackageService } from '../services/scada-package.service';
 
 
 @Resolver(() => ProcessType)
 export class ProcessResolver {
-  constructor(private processService: ProcessService) {}
+  constructor(
+    private processService: ProcessService,
+    private scadaPackageService: ScadaPackageService,
+  ) {}
 
   // ============================================================================
   // Queries
@@ -254,9 +258,9 @@ export class ProcessResolver {
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
   ): Promise<ScadaPackageType | null> {
-    const pkg = await this.processService.getScadaPackage(id, tenantId);
+    const pkg = await this.scadaPackageService.getScadaPackage(id, tenantId);
     if (!pkg) return null;
-    return this.mapScadaPackageToType(pkg);
+    return this.mapScadaPackageToType(pkg, tenantId);
   }
 
   @Query(() => ScadaPackageListType, { name: 'scadaPackages' })
@@ -265,9 +269,9 @@ export class ProcessResolver {
     @Args('pagination', { nullable: true }) pagination?: ProcessPaginationInput,
     @Tenant() tenantId?: string,
   ): Promise<ScadaPackageListType> {
-    const result = await this.processService.listScadaPackages(tenantId ?? '', filter, pagination);
+    const result = await this.scadaPackageService.listScadaPackages(tenantId ?? '', filter, pagination);
     return {
-      items: result.items.map(p => this.mapScadaPackageToType(p)),
+      items: await Promise.all(result.items.map(p => this.mapScadaPackageToType(p, tenantId))),
       total: result.total,
       offset: result.offset,
       limit: result.limit,
@@ -286,8 +290,8 @@ export class ProcessResolver {
     @Tenant() tenantId: string,
     @CurrentUser() user: CurrentUserPayload,
   ): Promise<ScadaPackageType> {
-    const pkg = await this.processService.createScadaPackage(input, tenantId, user.sub);
-    return this.mapScadaPackageToType(pkg);
+    const pkg = await this.scadaPackageService.createScadaPackage(input, tenantId, user.sub);
+    return this.mapScadaPackageToType(pkg, tenantId);
   }
 
   @Mutation(() => ScadaPackageType, { name: 'updateScadaPackage' })
@@ -298,8 +302,8 @@ export class ProcessResolver {
     @Tenant() tenantId: string,
     @CurrentUser() user: CurrentUserPayload,
   ): Promise<ScadaPackageType> {
-    const pkg = await this.processService.updateScadaPackage(id, input, tenantId, user.sub);
-    return this.mapScadaPackageToType(pkg);
+    const pkg = await this.scadaPackageService.updateScadaPackage(id, input, tenantId, user.sub);
+    return this.mapScadaPackageToType(pkg, tenantId);
   }
 
   @Mutation(() => DeleteProcessResultType, { name: 'deleteScadaPackage' })
@@ -309,7 +313,7 @@ export class ProcessResolver {
     @Tenant() tenantId: string,
   ): Promise<DeleteProcessResultType> {
     try {
-      const success = await this.processService.deleteScadaPackage(id, tenantId);
+      const success = await this.scadaPackageService.deleteScadaPackage(id, tenantId);
       return { success, message: success ? 'Package archived' : 'Failed', deletedId: success ? id : undefined };
     } catch (error) {
       return { success: false, message: (error as Error).message };
@@ -325,7 +329,7 @@ export class ProcessResolver {
     @CurrentUser() user: CurrentUserPayload,
   ): Promise<DeployScadaPackageResultType> {
     try {
-      const result = await this.processService.deployScadaPackageToEdge(packageId, deviceId, tenantId, user.sub);
+      const result = await this.scadaPackageService.deployScadaPackageToEdge(packageId, deviceId, tenantId, user.sub);
       return { success: result.success, message: result.message, packageId: result.success ? packageId : undefined, deviceId: result.success ? deviceId : undefined };
     } catch (error) {
       return { success: false, message: (error as Error).message };
@@ -357,7 +361,16 @@ export class ProcessResolver {
     };
   }
 
-  private mapScadaPackageToType(pkg: ScadaPackage): ScadaPackageType {
+  private async mapScadaPackageToType(pkg: ScadaPackage, tenantId?: string): Promise<ScadaPackageType> {
+    let processName: string | undefined;
+    if (pkg.processId && tenantId) {
+      try {
+        const process = await this.processService.getProcess(pkg.processId, tenantId);
+        processName = process?.name;
+      } catch {
+        // Process may have been deleted; leave processName undefined
+      }
+    }
     return {
       id: pkg.id,
       tenantId: pkg.tenantId,
@@ -365,6 +378,7 @@ export class ProcessResolver {
       description: pkg.description,
       version: pkg.version,
       processId: pkg.processId,
+      processName,
       packageData: pkg.packageData,
       status: pkg.status,
       createdBy: pkg.createdBy,

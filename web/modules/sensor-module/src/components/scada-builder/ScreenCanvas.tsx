@@ -6,6 +6,7 @@
 
 import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { X, Move } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useScadaPackageStore, ScreenWidget } from '../../store/scadaPackageStore';
 import { WIDGET_DEFAULTS, ScadaWidgetType } from './WidgetPalette';
 
@@ -14,22 +15,22 @@ const GRID_ROWS = 8;
 
 // Widget type icons for mini preview
 const WIDGET_ICONS: Record<string, string> = {
-  'gauge': '🎯',
-  'numeric-display': '🔢',
-  'status-indicator': '🟢',
-  'tank-level': '🛢️',
-  'toggle-switch': '🔘',
-  'slider': '🎚️',
-  'numeric-input': '⌨️',
-  'push-button': '⏺️',
-  'emergency-stop': '🛑',
-  'trend-chart': '📈',
-  'alarm-banner': '🔔',
-  'alarm-list': '📋',
-  'calibration-wizard': '🔧',
-  'calibration-history': '📜',
-  'calibration-status': '✅',
-  'process-view': '🏭',
+  gauge: '🎯',
+  numericDisplay: '🔢',
+  statusIndicator: '🟢',
+  tankLevel: '🛢️',
+  toggleSwitch: '🔘',
+  slider: '🎚️',
+  numericInput: '⌨️',
+  pushButton: '⏺️',
+  emergencyStop: '🛑',
+  trendChart: '📈',
+  alarmBanner: '🔔',
+  alarmList: '📋',
+  calibrationWizard: '🔧',
+  calibrationHistory: '📜',
+  calibrationStatus: '✅',
+  processView: '🏭',
 };
 
 function generateId(): string {
@@ -40,6 +41,15 @@ export const ScreenCanvas: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [dragOverCell, setDragOverCell] = useState<{ col: number; row: number } | null>(null);
+
+  // Local drag/resize state to avoid store updates on every mousemove
+  const [dragState, setDragState] = useState<{
+    widgetId: string;
+    col: number;
+    row: number;
+    w: number;
+    h: number;
+  } | null>(null);
 
   // Resize tracking state for widget resize
   const resizingRef = useRef<{
@@ -58,7 +68,15 @@ export const ScreenCanvas: React.FC = () => {
     addWidget,
     removeWidget,
     updateWidgetPosition,
-  } = useScadaPackageStore();
+  } = useScadaPackageStore(useShallow((s) => ({
+    activeScreenId: s.activeScreenId,
+    screens: s.screens,
+    selectedWidgetId: s.selectedWidgetId,
+    setSelectedWidget: s.setSelectedWidget,
+    addWidget: s.addWidget,
+    removeWidget: s.removeWidget,
+    updateWidgetPosition: s.updateWidgetPosition,
+  })));
 
   const activeScreen = screens.find((s) => s.id === activeScreenId);
   const widgets = activeScreen?.widgets ?? [];
@@ -140,7 +158,7 @@ export const ScreenCanvas: React.FC = () => {
     setDragOverCell(null);
   }, []);
 
-  // Widget resize via mouse
+  // Widget resize via mouse - uses local state during drag, commits on mouseUp
   const handleResizeStart = useCallback(
     (e: React.MouseEvent, widgetId: string, currentW: number, currentH: number) => {
       e.stopPropagation();
@@ -156,23 +174,44 @@ export const ScreenCanvas: React.FC = () => {
       const widget = widgets.find((w) => w.id === widgetId);
       if (!widget) return;
 
+      setDragState({
+        widgetId,
+        col: widget.position.col,
+        row: widget.position.row,
+        w: currentW,
+        h: currentH,
+      });
+
       const onMouseMove = (ev: MouseEvent) => {
         if (!resizingRef.current) return;
         const dx = ev.clientX - resizingRef.current.startX;
         const dy = ev.clientY - resizingRef.current.startY;
         const newW = Math.max(1, Math.min(GRID_COLS, resizingRef.current.startW + Math.round(dx / cellW)));
         const newH = Math.max(1, Math.min(GRID_ROWS, resizingRef.current.startH + Math.round(dy / cellH)));
-        if (activeScreenId) {
-          updateWidgetPosition(activeScreenId, resizingRef.current.widgetId, {
-            col: widget.position.col,
-            row: widget.position.row,
-            w: newW,
-            h: newH,
-          });
-        }
+        setDragState({
+          widgetId: resizingRef.current.widgetId,
+          col: widget.position.col,
+          row: widget.position.row,
+          w: newW,
+          h: newH,
+        });
       };
 
       const onMouseUp = () => {
+        if (resizingRef.current && activeScreenId) {
+          // Read final local state and commit to store
+          setDragState((prev) => {
+            if (prev && prev.widgetId === resizingRef.current?.widgetId) {
+              updateWidgetPosition(activeScreenId, prev.widgetId, {
+                col: prev.col,
+                row: prev.row,
+                w: prev.w,
+                h: prev.h,
+              });
+            }
+            return null;
+          });
+        }
         resizingRef.current = null;
         window.removeEventListener('mousemove', onMouseMove);
         window.removeEventListener('mouseup', onMouseUp);
@@ -184,7 +223,7 @@ export const ScreenCanvas: React.FC = () => {
     [activeScreenId, cellW, cellH, updateWidgetPosition, widgets]
   );
 
-  // Widget drag (move) via mouse
+  // Widget drag (move) via mouse - uses local state during drag, commits on mouseUp
   const handleMoveStart = useCallback(
     (e: React.MouseEvent, widgetId: string, currentCol: number, currentRow: number, currentW: number, currentH: number) => {
       e.stopPropagation();
@@ -192,22 +231,42 @@ export const ScreenCanvas: React.FC = () => {
       const startMouseX = e.clientX;
       const startMouseY = e.clientY;
 
+      setDragState({
+        widgetId,
+        col: currentCol,
+        row: currentRow,
+        w: currentW,
+        h: currentH,
+      });
+
       const onMouseMove = (ev: MouseEvent) => {
         const dx = ev.clientX - startMouseX;
         const dy = ev.clientY - startMouseY;
         const newCol = Math.max(0, Math.min(GRID_COLS - 1, currentCol + Math.round(dx / cellW)));
         const newRow = Math.max(0, Math.min(GRID_ROWS - 1, currentRow + Math.round(dy / cellH)));
-        if (activeScreenId) {
-          updateWidgetPosition(activeScreenId, widgetId, {
-            col: newCol,
-            row: newRow,
-            w: currentW,
-            h: currentH,
-          });
-        }
+        setDragState({
+          widgetId,
+          col: newCol,
+          row: newRow,
+          w: currentW,
+          h: currentH,
+        });
       };
 
       const onMouseUp = () => {
+        if (activeScreenId) {
+          setDragState((prev) => {
+            if (prev && prev.widgetId === widgetId) {
+              updateWidgetPosition(activeScreenId, widgetId, {
+                col: prev.col,
+                row: prev.row,
+                w: prev.w,
+                h: prev.h,
+              });
+            }
+            return null;
+          });
+        }
         window.removeEventListener('mousemove', onMouseMove);
         window.removeEventListener('mouseup', onMouseUp);
       };
@@ -283,19 +342,23 @@ export const ScreenCanvas: React.FC = () => {
           {/* Widgets */}
           {widgets.map((widget) => {
             const isSelected = selectedWidgetId === widget.id;
+            const isDragging = dragState?.widgetId === widget.id;
+            const pos = isDragging ? dragState : widget.position;
             return (
               <div
                 key={widget.id}
-                className={`absolute rounded border transition-shadow ${
+                className={`absolute rounded border ${
+                  isDragging ? '' : 'transition-shadow'
+                } ${
                   isSelected
                     ? 'border-cyan-500 ring-2 ring-cyan-300 shadow-lg z-20'
                     : 'border-gray-300 shadow-sm hover:shadow-md z-10'
                 } bg-white flex flex-col overflow-hidden`}
                 style={{
-                  left: widget.position.col * cellW,
-                  top: widget.position.row * cellH,
-                  width: widget.position.w * cellW - 2,
-                  height: widget.position.h * cellH - 2,
+                  left: pos.col * cellW,
+                  top: pos.row * cellH,
+                  width: pos.w * cellW - 2,
+                  height: pos.h * cellH - 2,
                 }}
                 onClick={(e) => {
                   e.stopPropagation();

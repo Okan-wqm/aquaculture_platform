@@ -13,13 +13,7 @@ import {
   ProcessFilterInput,
   ProcessPaginationInput,
 } from '../dto/process.dto';
-import {
-  CreateScadaPackageInput,
-  UpdateScadaPackageInput,
-  ScadaPackageFilterInput,
-} from '../dto/scada-package.dto';
 import { Process, ProcessStatus } from '../entities/process.entity';
-import { ScadaPackage, ScadaPackageStatus } from '../entities/scada-package.entity';
 
 export interface ProcessListResult {
   items: Process[];
@@ -36,8 +30,6 @@ export class ProcessService {
   constructor(
     @InjectRepository(Process)
     private readonly processRepository: Repository<Process>,
-    @InjectRepository(ScadaPackage)
-    private readonly scadaPackageRepository: Repository<ScadaPackage>,
     @Optional()
     @Inject(MqttClientService)
     private readonly mqttClient: MqttClientService | null,
@@ -388,149 +380,6 @@ export class ProcessService {
       const msg = (error as Error).message;
       this.logger.error(`Failed to deploy process to ${device.deviceCode}: ${msg}`);
       return { success: false, message: `Failed to deploy process: ${msg}` };
-    }
-  }
-
-  // ============================================================================
-  // SCADA Package Methods
-  // ============================================================================
-
-  async createScadaPackage(
-    input: CreateScadaPackageInput,
-    tenantId: string,
-    userId?: string,
-  ): Promise<ScadaPackage> {
-    this.logger.log(`Creating SCADA package "${input.name}" for tenant ${tenantId}`);
-    const pkg = this.scadaPackageRepository.create({
-      ...input,
-      tenantId,
-      status: ScadaPackageStatus.DRAFT,
-      version: 1,
-      createdBy: userId,
-    });
-    return this.scadaPackageRepository.save(pkg);
-  }
-
-  async updateScadaPackage(
-    id: string,
-    input: UpdateScadaPackageInput,
-    tenantId: string,
-    userId?: string,
-  ): Promise<ScadaPackage> {
-    const pkg = await this.scadaPackageRepository.findOne({ where: { id, tenantId } });
-    if (!pkg) throw new NotFoundException(`ScadaPackage ${id} not found`);
-
-    if (input.name !== undefined) pkg.name = input.name;
-    if (input.description !== undefined) pkg.description = input.description;
-    if (input.processId !== undefined) pkg.processId = input.processId;
-    if (input.packageData !== undefined) pkg.packageData = input.packageData;
-
-    pkg.version = pkg.version + 1;
-    pkg.updatedBy = userId;
-
-    return this.scadaPackageRepository.save(pkg);
-  }
-
-  async getScadaPackage(id: string, tenantId: string): Promise<ScadaPackage | null> {
-    return this.scadaPackageRepository.findOne({ where: { id, tenantId } });
-  }
-
-  async listScadaPackages(
-    tenantId: string,
-    filter?: ScadaPackageFilterInput,
-    pagination?: ProcessPaginationInput,
-  ): Promise<{ items: ScadaPackage[]; total: number; offset: number; limit: number; hasMore: boolean }> {
-    const offset = pagination?.offset || 0;
-    const limit = Math.min(pagination?.limit || 20, 100);
-
-    const where: FindOptionsWhere<ScadaPackage> = { tenantId };
-    if (filter?.status) where.status = filter.status;
-    if (filter?.processId) where.processId = filter.processId;
-
-    let whereConditions: FindOptionsWhere<ScadaPackage> | FindOptionsWhere<ScadaPackage>[];
-    if (filter?.searchTerm) {
-      whereConditions = [
-        { ...where, name: ILike(`%${filter.searchTerm}%`) },
-      ];
-    } else {
-      whereConditions = where;
-    }
-
-    const [items, total] = await this.scadaPackageRepository.findAndCount({
-      where: whereConditions,
-      order: { updatedAt: 'DESC' },
-      skip: offset,
-      take: limit,
-    });
-
-    return { items, total, offset, limit, hasMore: offset + items.length < total };
-  }
-
-  async deleteScadaPackage(id: string, tenantId: string): Promise<boolean> {
-    const pkg = await this.scadaPackageRepository.findOne({ where: { id, tenantId } });
-    if (!pkg) throw new NotFoundException(`ScadaPackage ${id} not found`);
-    pkg.status = ScadaPackageStatus.ARCHIVED;
-    await this.scadaPackageRepository.save(pkg);
-    return true;
-  }
-
-  async deployScadaPackageToEdge(
-    packageId: string,
-    deviceId: string,
-    tenantId: string,
-    userId?: string,
-  ): Promise<{ success: boolean; message: string }> {
-    const pkg = await this.scadaPackageRepository.findOne({ where: { id: packageId, tenantId } });
-    if (!pkg) throw new NotFoundException(`ScadaPackage ${packageId} not found`);
-
-    if (!this.edgeDeviceService) {
-      throw new BadRequestException('Edge device service not available');
-    }
-    const device = await this.edgeDeviceService.findByIdOrFail(deviceId, tenantId);
-    if (!device.isOnline) {
-      return { success: false, message: 'Device is offline — cannot deploy SCADA package' };
-    }
-
-    if (!this.mqttClient) {
-      throw new BadRequestException('MQTT service not available');
-    }
-    if (!this.mqttClient.isConnectedToBroker()) {
-      throw new BadRequestException('Not connected to MQTT broker');
-    }
-
-    const packagePayload = {
-      ...pkg.packageData,
-      meta: {
-        ...(pkg.packageData as any)?.meta,
-        version: pkg.version,
-        packageVersion: `${pkg.version}.0.0`,
-        deployedBy: userId || 'system',
-        deployedAt: new Date().toISOString(),
-        edgeDeviceId: device.id,
-      },
-    };
-
-    const topic = `tenants/${tenantId}/devices/${device.id}/commands`;
-    const payload = {
-      commandId: randomUUID(),
-      command: 'deploy_scada_package',
-      params: packagePayload,
-      timestamp: new Date().toISOString(),
-    };
-
-    try {
-      await this.mqttClient.publish(topic, payload);
-      pkg.status = ScadaPackageStatus.PUBLISHED;
-      await this.scadaPackageRepository.save(pkg);
-
-      this.logger.log(
-        `SCADA package "${pkg.name}" v${pkg.version} deployed to device ${device.deviceCode}`,
-      );
-      return { success: true, message: 'SCADA package deployed successfully' };
-    } catch (error) {
-      const msg = (error as Error).message;
-      this.logger.error(`Failed to deploy SCADA package: ${msg}`);
-      return { success: false, message: `Failed to deploy: ${msg}` };
     }
   }
 }

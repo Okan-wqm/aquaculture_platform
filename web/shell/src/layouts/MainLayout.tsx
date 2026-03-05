@@ -227,6 +227,7 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'sensor-alerts', label: 'Alerts', path: '/sensor/alerts' },
       { id: 'sensor-automation', label: 'Automation', path: '/sensor/automation', icon: 'cpu' },
       { id: 'sensor-processes', label: 'Process Editor', path: '/sensor/processes' },
+      { id: 'sensor-scada', label: 'SCADA Packages', path: '/sensor/scada-packages', icon: 'monitor' },
     ],
   },
   hr: {

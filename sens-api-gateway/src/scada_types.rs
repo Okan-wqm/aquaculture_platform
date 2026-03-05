@@ -37,6 +37,7 @@ fn default_package_version() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageMeta {
+    #[serde(default)]
     pub version: u32,
     #[serde(default = "default_package_version")]
     pub package_version: String,
@@ -245,57 +246,6 @@ impl Default for TrendConfig {
             tags: Vec::new(),
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// WebSocket Messages: Server -> Client
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum WsServerMessage {
-    SensorData {
-        data: serde_json::Value,
-    },
-    AllTags {
-        data: Vec<TagInfo>,
-    },
-    SetPackage {
-        data: serde_json::Value,
-    },
-    CommandResult {
-        tag: String,
-        success: bool,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        value: Option<f64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error: Option<String>,
-    },
-    ConfirmRequest {
-        request_id: String,
-        tag: String,
-        text: String,
-    },
-    PinRequest {
-        request_id: String,
-        tag: String,
-    },
-    Alarm {
-        data: ActiveAlarmInfo,
-    },
-    AlarmClear {
-        alarm_id: String,
-    },
-    CalibrationState {
-        data: serde_json::Value,
-    },
-    TrendData {
-        tag: String,
-        data: Vec<TrendPoint>,
-    },
-    Emergency {
-        active: bool,
-    },
 }
 
 // ---------------------------------------------------------------------------

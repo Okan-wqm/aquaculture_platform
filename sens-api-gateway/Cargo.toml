@@ -130,8 +130,8 @@ sha2 = "0.10"
 aes = { version = "0.8", optional = true }
 cmac = { version = "0.7", optional = true }
 lorawan = { version = "0.9", optional = true }
-# Constant-time comparison for MIC verification (timing side-channel protection)
-subtle = { version = "2", optional = true }
+# Constant-time comparison for MIC verification + PIN verification (timing side-channel protection)
+subtle = "2"
 # Zeroize sensitive key material on drop (IEC 62443 FR4)
 zeroize = { version = "1", features = ["derive"], optional = true }
 
@@ -170,7 +170,7 @@ strict-security = []
 # SCADA display server (embedded web UI for local HMI/kiosk)
 scada-display = ["axum", "tower-http"]
 # LoRaWAN SX1302 concentrator support (requires vendor/sx1302_hal C sources)
-lorawan = ["dep:aes", "dep:cmac", "dep:lorawan", "dep:subtle", "dep:zeroize", "dep:cc", "dep:bindgen", "dep:glob"]
+lorawan = ["dep:aes", "dep:cmac", "dep:lorawan", "dep:zeroize", "dep:cc", "dep:bindgen", "dep:glob"]
 
 [build-dependencies]
 # SX1302 HAL derleme araclari (sadece `lorawan` feature ile aktif)

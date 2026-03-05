@@ -4,7 +4,7 @@
  * Based on the DeployToEdgeDialog pattern.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Monitor,
   Wifi,
@@ -41,10 +41,13 @@ export const DeployScadaDialog: React.FC<DeployScadaDialogProps> = ({
   const { data: deviceConnection, isLoading, isError, error } = useEdgeDevices({ limit: 100 });
   const deployMutation = useDeployScadaPackage();
 
+  const resetMutation = useCallback(() => deployMutation.reset(), [deployMutation.reset]);
+
   // Handle ESC key
   useEffect(() => {
+    if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (e.key === 'Escape') {
         onClose();
       }
     };
@@ -57,9 +60,9 @@ export const DeployScadaDialog: React.FC<DeployScadaDialogProps> = ({
     if (isOpen) {
       setSelectedDeviceId(null);
       setDeploySuccess(false);
-      deployMutation.reset();
+      resetMutation();
     }
-  }, [isOpen]);
+  }, [isOpen, resetMutation]);
 
   if (!isOpen) return null;
 

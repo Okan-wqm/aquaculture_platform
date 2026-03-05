@@ -201,12 +201,22 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     #[cfg(feature = "scada-display")]
     {
         if let Some(ref scada_state) = s.scada_state {
+            // Existing: broadcast process-mapped sensor data
             if let Some(process) = scada_state.get_process().await {
                 let sensor_data = crate::scada_server::build_scada_sensor_data_from_tags(&all_tags, &process);
                 if !sensor_data.equipment_data.is_empty() {
                     scada_state.broadcast_sensor_data(&sensor_data);
                 }
             }
+
+            // NEW: Broadcast all tags for dashboard view (even without process)
+            scada_state.broadcast_all_tags(&all_tags).await;
+
+            // NEW: Evaluate alarm rules against current tag values
+            scada_state.evaluate_alarms(&all_tags).await;
+
+            // NEW: Record trend data to SQLite
+            scada_state.record_trends(&all_tags).await;
         }
     }
 

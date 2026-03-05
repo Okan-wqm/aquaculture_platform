@@ -33,23 +33,25 @@
       background: #0f172a;
       color: #e2e8f0;
     }
-    /* Kiosk fullscreen styles */
     .scada-container {
       width: 100%; height: 100%;
       display: flex; flex-direction: column;
     }
     .scada-header {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 8px 16px;
+      padding: 0 16px;
       background: #1e293b;
       border-bottom: 1px solid #334155;
       height: 48px; min-height: 48px;
     }
+    .scada-header-left {
+      display: flex; align-items: center; gap: 12px;
+    }
     .scada-header-title {
       font-size: 16px; font-weight: 600; color: #f1f5f9;
     }
-    .scada-header-status {
-      display: flex; align-items: center; gap: 8px; font-size: 13px;
+    .scada-header-right {
+      display: flex; align-items: center; gap: 12px; font-size: 13px;
     }
     .status-dot {
       width: 10px; height: 10px; border-radius: 50%;
@@ -58,8 +60,9 @@
     .status-dot.connected { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
     .status-dot.connecting { background: #eab308; animation: pulse 1.5s infinite; }
     .status-dot.disconnected { background: #ef4444; }
-    .scada-canvas {
-      flex: 1; position: relative;
+    .status-dot.failed { background: #ef4444; }
+    .scada-body {
+      flex: 1; position: relative; overflow: hidden;
     }
     /* ReactFlow overrides for dark theme */
     .react-flow__background { background: #0f172a !important; }
@@ -98,7 +101,7 @@
     .sensor-badge {
       display: inline-flex; align-items: center; gap: 2px;
       padding: 2px 6px; border-radius: 4px;
-      font-size: 10px; font-weight: 600;
+      font-size: 12px; font-weight: 600;
     }
     .sensor-badge.normal { background: #14532d; color: #86efac; border: 1px solid #22c55e; }
     .sensor-badge.warning { background: #713f12; color: #fde047; border: 1px solid #eab308; }
@@ -109,7 +112,24 @@
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.6; transform: scale(1.15); }
     }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .clock { font-size: 13px; color: #94a3b8; font-variant-numeric: tabular-nums; }
+
+    /* Tab bar */
+    .tab-bar { display: flex; gap: 4px; }
+    .tab-btn { padding: 6px 16px; border-radius: 8px 8px 0 0; border: none; background: transparent; color: #94a3b8; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 6px; white-space: nowrap; font-family: inherit; }
+    .tab-btn.active { background: #0f172a; color: #f1f5f9; font-weight: 600; }
+    .tab-btn:hover { color: #e2e8f0; }
+
+    /* Status footer */
+    .status-footer { display: flex; align-items: center; justify-content: space-between; padding: 6px 16px; background: #1e293b; border-top: 1px solid #334155; height: 36px; min-height: 36px; font-size: 12px; color: #94a3b8; }
+    .status-footer-left { display: flex; align-items: center; gap: 12px; }
+    .status-footer-right { display: flex; align-items: center; gap: 12px; }
+
+    /* Slider input */
+    input[type=range] { -webkit-appearance: none; appearance: none; height: 8px; background: #334155; border-radius: 4px; outline: none; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: #3b82f6; cursor: pointer; }
 
     /* Waiting screen styles */
     .waiting-screen {
@@ -140,21 +160,9 @@
       border-top-color: #3b82f6;
       animation: spin 1s linear infinite;
     }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    .waiting-title {
-      font-size: 22px; font-weight: 600; color: #f1f5f9;
-      letter-spacing: -0.01em;
-    }
-    .waiting-subtitle {
-      font-size: 14px; color: #64748b; max-width: 380px;
-      line-height: 1.5;
-    }
-    .waiting-device-info {
-      display: flex; flex-wrap: wrap; gap: 12px;
-      justify-content: center; margin-top: 8px;
-    }
+    .waiting-title { font-size: 22px; font-weight: 600; color: #f1f5f9; letter-spacing: -0.01em; }
+    .waiting-subtitle { font-size: 14px; color: #64748b; max-width: 380px; line-height: 1.5; }
+    .waiting-device-info { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 8px; }
     .waiting-device-chip {
       display: flex; align-items: center; gap: 6px;
       padding: 6px 14px; border-radius: 8px;
@@ -173,6 +181,7 @@
     .ws-status-bar.ws-connected { border-color: rgba(34,197,94,0.3); }
     .ws-status-bar.ws-connecting { border-color: rgba(234,179,8,0.3); }
     .ws-status-bar.ws-disconnected { border-color: rgba(239,68,68,0.3); }
+
     /* Portrait orientation warning overlay */
     @media (orientation: portrait) {
       .scada-container::after {
@@ -188,8 +197,6 @@
       width: 48px !important; height: 48px !important;
       font-size: 18px !important;
     }
-    /* Responsive sensor badge font */
-    .sensor-badge { font-size: 12px; }
     /* Hide MiniMap on small screens */
     @media (max-width: 600px) {
       .react-flow__minimap { display: none !important; }
@@ -202,203 +209,187 @@
     .scada-container {
       padding-bottom: env(safe-area-inset-bottom);
     }
+
+    /* Alarm badge in header */
+    .alarm-badge {
+      display: flex; align-items: center; gap: 4px;
+      padding: 2px 10px; border-radius: 12px;
+      font-size: 12px; font-weight: 600;
+      cursor: pointer;
+    }
+    .alarm-badge.has-alarms { background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+    .alarm-badge.no-alarms { background: rgba(34,197,94,0.1); color: #86efac; border: 1px solid rgba(34,197,94,0.2); }
   </style>
 </head>
 <body>
   <div id="root"></div>
   <script type="text/javascript">
-    const { createElement: h, useState, useCallback, useRef, useEffect, useMemo } = React;
-    const { createRoot } = ReactDOM;
-    const {
-      ReactFlow, ReactFlowProvider, useNodesState, useEdgesState,
-      Controls, Background, MiniMap, Handle, Position, MarkerType,
-    } = window.ReactFlow;
+    var h = React.createElement;
+    var useState = React.useState;
+    var useCallback = React.useCallback;
+    var useRef = React.useRef;
+    var useEffect = React.useEffect;
+    var useMemo = React.useMemo;
+    var createRoot = ReactDOM.createRoot;
+    var RF = window.ReactFlow;
+    var ReactFlowComp = RF.ReactFlow;
+    var ReactFlowProvider = RF.ReactFlowProvider;
+    var useNodesState = RF.useNodesState;
+    var useEdgesState = RF.useEdgesState;
+    var Controls = RF.Controls;
+    var Background = RF.Background;
+    var MiniMap = RF.MiniMap;
+    var Handle = RF.Handle;
+    var Position = RF.Position;
+    var MarkerType = RF.MarkerType;
+
+    // ============================================
+    // Global Mutable State
+    // ============================================
+    var tagStore = {};
+    var trendDataStore = {};
+    var activeAlarms = [];
+    var emergencyActive = false;
+    var pinSessionValid = false;
+    var currentPackage = null;
 
     // ============================================
     // WebSocket Connection Manager
     // ============================================
-    const MAX_RECONNECT_ATTEMPTS = 15;
-    const BASE_RECONNECT_DELAY = 3000;
+    var MAX_RECONNECT_ATTEMPTS = 15;
+    var BASE_RECONNECT_DELAY = 3000;
 
     function useScadaWebSocket(url) {
-      const [status, setStatus] = useState('disconnected');
-      const wsRef = useRef(null);
-      const [lastMessage, setLastMessage] = useState(null);
-      const reconnectTimer = useRef(null);
-      const retryCount = useRef(0);
+      var statusState = useState('disconnected');
+      var status = statusState[0], setStatus = statusState[1];
+      var wsRef = useRef(null);
+      var msgState = useState(null);
+      var lastMessage = msgState[0], setLastMessage = msgState[1];
+      var reconnectTimer = useRef(null);
+      var retryCount = useRef(0);
 
-      const connect = useCallback(() => {
+      var send = useCallback(function(msg) {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify(msg));
+        }
+      }, []);
+
+      var connect = useCallback(function() {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
-
         if (retryCount.current >= MAX_RECONNECT_ATTEMPTS) {
-          console.error('[scada-edge] Max reconnect attempts reached (' + MAX_RECONNECT_ATTEMPTS + ')');
+          console.error('[scada-edge] Max reconnect attempts reached');
           setStatus('failed');
           return;
         }
-
         setStatus('connecting');
-        const ws = new WebSocket(url);
+        var ws = new WebSocket(url);
         wsRef.current = ws;
-
-        ws.onopen = () => {
+        ws.onopen = function() {
           console.log('[scada-edge] WebSocket connected');
           setStatus('connected');
           retryCount.current = 0;
         };
-
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data);
-            setLastMessage(msg);
-          } catch (e) {
-            console.warn('[scada-edge] Invalid WS message:', e);
-          }
+        ws.onmessage = function(event) {
+          try { setLastMessage(JSON.parse(event.data)); } catch (e) { console.warn('[scada-edge] Invalid WS message:', e); }
         };
-
-        ws.onclose = () => {
+        ws.onclose = function() {
           setStatus('disconnected');
           wsRef.current = null;
           var delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(1.5, retryCount.current), 30000);
           retryCount.current++;
-          console.log('[scada-edge] WebSocket disconnected, retry ' + retryCount.current + '/' + MAX_RECONNECT_ATTEMPTS + ' in ' + Math.round(delay) + 'ms');
+          console.log('[scada-edge] Disconnected, retry ' + retryCount.current + '/' + MAX_RECONNECT_ATTEMPTS + ' in ' + Math.round(delay) + 'ms');
           reconnectTimer.current = setTimeout(connect, delay);
         };
-
-        ws.onerror = (err) => {
-          console.error('[scada-edge] WebSocket error:', err);
-          ws.close();
-        };
+        ws.onerror = function(err) { console.error('[scada-edge] WS error:', err); ws.close(); };
       }, [url]);
 
-      const reconnect = useCallback(() => {
+      var reconnect = useCallback(function() {
         retryCount.current = 0;
         if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
         if (wsRef.current) wsRef.current.close();
         connect();
       }, [connect]);
 
-      useEffect(() => {
+      useEffect(function() {
         connect();
-        return () => {
+        return function() {
           if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
           if (wsRef.current) wsRef.current.close();
         };
       }, [connect]);
 
-      return { status, lastMessage, reconnect };
+      return { status: status, lastMessage: lastMessage, reconnect: reconnect, send: send };
     }
 
     // ============================================
-    // Sensor data store (mutable, shared)
-    // ============================================
-    let sensorDataStore = {};
-
     // Status helpers
-    const getStatusColor = (status) => {
-      if (status === 'operational' || status === 'active') return '#22c55e';
-      if (status === 'maintenance') return '#eab308';
-      if (status === 'out_of_service') return '#ef4444';
+    // ============================================
+    function getStatusColor(st) {
+      if (st === 'operational' || st === 'active') return '#22c55e';
+      if (st === 'maintenance') return '#eab308';
+      if (st === 'out_of_service') return '#ef4444';
       return '#94a3b8';
-    };
-    const getSensorStatusColor = (status) => {
-      if (status === 'normal') return 'normal';
-      if (status === 'warning') return 'warning';
-      if (status === 'critical') return 'critical';
+    }
+    function getSensorStatusColor(st) {
+      if (st === 'normal') return 'normal';
+      if (st === 'warning') return 'warning';
+      if (st === 'critical') return 'critical';
       return 'offline';
-    };
+    }
 
     // ============================================
     // Generic SCADA Equipment Node
     // ============================================
-    function ScadaEquipmentNode({ data }) {
-      const equipmentId = data?.equipmentId || data?.id;
-      const sensors = equipmentId ? (sensorDataStore[equipmentId] || []) : [];
-      const statusColor = getStatusColor(data?.status);
-
-      return h('div', {
-        style: {
-          padding: '8px 12px', minWidth: 120, position: 'relative',
-          background: '#1e293b', borderRadius: 8
-        }
-      }, [
+    function ScadaEquipmentNode(props) {
+      var data = props.data || {};
+      var equipmentId = data.equipmentId || data.id;
+      var sensors = equipmentId ? (tagStore[equipmentId] ? [tagStore[equipmentId]] : []) : [];
+      var statusColor = getStatusColor(data.status);
+      return h('div', { style: { padding: '8px 12px', minWidth: 120, position: 'relative', background: '#1e293b', borderRadius: 8 } }, [
         h(Handle, { key: 'target', type: 'target', position: Position.Left }),
         h(Handle, { key: 'source', type: 'source', position: Position.Right }),
-        h('div', {
-          key: 'header',
-          style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }
-        }, [
-          h('div', {
-            key: 'status-dot',
-            style: {
-              width: 8, height: 8, borderRadius: '50%',
-              background: statusColor, flexShrink: 0
-            }
-          }),
-          h('div', {
-            key: 'label',
-            style: { fontSize: 12, fontWeight: 600, color: '#f1f5f9' }
-          }, data?.label || 'Equipment'),
+        h('div', { key: 'header', style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 } }, [
+          h('div', { key: 'dot', style: { width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0 } }),
+          h('div', { key: 'label', style: { fontSize: 12, fontWeight: 600, color: '#f1f5f9' } }, data.label || 'Equipment'),
         ]),
-        sensors.length > 0 && h('div', {
-          key: 'sensors',
-          style: { display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }
-        }, sensors.slice(0, 4).map((s, i) =>
-          h('span', {
-            key: i,
-            className: 'sensor-badge ' + getSensorStatusColor(s.status),
-          }, s.value.toFixed(1) + ' ' + s.unit)
-        ))
       ]);
     }
 
     // ============================================
-    // SCADA Node Wrapper — adds sensor overlay to any base node
+    // SCADA Node Wrapper
     // ============================================
     function createScadaNode(BaseNodeComponent) {
       return function ScadaWrapper(props) {
-        const { data } = props;
-        const equipmentId = data?.equipmentId;
-        const sensors = equipmentId ? (sensorDataStore[equipmentId] || []) : [];
-        const hasAlerts = sensors.some(s => s.status === 'warning' || s.status === 'critical');
-        const scadaProps = { ...props, data: { ...props.data, isScadaMode: true } };
-
+        var data = props.data || {};
+        var equipmentId = data.equipmentId;
+        var sensorDataStore = {};
+        if (equipmentId && tagStore[equipmentId]) {
+          sensorDataStore[equipmentId] = Array.isArray(tagStore[equipmentId]) ? tagStore[equipmentId] : [tagStore[equipmentId]];
+        }
+        var sensors = sensorDataStore[equipmentId] || [];
+        var hasAlerts = sensors.some(function(s) { return s.status === 'warning' || s.status === 'critical'; });
+        var scadaProps = Object.assign({}, props, { data: Object.assign({}, props.data, { isScadaMode: true }) });
         return h('div', { className: 'scada-node-wrapper', style: { position: 'relative' } }, [
-          h(BaseNodeComponent, { ...scadaProps, key: 'base' }),
-          sensors.length > 0 && h('div', {
-            key: 'overlay',
-            style: {
-              position: 'absolute', top: -8, right: -8, zIndex: 20,
-              display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end'
-            }
-          }, sensors.slice(0, 3).map((s, i) =>
-            h('span', { key: i, className: 'sensor-badge ' + getSensorStatusColor(s.status) },
-              s.value.toFixed(1) + ' ' + s.unit
-            )
-          )),
-          hasAlerts && h('div', {
-            key: 'alert',
-            style: {
-              position: 'absolute', top: -4, left: -4, width: 12, height: 12,
-              borderRadius: '50%',
-              background: sensors.some(s => s.status === 'critical') ? '#ef4444' : '#eab308',
-              animation: 'pulse 1.5s infinite', zIndex: 20
-            }
-          })
+          h(BaseNodeComponent, Object.assign({}, scadaProps, { key: 'base' })),
+          sensors.length > 0 && h('div', { key: 'overlay', style: { position: 'absolute', top: -8, right: -8, zIndex: 20, display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' } },
+            sensors.slice(0, 3).map(function(s, i) {
+              return h('span', { key: i, className: 'sensor-badge ' + getSensorStatusColor(s.status) }, (typeof s.value === 'number' ? s.value.toFixed(1) : '--') + ' ' + (s.unit || ''));
+            })
+          ),
+          hasAlerts && h('div', { key: 'alert', style: { position: 'absolute', top: -4, left: -4, width: 12, height: 12, borderRadius: '50%', background: sensors.some(function(s) { return s.status === 'critical'; }) ? '#ef4444' : '#eab308', animation: 'pulse 1.5s infinite', zIndex: 20 } }),
         ]);
       };
     }
 
     // ============================================
-    // Node types — use UMD bundle if available, fallback to generic
+    // Node types
     // ============================================
-    const AQ = window.AquacultureNodes || {};
-    const hasBundle = !!AQ.EquipmentNode;
-
+    var AQ = window.AquacultureNodes || {};
+    var hasBundle = !!AQ.EquipmentNode;
     if (!hasBundle) {
-      console.warn('[scada-edge] UMD bundle yuklenemedi. P&ID sembolizm devre disi, fallback generic node kullaniliyor.');
+      console.warn('[scada-edge] UMD bundle yuklenemedi. Fallback generic node kullaniliyor.');
     }
-
-    const nodeTypes = hasBundle ? {
+    var nodeTypes = hasBundle ? {
       scadaEquipment: ScadaEquipmentNode,
       equipment: createScadaNode(AQ.EquipmentNode),
       blower: createScadaNode(AQ.BlowerNode),
@@ -434,12 +425,9 @@
       dieselGenerator: createScadaNode(AQ.DieselGeneratorNode),
       ozoneGenerator: createScadaNode(AQ.OzoneGeneratorNode),
       oxygenGenerator: createScadaNode(AQ.OxygenGeneratorNode),
-    } : {
-      scadaEquipment: ScadaEquipmentNode,
-    };
+    } : { scadaEquipment: ScadaEquipmentNode };
 
-    // Proxy fallback for unknown node types
-    const safeNodeTypes = typeof Proxy !== 'undefined' ? new Proxy(nodeTypes, {
+    var safeNodeTypes = typeof Proxy !== 'undefined' ? new Proxy(nodeTypes, {
       get: function(target, prop) {
         if (prop in target) return target[prop];
         if (typeof prop === 'string' && prop !== 'then' && prop !== 'toJSON' && !prop.startsWith('$$')) {
@@ -450,17 +438,32 @@
       }
     }) : nodeTypes;
 
-    const edgeTypes = AQ.edgeTypes || {};
-    const getEdgeStyle = AQ.getEdgeStyle || (() => ({ stroke: '#475569', strokeWidth: 2 }));
+    var edgeTypes = AQ.edgeTypes || {};
+    var getEdgeStyle = AQ.getEdgeStyle || function() { return { stroke: '#475569', strokeWidth: 2 }; };
+
+    // ============================================
+    // SVG Arc Helper
+    // ============================================
+    function describeArc(cx, cy, r, startDeg, endDeg) {
+      var startRad = (startDeg - 90) * Math.PI / 180;
+      var endRad = (endDeg - 90) * Math.PI / 180;
+      var x1 = cx + r * Math.cos(startRad);
+      var y1 = cy + r * Math.sin(startRad);
+      var x2 = cx + r * Math.cos(endRad);
+      var y2 = cy + r * Math.sin(endRad);
+      var largeArc = (endDeg - startDeg) > 180 ? 1 : 0;
+      return 'M ' + x1 + ' ' + y1 + ' A ' + r + ' ' + r + ' 0 ' + largeArc + ' 1 ' + x2 + ' ' + y2;
+    }
 
     // ============================================
     // Clock Component
     // ============================================
     function Clock() {
-      const [time, setTime] = useState(new Date());
-      useEffect(() => {
-        const id = setInterval(() => setTime(new Date()), 1000);
-        return () => clearInterval(id);
+      var st = useState(new Date());
+      var time = st[0], setTime = st[1];
+      useEffect(function() {
+        var id = setInterval(function() { setTime(new Date()); }, 1000);
+        return function() { clearInterval(id); };
       }, []);
       return h('span', { className: 'clock' }, time.toLocaleTimeString());
     }
@@ -468,35 +471,26 @@
     // ============================================
     // Waiting Screen Component
     // ============================================
-    function WaitingScreen({ status, deviceInfo, reconnect }) {
-      const statusLabel = status === 'connected' ? 'Bagli' : status === 'connecting' ? 'Baglaniyor...' : status === 'failed' ? 'Baglanti Basarisiz' : 'Bagli Degil';
-      const wsClass = 'ws-' + status;
-
-      const scadaIcon = h('svg', {
-        viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5,
-        strokeLinecap: 'round', strokeLinejoin: 'round'
-      }, [
+    function WaitingScreen(props) {
+      var status = props.status, deviceInfo = props.deviceInfo, reconnect = props.reconnect;
+      var statusLabel = status === 'connected' ? 'Bagli' : status === 'connecting' ? 'Baglaniyor...' : status === 'failed' ? 'Baglanti Basarisiz' : 'Bagli Degil';
+      var wsClass = 'ws-' + status;
+      var scadaIcon = h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }, [
         h('rect', { key: '1', x: 2, y: 3, width: 20, height: 14, rx: 2 }),
         h('line', { key: '2', x1: 8, y1: 21, x2: 16, y2: 21 }),
         h('line', { key: '3', x1: 12, y1: 17, x2: 12, y2: 21 }),
         h('path', { key: '4', d: 'M7 8h2v4H7zM11 9h2v3h-2zM15 7h2v5h-2z' }),
       ]);
-
       return h('div', { className: 'waiting-screen' }, [
         h('div', { key: 'content', className: 'waiting-content' }, [
           h('div', { key: 'icon', className: 'waiting-icon' }, scadaIcon),
           h('div', { key: 'spinner', className: 'waiting-spinner' }),
           h('div', { key: 'title', className: 'waiting-title' },
-            status === 'failed' ? 'Baglanti kurulamadi' : status !== 'connected' ? 'Sunucuya baglaniliyor...' : 'Proses bekleniyor...'
-          ),
+            status === 'failed' ? 'Baglanti kurulamadi' : status !== 'connected' ? 'Sunucuya baglaniliyor...' : 'Proses bekleniyor...'),
           h('div', { key: 'subtitle', className: 'waiting-subtitle' },
-            status === 'failed'
-              ? 'Sunucu erisilemiyor. Lütfen baglantıyı kontrol edin.'
-              : status !== 'connected'
-                ? 'SCADA edge agent sunucusuna baglantiyi bekliyor.'
-                : 'Cloud panelden bu cihaza proses deploy edin.'
-          ),
-          // Device info chips
+            status === 'failed' ? 'Sunucu erisilemiyor. Lütfen baglantıyı kontrol edin.'
+              : status !== 'connected' ? 'SCADA edge agent sunucusuna baglantiyi bekliyor.'
+              : 'Cloud panelden bu cihaza proses deploy edin.'),
           deviceInfo && h('div', { key: 'device', className: 'waiting-device-info' }, [
             deviceInfo.hostname && h('div', { key: 'host', className: 'waiting-device-chip' }, [
               h('span', { key: 'l', className: 'chip-label' }, 'Cihaz'),
@@ -511,143 +505,987 @@
               h('span', { key: 'v', className: 'chip-value' }, 'v' + deviceInfo.agentVersion),
             ]),
           ]),
-          // WebSocket status bar
           h('div', { key: 'ws', className: 'ws-status-bar ' + wsClass }, [
             h('span', { key: 'dot', className: 'status-dot ' + status }),
             h('span', { key: 'label', style: { color: status === 'connected' ? '#86efac' : status === 'connecting' ? '#fde047' : '#fca5a5' } }, statusLabel),
           ]),
-          // Reconnect button when failed
-          status === 'failed' && h('button', {
-            key: 'retry',
-            onClick: reconnect,
-            style: {
-              marginTop: 16, padding: '10px 24px', borderRadius: 8,
-              background: '#3b82f6', color: '#fff', border: 'none',
-              fontSize: 14, fontWeight: 600, cursor: 'pointer'
-            }
-          }, 'Yeniden Baglan')
+          status === 'failed' && h('button', { key: 'retry', onClick: reconnect, style: { marginTop: 16, padding: '10px 24px', borderRadius: 8, background: '#3b82f6', color: '#fff', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer' } }, 'Yeniden Baglan'),
         ]),
       ]);
+    }
+
+    // ============================================
+    // Widget: GaugeWidget
+    // ============================================
+    function GaugeWidget(props) {
+      var config = props.config || {};
+      var tag = tagStore[config.tag] || {};
+      var value = typeof tag.value === 'number' ? tag.value : 0;
+      var min = config.min != null ? config.min : 0;
+      var max = config.max != null ? config.max : 100;
+      var range = max - min || 1;
+      var pct = Math.max(0, Math.min(1, (value - min) / range));
+      var cx = 75, cy = 75, r = 55;
+      var startDeg = -135, endDeg = 135;
+      var totalArc = endDeg - startDeg; // 270
+
+      // Zone arcs
+      var zones = (config.zones || []).map(function(zone, i) {
+        var zStartDeg = startDeg + ((zone.min - min) / range) * totalArc;
+        var zEndDeg = startDeg + ((zone.max - min) / range) * totalArc;
+        return h('path', { key: 'z' + i, d: describeArc(cx, cy, r, zStartDeg, zEndDeg), fill: 'none', stroke: zone.color || '#334155', strokeWidth: 8, strokeLinecap: 'round' });
+      });
+
+      // Background arc
+      var bgArc = h('path', { key: 'bg', d: describeArc(cx, cy, r, startDeg, endDeg), fill: 'none', stroke: '#334155', strokeWidth: 8, strokeLinecap: 'round' });
+
+      // Needle
+      var needleDeg = startDeg + pct * totalArc;
+      var needleRad = (needleDeg - 90) * Math.PI / 180;
+      var needleLen = r - 12;
+      var nx = cx + needleLen * Math.cos(needleRad);
+      var ny = cy + needleLen * Math.sin(needleRad);
+      var needle = h('line', { key: 'needle', x1: cx, y1: cy, x2: nx, y2: ny, stroke: '#e2e8f0', strokeWidth: 2.5, strokeLinecap: 'round' });
+      var centerDot = h('circle', { key: 'center', cx: cx, cy: cy, r: 4, fill: '#e2e8f0' });
+
+      // Quality dot
+      var qualityColor = tag.quality === 'good' ? '#22c55e' : '#ef4444';
+      var decimals = config.decimals != null ? config.decimals : 1;
+
+      return h('div', { style: { textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' } }, [
+        h('svg', { key: 'svg', viewBox: '0 0 150 110', style: { width: '100%', maxHeight: '65%' } }, [bgArc].concat(zones, [needle, centerDot])),
+        h('div', { key: 'val', style: { fontSize: 28, fontWeight: 700, color: '#f1f5f9', marginTop: -4, fontVariantNumeric: 'tabular-nums' } }, typeof tag.value === 'number' ? tag.value.toFixed(decimals) : '--'),
+        h('div', { key: 'label', style: { fontSize: 12, color: '#94a3b8', marginTop: 2 } }, (config.label || '') + (config.unit ? ' (' + config.unit + ')' : '')),
+        h('div', { key: 'q', style: { width: 8, height: 8, borderRadius: '50%', background: qualityColor, marginTop: 6 } }),
+      ]);
+    }
+
+    // ============================================
+    // Widget: NumericDisplayWidget
+    // ============================================
+    function NumericDisplayWidget(props) {
+      var config = props.config || {};
+      var tag = tagStore[config.tag] || {};
+      var decimals = config.decimals != null ? config.decimals : 1;
+      var value = tag.value != null ? tag.value.toFixed(decimals) : '--';
+      var qualityColor = tag.quality === 'good' ? '#22c55e' : '#ef4444';
+      return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' } }, [
+        h('div', { key: 'label', style: { fontSize: 12, color: '#94a3b8', marginBottom: 4 } }, config.label || config.tag),
+        h('div', { key: 'value', style: { fontSize: 36, fontWeight: 700, color: '#f1f5f9', fontVariantNumeric: 'tabular-nums' } }, value),
+        h('div', { key: 'unit', style: { fontSize: 14, color: '#64748b' } }, config.unit || ''),
+        h('div', { key: 'q', style: { width: 8, height: 8, borderRadius: '50%', background: qualityColor, marginTop: 8 } }),
+      ]);
+    }
+
+    // ============================================
+    // Widget: NumericInputWidget
+    // ============================================
+    function NumericInputWidget(props) {
+      var config = props.config || {};
+      var send = props.send;
+      var onConfirm = props.onConfirm;
+      var onPin = props.onPin;
+      var tag = tagStore[config.tag] || {};
+      var st = useState(tag.value != null ? tag.value : '');
+      var inputVal = st[0], setInputVal = st[1];
+
+      var handleSubmit = function() {
+        var v = parseFloat(inputVal);
+        if (isNaN(v)) return;
+        var doSend = function() { send({ type: 'command', tag: config.tag, value: v }); };
+        var security = config.security || 'none';
+        if (security === 'confirm') {
+          onConfirm({ text: (config.label || config.tag) + ' = ' + v + ' ayarlansın mı?', onYes: doSend });
+        } else if (security === 'pin') {
+          onPin({ tag: config.tag, onSuccess: doSend });
+        } else {
+          doSend();
+        }
+      };
+
+      return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8 } }, [
+        h('div', { key: 'label', style: { fontSize: 13, color: '#94a3b8' } }, config.label || config.tag),
+        h('input', { key: 'input', type: 'number', value: inputVal, onChange: function(e) { setInputVal(e.target.value); }, disabled: emergencyActive, style: { width: '80%', padding: '10px 12px', borderRadius: 8, border: '1px solid #475569', background: '#0f172a', color: '#f1f5f9', fontSize: 18, fontWeight: 600, textAlign: 'center', fontVariantNumeric: 'tabular-nums', outline: 'none' }, min: config.min, max: config.max, step: config.step }),
+        config.unit && h('div', { key: 'unit', style: { fontSize: 12, color: '#64748b' } }, config.unit),
+        h('button', { key: 'send', onClick: handleSubmit, disabled: emergencyActive, style: { padding: '8px 24px', borderRadius: 8, border: 'none', background: emergencyActive ? '#475569' : '#3b82f6', color: '#fff', fontWeight: 600, fontSize: 13, cursor: emergencyActive ? 'not-allowed' : 'pointer' } }, 'Gonder'),
+      ]);
+    }
+
+    // ============================================
+    // Widget: ToggleSwitchWidget
+    // ============================================
+    function ToggleSwitchWidget(props) {
+      var config = props.config || {};
+      var send = props.send;
+      var onConfirm = props.onConfirm;
+      var onPin = props.onPin;
+      var tag = tagStore[config.tag] || {};
+      var isOn = tag.value > 0;
+
+      var handleClick = function() {
+        if (emergencyActive) return;
+        var newVal = isOn ? 0 : 1;
+        var security = config.security || 'none';
+        if (security === 'confirm') {
+          onConfirm({
+            text: (config.label || config.tag) + (newVal ? ' acilsin mi?' : ' kapatilsin mi?'),
+            onYes: function() { send({ type: 'command', tag: config.tag, value: newVal }); }
+          });
+        } else if (security === 'pin') {
+          onPin({ tag: config.tag, onSuccess: function() { send({ type: 'command', tag: config.tag, value: newVal }); } });
+        } else {
+          send({ type: 'command', tag: config.tag, value: newVal });
+        }
+      };
+
+      return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', cursor: emergencyActive ? 'not-allowed' : 'pointer', opacity: emergencyActive ? 0.5 : 1 }, onClick: handleClick }, [
+        h('div', { key: 'label', style: { fontSize: 13, color: '#94a3b8', marginBottom: 12 } }, config.label || config.tag),
+        h('div', { key: 'switch', style: { width: 64, height: 32, borderRadius: 16, background: isOn ? '#22c55e' : '#475569', position: 'relative', transition: 'background 0.2s' } },
+          h('div', { style: { width: 24, height: 24, borderRadius: 12, background: '#fff', position: 'absolute', top: 4, left: isOn ? 36 : 4, transition: 'left 0.2s', boxShadow: '0 2px 4px rgba(0,0,0,0.3)' } })
+        ),
+        h('div', { key: 'status', style: { fontSize: 12, fontWeight: 600, marginTop: 8, color: isOn ? '#86efac' : '#94a3b8' } },
+          isOn ? (config.onLabel || 'ACIK') : (config.offLabel || 'KAPALI')),
+      ]);
+    }
+
+    // ============================================
+    // Widget: SliderWidget
+    // ============================================
+    function SliderWidget(props) {
+      var config = props.config || {};
+      var send = props.send;
+      var onPin = props.onPin;
+      var tag = tagStore[config.tag] || {};
+      var localState = useState(tag.value || config.min || 0);
+      var localValue = localState[0], setLocalValue = localState[1];
+      var dragState = useState(false);
+      var dragging = dragState[0], setDragging = dragState[1];
+      var debounceRef = useRef(null);
+
+      useEffect(function() {
+        if (!dragging && tag.value != null) setLocalValue(tag.value);
+      }, [tag.value, dragging]);
+
+      var handleChange = function(e) {
+        var v = parseFloat(e.target.value);
+        setLocalValue(v);
+        setDragging(true);
+        clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(function() {
+          setDragging(false);
+          var doSend = function() { send({ type: 'command', tag: config.tag, value: v }); };
+          if (config.security === 'pin') {
+            onPin({ tag: config.tag, onSuccess: doSend });
+          } else {
+            doSend();
+          }
+        }, 500);
+      };
+
+      var minVal = config.min || 0;
+      var maxVal = config.max || 100;
+      return h('div', { style: { display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', padding: '0 8px' } }, [
+        h('div', { key: 'header', style: { display: 'flex', justifyContent: 'space-between', marginBottom: 8 } }, [
+          h('span', { key: 'l', style: { fontSize: 13, color: '#94a3b8' } }, config.label || config.tag),
+          h('span', { key: 'v', style: { fontSize: 18, fontWeight: 600, color: '#f1f5f9' } }, localValue.toFixed(0) + (config.unit ? ' ' + config.unit : '')),
+        ]),
+        h('input', { key: 'slider', type: 'range', min: minVal, max: maxVal, step: config.step || 1, value: localValue, onChange: handleChange, disabled: emergencyActive, style: { width: '100%', accentColor: '#3b82f6', height: 8 } }),
+        h('div', { key: 'range', style: { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#64748b', marginTop: 4 } }, [
+          h('span', { key: 'min' }, minVal + ''),
+          h('span', { key: 'max' }, maxVal + ''),
+        ]),
+      ]);
+    }
+
+    // ============================================
+    // Widget: TrendChartWidget (Recharts)
+    // ============================================
+    function TrendChartWidget(props) {
+      var config = props.config || {};
+      var send = props.send;
+      var ts = props.tagStore || tagStore;
+      var RC = window.Recharts;
+      var rangeState = useState(config.defaultRange || '6h');
+      var range = rangeState[0], setRange = rangeState[1];
+      var dataState = useState([]);
+      var chartData = dataState[0], setChartData = dataState[1];
+      var colors = ['#3b82f6', '#22c55e', '#eab308', '#ef4444', '#a855f7', '#ec4899'];
+      var tags = config.tags || [];
+
+      // Fetch historical trend data from server when range changes
+      useEffect(function() {
+        var rangeMs = { '1h': 3600000, '6h': 21600000, '24h': 86400000, '7d': 604800000 };
+        var to = Date.now();
+        var from = to - (rangeMs[range] || 21600000);
+        tags.forEach(function(tag) {
+          send({ type: 'requestTrend', tag: tag, from: Math.floor(from / 1000), to: Math.floor(to / 1000) });
+        });
+      }, [range]);
+
+      // Merge historical trend data from trendDataStore when it arrives
+      useEffect(function() {
+        var hasHistorical = false;
+        tags.forEach(function(tag) {
+          if (trendDataStore[tag] && trendDataStore[tag].length > 0) hasHistorical = true;
+        });
+        if (!hasHistorical) return;
+
+        // Build merged data points from all tag trend histories
+        var timeMap = {};
+        tags.forEach(function(tag) {
+          var points = trendDataStore[tag] || [];
+          points.forEach(function(p) {
+            var tMs = p.timestamp * 1000; // server sends epoch seconds
+            if (!timeMap[tMs]) timeMap[tMs] = { time: tMs };
+            timeMap[tMs][tag] = p.value;
+          });
+        });
+        var merged = Object.values(timeMap).sort(function(a, b) { return a.time - b.time; });
+        if (merged.length > 0) {
+          setChartData(merged);
+        }
+      }, [props.tick, range]);
+
+      // Append live data point from tagStore on each tick
+      useEffect(function() {
+        var now = Date.now();
+        var point = { time: now };
+        var hasData = false;
+        tags.forEach(function(tag) {
+          var tv = ts[tag];
+          if (tv && tv.value != null) { point[tag] = tv.value; hasData = true; }
+        });
+        if (hasData) {
+          setChartData(function(prev) { return prev.slice(-360).concat([point]); });
+        }
+      }, [props.tick]);
+
+      var formatTime = function(ts) {
+        var d = new Date(ts);
+        return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+      };
+
+      if (!RC) return h('div', { style: { color: '#64748b', padding: 16 } }, 'Recharts yuklenemedi');
+
+      var ranges = config.ranges || ['1h', '6h', '24h', '7d'];
+      return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' } }, [
+        h('div', { key: 'ranges', style: { display: 'flex', gap: 4, marginBottom: 8 } },
+          ranges.map(function(r) {
+            return h('button', { key: r, onClick: function() { setRange(r); }, style: { padding: '4px 12px', borderRadius: 6, border: 'none', fontSize: 12, cursor: 'pointer', background: range === r ? '#3b82f6' : '#334155', color: range === r ? '#fff' : '#94a3b8', fontFamily: 'inherit' } }, r);
+          })
+        ),
+        h('div', { key: 'chart', style: { flex: 1, minHeight: 0 } },
+          h(RC.ResponsiveContainer, { width: '100%', height: '100%' },
+            h(RC.LineChart, { data: chartData, margin: { top: 5, right: 10, left: 0, bottom: 5 } }, [
+              h(RC.CartesianGrid, { key: 'grid', strokeDasharray: '3 3', stroke: '#334155' }),
+              h(RC.XAxis, { key: 'x', dataKey: 'time', tickFormatter: formatTime, stroke: '#64748b', fontSize: 10 }),
+              h(RC.YAxis, { key: 'y', stroke: '#64748b', fontSize: 10 }),
+              h(RC.Tooltip, { key: 'tip', contentStyle: { background: '#1e293b', border: '1px solid #475569', borderRadius: 8 }, labelFormatter: function(v) { return new Date(v).toLocaleTimeString(); } }),
+              config.showLegend !== false ? h(RC.Legend, { key: 'legend', wrapperStyle: { fontSize: 11 } }) : null,
+            ].concat(tags.map(function(tag, i) {
+              return h(RC.Line, { key: tag, type: 'monotone', dataKey: tag, stroke: colors[i % colors.length], dot: false, strokeWidth: 2, name: tag });
+            })))
+          )
+        ),
+      ]);
+    }
+
+    // ============================================
+    // Widget: AlarmBannerWidget
+    // ============================================
+    function AlarmBannerWidget(props) {
+      var config = props.config || {};
+      var idxState = useState(0);
+      var visibleIdx = idxState[0], setVisibleIdx = idxState[1];
+      var interval = (config.scrollInterval || 5) * 1000;
+
+      useEffect(function() {
+        if (activeAlarms.length <= 1) return;
+        var id = setInterval(function() { setVisibleIdx(function(i) { return (i + 1) % activeAlarms.length; }); }, interval);
+        return function() { clearInterval(id); };
+      }, [activeAlarms.length, interval]);
+
+      if (activeAlarms.length === 0) {
+        return h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#22c55e', fontSize: 13 } }, '\u2713 Aktif alarm yok');
+      }
+
+      var severityColors = { critical: '#ef4444', high: '#f97316', warning: '#eab308', info: '#3b82f6' };
+      var alarm = activeAlarms[visibleIdx % activeAlarms.length];
+      if (!alarm) return null;
+
+      return h('div', { style: { display: 'flex', alignItems: 'center', gap: 12, height: '100%', padding: '0 16px' } }, [
+        h('div', { key: 'dot', style: { width: 10, height: 10, borderRadius: '50%', background: severityColors[alarm.severity] || '#eab308', animation: 'pulse 1.5s infinite', flexShrink: 0 } }),
+        h('div', { key: 'msg', style: { flex: 1, fontSize: 13, color: '#f1f5f9' } }, alarm.message),
+        h('div', { key: 'tag', style: { fontSize: 11, color: '#94a3b8' } }, alarm.tag),
+        h('div', { key: 'time', style: { fontSize: 11, color: '#64748b' } }, new Date(alarm.triggeredAt || alarm.triggered_at).toLocaleTimeString()),
+        activeAlarms.length > 1 && h('div', { key: 'count', style: { fontSize: 11, color: '#64748b' } }, (visibleIdx % activeAlarms.length + 1) + '/' + activeAlarms.length),
+      ]);
+    }
+
+    // ============================================
+    // Widget: AlarmListWidget
+    // ============================================
+    function AlarmListWidget(props) {
+      var config = props.config || {};
+      var send = props.send;
+      var showActive = config.showActive !== false;
+      var items = showActive ? activeAlarms : [];
+      var severityColors = { critical: '#ef4444', high: '#f97316', warning: '#eab308', info: '#3b82f6' };
+
+      return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' } }, [
+        h('div', { key: 'title', style: { fontSize: 14, fontWeight: 600, color: '#f1f5f9', marginBottom: 8, padding: '0 4px' } }, config.title || 'Alarmlar'),
+        h('div', { key: 'list', style: { flex: 1, overflow: 'auto' } },
+          items.length === 0
+            ? h('div', { style: { textAlign: 'center', color: '#64748b', padding: 24 } }, 'Alarm yok')
+            : items.map(function(a, idx) {
+              return h('div', { key: a.alarmId || a.alarm_id || a.id || idx, style: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 4px', borderBottom: '1px solid #1e293b' } }, [
+                h('div', { key: 'sev', style: { width: 8, height: 8, borderRadius: '50%', background: severityColors[a.severity] || '#eab308', flexShrink: 0 } }),
+                h('div', { key: 'msg', style: { flex: 1, fontSize: 13, color: '#e2e8f0' } }, a.message),
+                h('div', { key: 'tag', style: { fontSize: 11, color: '#94a3b8', minWidth: 60 } }, a.tag),
+                h('div', { key: 'time', style: { fontSize: 11, color: '#64748b', minWidth: 60 } }, new Date(a.triggeredAt || a.triggered_at).toLocaleTimeString()),
+                showActive && !(a.acked || a.acknowledged) && h('button', { key: 'ack', onClick: function() { send({ type: 'alarmAck', alarmId: a.alarmId || a.alarm_id }); }, style: { padding: '4px 8px', borderRadius: 4, border: 'none', background: '#334155', color: '#94a3b8', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' } }, 'Onayla'),
+              ]);
+            })
+        ),
+      ]);
+    }
+
+    // ============================================
+    // Widget: EmergencyStopWidget
+    // ============================================
+    function EStopWidget(props) {
+      var config = props.config || {};
+      var send = props.send;
+      var onPin = props.onPin;
+      var holdDuration = (config.holdDuration || 3) * 1000;
+      var holdingState = useState(false);
+      var holding = holdingState[0], setHolding = holdingState[1];
+      var progressState = useState(0);
+      var progress = progressState[0], setProgress = progressState[1];
+      var holdStart = useRef(null);
+      var animRef = useRef(null);
+
+      var startHold = function() {
+        if (emergencyActive) return;
+        holdStart.current = Date.now();
+        setHolding(true);
+        var animate = function() {
+          var elapsed = Date.now() - holdStart.current;
+          var p = Math.min(1, elapsed / holdDuration);
+          setProgress(p);
+          if (p >= 1) {
+            send({ type: 'emergencyStop' });
+            setHolding(false);
+            setProgress(0);
+          } else {
+            animRef.current = requestAnimationFrame(animate);
+          }
+        };
+        animRef.current = requestAnimationFrame(animate);
+      };
+
+      var stopHold = function() {
+        setHolding(false);
+        setProgress(0);
+        if (animRef.current) cancelAnimationFrame(animRef.current);
+      };
+
+      if (emergencyActive) {
+        return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'rgba(239,68,68,0.15)', borderRadius: 12, border: '2px solid #ef4444' } }, [
+          h('div', { key: 't', style: { fontSize: 18, fontWeight: 700, color: '#ef4444', animation: 'pulse 1s infinite' } }, '\u26A0 ACIL DURUM AKTIF'),
+          h('button', { key: 'reset', onClick: function() {
+            if (onPin) onPin({ tag: '_emergency_reset', onSuccess: function() { send({ type: 'emergencyReset' }); } });
+          }, style: { marginTop: 16, padding: '8px 24px', borderRadius: 8, background: '#334155', color: '#e2e8f0', border: '1px solid #475569', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' } }, 'Sifirla (PIN Gerekli)'),
+        ]);
+      }
+
+      var circumference = 2 * Math.PI * 60;
+      return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' } }, [
+        h('div', { key: 'btn', onMouseDown: startHold, onMouseUp: stopHold, onMouseLeave: stopHold, onTouchStart: startHold, onTouchEnd: stopHold, style: { width: 120, height: 120, borderRadius: '50%', background: holding ? '#dc2626' : '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 4px 20px rgba(239,68,68,0.4)', userSelect: 'none', transition: 'transform 0.1s', transform: holding ? 'scale(0.95)' : 'scale(1)' } }, [
+          holding && h('svg', { key: 'ring', style: { position: 'absolute', inset: -4 }, viewBox: '0 0 128 128' },
+            h('circle', { cx: 64, cy: 64, r: 60, fill: 'none', stroke: '#fca5a5', strokeWidth: 4, strokeDasharray: circumference, strokeDashoffset: circumference * (1 - progress), strokeLinecap: 'round', transform: 'rotate(-90 64 64)' })
+          ),
+          h('div', { key: 'text', style: { textAlign: 'center', color: '#fff', fontWeight: 700, fontSize: 11, lineHeight: '1.3', pointerEvents: 'none', whiteSpace: 'pre-line' } },
+            holding ? Math.ceil((holdDuration - progress * holdDuration) / 1000) + 's' : (config.label || 'ACIL\nDURDURMA')),
+        ]),
+        h('div', { key: 'hint', style: { fontSize: 11, color: '#64748b', marginTop: 12 } }, (holdDuration / 1000) + ' saniye basili tutun'),
+      ]);
+    }
+
+    // ============================================
+    // Widget: CalibrationWizardWidget
+    // ============================================
+    function CalibWizardWidget(props) {
+      var config = props.config || {};
+      var send = props.send;
+      var calibState = props.calibState;
+      var setCalibState = props.setCalibState;
+      var sensors = config.sensors || [];
+
+      if (!calibState) {
+        return h('div', { style: { padding: 16, overflow: 'auto', height: '100%' } }, [
+          h('div', { key: 'title', style: { fontSize: 16, fontWeight: 600, color: '#f1f5f9', marginBottom: 16 } }, 'Kalibrasyon'),
+        ].concat(sensors.map(function(s) {
+          return h('button', { key: s.tag, onClick: function() {
+            setCalibState({ tag: s.tag, step: 0, totalSteps: s.points || 2, state: 'starting' });
+            send({ type: 'calibrate', tag: s.tag, action: 'start' });
+          }, style: { display: 'block', width: '100%', padding: '12px 16px', marginBottom: 8, borderRadius: 8, border: '1px solid #334155', background: '#0f172a', color: '#e2e8f0', cursor: 'pointer', textAlign: 'left', fontSize: 14, fontFamily: 'inherit' } }, [
+            h('div', { key: 'name', style: { fontWeight: 600 } }, s.sensorType + ' (' + s.tag + ')'),
+            h('div', { key: 'method', style: { fontSize: 12, color: '#64748b' } }, (s.method || 'standart') + ' kalibrasyon'),
+          ]);
+        })));
+      }
+
+      var stepsArr = [];
+      for (var si = 0; si < (calibState.totalSteps || 2); si++) {
+        stepsArr.push(h('div', { key: si, style: { flex: 1, height: 4, borderRadius: 2, background: si < calibState.step ? '#3b82f6' : '#334155' } }));
+      }
+
+      var stablePercent = 0;
+      if (calibState.stableProgress) {
+        var parts = String(calibState.stableProgress).split('/');
+        if (parts.length === 2) stablePercent = (parseInt(parts[0]) / parseInt(parts[1])) * 100;
+      }
+
+      return h('div', { style: { padding: 16, display: 'flex', flexDirection: 'column', height: '100%' } }, [
+        h('div', { key: 'steps', style: { display: 'flex', gap: 8, marginBottom: 16 } }, stepsArr),
+        calibState.instruction && h('div', { key: 'inst', style: { fontSize: 14, color: '#e2e8f0', marginBottom: 16, padding: 12, background: '#0f172a', borderRadius: 8 } }, calibState.instruction),
+        calibState.currentRaw != null && h('div', { key: 'raw', style: { textAlign: 'center', marginBottom: 16 } }, [
+          h('div', { key: 'v', style: { fontSize: 32, fontWeight: 700, color: '#f1f5f9' } }, calibState.currentRaw.toFixed(4)),
+          h('div', { key: 'l', style: { fontSize: 12, color: '#64748b' } }, 'Ham Deger'),
+        ]),
+        calibState.stableProgress && h('div', { key: 'stab', style: { marginBottom: 16 } }, [
+          h('div', { key: 'bar', style: { height: 6, borderRadius: 3, background: '#1e293b', overflow: 'hidden' } },
+            h('div', { style: { height: '100%', width: (calibState.stable ? 100 : stablePercent) + '%', background: calibState.stable ? '#22c55e' : '#3b82f6', transition: 'width 0.5s' } })
+          ),
+          h('div', { key: 'txt', style: { fontSize: 11, color: '#64748b', marginTop: 4 } }, calibState.stable ? '\u2713 Stabil' : 'Stabilite: ' + calibState.stableProgress),
+        ]),
+        calibState.result && h('div', { key: 'result', style: { padding: 12, background: '#14532d', borderRadius: 8, border: '1px solid #22c55e' } }, [
+          h('div', { key: 't', style: { fontWeight: 600, color: '#86efac', marginBottom: 8 } }, '\u2713 Kalibrasyon Tamamlandi'),
+          h('div', { key: 's', style: { fontSize: 13, color: '#e2e8f0' } }, 'Egim: ' + calibState.result.slope.toFixed(6)),
+          h('div', { key: 'o', style: { fontSize: 13, color: '#e2e8f0' } }, 'Ofset: ' + calibState.result.offset.toFixed(6)),
+          h('div', { key: 'r', style: { fontSize: 13, color: '#e2e8f0' } }, 'R\u00B2: ' + calibState.result.r_squared.toFixed(4)),
+          calibState.result.nextCalibration && h('div', { key: 'next', style: { fontSize: 12, color: '#94a3b8', marginTop: 4 } }, 'Sonraki: ' + calibState.result.nextCalibration),
+        ]),
+        h('div', { key: 'actions', style: { marginTop: 'auto', display: 'flex', gap: 8 } }, [
+          calibState.state === 'waiting_point' && calibState.stable && h('button', { key: 'confirm', onClick: function() { send({ type: 'calibrate', tag: calibState.tag, action: 'confirm_point', pointIndex: calibState.step }); }, style: { flex: 1, padding: 12, borderRadius: 8, border: 'none', background: '#22c55e', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' } }, 'Onayla'),
+          h('button', { key: 'cancel', onClick: function() { send({ type: 'calibrate', tag: calibState.tag, action: 'cancel' }); setCalibState(null); }, style: { padding: '12px 16px', borderRadius: 8, border: '1px solid #475569', background: 'transparent', color: '#94a3b8', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' } }, 'Iptal'),
+        ]),
+      ]);
+    }
+
+    // ============================================
+    // Widget: CalibrationHistoryWidget
+    // ============================================
+    function CalibHistoryWidget(props) {
+      var config = props.config || {};
+      var history = config.history || [];
+      return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' } }, [
+        h('div', { key: 'title', style: { fontSize: 14, fontWeight: 600, color: '#f1f5f9', marginBottom: 8 } }, config.title || 'Kalibrasyon Gecmisi'),
+        h('div', { key: 'list', style: { flex: 1, overflow: 'auto' } },
+          history.length === 0
+            ? h('div', { style: { textAlign: 'center', color: '#64748b', padding: 24 } }, 'Gecmis kayit yok')
+            : history.map(function(item, i) {
+              return h('div', { key: i, style: { padding: '8px 4px', borderBottom: '1px solid #1e293b', fontSize: 13 } }, [
+                h('div', { key: 'date', style: { color: '#94a3b8', fontSize: 11 } }, new Date(item.date).toLocaleString()),
+                h('div', { key: 'info', style: { color: '#e2e8f0' } }, item.tag + ' - Egim: ' + (item.slope || '--') + ', Ofset: ' + (item.offset || '--')),
+                item.r_squared && h('div', { key: 'r2', style: { color: '#64748b', fontSize: 11 } }, 'R\u00B2: ' + item.r_squared),
+              ]);
+            })
+        ),
+      ]);
+    }
+
+    // ============================================
+    // Widget: CalibrationStatusWidget
+    // ============================================
+    function CalibStatusWidget(props) {
+      var config = props.config || {};
+      var sensors = config.sensors || [];
+      return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' } }, [
+        h('div', { key: 'title', style: { fontSize: 14, fontWeight: 600, color: '#f1f5f9', marginBottom: 8 } }, config.title || 'Kalibrasyon Durumu'),
+        h('div', { key: 'list', style: { flex: 1, overflow: 'auto' } },
+          sensors.length === 0
+            ? h('div', { style: { textAlign: 'center', color: '#64748b', padding: 24 } }, 'Sensor yok')
+            : sensors.map(function(s, i) {
+              var tag = tagStore[s.tag] || {};
+              var lastCal = s.lastCalibration ? new Date(s.lastCalibration).toLocaleDateString() : 'Yok';
+              var nextCal = s.nextCalibration ? new Date(s.nextCalibration).toLocaleDateString() : '--';
+              var isOverdue = s.nextCalibration && new Date(s.nextCalibration) < new Date();
+              return h('div', { key: s.tag || i, style: { padding: '10px 8px', borderBottom: '1px solid #1e293b', display: 'flex', alignItems: 'center', gap: 12 } }, [
+                h('div', { key: 'dot', style: { width: 10, height: 10, borderRadius: '50%', background: isOverdue ? '#ef4444' : '#22c55e', flexShrink: 0 } }),
+                h('div', { key: 'info', style: { flex: 1 } }, [
+                  h('div', { key: 'name', style: { fontSize: 13, fontWeight: 600, color: '#e2e8f0' } }, s.sensorType || s.tag),
+                  h('div', { key: 'dates', style: { fontSize: 11, color: '#64748b' } }, 'Son: ' + lastCal + ' | Sonraki: ' + nextCal),
+                ]),
+                h('div', { key: 'val', style: { fontSize: 14, fontWeight: 600, color: '#f1f5f9', fontVariantNumeric: 'tabular-nums' } }, tag.value != null ? tag.value.toFixed(2) : '--'),
+              ]);
+            })
+        ),
+      ]);
+    }
+
+    // ============================================
+    // Widget: ProcessViewWidget (ReactFlow canvas)
+    // ============================================
+    function ProcessViewWidget(props) {
+      var config = props.config || {};
+      var nodesState = useNodesState([]);
+      var pvNodes = nodesState[0], setPvNodes = nodesState[1], onPvNodesChange = nodesState[2];
+      var edgesState = useEdgesState([]);
+      var pvEdges = edgesState[0], setPvEdges = edgesState[1], onPvEdgesChange = edgesState[2];
+
+      useEffect(function() {
+        if (config.nodes) {
+          setPvNodes(config.nodes.map(function(n) {
+            return Object.assign({}, n, { data: Object.assign({}, n.data, { isScadaMode: true }) });
+          }));
+        }
+        if (config.edges) {
+          setPvEdges(config.edges.map(function(e) {
+            return Object.assign({}, e, {
+              type: e.type || 'orthogonal',
+              style: getEdgeStyle(e.data && e.data.connectionType ? e.data.connectionType : 'process-pipe'),
+            });
+          }));
+        }
+      }, [config]);
+
+      return h(ReactFlowComp, {
+        nodes: pvNodes, edges: pvEdges, onNodesChange: onPvNodesChange, onEdgesChange: onPvEdgesChange,
+        nodeTypes: safeNodeTypes, edgeTypes: edgeTypes,
+        nodesDraggable: false, nodesConnectable: false,
+        elementsSelectable: false,
+        panOnDrag: true, zoomOnScroll: true, zoomOnPinch: true,
+        fitView: true, minZoom: 0.1, maxZoom: 3,
+      }, [
+        h(Controls, { key: 'c', position: 'bottom-left', showInteractive: false }),
+        h(MiniMap, { key: 'm', position: 'bottom-right', style: { width: 120, height: 80, background: '#1e293b' } }),
+        h(Background, { key: 'b', variant: 'dots', gap: 24, size: 1, color: '#1e293b' }),
+      ]);
+    }
+
+    // ============================================
+    // Widget Router
+    // ============================================
+    function WidgetRouter(props) {
+      var widget = props.widget;
+      var t = widget.widgetType || widget.widget_type || widget.type;
+      var c = widget.config || {};
+      var common = { config: c, tagStore: tagStore, send: props.send, onConfirm: props.onConfirm, onPin: props.onPin, tick: props.tick };
+      if (t === 'gauge') return h(GaugeWidget, common);
+      if (t === 'numericDisplay') return h(NumericDisplayWidget, common);
+      if (t === 'toggleSwitch') return h(ToggleSwitchWidget, common);
+      if (t === 'slider') return h(SliderWidget, common);
+      if (t === 'numericInput') return h(NumericInputWidget, common);
+      if (t === 'trendChart') return h(TrendChartWidget, common);
+      if (t === 'alarmBanner') return h(AlarmBannerWidget, common);
+      if (t === 'alarmList') return h(AlarmListWidget, common);
+      if (t === 'emergencyStop') return h(EStopWidget, common);
+      if (t === 'calibrationWizard') return h(CalibWizardWidget, Object.assign({}, common, { calibState: props.calibState, setCalibState: props.setCalibState }));
+      if (t === 'calibrationHistory') return h(CalibHistoryWidget, common);
+      if (t === 'calibrationStatus') return h(CalibStatusWidget, common);
+      if (t === 'processView') return h(ProcessViewWidget, common);
+      return h('div', { style: { color: '#64748b', padding: 8, fontSize: 12 } }, 'Bilinmeyen widget: ' + t);
+    }
+
+    // ============================================
+    // Screen Renderer (CSS Grid)
+    // ============================================
+    function ScreenRenderer(props) {
+      var screen = props.screen;
+      var send = props.send;
+      var onConfirm = props.onConfirm;
+      var onPin = props.onPin;
+      var calibState = props.calibState;
+      var setCalibState = props.setCalibState;
+      if (!screen) return null;
+      var layout = screen.layout || { cols: 12, rows: 8 };
+      return h('div', {
+        className: 'widget-grid',
+        style: {
+          display: 'grid',
+          gridTemplateColumns: 'repeat(' + layout.cols + ', 1fr)',
+          gridTemplateRows: 'repeat(' + layout.rows + ', 1fr)',
+          gap: '12px', padding: '16px', height: '100%',
+        }
+      }, (screen.widgets || []).map(function(w) {
+        var pos = w.position || {};
+        return h('div', {
+          key: w.id,
+          style: {
+            gridColumn: ((pos.col || 0) + 1) + ' / span ' + (pos.w || 3),
+            gridRow: ((pos.row || 0) + 1) + ' / span ' + (pos.h || 2),
+            background: '#1e293b', borderRadius: 12, border: '1px solid #334155',
+            padding: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column',
+          }
+        }, h(WidgetRouter, { widget: w, tagStore: tagStore, send: send, onConfirm: onConfirm, onPin: onPin, calibState: calibState, setCalibState: setCalibState, tick: props.tick }));
+      }));
+    }
+
+    // ============================================
+    // Tab Bar
+    // ============================================
+    function TabBar(props) {
+      var screens = props.screens || [];
+      var activeScreen = props.activeScreen;
+      var onSelect = props.onSelect;
+      var alarmCount = props.alarmCount || 0;
+      var icons = { dashboard: '\uD83D\uDCCA', schematic: '\uD83D\uDD27', chart: '\uD83D\uDCC8', alarm: '\uD83D\uDD14', calibration: '\u2697\uFE0F', controls: '\uD83C\uDF9B\uFE0F' };
+      return h('div', { className: 'tab-bar' },
+        screens.map(function(s) {
+          return h('button', {
+            key: s.id,
+            className: 'tab-btn' + (activeScreen === s.id ? ' active' : ''),
+            onClick: function() { onSelect(s.id); },
+          }, [
+            h('span', { key: 'i' }, icons[s.icon] || '\uD83D\uDCCB'),
+            h('span', { key: 'n' }, s.name),
+          ]);
+        })
+      );
+    }
+
+    // ============================================
+    // Tag Dashboard (no package mode)
+    // ============================================
+    function TagDashboard(props) {
+      var ts = props.tagStore || {};
+      var tags = Object.entries(ts).sort(function(a, b) { return a[0].localeCompare(b[0]); });
+      if (tags.length === 0) {
+        return h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#64748b', fontSize: 14 } }, 'Henuz tag verisi yok...');
+      }
+      return h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, padding: 16, overflow: 'auto', height: '100%' } },
+        tags.map(function(entry) {
+          var name = entry[0], tag = entry[1];
+          var qualityColor = tag.quality === 'good' ? '#22c55e' : '#ef4444';
+          return h('div', { key: name, style: { background: '#1e293b', borderRadius: 12, border: '1px solid #334155', padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center' } }, [
+            h('div', { key: 'n', style: { fontSize: 12, color: '#94a3b8', marginBottom: 8, wordBreak: 'break-all', textAlign: 'center' } }, name),
+            h('div', { key: 'v', style: { fontSize: 28, fontWeight: 700, color: '#f1f5f9', fontVariantNumeric: 'tabular-nums' } }, typeof tag.value === 'number' ? tag.value.toFixed(2) : '--'),
+            h('div', { key: 'u', style: { fontSize: 12, color: '#64748b', marginTop: 4 } }, tag.unit || ''),
+            h('div', { key: 'q', style: { width: 8, height: 8, borderRadius: '50%', background: qualityColor, marginTop: 8 } }),
+          ]);
+        })
+      );
+    }
+
+    // ============================================
+    // Confirm Dialog
+    // ============================================
+    function ConfirmDialog(props) {
+      var text = props.text;
+      var onYes = props.onYes;
+      var onNo = props.onNo;
+      return h('div', { style: { position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' } },
+        h('div', { style: { background: '#1e293b', borderRadius: 16, padding: 24, maxWidth: 400, border: '1px solid #334155', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' } }, [
+          h('div', { key: 't', style: { fontSize: 16, fontWeight: 600, color: '#f1f5f9', marginBottom: 16 } }, 'Onay'),
+          h('div', { key: 'm', style: { fontSize: 14, color: '#e2e8f0', marginBottom: 24 } }, text),
+          h('div', { key: 'btns', style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } }, [
+            h('button', { key: 'no', onClick: onNo, style: { padding: '10px 20px', borderRadius: 8, border: '1px solid #475569', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontFamily: 'inherit' } }, 'Hayir'),
+            h('button', { key: 'yes', onClick: onYes, style: { padding: '10px 20px', borderRadius: 8, border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' } }, 'Evet'),
+          ]),
+        ])
+      );
+    }
+
+    // ============================================
+    // PIN Dialog
+    // ============================================
+    function PinDialog(props) {
+      var onSubmit = props.onSubmit;
+      var onCancel = props.onCancel;
+      var error = props.error;
+      var maxLen = 6;
+      var pinState = useState('');
+      var pin = pinState[0], setPin = pinState[1];
+
+      var addDigit = function(d) { if (pin.length < maxLen) setPin(pin + d); };
+      var submit = function() { if (pin.length >= 4) onSubmit(pin); };
+
+      var digits = [1, 2, 3, 4, 5, 6, 7, 8, 9, null, 0, '\u232B'];
+      var dots = [];
+      for (var di = 0; di < maxLen; di++) {
+        dots.push(h('div', { key: di, style: { width: 16, height: 16, borderRadius: '50%', background: di < pin.length ? '#3b82f6' : '#475569' } }));
+      }
+
+      return h('div', { style: { position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' } },
+        h('div', { style: { background: '#1e293b', borderRadius: 16, padding: 24, maxWidth: 320, border: '1px solid #334155' } }, [
+          h('div', { key: 't', style: { fontSize: 16, fontWeight: 600, color: '#f1f5f9', marginBottom: 8, textAlign: 'center' } }, 'PIN Girisi'),
+          h('div', { key: 'display', style: { display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 16 } }, dots),
+          error && h('div', { key: 'err', style: { color: '#ef4444', fontSize: 12, textAlign: 'center', marginBottom: 8 } }, error),
+          h('div', { key: 'pad', style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 } },
+            digits.map(function(d, i) {
+              if (d === null) return h('div', { key: i });
+              return h('button', { key: i, onClick: function() { if (d === '\u232B') { setPin(pin.slice(0, -1)); } else { addDigit(d); } }, style: { padding: 16, borderRadius: 8, border: 'none', background: '#334155', color: '#e2e8f0', fontSize: 20, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' } }, d + '');
+            })
+          ),
+          h('div', { key: 'acts', style: { display: 'flex', gap: 8, marginTop: 16 } }, [
+            h('button', { key: 'cancel', onClick: onCancel, style: { flex: 1, padding: 12, borderRadius: 8, border: '1px solid #475569', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontFamily: 'inherit' } }, 'Iptal'),
+            h('button', { key: 'ok', onClick: submit, disabled: pin.length < 4, style: { flex: 1, padding: 12, borderRadius: 8, border: 'none', background: pin.length >= 4 ? '#3b82f6' : '#475569', color: '#fff', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' } }, 'Giris'),
+          ]),
+        ])
+      );
+    }
+
+    // ============================================
+    // Toast Container
+    // ============================================
+    function ToastContainer(props) {
+      var toasts = props.toasts || [];
+      return h('div', { style: { position: 'fixed', top: 60, right: 16, zIndex: 999, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 320 } },
+        toasts.map(function(t, i) {
+          var bg = t.type === 'success' ? '#14532d' : t.type === 'error' ? '#7f1d1d' : '#1e293b';
+          var border = t.type === 'success' ? '#22c55e' : t.type === 'error' ? '#ef4444' : '#334155';
+          return h('div', { key: t.id || i, style: { padding: '10px 16px', borderRadius: 8, background: bg, border: '1px solid ' + border, color: '#e2e8f0', fontSize: 13, animation: 'fadeIn 0.2s' } }, t.message);
+        })
+      );
     }
 
     // ============================================
     // Main App
     // ============================================
     function ScadaEdgeApp() {
-      const wsUrl = 'ws://' + window.location.host + '/ws/scada';
-      const { status, lastMessage, reconnect } = useScadaWebSocket(wsUrl);
-      const [nodes, setNodes, onNodesChange] = useNodesState([]);
-      const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-      const [processName, setProcessName] = useState('');
-      const [hasProcess, setHasProcess] = useState(false);
-      const [deviceInfo, setDeviceInfo] = useState(null);
-      const [reactFlowInstance, setReactFlowInstance] = useState(null);
-      const [, forceUpdate] = useState(0);
+      var wsUrl = 'ws://' + window.location.host + '/ws/scada';
+      var ws = useScadaWebSocket(wsUrl);
+      var status = ws.status, lastMessage = ws.lastMessage, reconnect = ws.reconnect, send = ws.send;
 
-      // Handle incoming WebSocket messages
-      useEffect(() => {
+      var screenState = useState(null);
+      var activeScreen = screenState[0], setActiveScreen = screenState[1];
+      var screensState = useState([]);
+      var screens = screensState[0], setScreens = screensState[1];
+      var pkgState = useState(null);
+      var package_ = pkgState[0], setPackage = pkgState[1];
+      var allTagsState = useState({});
+      var allTags = allTagsState[0], setAllTags = allTagsState[1];
+      var alarmsState = useState([]);
+      var alarms = alarmsState[0], setAlarms = alarmsState[1];
+      var emergState = useState(false);
+      var emergency = emergState[0], setEmergency = emergState[1];
+      var confirmState = useState(null);
+      var showConfirm = confirmState[0], setShowConfirm = confirmState[1];
+      var pinState = useState(null);
+      var showPin = pinState[0], setShowPin = pinState[1];
+      var toastsState = useState([]);
+      var toasts = toastsState[0], setToasts = toastsState[1];
+      var calibStateHolder = useState(null);
+      var calibState = calibStateHolder[0], setCalibState = calibStateHolder[1];
+      var deviceInfoState = useState(null);
+      var deviceInfo = deviceInfoState[0], setDeviceInfo = deviceInfoState[1];
+      var forceState = useState(0);
+      var forceUpdate = forceState[1];
+
+      // Auto-dismiss toasts
+      useEffect(function() {
+        if (toasts.length === 0) return;
+        var id = setTimeout(function() {
+          setToasts(function(prev) { return prev.slice(1); });
+        }, 4000);
+        return function() { clearTimeout(id); };
+      }, [toasts]);
+
+      var addToast = function(message, type) {
+        setToasts(function(prev) { return prev.concat([{ id: Date.now(), message: message, type: type || 'info' }]); });
+      };
+
+      // Handle WS messages
+      useEffect(function() {
         if (!lastMessage) return;
-        const { type, data } = lastMessage;
+        var msg = lastMessage;
+        var type = msg.type;
+        var data = msg.data || msg;
 
-        if (type === 'deviceInfo' && data) {
-          setDeviceInfo(data);
+        if (type === 'deviceInfo' && msg.data) {
+          setDeviceInfo(msg.data);
+          return;
         }
 
+        if (type === 'setPackage' && data) {
+          currentPackage = data;
+          setPackage(data);
+          var pkgScreens = data.screens || [];
+          setScreens(pkgScreens);
+          if (pkgScreens.length > 0) {
+            var defaultScreen = pkgScreens.find(function(s) { return s.isDefault || s.is_default; });
+            setActiveScreen(defaultScreen ? defaultScreen.id : pkgScreens[0].id);
+          }
+          return;
+        }
+
+        // Backward compat: setProcess -> single process screen
         if (type === 'setProcess' && data) {
-          sensorDataStore = {};
-          setHasProcess(true);
-          setProcessName(data.name || 'SCADA');
-          const processedNodes = (data.nodes || [])
-            .filter(n => n && n.id)
-            .map(n => ({
-              ...n,
-              position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
-              data: { ...n.data, isScadaMode: true }
-            }));
-          setNodes(processedNodes);
+          currentPackage = { name: data.name || 'SCADA', screens: [{ id: 'process', name: data.name || 'Proses', screenType: 'process', isDefault: true, icon: 'schematic', layout: { cols: 1, rows: 1 }, widgets: [{ id: 'pv0', widgetType: 'processView', position: { col: 0, row: 0, w: 1, h: 1 }, config: { nodes: data.nodes, edges: data.edges } }] }] };
+          setPackage(currentPackage);
+          setScreens(currentPackage.screens);
+          setActiveScreen('process');
+          return;
+        }
 
-          const processedEdges = (data.edges || []).map(e => ({
-            ...e,
-            type: e.type || 'orthogonal',
-            markerEnd: e.markerEnd || { type: MarkerType.ArrowClosed, width: 20, height: 20, color: '#64748b' },
-            style: getEdgeStyle(e.data?.connectionType || 'process-pipe'),
-            data: { connectionType: 'process-pipe', midX1: null, midY: null, midX2: null, ...(e.data || {}) }
-          }));
-          setEdges(processedEdges);
+        if (type === 'sensorData' && data) {
+          if (data.equipmentData || data.equipment_data) {
+            var eqData = data.equipmentData || data.equipment_data;
+            Object.entries(eqData).forEach(function(entry) {
+              var eqId = entry[0], readings = entry[1];
+              if (Array.isArray(readings)) {
+                readings.forEach(function(r) {
+                  var rName = r.tagName || r.tag_name || r.tag || r.name;
+                  if (rName) tagStore[rName] = r;
+                });
+              } else if (typeof readings === 'object') {
+                tagStore[eqId] = readings;
+              }
+            });
+          }
+          setAllTags(Object.assign({}, tagStore));
+          forceUpdate(function(n) { return n + 1; });
+          return;
+        }
 
-          setTimeout(() => {
-            if (reactFlowInstance) {
-              try { reactFlowInstance.fitView({ padding: 0.15 }); } catch(e) { console.warn('[scada-edge] fitView failed:', e); }
+        if (type === 'allTags' && data) {
+          var tagsArr = Array.isArray(data) ? data : (data.tags || []);
+          tagsArr.forEach(function(t) {
+            var name = t.tagName || t.tag_name || t.tag;
+            if (name) {
+              tagStore[name] = Object.assign(tagStore[name] || {}, t, { value: t.value, quality: t.quality, unit: t.unit || tagStore[name] && tagStore[name].unit });
             }
-          }, 150);
-        }
-
-        if (type === 'sensorData' && data && data.equipmentData) {
-          // Update sensor data store
-          Object.entries(data.equipmentData).forEach(([eqId, readings]) => {
-            sensorDataStore[eqId] = readings;
           });
-          forceUpdate(n => n + 1);
+          setAllTags(Object.assign({}, tagStore));
+          forceUpdate(function(n) { return n + 1; });
+          return;
         }
-      }, [lastMessage, reactFlowInstance, setNodes, setEdges]);
 
-      // Fit view on init
-      useEffect(() => {
-        if (reactFlowInstance && nodes.length > 0) {
-          setTimeout(() => {
-            try { reactFlowInstance.fitView({ padding: 0.15 }); } catch(e) { console.warn('[scada-edge] fitView failed:', e); }
-          }, 200);
+        if (type === 'alarm' && data) {
+          activeAlarms = activeAlarms.concat([data]);
+          setAlarms([].concat(activeAlarms));
+          return;
         }
-      }, [reactFlowInstance]);
 
-      const statusLabel = status === 'connected' ? 'Bagli' : status === 'connecting' ? 'Baglaniyor...' : 'Bagli Degil';
-      const showWaiting = !hasProcess;
+        if (type === 'alarmClear' && data) {
+          var alarmId = data.alarmId || data.alarm_id;
+          activeAlarms = activeAlarms.filter(function(a) { return (a.alarmId || a.alarm_id || a.id) !== alarmId; });
+          setAlarms([].concat(activeAlarms));
+          return;
+        }
+
+        if (type === 'commandResult' && data) {
+          addToast(data.message || (data.success ? 'Komut basarili' : 'Komut basarisiz'), data.success ? 'success' : 'error');
+          return;
+        }
+
+        if (type === 'confirmRequest' && data) {
+          setShowConfirm({ text: data.text || data.message || 'Onayliyor musunuz?', onYes: function() { send({ type: 'confirmResponse', requestId: data.requestId, confirmed: true }); setShowConfirm(null); } });
+          return;
+        }
+
+        if (type === 'pinRequest' && data) {
+          setShowPin({ tag: data.tag, onSuccess: function(pin) { send({ type: 'pinResponse', requestId: data.requestId, pin: pin }); setShowPin(null); } });
+          return;
+        }
+
+        if (type === 'calibrationState' && data) {
+          setCalibState(function(prev) {
+            if (!prev) return data;
+            return Object.assign({}, prev, data);
+          });
+          return;
+        }
+
+        if (type === 'trendData') {
+          var tTag = msg.tag;
+          if (tTag && Array.isArray(data)) {
+            trendDataStore[tTag] = data;
+          } else if (tTag && data && Array.isArray(data.data)) {
+            trendDataStore[tTag] = data.data;
+          }
+          forceUpdate(function(n) { return n + 1; });
+          return;
+        }
+
+        if (type === 'emergency') {
+          emergencyActive = !!data.active;
+          setEmergency(emergencyActive);
+          if (emergencyActive) addToast('ACIL DURUM AKTIF!', 'error');
+          return;
+        }
+      }, [lastMessage]);
+
+      var onConfirm = function(opts) { setShowConfirm(opts); };
+      var onPin = function(opts) { setShowPin(opts); };
+
+      var handleConfirmYes = function() {
+        if (showConfirm && showConfirm.onYes) showConfirm.onYes();
+        setShowConfirm(null);
+      };
+      var handleConfirmNo = function() { setShowConfirm(null); };
+
+      var handlePinSubmit = function(pin) {
+        if (showPin && showPin.onSuccess) showPin.onSuccess(pin);
+        setShowPin(null);
+      };
+      var handlePinCancel = function() { setShowPin(null); };
+
+      // Compute active screen object
+      var activeScreenObj = null;
+      if (screens.length > 0 && activeScreen) {
+        activeScreenObj = screens.find(function(s) { return s.id === activeScreen; }) || null;
+      }
+
+      var hasPackage = !!package_;
+      var showWaiting = !hasPackage && status !== 'connected' || (!hasPackage && Object.keys(tagStore).length === 0);
+
+      var statusLabel = status === 'connected' ? 'Bagli' : status === 'connecting' ? 'Baglaniyor...' : status === 'failed' ? 'Basarisiz' : 'Bagli Degil';
+      var tagCount = Object.keys(tagStore).length;
 
       return h('div', { className: 'scada-container' }, [
-        // Header bar
+        // Header
         h('div', { key: 'header', className: 'scada-header' }, [
-          h('div', { key: 'title', className: 'scada-header-title' },
-            processName || 'SCADA Edge Display'
-          ),
-          h('div', { key: 'status', className: 'scada-header-status' }, [
-            h(Clock, { key: 'clock' }),
-            h('span', { key: 'sep', style: { color: '#475569' } }, '|'),
+          h('div', { key: 'left', className: 'scada-header-left' }, [
+            h('div', { key: 'title', className: 'scada-header-title' }, (package_ && package_.name) ? package_.name : 'Suderra SCADA'),
+            hasPackage && screens.length > 1 && h(TabBar, { key: 'tabs', screens: screens, activeScreen: activeScreen, onSelect: setActiveScreen, alarmCount: activeAlarms.length }),
+          ]),
+          h('div', { key: 'right', className: 'scada-header-right' }, [
+            activeAlarms.length > 0
+              ? h('div', { key: 'alarm', className: 'alarm-badge has-alarms' }, '\uD83D\uDD34 ' + activeAlarms.length + ' alarm')
+              : h('div', { key: 'alarm', className: 'alarm-badge no-alarms' }, '\u2713'),
             h('span', { key: 'dot', className: 'status-dot ' + status }),
             h('span', { key: 'label', style: { color: status === 'connected' ? '#86efac' : '#94a3b8' } }, statusLabel),
-          ])
+            h(Clock, { key: 'clock' }),
+          ]),
         ]),
-        // Waiting screen or SCADA canvas
+
+        // Body
         showWaiting
-          ? h(WaitingScreen, { key: 'waiting', status, deviceInfo, reconnect })
-          : h('div', { key: 'canvas', className: 'scada-canvas' },
-              h(ReactFlow, {
-                nodes, edges,
-                onNodesChange, onEdgesChange,
-                onInit: setReactFlowInstance,
-                nodeTypes: safeNodeTypes,
-                edgeTypes,
-                defaultEdgeOptions: { type: 'orthogonal', markerEnd: { type: MarkerType.ArrowClosed }, style: getEdgeStyle('process-pipe') },
-                nodesDraggable: false, nodesConnectable: false,
-                elementsSelectable: false,
-                panOnDrag: true, zoomOnScroll: true, zoomOnPinch: true,
-                fitView: true, fitViewOptions: { padding: 0.15 },
-                minZoom: 0.1, maxZoom: 3,
-              }, [
-                h(Controls, { key: 'ctrl', position: 'bottom-left', showInteractive: false }),
-                h(MiniMap, {
-                  key: 'mm', position: 'bottom-right',
-                  nodeColor: (n) => getStatusColor(n.data?.status),
-                  maskColor: 'rgba(0,0,0,0.3)',
-                  style: { width: 150, height: 100, background: '#1e293b' }
-                }),
-                h(Background, { key: 'bg', variant: 'dots', gap: 24, size: 1, color: '#1e293b' })
-              ])
-            )
+          ? h(WaitingScreen, { key: 'waiting', status: status, deviceInfo: deviceInfo, reconnect: reconnect })
+          : h('div', { key: 'body', className: 'scada-body' },
+              hasPackage && activeScreenObj
+                ? h(ScreenRenderer, { screen: activeScreenObj, send: send, onConfirm: onConfirm, onPin: onPin, calibState: calibState, setCalibState: setCalibState, tick: forceState[0] })
+                : h(TagDashboard, { tagStore: tagStore })
+            ),
+
+        // Status footer
+        !showWaiting && h('div', { key: 'footer', className: 'status-footer' }, [
+          h('div', { key: 'left', className: 'status-footer-left' }, [
+            activeAlarms.length > 0
+              ? h('span', { key: 'alarm', style: { color: '#fca5a5' } }, '\u26A0 ' + activeAlarms.length + ' aktif alarm')
+              : h('span', { key: 'alarm', style: { color: '#22c55e' } }, '\u2713 Alarm yok'),
+            h('span', { key: 'sep', style: { color: '#334155' } }, '|'),
+            h('span', { key: 'tags' }, tagCount + ' tag'),
+          ]),
+          h('div', { key: 'right', className: 'status-footer-right' }, [
+            h('span', { key: 'dot', className: 'status-dot ' + status }),
+            h('span', { key: 'status' }, statusLabel),
+            h(Clock, { key: 'clock' }),
+          ]),
+        ]),
+
+        // Overlays
+        showConfirm && h(ConfirmDialog, { key: 'confirm', text: showConfirm.text, onYes: handleConfirmYes, onNo: handleConfirmNo }),
+        showPin && h(PinDialog, { key: 'pin', onSubmit: handlePinSubmit, onCancel: handlePinCancel, error: showPin.error }),
+        h(ToastContainer, { key: 'toasts', toasts: toasts }),
       ]);
     }
 
     // Render
-    const root = createRoot(document.getElementById('root'));
+    var root = createRoot(document.getElementById('root'));
     root.render(h(ReactFlowProvider, null, h(ScadaEdgeApp)));
 
     // Register PWA service worker

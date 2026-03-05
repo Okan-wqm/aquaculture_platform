@@ -43,6 +43,16 @@ mod telemetry; // v1.2.4: SPI support for high-speed peripherals
 mod lora; // v1.5.0: LoRaWAN SX1302 gateway support
 #[cfg(feature = "scada-display")]
 mod scada_server; // v1.6.0: SCADA display server for local HMI
+#[cfg(feature = "scada-display")]
+mod scada_types;
+#[cfg(feature = "scada-display")]
+mod scada_db;
+#[cfg(feature = "scada-display")]
+mod alarm_engine;
+#[cfg(feature = "scada-display")]
+mod trend_engine;
+#[cfg(feature = "scada-display")]
+mod calibration_engine;
 
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -255,6 +265,10 @@ pub struct AppState {
     #[cfg(feature = "scada-display")]
     pub scada_state: Option<scada_server::ScadaState>,
 
+    /// SCADA SQLite database (v2.4)
+    #[cfg(feature = "scada-display")]
+    pub scada_db: Option<Arc<scada_db::ScadaDb>>,
+
     /// Activation state
     pub is_activated: bool,
     pub tenant_id: Option<String>,
@@ -283,6 +297,8 @@ impl AppState {
             lora_handle: None,
             #[cfg(feature = "scada-display")]
             scada_state: None,
+            #[cfg(feature = "scada-display")]
+            scada_db: None,
             is_activated: false,
             tenant_id: None,
         }
@@ -1013,16 +1029,117 @@ async fn run_agent(
     // Step 6b: Start I/O poll loop
     tokio::spawn(io_poll::io_poll_loop(state.clone()));
 
-    // Step 6c: Start SCADA display server (v1.6.0)
+    // Step 6c: Start SCADA display server (v1.6.0, v2.4: full HMI runtime)
     #[cfg(feature = "scada-display")]
     {
-        let scada_state = scada_server::ScadaState::new();
+        // Initialize SCADA SQLite database
+        let data_dir = std::env::var("SUDERRA_DATA_DIR").unwrap_or_else(|_| "/var/lib/suderra".to_string());
+        let scada_db_path = format!("{}/scada/scada.db", data_dir);
+        let scada_db = match scada_db::ScadaDb::new(&scada_db_path) {
+            Ok(db) => {
+                info!("SCADA database initialized: {}", scada_db_path);
+                Some(Arc::new(db))
+            }
+            Err(e) => {
+                warn!("Failed to initialize SCADA database: {}. Runtime features degraded.", e);
+                None
+            }
+        };
+
+        // Create command channel for WS → I/O routing
+        let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel::<scada_types::ScadaCommand>(64);
+
+        // Get process image reference
+        let process_image = {
+            let s = state.read().await;
+            s.process_image.clone()
+        };
+
+        // Create SCADA state with full runtime
+        let scada_state = scada_server::ScadaState::new_with_runtime(
+            process_image,
+            scada_db.clone(),
+            cmd_tx,
+        );
         let _scada_handle = scada_server::start_scada_server(scada_state.clone()).await;
+
+        // Store in app state
         {
             let mut state_guard = state.write().await;
-            state_guard.scada_state = Some(scada_state);
+            state_guard.scada_state = Some(scada_state.clone());
+            state_guard.scada_db = scada_db;
         }
-        info!("SCADA display server started");
+
+        // Spawn command executor task
+        let cmd_state = state.clone();
+        tokio::spawn(async move {
+            use crate::process_image::{ProtocolConfig, TagQuality};
+
+            while let Some(cmd) = cmd_rx.recv().await {
+                let result = async {
+                    let s = cmd_state.read().await;
+                    let config = s.process_image.get_config(&cmd.tag).await
+                        .ok_or_else(|| format!("Tag '{}' not found", cmd.tag))?;
+
+                    let write_result = match &config.protocol_config {
+                        ProtocolConfig::Gpio { pin, .. } => {
+                            if let Some(ref handle) = s.gpio_handle {
+                                handle.write_pin(*pin, cmd.value != 0.0).await
+                                    .map_err(|e| format!("GPIO: {}", e))
+                            } else {
+                                Err("GPIO unavailable".to_string())
+                            }
+                        }
+                        ProtocolConfig::Modbus { register, .. } => {
+                            if let Some(ref handle) = s.modbus_handle {
+                                if let Some(device) = s.config.modbus.first() {
+                                    // Determine write type based on IoType
+                                    if matches!(config.io_type, crate::process_image::IoType::DO) {
+                                        handle.write_coil(&device.name, *register, cmd.value != 0.0).await
+                                            .map_err(|e| format!("Modbus coil: {}", e))
+                                    } else {
+                                        // Analog output: reverse-scale and write register
+                                        let raw_value = reverse_scale(cmd.value, &config);
+                                        handle.write_register(&device.name, *register, raw_value as u16).await
+                                            .map_err(|e| format!("Modbus register: {}", e))
+                                    }
+                                } else {
+                                    Err("No Modbus devices".to_string())
+                                }
+                            } else {
+                                Err("Modbus unavailable".to_string())
+                            }
+                        }
+                        ProtocolConfig::I2c { .. } => {
+                            if let Some(ref handle) = s.i2c_handle {
+                                let data = (cmd.value as u32).to_be_bytes().to_vec();
+                                handle.write_direct(&cmd.tag, &data).await
+                                    .map_err(|e| format!("I2C: {}", e))
+                            } else {
+                                Err("I2C unavailable".to_string())
+                            }
+                        }
+                        _ => Err(format!("Write unsupported for {:?}", config.protocol_config)),
+                    };
+
+                    match write_result {
+                        Ok(()) => {
+                            s.process_image.update_tag(&cmd.tag, cmd.value, TagQuality::Good, config.source).await;
+                            info!("SCADA command executed: {} = {}", cmd.tag, cmd.value);
+                            Ok(cmd.value)
+                        }
+                        Err(e) => {
+                            warn!("SCADA command failed: {} = {} - {}", cmd.tag, cmd.value, e);
+                            Err(e)
+                        }
+                    }
+                }.await;
+
+                let _ = cmd.response_tx.send(result);
+            }
+        });
+
+        info!("SCADA display server started with full HMI runtime");
     }
 
     // Step 7: Start command handler with shutdown awareness
@@ -1372,5 +1489,21 @@ async fn publish_capabilities(state: &AppState) {
         Err(e) => {
             warn!("Failed to serialize capabilities: {}", e);
         }
+    }
+}
+
+/// Reverse-scale an engineering value back to raw for Modbus AO writes
+#[cfg(feature = "scada-display")]
+fn reverse_scale(eng_value: f64, config: &crate::process_image::TagConfig) -> f64 {
+    match (config.raw_min, config.raw_max, config.eng_min, config.eng_max) {
+        (Some(raw_min), Some(raw_max), Some(eng_min), Some(eng_max)) => {
+            let eng_range = eng_max - eng_min;
+            if eng_range.abs() < f64::EPSILON {
+                return eng_value;
+            }
+            let raw_range = raw_max - raw_min;
+            raw_min + (eng_value - eng_min) * raw_range / eng_range
+        }
+        _ => eng_value,
     }
 }

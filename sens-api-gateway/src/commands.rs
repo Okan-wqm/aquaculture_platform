@@ -348,7 +348,7 @@ impl CommandHandler {
                 | "plc_delete" | "write_modbus" | "write_gpio" | "reboot"
                 | "restart_agent" | "delete_script"
                 | "update_io_config" | "set_output" | "deploy_process"
-                | "update_firmware"
+                | "deploy_scada_package" | "update_firmware"
         );
         if is_safety_critical {
             warn!(
@@ -408,6 +408,8 @@ impl CommandHandler {
             // SCADA display commands (v1.6.0)
             #[cfg(feature = "scada-display")]
             "deploy_process" => self.cmd_deploy_process(&command.params).await,
+            #[cfg(feature = "scada-display")]
+            "deploy_scada_package" => self.cmd_deploy_scada_package(&command.params).await,
             #[cfg(feature = "scada-display")]
             "display_on" => self.cmd_display_on().await,
             #[cfg(feature = "scada-display")]
@@ -3941,6 +3943,51 @@ impl CommandHandler {
                     }),
                     None,
                 )
+            }
+            Err(e) => (false, json!(null), Some(e)),
+        }
+    }
+
+    /// Deploy a full SCADA package (screens, alarm rules, control permissions, trend config)
+    #[cfg(feature = "scada-display")]
+    async fn cmd_deploy_scada_package(&self, params: &Value) -> (bool, Value, Option<String>) {
+        let _deploy_guard = self.deploy_lock.lock().await;
+        info!("Executing deploy_scada_package command");
+
+        // Parse the full SCADA package
+        let package: crate::scada_types::ScadaPackage = match serde_json::from_value(params.clone()) {
+            Ok(p) => p,
+            Err(e) => return (false, json!(null), Some(format!("Invalid SCADA package: {}", e))),
+        };
+
+        // Validate
+        if package.screens.is_empty() {
+            return (false, json!(null), Some("Package must have at least one screen".to_string()));
+        }
+
+        let version = package.meta.version;
+        let screen_count = package.screens.len();
+        let alarm_count = package.alarm_rules.len();
+
+        let state_guard = self.state.read().await;
+        let scada_state = match &state_guard.scada_state {
+            Some(s) => s.clone(),
+            None => return (false, json!(null), Some("SCADA display not initialized".to_string())),
+        };
+        drop(state_guard);
+
+        match scada_state.deploy_package(package).await {
+            Ok(()) => {
+                info!(
+                    "SCADA package deployed: version={}, screens={}, alarm_rules={}",
+                    version, screen_count, alarm_count
+                );
+                (true, json!({
+                    "status": "deployed",
+                    "version": version,
+                    "screens": screen_count,
+                    "alarm_rules": alarm_count,
+                }), None)
             }
             Err(e) => (false, json!(null), Some(e)),
         }

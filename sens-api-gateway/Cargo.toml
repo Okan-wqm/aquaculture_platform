@@ -162,8 +162,10 @@ health = ["axum"]
 # OpenTelemetry distributed tracing
 telemetry = ["opentelemetry", "opentelemetry-otlp", "opentelemetry_sdk", "tracing-opentelemetry"]
 # Prometheus metrics export
+# NOTE: currently unused — retained for future observability integration
 metrics = ["dep:metrics", "metrics-exporter-prometheus"]
 # v1.2.4: Strict security mode - enables additional security checks in production
+# NOTE: currently unused — retained for future production hardening
 strict-security = []
 # SCADA display server (embedded web UI for local HMI/kiosk)
 scada-display = ["axum", "tower-http"]

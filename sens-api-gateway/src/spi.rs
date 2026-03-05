@@ -19,6 +19,7 @@
 //! - Full-duplex transfer support
 //! - Multiple chip select support
 
+// TODO: SPI actor fully implemented but not yet wired in main.rs init_hardware
 #![allow(dead_code)]
 
 use anyhow::Result;
@@ -273,6 +274,11 @@ impl SpiHandle {
         .await?;
         rx.await
             .map_err(|_| anyhow::anyhow!("Actor disconnected"))?
+    }
+
+    /// Actor'u durdur
+    pub async fn shutdown(&self) {
+        let _ = self.sender.send(SpiCommand::Shutdown).await;
     }
 
     /// Send command to actor (blocking until channel has space)

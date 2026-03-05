@@ -298,6 +298,11 @@ impl I2cHandle {
         rx.await.unwrap_or(false)
     }
 
+    /// Actor'u durdur
+    pub async fn shutdown(&self) {
+        let _ = self.sender.send(I2cCommand::Shutdown).await;
+    }
+
     /// Send command to actor (blocking until channel has space)
     async fn send_command(&self, cmd: I2cCommand) -> Result<()> {
         self.sender

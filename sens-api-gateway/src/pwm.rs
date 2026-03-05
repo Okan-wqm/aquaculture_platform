@@ -17,6 +17,7 @@
 //! - Software PWM fallback
 //! - Servo mode support (50Hz, 1-2ms pulse)
 
+// TODO: PWM actor fully implemented but not yet wired in main.rs init_hardware
 #![allow(dead_code)]
 
 use anyhow::Result;
@@ -224,6 +225,11 @@ impl PwmHandle {
             return Vec::new();
         }
         rx.await.unwrap_or_default()
+    }
+
+    /// Actor'u durdur
+    pub async fn shutdown(&self) {
+        let _ = self.sender.send(PwmCommand::Shutdown).await;
     }
 
     /// Send command to actor (blocking until channel has space)

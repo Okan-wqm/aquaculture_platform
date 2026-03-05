@@ -1282,6 +1282,15 @@ async fn run_agent(
         }
     }
 
+    // I2C actor shutdown
+    {
+        let state_guard = state.read().await;
+        if let Some(ref handle) = state_guard.i2c_handle {
+            handle.shutdown().await;
+            info!("I2C actor shutdown completed");
+        }
+    }
+
     // Disconnect MQTT gracefully
     {
         let mut state_guard = state.write().await;

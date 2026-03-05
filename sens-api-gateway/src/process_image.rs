@@ -112,6 +112,7 @@ pub enum ProtocolConfig {
     Modbus { slave_id: u8, register: u16, function: u8, register_type: String },
     I2c { bus: u8, address: u8, driver_type: I2cDriverType },
     Spi { bus: u8, cs: u8 },
+    // TODO: UART protocol needs read/write implementation in io_poll.rs and commands.rs
     Uart { port: String },
 }
 

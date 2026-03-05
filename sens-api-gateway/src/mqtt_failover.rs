@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! MQTT Broker Failover for High Availability (v1.3.4)
 //!
 //! Provides automatic failover between primary and backup MQTT brokers

@@ -3228,6 +3228,9 @@ impl CommandHandler {
     // ========================================================================
 
     /// Get MQTT failover status
+    // TODO: Wire FailoverMqttClient into CommandHandler state so this can report
+    //       live failover state (current broker, failover count, backup time, etc.)
+    //       from FailoverManager::get_status_report().
     async fn cmd_failover_status(&self) -> (bool, Value, Option<String>) {
         info!("Executing failover_status command");
 
@@ -3268,6 +3271,8 @@ impl CommandHandler {
     }
 
     /// Force failover to backup broker
+    // TODO: Wire FailoverMqttClient — call failover_manager().force_failover()
+    //       and reconnect_to_backup() to actually switch brokers.
     async fn cmd_failover_force(&self) -> (bool, Value, Option<String>) {
         info!("Executing failover_force command");
 
@@ -3306,6 +3311,8 @@ impl CommandHandler {
     }
 
     /// Force recovery to primary broker
+    // TODO: Wire FailoverMqttClient — call failover_manager().force_recovery()
+    //       and reconnect_to_primary() to switch back to the primary broker.
     async fn cmd_failover_recover(&self) -> (bool, Value, Option<String>) {
         info!("Executing failover_recover command");
 

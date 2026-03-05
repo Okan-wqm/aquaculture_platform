@@ -50,14 +50,19 @@ const AMS_HEADER_SIZE: usize = 32;
 /// Maximum AMS packet size (prevent memory exhaustion)
 const MAX_AMS_PACKET_SIZE: usize = 1024 * 1024; // 1MB
 
+// ADS protocol spec constants — retained for protocol completeness
+#[allow(dead_code)]
 /// ADS Command IDs
 const ADS_READ_DEVICE_INFO: u16 = 0x0001;
 const ADS_READ: u16 = 0x0002;
 const ADS_WRITE: u16 = 0x0003;
 const ADS_READ_STATE: u16 = 0x0004;
 const ADS_WRITE_CONTROL: u16 = 0x0005;
+#[allow(dead_code)]
 const ADS_ADD_DEVICE_NOTIFICATION: u16 = 0x0006;
+#[allow(dead_code)]
 const ADS_DELETE_DEVICE_NOTIFICATION: u16 = 0x0007;
+#[allow(dead_code)]
 const ADS_DEVICE_NOTIFICATION: u16 = 0x0008;
 const ADS_READ_WRITE: u16 = 0x0009;
 
@@ -65,34 +70,55 @@ const ADS_READ_WRITE: u16 = 0x0009;
 const ADSIGRP_SYM_HNDBYNAME: u32 = 0xF003;
 const ADSIGRP_SYM_VALBYHND: u32 = 0xF005;
 const ADSIGRP_SYM_RELEASEHND: u32 = 0xF006;
+#[allow(dead_code)]
 const ADSIGRP_SYM_INFOBYNAME: u32 = 0xF007;
 const ADSIGRP_SYM_DOWNLOAD: u32 = 0xF020;
 const ADSIGRP_SYM_UPLOAD: u32 = 0xF021;
 
+// ADS protocol spec constants — retained for protocol completeness
+#[allow(dead_code)]
 /// TwinCAT ADS Ports
 const ADS_PORT_LOGGER: u16 = 100;
+#[allow(dead_code)]
 const ADS_PORT_EVENTLOG: u16 = 110;
+#[allow(dead_code)]
 const ADS_PORT_SYSTEMSERVICE: u16 = 10000;
+#[allow(dead_code)]
 const ADS_PORT_PLC_TC2: u16 = 801;
 const ADS_PORT_PLC_TC3_1: u16 = 851;
+#[allow(dead_code)]
 const ADS_PORT_NC: u16 = 500;
+#[allow(dead_code)]
 const ADS_PORT_IO: u16 = 300;
 
+// ADS protocol spec constants — retained for protocol completeness
 /// ADS State values
+#[allow(dead_code)]
 const ADSSTATE_INVALID: u16 = 0;
+#[allow(dead_code)]
 const ADSSTATE_IDLE: u16 = 1;
+#[allow(dead_code)]
 const ADSSTATE_RESET: u16 = 2;
+#[allow(dead_code)]
 const ADSSTATE_INIT: u16 = 3;
+#[allow(dead_code)]
 const ADSSTATE_START: u16 = 4;
 const ADSSTATE_RUN: u16 = 5;
 const ADSSTATE_STOP: u16 = 6;
+#[allow(dead_code)]
 const ADSSTATE_SAVECFG: u16 = 7;
+#[allow(dead_code)]
 const ADSSTATE_LOADCFG: u16 = 8;
+#[allow(dead_code)]
 const ADSSTATE_POWERFAILURE: u16 = 9;
+#[allow(dead_code)]
 const ADSSTATE_POWERGOOD: u16 = 10;
 const ADSSTATE_ERROR: u16 = 11;
+#[allow(dead_code)]
 const ADSSTATE_SHUTDOWN: u16 = 12;
+#[allow(dead_code)]
 const ADSSTATE_SUSPEND: u16 = 13;
+#[allow(dead_code)]
 const ADSSTATE_RESUME: u16 = 14;
 const ADSSTATE_CONFIG: u16 = 15;
 const ADSSTATE_RECONFIG: u16 = 16;

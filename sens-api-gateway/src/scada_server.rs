@@ -54,7 +54,7 @@ use crate::process_image::{ProcessImage, TagQuality};
 use crate::scada_db::ScadaDb;
 use crate::scada_types::{
     ScadaCommand, ScadaPackage, PinSession,
-    WsClientMessage, WsServerMessage, TagInfo, ActiveAlarmInfo, TrendPoint,
+    WsClientMessage, TagInfo, ActiveAlarmInfo, TrendPoint,
 };
 use crate::trend_engine::TrendEngine;
 
@@ -1489,7 +1489,7 @@ async fn handle_request_trend(
 
 /// Handle emergency stop
 async fn handle_emergency_stop(
-    socket: &mut WebSocket,
+    _socket: &mut WebSocket,
     state: &ScadaState,
 ) {
     info!("EMERGENCY STOP activated via WebSocket");

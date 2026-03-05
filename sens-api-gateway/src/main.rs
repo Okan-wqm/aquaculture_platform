@@ -1058,7 +1058,7 @@ async fn run_agent(
         // Create SCADA state with full runtime
         let scada_state = scada_server::ScadaState::new_with_runtime(
             process_image,
-            scada_db.clone(),
+            scada_db.clone().expect("scada_db must be initialized before SCADA runtime"),
             cmd_tx,
         );
         let _scada_handle = scada_server::start_scada_server(scada_state.clone()).await;

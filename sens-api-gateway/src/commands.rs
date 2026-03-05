@@ -3964,7 +3964,18 @@ impl CommandHandler {
         // Parse the full SCADA package
         let package: crate::scada_types::ScadaPackage = match serde_json::from_value(params.clone()) {
             Ok(p) => p,
-            Err(e) => return (false, json!(null), Some(format!("Invalid SCADA package: {}", e))),
+            Err(e) => {
+                // Fallback: try to extract from cloud wrapper format
+                // Cloud may send { packageData: { meta, screens, ... }, processId, ... }
+                warn!("Direct SCADA package parse failed ({}), trying cloud format fallback", e);
+                match params.get("packageData") {
+                    Some(pd) => match serde_json::from_value(pd.clone()) {
+                        Ok(p) => p,
+                        Err(e2) => return (false, json!(null), Some(format!("Invalid SCADA package (fallback also failed): {}", e2))),
+                    },
+                    None => return (false, json!(null), Some(format!("Invalid SCADA package: {}", e))),
+                }
+            }
         };
 
         // Validate

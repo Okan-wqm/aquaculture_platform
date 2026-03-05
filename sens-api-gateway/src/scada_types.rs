@@ -20,7 +20,9 @@ pub struct ScadaPackage {
     pub screens: Vec<Screen>,
     #[serde(default)]
     pub alarm_rules: Vec<AlarmRule>,
+    #[serde(default)]
     pub control_permissions: ControlPermissions,
+    #[serde(default)]
     pub trend_config: TrendConfig,
 }
 
@@ -28,10 +30,15 @@ pub struct ScadaPackage {
 // PackageMeta
 // ---------------------------------------------------------------------------
 
+fn default_package_version() -> String {
+    "1.0.0".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageMeta {
     pub version: u32,
+    #[serde(default = "default_package_version")]
     pub package_version: String,
     #[serde(default)]
     pub deployed_by: Option<String>,
@@ -174,6 +181,17 @@ pub struct ControlPermissions {
     pub emergency_stop: Option<EmergencyStopConfig>,
 }
 
+impl Default for ControlPermissions {
+    fn default() -> Self {
+        Self {
+            security_levels: SecurityLevels::default(),
+            pin_hash: None,
+            pin_timeout: None,
+            emergency_stop: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SecurityLevels {
@@ -183,6 +201,16 @@ pub struct SecurityLevels {
     pub confirm: Vec<String>,
     #[serde(default)]
     pub pin: Vec<String>,
+}
+
+impl Default for SecurityLevels {
+    fn default() -> Self {
+        Self {
+            none: Vec::new(),
+            confirm: Vec::new(),
+            pin: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -207,6 +235,16 @@ pub struct TrendConfig {
     pub sample_interval_sec: Option<u32>,
     #[serde(default)]
     pub tags: Vec<String>,
+}
+
+impl Default for TrendConfig {
+    fn default() -> Self {
+        Self {
+            retention_days: Some(7),
+            sample_interval_sec: Some(10),
+            tags: Vec::new(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

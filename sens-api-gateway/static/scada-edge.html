@@ -1066,6 +1066,88 @@
     }
 
     // ============================================
+    // Widget: PushButtonWidget
+    // ============================================
+    function PushButtonWidget(props) {
+      var config = props.config || {};
+      var send = props.send;
+      var onConfirm = props.onConfirm;
+      var onPin = props.onPin;
+      var pressedState = useState(false);
+      var pressed = pressedState[0], setPressed = pressedState[1];
+
+      var handleClick = function() {
+        if (emergencyActive) return;
+        var val = config.value != null ? config.value : 1;
+        var doSend = function() {
+          send({ type: 'command', tag: config.tag, value: val });
+          setPressed(true);
+          setTimeout(function() { setPressed(false); }, 300);
+        };
+        var security = config.security || 'none';
+        if (security === 'confirm') {
+          onConfirm({ text: (config.label || config.tag) + ' komutu gonderilsin mi?', onYes: doSend });
+        } else if (security === 'pin') {
+          onPin({ tag: config.tag, onSuccess: doSend });
+        } else {
+          doSend();
+        }
+      };
+
+      return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' } }, [
+        h('button', { key: 'btn', onClick: handleClick, disabled: emergencyActive, style: { padding: '14px 32px', borderRadius: 12, border: 'none', background: emergencyActive ? '#475569' : pressed ? '#2563eb' : '#3b82f6', color: '#fff', fontWeight: 600, fontSize: 15, cursor: emergencyActive ? 'not-allowed' : 'pointer', transition: 'transform 0.1s, background 0.2s', transform: pressed ? 'scale(0.95)' : 'scale(1)', boxShadow: '0 2px 8px rgba(59,130,246,0.3)', opacity: emergencyActive ? 0.5 : 1, fontFamily: 'inherit' } }, config.label || config.tag),
+      ]);
+    }
+
+    // ============================================
+    // Widget: StatusIndicatorWidget
+    // ============================================
+    function StatusIndicatorWidget(props) {
+      var config = props.config || {};
+      var tag = tagStore[config.tag] || {};
+      var hasValue = tag.value != null;
+      var isOn = hasValue && tag.value > 0;
+      var isFault = hasValue && tag.quality && tag.quality !== 'good';
+      var ledColor = isFault ? '#ef4444' : isOn ? '#22c55e' : '#475569';
+      var ledShadow = isFault ? '0 0 10px #ef4444' : isOn ? '0 0 10px #22c55e' : 'none';
+      var onLabel = config.onLabel || 'ACIK';
+      var offLabel = config.offLabel || 'KAPALI';
+      var statusText = isFault ? 'HATA' : isOn ? onLabel : offLabel;
+      var statusColor = isFault ? '#fca5a5' : isOn ? '#86efac' : '#94a3b8';
+
+      return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' } }, [
+        h('div', { key: 'label', style: { fontSize: 13, color: '#94a3b8', marginBottom: 12 } }, config.label || config.tag),
+        h('div', { key: 'led', style: { width: 32, height: 32, borderRadius: '50%', background: ledColor, boxShadow: ledShadow, transition: 'background 0.3s, box-shadow 0.3s' } }),
+        h('div', { key: 'status', style: { fontSize: 12, fontWeight: 600, marginTop: 10, color: statusColor } }, statusText),
+      ]);
+    }
+
+    // ============================================
+    // Widget: TankLevelWidget
+    // ============================================
+    function TankLevelWidget(props) {
+      var config = props.config || {};
+      var tag = tagStore[config.tag] || {};
+      var value = typeof tag.value === 'number' ? tag.value : 0;
+      var min = config.min != null ? config.min : 0;
+      var max = config.max != null ? config.max : 100;
+      var range = max - min || 1;
+      var pct = Math.max(0, Math.min(100, ((value - min) / range) * 100));
+      var unit = config.unit || '';
+
+      var fillColor = pct > 80 ? 'linear-gradient(to top, #2563eb, #60a5fa)' : pct > 50 ? 'linear-gradient(to top, #2563eb, #3b82f6)' : 'linear-gradient(to top, #1d4ed8, #2563eb)';
+
+      return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8 } }, [
+        h('div', { key: 'label', style: { fontSize: 13, color: '#94a3b8' } }, config.label || config.tag),
+        h('div', { key: 'tank', style: { width: 48, height: '50%', minHeight: 60, maxHeight: 120, borderRadius: 6, border: '2px solid #475569', background: '#0f172a', position: 'relative', overflow: 'hidden' } },
+          h('div', { key: 'fill', style: { position: 'absolute', bottom: 0, left: 0, right: 0, height: pct + '%', background: fillColor, transition: 'height 0.5s ease', borderRadius: '0 0 4px 4px' } })
+        ),
+        h('div', { key: 'pct', style: { fontSize: 20, fontWeight: 700, color: '#f1f5f9', fontVariantNumeric: 'tabular-nums' } }, pct.toFixed(0) + '%'),
+        h('div', { key: 'val', style: { fontSize: 12, color: '#64748b' } }, value.toFixed(1) + (unit ? ' ' + unit : '')),
+      ]);
+    }
+
+    // ============================================
     // Widget Router
     // ============================================
     function WidgetRouter(props) {
@@ -1086,6 +1168,9 @@
       if (t === 'calibrationHistory') return h(CalibHistoryWidget, common);
       if (t === 'calibrationStatus') return h(CalibStatusWidget, common);
       if (t === 'processView') return h(ProcessViewWidget, common);
+      if (t === 'pushButton') return h(PushButtonWidget, common);
+      if (t === 'statusIndicator') return h(StatusIndicatorWidget, common);
+      if (t === 'tankLevel') return h(TankLevelWidget, common);
       return h('div', { style: { color: '#64748b', padding: 8, fontSize: 12 } }, 'Bilinmeyen widget: ' + t);
     }
 

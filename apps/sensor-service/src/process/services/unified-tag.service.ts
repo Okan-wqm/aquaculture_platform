@@ -1,6 +1,6 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, ILike } from 'typeorm';
+import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
 
 import { DeviceIoConfig, IoType, IoDataType } from '../../edge-device/entities/device-io-config.entity';
 import { EdgeDevice } from '../../edge-device/entities/edge-device.entity';
@@ -48,7 +48,14 @@ export class UnifiedTagService {
       ...input,
       tenantId,
     });
-    return this.tagRepository.save(tag);
+    try {
+      return await this.tagRepository.save(tag);
+    } catch (error: any) {
+      if (error?.code === '23505') {
+        throw new ConflictException(`Tag with FQN "${input.fqn}" already exists for this tenant`);
+      }
+      throw error;
+    }
   }
 
   async updateTag(id: string, input: UpdateTagInput, tenantId: string): Promise<UnifiedTag> {
@@ -119,8 +126,9 @@ export class UnifiedTagService {
       });
     }
     if (filter?.searchTerm) {
+      const escapedSearch = filter.searchTerm.replace(/[%_]/g, '\\$&');
       qb.andWhere('(tag.fqn ILIKE :search OR tag.displayName ILIKE :search)', {
-        search: `%${filter.searchTerm}%`,
+        search: `%${escapedSearch}%`,
       });
     }
 
@@ -134,11 +142,12 @@ export class UnifiedTagService {
    * Search tags by FQN or displayName (ILIKE)
    */
   async tagSearch(query: string, tenantId: string, limit = 50): Promise<UnifiedTag[]> {
+    const escapedQuery = query.replace(/[%_]/g, '\\$&');
     return this.tagRepository
       .createQueryBuilder('tag')
       .where('tag.tenantId = :tenantId', { tenantId })
       .andWhere('(tag.fqn ILIKE :query OR tag.displayName ILIKE :query)', {
-        query: `%${query}%`,
+        query: `%${escapedQuery}%`,
       })
       .orderBy('tag.fqn', 'ASC')
       .take(Math.min(limit, 200))
@@ -160,27 +169,28 @@ export class UnifiedTagService {
     });
     if (!device) throw new NotFoundException(`Edge device ${deviceId} not found`);
 
+    // DeviceIoConfig has no tenantId - device ownership already verified above
     const ioConfigs = await this.ioConfigRepository.find({
       where: { deviceId },
     });
 
     const discoveredCount = ioConfigs.length;
-    let createdCount = 0;
-    const tags: UnifiedTag[] = [];
+
+    // Batch: collect all FQNs and fetch existing tags in one query
+    const fqns = ioConfigs.map(io => `${device.deviceCode}/${io.tagName}`);
+    const existingTags = fqns.length > 0
+      ? await this.tagRepository.find({ where: { tenantId, fqn: In(fqns) } })
+      : [];
+    const existingFqnMap = new Map(existingTags.map(t => [t.fqn, t]));
+
+    const tags: UnifiedTag[] = [...existingTags];
+    const newTags: UnifiedTag[] = [];
 
     for (const io of ioConfigs) {
       const fqn = `${device.deviceCode}/${io.tagName}`;
+      if (existingFqnMap.has(fqn)) continue;
 
-      const existing = await this.tagRepository.findOne({
-        where: { tenantId, fqn },
-      });
-
-      if (existing) {
-        tags.push(existing);
-        continue;
-      }
-
-      const tag = this.tagRepository.create({
+      newTags.push(this.tagRepository.create({
         tenantId,
         fqn,
         localName: io.tagName,
@@ -202,13 +212,15 @@ export class UnifiedTagService {
           ioConfigId: io.id,
         },
         hierarchy: {},
-      });
-
-      const saved = await this.tagRepository.save(tag);
-      tags.push(saved);
-      createdCount++;
+      }));
     }
 
+    if (newTags.length > 0) {
+      const saved = await this.tagRepository.save(newTags);
+      tags.push(...saved);
+    }
+
+    const createdCount = newTags.length;
     this.logger.log(`Discovered ${discoveredCount} I/O configs, created ${createdCount} new tags`);
     return { discoveredCount, createdCount, tags };
   }
@@ -238,6 +250,7 @@ export class UnifiedTagService {
     );
 
     // Update hierarchy on tags that match equipment codes
+    const modifiedTags: UnifiedTag[] = [];
     for (const node of equipmentNodes) {
       const code = node.data.equipmentCode;
       if (!code) continue;
@@ -253,8 +266,12 @@ export class UnifiedTagService {
           equipmentId: node.data.equipmentId,
           equipmentCode: node.data.equipmentCode,
         };
-        await this.tagRepository.save(tag);
+        modifiedTags.push(tag);
       }
+    }
+
+    if (modifiedTags.length > 0) {
+      await this.tagRepository.save(modifiedTags);
     }
 
     return discovery;

@@ -103,6 +103,15 @@
       border: none !important;
       box-shadow: none !important;
     }
+    /* SCADA Widget Node styles */
+    .react-flow__node-scadaWidget {
+      padding: 0;
+      border: none;
+      background: transparent;
+    }
+    .react-flow__node-scadaWidget.selected {
+      box-shadow: 0 0 0 2px #06b6d4;
+    }
     /* Chart Widget Node styles */
     .react-flow__node-chartWidget {
       background: white;
@@ -409,11 +418,47 @@
       return h(AlgaeBagNode, { ...props, data: { ...props.data, color: 'yellow' } });
     }
 
+    // ============================================
+    // SCADA Widget Node (Canvas vanilla JS renderer)
+    // ============================================
+    function ScadaWidgetNodeCanvas({ data, selected }) {
+      var w = (data && data.width) || 240;
+      var h_val = (data && data.height) || 200;
+      return h('div', {
+        style: {
+          width: w, height: h_val,
+          background: 'white',
+          border: selected ? '2px solid #06b6d4' : '1px solid #d1d5db',
+          borderRadius: 8,
+          overflow: 'hidden',
+          position: 'relative',
+          boxShadow: selected ? '0 0 0 2px rgba(6,182,212,0.3)' : 'none',
+        }
+      }, [
+        // Widget type badge (top-left)
+        h('div', {
+          key: 'badge',
+          style: { position: 'absolute', top: 4, left: 4, fontSize: 10, color: '#6b7280', background: '#f3f4f6', padding: '1px 6px', borderRadius: 4 }
+        }, data && data.widgetType || 'widget'),
+        // Live value (center)
+        h('div', {
+          key: 'value',
+          style: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: 24, fontWeight: 600, color: '#1f2937' }
+        }, data && data.liveValue != null ? String(data.liveValue) : '\u2014'),
+        // Tag name (bottom)
+        h('div', {
+          key: 'tag',
+          style: { position: 'absolute', bottom: 4, left: 4, right: 4, fontSize: 9, color: '#9ca3af', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+        }, data && data.tagName || ''),
+      ]);
+    }
+
     // Edge types registration - use from UMD bundle
     const edgeTypes = baseEdgeTypes;
 
     // Node types registration - use from UMD bundle
     const nodeTypes = {
+      scadaWidget: ScadaWidgetNodeCanvas,
       equipment: EquipmentNode,
       blower: BlowerNode,
       drumFilter: DrumFilterNode,
@@ -597,6 +642,9 @@
       }
     };
 
+    // Cached parent origin for secure postMessage
+    let cachedParentOrigin = '*';
+
     // ============================================
     // Main Process Editor Canvas Component
     // ============================================
@@ -608,6 +656,12 @@
       const [selectedNodeId, setSelectedNodeId] = useState(null);
       const [selectedEdgeId, setSelectedEdgeId] = useState(null);
       const [highlightedNodeId, setHighlightedNodeId] = useState(null);
+
+      // Refs for stable access inside message handler (avoids stale closure)
+      const nodesRef = useRef(nodes);
+      const edgesRef = useRef(edges);
+      useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+      useEffect(() => { edgesRef.current = edges; }, [edges]);
 
       // Handle new connection
       const onConnect = useCallback((params) => {
@@ -704,7 +758,13 @@
         const equipmentData = event.dataTransfer.getData('application/equipment') || event.dataTransfer.getData('application/reactflow');
         if (!equipmentData) return;
 
-        const equipment = JSON.parse(equipmentData);
+        let equipment;
+        try {
+          equipment = JSON.parse(equipmentData);
+        } catch (e) {
+          console.error('[canvas] Failed to parse equipment drop data:', e);
+          return;
+        }
 
         const position = reactFlowInstance.screenToFlowPosition({
           x: event.clientX,
@@ -760,17 +820,24 @@
         notifyParent('nodeAdded', newNode);
       }, [reactFlowInstance, setNodes]);
 
-      // Notify parent window
+      // Notify parent window (use cached origin for security)
       const notifyParent = useCallback((type, data) => {
-        window.parent.postMessage({ type, data, source: 'process-editor-canvas' }, '*');
+        window.parent.postMessage({ type, data, source: 'process-editor-canvas' }, cachedParentOrigin);
       }, []);
 
       // Listen for messages from parent
       useEffect(() => {
-        notifyParent('edgesChange', edges);
         const handleMessage = (event) => {
           const { type, data, source } = event.data || {};
           if (source !== 'process-editor-host') return;
+
+          // Cache parent origin on first valid message
+          if (!cachedParentOrigin || cachedParentOrigin === '*') {
+            cachedParentOrigin = event.origin;
+          }
+
+          // Validate origin against cached parent origin
+          if (cachedParentOrigin !== '*' && event.origin !== cachedParentOrigin) return;
 
           switch (type) {
             case 'setNodes':
@@ -821,14 +888,14 @@
               if (reactFlowInstance) reactFlowInstance.zoomOut();
               break;
             case 'getState':
-              notifyParent('state', { nodes, edges });
+              notifyParent('state', { nodes: nodesRef.current, edges: edgesRef.current });
               break;
             case 'highlightNode':
               // Highlight a specific node with flash animation
               setHighlightedNodeId(data);
               // Also center the view on the node
               if (reactFlowInstance) {
-                const node = nodes.find(n => n.id === data);
+                const node = nodesRef.current.find(n => n.id === data);
                 if (node) {
                   reactFlowInstance.setCenter(node.position.x + 80, node.position.y + 50, { duration: 500, zoom: 1 });
                 }
@@ -1050,6 +1117,31 @@
               }));
               break;
             }
+            case 'getViewport': {
+              if (reactFlowInstance) {
+                var vp = reactFlowInstance.getViewport();
+                notifyParent('viewportState', vp);
+              }
+              break;
+            }
+            case 'setViewport': {
+              if (reactFlowInstance && data) {
+                reactFlowInstance.setViewport({ x: data.x || 0, y: data.y || 0, zoom: data.zoom || 1 });
+              }
+              break;
+            }
+            case 'setActiveScreen': {
+              var screenId = data && data.screenId;
+              if (screenId) {
+                setNodes(function(nds) { return nds.map(function(n) {
+                  if (n.type === 'scadaWidget') {
+                    return { ...n, hidden: n.data && n.data.screenId !== screenId };
+                  }
+                  return n;
+                }); });
+              }
+              break;
+            }
             default:
               break;
           }
@@ -1057,7 +1149,7 @@
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-      }, [reactFlowInstance, nodes, edges, setNodes, setEdges, notifyParent]);
+      }, [reactFlowInstance, setNodes, setEdges, notifyParent]);
 
 
       // Notify parent when nodes change

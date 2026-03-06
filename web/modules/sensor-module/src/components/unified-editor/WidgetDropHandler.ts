@@ -38,7 +38,7 @@ export function snapToGrid(x: number, y: number): { x: number; y: number } {
 export interface WidgetDropPayload {
   widgetType: ScadaWidgetType;
   label: string;
-  defaultConfig: Record<string, any>;
+  defaultConfig: Record<string, unknown>;
 }
 
 /* ------------------------------------------------------------------ */

@@ -5,16 +5,17 @@
  * Auto-hides after 3s when connected, shows stale data warning after 30s.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useScadaData } from '../../context/ScadaDataProvider';
 
 const STALE_THRESHOLD_MS = 30_000;
 const AUTO_HIDE_DELAY_MS = 3_000;
 
 export function ConnectionStatusBanner() {
-  const { connectionStatus, isConnected } = useScadaData();
+  const { connectionStatus, isConnected, values } = useScadaData();
   const [visible, setVisible] = useState(true);
   const [isStale, setIsStale] = useState(false);
+  const lastDataTimeRef = useRef<number>(Date.now());
 
   // Auto-hide when connected
   useEffect(() => {
@@ -25,51 +26,26 @@ export function ConnectionStatusBanner() {
     setVisible(true);
   }, [connectionStatus]);
 
-  // Stale data detection
+  // Track last data time via ref (no re-render)
+  useEffect(() => {
+    lastDataTimeRef.current = Date.now();
+    setIsStale(false);
+  }, [values]);
+
+  // Stale detection interval
   useEffect(() => {
     if (!isConnected) {
       setIsStale(false);
       return;
     }
-
-    const interval = setInterval(() => {
-      // We check lastUpdate from context indirectly - if no data flows for 30s
-      // This is a simple heuristic; real staleness should be driven by lastUpdate
-      setIsStale((prev) => prev);
-    }, STALE_THRESHOLD_MS);
-
-    return () => clearInterval(interval);
-  }, [isConnected]);
-
-  // Use a ref-based approach to track actual staleness from data flow
-  const [lastDataTime, setLastDataTime] = useState<number>(Date.now());
-
-  useEffect(() => {
-    if (isConnected) {
-      setLastDataTime(Date.now());
-      setIsStale(false);
-    }
-  }, [isConnected]);
-
-  // Track stale based on time since last values change
-  const { values } = useScadaData();
-  useEffect(() => {
-    setLastDataTime(Date.now());
-    setIsStale(false);
-  }, [values]);
-
-  useEffect(() => {
-    if (!isConnected) return;
-
     const timer = setInterval(() => {
-      if (Date.now() - lastDataTime > STALE_THRESHOLD_MS) {
+      if (Date.now() - lastDataTimeRef.current > STALE_THRESHOLD_MS) {
         setIsStale(true);
         setVisible(true);
       }
     }, 5_000);
-
     return () => clearInterval(timer);
-  }, [isConnected, lastDataTime]);
+  }, [isConnected]);
 
   if (!visible && !isStale) return null;
 

@@ -37,22 +37,22 @@ export const SCREEN_TEMPLATES: ScreenTemplate[] = [
       {
         widgetType: 'gauge',
         position: { col: 0, row: 0, w: 3, h: 4 },
-        config: { label: 'Temperature', unit: '\u00b0C', min: 0, max: 100, tag: '' },
+        config: { label: 'Temperature', unit: '\u00b0C', min: 0, max: 100, tagName: '' },
       },
       {
         widgetType: 'gauge',
         position: { col: 3, row: 0, w: 3, h: 4 },
-        config: { label: 'Pressure', unit: 'bar', min: 0, max: 10, tag: '' },
+        config: { label: 'Pressure', unit: 'bar', min: 0, max: 10, tagName: '' },
       },
       {
         widgetType: 'gauge',
         position: { col: 6, row: 0, w: 3, h: 4 },
-        config: { label: 'Flow Rate', unit: 'L/min', min: 0, max: 500, tag: '' },
+        config: { label: 'Flow Rate', unit: 'L/min', min: 0, max: 500, tagName: '' },
       },
       {
         widgetType: 'gauge',
         position: { col: 9, row: 0, w: 3, h: 4 },
-        config: { label: 'Level', unit: '%', min: 0, max: 100, tag: '' },
+        config: { label: 'Level', unit: '%', min: 0, max: 100, tagName: '' },
       },
     ],
   },

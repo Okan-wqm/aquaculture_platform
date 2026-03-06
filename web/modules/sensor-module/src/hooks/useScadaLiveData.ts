@@ -41,6 +41,7 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 
 // Singleton socket for SCADA live data (reuses same /sensors namespace)
 let scadaSocket: Socket | null = null;
+let socketRefCount = 0;
 
 function getOrCreateScadaSocket(): Socket | null {
   const token = getAccessToken();
@@ -64,6 +65,14 @@ function getOrCreateScadaSocket(): Socket | null {
     reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
+  });
+
+  // Refresh token on reconnect attempts
+  scadaSocket.on('reconnect_attempt', () => {
+    const freshToken = getAccessToken();
+    if (freshToken && scadaSocket) {
+      (scadaSocket as any).auth = { token: freshToken };
+    }
   });
 
   return scadaSocket;
@@ -100,6 +109,8 @@ export function useScadaLiveData(options: ScadaLiveDataOptions): ScadaLiveDataRe
       forceUpdate();
       return;
     }
+
+    socketRefCount++;
 
     const targetCodes = new Set(deviceCodes);
     const tagFilter = tagNames && tagNames.length > 0 ? new Set(tagNames) : null;
@@ -234,6 +245,13 @@ export function useScadaLiveData(options: ScadaLiveDataOptions): ScadaLiveDataRe
         }
       }
       subscribedCodesRef.current = new Set();
+
+      // Disconnect singleton when no consumers remain
+      socketRefCount--;
+      if (socketRefCount === 0 && scadaSocket) {
+        scadaSocket.disconnect();
+        scadaSocket = null;
+      }
     };
   }, [deviceCodesKey, tagNamesKey, enabled, debounceMs, forceUpdate]);
 

@@ -35,9 +35,9 @@ export class UnifiedTagResolver {
   async listTags(
     @Args('filter', { nullable: true }) filter?: TagFilterInput,
     @Args('pagination', { nullable: true }) pagination?: ProcessPaginationInput,
-    @Tenant() tenantId?: string,
+    @Tenant() tenantId: string = '',
   ): Promise<UnifiedTagListType> {
-    const result = await this.unifiedTagService.listTags(tenantId ?? '', filter, pagination);
+    const result = await this.unifiedTagService.listTags(tenantId, filter, pagination);
     return {
       items: result.items.map((t) => this.mapToType(t)),
       total: result.total,
@@ -51,9 +51,9 @@ export class UnifiedTagResolver {
   async searchTags(
     @Args('query') query: string,
     @Args('limit', { type: () => Int, nullable: true }) limit?: number,
-    @Tenant() tenantId?: string,
+    @Tenant() tenantId: string = '',
   ): Promise<UnifiedTagType[]> {
-    const tags = await this.unifiedTagService.tagSearch(query, tenantId ?? '', limit);
+    const tags = await this.unifiedTagService.tagSearch(query, tenantId, limit);
     return tags.map((t) => this.mapToType(t));
   }
 

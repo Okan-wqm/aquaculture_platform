@@ -1,5 +1,5 @@
 import { InputType, ObjectType, Field, ID, Int } from '@nestjs/graphql';
-import { IsOptional, IsUUID, IsInt, Min } from 'class-validator';
+import { IsOptional, IsUUID, IsInt, Min, Max } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { ScadaDeployStatus } from '../entities/scada-deploy-log.entity';
@@ -97,5 +97,6 @@ export class DeployLogFilterInput {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(100)
   limit?: number;
 }

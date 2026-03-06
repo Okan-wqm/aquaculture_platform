@@ -58,15 +58,13 @@ const HmiWidgetPanel: React.FC = () => {
   const selectedNode = useProcessStore((s) => s.selectedNode);
   const updateNodeData = useProcessStore((s) => s.updateNodeData);
 
-  const {
-    targetDeviceId,
-    alarmRules,
-    addAlarmRule,
-    removeAlarmRule,
-    updateAlarmRule: storeUpdateAlarmRule,
-    trendConfig,
-    updateTrendConfig,
-  } = useScadaPackageStore();
+  const targetDeviceId = useScadaPackageStore((s) => s.targetDeviceId);
+  const alarmRules = useScadaPackageStore((s) => s.alarmRules);
+  const addAlarmRule = useScadaPackageStore((s) => s.addAlarmRule);
+  const removeAlarmRule = useScadaPackageStore((s) => s.removeAlarmRule);
+  const storeUpdateAlarmRule = useScadaPackageStore((s) => s.updateAlarmRule);
+  const trendConfig = useScadaPackageStore((s) => s.trendConfig);
+  const updateTrendConfig = useScadaPackageStore((s) => s.updateTrendConfig);
 
   // Widget data from the selected scadaWidget node
   const widgetType = selectedNode?.data?.widgetType as string | undefined;

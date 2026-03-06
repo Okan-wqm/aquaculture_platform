@@ -103,13 +103,16 @@ export const stTokensProvider: languages.IMonarchLanguage = {
       [/\(\*/, 'comment', '@comment'],
       [/\/\/.*$/, 'comment'],
 
-      // Time literals: T#, TIME#
-      [/T#[\d_]+(ms|s|m|h|d)([\d_]+(ms|s|m|h|d))*/, 'number.time'],
-      [/TIME#[\d_]+(ms|s|m|h|d)([\d_]+(ms|s|m|h|d))*/, 'number.time'],
+      // Time literals: T#, TIME# (supports decimals like T#1.5s)
+      [/T#(\d+(\.\d+)?(ms|s|m|h|d)_?)+/, 'number.time'],
+      [/TIME#(\d+(\.\d+)?(ms|s|m|h|d)_?)+/, 'number.time'],
 
-      // Date literals: D#, DT#, DATE#
+      // Date/time literals
+      [/TOD#\d{2}:\d{2}:\d{2}/, 'number.date'],
+      [/TIME_OF_DAY#\d{2}:\d{2}:\d{2}/, 'number.date'],
+      [/DT#\d{4}-\d{2}-\d{2}[-T]\d{2}:\d{2}:\d{2}/, 'number.date'],
+      [/DATE_AND_TIME#\d{4}-\d{2}-\d{2}[-T]\d{2}:\d{2}:\d{2}/, 'number.date'],
       [/D#\d{4}-\d{2}-\d{2}/, 'number.date'],
-      [/DT#\d{4}-\d{2}-\d{2}-\d{2}:\d{2}:\d{2}/, 'number.date'],
       [/DATE#\d{4}-\d{2}-\d{2}/, 'number.date'],
 
       // Numbers
@@ -150,8 +153,9 @@ export const stTokensProvider: languages.IMonarchLanguage = {
     ],
 
     comment: [
-      [/[^(*]+/, 'comment'],
+      [/\(\*/, 'comment', '@push'],
       [/\*\)/, 'comment', '@pop'],
+      [/[^(*]+/, 'comment'],
       [/./, 'comment'],
     ],
   },

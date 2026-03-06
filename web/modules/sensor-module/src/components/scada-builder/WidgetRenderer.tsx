@@ -7,18 +7,33 @@
  * Unknown types show a placeholder with the type name.
  */
 
-import React, { Suspense, useMemo } from 'react';
+import React, { Suspense, useMemo, Component, ErrorInfo } from 'react';
+
+/* ------------------------------------------------------------------ */
+/*  Shared severity color palette for alarm widgets                    */
+/* ------------------------------------------------------------------ */
+
+export const ALARM_SEVERITY_COLORS = {
+  critical: { bg: '#ef4444', text: '#ffffff' },
+  high:     { bg: '#f97316', text: '#ffffff' },
+  medium:   { bg: '#eab308', text: '#000000' },
+  low:      { bg: '#3b82f6', text: '#ffffff' },
+  info:     { bg: '#6b7280', text: '#ffffff' },
+} as const;
 
 /* ------------------------------------------------------------------ */
 /*  Common renderer props                                              */
 /* ------------------------------------------------------------------ */
 
 export interface WidgetRendererProps {
-  config: Record<string, any>;
+  config: Record<string, unknown>;
   value?: number | string | boolean;
   width: number;
   height: number;
   isEditing: boolean;
+  onCommand?: (command: string, value?: unknown) => void;
+  tagName?: string;
+  label?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -45,33 +60,81 @@ const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<Widg
 };
 
 /* ------------------------------------------------------------------ */
-/*  Fallback skeleton                                                  */
+/*  Fallback skeleton (style injected once)                            */
 /* ------------------------------------------------------------------ */
 
-const Skeleton: React.FC<{ width: number; height: number }> = ({ width, height }) => (
-  <div
-    style={{
-      width,
-      height,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: '#f8fafc',
-    }}
-  >
+let styleInjected = false;
+
+const Skeleton: React.FC<{ width: number; height: number }> = ({ width, height }) => {
+  React.useEffect(() => {
+    if (!styleInjected) {
+      const style = document.createElement('style');
+      style.textContent = '@keyframes widgetSpin { to { transform: rotate(360deg); } }';
+      document.head.appendChild(style);
+      styleInjected = true;
+    }
+  }, []);
+
+  return (
     <div
       style={{
-        width: 24,
-        height: 24,
-        border: '3px solid #e2e8f0',
-        borderTopColor: '#06b6d4',
-        borderRadius: '50%',
-        animation: 'spin 0.7s linear infinite',
+        width,
+        height,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#f8fafc',
       }}
-    />
-    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-  </div>
-);
+    >
+      <div
+        style={{
+          width: 24,
+          height: 24,
+          border: '3px solid #e2e8f0',
+          borderTopColor: '#06b6d4',
+          borderRadius: '50%',
+          animation: 'widgetSpin 0.7s linear infinite',
+        }}
+      />
+    </div>
+  );
+};
+
+/* ------------------------------------------------------------------ */
+/*  Error Boundary                                                     */
+/* ------------------------------------------------------------------ */
+
+class WidgetErrorBoundary extends Component<
+  { children: React.ReactNode; widgetType: string; width: number; height: number },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error(`[SCADA] Widget "${this.props.widgetType}" crashed:`, error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          width: this.props.width, height: this.props.height,
+          display: 'flex', flexDirection: 'column' as const, alignItems: 'center',
+          justifyContent: 'center', background: '#fef2f2', color: '#991b1b',
+          fontSize: 11, gap: 4, padding: 8, textAlign: 'center' as const,
+        }}>
+          <span style={{ fontSize: 18 }}>&#9888;</span>
+          <span>Widget hatasi: {this.props.widgetType}</span>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /*  Unknown type placeholder                                           */
@@ -113,7 +176,7 @@ export interface WidgetRendererContainerProps extends WidgetRendererProps {
 }
 
 export const WidgetRenderer: React.FC<WidgetRendererContainerProps> = React.memo(
-  ({ widgetType, config, value, width, height, isEditing }) => {
+  ({ widgetType, config, value, width, height, isEditing, onCommand }) => {
     const LazyComponent = useMemo(() => lazyMap[widgetType], [widgetType]);
 
     if (!LazyComponent) {
@@ -121,15 +184,18 @@ export const WidgetRenderer: React.FC<WidgetRendererContainerProps> = React.memo
     }
 
     return (
-      <Suspense fallback={<Skeleton width={width} height={height} />}>
-        <LazyComponent
-          config={config}
-          value={value}
-          width={width}
-          height={height}
-          isEditing={isEditing}
-        />
-      </Suspense>
+      <WidgetErrorBoundary widgetType={widgetType} width={width} height={height}>
+        <Suspense fallback={<Skeleton width={width} height={height} />}>
+          <LazyComponent
+            config={config}
+            value={value}
+            width={width}
+            height={height}
+            isEditing={isEditing}
+            onCommand={onCommand}
+          />
+        </Suspense>
+      </WidgetErrorBoundary>
     );
   },
 );

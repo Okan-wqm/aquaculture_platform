@@ -14,7 +14,7 @@ export interface StProgram {
   updatedAt: number;
 }
 
-export type CompileStatus = 'idle' | 'compiling' | 'success' | 'error';
+export type CompileStatus = 'idle' | 'compiling' | 'success' | 'warning' | 'error';
 
 export interface CompileDiagnostic {
   line: number;
@@ -57,6 +57,10 @@ export function useStEditor() {
     () => programs[0]?.id ?? '',
   );
 
+  // Ref to avoid stale closure in updateSource
+  const activeProgramIdRef = useRef(activeProgramId);
+  useEffect(() => { activeProgramIdRef.current = activeProgramId; }, [activeProgramId]);
+
   const activeProgram = programs.find((p) => p.id === activeProgramId) ?? null;
 
   // Dirty flag: tracks if source changed since last save
@@ -77,8 +81,9 @@ export function useStEditor() {
   const [diagnostics, setDiagnostics] = useState<CompileDiagnostic[]>([]);
 
   // Monaco editor ref (set externally)
-  const editorRef = useRef<any>(null);
-  const monacoRef = useRef<any>(null);
+  // Typed as minimal interface to avoid hard dependency on monaco-editor package
+  const editorRef = useRef<{ getModel: () => { getLineMaxColumn: (line: number) => number } | null; [key: string]: unknown } | null>(null);
+  const monacoRef = useRef<{ editor: { setModelMarkers: (model: unknown, owner: string, markers: unknown[]) => void }; [key: string]: unknown } | null>(null);
 
   // ---- CRUD ----
 
@@ -99,6 +104,7 @@ export function useStEditor() {
   const deleteProgram = useCallback(
     (id: string) => {
       setPrograms((prev) => {
+        if (prev.length <= 1) return prev; // Guard: never delete last program
         const next = prev.filter((p) => p.id !== id);
         if (activeProgramId === id && next.length > 0) {
           setActiveProgramId(next[0].id);
@@ -116,14 +122,15 @@ export function useStEditor() {
   }, []);
 
   const updateSource = useCallback((source: string) => {
+    const targetId = activeProgramIdRef.current;
     setPrograms((prev) =>
       prev.map((p) =>
-        p.id === activeProgramId
+        p.id === targetId
           ? { ...p, source, updatedAt: Date.now() }
           : p,
       ),
     );
-  }, [activeProgramId]);
+  }, []);
 
   // ---- Save ----
 
@@ -204,7 +211,7 @@ export function useStEditor() {
     }
 
     setDiagnostics(warnings);
-    setCompileStatus(warnings.length > 0 ? 'error' : 'success');
+    setCompileStatus(warnings.length > 0 ? 'warning' : 'success');
     applyMarkers(warnings);
 
     return warnings;
@@ -251,6 +258,22 @@ export function useStEditor() {
     setCompileStatus('idle');
   }, []);
 
+  // ---- Unsaved changes warning ----
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const anyDirty = programs.some(
+        (p) => p.source !== (savedSourceMap[p.id] ?? ''),
+      );
+      if (anyDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [programs, savedSourceMap]);
+
   // ---- Keyboard shortcuts ----
 
   useEffect(() => {
@@ -271,6 +294,12 @@ export function useStEditor() {
       if (e.key === 'F7') {
         e.preventDefault();
         validate();
+        return;
+      }
+      // F9 → deploy (placeholder)
+      if (e.key === 'F9') {
+        e.preventDefault();
+        // TODO: deploy action
         return;
       }
     };

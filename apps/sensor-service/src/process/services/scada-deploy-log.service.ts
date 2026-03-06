@@ -48,9 +48,7 @@ export class ScadaDeployLogService {
     return saved;
   }
 
-  /**
-   * Update deployment status from MQTT response.
-   */
+  /** @internal MQTT handler only - no tenant context available */
   async updateStatus(
     commandId: string,
     status: ScadaDeployStatus,
@@ -111,11 +109,12 @@ export class ScadaDeployLogService {
     page = 1,
     limit = 20,
   ): Promise<ScadaDeployLogListResult> {
+    const safeLimit = Math.min(limit, 100);
     const [items, total] = await this.deployLogRepo.findAndCount({
       where: { deviceId, tenantId },
       order: { sentAt: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
+      skip: (page - 1) * safeLimit,
+      take: safeLimit,
     });
     return { items, total };
   }
@@ -147,9 +146,9 @@ export class ScadaDeployLogService {
   }
 
   /**
-   * Find deploy log by commandId.
+   * Find deploy log by commandId (tenant-scoped).
    */
-  async findByCommandId(commandId: string): Promise<ScadaDeployLog | null> {
-    return this.deployLogRepo.findOne({ where: { commandId } });
+  async findByCommandId(commandId: string, tenantId: string): Promise<ScadaDeployLog | null> {
+    return this.deployLogRepo.findOne({ where: { commandId, tenantId } });
   }
 }

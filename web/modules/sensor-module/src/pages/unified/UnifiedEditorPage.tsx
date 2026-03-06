@@ -36,8 +36,9 @@ import {
   PanelRightOpen,
 } from 'lucide-react';
 
-import { useEditorModeStore, EditorMode } from '../../store/editorModeStore';
+import { useEditorModeStore, type EditorMode } from '../../store/editorModeStore';
 import { useProcessStore, EquipmentNodeData } from '../../store/processStore';
+import { isCanvasMessage } from '../../types/canvas-messages';
 import { useScadaPackageStore } from '../../store/scadaPackageStore';
 import { useProcess } from '../../hooks/useProcess';
 import { useEdgeDevices } from '../../hooks/useEdgeDevices';
@@ -89,6 +90,12 @@ const UnifiedEditorPage: React.FC = () => {
   const [canvasEdges, setCanvasEdges] = useState<CanvasEdge[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
+  // Refs for stable access inside message handler (avoids stale closure)
+  const canvasNodesRef = useRef(canvasNodes);
+  const canvasEdgesRef = useRef(canvasEdges);
+  useEffect(() => { canvasNodesRef.current = canvasNodes; }, [canvasNodes]);
+  useEffect(() => { canvasEdgesRef.current = canvasEdges; }, [canvasEdges]);
+
   // Device selector
   const [showDeviceDropdown, setShowDeviceDropdown] = useState(false);
   const [targetDeviceId, setTargetDeviceId] = useState<string | null>(null);
@@ -126,6 +133,7 @@ const UnifiedEditorPage: React.FC = () => {
   const scadaRemoveWidget = useScadaPackageStore((s) => s.removeWidget);
   const scadaUpdateWidgetPosition = useScadaPackageStore((s) => s.updateWidgetPosition);
   const scadaUpdateWidget = useScadaPackageStore((s) => s.updateWidget);
+  const scadaScreens = useScadaPackageStore((s) => s.screens);
 
   // Send message to iframe
   const sendToCanvas = useCallback((type: string, data?: unknown) => {
@@ -141,16 +149,16 @@ const UnifiedEditorPage: React.FC = () => {
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      const message = event.data || {};
-      const { type, data, source } = message;
+      if (!isCanvasMessage(event.data)) return;
+      const { type, data, source } = event.data;
       if (source !== 'process-editor-canvas') return;
 
       switch (type) {
         case 'ready':
           setIsCanvasReady(true);
-          if (canvasNodes.length > 0) {
-            sendToCanvas('setNodes', canvasNodes);
-            sendToCanvas('setEdges', canvasEdges);
+          if (canvasNodesRef.current.length > 0) {
+            sendToCanvas('setNodes', canvasNodesRef.current);
+            sendToCanvas('setEdges', canvasEdgesRef.current);
           }
           break;
         case 'nodesChange':
@@ -188,11 +196,14 @@ const UnifiedEditorPage: React.FC = () => {
         case 'overlayNodeMoved': {
           const moveData = data as { nodeId: string; position: { x: number; y: number } };
           if (moveData?.nodeId && scadaActiveScreenId) {
+            // Preserve existing widget dimensions from store
+            const activeScreen = scadaScreens.find((s) => s.id === scadaActiveScreenId);
+            const existingWidget = activeScreen?.widgets.find((w) => w.id === moveData.nodeId);
             scadaUpdateWidgetPosition(scadaActiveScreenId, moveData.nodeId, {
               col: Math.round(moveData.position.x / 15),
               row: Math.round(moveData.position.y / 15),
-              w: 4,
-              h: 3,
+              w: existingWidget?.position?.w ?? 4,
+              h: existingWidget?.position?.h ?? 3,
             });
           }
           break;
@@ -200,9 +211,13 @@ const UnifiedEditorPage: React.FC = () => {
         case 'overlayNodeResized': {
           const resizeData = data as { nodeId: string; width: number; height: number };
           if (resizeData?.nodeId && scadaActiveScreenId) {
+            // Preserve existing widget position from store
+            const activeScreen = scadaScreens.find((s) => s.id === scadaActiveScreenId);
+            const existingWidget = activeScreen?.widgets.find((w) => w.id === resizeData.nodeId);
             scadaUpdateWidget(scadaActiveScreenId, resizeData.nodeId, {
               position: {
-                col: 0, row: 0,
+                col: existingWidget?.position?.col ?? 0,
+                row: existingWidget?.position?.row ?? 0,
                 w: Math.round(resizeData.width / 15),
                 h: Math.round(resizeData.height / 15),
               },
@@ -256,7 +271,7 @@ const UnifiedEditorPage: React.FC = () => {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [canvasNodes, canvasEdges, sendToCanvas, selectNode, selectEdge, scadaSetSelectedWidget, scadaActiveScreenId, scadaAddWidget, scadaRemoveWidget, scadaUpdateWidgetPosition, scadaUpdateWidget]);
+  }, [sendToCanvas, selectNode, selectEdge, scadaSetSelectedWidget, scadaActiveScreenId, scadaScreens, scadaAddWidget, scadaRemoveWidget, scadaUpdateWidgetPosition, scadaUpdateWidget]);
 
   // Load process on mount
   useEffect(() => {
@@ -310,7 +325,7 @@ const UnifiedEditorPage: React.FC = () => {
 
   const handleWidgetDrop = useCallback((e: React.DragEvent) => {
     if (mode !== 'hmi') return;
-    const payload = parseWidgetDropData(e as unknown as DragEvent);
+    const payload = parseWidgetDropData(e);
     if (!payload) return;
     e.preventDefault();
 
@@ -319,11 +334,26 @@ const UnifiedEditorPage: React.FC = () => {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    const node = createScadaWidgetNode(payload, x, y);
+    const node = createScadaWidgetNode(payload, x, y, scadaActiveScreenId ?? undefined);
 
-    // Send to iframe canvas via addNode postMessage
-    sendToCanvas('addNode', node);
-  }, [mode, sendToCanvas]);
+    // Register in SCADA store
+    if (scadaActiveScreenId) {
+      scadaAddWidget(scadaActiveScreenId, {
+        id: node.id,
+        widgetType: payload.widgetType || 'unknown',
+        position: {
+          col: Math.round(x / 15),
+          row: Math.round(y / 15),
+          w: 4,
+          h: 3,
+        },
+        config: payload,
+      });
+    }
+
+    // Send to iframe canvas as overlay node
+    sendToCanvas('addOverlayNode', { node });
+  }, [mode, sendToCanvas, scadaActiveScreenId, scadaAddWidget]);
 
   // Zoom & delete
   const handleZoomIn = () => sendToCanvas('zoomIn');
@@ -356,7 +386,7 @@ const UnifiedEditorPage: React.FC = () => {
         sendToCanvas('getState');
         const timeoutId = setTimeout(() => {
           controller.abort();
-          resolve({ nodes: canvasNodes, edges: canvasEdges });
+          resolve({ nodes: canvasNodesRef.current, edges: canvasEdgesRef.current });
         }, 2000);
         controller.signal.addEventListener('abort', () => clearTimeout(timeoutId));
       });
@@ -402,7 +432,7 @@ const UnifiedEditorPage: React.FC = () => {
   };
 
   // Mode labels for status bar
-  const MODE_LABELS: Record<string, string> = {
+  const MODE_LABELS: Record<EditorMode, string> = {
     pid: 'P&ID Design',
     hmi: 'HMI Layout',
     plc: 'PLC Logic',

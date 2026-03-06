@@ -13,7 +13,7 @@ export interface ScreenWidget {
   id: string;
   widgetType: string;
   position: WidgetPosition;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
 }
 
 export interface Screen {
@@ -56,7 +56,7 @@ export interface TrendConfig {
 export interface PackageMeta {
   author?: string;
   description?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface ScadaPackageData {

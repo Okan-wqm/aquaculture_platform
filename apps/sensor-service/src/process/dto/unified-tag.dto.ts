@@ -1,8 +1,21 @@
 import { InputType, ObjectType, Field, ID, Int, Float } from '@nestjs/graphql';
-import { IsString, IsOptional, IsEnum, IsUUID, MaxLength, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsUUID, IsNumber, MaxLength, IsObject, Validate, ValidatorConstraint, ValidatorConstraintInterface, ValidationArguments } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { TagDirection, TagIoType, TagDataType } from '../entities/unified-tag.entity';
+
+@ValidatorConstraint({ name: 'jsonMaxSize', async: false })
+class JsonMaxSizeConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown, args: ValidationArguments): boolean {
+    if (value == null) return true;
+    const maxBytes = (args.constraints?.[0] as number) ?? 8192;
+    return JSON.stringify(value).length <= maxBytes;
+  }
+  defaultMessage(args: ValidationArguments): string {
+    const maxBytes = (args.constraints?.[0] as number) ?? 8192;
+    return `JSON object must not exceed ${maxBytes} bytes`;
+  }
+}
 
 // ============================================================================
 // Input DTOs
@@ -51,40 +64,49 @@ export class CreateTagInput {
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
+  @IsNumber()
   engMin?: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
+  @IsNumber()
   engMax?: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
+  @IsNumber()
   alarmHH?: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
+  @IsNumber()
   alarmH?: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
+  @IsNumber()
   alarmL?: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
+  @IsNumber()
   alarmLL?: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
+  @IsNumber()
   deadband?: number;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
   @IsObject()
+  @Validate(JsonMaxSizeConstraint, [8192])
   source?: Record<string, unknown>;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
   @IsObject()
+  @Validate(JsonMaxSizeConstraint, [8192])
   hierarchy?: Record<string, unknown>;
 }
 
@@ -139,40 +161,49 @@ export class UpdateTagInput {
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
+  @IsNumber()
   engMin?: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
+  @IsNumber()
   engMax?: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
+  @IsNumber()
   alarmHH?: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
+  @IsNumber()
   alarmH?: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
+  @IsNumber()
   alarmL?: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
+  @IsNumber()
   alarmLL?: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
+  @IsNumber()
   deadband?: number;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
   @IsObject()
+  @Validate(JsonMaxSizeConstraint, [8192])
   source?: Record<string, unknown>;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
   @IsObject()
+  @Validate(JsonMaxSizeConstraint, [8192])
   hierarchy?: Record<string, unknown>;
 }
 
@@ -200,12 +231,12 @@ export class TagFilterInput {
 
   @Field({ nullable: true })
   @IsOptional()
-  @IsString()
+  @IsUUID()
   equipmentId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
-  @IsString()
+  @IsUUID()
   edgeDeviceId?: string;
 }
 

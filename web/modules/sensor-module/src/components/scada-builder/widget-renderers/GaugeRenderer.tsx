@@ -1,6 +1,6 @@
 /**
  * GaugeRenderer - SVG half-circle gauge with value, unit, min/max labels,
- * and color thresholds.
+ * and color thresholds. NaN-safe numeric parsing.
  */
 
 import React, { memo } from 'react';
@@ -14,8 +14,10 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
   const warningThreshold = config.warningThreshold ?? 70;
   const criticalThreshold = config.criticalThreshold ?? 90;
 
-  const numericValue = isEditing ? (config.demoValue ?? 42) : Number(value ?? 0);
-  const pct = Math.max(0, Math.min(1, (numericValue - min) / (max - min || 1)));
+  const raw = isEditing ? (config.demoValue ?? 42) : Number(value ?? 0);
+  const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;
+  const safeValue = isNaN(numValue) ? 0 : numValue;
+  const pct = Math.max(0, Math.min(1, (safeValue - min) / (max - min || 1)));
 
   // Arc geometry (half-circle, 180 deg from left to right)
   const cx = 100;
@@ -29,8 +31,8 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
   const arcY = (a: number) => cy - r * Math.sin(a);
 
   // Color based on thresholds
-  const warningPct = (warningThreshold - min) / (max - min || 1);
-  const criticalPct = (criticalThreshold - min) / (max - min || 1);
+  const warningPct = Math.max(0, Math.min(1, (warningThreshold - min) / (max - min || 1)));
+  const criticalPct = Math.max(0, Math.min(1, (criticalThreshold - min) / (max - min || 1)));
   let color = '#22c55e'; // green
   if (pct >= criticalPct) color = '#ef4444'; // red
   else if (pct >= warningPct) color = '#eab308'; // yellow
@@ -62,7 +64,7 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
 
       {/* Value text */}
       <text x={cx} y={cy - 10} textAnchor="middle" fontSize={24} fontWeight={700} fill="#111827">
-        {numericValue.toFixed(1)}
+        {safeValue.toFixed(1)}
       </text>
 
       {/* Unit */}

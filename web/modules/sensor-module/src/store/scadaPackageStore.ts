@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { WidgetPosition, ScreenWidget } from '../types/scada-package.types';
 export type { WidgetPosition, ScreenWidget } from '../types/scada-package.types';
+export type { ScadaWidgetType } from '../types/scada-widget.types';
 
 // Screen type
 export type ScreenType = 'dashboard' | 'process' | 'alarms' | 'trends' | 'calibration' | 'control';
@@ -42,6 +43,49 @@ export interface TrendConfigDef {
   retentionDays: number;
   sampleIntervalSec: number;
   tags: string[];
+}
+
+/* ------------------------------------------------------------------ */
+/*  JSON schema for import/export                                      */
+/* ------------------------------------------------------------------ */
+
+export interface ScreenJSON {
+  id?: string;
+  name?: string;
+  screenType?: string;
+  isDefault?: boolean;
+  icon?: string;
+  layout?: { type: string; cols: number; rows: number };
+  widgets?: Array<{
+    id?: string;
+    widgetType?: string;
+    position?: Partial<WidgetPosition>;
+    config?: Record<string, unknown>;
+  }>;
+}
+
+export interface AlarmRuleJSON {
+  id?: string;
+  tag?: string;
+  condition?: string;
+  value?: number;
+  severity?: string;
+  message?: string;
+  deadband?: number;
+  delay?: number;
+}
+
+export interface ScadaPackageJSON {
+  meta?: {
+    version?: number;
+    packageName?: string;
+    processId?: string | null;
+    edgeDeviceId?: string | null;
+  };
+  screens?: ScreenJSON[];
+  alarmRules?: AlarmRuleJSON[];
+  controlPermissions?: ControlPermissionsDef;
+  trendConfig?: TrendConfigDef;
 }
 
 interface ScadaPackageState {
@@ -104,9 +148,9 @@ interface ScadaPackageState {
   setTargetDeviceId: (id: string | null) => void;
 
   // Export/Import
-  toScadaPackageJSON: () => any;
-  loadFromJSON: (json: any) => void;
-  importProcessAsWidget: (process: { id: string; name: string; nodes: any[]; edges: any[] }) => void;
+  toScadaPackageJSON: () => ScadaPackageJSON;
+  loadFromJSON: (json: ScadaPackageJSON) => void;
+  importProcessAsWidget: (process: { id: string; name: string; nodes: unknown[]; edges: unknown[] }) => void;
 
   // Reset
   reset: () => void;
@@ -362,18 +406,18 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
 
   // Load from saved JSON
   loadFromJSON: (json) => {
-    const screens: ScreenDef[] = (json.screens || []).map((s: any) => ({
+    const screens: ScreenDef[] = (json.screens || []).map((s: ScreenJSON) => ({
       id: s.id || generateId(),
       name: s.name || 'Unnamed',
-      screenType: s.screenType || 'dashboard',
+      screenType: (s.screenType as ScreenType) || 'dashboard',
       isDefault: !!s.isDefault,
       icon: s.icon || SCREEN_ICONS[s.screenType as ScreenType] || 'LayoutDashboard',
       layout: s.layout || { type: 'grid', cols: 12, rows: 8 },
-      widgets: (s.widgets || []).map((w: any) => ({
+      widgets: (s.widgets || []).map((w) => ({
         id: w.id || generateId(),
         widgetType: normalizeWidgetType(w.widgetType || 'unknown'),
-        position: w.position || { col: 0, row: 0, w: 2, h: 2 },
-        config: w.config || {},
+        position: (w.position as WidgetPosition) || { col: 0, row: 0, w: 2, h: 2 },
+        config: (w.config || {}) as Record<string, unknown>,
       })),
     }));
 
@@ -383,12 +427,12 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
       targetDeviceId: json.meta?.edgeDeviceId || null,
       screens,
       activeScreenId: screens.find((s) => s.isDefault)?.id || screens[0]?.id || '',
-      alarmRules: (json.alarmRules || []).map((r: any) => ({
+      alarmRules: (json.alarmRules || []).map((r: AlarmRuleJSON) => ({
         id: r.id || generateId(),
         tag: r.tag || '',
         condition: r.condition || '>',
         value: r.value ?? 0,
-        severity: r.severity || 'warning',
+        severity: (r.severity as AlarmRuleDef['severity']) || 'warning',
         message: r.message || '',
         deadband: r.deadband,
         delay: r.delay,

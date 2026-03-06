@@ -1,14 +1,24 @@
 /**
- * NumericInputRenderer - Input field + unit (disabled in edit mode)
+ * NumericInputRenderer - Input field + unit with onCommand support
  */
 
-import React, { memo } from 'react';
+import React, { memo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
-const NumericInputRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
+const NumericInputRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
   const label = config.label ?? 'Setpoint';
   const unit = config.unit ?? '';
-  const numericValue = isEditing ? (config.demoValue ?? 7.2) : Number(value ?? 0);
+  const raw = isEditing ? (config.demoValue ?? 7.2) : Number(value ?? 0);
+  const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;
+  const safeValue = isNaN(numValue) ? 0 : numValue;
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isEditing) return;
+    const parsed = parseFloat(e.target.value);
+    if (!isNaN(parsed)) {
+      onCommand?.('setValue', parsed);
+    }
+  }, [isEditing, onCommand]);
 
   return (
     <div
@@ -27,9 +37,10 @@ const NumericInputRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
         <input
           type="text"
-          readOnly
+          readOnly={isEditing}
           disabled={isEditing}
-          value={numericValue.toFixed(config.decimals ?? 1)}
+          value={safeValue.toFixed(config.decimals ?? 1)}
+          onChange={handleChange}
           style={{
             width: Math.max(60, width * 0.5),
             height: 28,

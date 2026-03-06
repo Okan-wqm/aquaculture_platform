@@ -1,5 +1,5 @@
 /**
- * NumericDisplayRenderer - Large number + unit + label
+ * NumericDisplayRenderer - Large number + unit + label. NaN-safe.
  */
 
 import React, { memo } from 'react';
@@ -9,7 +9,9 @@ const NumericDisplayRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
   const unit = config.unit ?? '';
   const label = config.label ?? 'Value';
   const decimals = config.decimals ?? 1;
-  const numericValue = isEditing ? (config.demoValue ?? 25.4) : Number(value ?? 0);
+  const raw = isEditing ? (config.demoValue ?? 25.4) : Number(value ?? 0);
+  const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;
+  const safeValue = isNaN(numValue) ? 0 : numValue;
 
   return (
     <div
@@ -28,7 +30,7 @@ const NumericDisplayRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
         {label}
       </span>
       <span style={{ fontSize: Math.min(height * 0.4, 48), fontWeight: 700, color: '#111827', lineHeight: 1 }}>
-        {numericValue.toFixed(decimals)}
+        {safeValue.toFixed(decimals)}
       </span>
       {unit && (
         <span style={{ fontSize: 12, color: '#9ca3af' }}>{unit}</span>

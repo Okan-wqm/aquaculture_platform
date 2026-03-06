@@ -1,5 +1,5 @@
 /**
- * TankLevelRenderer - SVG tank fill animation + percentage text
+ * TankLevelRenderer - SVG tank fill animation + percentage text. NaN-safe.
  */
 
 import React, { memo } from 'react';
@@ -8,9 +8,12 @@ import type { WidgetRendererProps } from '../WidgetRenderer';
 const TankLevelRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
   const label = config.label ?? 'Tank';
   const unit = config.unit ?? '%';
+  const min = config.min ?? 0;
   const max = config.max ?? 100;
-  const numericValue = isEditing ? (config.demoValue ?? 65) : Number(value ?? 0);
-  const pct = Math.max(0, Math.min(1, numericValue / (max || 1)));
+  const raw = isEditing ? (config.demoValue ?? 65) : Number(value ?? 0);
+  const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;
+  const safeValue = isNaN(numValue) ? 0 : numValue;
+  const pct = Math.max(0, Math.min(1, (safeValue - min) / ((max - min) || 1)));
 
   const tankW = 60;
   const tankH = 100;
@@ -68,7 +71,7 @@ const TankLevelRenderer: React.FC<WidgetRendererProps> = ({ config, value, width
 
       {/* Scale marks */}
       <text x={84} y={padTop + 8} fontSize={8} fill="#9ca3af">{max}</text>
-      <text x={84} y={padTop + tankH} fontSize={8} fill="#9ca3af">0</text>
+      <text x={84} y={padTop + tankH} fontSize={8} fill="#9ca3af">{min}</text>
     </svg>
   );
 };

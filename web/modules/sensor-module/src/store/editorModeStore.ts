@@ -48,7 +48,7 @@ export const useEditorModeStore = create<EditorModeState>((set, get) => ({
     });
   },
 
-  canSwitchTo: () => {
+  canSwitchTo: (_target: EditorMode) => {
     // All transitions are currently allowed
     return true;
   },

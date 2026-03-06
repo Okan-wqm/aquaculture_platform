@@ -35,7 +35,7 @@ registerEnumType(ScadaDeployStatus, {
 @Entity('scada_deploy_logs')
 @Index(['tenantId', 'deviceId'])
 @Index(['tenantId', 'packageId'])
-@Index(['commandId'], { unique: true })
+@Index(['tenantId', 'commandId'], { unique: true })
 export class ScadaDeployLog {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

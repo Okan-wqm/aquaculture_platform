@@ -1,57 +1,74 @@
 /**
- * EmergencyStopRenderer - Large red E-STOP button
+ * EmergencyStopRenderer - Large red E-STOP button with confirmation dialog
  */
 
-import React, { memo } from 'react';
+import React, { memo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
-const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
+const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
   const label = config.label ?? 'E-STOP';
   const activated = isEditing ? false : Boolean(value);
-  const btnR = Math.min(width, height) * 0.32;
+
+  const handleEmergencyStop = useCallback(() => {
+    if (isEditing) return;
+    const confirmed = window.confirm('ACIL DURDURMA aktive edilecek. Emin misiniz?');
+    if (confirmed && onCommand) {
+      onCommand('emergencyStop', true);
+    }
+  }, [isEditing, onCommand]);
 
   return (
     <svg
       width={width}
       height={height}
-      viewBox={`0 0 ${width} ${height}`}
+      viewBox="0 0 200 200"
       preserveAspectRatio="xMidYMid meet"
-      style={{ display: 'block' }}
+      style={{ display: 'block', cursor: isEditing ? 'default' : 'pointer' }}
+      onClick={handleEmergencyStop}
+      role="button"
+      aria-label="Emergency Stop"
     >
+      {/* Pulse animation for runtime */}
+      {!isEditing && activated && (
+        <circle cx={100} cy={96} r={80} fill="none" stroke="#ef4444" strokeWidth={2} opacity={0.6}>
+          <animate attributeName="r" from="72" to="90" dur="1s" repeatCount="indefinite" />
+          <animate attributeName="opacity" from="0.6" to="0" dur="1s" repeatCount="indefinite" />
+        </circle>
+      )}
       {/* Outer ring */}
       <circle
-        cx={width / 2}
-        cy={height / 2 - 4}
-        r={btnR + 8}
+        cx={100}
+        cy={96}
+        r={72}
         fill="#fef2f2"
         stroke="#fca5a5"
         strokeWidth={3}
       />
       {/* Button body */}
       <circle
-        cx={width / 2}
-        cy={height / 2 - 4}
-        r={btnR}
+        cx={100}
+        cy={96}
+        r={64}
         fill={activated ? '#991b1b' : '#dc2626'}
         stroke="#7f1d1d"
         strokeWidth={2}
       />
       {/* Shadow inset for 3D effect */}
       <circle
-        cx={width / 2}
-        cy={height / 2 - 4}
-        r={btnR - 4}
+        cx={100}
+        cy={96}
+        r={60}
         fill="none"
         stroke="rgba(255,255,255,0.25)"
         strokeWidth={2}
       />
       {/* Label */}
       <text
-        x={width / 2}
-        y={height / 2 - 4}
+        x={100}
+        y={96}
         textAnchor="middle"
         dominantBaseline="middle"
-        fontSize={Math.max(10, btnR * 0.35)}
+        fontSize={22}
         fontWeight={800}
         fill="white"
         letterSpacing={1}
@@ -60,10 +77,10 @@ const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, w
       </text>
       {/* Status text */}
       <text
-        x={width / 2}
-        y={height / 2 + btnR + 18}
+        x={100}
+        y={180}
         textAnchor="middle"
-        fontSize={10}
+        fontSize={12}
         fontWeight={600}
         fill={activated ? '#dc2626' : '#6b7280'}
       >

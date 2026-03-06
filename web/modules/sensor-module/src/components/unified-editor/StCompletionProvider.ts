@@ -51,14 +51,18 @@ export function getTags(): StTag[] {
 const KEYWORDS = [
   'PROGRAM', 'END_PROGRAM', 'FUNCTION', 'END_FUNCTION',
   'FUNCTION_BLOCK', 'END_FUNCTION_BLOCK',
-  'VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT', 'END_VAR',
+  'VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT',
+  'VAR_GLOBAL', 'VAR_TEMP', 'VAR_EXTERNAL', 'END_VAR',
+  'CONSTANT', 'RETAIN', 'AT',
   'IF', 'THEN', 'ELSIF', 'ELSE', 'END_IF',
   'CASE', 'OF', 'END_CASE',
   'FOR', 'TO', 'BY', 'DO', 'END_FOR',
   'WHILE', 'END_WHILE', 'REPEAT', 'UNTIL', 'END_REPEAT',
-  'RETURN', 'EXIT',
+  'RETURN', 'EXIT', 'CONTINUE',
   'AND', 'OR', 'XOR', 'NOT', 'MOD',
   'TRUE', 'FALSE',
+  'ARRAY', 'WITH',
+  'TYPE', 'END_TYPE', 'STRUCT', 'END_STRUCT',
 ];
 
 const TYPES = [

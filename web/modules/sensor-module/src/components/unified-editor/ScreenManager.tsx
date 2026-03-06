@@ -61,23 +61,34 @@ const ScreenManager: React.FC<ScreenManagerProps> = ({ iframeRef, isCanvasReady 
 
     // Save current viewport for the previous screen
     if (prevId) {
-      // Request viewport from canvas
+      const controller = new AbortController();
       const handler = (event: MessageEvent) => {
         if (event.origin !== window.location.origin) return;
         const msg = event.data || {};
         if (msg.source === 'process-editor-canvas' && msg.type === 'viewportState') {
           const vp = msg.data as ScreenViewport;
-          if (vp) {
-            saveScreenViewport(prevId, vp);
-          }
-          window.removeEventListener('message', handler);
+          if (vp) saveScreenViewport(prevId, vp);
+          controller.abort();
         }
       };
-      window.addEventListener('message', handler);
+      window.addEventListener('message', handler, { signal: controller.signal });
       sendToCanvas('getViewport');
 
       // Timeout cleanup
-      setTimeout(() => window.removeEventListener('message', handler), 1000);
+      const timeout = setTimeout(() => controller.abort(), 1000);
+
+      // Component unmount cleanup
+      prevScreenIdRef.current = activeScreenId;
+
+      // Tell canvas which screen is now active
+      sendToCanvas('setActiveScreen', { screenId: activeScreenId });
+      const viewport = getScreenViewport(activeScreenId);
+      sendToCanvas('setViewport', viewport);
+
+      return () => {
+        controller.abort();
+        clearTimeout(timeout);
+      };
     }
 
     // Tell canvas which screen is now active (for node visibility filtering)

@@ -1,11 +1,11 @@
 /**
- * ToggleSwitchRenderer - ON/OFF switch visual
+ * ToggleSwitchRenderer - ON/OFF switch visual with onCommand
  */
 
-import React, { memo } from 'react';
+import React, { memo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
-const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
+const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
   const label = config.label ?? 'Switch';
   const isOn = isEditing ? (config.demoValue ?? true) : Boolean(value);
 
@@ -13,6 +13,11 @@ const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
   const trackH = trackW * 0.52;
   const knobR = trackH * 0.4;
   const knobCx = isOn ? trackW - knobR - 4 : knobR + 4;
+
+  const handleToggle = useCallback(() => {
+    if (isEditing) return;
+    onCommand?.('toggle', !value);
+  }, [isEditing, onCommand, value]);
 
   return (
     <div
@@ -24,7 +29,9 @@ const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
         alignItems: 'center',
         justifyContent: 'center',
         gap: 6,
+        cursor: isEditing ? 'default' : 'pointer',
       }}
+      onClick={handleToggle}
     >
       <svg width={trackW} height={trackH}>
         <rect

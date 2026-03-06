@@ -1,5 +1,6 @@
 /**
- * TrendChartRenderer - Simple SVG polyline chart placeholder
+ * TrendChartRenderer - Simple SVG polyline chart placeholder.
+ * Uses deterministic pseudo-random seed instead of Math.random().
  */
 
 import React, { memo, useMemo } from 'react';
@@ -9,7 +10,7 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
   const label = config.label ?? 'Trend';
   const color = config.color ?? '#3b82f6';
 
-  // Generate demo data points
+  // Generate demo data points with deterministic noise
   const points = useMemo(() => {
     const pts: { x: number; y: number }[] = [];
     const padX = 30;
@@ -20,8 +21,9 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
     const count = 20;
     for (let i = 0; i < count; i++) {
       const x = padX + (i / (count - 1)) * chartW;
-      // Sine wave demo
-      const y = padTop + chartH / 2 - Math.sin(i * 0.5 + 1) * chartH * 0.3 + (Math.random() - 0.5) * chartH * 0.1;
+      // Deterministic noise based on index
+      const noise = (Math.sin(i * 12.9898 + 78.233) * 43758.5453) % 1;
+      const y = padTop + chartH / 2 - Math.sin(i * 0.5 + 1) * chartH * 0.3 + (noise - 0.5) * chartH * 0.1;
       pts.push({ x, y });
     }
     return pts;

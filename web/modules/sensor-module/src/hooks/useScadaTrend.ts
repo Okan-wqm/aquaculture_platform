@@ -32,6 +32,7 @@ export interface TrendResult {
 }
 
 const CACHE_TTL_MS = 60_000;
+const MAX_CACHE_ENTRIES = 50;
 
 interface CacheEntry {
   data: Record<string, TrendPoint[]>;
@@ -125,15 +126,19 @@ export function useScadaTrend(query: TrendQuery | null): TrendResult {
   const [error, setError] = useState<string | null>(null);
   const fetchIdRef = useRef(0);
 
+  const startMs = query?.startTime?.getTime() ?? 0;
+  const endMs = query?.endTime?.getTime() ?? 0;
+  const tagsKey = query?.tagNames?.join(',') ?? '';
+
   const resolution = useMemo(() => {
     if (!query) return 'raw' as TrendResolution;
     return query.resolution ?? autoSelectResolution(query.startTime, query.endTime);
-  }, [query?.resolution, query?.startTime?.getTime(), query?.endTime?.getTime()]);
+  }, [query?.resolution, startMs, endMs]);
 
   const queryKey = useMemo(() => {
     if (!query) return '';
     return buildCacheKey(query, resolution);
-  }, [query?.deviceCode, query?.tagNames?.join(','), query?.startTime?.getTime(), query?.endTime?.getTime(), resolution]);
+  }, [query?.deviceCode, tagsKey, startMs, endMs, resolution]);
 
   const fetchData = useCallback(async () => {
     if (!query || query.tagNames.length === 0) {
@@ -160,6 +165,11 @@ export function useScadaTrend(query: TrendQuery | null): TrendResult {
 
       if (fetchId !== fetchIdRef.current) return; // Stale request
 
+      // Evict oldest entry if cache is full
+      if (trendCache.size >= MAX_CACHE_ENTRIES) {
+        const oldestKey = trendCache.keys().next().value;
+        if (oldestKey) trendCache.delete(oldestKey);
+      }
       trendCache.set(queryKey, { data: mockData, timestamp: Date.now() });
       setData(mockData);
     } catch (err: any) {

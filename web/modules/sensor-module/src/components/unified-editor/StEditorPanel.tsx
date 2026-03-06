@@ -14,6 +14,7 @@ import React, {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -36,12 +37,11 @@ import {
   stLanguageConfig,
   stTokensProvider,
 } from './st-language-enhanced';
-import { createStCompletionProvider } from './StCompletionProvider';
+import { createStCompletionProvider, setTags } from './StCompletionProvider';
 import { useEditorModeStore } from '../../store/editorModeStore';
+import { useScadaPackageStore } from '../../store/scadaPackageStore';
 
 const MonacoEditor = React.lazy(() => import('@monaco-editor/react'));
-
-let languageRegistered = false;
 
 const MIN_HEIGHT = 200;
 const MAX_HEIGHT_RATIO = 0.6;
@@ -70,6 +70,39 @@ const StEditorPanel: React.FC = () => {
     monacoRef,
   } = useStEditor();
 
+  // Wire device tags to completion provider
+  const targetDeviceId = useScadaPackageStore((s) => s.targetDeviceId);
+  const screens = useScadaPackageStore((s) => s.screens);
+  const trendTags = useScadaPackageStore((s) => s.trendConfig.tags);
+
+  useEffect(() => {
+    if (!targetDeviceId) {
+      setTags([]);
+      return;
+    }
+    // Collect tag names from widget configs and trend config
+    const tagSet = new Set<string>(trendTags);
+    for (const screen of screens) {
+      for (const widget of screen.widgets) {
+        const cfg = widget.config;
+        if (cfg?.tagName) tagSet.add(cfg.tagName);
+        if (Array.isArray(cfg?.tags)) {
+          for (const t of cfg.tags) {
+            if (typeof t === 'string') tagSet.add(t);
+            else if (t?.name) tagSet.add(t.name);
+          }
+        }
+      }
+    }
+    setTags(
+      Array.from(tagSet).map((name) => ({
+        name,
+        ioType: 'AI',
+        dataType: 'REAL',
+      })),
+    );
+  }, [targetDeviceId, screens, trendTags]);
+
   // Panel height (resizable)
   const [panelHeight, setPanelHeight] = useState(320);
   const resizingRef = useRef(false);
@@ -81,17 +114,12 @@ const StEditorPanel: React.FC = () => {
   const [newProgramName, setNewProgramName] = useState('');
   const newInputRef = useRef<HTMLInputElement>(null);
 
-  // Ctrl+J toggle
+  // Ctrl+J toggle (F5/F7/F9 handled in useStEditor)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'j') {
         e.preventDefault();
         toggleBottomPanel();
-      }
-      // F9 → deploy (placeholder)
-      if (e.key === 'F9') {
-        e.preventDefault();
-        // TODO: deploy action
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -132,8 +160,13 @@ const StEditorPanel: React.FC = () => {
       editorRef.current = editor;
       monacoRef.current = monaco;
 
-      if (!languageRegistered) {
-        languageRegistered = true;
+      // Check Monaco's own language registry to avoid duplicates on HMR
+      const languages = monaco.languages.getLanguages();
+      const alreadyRegistered = languages.some(
+        (l: any) => l.id === ST_LANGUAGE_ID,
+      );
+
+      if (!alreadyRegistered) {
         monaco.languages.register({ id: ST_LANGUAGE_ID });
         monaco.languages.setMonarchTokensProvider(ST_LANGUAGE_ID, stTokensProvider);
         monaco.languages.setLanguageConfiguration(ST_LANGUAGE_ID, stLanguageConfig as any);
@@ -158,6 +191,8 @@ const StEditorPanel: React.FC = () => {
     clearMarkers();
   }, [newProgramName, createProgram, clearMarkers]);
 
+  const panelStyle = useMemo(() => ({ height: panelHeight }), [panelHeight]);
+
   if (!isBottomPanelOpen) {
     return (
       <button
@@ -173,7 +208,7 @@ const StEditorPanel: React.FC = () => {
   return (
     <div
       className="flex flex-col bg-gray-900 border-t border-gray-700"
-      style={{ height: panelHeight }}
+      style={panelStyle}
     >
       {/* Resize handle */}
       <div
@@ -419,6 +454,14 @@ function CompileStatusBadge({
     return (
       <span className="text-xs text-green-400 flex items-center gap-1 ml-2">
         <CheckCircle className="w-3 h-3" />
+      </span>
+    );
+  }
+  if (status === 'warning') {
+    return (
+      <span className="text-xs text-yellow-400 flex items-center gap-1 ml-2">
+        <AlertTriangle className="w-3 h-3" />
+        {count}
       </span>
     );
   }

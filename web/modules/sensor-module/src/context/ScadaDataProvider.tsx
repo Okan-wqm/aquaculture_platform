@@ -10,7 +10,7 @@ import { useScadaLiveData, type ConnectionStatus, type IoAlarmEvent } from '../h
 
 export interface ScadaDataContextValue {
   values: Record<string, Record<string, any>>;
-  alarms: IoAlarmEvent[];
+  alarms: Record<string, IoAlarmEvent[]>;
   isConnected: boolean;
   connectionStatus: ConnectionStatus;
   getTagValue: (deviceCode: string, tagName: string) => any;
@@ -60,26 +60,17 @@ export function ScadaDataProvider({ initialDeviceCodes = [], enabled = true, chi
     }
   }, []);
 
-  // Flatten alarms from all devices into a single array
-  const flatAlarms = useMemo(() => {
-    const all: IoAlarmEvent[] = [];
-    for (const deviceAlarms of Object.values(alarms)) {
-      all.push(...deviceAlarms);
-    }
-    return all;
-  }, [alarms]);
-
   const contextValue = useMemo<ScadaDataContextValue>(
     () => ({
       values,
-      alarms: flatAlarms,
+      alarms,
       isConnected,
       connectionStatus,
       getTagValue,
       subscribeTag,
       unsubscribeTag,
     }),
-    [values, flatAlarms, isConnected, connectionStatus, getTagValue, subscribeTag, unsubscribeTag]
+    [values, alarms, isConnected, connectionStatus, getTagValue, subscribeTag, unsubscribeTag]
   );
 
   return (

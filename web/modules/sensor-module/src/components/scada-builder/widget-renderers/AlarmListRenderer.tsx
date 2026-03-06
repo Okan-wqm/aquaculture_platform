@@ -1,9 +1,11 @@
 /**
- * AlarmListRenderer - Alarm rows list placeholder
+ * AlarmListRenderer - Alarm rows list placeholder.
+ * Uses shared ALARM_SEVERITY_COLORS for consistency.
  */
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { ALARM_SEVERITY_COLORS } from '../WidgetRenderer';
 
 const DEMO_ALARMS = [
   { time: '14:32', severity: 'critical', msg: 'pH > 8.5' },
@@ -13,10 +15,13 @@ const DEMO_ALARMS = [
   { time: '13:40', severity: 'critical', msg: 'Tank seviye alarm' },
 ];
 
-const SEV_COLORS: Record<string, string> = {
-  critical: '#ef4444',
-  warning: '#eab308',
-  info: '#3b82f6',
+const SEV_COLOR_MAP: Record<string, string> = {
+  critical: ALARM_SEVERITY_COLORS.critical.bg,
+  high:     ALARM_SEVERITY_COLORS.high.bg,
+  medium:   ALARM_SEVERITY_COLORS.medium.bg,
+  warning:  ALARM_SEVERITY_COLORS.medium.bg,
+  low:      ALARM_SEVERITY_COLORS.low.bg,
+  info:     ALARM_SEVERITY_COLORS.info.bg,
 };
 
 const AlarmListRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
@@ -68,7 +73,7 @@ const AlarmListRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
                 width: 6,
                 height: 6,
                 borderRadius: '50%',
-                background: SEV_COLORS[alarm.severity] ?? '#9ca3af',
+                background: SEV_COLOR_MAP[alarm.severity] ?? '#9ca3af',
                 flexShrink: 0,
               }}
             />

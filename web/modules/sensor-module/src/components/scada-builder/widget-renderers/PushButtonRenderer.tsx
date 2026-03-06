@@ -1,16 +1,21 @@
 /**
- * PushButtonRenderer - Large button visual + label
+ * PushButtonRenderer - Large button visual + label with onCommand
  */
 
-import React, { memo } from 'react';
+import React, { memo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
-const PushButtonRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
+const PushButtonRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
   const label = config.label ?? 'START';
   const color = config.color ?? '#3b82f6';
   const pressed = isEditing ? false : Boolean(value);
 
   const btnSize = Math.min(width * 0.6, height * 0.55, 80);
+
+  const handlePress = useCallback(() => {
+    if (isEditing) return;
+    onCommand?.('press', true);
+  }, [isEditing, onCommand]);
 
   return (
     <div
@@ -25,6 +30,7 @@ const PushButtonRenderer: React.FC<WidgetRendererProps> = ({ config, value, widt
       }}
     >
       <div
+        onClick={handlePress}
         style={{
           width: btnSize,
           height: btnSize,

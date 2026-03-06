@@ -13,25 +13,11 @@
  * - Widget-type badge shown in edit mode (top-left corner)
  */
 
-import React, { memo, useState, useCallback, useRef, useEffect } from 'react';
+import React, { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type { NodeProps } from 'reactflow';
 import { WidgetRenderer } from '../../scada-builder/WidgetRenderer';
-
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
-
-export interface ScadaWidgetNodeData {
-  widgetType: string;
-  config: Record<string, any>;
-  screenId: string;
-  liveValue?: number | string | boolean;
-  label?: string;
-  tagName?: string;
-  tagFqn?: string;
-  width?: number;
-  height?: number;
-}
+import type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
+export type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 
 /* ------------------------------------------------------------------ */
 /*  Size constraints per widget type                                   */
@@ -87,6 +73,29 @@ const HANDLE_META: Record<HandleDir, { cursor: string; style: React.CSSPropertie
 };
 
 /* ------------------------------------------------------------------ */
+/*  Static styles                                                      */
+/* ------------------------------------------------------------------ */
+
+const BADGE_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  top: 4,
+  left: 4,
+  zIndex: 10,
+  fontSize: 9,
+  fontWeight: 600,
+  lineHeight: '14px',
+  padding: '1px 5px',
+  borderRadius: 4,
+  background: '#0e7490',
+  color: '#ecfeff',
+  pointerEvents: 'none',
+  textTransform: 'uppercase',
+  letterSpacing: 0.5,
+};
+
+const CONTENT_STYLE: React.CSSProperties = { width: '100%', height: '100%' };
+
+/* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -113,6 +122,9 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
     startH: number;
   } | null>(null);
 
+  const sizeRef = useRef(size);
+  useEffect(() => { sizeRef.current = size; }, [size]);
+
   const clamp = useCallback(
     (w: number, h: number) => ({
       width: Math.max(constraints.minW, Math.min(constraints.maxW, w)),
@@ -130,11 +142,11 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
         dir,
         startX: e.clientX,
         startY: e.clientY,
-        startW: size.width,
-        startH: size.height,
+        startW: sizeRef.current.width,
+        startH: sizeRef.current.height,
       };
     },
-    [size],
+    [],
   );
 
   const onPointerMove = useCallback(
@@ -160,60 +172,41 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
     dragRef.current = null;
   }, []);
 
-  /* ---------- Determine edit mode --------------------------------- */
-  const isEditing = true; // In the builder, always editing
+  /* ---------- Memoized styles ------------------------------------- */
+  const containerStyle = useMemo(() => ({
+    width: size.width,
+    height: size.height,
+    position: 'relative' as const,
+    zIndex: 500,
+    borderRadius: 8,
+    border: selected ? '2px solid #06b6d4' : '1px solid #e5e7eb',
+    boxShadow: selected ? '0 0 0 2px rgba(6,182,212,0.35)' : '0 1px 3px rgba(0,0,0,0.1)',
+    background: '#ffffff',
+    overflow: 'hidden' as const,
+    userSelect: 'none' as const,
+  }), [size.width, size.height, selected]);
 
   /* ---------- Render ---------------------------------------------- */
   return (
     <div
-      style={{
-        width: size.width,
-        height: size.height,
-        position: 'relative',
-        zIndex: 500,
-        borderRadius: 8,
-        border: selected ? '2px solid #06b6d4' : '1px solid #e5e7eb',
-        boxShadow: selected ? '0 0 0 2px rgba(6,182,212,0.35)' : '0 1px 3px rgba(0,0,0,0.1)',
-        background: '#ffffff',
-        overflow: 'hidden',
-        userSelect: 'none',
-      }}
+      style={containerStyle}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
       {/* Widget type badge (edit mode, top-left) */}
-      {isEditing && (
-        <span
-          style={{
-            position: 'absolute',
-            top: 4,
-            left: 4,
-            zIndex: 10,
-            fontSize: 9,
-            fontWeight: 600,
-            lineHeight: '14px',
-            padding: '1px 5px',
-            borderRadius: 4,
-            background: '#0e7490',
-            color: '#ecfeff',
-            pointerEvents: 'none',
-            textTransform: 'uppercase',
-            letterSpacing: 0.5,
-          }}
-        >
-          {data.widgetType}
-        </span>
-      )}
+      <span style={BADGE_STYLE}>
+        {data.widgetType}
+      </span>
 
       {/* Widget content */}
-      <div style={{ width: '100%', height: '100%' }}>
+      <div style={CONTENT_STYLE}>
         <WidgetRenderer
           widgetType={data.widgetType}
           config={data.config}
           value={data.liveValue}
           width={size.width}
           height={size.height}
-          isEditing={isEditing}
+          isEditing
         />
       </div>
 

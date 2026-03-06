@@ -1,20 +1,25 @@
 /**
- * AlarmBannerRenderer - Colored alarm banner + severity icon
+ * AlarmBannerRenderer - Colored alarm banner + severity icon.
+ * Uses shared ALARM_SEVERITY_COLORS for consistency.
  */
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { ALARM_SEVERITY_COLORS } from '../WidgetRenderer';
 
-const SEVERITY_COLORS: Record<string, { bg: string; border: string; text: string; icon: string }> = {
-  critical: { bg: '#fef2f2', border: '#fca5a5', text: '#991b1b', icon: '!!' },
-  warning:  { bg: '#fffbeb', border: '#fcd34d', text: '#92400e', icon: '!' },
-  info:     { bg: '#eff6ff', border: '#93c5fd', text: '#1e40af', icon: 'i' },
+const BANNER_STYLES: Record<string, { bg: string; border: string; text: string; icon: string }> = {
+  critical: { bg: '#fef2f2', border: ALARM_SEVERITY_COLORS.critical.bg, text: '#991b1b', icon: '!!' },
+  high:     { bg: '#fff7ed', border: ALARM_SEVERITY_COLORS.high.bg,     text: '#9a3412', icon: '!' },
+  medium:   { bg: '#fffbeb', border: ALARM_SEVERITY_COLORS.medium.bg,   text: '#92400e', icon: '!' },
+  warning:  { bg: '#fffbeb', border: ALARM_SEVERITY_COLORS.medium.bg,   text: '#92400e', icon: '!' },
+  low:      { bg: '#eff6ff', border: ALARM_SEVERITY_COLORS.low.bg,      text: '#1e40af', icon: 'i' },
+  info:     { bg: '#eff6ff', border: ALARM_SEVERITY_COLORS.info.bg,     text: '#1e40af', icon: 'i' },
 };
 
 const AlarmBannerRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
   const severity = isEditing ? (config.demoSeverity ?? 'warning') : String(value ?? 'info');
   const message = config.message ?? (isEditing ? 'pH seviyesi yuksek' : '');
-  const colors = SEVERITY_COLORS[severity.toLowerCase()] ?? SEVERITY_COLORS.info;
+  const colors = BANNER_STYLES[severity.toLowerCase()] ?? BANNER_STYLES.info;
 
   return (
     <div

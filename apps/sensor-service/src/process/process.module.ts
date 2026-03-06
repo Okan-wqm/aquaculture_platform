@@ -2,6 +2,8 @@ import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { EdgeDeviceModule } from '../edge-device/edge-device.module';
+import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
+import { EdgeDevice } from '../edge-device/entities/edge-device.entity';
 
 import { Process } from './entities/process.entity';
 import { ScadaPackage } from './entities/scada-package.entity';
@@ -16,7 +18,7 @@ import { ScadaDeployLogService } from './services/scada-deploy-log.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Process, ScadaPackage, UnifiedTag, ScadaDeployLog]),
+    TypeOrmModule.forFeature([Process, ScadaPackage, UnifiedTag, ScadaDeployLog, DeviceIoConfig, EdgeDevice]),
     forwardRef(() => EdgeDeviceModule),
   ],
   providers: [

@@ -112,10 +112,78 @@ Process Editor (ReactFlow P&ID) ve SCADA Builder (CSS Grid HMI) tek bir "Unified
 - **Mevcut Process Editor:** `/sensor/process/new` (hala çalışır, geriye uyumlu)
 - **Mevcut SCADA Builder:** `/sensor/scada-builder/:packageId` (hala çalışır)
 
+## Audit Düzeltmeleri (d8c9945)
+
+8 uzman agent tarafından kapsamlı audit yapılıp 120+ bulgu tespit edildi ve düzeltildi.
+
+### Security Düzeltmeleri
+| Düzeltme | Dosya | Detay |
+|----------|-------|-------|
+| Tenant isolation | unified-tag.service.ts | discoverTags ioConfig sorgusuna tenantId eklendi |
+| Tenant isolation | scada-deploy-log.service.ts | updateStatus/findByCommandId'ye tenantId kontrolü |
+| N+1 query | unified-tag.service.ts | discoverTags/autoBindTags: In() bulk fetch + tek save |
+| PostMessage origin | process-editor-canvas.html | Wildcard '*' yerine cached parent origin |
+| ILIKE injection | unified-tag.service.ts | % ve _ wildcard karakterleri escape |
+| DTO validation | unified-tag.dto.ts | @IsNumber, @IsUUID, JSONB boyut kontrolü |
+| Deploy log index | scada-deploy-log.entity.ts | commandId unique → [tenantId, commandId] unique |
+| Limit sınırı | scada-deploy-log.dto.ts | @Max(100) + Math.min(limit, 100) |
+
+### Çalışmayan Özellik Düzeltmeleri
+| Düzeltme | Dosya | Detay |
+|----------|-------|-------|
+| scadaWidget node kaydı | process-editor-canvas.html | Vanilla JS renderer + nodeTypes kaydı |
+| Viewport handlers | process-editor-canvas.html | getViewport/setViewport/setActiveScreen case'leri |
+| Widget D&D | UnifiedEditorPage.tsx | addOverlayNode kullanımı, MIME type uyumu |
+| Move/Resize handlers | UnifiedEditorPage.tsx | Hardcoded w/h ve col/row yerine store'dan okuma |
+| EmergencyStop handler | EmergencyStopRenderer.tsx | onClick + confirmation dialog |
+| onCommand callback | 5 widget renderer | Toggle, Slider, NumericInput, PushButton, EmergencyStop |
+| NaN koruması | 5 widget renderer | Gauge, NumericDisplay, TankLevel, Slider, NumericInput |
+| ProcessModule DI | process.module.ts | DeviceIoConfig + EdgeDevice TypeORM.forFeature'a eklendi |
+
+### Yeni Dosyalar
+| Dosya | Açıklama |
+|-------|----------|
+| graphql/unified-tag.queries.ts | 8 GraphQL operation (GET, LIST, SEARCH, CREATE, UPDATE, DELETE, DISCOVER, AUTOBIND) |
+| graphql/scada-deploy.queries.ts | DEPLOY_SCADA_PACKAGE mutation |
+| hooks/useUnifiedTags.ts | 8 hook: useUnifiedTag, useUnifiedTags, useSearchTags, useCreateTag, useUpdateTag, useDeleteTag, useDiscoverTags, useAutoBindTags |
+| hooks/useDeployScadaPackage.ts | Deploy hook + ScadaDeployStatus enum |
+| types/scada-widget.types.ts | ScadaWidgetType union type, ScadaWidgetNodeData interface |
+| types/canvas-messages.ts | PostMessage type sistemi, isCanvasMessage type guard |
+
+### Performans Düzeltmeleri
+| Düzeltme | Dosya | Detay |
+|----------|-------|-------|
+| Zustand selectors | UnifiedPropertiesPanel.tsx | Store destructure yerine individual selector |
+| useRef pattern | canvas.html, UnifiedEditorPage.tsx | Stale closure fix, dependency array küçültme |
+| Dead code | ConnectionStatusBanner.tsx | Noop useEffect, duplicate hook kaldırıldı |
+| AbortController | ScreenManager.tsx | setTimeout yerine proper cleanup |
+| Cache limiti | useScadaTrend.ts | MAX_CACHE_ENTRIES = 50 |
+| JWT refresh | useScadaLiveData.ts | reconnect_attempt'te fresh token |
+| Reference counting | useScadaLiveData.ts | Son consumer kapanınca socket disconnect |
+
+### PLC Editor Düzeltmeleri
+| Düzeltme | Dosya | Detay |
+|----------|-------|-------|
+| Stale closure | useStEditor.ts | activeProgramId için useRef |
+| beforeunload | useStEditor.ts | Unsaved changes uyarısı |
+| ST tokenizer | st-language-enhanced.ts | T#1.5s, TOD#, DT#, nested comment desteği |
+| Tag autocomplete | StCompletionProvider.ts + StEditorPanel.tsx | setTags() wire edildi |
+| Keyword sync | StCompletionProvider.ts | 13 eksik keyword eklendi |
+
+### TypeScript Type Safety
+| Düzeltme | Dosya | Detay |
+|----------|-------|-------|
+| any elimination | scadaPackageStore.ts | ScadaPackageJSON, ScreenJSON interface'leri |
+| Type guards | UnifiedEditorPage.tsx | isCanvasMessage() type guard |
+| Union type | ScadaWidgetNode.tsx | string → ScadaWidgetType |
+| config type | WidgetRenderer.tsx | Record<string, any> → Record<string, unknown> |
+| Monaco types | useStEditor.ts | useRef<any> → typed interface |
+
 ## Sonraki Adımlar (Phase 2)
 
-1. **Backend GraphQL mutations**: Tag CRUD, deploy log gerçek MQTT entegrasyonu
+1. ~~Backend GraphQL mutations: Tag CRUD~~ (Tamamlandı - unified-tag.resolver.ts)
 2. **PLC compile pipeline**: ST → Rust SoftPLC binary, edge deploy
 3. **Runtime mode**: Canlı veri akışı ile widget animasyonları
 4. **Debug mode**: Breakpoint, watchpoint, step-through
 5. **Sidebar entegrasyonu**: Sensor module sidebar'ına "Unified Editor" link eklenmesi
+6. **Backend trendData resolver**: useScadaTrend.ts için TimescaleDB query

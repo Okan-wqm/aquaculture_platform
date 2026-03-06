@@ -120,7 +120,7 @@ export class STFormatter {
       if (i > 0 && this.options.blankLineBetweenPOUs) {
         parts.push('');
       }
-      parts.push(this.formatNode(ast[i], 0));
+      parts.push(this.formatNode(ast[i]!, 0));
     }
 
     let result = parts.join('\n');
@@ -731,7 +731,7 @@ export class STFormatter {
       const baseStr = type.baseType ? ` ${this.formatType(type.baseType)}` : '';
       lines.push(`${ind}(`);
       for (let i = 0; i < type.members.length; i++) {
-        const m = type.members[i];
+        const m = type.members[i]!;
         let line = `${this.indent(depth + 1)}${m.name}`;
         if (m.value) {
           line += ` := ${this.formatExpression(m.value)}`;

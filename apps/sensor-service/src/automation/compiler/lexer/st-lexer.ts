@@ -122,11 +122,11 @@ export function tokenize(source: string): LexerResult {
   }
 
   function peek(offset = 0): string {
-    return pos + offset < len ? source[pos + offset] : '\0';
+    return pos + offset < len ? source[pos + offset]! : '\0';
   }
 
   function advance(): string {
-    const ch = source[pos];
+    const ch = source[pos]!;
     pos++;
     if (ch === '\n') {
       line++;
@@ -134,7 +134,7 @@ export function tokenize(source: string): LexerResult {
     } else {
       col++;
     }
-    return ch;
+    return ch!;
   }
 
   function makeToken(type: TokenType, startPos: number, startLine: number, startCol: number): Token {
@@ -159,7 +159,7 @@ export function tokenize(source: string): LexerResult {
 
     if (checkTimeout()) break;
 
-    const ch = source[pos];
+    const ch = source[pos]!;
     const tokLine = line;
     const tokCol = col;
     const tokPos = pos;
@@ -173,7 +173,7 @@ export function tokenize(source: string): LexerResult {
 
     // ── Whitespace (non-newline) ────────────────────────────────────
     if (isWhitespace(ch)) {
-      while (pos < len && isWhitespace(source[pos])) {
+      while (pos < len && isWhitespace(source[pos]!)) {
         advance();
       }
       tokens.push(makeToken(TokenType.WHITESPACE, tokPos, tokLine, tokCol));
@@ -183,7 +183,7 @@ export function tokenize(source: string): LexerResult {
     // ── Single-line comment // ──────────────────────────────────────
     if (ch === '/' && peek(1) === '/') {
       advance(); advance(); // consume //
-      while (pos < len && source[pos] !== '\n') {
+      while (pos < len && source[pos]! !== '\n') {
         advance();
       }
       tokens.push(makeToken(TokenType.COMMENT, tokPos, tokLine, tokCol));
@@ -195,10 +195,10 @@ export function tokenize(source: string): LexerResult {
       advance(); advance(); // consume (*
       let depth = 1;
       while (pos < len && depth > 0) {
-        if (source[pos] === '(' && peek(1) === '*') {
+        if (source[pos]! === '(' && peek(1) === '*') {
           depth++;
           advance(); advance();
-        } else if (source[pos] === '*' && peek(1) === ')') {
+        } else if (source[pos]! === '*' && peek(1) === ')') {
           depth--;
           advance(); advance();
         } else {
@@ -215,7 +215,7 @@ export function tokenize(source: string): LexerResult {
     // ── Curly brace comment { ... } ─────────────────────────────────
     if (ch === '{') {
       advance(); // consume {
-      while (pos < len && source[pos] !== '}') {
+      while (pos < len && source[pos]! !== '}') {
         advance();
       }
       if (pos < len) {
@@ -230,15 +230,15 @@ export function tokenize(source: string): LexerResult {
     // ── String literal (single-quoted) ──────────────────────────────
     if (ch === '\'') {
       advance(); // consume opening '
-      while (pos < len && source[pos] !== '\'' && source[pos] !== '\n') {
-        if (source[pos] === '$' && pos + 1 < len) {
+      while (pos < len && source[pos]! !== '\'' && source[pos]! !== '\n') {
+        if (source[pos]! === '$' && pos + 1 < len) {
           advance(); // consume $
           advance(); // consume escape char
         } else {
           advance();
         }
       }
-      if (pos < len && source[pos] === '\'') {
+      if (pos < len && source[pos]! === '\'') {
         advance(); // consume closing '
       } else {
         addError('Unterminated string literal', tokPos, tokLine, tokCol, pos - tokPos);
@@ -250,15 +250,15 @@ export function tokenize(source: string): LexerResult {
     // ── String literal (double-quoted) ──────────────────────────────
     if (ch === '"') {
       advance(); // consume opening "
-      while (pos < len && source[pos] !== '"' && source[pos] !== '\n') {
-        if (source[pos] === '$' && pos + 1 < len) {
+      while (pos < len && source[pos]! !== '"' && source[pos]! !== '\n') {
+        if (source[pos]! === '$' && pos + 1 < len) {
           advance(); // consume $
           advance(); // consume escape char
         } else {
           advance();
         }
       }
-      if (pos < len && source[pos] === '"') {
+      if (pos < len && source[pos]! === '"') {
         advance(); // consume closing "
       } else {
         addError('Unterminated string literal', tokPos, tokLine, tokCol, pos - tokPos);
@@ -277,14 +277,14 @@ export function tokenize(source: string): LexerResult {
     // ── Identifiers, keywords, typed/time/date literals ─────────────
     if (isIdentStart(ch)) {
       // Scan the full identifier (including underscores between parts for END_IF etc.)
-      while (pos < len && isIdentPart(source[pos])) {
+      while (pos < len && isIdentPart(source[pos]!)) {
         advance();
       }
       let word = source.substring(tokPos, pos);
       const wordUpper = word.toUpperCase();
 
       // Check for # suffix → time/date/typed literal
-      if (pos < len && source[pos] === '#') {
+      if (pos < len && source[pos]! === '#') {
         // TIME literal: T#..., TIME#...
         if (TIME_PREFIXES.has(wordUpper)) {
           advance(); // consume #
@@ -322,29 +322,29 @@ export function tokenize(source: string): LexerResult {
           advance(); // consume #
           const innerStart = pos;
           // Scan the numeric value after #
-          if (pos < len && (isDigit(source[pos]) || source[pos] === '-' || source[pos] === '+')) {
-            if (source[pos] === '-' || source[pos] === '+') advance();
-            while (pos < len && isDigit(source[pos])) advance();
-            if (pos < len && source[pos] === '.') {
+          if (pos < len && (isDigit(source[pos]!) || source[pos]! === '-' || source[pos]! === '+')) {
+            if (source[pos]! === '-' || source[pos]! === '+') advance();
+            while (pos < len && isDigit(source[pos]!)) advance();
+            if (pos < len && source[pos]! === '.') {
               advance();
-              while (pos < len && isDigit(source[pos])) advance();
+              while (pos < len && isDigit(source[pos]!)) advance();
               // Exponent
-              if (pos < len && (source[pos] === 'e' || source[pos] === 'E')) {
+              if (pos < len && (source[pos]! === 'e' || source[pos]! === 'E')) {
                 advance();
-                if (pos < len && (source[pos] === '+' || source[pos] === '-')) advance();
-                while (pos < len && isDigit(source[pos])) advance();
+                if (pos < len && (source[pos]! === '+' || source[pos]! === '-')) advance();
+                while (pos < len && isDigit(source[pos]!)) advance();
               }
               tokens.push(makeToken(TokenType.REAL_LITERAL, tokPos, tokLine, tokCol));
             } else {
               tokens.push(makeToken(TokenType.INTEGER_LITERAL, tokPos, tokLine, tokCol));
             }
-          } else if (pos < len && wordUpper === 'BOOL' && isLetter(source[pos])) {
+          } else if (pos < len && wordUpper === 'BOOL' && isLetter(source[pos]!)) {
             // BOOL#TRUE, BOOL#FALSE
-            while (pos < len && isIdentPart(source[pos])) advance();
+            while (pos < len && isIdentPart(source[pos]!)) advance();
             tokens.push(makeToken(TokenType.BOOLEAN_LITERAL, tokPos, tokLine, tokCol));
           } else {
             // Consume whatever is there, emit error
-            while (pos < len && !isWhitespace(source[pos]) && source[pos] !== ';' && source[pos] !== '\n') advance();
+            while (pos < len && !isWhitespace(source[pos]!) && source[pos]! !== ';' && source[pos]! !== '\n') advance();
             addError('Invalid typed literal', tokPos, tokLine, tokCol, pos - tokPos);
             tokens.push(makeToken(TokenType.ERROR, tokPos, tokLine, tokCol));
           }
@@ -458,17 +458,17 @@ export function tokenize(source: string): LexerResult {
 
   function scanNumericLiteral(startPos: number, startLine: number, startCol: number): Token {
     // Scan leading digits (could be base prefix like 16, 8, 2)
-    while (pos < len && isDigit(source[pos])) {
+    while (pos < len && isDigit(source[pos]!)) {
       advance();
     }
 
     // Check for base-prefix literal: 16#FF, 8#77, 2#1010
-    if (pos < len && source[pos] === '#') {
+    if (pos < len && source[pos]! === '#') {
       const prefix = source.substring(startPos, pos);
       if (prefix === '16') {
         advance(); // consume #
-        if (pos < len && isHexDigit(source[pos])) {
-          while (pos < len && (isHexDigit(source[pos]) || source[pos] === '_')) advance();
+        if (pos < len && isHexDigit(source[pos]!)) {
+          while (pos < len && (isHexDigit(source[pos]!) || source[pos]! === '_')) advance();
           return makeToken(TokenType.HEX_LITERAL, startPos, startLine, startCol);
         }
         addError('Invalid hex literal', startPos, startLine, startCol, pos - startPos);
@@ -476,8 +476,8 @@ export function tokenize(source: string): LexerResult {
       }
       if (prefix === '8') {
         advance(); // consume #
-        if (pos < len && isOctalDigit(source[pos])) {
-          while (pos < len && (isOctalDigit(source[pos]) || source[pos] === '_')) advance();
+        if (pos < len && isOctalDigit(source[pos]!)) {
+          while (pos < len && (isOctalDigit(source[pos]!) || source[pos]! === '_')) advance();
           return makeToken(TokenType.OCTAL_LITERAL, startPos, startLine, startCol);
         }
         addError('Invalid octal literal', startPos, startLine, startCol, pos - startPos);
@@ -485,8 +485,8 @@ export function tokenize(source: string): LexerResult {
       }
       if (prefix === '2') {
         advance(); // consume #
-        if (pos < len && isBinaryDigit(source[pos])) {
-          while (pos < len && (isBinaryDigit(source[pos]) || source[pos] === '_')) advance();
+        if (pos < len && isBinaryDigit(source[pos]!)) {
+          while (pos < len && (isBinaryDigit(source[pos]!) || source[pos]! === '_')) advance();
           return makeToken(TokenType.BINARY_LITERAL, startPos, startLine, startCol);
         }
         addError('Invalid binary literal', startPos, startLine, startCol, pos - startPos);
@@ -498,26 +498,26 @@ export function tokenize(source: string): LexerResult {
     }
 
     // Allow underscore separators in digit sequences (e.g. 1_000_000)
-    while (pos < len && source[pos] === '_' && pos + 1 < len && isDigit(source[pos + 1])) {
+    while (pos < len && source[pos]! === '_' && pos + 1 < len && isDigit(source[pos + 1]!)) {
       advance(); // _
-      while (pos < len && isDigit(source[pos])) advance();
+      while (pos < len && isDigit(source[pos]!)) advance();
     }
 
     // Real literal: decimal point followed by digits
-    if (pos < len && source[pos] === '.' && pos + 1 < len && isDigit(source[pos + 1])) {
+    if (pos < len && source[pos]! === '.' && pos + 1 < len && isDigit(source[pos + 1]!)) {
       advance(); // consume .
-      while (pos < len && isDigit(source[pos])) advance();
+      while (pos < len && isDigit(source[pos]!)) advance();
       // Underscore separators in fractional part
-      while (pos < len && source[pos] === '_' && pos + 1 < len && isDigit(source[pos + 1])) {
+      while (pos < len && source[pos]! === '_' && pos + 1 < len && isDigit(source[pos + 1]!)) {
         advance();
-        while (pos < len && isDigit(source[pos])) advance();
+        while (pos < len && isDigit(source[pos]!)) advance();
       }
       // Exponent part
-      if (pos < len && (source[pos] === 'e' || source[pos] === 'E')) {
+      if (pos < len && (source[pos]! === 'e' || source[pos]! === 'E')) {
         advance();
-        if (pos < len && (source[pos] === '+' || source[pos] === '-')) advance();
-        if (pos < len && isDigit(source[pos])) {
-          while (pos < len && isDigit(source[pos])) advance();
+        if (pos < len && (source[pos]! === '+' || source[pos]! === '-')) advance();
+        if (pos < len && isDigit(source[pos]!)) {
+          while (pos < len && isDigit(source[pos]!)) advance();
         } else {
           addError('Expected digits in exponent', startPos, startLine, startCol, pos - startPos);
         }
@@ -526,11 +526,11 @@ export function tokenize(source: string): LexerResult {
     }
 
     // Exponent without decimal (e.g. 5E3)
-    if (pos < len && (source[pos] === 'e' || source[pos] === 'E')) {
+    if (pos < len && (source[pos]! === 'e' || source[pos]! === 'E')) {
       advance();
-      if (pos < len && (source[pos] === '+' || source[pos] === '-')) advance();
-      if (pos < len && isDigit(source[pos])) {
-        while (pos < len && isDigit(source[pos])) advance();
+      if (pos < len && (source[pos]! === '+' || source[pos]! === '-')) advance();
+      if (pos < len && isDigit(source[pos]!)) {
+        while (pos < len && isDigit(source[pos]!)) advance();
         return makeToken(TokenType.REAL_LITERAL, startPos, startLine, startCol);
       }
       addError('Expected digits in exponent', startPos, startLine, startCol, pos - startPos);
@@ -548,18 +548,18 @@ export function tokenize(source: string): LexerResult {
   function scanTimeLiteralBody(): void {
     // TIME body: digits followed by d/h/m/s/ms units, possibly repeated
     // e.g. 1d2h3m4s500ms, 100ms, 5s, -T#5s (minus already consumed)
-    if (pos < len && (source[pos] === '-' || source[pos] === '+')) advance();
-    while (pos < len && (isDigit(source[pos]) || source[pos] === '.' || source[pos] === '_')) {
+    if (pos < len && (source[pos]! === '-' || source[pos]! === '+')) advance();
+    while (pos < len && (isDigit(source[pos]!) || source[pos]! === '.' || source[pos]! === '_')) {
       advance();
       // Consume unit suffix letters
-      while (pos < len && isLetter(source[pos])) advance();
+      while (pos < len && isLetter(source[pos]!)) advance();
     }
   }
 
   /** Scan body of DATE literal after D# or DATE# */
   function scanDateLiteralBody(): void {
     // DATE body: YYYY-MM-DD
-    while (pos < len && (isDigit(source[pos]) || source[pos] === '-')) {
+    while (pos < len && (isDigit(source[pos]!) || source[pos]! === '-')) {
       advance();
     }
   }
@@ -567,7 +567,7 @@ export function tokenize(source: string): LexerResult {
   /** Scan body of DATE_AND_TIME literal after DT# or DATE_AND_TIME# */
   function scanDateTimeLiteralBody(): void {
     // DT body: YYYY-MM-DD-HH:MM:SS or YYYY-MM-DD-HH:MM:SS.sss
-    while (pos < len && (isDigit(source[pos]) || source[pos] === '-' || source[pos] === ':' || source[pos] === '.')) {
+    while (pos < len && (isDigit(source[pos]!) || source[pos]! === '-' || source[pos]! === ':' || source[pos]! === '.')) {
       advance();
     }
   }
@@ -575,7 +575,7 @@ export function tokenize(source: string): LexerResult {
   /** Scan body of TOD literal after TOD# or TIME_OF_DAY# */
   function scanTodLiteralBody(): void {
     // TOD body: HH:MM:SS or HH:MM:SS.sss
-    while (pos < len && (isDigit(source[pos]) || source[pos] === ':' || source[pos] === '.')) {
+    while (pos < len && (isDigit(source[pos]!) || source[pos]! === ':' || source[pos]! === '.')) {
       advance();
     }
   }

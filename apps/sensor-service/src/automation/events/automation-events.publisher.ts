@@ -59,8 +59,6 @@ export class AutomationEventsPublisher {
           eventId: crypto.randomUUID(),
           eventType: 'AutomationProgramSaved',
           timestamp: new Date(),
-          tenantId,
-          version: 1,
           ...event,
         },
       )
@@ -103,8 +101,6 @@ export class AutomationEventsPublisher {
           eventId: crypto.randomUUID(),
           eventType: 'AutomationProgramDeployed',
           timestamp: new Date(),
-          tenantId,
-          version: 1,
           ...event,
         },
       )
@@ -142,7 +138,6 @@ export class AutomationEventsPublisher {
           eventId: crypto.randomUUID(),
           eventType: 'AutomationTagsUpdated',
           timestamp: new Date(),
-          tenantId,
           version: 1,
           ...event,
         },
@@ -177,7 +172,6 @@ export class AutomationEventsPublisher {
           eventId: crypto.randomUUID(),
           eventType: 'AutomationFBDefinitionsChanged',
           timestamp: new Date(),
-          tenantId,
           version: 1,
           ...event,
         },

@@ -30,6 +30,8 @@ import { WorkerErrorCodes } from './st-worker.types';
 import type { WorkerPoolStatus } from './st-worker.types';
 
 // Piscina is imported dynamically to handle the case where it's not installed
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore -- piscina is an optional dependency
 let Piscina: typeof import('piscina').default;
 
 @Injectable()
@@ -50,6 +52,8 @@ export class STWorkerPoolService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit(): Promise<void> {
     try {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore -- piscina is an optional dependency
       const piscinaModule = await import('piscina');
       Piscina = piscinaModule.default || piscinaModule;
 

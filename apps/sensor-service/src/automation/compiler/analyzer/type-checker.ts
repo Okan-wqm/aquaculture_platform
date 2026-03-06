@@ -341,7 +341,7 @@ export class TypeChecker {
     if (generic === 'ANY') return true;
     if (dt.kind !== 'elementary') {
       // STRUCT/ARRAY/FB can match ANY
-      return generic === 'ANY';
+      return (generic as string) === 'ANY';
     }
     return this.matchesGenericElem(dt.type, generic);
   }

@@ -486,7 +486,7 @@ export class SemanticAnalyzer {
 
     for (let i = 0; i < stmts.length; i++) {
       if (this.diagnostics.length >= MAX_DIAGNOSTICS) return;
-      const stmt = stmts[i];
+      const stmt = stmts[i]!;
 
       // Check #11: unreachable code after RETURN
       if (hasReturn) {
@@ -858,7 +858,7 @@ export class SemanticAnalyzer {
     }
 
     // --- Variable used as function block (myTimer(IN := x, PT := y)) ---
-    if (sym.kind === 'variable' && sym.dataType.kind === 'functionBlock') {
+    if (sym.kind === 'variable' && (sym.dataType.kind as string) === 'functionBlock') {
       return this.checkFBCall(call, sym);
     }
 
@@ -885,15 +885,15 @@ export class SemanticAnalyzer {
 
     // Check #6: wrong argument types
     for (let i = 0; i < call.args.length; i++) {
-      const argType = this.inferExprType(call.args[i]);
+      const argType = this.inferExprType(call.args[i]!);
       if (argType) argTypes.push(argType);
 
       if (i < params.length && argType) {
-        if (!this.typeChecker.isAssignableTo(argType, params[i].type)) {
+        if (!this.typeChecker.isAssignableTo(argType, params[i]!.type)) {
           this.addDiagnostic(
-            call.args[i].loc,
+            call.args[i]!.loc,
             'error',
-            `Argument ${i + 1} of '${call.name}': expected ${this.typeChecker.typeToString(params[i].type)}, got ${this.typeChecker.typeToString(argType)}`,
+            `Argument ${i + 1} of '${call.name}': expected ${this.typeChecker.typeToString(params[i]!.type)}, got ${this.typeChecker.typeToString(argType)}`,
             ErrorCodes.WRONG_ARG_TYPE,
           );
         }
@@ -946,12 +946,12 @@ export class SemanticAnalyzer {
         );
       }
       for (let i = 0; i < call.args.length && i < allInputs.length; i++) {
-        const argType = this.inferExprType(call.args[i]);
-        if (argType && !this.typeChecker.isAssignableTo(argType, allInputs[i].type)) {
+        const argType = this.inferExprType(call.args[i]!);
+        if (argType && !this.typeChecker.isAssignableTo(argType, allInputs[i]!.type)) {
           this.addDiagnostic(
-            call.args[i].loc,
+            call.args[i]!.loc,
             'error',
-            `Argument ${i + 1} of '${fbType.name}': expected ${this.typeChecker.typeToString(allInputs[i].type)}, got ${this.typeChecker.typeToString(argType)}`,
+            `Argument ${i + 1} of '${fbType.name}': expected ${this.typeChecker.typeToString(allInputs[i]!.type)}, got ${this.typeChecker.typeToString(argType)}`,
             ErrorCodes.WRONG_ARG_TYPE,
           );
         }

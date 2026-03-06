@@ -57,6 +57,10 @@ export default defineConfig(({ command }) => {
           'use-sync-external-store': {
             singleton: true,
           },
+          reactflow: {
+            singleton: true,
+            requiredVersion: '^11.10.0',
+          },
         },
       }),
     ],

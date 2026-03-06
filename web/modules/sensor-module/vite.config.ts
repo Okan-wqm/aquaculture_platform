@@ -32,6 +32,7 @@ export default defineConfig({
         '@aquaculture/shared-ui': { singleton: true, import: true },
         zustand: { singleton: true, requiredVersion: '^4.4.0' },
         'use-sync-external-store': { singleton: true },
+        reactflow: { singleton: true, requiredVersion: '^11.10.0' },
       },
     }),
   ],
@@ -41,7 +42,7 @@ export default defineConfig({
       '@aquaculture/shared-ui': resolve(__dirname, '../../shared-ui/dist'),
       '@platform/shared-ui': resolve(__dirname, '../../shared-ui/src'),
     },
-    dedupe: ['react', 'react-dom'],
+    dedupe: ['react', 'react-dom', 'reactflow'],
   },
   // Public folder is automatically copied to dist by Vite
   publicDir: 'public',

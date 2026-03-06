@@ -46,6 +46,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
   const [showDeployMenu, setShowDeployMenu] = useState(false);
   const [showDeployDialog, setShowDeployDialog] = useState(false);
   const [showDeviceDropdown, setShowDeviceDropdown] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   const {
     packageId: storePackageId,
@@ -393,9 +394,16 @@ const ScadaPackageBuilderPage: React.FC = () => {
             {isSaving ? 'Kaydediliyor...' : 'Kaydet'}
           </button>
 
-          <button className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+          <button
+            onClick={() => setShowPreview(!showPreview)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+              showPreview
+                ? 'text-white bg-cyan-600 hover:bg-cyan-700'
+                : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
+            }`}
+          >
             <Eye className="w-4 h-4" />
-            Onizleme
+            {showPreview ? 'Duzenle' : 'Onizleme'}
           </button>
 
           <div className="relative">
@@ -434,8 +442,8 @@ const ScadaPackageBuilderPage: React.FC = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Panel - Widget Palette */}
-        <WidgetPalette />
+        {/* Left Panel - Widget Palette (hidden in preview) */}
+        {!showPreview && <WidgetPalette />}
 
         {/* Center - Canvas with Screen Tabs */}
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -443,11 +451,13 @@ const ScadaPackageBuilderPage: React.FC = () => {
           <ScreenTabBar />
 
           {/* Canvas */}
-          <ScreenCanvas />
+          <div className={`flex-1 ${showPreview ? 'pointer-events-none' : ''}`}>
+            <ScreenCanvas />
+          </div>
         </div>
 
-        {/* Right Panel - PropertiesPanel */}
-        <PropertiesPanel
+        {/* Right Panel - PropertiesPanel (hidden in preview) */}
+        {!showPreview && <PropertiesPanel
           selectedWidget={selectedWidget}
           onWidgetConfigChange={handleWidgetConfigChange}
           alarmRules={alarmRules}
@@ -469,7 +479,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
           trendConfig={trendConfig}
           onTrendConfigChange={updateTrendConfig}
           deviceId={targetDeviceId}
-        />
+        />}
       </div>
 
       {/* Status Bar */}

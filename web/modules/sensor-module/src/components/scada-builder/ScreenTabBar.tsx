@@ -7,6 +7,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Plus,
+  Minus,
   Star,
   LayoutDashboard,
   Workflow,
@@ -155,8 +156,8 @@ const ScreenTabBar: React.FC = () => {
         );
       })}
 
-      {/* Add Screen Button */}
-      <div className="relative">
+      {/* Add / Remove Screen Buttons */}
+      <div className="relative flex items-center gap-0.5">
         <button
           ref={addBtnRef}
           onClick={() => setShowAddDropdown(!showAddDropdown)}
@@ -164,6 +165,18 @@ const ScreenTabBar: React.FC = () => {
           title="Ekran Ekle"
         >
           <Plus className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => activeScreenId && handleDelete(activeScreenId)}
+          disabled={isLastScreen}
+          className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
+            isLastScreen
+              ? 'text-gray-300 cursor-not-allowed'
+              : 'text-gray-500 hover:bg-red-100 hover:text-red-600'
+          }`}
+          title="Ekrani Sil"
+        >
+          <Minus className="w-4 h-4" />
         </button>
 
         {showAddDropdown && (

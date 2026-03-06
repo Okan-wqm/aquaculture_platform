@@ -10,13 +10,14 @@
  * - Grid ↔ Pixel conversion for edge compatibility
  */
 
-import React, { useCallback, useRef, useMemo, useEffect } from 'react';
+import React, { useCallback, useRef, useMemo, useEffect, useState } from 'react';
 import ReactFlow, {
   Background,
   Controls,
   MiniMap,
   ReactFlowProvider,
   useReactFlow,
+  applyNodeChanges,
   type Node,
   type NodeChange,
 } from 'reactflow';
@@ -108,8 +109,8 @@ const CanvasInner: React.FC = () => {
     [activeScreenId, updateWidgetPosition],
   );
 
-  // Convert store widgets → ReactFlow nodes
-  const nodes: Node<ScadaWidgetNodeData>[] = useMemo(() => {
+  // Convert store widgets → ReactFlow nodes (source of truth)
+  const storeNodes: Node<ScadaWidgetNodeData>[] = useMemo(() => {
     return widgets.map((w) => {
       const px = gridToPixel(w.position);
       return {
@@ -134,6 +135,16 @@ const CanvasInner: React.FC = () => {
     });
   }, [widgets, selectedWidgetId, activeScreenId, handleWidgetResize]);
 
+  // Local nodes state for smooth dragging (synced from store)
+  const [nodes, setNodes] = useState<Node<ScadaWidgetNodeData>[]>(storeNodes);
+
+  // Sync store → local nodes when store changes (not during drag)
+  useEffect(() => {
+    if (!syncingFromStore.current) {
+      setNodes(storeNodes);
+    }
+  }, [storeNodes]);
+
   // Handle screen transitions: save/restore viewport
   useEffect(() => {
     if (prevScreenIdRef.current !== activeScreenId) {
@@ -154,6 +165,9 @@ const CanvasInner: React.FC = () => {
   // Handle node changes (position drag, selection)
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      // Apply ALL changes locally for smooth visual feedback
+      setNodes((nds) => applyNodeChanges(changes, nds));
+
       for (const change of changes) {
         if (change.type === 'position' && change.dragging === false && change.position) {
           // Drag ended → commit position to store in grid units
@@ -169,7 +183,7 @@ const CanvasInner: React.FC = () => {
           );
           syncingFromStore.current = true;
           updateWidgetPosition(activeScreenId, change.id, newGrid);
-          syncingFromStore.current = false;
+          requestAnimationFrame(() => { syncingFromStore.current = false; });
         }
         if (change.type === 'select') {
           if (change.selected) {

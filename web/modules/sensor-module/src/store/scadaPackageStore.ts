@@ -5,6 +5,12 @@ export type { WidgetPosition, ScreenWidget } from '../types/scada-package.types'
 // Screen type
 export type ScreenType = 'dashboard' | 'process' | 'alarms' | 'trends' | 'calibration' | 'control';
 
+export interface ScreenViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
 export interface ScreenDef {
   id: string;
   name: string;
@@ -58,6 +64,10 @@ interface ScadaPackageState {
   // Trend Config
   trendConfig: TrendConfigDef;
 
+  // Viewport state per screen
+  screenViewports: Record<string, ScreenViewport>;
+  screenHistory: string[];
+
   // UI State
   isDirty: boolean;
   selectedWidgetId: string | null;
@@ -69,6 +79,8 @@ interface ScadaPackageState {
   updateScreen: (id: string, updates: Partial<ScreenDef>) => void;
   setActiveScreen: (id: string) => void;
   setDefaultScreen: (id: string) => void;
+  saveScreenViewport: (screenId: string, viewport: ScreenViewport) => void;
+  getScreenViewport: (screenId: string) => ScreenViewport;
 
   // Widget actions
   addWidget: (screenId: string, widget: ScreenWidget) => void;
@@ -143,6 +155,8 @@ const initialState = {
   alarmRules: [] as AlarmRuleDef[],
   controlPermissions: { ...defaultControlPermissions },
   trendConfig: { ...defaultTrendConfig },
+  screenViewports: {} as Record<string, ScreenViewport>,
+  screenHistory: [] as string[],
   isDirty: false,
   selectedWidgetId: null as string | null,
   rightPanelTab: 'widget' as const,
@@ -192,7 +206,26 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
       isDirty: true,
     })),
 
-  setActiveScreen: (id) => set({ activeScreenId: id }),
+  setActiveScreen: (id) =>
+    set((state) => {
+      const history = state.activeScreenId
+        ? [...state.screenHistory.filter((h) => h !== state.activeScreenId), state.activeScreenId]
+        : state.screenHistory;
+      return {
+        activeScreenId: id,
+        screenHistory: history.slice(-20), // keep last 20
+      };
+    }),
+
+  saveScreenViewport: (screenId, viewport) =>
+    set((state) => ({
+      screenViewports: { ...state.screenViewports, [screenId]: viewport },
+    })),
+
+  getScreenViewport: (screenId) => {
+    const vp = get().screenViewports[screenId];
+    return vp || { x: 0, y: 0, zoom: 1 };
+  },
 
   setDefaultScreen: (id) =>
     set((state) => ({

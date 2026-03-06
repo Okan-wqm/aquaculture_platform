@@ -131,13 +131,15 @@ export const WidgetPalette: React.FC = () => {
   };
 
   const handleDragStart = (e: React.DragEvent, widget: WidgetDefinition) => {
+    // ReactFlow-compatible MIME type with widget metadata + default config
     e.dataTransfer.setData(
-      'application/scada-widget',
+      'application/reactflow-widget',
       JSON.stringify({
-        type: widget.type,
+        widgetType: widget.type,
         label: widget.label,
-        defaultW: widget.defaultW,
-        defaultH: widget.defaultH,
+        defaultConfig: {
+          label: widget.label,
+        },
       })
     );
     e.dataTransfer.effectAllowed = 'copy';

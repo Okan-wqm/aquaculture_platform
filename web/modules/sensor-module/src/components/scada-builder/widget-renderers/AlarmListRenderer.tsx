@@ -1,0 +1,87 @@
+/**
+ * AlarmListRenderer - Alarm rows list placeholder
+ */
+
+import React, { memo } from 'react';
+import type { WidgetRendererProps } from '../WidgetRenderer';
+
+const DEMO_ALARMS = [
+  { time: '14:32', severity: 'critical', msg: 'pH > 8.5' },
+  { time: '14:28', severity: 'warning', msg: 'DO dusuk' },
+  { time: '14:15', severity: 'info', msg: 'Pompa basladi' },
+  { time: '13:55', severity: 'warning', msg: 'Sicaklik yuksek' },
+  { time: '13:40', severity: 'critical', msg: 'Tank seviye alarm' },
+];
+
+const SEV_COLORS: Record<string, string> = {
+  critical: '#ef4444',
+  warning: '#eab308',
+  info: '#3b82f6',
+};
+
+const AlarmListRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
+  const label = config.label ?? 'Alarm Listesi';
+  const alarms = isEditing ? DEMO_ALARMS : (config.alarms ?? DEMO_ALARMS);
+  const rowH = 22;
+  const headerH = 28;
+  const visibleCount = Math.max(1, Math.floor((height - headerH) / rowH));
+
+  return (
+    <div style={{ width, height, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Header */}
+      <div
+        style={{
+          height: headerH,
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 8px',
+          background: '#f8fafc',
+          borderBottom: '1px solid #e2e8f0',
+          fontSize: 11,
+          fontWeight: 600,
+          color: '#374151',
+        }}
+      >
+        {label}
+        <span style={{ marginLeft: 'auto', fontSize: 9, color: '#9ca3af' }}>
+          {alarms.length} alarm
+        </span>
+      </div>
+
+      {/* Rows */}
+      <div style={{ flex: 1, overflow: 'hidden' }}>
+        {alarms.slice(0, visibleCount).map((alarm: any, i: number) => (
+          <div
+            key={i}
+            style={{
+              height: rowH,
+              display: 'flex',
+              alignItems: 'center',
+              padding: '0 8px',
+              gap: 6,
+              borderBottom: '1px solid #f3f4f6',
+              fontSize: 10,
+            }}
+          >
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: SEV_COLORS[alarm.severity] ?? '#9ca3af',
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ color: '#9ca3af', fontSize: 9, flexShrink: 0 }}>{alarm.time}</span>
+            <span style={{ color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {alarm.msg}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+AlarmListRenderer.displayName = 'AlarmListRenderer';
+export default memo(AlarmListRenderer);

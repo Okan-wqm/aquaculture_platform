@@ -30,6 +30,7 @@ import ConnectionPointNode from './ConnectionPointNode';
 import SensorWidget, { SensorWidgetData } from './SensorWidget';
 import { AlgaeBagRedNode, AlgaeBagGreenNode, AlgaeBagYellowNode } from './AlgaeBagNode';
 import UltrafiltrationNode from './UltrafiltrationNode';
+import { ScadaWidgetNode } from './ScadaWidgetNode';
 
 // Node types for ReactFlow
 export const nodeTypes = {
@@ -52,6 +53,8 @@ export const nodeTypes = {
   ultrafiltration: UltrafiltrationNode,
   // Sensor visualization
   sensorWidget: SensorWidget,
+  // SCADA overlay widgets
+  scadaWidget: ScadaWidgetNode,
 };
 
 // Node type identifiers
@@ -159,6 +162,13 @@ export const NODE_TYPE_OPTIONS: NodeTypeConfig[] = [
     category: 'algae',
     description: 'Dunaliella cultivation bag',
   },
+  {
+    id: 'scadaWidget',
+    label: 'SCADA Widget',
+    labelTr: 'SCADA Widget',
+    category: 'scada',
+    description: 'SCADA HMI overlay widget (gauge, switch, trend, etc.)',
+  },
 ];
 
 export {
@@ -178,4 +188,5 @@ export {
   UltrafiltrationNode,
 };
 
+export { ScadaWidgetNode };
 export type { SensorWidgetData };

@@ -1,0 +1,107 @@
+import {
+  ObjectType,
+  Field,
+  ID,
+  Int,
+  registerEnumType,
+} from '@nestjs/graphql';
+import { GraphQLJSON } from 'graphql-scalars';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  Index,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
+
+export enum ScadaDeployStatus {
+  PENDING = 'pending',
+  SENT = 'sent',
+  RECEIVED = 'received',
+  DEPLOYING = 'deploying',
+  VERIFYING = 'verifying',
+  SUCCESS = 'success',
+  FAILED = 'failed',
+  ROLLED_BACK = 'rolled_back',
+}
+
+registerEnumType(ScadaDeployStatus, {
+  name: 'ScadaDeployStatus',
+  description: 'Status of a SCADA package deployment to edge device',
+});
+
+@ObjectType()
+@Entity('scada_deploy_logs')
+@Index(['tenantId', 'deviceId'])
+@Index(['tenantId', 'packageId'])
+@Index(['commandId'], { unique: true })
+export class ScadaDeployLog {
+  @Field(() => ID)
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
+
+  @Field()
+  @Column({ type: 'uuid', name: 'tenant_id' })
+  tenantId!: string;
+
+  @Field()
+  @Column({ type: 'uuid', name: 'package_id' })
+  packageId!: string;
+
+  @Field()
+  @Column({ type: 'uuid', name: 'device_id' })
+  deviceId!: string;
+
+  @Field()
+  @Column({ type: 'uuid', name: 'command_id' })
+  commandId!: string;
+
+  @Field(() => Int)
+  @Column({ name: 'version', type: 'int' })
+  version!: number;
+
+  @Field(() => ScadaDeployStatus)
+  @Column({ name: 'status', type: 'enum', enum: ScadaDeployStatus, default: ScadaDeployStatus.PENDING })
+  status!: ScadaDeployStatus;
+
+  @Field()
+  @Column({ name: 'sent_at', type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
+  sentAt!: Date;
+
+  @Field({ nullable: true })
+  @Column({ name: 'received_at', type: 'timestamptz', nullable: true })
+  receivedAt?: Date;
+
+  @Field({ nullable: true })
+  @Column({ name: 'deployed_at', type: 'timestamptz', nullable: true })
+  deployedAt?: Date;
+
+  @Field({ nullable: true })
+  @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
+  verifiedAt?: Date;
+
+  @Field(() => GraphQLJSON, { nullable: true })
+  @Column({ name: 'health_check_results', type: 'jsonb', nullable: true })
+  healthCheckResults?: Record<string, unknown>;
+
+  @Field({ nullable: true })
+  @Column({ name: 'error_message', type: 'text', nullable: true })
+  errorMessage?: string;
+
+  @Field(() => Int, { nullable: true })
+  @Column({ name: 'rolled_back_to', type: 'int', nullable: true })
+  rolledBackTo?: number;
+
+  @Field({ nullable: true })
+  @Column({ name: 'deployed_by', nullable: true })
+  deployedBy?: string;
+
+  @Field()
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt!: Date;
+
+  @Field({ nullable: true })
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt?: Date;
+}

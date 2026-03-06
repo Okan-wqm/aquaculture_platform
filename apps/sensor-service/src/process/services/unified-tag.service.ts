@@ -1,0 +1,302 @@
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, FindOptionsWhere, ILike } from 'typeorm';
+
+import { DeviceIoConfig, IoType, IoDataType } from '../../edge-device/entities/device-io-config.entity';
+import { EdgeDevice } from '../../edge-device/entities/edge-device.entity';
+
+import {
+  CreateTagInput,
+  UpdateTagInput,
+  TagFilterInput,
+} from '../dto/unified-tag.dto';
+import { ProcessPaginationInput } from '../dto/process.dto';
+import { Process } from '../entities/process.entity';
+import {
+  UnifiedTag,
+  TagIoType,
+  TagDataType,
+  TagDirection,
+} from '../entities/unified-tag.entity';
+
+export interface UnifiedTagListResult {
+  items: UnifiedTag[];
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+@Injectable()
+export class UnifiedTagService {
+  private readonly logger = new Logger(UnifiedTagService.name);
+
+  constructor(
+    @InjectRepository(UnifiedTag)
+    private readonly tagRepository: Repository<UnifiedTag>,
+    @InjectRepository(DeviceIoConfig)
+    private readonly ioConfigRepository: Repository<DeviceIoConfig>,
+    @InjectRepository(EdgeDevice)
+    private readonly edgeDeviceRepository: Repository<EdgeDevice>,
+    @InjectRepository(Process)
+    private readonly processRepository: Repository<Process>,
+  ) {}
+
+  async createTag(input: CreateTagInput, tenantId: string): Promise<UnifiedTag> {
+    this.logger.log(`Creating tag "${input.fqn}" for tenant ${tenantId}`);
+    const tag = this.tagRepository.create({
+      ...input,
+      tenantId,
+    });
+    return this.tagRepository.save(tag);
+  }
+
+  async updateTag(id: string, input: UpdateTagInput, tenantId: string): Promise<UnifiedTag> {
+    const tag = await this.tagRepository.findOne({ where: { id, tenantId } });
+    if (!tag) throw new NotFoundException(`Tag ${id} not found`);
+
+    if (input.fqn !== undefined) tag.fqn = input.fqn;
+    if (input.localName !== undefined) tag.localName = input.localName;
+    if (input.displayName !== undefined) tag.displayName = input.displayName;
+    if (input.description !== undefined) tag.description = input.description;
+    if (input.ioType !== undefined) tag.ioType = input.ioType;
+    if (input.dataType !== undefined) tag.dataType = input.dataType;
+    if (input.direction !== undefined) tag.direction = input.direction;
+    if (input.engUnit !== undefined) tag.engUnit = input.engUnit;
+    if (input.engMin !== undefined) tag.engMin = input.engMin;
+    if (input.engMax !== undefined) tag.engMax = input.engMax;
+    if (input.alarmHH !== undefined) tag.alarmHH = input.alarmHH;
+    if (input.alarmH !== undefined) tag.alarmH = input.alarmH;
+    if (input.alarmL !== undefined) tag.alarmL = input.alarmL;
+    if (input.alarmLL !== undefined) tag.alarmLL = input.alarmLL;
+    if (input.deadband !== undefined) tag.deadband = input.deadband;
+    if (input.source !== undefined) tag.source = input.source as any;
+    if (input.hierarchy !== undefined) tag.hierarchy = input.hierarchy as any;
+
+    return this.tagRepository.save(tag);
+  }
+
+  async getTag(id: string, tenantId: string): Promise<UnifiedTag | null> {
+    return this.tagRepository.findOne({ where: { id, tenantId } });
+  }
+
+  async deleteTag(id: string, tenantId: string): Promise<boolean> {
+    const tag = await this.tagRepository.findOne({ where: { id, tenantId } });
+    if (!tag) throw new NotFoundException(`Tag ${id} not found`);
+    await this.tagRepository.remove(tag);
+    return true;
+  }
+
+  async listTags(
+    tenantId: string,
+    filter?: TagFilterInput,
+    pagination?: ProcessPaginationInput,
+  ): Promise<UnifiedTagListResult> {
+    const offset = pagination?.offset || 0;
+    const limit = Math.min(pagination?.limit || 20, 100);
+
+    const qb = this.tagRepository
+      .createQueryBuilder('tag')
+      .where('tag.tenantId = :tenantId', { tenantId });
+
+    if (filter?.ioType) {
+      qb.andWhere('tag.ioType = :ioType', { ioType: filter.ioType });
+    }
+    if (filter?.dataType) {
+      qb.andWhere('tag.dataType = :dataType', { dataType: filter.dataType });
+    }
+    if (filter?.direction) {
+      qb.andWhere('tag.direction = :direction', { direction: filter.direction });
+    }
+    if (filter?.equipmentId) {
+      qb.andWhere("tag.hierarchy->>'equipmentId' = :equipmentId", {
+        equipmentId: filter.equipmentId,
+      });
+    }
+    if (filter?.edgeDeviceId) {
+      qb.andWhere("tag.source->>'edgeDeviceId' = :edgeDeviceId", {
+        edgeDeviceId: filter.edgeDeviceId,
+      });
+    }
+    if (filter?.searchTerm) {
+      qb.andWhere('(tag.fqn ILIKE :search OR tag.displayName ILIKE :search)', {
+        search: `%${filter.searchTerm}%`,
+      });
+    }
+
+    qb.orderBy('tag.fqn', 'ASC').skip(offset).take(limit);
+
+    const [items, total] = await qb.getManyAndCount();
+    return { items, total, offset, limit, hasMore: offset + items.length < total };
+  }
+
+  /**
+   * Search tags by FQN or displayName (ILIKE)
+   */
+  async tagSearch(query: string, tenantId: string, limit = 50): Promise<UnifiedTag[]> {
+    return this.tagRepository
+      .createQueryBuilder('tag')
+      .where('tag.tenantId = :tenantId', { tenantId })
+      .andWhere('(tag.fqn ILIKE :query OR tag.displayName ILIKE :query)', {
+        query: `%${query}%`,
+      })
+      .orderBy('tag.fqn', 'ASC')
+      .take(Math.min(limit, 200))
+      .getMany();
+  }
+
+  /**
+   * Discover tags from DeviceIoConfig entries for a given edge device.
+   * Creates UnifiedTag entries for each I/O config that doesn't already have one.
+   */
+  async discoverTags(
+    deviceId: string,
+    tenantId: string,
+  ): Promise<{ discoveredCount: number; createdCount: number; tags: UnifiedTag[] }> {
+    this.logger.log(`Discovering tags from device ${deviceId} for tenant ${tenantId}`);
+
+    const device = await this.edgeDeviceRepository.findOne({
+      where: { id: deviceId, tenantId },
+    });
+    if (!device) throw new NotFoundException(`Edge device ${deviceId} not found`);
+
+    const ioConfigs = await this.ioConfigRepository.find({
+      where: { deviceId },
+    });
+
+    const discoveredCount = ioConfigs.length;
+    let createdCount = 0;
+    const tags: UnifiedTag[] = [];
+
+    for (const io of ioConfigs) {
+      const fqn = `${device.deviceCode}/${io.tagName}`;
+
+      const existing = await this.tagRepository.findOne({
+        where: { tenantId, fqn },
+      });
+
+      if (existing) {
+        tags.push(existing);
+        continue;
+      }
+
+      const tag = this.tagRepository.create({
+        tenantId,
+        fqn,
+        localName: io.tagName,
+        displayName: io.description || io.tagName,
+        ioType: this.mapIoType(io.ioType),
+        dataType: this.mapDataType(io.dataType),
+        direction: this.inferDirection(io.ioType),
+        engUnit: io.engUnit,
+        engMin: io.engMin ? Number(io.engMin) : undefined,
+        engMax: io.engMax ? Number(io.engMax) : undefined,
+        alarmHH: io.alarmHH ? Number(io.alarmHH) : undefined,
+        alarmH: io.alarmH ? Number(io.alarmH) : undefined,
+        alarmL: io.alarmL ? Number(io.alarmL) : undefined,
+        alarmLL: io.alarmLL ? Number(io.alarmLL) : undefined,
+        deadband: io.deadband ? Number(io.deadband) : undefined,
+        source: {
+          type: 'edge_device',
+          edgeDeviceId: deviceId,
+          ioConfigId: io.id,
+        },
+        hierarchy: {},
+      });
+
+      const saved = await this.tagRepository.save(tag);
+      tags.push(saved);
+      createdCount++;
+    }
+
+    this.logger.log(`Discovered ${discoveredCount} I/O configs, created ${createdCount} new tags`);
+    return { discoveredCount, createdCount, tags };
+  }
+
+  /**
+   * Auto-bind tags to process nodes based on equipment assignments.
+   * Matches equipment codes in process nodes to discovered tags' FQN hierarchy.
+   */
+  async autoBindTags(
+    processId: string,
+    deviceId: string,
+    tenantId: string,
+  ): Promise<{ discoveredCount: number; createdCount: number; tags: UnifiedTag[] }> {
+    this.logger.log(`Auto-binding tags for process ${processId}, device ${deviceId}`);
+
+    const process = await this.processRepository.findOne({
+      where: { id: processId, tenantId },
+    });
+    if (!process) throw new NotFoundException(`Process ${processId} not found`);
+
+    // First discover all tags from the device
+    const discovery = await this.discoverTags(deviceId, tenantId);
+
+    // Extract equipment info from process nodes
+    const equipmentNodes = (process.nodes || []).filter(
+      (n) => n.data?.equipmentId || n.data?.equipmentCode,
+    );
+
+    // Update hierarchy on tags that match equipment codes
+    for (const node of equipmentNodes) {
+      const code = node.data.equipmentCode;
+      if (!code) continue;
+
+      // Find tags whose FQN contains this equipment code
+      const matchingTags = discovery.tags.filter((t) =>
+        t.fqn.toLowerCase().includes(code.toLowerCase()),
+      );
+
+      for (const tag of matchingTags) {
+        tag.hierarchy = {
+          ...tag.hierarchy,
+          equipmentId: node.data.equipmentId,
+          equipmentCode: node.data.equipmentCode,
+        };
+        await this.tagRepository.save(tag);
+      }
+    }
+
+    return discovery;
+  }
+
+  // ============================================================================
+  // Private Helpers
+  // ============================================================================
+
+  private mapIoType(ioType: IoType): TagIoType {
+    const map: Record<IoType, TagIoType> = {
+      [IoType.DI]: TagIoType.DI,
+      [IoType.DO]: TagIoType.DO,
+      [IoType.AI]: TagIoType.AI,
+      [IoType.AO]: TagIoType.AO,
+    };
+    return map[ioType];
+  }
+
+  private mapDataType(dataType: IoDataType): TagDataType {
+    const map: Record<IoDataType, TagDataType> = {
+      [IoDataType.BOOL]: TagDataType.BOOL,
+      [IoDataType.INT16]: TagDataType.INT16,
+      [IoDataType.INT32]: TagDataType.INT32,
+      [IoDataType.UINT16]: TagDataType.UINT16,
+      [IoDataType.UINT32]: TagDataType.UINT32,
+      [IoDataType.FLOAT32]: TagDataType.FLOAT32,
+      [IoDataType.FLOAT64]: TagDataType.FLOAT64,
+    };
+    return map[dataType];
+  }
+
+  private inferDirection(ioType: IoType): TagDirection {
+    switch (ioType) {
+      case IoType.DI:
+      case IoType.AI:
+        return TagDirection.INPUT;
+      case IoType.DO:
+      case IoType.AO:
+        return TagDirection.OUTPUT;
+      default:
+        return TagDirection.INPUT;
+    }
+  }
+}

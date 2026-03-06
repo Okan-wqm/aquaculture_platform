@@ -633,6 +633,10 @@
         setSelectedNodeId(node.id);
         setSelectedEdgeId(null);
         notifyParent('nodeSelected', node);
+        // SCADA overlay node selected — notify parent with dedicated message
+        if (node.type === 'scadaWidget') {
+          notifyParent('overlayNodeSelected', { nodeId: node.id, nodeData: node.data });
+        }
       }, []);
 
       // Handle edge click
@@ -649,6 +653,22 @@
         notifyParent('selectionCleared', null);
       }, []);
 
+      // Handle node drag stop — notify parent when overlay node is moved
+      const onNodeDragStop = useCallback((event, node) => {
+        if (node.type === 'scadaWidget') {
+          notifyParent('overlayNodeMoved', { nodeId: node.id, position: node.position });
+        }
+      }, []);
+
+      // Handle nodes delete — notify parent when overlay nodes are deleted via keyboard
+      const onNodesDelete = useCallback((deletedNodes) => {
+        deletedNodes.forEach((node) => {
+          if (node.type === 'scadaWidget') {
+            notifyParent('overlayNodeDeleted', { nodeId: node.id });
+          }
+        });
+      }, []);
+
       // Handle drag over for drop
       const onDragOver = useCallback((event) => {
         event.preventDefault();
@@ -660,6 +680,26 @@
         event.preventDefault();
 
         if (!reactFlowInstance) return;
+
+        // Check for SCADA widget drop from HMI palette
+        const scadaWidgetData = event.dataTransfer.getData('application/scada-widget');
+        if (scadaWidgetData) {
+          try {
+            const widgetInfo = JSON.parse(scadaWidgetData);
+            const position = reactFlowInstance.screenToFlowPosition({
+              x: event.clientX,
+              y: event.clientY,
+            });
+            notifyParent('overlayNodeDropped', {
+              widgetType: widgetInfo.widgetType || widgetInfo.type || 'unknown',
+              position,
+              widgetData: widgetInfo,
+            });
+          } catch (e) {
+            console.error('[canvas] Failed to parse scada widget drop data:', e);
+          }
+          return;
+        }
 
         const equipmentData = event.dataTransfer.getData('application/equipment') || event.dataTransfer.getData('application/reactflow');
         if (!equipmentData) return;
@@ -917,6 +957,99 @@
                 ));
               }
               break;
+
+            // ============================================
+            // SCADA Overlay Messages (Parent → iframe)
+            // ============================================
+            case 'setEditorMode': {
+              // { mode: 'pid'|'hmi'|'plc'|'runtime'|'debug' }
+              const editorMode = data && data.mode;
+              console.log('[canvas] setEditorMode:', editorMode);
+              setNodes((nds) => nds.map((n) => {
+                if (n.type === 'scadaWidget') {
+                  // HMI mode: scadaWidget draggable, P&ID nodes locked
+                  return { ...n, draggable: editorMode === 'hmi', selectable: editorMode === 'hmi' || editorMode === 'pid' };
+                }
+                // P&ID nodes: draggable only in pid mode
+                return { ...n, draggable: editorMode === 'pid', selectable: editorMode === 'pid' || editorMode === 'hmi' };
+              }));
+              break;
+            }
+            case 'addOverlayNode': {
+              // { node: { id, type:'scadaWidget', position, data } }
+              const overlayNode = data && data.node;
+              if (overlayNode && overlayNode.id) {
+                const newOverlay = {
+                  ...overlayNode,
+                  type: overlayNode.type || 'scadaWidget',
+                  position: { x: overlayNode.position?.x || 0, y: overlayNode.position?.y || 0 },
+                  zIndex: 500,
+                };
+                console.log('[canvas] addOverlayNode:', newOverlay.id);
+                setNodes((nds) => nds.concat(newOverlay));
+                notifyParent('nodeAdded', newOverlay);
+              }
+              break;
+            }
+            case 'removeOverlayNode': {
+              // { nodeId }
+              const removeId = data && data.nodeId;
+              if (removeId) {
+                console.log('[canvas] removeOverlayNode:', removeId);
+                setNodes((nds) => nds.filter((n) => n.id !== removeId));
+                setEdges((eds) => eds.filter((e) => e.source !== removeId && e.target !== removeId));
+              }
+              break;
+            }
+            case 'updateOverlayNode': {
+              // { nodeId, data: Partial }
+              const updateId = data && data.nodeId;
+              const updateData = data && data.data;
+              if (updateId && updateData) {
+                console.log('[canvas] updateOverlayNode:', updateId);
+                setNodes((nds) => nds.map((n) =>
+                  n.id === updateId ? { ...n, data: { ...n.data, ...updateData } } : n
+                ));
+              }
+              break;
+            }
+            case 'updateLiveValues': {
+              // { values: Record<tagName, any> } — batch live value update for all scadaWidget nodes
+              const values = data && data.values;
+              if (values && typeof values === 'object') {
+                setNodes((nds) => nds.map((n) => {
+                  if (n.type !== 'scadaWidget') return n;
+                  const tagName = n.data && n.data.tagName;
+                  if (tagName && values[tagName] !== undefined) {
+                    return { ...n, data: { ...n.data, liveValue: values[tagName] } };
+                  }
+                  return n;
+                }));
+              }
+              break;
+            }
+            case 'setNodeVisibility': {
+              // { nodeIds: string[], visible: boolean } — multi-screen toggle
+              const nodeIds = data && data.nodeIds;
+              const visible = data && data.visible;
+              if (Array.isArray(nodeIds)) {
+                const idSet = new Set(nodeIds);
+                setNodes((nds) => nds.map((n) =>
+                  idSet.has(n.id) ? { ...n, hidden: !visible } : n
+                ));
+              }
+              break;
+            }
+            case 'lockPidNodes': {
+              // { locked: boolean } — lock/unlock P&ID nodes' draggable/selectable
+              const locked = data && data.locked;
+              console.log('[canvas] lockPidNodes:', locked);
+              setNodes((nds) => nds.map((n) => {
+                if (n.type === 'scadaWidget') return n; // Don't affect overlay nodes
+                return { ...n, draggable: !locked, selectable: true };
+              }));
+              break;
+            }
             default:
               break;
           }
@@ -979,6 +1112,8 @@
           onNodeClick: onNodeClick,
           onEdgeClick: onEdgeClick,
           onPaneClick: onPaneClick,
+          onNodeDragStop: onNodeDragStop,
+          onNodesDelete: onNodesDelete,
           onDrop: onDrop,
           onDragOver: onDragOver,
           onInit: setReactFlowInstance,

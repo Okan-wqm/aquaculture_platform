@@ -45,6 +45,7 @@ const ScreenTabBar: React.FC = () => {
   const setActiveScreen = useScadaPackageStore((s) => s.setActiveScreen);
   const addScreen = useScadaPackageStore((s) => s.addScreen);
   const removeScreen = useScadaPackageStore((s) => s.removeScreen);
+  const duplicateScreen = useScadaPackageStore((s) => s.duplicateScreen);
   const updateScreen = useScadaPackageStore((s) => s.updateScreen);
   const setDefaultScreen = useScadaPackageStore((s) => s.setDefaultScreen);
 
@@ -94,10 +95,10 @@ const ScreenTabBar: React.FC = () => {
     setRenamingId(null);
   }, [renameValue, updateScreen]);
 
-  const handleDuplicate = useCallback((screen: ScreenDef) => {
-    addScreen(screen.screenType, `${screen.name} (Copy)`);
+  const handleDuplicate = useCallback((screenId: string) => {
+    duplicateScreen(screenId);
     setContextMenu(null);
-  }, [addScreen]);
+  }, [duplicateScreen]);
 
   const handleDelete = useCallback((screenId: string) => {
     removeScreen(screenId);
@@ -108,6 +109,8 @@ const ScreenTabBar: React.FC = () => {
     setDefaultScreen(screenId);
     setContextMenu(null);
   }, [setDefaultScreen]);
+
+  const isLastScreen = screens.length <= 1;
 
   return (
     <div className="flex items-center gap-1 px-2 py-1.5 bg-gray-100 border-b border-gray-200 overflow-x-auto">
@@ -164,60 +167,74 @@ const ScreenTabBar: React.FC = () => {
         </button>
 
         {showAddDropdown && (
-          <div className="absolute left-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
-            {SCREEN_TYPE_OPTIONS.map((opt) => (
-              <button
-                key={opt.type}
-                onClick={() => handleAddScreen(opt.type)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                {opt.icon}
-                {opt.label}
-              </button>
-            ))}
-          </div>
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setShowAddDropdown(false)}
+            />
+            <div className="absolute left-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+              {SCREEN_TYPE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.type}
+                  onClick={() => handleAddScreen(opt.type)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  {opt.icon}
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
       {/* Context Menu */}
       {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 w-44"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-        >
-          <button
-            onClick={() => {
-              const screen = screens.find((s) => s.id === contextMenu.screenId);
-              if (screen) handleRenameStart(screen);
-            }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setContextMenu(null)}
+          />
+          <div
+            ref={contextMenuRef}
+            className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 w-44"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
           >
-            Yeniden Adlandir
-          </button>
-          <button
-            onClick={() => {
-              const screen = screens.find((s) => s.id === contextMenu.screenId);
-              if (screen) handleDuplicate(screen);
-            }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            Cokla
-          </button>
-          <button
-            onClick={() => handleSetDefault(contextMenu.screenId)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            Varsayilan Yap
-          </button>
-          <hr className="my-1 border-gray-200" />
-          <button
-            onClick={() => handleDelete(contextMenu.screenId)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-          >
-            Sil
-          </button>
-        </div>
+            <button
+              onClick={() => {
+                const screen = screens.find((s) => s.id === contextMenu.screenId);
+                if (screen) handleRenameStart(screen);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              Yeniden Adlandir
+            </button>
+            <button
+              onClick={() => handleDuplicate(contextMenu.screenId)}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              Cokla
+            </button>
+            <button
+              onClick={() => handleSetDefault(contextMenu.screenId)}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              Varsayilan Yap
+            </button>
+            <hr className="my-1 border-gray-200" />
+            <button
+              onClick={() => handleDelete(contextMenu.screenId)}
+              disabled={isLastScreen}
+              className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${
+                isLastScreen
+                  ? 'text-gray-300 cursor-not-allowed'
+                  : 'text-red-600 hover:bg-red-50'
+              }`}
+            >
+              Sil
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

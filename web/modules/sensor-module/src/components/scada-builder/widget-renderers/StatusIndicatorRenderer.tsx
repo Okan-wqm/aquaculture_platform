@@ -25,11 +25,13 @@ const StatusIndicatorRenderer: React.FC<WidgetRendererProps> = ({ config, value,
       style={{
         width,
         height,
+        padding: 8,
+        boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 6,
+        gap: 8,
       }}
     >
       <svg width={circleR * 2 + 8} height={circleR * 2 + 8}>

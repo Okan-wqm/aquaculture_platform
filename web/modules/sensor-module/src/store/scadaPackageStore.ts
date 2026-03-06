@@ -120,6 +120,7 @@ interface ScadaPackageState {
   // Screen actions
   addScreen: (type: ScreenType, name: string) => void;
   removeScreen: (id: string) => void;
+  duplicateScreen: (id: string) => void;
   updateScreen: (id: string, updates: Partial<ScreenDef>) => void;
   setActiveScreen: (id: string) => void;
   setDefaultScreen: (id: string) => void;
@@ -224,13 +225,16 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
     };
     set((state) => ({
       screens: [...state.screens, screen],
-      activeScreenId: isFirst ? id : state.activeScreenId,
+      activeScreenId: id,
+      selectedWidgetId: null,
       isDirty: true,
     }));
   },
 
   removeScreen: (id) =>
     set((state) => {
+      // Protect last screen
+      if (state.screens.length <= 1) return state;
       const remaining = state.screens.filter((s) => s.id !== id);
       // If the removed screen was active, switch to first remaining
       const newActiveId = state.activeScreenId === id
@@ -241,7 +245,32 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
       const updated = wasDefault && remaining.length > 0
         ? remaining.map((s, i) => i === 0 ? { ...s, isDefault: true } : s)
         : remaining;
-      return { screens: updated, activeScreenId: newActiveId, isDirty: true };
+      return { screens: updated, activeScreenId: newActiveId, selectedWidgetId: null, isDirty: true };
+    }),
+
+  duplicateScreen: (id) =>
+    set((state) => {
+      const source = state.screens.find((s) => s.id === id);
+      if (!source) return state;
+      const newId = generateId();
+      const newScreen: ScreenDef = {
+        ...source,
+        id: newId,
+        name: `${source.name} (Copy)`,
+        isDefault: false,
+        widgets: source.widgets.map((w) => ({
+          ...w,
+          id: generateId(),
+          position: { ...w.position },
+          config: { ...w.config },
+        })),
+      };
+      return {
+        screens: [...state.screens, newScreen],
+        activeScreenId: newId,
+        selectedWidgetId: null,
+        isDirty: true,
+      };
     }),
 
   updateScreen: (id, updates) =>
@@ -257,6 +286,7 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
         : state.screenHistory;
       return {
         activeScreenId: id,
+        selectedWidgetId: null,
         screenHistory: history.slice(-20), // keep last 20
       };
     }),

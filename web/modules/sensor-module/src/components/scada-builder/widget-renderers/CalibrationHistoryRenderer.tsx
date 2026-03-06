@@ -15,16 +15,17 @@ const DEMO_ROWS = [
 const CalibrationHistoryRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
   const label = config.label ?? 'Kalibrasyon Gecmisi';
   const rows = isEditing ? DEMO_ROWS : (config.rows ?? DEMO_ROWS);
-  const headerH = 28;
-  const rowH = 22;
-  const colHeaderH = 20;
-  const visibleCount = Math.max(1, Math.floor((height - headerH - colHeaderH) / rowH));
+  const h = height - 16; // inner height after padding
+  const headerH = Math.max(22, h * 0.1);
+  const rowH = Math.max(18, h * 0.08);
+  const colHeaderH = Math.max(18, h * 0.08);
+  const visibleCount = Math.max(1, Math.floor((h - headerH - colHeaderH) / rowH));
 
   const cols = ['Tarih', 'Sensor', 'Offset', 'Sonuc'];
   const colW = (width - 16) / cols.length;
 
   return (
-    <div style={{ width, height, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ width, height, padding: 8, boxSizing: 'border-box' as const, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header */}
       <div style={{ height: headerH, padding: '0 8px', display: 'flex', alignItems: 'center', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontSize: 11, fontWeight: 600, color: '#374151' }}>
         {label}

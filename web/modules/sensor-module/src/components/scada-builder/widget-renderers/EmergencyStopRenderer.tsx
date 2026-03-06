@@ -17,10 +17,15 @@ const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, w
     }
   }, [isEditing, onCommand]);
 
+  const h = height - 16; // account for padding
+  const labelFontSize = Math.min(h * 0.14, 22);
+  const statusFontSize = Math.min(h * 0.08, 12);
+
   return (
+    <div style={{ width, height, padding: 8, boxSizing: 'border-box' }}>
     <svg
-      width={width}
-      height={height}
+      width="100%"
+      height="100%"
       viewBox="0 0 200 200"
       preserveAspectRatio="xMidYMid meet"
       style={{ display: 'block', cursor: isEditing ? 'default' : 'pointer' }}
@@ -68,7 +73,7 @@ const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, w
         y={96}
         textAnchor="middle"
         dominantBaseline="middle"
-        fontSize={22}
+        fontSize={labelFontSize}
         fontWeight={800}
         fill="white"
         letterSpacing={1}
@@ -80,13 +85,14 @@ const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, w
         x={100}
         y={180}
         textAnchor="middle"
-        fontSize={12}
+        fontSize={statusFontSize}
         fontWeight={600}
         fill={activated ? '#dc2626' : '#6b7280'}
       >
         {activated ? 'ACTIVATED' : 'READY'}
       </text>
     </svg>
+    </div>
   );
 };
 

@@ -14,6 +14,8 @@ const ProcessViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, hei
       style={{
         width,
         height,
+        padding: 8,
+        boxSizing: 'border-box' as const,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -22,7 +24,7 @@ const ProcessViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, hei
       {/* Header */}
       <div
         style={{
-          height: 30,
+          height: Math.max(24, (height - 16) * 0.08),
           display: 'flex',
           alignItems: 'center',
           padding: '0 10px',
@@ -56,7 +58,7 @@ const ProcessViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, hei
         }}
       >
         {/* Process diagram placeholder */}
-        <svg width={Math.min(width * 0.7, 200)} height={Math.min(height * 0.4, 80)} viewBox="0 0 200 80">
+        <svg width="100%" height={Math.min((height - 16) * 0.4, 80)} viewBox="0 0 200 80" preserveAspectRatio="xMidYMid meet">
           {/* Tanks */}
           <rect x={10} y={20} width={40} height={50} rx={4} fill="#bfdbfe" stroke="#60a5fa" strokeWidth={1.5} />
           <rect x={80} y={10} width={40} height={60} rx={4} fill="#bbf7d0" stroke="#4ade80" strokeWidth={1.5} />

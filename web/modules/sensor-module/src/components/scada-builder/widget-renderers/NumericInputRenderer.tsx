@@ -29,8 +29,9 @@ const NumericInputRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 4,
+        gap: 6,
         padding: 8,
+        boxSizing: 'border-box' as const,
       }}
     >
       <span style={{ fontSize: 10, color: '#6b7280', fontWeight: 500 }}>{label}</span>

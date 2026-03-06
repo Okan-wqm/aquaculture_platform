@@ -17,10 +17,11 @@ import React, { memo, useState, useCallback, useRef, useEffect, useMemo } from '
 import type { NodeProps } from 'reactflow';
 import { WidgetRenderer } from '../../scada-builder/WidgetRenderer';
 import type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
+import { getWidgetPixelConstraints } from '../../../constants/scada-widget-sizes';
 export type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 
 /* ------------------------------------------------------------------ */
-/*  Size constraints per widget type                                   */
+/*  Size constraints per widget type (from centralized constants)      */
 /* ------------------------------------------------------------------ */
 
 interface SizeConstraints {
@@ -32,28 +33,16 @@ interface SizeConstraints {
   defaultH: number;
 }
 
-export const WIDGET_SIZE_CONSTRAINTS: Record<string, SizeConstraints> = {
-  gauge:               { minW: 120, minH: 120, maxW: 400, maxH: 400, defaultW: 200, defaultH: 200 },
-  numericDisplay:      { minW: 100, minH: 60,  maxW: 400, maxH: 200, defaultW: 180, defaultH: 100 },
-  statusIndicator:     { minW: 80,  minH: 80,  maxW: 300, maxH: 200, defaultW: 140, defaultH: 100 },
-  tankLevel:           { minW: 80,  minH: 120, maxW: 300, maxH: 500, defaultW: 140, defaultH: 260 },
-  toggleSwitch:        { minW: 80,  minH: 50,  maxW: 250, maxH: 120, defaultW: 140, defaultH: 70 },
-  slider:              { minW: 140, minH: 50,  maxW: 500, maxH: 120, defaultW: 240, defaultH: 70 },
-  numericInput:        { minW: 100, minH: 50,  maxW: 350, maxH: 120, defaultW: 180, defaultH: 80 },
-  pushButton:          { minW: 80,  minH: 60,  maxW: 300, maxH: 200, defaultW: 140, defaultH: 100 },
-  emergencyStop:       { minW: 100, minH: 100, maxW: 300, maxH: 300, defaultW: 160, defaultH: 160 },
-  trendChart:          { minW: 200, minH: 120, maxW: 800, maxH: 500, defaultW: 360, defaultH: 220 },
-  alarmBanner:         { minW: 200, minH: 50,  maxW: 600, maxH: 120, defaultW: 320, defaultH: 70 },
-  alarmList:           { minW: 200, minH: 140, maxW: 600, maxH: 500, defaultW: 320, defaultH: 240 },
-  calibrationWizard:   { minW: 200, minH: 160, maxW: 500, maxH: 400, defaultW: 300, defaultH: 220 },
-  calibrationHistory:  { minW: 200, minH: 140, maxW: 600, maxH: 500, defaultW: 320, defaultH: 220 },
-  calibrationStatus:   { minW: 120, minH: 80,  maxW: 400, maxH: 200, defaultW: 200, defaultH: 120 },
-  processView:         { minW: 200, minH: 160, maxW: 800, maxH: 600, defaultW: 400, defaultH: 300 },
-};
+export const WIDGET_SIZE_CONSTRAINTS: Record<string, SizeConstraints> = new Proxy(
+  {} as Record<string, SizeConstraints>,
+  {
+    get(_target, prop: string) {
+      return getWidgetPixelConstraints(prop);
+    },
+  },
+);
 
-const DEFAULT_CONSTRAINTS: SizeConstraints = {
-  minW: 80, minH: 60, maxW: 600, maxH: 500, defaultW: 240, defaultH: 200,
-};
+const DEFAULT_CONSTRAINTS: SizeConstraints = getWidgetPixelConstraints('__default__');
 
 /* ------------------------------------------------------------------ */
 /*  Resize handle positions                                            */
@@ -169,8 +158,14 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
   );
 
   const onPointerUp = useCallback(() => {
-    dragRef.current = null;
-  }, []);
+    if (dragRef.current) {
+      dragRef.current = null;
+      // Notify parent of final size
+      if (data.onResize) {
+        data.onResize(data.widgetType, sizeRef.current.width, sizeRef.current.height);
+      }
+    }
+  }, [data]);
 
   /* ---------- Memoized styles ------------------------------------- */
   const containerStyle = useMemo(() => ({

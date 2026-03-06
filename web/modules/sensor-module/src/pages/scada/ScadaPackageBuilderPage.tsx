@@ -145,12 +145,12 @@ const ScadaPackageBuilderPage: React.FC = () => {
     }
   }, [routePackageId, processId, setProcessId, importProcessAsWidget]);
 
-  // Ensure there's at least one screen
+  // Ensure there's at least one screen (guard against loading race condition)
   useEffect(() => {
-    if (screens.length === 0) {
+    if (screens.length === 0 && !loadingPackage) {
       addScreen('dashboard', 'Ekran 1');
     }
-  }, [screens.length, addScreen]);
+  }, [screens.length, addScreen, loadingPackage]);
 
   // Save handler
   const handleSave = useCallback(async () => {

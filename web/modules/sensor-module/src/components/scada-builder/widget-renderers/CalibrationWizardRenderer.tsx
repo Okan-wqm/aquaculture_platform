@@ -16,15 +16,18 @@ const CalibrationWizardRenderer: React.FC<WidgetRendererProps> = ({ config, widt
   const padX = 24;
   const stepSpacing = (width - padX * 2) / (stepCount - 1 || 1);
 
+  const h = height - 16; // inner height after padding
+  const svgH = Math.min(h * 0.35, 60);
+
   return (
-    <div style={{ width, height, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ width, height, padding: 8, boxSizing: 'border-box' as const, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header */}
-      <div style={{ padding: '8px 10px 4px', fontSize: 11, fontWeight: 600, color: '#374151' }}>
+      <div style={{ padding: '0 2px 4px', fontSize: 11, fontWeight: 600, color: '#374151' }}>
         {label}
       </div>
 
       {/* Step indicator */}
-      <svg width={width} height={50} style={{ display: 'block', flexShrink: 0 }}>
+      <svg width="100%" height={svgH} viewBox={`0 0 ${width} ${svgH}`} preserveAspectRatio="xMidYMid meet" style={{ display: 'block', flexShrink: 0 }}>
         {/* Connecting line */}
         <line
           x1={padX}

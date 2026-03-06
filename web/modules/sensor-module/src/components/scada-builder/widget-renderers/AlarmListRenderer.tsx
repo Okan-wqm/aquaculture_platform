@@ -27,12 +27,13 @@ const SEV_COLOR_MAP: Record<string, string> = {
 const AlarmListRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
   const label = config.label ?? 'Alarm Listesi';
   const alarms = isEditing ? DEMO_ALARMS : (config.alarms ?? DEMO_ALARMS);
-  const rowH = 22;
-  const headerH = 28;
-  const visibleCount = Math.max(1, Math.floor((height - headerH) / rowH));
+  const h = height - 16; // inner height after padding
+  const rowH = Math.max(18, h * 0.08);
+  const headerH = Math.max(22, h * 0.1);
+  const visibleCount = Math.max(1, Math.floor((h - headerH) / rowH));
 
   return (
-    <div style={{ width, height, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ width, height, padding: 8, boxSizing: 'border-box' as const, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header */}
       <div
         style={{

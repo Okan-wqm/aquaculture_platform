@@ -22,11 +22,13 @@ const PushButtonRenderer: React.FC<WidgetRendererProps> = ({ config, value, widt
       style={{
         width,
         height,
+        padding: 8,
+        boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 6,
+        gap: 8,
       }}
     >
       <div

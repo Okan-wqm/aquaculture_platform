@@ -20,7 +20,7 @@ const SliderRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
   }, [isEditing, onCommand]);
 
   return (
-    <div style={{ width, height, position: 'relative', padding: '6px 0' }}>
+    <div style={{ width, height, padding: 8, boxSizing: 'border-box', position: 'relative' }}>
       {/* Label */}
       <div style={{ textAlign: 'center', fontSize: 10, color: '#6b7280', fontWeight: 500, marginBottom: 2 }}>
         {label}

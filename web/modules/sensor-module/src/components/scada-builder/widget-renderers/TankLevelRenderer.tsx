@@ -26,9 +26,10 @@ const TankLevelRenderer: React.FC<WidgetRendererProps> = ({ config, value, width
   else if (pct > 0.7) fillColor = '#eab308';
 
   return (
+    <div style={{ width, height, padding: 8, boxSizing: 'border-box' }}>
     <svg
-      width={width}
-      height={height}
+      width="100%"
+      height="100%"
       viewBox={`0 0 100 ${tankH + padTop + 30}`}
       preserveAspectRatio="xMidYMid meet"
       style={{ display: 'block' }}
@@ -73,6 +74,7 @@ const TankLevelRenderer: React.FC<WidgetRendererProps> = ({ config, value, width
       <text x={84} y={padTop + 8} fontSize={8} fill="#9ca3af">{max}</text>
       <text x={84} y={padTop + tankH} fontSize={8} fill="#9ca3af">{min}</text>
     </svg>
+    </div>
   );
 };
 

@@ -23,6 +23,7 @@ const NumericDisplayRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
         alignItems: 'center',
         justifyContent: 'center',
         padding: 8,
+        boxSizing: 'border-box' as const,
         gap: 2,
       }}
     >

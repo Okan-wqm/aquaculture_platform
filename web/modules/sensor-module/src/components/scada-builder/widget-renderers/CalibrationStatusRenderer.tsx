@@ -31,6 +31,7 @@ const CalibrationStatusRenderer: React.FC<WidgetRendererProps> = ({ config, valu
         justifyContent: 'center',
         gap: 6,
         padding: 8,
+        boxSizing: 'border-box' as const,
       }}
     >
       <span style={{ fontSize: 10, color: '#6b7280', fontWeight: 500 }}>{label}</span>

@@ -9,7 +9,8 @@ const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
   const label = config.label ?? 'Switch';
   const isOn = isEditing ? (config.demoValue ?? true) : Boolean(value);
 
-  const trackW = Math.min(width * 0.45, 52);
+  const innerW = width - 16; // account for 8px padding
+  const trackW = Math.min(innerW * 0.5, 52);
   const trackH = trackW * 0.52;
   const knobR = trackH * 0.4;
   const knobCx = isOn ? trackW - knobR - 4 : knobR + 4;
@@ -24,11 +25,13 @@ const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
       style={{
         width,
         height,
+        padding: 8,
+        boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 6,
+        gap: 8,
         cursor: isEditing ? 'default' : 'pointer',
       }}
       onClick={handleToggle}

@@ -8,7 +8,7 @@
  */
 
 import { WIDGET_SIZE_CONSTRAINTS, ScadaWidgetNodeData } from '../process-editor/nodes/ScadaWidgetNode';
-import type { ScadaWidgetType } from '../scada-builder/WidgetPalette';
+import type { ScadaWidgetType } from '../../types/scada-widget.types';
 
 /* ------------------------------------------------------------------ */
 /*  Grid constants                                                     */

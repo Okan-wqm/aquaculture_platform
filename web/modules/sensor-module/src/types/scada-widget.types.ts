@@ -33,4 +33,5 @@ export interface ScadaWidgetNodeData {
   tagFqn?: string;
   width?: number;
   height?: number;
+  onResize?: (widgetType: string, width: number, height: number) => void;
 }

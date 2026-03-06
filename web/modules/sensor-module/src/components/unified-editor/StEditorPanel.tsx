@@ -55,12 +55,35 @@ import ExportDialog from './json-bundle/ExportDialog';
 import ImportDialog from './json-bundle/ImportDialog';
 import type { STBundle, STBundleProgram } from '../../types/st-editor.types';
 
+export interface StEditorPanelProps {
+  /** Embedded mode: controlled source from parent */
+  value?: string;
+  /** Embedded mode: bubble changes to parent */
+  onChange?: (value: string) => void;
+  /** Embedded mode: fill available height instead of using resize handle */
+  embedded?: boolean;
+  /** Embedded mode: hide toolbar items that parent handles (Save, Deploy) */
+  hideActions?: ('save' | 'deploy')[];
+  /** Embedded mode: callback for validate button */
+  onValidate?: () => void;
+  /** Validation results from parent */
+  validationResult?: { errors: any[]; warnings: any[]; infos: any[] } | null;
+}
+
 const MonacoEditor = React.lazy(() => import('@monaco-editor/react'));
 
 const MIN_HEIGHT = 200;
 const MAX_HEIGHT_RATIO = 0.6;
 
-const StEditorPanel: React.FC = () => {
+const StEditorPanel: React.FC<StEditorPanelProps> = ({
+  value,
+  onChange,
+  embedded = false,
+  hideActions = [],
+  onValidate,
+  validationResult,
+}) => {
+  // Standalone mode: use editor mode store for collapse/expand
   const isBottomPanelOpen = useEditorModeStore((s) => s.isBottomPanelOpen);
   const toggleBottomPanel = useEditorModeStore((s) => s.toggleBottomPanel);
   const setBottomPanelOpen = useEditorModeStore((s) => s.setBottomPanelOpen);
@@ -72,7 +95,7 @@ const StEditorPanel: React.FC = () => {
     setActiveProgramId,
     createProgram,
     deleteProgram,
-    updateSource,
+    updateSource: internalUpdateSource,
     isDirty,
     save,
     compileStatus,
@@ -88,14 +111,36 @@ const StEditorPanel: React.FC = () => {
     toggleProblemsPanel,
     formatCode,
     navigateToLine,
-  } = useStEditor();
+  } = useStEditor({
+    initialSource: embedded && value != null ? value : undefined,
+    onSourceChange: embedded ? onChange : undefined,
+  });
 
-  // Wire device tags to completion provider
+  // In embedded mode with controlled value, sync external value -> internal state
+  const prevValueRef = useRef(value);
+  useEffect(() => {
+    if (embedded && value != null && value !== prevValueRef.current) {
+      prevValueRef.current = value;
+      internalUpdateSource(value);
+    }
+  }, [embedded, value, internalUpdateSource]);
+
+  // Wrapper for updateSource that also calls onChange in embedded mode
+  const updateSource = useCallback(
+    (source: string) => {
+      prevValueRef.current = source;
+      internalUpdateSource(source);
+    },
+    [internalUpdateSource],
+  );
+
+  // Wire device tags to completion provider (standalone mode only)
   const targetDeviceId = useScadaPackageStore((s) => s.targetDeviceId);
   const screens = useScadaPackageStore((s) => s.screens);
   const trendTags = useScadaPackageStore((s) => s.trendConfig.tags);
 
   useEffect(() => {
+    if (embedded) return; // Skip SCADA tag wiring in embedded mode
     if (!targetDeviceId) {
       setTags([]);
       return;
@@ -120,7 +165,11 @@ const StEditorPanel: React.FC = () => {
         dataType: 'REAL',
       })),
     );
-  }, [targetDeviceId, screens, trendTags]);
+  }, [embedded, targetDeviceId, screens, trendTags]);
+
+  // Determine whether to hide specific actions
+  const hideSave = hideActions.includes('save');
+  const hideDeploy = hideActions.includes('deploy');
 
   // Panel height (resizable)
   const [panelHeight, setPanelHeight] = useState(420);
@@ -140,8 +189,9 @@ const StEditorPanel: React.FC = () => {
   // Track cursor line for outline highlighting
   const [cursorLine, setCursorLine] = useState(1);
 
-  // Ctrl+J toggle
+  // Ctrl+J toggle (standalone mode only)
   useEffect(() => {
+    if (embedded) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'j') {
         e.preventDefault();
@@ -150,7 +200,7 @@ const StEditorPanel: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleBottomPanel]);
+  }, [embedded, toggleBottomPanel]);
 
   // Resize handlers
   const handleResizeStart = useCallback(
@@ -280,9 +330,10 @@ const StEditorPanel: React.FC = () => {
     [createProgram, updateSource],
   );
 
-  const panelStyle = useMemo(() => ({ height: panelHeight }), [panelHeight]);
+  const panelStyle = useMemo(() => (embedded ? undefined : { height: panelHeight }), [embedded, panelHeight]);
 
-  if (!isBottomPanelOpen) {
+  // Standalone collapsed state
+  if (!embedded && !isBottomPanelOpen) {
     return (
       <button
         onClick={() => setBottomPanelOpen(true)}
@@ -296,14 +347,16 @@ const StEditorPanel: React.FC = () => {
 
   return (
     <div
-      className="flex flex-col bg-gray-900 border-t border-gray-700"
+      className={`flex flex-col bg-gray-900 ${embedded ? 'flex-1 min-h-0' : 'border-t border-gray-700'}`}
       style={panelStyle}
     >
-      {/* Resize handle */}
-      <div
-        onMouseDown={handleResizeStart}
-        className="h-1 bg-gray-700 hover:bg-cyan-600 cursor-row-resize flex-shrink-0"
-      />
+      {/* Resize handle (standalone mode only) */}
+      {!embedded && (
+        <div
+          onMouseDown={handleResizeStart}
+          className="h-1 bg-gray-700 hover:bg-cyan-600 cursor-row-resize flex-shrink-0"
+        />
+      )}
 
       {/* Toolbar */}
       <div className="flex items-center gap-1 px-2 py-1 bg-gray-800 border-b border-gray-700 flex-shrink-0 flex-wrap">
@@ -339,7 +392,10 @@ const StEditorPanel: React.FC = () => {
 
         {/* Validate */}
         <button
-          onClick={() => validate()}
+          onClick={() => {
+            if (onValidate) onValidate();
+            else validate();
+          }}
           disabled={compileStatus === 'compiling'}
           className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
           title="Validate (F7)"
@@ -348,28 +404,36 @@ const StEditorPanel: React.FC = () => {
           Validate
         </button>
 
-        <div className="w-px h-4 bg-gray-600 mx-1" />
+        {!hideDeploy && (
+          <>
+            <div className="w-px h-4 bg-gray-600 mx-1" />
 
-        {/* Deploy */}
-        <button
-          className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
-          title="Deploy (F9)"
-        >
-          <Upload className="w-3.5 h-3.5" />
-          Deploy
-        </button>
+            {/* Deploy */}
+            <button
+              className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+              title="Deploy (F9)"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Deploy
+            </button>
+          </>
+        )}
 
-        <div className="w-px h-4 bg-gray-600 mx-1" />
+        {!hideSave && (
+          <>
+            <div className="w-px h-4 bg-gray-600 mx-1" />
 
-        {/* Save */}
-        <button
-          onClick={save}
-          className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
-          title="Save (Ctrl+S)"
-        >
-          <Save className="w-3.5 h-3.5" />
-          Save
-        </button>
+            {/* Save */}
+            <button
+              onClick={save}
+              className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+              title="Save (Ctrl+S)"
+            >
+              <Save className="w-3.5 h-3.5" />
+              Save
+            </button>
+          </>
+        )}
 
         {/* Format */}
         <button
@@ -416,14 +480,16 @@ const StEditorPanel: React.FC = () => {
         {/* Compile status badge */}
         <CompileStatusBadge status={compileStatus} count={diagnostics.length} />
 
-        {/* Collapse */}
-        <button
-          onClick={toggleBottomPanel}
-          className="px-1.5 py-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded"
-          title="Collapse (Ctrl+J)"
-        >
-          <ChevronDown className="w-3.5 h-3.5" />
-        </button>
+        {/* Collapse (standalone mode only) */}
+        {!embedded && (
+          <button
+            onClick={toggleBottomPanel}
+            className="px-1.5 py-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded"
+            title="Collapse (Ctrl+J)"
+          >
+            <ChevronDown className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       {/* Main content: 3 columns + bottom problems panel */}

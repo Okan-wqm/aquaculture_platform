@@ -50,13 +50,26 @@ function makeId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-export function useStEditor() {
+export interface UseStEditorOptions {
+  /** Initial source code for the first program (overrides DEFAULT_SOURCE) */
+  initialSource?: string;
+  /** Callback fired when the active program's source changes */
+  onSourceChange?: (source: string) => void;
+}
+
+export function useStEditor(options?: UseStEditorOptions) {
+  const { initialSource, onSourceChange } = options ?? {};
+
+  // Stable ref for onSourceChange to avoid re-renders
+  const onSourceChangeRef = useRef(onSourceChange);
+  useEffect(() => { onSourceChangeRef.current = onSourceChange; }, [onSourceChange]);
+
   // Program list
   const [programs, setPrograms] = useState<StProgram[]>(() => {
     const initial: StProgram = {
       id: makeId(),
       name: 'Main',
-      source: DEFAULT_SOURCE,
+      source: initialSource ?? DEFAULT_SOURCE,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -141,6 +154,8 @@ export function useStEditor() {
           : p,
       ),
     );
+    // Fire onSourceChange callback if provided
+    onSourceChangeRef.current?.(source);
   }, []);
 
   // ---- Save ----

@@ -34,9 +34,8 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react';
-import STEditor from '../../components/automation/STEditor';
+import StEditorPanel from '../../components/unified-editor/StEditorPanel';
 import DeployTargetSelector, { DeployTarget } from '../../components/automation/DeployTargetSelector';
-import CompileResultPanel, { type ValidationResult } from '../../components/automation/CompileResultPanel';
 import { useEdgeDevices, useEdgeDevice, DeviceLifecycleState, getDeviceModelText } from '../../hooks/useEdgeDevices';
 import type { EdgeDevice, DeviceIoConfig } from '../../hooks/useEdgeDevices';
 import { graphqlFetch } from '../../config/api';
@@ -56,7 +55,6 @@ import {
   ADD_TRANSITION_MUTATION,
   REMOVE_TRANSITION_MUTATION,
   DEPLOYMENT_HISTORY_QUERY,
-  VALIDATE_ST_MUTATION,
 } from '../../graphql/automation.queries';
 
 // ============================================================================
@@ -269,8 +267,6 @@ const AutomationProgramEditorPage: React.FC = () => {
     targetPlcModel?: string;
     targetPlcProtocol?: string;
   }>({});
-  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
-  const [isValidating, setIsValidating] = useState(false);
   const [showAddStep, setShowAddStep] = useState(false);
   const [showAddVariable, setShowAddVariable] = useState(false);
   const [newStep, setNewStep] = useState({ stepName: '', stepCode: '', stepOrder: 1, stepType: 'normal' });
@@ -1160,47 +1156,12 @@ const AutomationProgramEditorPage: React.FC = () => {
 
       {/* Code Tab - ST Editor */}
       {activeTab === 'code' && !isNew && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              IEC 61131-3 Structured Text
-            </h3>
-            <button
-              onClick={async () => {
-                setIsValidating(true);
-                try {
-                  const res = await graphqlFetch<{ validateStructuredText: ValidationResult }>(
-                    VALIDATE_ST_MUTATION,
-                    { code: stCode },
-                  );
-                  setValidationResult(res.validateStructuredText);
-                } catch (err: any) {
-                  setValidationResult({
-                    valid: false,
-                    errors: [{ line: 0, column: 0, severity: 'error', message: err.message }],
-                    warnings: [],
-                    infos: [],
-                  });
-                } finally {
-                  setIsValidating(false);
-                }
-              }}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-            >
-              <CheckCircle className="h-3.5 w-3.5" />
-              Dogrula
-            </button>
-          </div>
-          <STEditor
-            value={stCode}
-            onChange={setStCode}
-            height="450px"
-          />
-          <CompileResultPanel
-            result={validationResult}
-            isValidating={isValidating}
-          />
-        </div>
+        <StEditorPanel
+          embedded
+          value={stCode}
+          onChange={setStCode}
+          hideActions={['save', 'deploy']}
+        />
       )}
 
       {/* Transitions Tab */}

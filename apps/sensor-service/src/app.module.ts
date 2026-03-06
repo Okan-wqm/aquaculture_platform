@@ -48,6 +48,7 @@ import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
 import { Process } from './process/entities/process.entity';
+import { ScadaPackage } from './process/entities/scada-package.entity';
 import { ProcessModule } from './process/process.module';
 import { ProtocolModule } from './protocol/protocol.module';
 import { RegistrationModule } from './registration/registration.module';
@@ -106,6 +107,7 @@ import { CreateAutomationTables1740300001000 } from './database/migrations/17403
           VfdReading,
           VfdRegisterMapping,
           Process,
+          ScadaPackage,
           DashboardLayout,
           EdgeDevice,
           DeviceIoConfig,

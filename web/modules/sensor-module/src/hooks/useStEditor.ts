@@ -2,7 +2,8 @@
  * useStEditor - Hook for PLC mode Structured Text editor state
  *
  * Manages program list CRUD, compile/validate (mock), dirty tracking,
- * Monaco error markers, and keyboard shortcuts (F5, F7, Ctrl+S).
+ * Monaco error markers, keyboard shortcuts (F5, F7, F9, Ctrl+S, Shift+Alt+F),
+ * outline tree, problems panel, code formatting, and JSON bundle export/import.
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
 
@@ -15,6 +16,16 @@ export interface StProgram {
 }
 
 export type CompileStatus = 'idle' | 'compiling' | 'success' | 'warning' | 'error';
+
+/** Outline node for the left panel tree view */
+export interface OutlineNode {
+  name: string;
+  kind: 'program' | 'functionBlock' | 'function' | 'method' | 'property' | 'varBlock' | 'variable' | 'type' | 'struct' | 'enum';
+  line: number;
+  endLine?: number;
+  children?: OutlineNode[];
+  detail?: string;
+}
 
 export interface CompileDiagnostic {
   line: number;
@@ -274,6 +285,119 @@ export function useStEditor() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [programs, savedSourceMap]);
 
+  // ---- Outline (local parse) ----
+
+  const [outline, setOutline] = useState<OutlineNode[]>([]);
+  const [isProblemsExpanded, setIsProblemsExpanded] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // Build a simple outline from source code (local parse, no backend needed)
+  const buildOutline = useCallback((source: string): OutlineNode[] => {
+    const nodes: OutlineNode[] = [];
+    const lines = source.split('\n');
+
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim();
+
+      const pouMatch = trimmed.match(/^(PROGRAM|FUNCTION_BLOCK|FUNCTION)\s+(\w+)/i);
+      if (pouMatch) {
+        const kindStr = pouMatch[1].toUpperCase();
+        const name = pouMatch[2];
+        const nodeKind = kindStr === 'PROGRAM' ? 'program' as const
+          : kindStr === 'FUNCTION_BLOCK' ? 'functionBlock' as const
+          : 'function' as const;
+
+        const endPattern = new RegExp(`^\\s*END_${kindStr}\\b`, 'i');
+        let endLine = lines.length;
+        for (let j = i + 1; j < lines.length; j++) {
+          if (endPattern.test(lines[j])) { endLine = j + 1; break; }
+        }
+
+        const children: OutlineNode[] = [];
+        let inVarBlock = false;
+        let varBlockName = '';
+        let varBlockStartLine = 0;
+        let varBlockChildren: OutlineNode[] = [];
+
+        for (let j = i + 1; j < endLine; j++) {
+          const vLine = lines[j].trim();
+          const varMatch = vLine.match(/^(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_GLOBAL|VAR_TEMP|VAR_EXTERNAL)\b/i);
+          if (varMatch) {
+            inVarBlock = true;
+            varBlockName = varMatch[1].toUpperCase();
+            varBlockStartLine = j + 1;
+            varBlockChildren = [];
+          } else if (/^END_VAR\b/i.test(vLine) && inVarBlock) {
+            children.push({
+              name: varBlockName, kind: 'varBlock', line: varBlockStartLine,
+              endLine: j + 1, children: [...varBlockChildren],
+            });
+            inVarBlock = false;
+          } else if (inVarBlock) {
+            const declMatch = vLine.match(/^(\w+)\s*:\s*(\w+)/);
+            if (declMatch) {
+              varBlockChildren.push({
+                name: declMatch[1], kind: 'variable', line: j + 1, detail: ': ' + declMatch[2],
+              });
+            }
+          }
+        }
+
+        nodes.push({
+          name, kind: nodeKind, line: i + 1, endLine,
+          children: children.length > 0 ? children : undefined,
+        });
+      }
+    }
+    return nodes;
+  }, []);
+
+  // Update outline on source change
+  useEffect(() => {
+    if (activeProgram) {
+      setOutline(buildOutline(activeProgram.source));
+    }
+  }, [activeProgram?.source, buildOutline]);
+
+  // ---- Format Code ----
+
+  const formatCode = useCallback(() => {
+    if (!activeProgram) return;
+
+    const lines = activeProgram.source.split('\n');
+    let indent = 0;
+    const formatted: string[] = [];
+    const incPat = /^(PROGRAM|FUNCTION_BLOCK|FUNCTION|METHOD|PROPERTY|INTERFACE|VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_GLOBAL|VAR_TEMP|VAR_EXTERNAL|IF|FOR|WHILE|REPEAT|CASE|STRUCT|TYPE)\b/i;
+    const decPat = /^(END_PROGRAM|END_FUNCTION_BLOCK|END_FUNCTION|END_METHOD|END_PROPERTY|END_INTERFACE|END_VAR|END_IF|END_FOR|END_WHILE|END_REPEAT|END_CASE|END_STRUCT|END_TYPE|ELSIF|ELSE)\b/i;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) { formatted.push(''); continue; }
+      if (decPat.test(trimmed)) indent = Math.max(0, indent - 1);
+      formatted.push('    '.repeat(indent) + trimmed);
+      if (incPat.test(trimmed) && !/^(ELSIF|ELSE)\b/i.test(trimmed)) indent++;
+    }
+    updateSource(formatted.join('\n'));
+  }, [activeProgram, updateSource]);
+
+  // ---- Navigate to line ----
+
+  const navigateToLine = useCallback((line: number) => {
+    const editor = editorRef.current;
+    if (editor && typeof (editor as any).revealLineInCenter === 'function') {
+      (editor as any).revealLineInCenter(line);
+      (editor as any).setPosition({ lineNumber: line, column: 1 });
+      (editor as any).focus();
+    }
+  }, []);
+
+  // ---- Toggle problems panel ----
+
+  const toggleProblemsPanel = useCallback(() => {
+    setIsProblemsExpanded((prev) => !prev);
+  }, []);
+
   // ---- Keyboard shortcuts ----
 
   useEffect(() => {
@@ -302,11 +426,17 @@ export function useStEditor() {
         // TODO: deploy action
         return;
       }
+      // Shift+Alt+F → format code
+      if (e.shiftKey && e.altKey && e.key === 'F') {
+        e.preventDefault();
+        formatCode();
+        return;
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [save, compile, validate]);
+  }, [save, compile, validate, formatCode]);
 
   return {
     // Program list
@@ -329,6 +459,22 @@ export function useStEditor() {
     compile,
     validate,
     clearMarkers,
+
+    // Outline & Problems
+    outline,
+    isProblemsExpanded,
+    setIsProblemsExpanded,
+    toggleProblemsPanel,
+
+    // WS state (placeholder for future backend integration)
+    wsConnected,
+    setWsConnected,
+    isAnalyzing,
+    setIsAnalyzing,
+
+    // New actions
+    formatCode,
+    navigateToLine,
 
     // Editor refs (to be set by StEditorPanel on mount)
     editorRef,

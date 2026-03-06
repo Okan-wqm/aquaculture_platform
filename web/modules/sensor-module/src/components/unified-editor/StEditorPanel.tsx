@@ -1,13 +1,19 @@
 /**
- * StEditorPanel - Bottom panel for PLC mode Structured Text editing
+ * StEditorPanel - Full IDE panel for PLC mode Structured Text editing
  *
- * Layout:
- *   Left  (w-48): Program list + "New Program" button
- *   Center:       Monaco Editor (ST language, vs-dark)
- *   Right (w-64): Compile output (errors/warnings)
- *   Top toolbar:  [New] [Open] | [Compile F5] [Validate F7] | [Deploy F9] | Program name
+ * Layout (Flexbox):
+ *   ┌────────────────────────────────────────────────────────────────────────┐
+ *   │ Toolbar: [+ New] | [Compile F5] [Validate F7] | [Deploy F9]          │
+ *   │          [Save] [Format] | [Export JSON] [Import JSON]                │
+ *   ├────────────┬──────────────────────────────────────────┬────────────────┤
+ *   │ Left (w-48)│  Monaco Editor (flex-1)                  │ Right (w-64)   │
+ *   │ PROGRAMS   │                                          │ OUTPUT         │
+ *   │ OUTLINE    │                                          │                │
+ *   ├────────────┴──────────────────────────────────────────┴────────────────┤
+ *   │ PROBLEMS  [errors] [warnings]                              [collapse] │
+ *   └────────────────────────────────────────────────────────────────────────┘
  *
- * Resizable height (200px – 60vh), collapse/expand with Ctrl+J.
+ * Resizable height (200px - 60vh), collapse/expand with Ctrl+J.
  */
 
 import React, {
@@ -30,6 +36,9 @@ import {
   ChevronUp,
   Loader2,
   Trash2,
+  Save,
+  AlignLeft,
+  Download,
 } from 'lucide-react';
 import { useStEditor, CompileDiagnostic, CompileStatus } from '../../hooks/useStEditor';
 import {
@@ -40,6 +49,11 @@ import {
 import { createStCompletionProvider, setTags } from './StCompletionProvider';
 import { useEditorModeStore } from '../../store/editorModeStore';
 import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import StOutlineTree from './StOutlineTree';
+import StProblemsPanel, { type Diagnostic } from './StProblemsPanel';
+import ExportDialog from './json-bundle/ExportDialog';
+import ImportDialog from './json-bundle/ImportDialog';
+import type { STBundle, STBundleProgram } from '../../types/st-editor.types';
 
 const MonacoEditor = React.lazy(() => import('@monaco-editor/react'));
 
@@ -68,6 +82,12 @@ const StEditorPanel: React.FC = () => {
     clearMarkers,
     editorRef,
     monacoRef,
+    // New from extended hook
+    outline,
+    isProblemsExpanded,
+    toggleProblemsPanel,
+    formatCode,
+    navigateToLine,
   } = useStEditor();
 
   // Wire device tags to completion provider
@@ -80,7 +100,6 @@ const StEditorPanel: React.FC = () => {
       setTags([]);
       return;
     }
-    // Collect tag names from widget configs and trend config
     const tagSet = new Set<string>(trendTags);
     for (const screen of screens) {
       for (const widget of screen.widgets) {
@@ -104,7 +123,7 @@ const StEditorPanel: React.FC = () => {
   }, [targetDeviceId, screens, trendTags]);
 
   // Panel height (resizable)
-  const [panelHeight, setPanelHeight] = useState(320);
+  const [panelHeight, setPanelHeight] = useState(420);
   const resizingRef = useRef(false);
   const startYRef = useRef(0);
   const startHeightRef = useRef(0);
@@ -114,7 +133,14 @@ const StEditorPanel: React.FC = () => {
   const [newProgramName, setNewProgramName] = useState('');
   const newInputRef = useRef<HTMLInputElement>(null);
 
-  // Ctrl+J toggle (F5/F7/F9 handled in useStEditor)
+  // Export/Import dialogs
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+
+  // Track cursor line for outline highlighting
+  const [cursorLine, setCursorLine] = useState(1);
+
+  // Ctrl+J toggle
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'j') {
@@ -176,6 +202,11 @@ const StEditorPanel: React.FC = () => {
         );
       }
 
+      // Track cursor position for outline highlighting
+      editor.onDidChangeCursorPosition((e: any) => {
+        setCursorLine(e.position.lineNumber);
+      });
+
       editor.focus();
     },
     [editorRef, monacoRef],
@@ -190,6 +221,64 @@ const StEditorPanel: React.FC = () => {
     setShowNewInput(false);
     clearMarkers();
   }, [newProgramName, createProgram, clearMarkers]);
+
+  // Handle outline navigation
+  const handleOutlineNavigate = useCallback(
+    (line: number) => {
+      navigateToLine(line);
+    },
+    [navigateToLine],
+  );
+
+  // Handle problems panel navigation
+  const handleProblemNavigate = useCallback(
+    (line: number) => {
+      navigateToLine(line);
+    },
+    [navigateToLine],
+  );
+
+  // Convert compile diagnostics to problems panel format
+  const problemsDiagnostics: Diagnostic[] = useMemo(
+    () =>
+      diagnostics.map((d, i) => ({
+        range: {
+          startLine: d.line,
+          startCol: d.column,
+          endLine: d.endLine ?? d.line,
+          endCol: d.endColumn ?? 999,
+        },
+        severity: d.severity === 'info' ? 'info' as const : d.severity as 'error' | 'warning',
+        message: d.message,
+        code: `ST${String(i + 1).padStart(3, '0')}`,
+        source: 'st-compiler',
+      })),
+    [diagnostics],
+  );
+
+  // Export dialog data
+  const exportProgram: STBundleProgram | null = useMemo(() => {
+    if (!activeProgram) return null;
+    return {
+      programCode: activeProgram.name.toUpperCase().replace(/\s+/g, '_'),
+      programName: activeProgram.name,
+      programType: 'ST',
+      executionMode: 'CYCLIC',
+      scanCycleMs: 100,
+      structuredTextCode: activeProgram.source,
+    };
+  }, [activeProgram]);
+
+  // Import handler
+  const handleImport = useCallback(
+    (bundle: STBundle) => {
+      const name = bundle.program.programName || 'Imported';
+      const prog = createProgram(name);
+      // The createProgram already sets it active, now update the source
+      updateSource(bundle.program.structuredTextCode || '');
+    },
+    [createProgram, updateSource],
+  );
 
   const panelStyle = useMemo(() => ({ height: panelHeight }), [panelHeight]);
 
@@ -217,8 +306,8 @@ const StEditorPanel: React.FC = () => {
       />
 
       {/* Toolbar */}
-      <div className="flex items-center gap-1 px-2 py-1 bg-gray-800 border-b border-gray-700 flex-shrink-0">
-        {/* New / Open */}
+      <div className="flex items-center gap-1 px-2 py-1 bg-gray-800 border-b border-gray-700 flex-shrink-0 flex-wrap">
+        {/* New */}
         <button
           onClick={() => {
             setShowNewInput(true);
@@ -272,8 +361,53 @@ const StEditorPanel: React.FC = () => {
 
         <div className="w-px h-4 bg-gray-600 mx-1" />
 
+        {/* Save */}
+        <button
+          onClick={save}
+          className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+          title="Save (Ctrl+S)"
+        >
+          <Save className="w-3.5 h-3.5" />
+          Save
+        </button>
+
+        {/* Format */}
+        <button
+          onClick={formatCode}
+          className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+          title="Format (Shift+Alt+F)"
+        >
+          <AlignLeft className="w-3.5 h-3.5" />
+          Format
+        </button>
+
+        <div className="w-px h-4 bg-gray-600 mx-1" />
+
+        {/* Export JSON */}
+        <button
+          onClick={() => setShowExportDialog(true)}
+          className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+          title="Export JSON Bundle"
+        >
+          <Download className="w-3.5 h-3.5" />
+          Export
+        </button>
+
+        {/* Import JSON */}
+        <button
+          onClick={() => setShowImportDialog(true)}
+          className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+          title="Import JSON Bundle"
+        >
+          <Upload className="w-3.5 h-3.5" />
+          Import
+        </button>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
         {/* Program name + dirty */}
-        <span className="text-xs text-gray-400 flex items-center gap-1 ml-auto">
+        <span className="text-xs text-gray-400 flex items-center gap-1">
           <FileText className="w-3.5 h-3.5" />
           {activeProgram?.name ?? '(no program)'}
           {isDirty && <span className="text-yellow-400">*</span>}
@@ -292,143 +426,191 @@ const StEditorPanel: React.FC = () => {
         </button>
       </div>
 
-      {/* Main content: 3 columns */}
-      <div className="flex flex-1 min-h-0">
-        {/* Left: Program list */}
-        <div className="w-48 border-r border-gray-700 flex flex-col flex-shrink-0 overflow-y-auto bg-gray-850">
-          <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
-            Programs
+      {/* Main content: 3 columns + bottom problems panel */}
+      <div className="flex flex-col flex-1 min-h-0">
+        {/* Three-column area */}
+        <div className="flex flex-1 min-h-0">
+          {/* Left: Program list + Outline */}
+          <div className="w-48 border-r border-gray-700 flex flex-col flex-shrink-0 overflow-hidden bg-gray-850">
+            {/* Programs section */}
+            <div className="flex flex-col flex-shrink-0">
+              <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                Programs
+              </div>
+
+              {/* New program input */}
+              {showNewInput && (
+                <div className="px-2 pb-1 flex gap-1">
+                  <input
+                    ref={newInputRef}
+                    value={newProgramName}
+                    onChange={(e) => setNewProgramName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleCreateProgram();
+                      if (e.key === 'Escape') {
+                        setShowNewInput(false);
+                        setNewProgramName('');
+                      }
+                    }}
+                    placeholder="Program name..."
+                    className="flex-1 bg-gray-700 text-xs text-white px-1.5 py-0.5 rounded border border-gray-600 focus:border-cyan-500 outline-none"
+                  />
+                  <button
+                    onClick={handleCreateProgram}
+                    className="text-xs text-cyan-400 hover:text-cyan-300 px-1"
+                  >
+                    OK
+                  </button>
+                </div>
+              )}
+
+              {programs.map((prog) => (
+                <div
+                  key={prog.id}
+                  onClick={() => {
+                    setActiveProgramId(prog.id);
+                    clearMarkers();
+                  }}
+                  className={`group flex items-center gap-1 px-2 py-1 text-xs cursor-pointer ${
+                    prog.id === activeProgramId
+                      ? 'bg-gray-700 text-white'
+                      : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                  }`}
+                >
+                  <FileText className="w-3 h-3 flex-shrink-0" />
+                  <span className="truncate flex-1">{prog.name}</span>
+                  {programs.length > 1 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteProgram(prog.id);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Outline section */}
+            <div className="flex flex-col flex-1 min-h-0 border-t border-gray-700 mt-1">
+              <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                Outline
+              </div>
+              <div className="flex-1 overflow-y-auto min-h-0">
+                <StOutlineTree
+                  outline={outline}
+                  onNavigate={handleOutlineNavigate}
+                  activeLineNumber={cursorLine}
+                />
+              </div>
+            </div>
           </div>
 
-          {/* New program input */}
-          {showNewInput && (
-            <div className="px-2 pb-1 flex gap-1">
-              <input
-                ref={newInputRef}
-                value={newProgramName}
-                onChange={(e) => setNewProgramName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreateProgram();
-                  if (e.key === 'Escape') {
-                    setShowNewInput(false);
-                    setNewProgramName('');
-                  }
-                }}
-                placeholder="Program name..."
-                className="flex-1 bg-gray-700 text-xs text-white px-1.5 py-0.5 rounded border border-gray-600 focus:border-cyan-500 outline-none"
-              />
-              <button
-                onClick={handleCreateProgram}
-                className="text-xs text-cyan-400 hover:text-cyan-300 px-1"
-              >
-                OK
-              </button>
-            </div>
-          )}
-
-          {programs.map((prog) => (
-            <div
-              key={prog.id}
-              onClick={() => {
-                setActiveProgramId(prog.id);
-                clearMarkers();
-              }}
-              className={`group flex items-center gap-1 px-2 py-1 text-xs cursor-pointer ${
-                prog.id === activeProgramId
-                  ? 'bg-gray-700 text-white'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-              }`}
+          {/* Center: Monaco Editor */}
+          <div className="flex-1 min-w-0">
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center h-full bg-gray-900 text-gray-500 text-sm">
+                  Loading editor...
+                </div>
+              }
             >
-              <FileText className="w-3 h-3 flex-shrink-0" />
-              <span className="truncate flex-1">{prog.name}</span>
-              {programs.length > 1 && (
+              <MonacoEditor
+                height="100%"
+                language={ST_LANGUAGE_ID}
+                theme="vs-dark"
+                value={activeProgram?.source ?? ''}
+                onChange={(val: string | undefined) => updateSource(val || '')}
+                onMount={handleEditorMount}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  wordWrap: 'on',
+                  tabSize: 2,
+                  automaticLayout: true,
+                  suggestOnTriggerCharacters: true,
+                  quickSuggestions: true,
+                  renderLineHighlight: 'all',
+                  bracketPairColorization: { enabled: true },
+                  padding: { top: 4 },
+                }}
+              />
+            </Suspense>
+          </div>
+
+          {/* Right: Compile output */}
+          <div className="w-64 border-l border-gray-700 flex flex-col flex-shrink-0 overflow-y-auto bg-gray-850">
+            <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 font-semibold flex items-center justify-between">
+              <span>Output</span>
+              {diagnostics.length > 0 && (
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteProgram(prog.id);
-                  }}
-                  className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400"
+                  onClick={clearMarkers}
+                  className="text-gray-500 hover:text-gray-300 text-[10px]"
                 >
-                  <Trash2 className="w-3 h-3" />
+                  Clear
                 </button>
               )}
             </div>
-          ))}
-        </div>
 
-        {/* Center: Monaco Editor */}
-        <div className="flex-1 min-w-0">
-          <Suspense
-            fallback={
-              <div className="flex items-center justify-center h-full bg-gray-900 text-gray-500 text-sm">
-                Loading editor...
+            {diagnostics.length === 0 && compileStatus === 'idle' && (
+              <div className="px-2 py-4 text-xs text-gray-600 text-center">
+                Press F5 to compile
               </div>
-            }
-          >
-            <MonacoEditor
-              height="100%"
-              language={ST_LANGUAGE_ID}
-              theme="vs-dark"
-              value={activeProgram?.source ?? ''}
-              onChange={(val: string | undefined) => updateSource(val || '')}
-              onMount={handleEditorMount}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-                wordWrap: 'on',
-                tabSize: 2,
-                automaticLayout: true,
-                suggestOnTriggerCharacters: true,
-                quickSuggestions: true,
-                renderLineHighlight: 'all',
-                bracketPairColorization: { enabled: true },
-                padding: { top: 4 },
-              }}
-            />
-          </Suspense>
-        </div>
-
-        {/* Right: Compile output */}
-        <div className="w-64 border-l border-gray-700 flex flex-col flex-shrink-0 overflow-y-auto bg-gray-850">
-          <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 font-semibold flex items-center justify-between">
-            <span>Output</span>
-            {diagnostics.length > 0 && (
-              <button
-                onClick={clearMarkers}
-                className="text-gray-500 hover:text-gray-300 text-[10px]"
-              >
-                Clear
-              </button>
             )}
+
+            {diagnostics.length === 0 && compileStatus === 'success' && (
+              <div className="px-2 py-4 text-xs text-green-400 text-center flex flex-col items-center gap-1">
+                <CheckCircle className="w-4 h-4" />
+                Compilation successful
+              </div>
+            )}
+
+            {compileStatus === 'compiling' && (
+              <div className="px-2 py-4 text-xs text-gray-400 text-center flex flex-col items-center gap-1">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Compiling...
+              </div>
+            )}
+
+            {diagnostics.map((d, i) => (
+              <DiagnosticItem key={i} diag={d} editorRef={editorRef} />
+            ))}
           </div>
-
-          {diagnostics.length === 0 && compileStatus === 'idle' && (
-            <div className="px-2 py-4 text-xs text-gray-600 text-center">
-              Press F5 to compile
-            </div>
-          )}
-
-          {diagnostics.length === 0 && compileStatus === 'success' && (
-            <div className="px-2 py-4 text-xs text-green-400 text-center flex flex-col items-center gap-1">
-              <CheckCircle className="w-4 h-4" />
-              Compilation successful
-            </div>
-          )}
-
-          {compileStatus === 'compiling' && (
-            <div className="px-2 py-4 text-xs text-gray-400 text-center flex flex-col items-center gap-1">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Compiling...
-            </div>
-          )}
-
-          {diagnostics.map((d, i) => (
-            <DiagnosticItem key={i} diag={d} editorRef={editorRef} />
-          ))}
         </div>
+
+        {/* Bottom: Problems panel */}
+        <StProblemsPanel
+          diagnostics={problemsDiagnostics}
+          onNavigate={handleProblemNavigate}
+          isExpanded={isProblemsExpanded}
+          onToggleExpand={toggleProblemsPanel}
+        />
       </div>
+
+      {/* Export Dialog */}
+      {exportProgram && (
+        <ExportDialog
+          open={showExportDialog}
+          onClose={() => setShowExportDialog(false)}
+          program={exportProgram}
+          variables={[]}
+          steps={[]}
+          transitions={[]}
+          exportedBy="user@local"
+        />
+      )}
+
+      {/* Import Dialog */}
+      <ImportDialog
+        open={showImportDialog}
+        onClose={() => setShowImportDialog(false)}
+        onImport={handleImport}
+      />
     </div>
   );
 };

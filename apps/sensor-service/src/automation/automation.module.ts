@@ -6,6 +6,7 @@ import { EdgeDeviceModule } from '../edge-device/edge-device.module';
 
 import { AutomationResolver, ProgramStepResolver } from './automation.resolver';
 import { AutomationService } from './automation.service';
+import { CompilerModule } from './compiler/compiler.module';
 import {
   AutomationProgram,
   ProgramStep,
@@ -30,11 +31,17 @@ import { DeploymentLogService } from './services/deployment-log.service';
  * - Translate IEC 61131-3 to edge script format
  * - Rollback support
  *
+ * v3.0 Features:
+ * - ST Language Service (parser, IntelliSense, formatting)
+ * - NATS request-reply handler for gateway-api WS bridge
+ * - Automation event publishing (program saved/deployed, tags updated)
+ *
  * Integration points:
  * - EdgeDevice module: Programs are deployed to edge devices
  * - Process module: Variables bind to equipment nodes in process templates
  * - Sensor module: Variables can map to sensor data channels
  * - SharedMqttModule: MQTT communication for deployment
+ * - CompilerModule: ST language service, IntelliSense, NATS handlers
  */
 @Module({
   imports: [
@@ -47,6 +54,7 @@ import { DeploymentLogService } from './services/deployment-log.service';
       DeploymentLog,
     ]),
     EdgeDeviceModule, // For edge device service (no longer circular)
+    CompilerModule, // ST language service, IntelliSense, NATS handlers
     // MqttClientService is available via @Global SharedMqttModule
   ],
   providers: [

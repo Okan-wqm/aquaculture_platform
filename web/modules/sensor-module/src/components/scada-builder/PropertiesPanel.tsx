@@ -55,6 +55,7 @@ interface PropertiesPanelProps {
   onEmergencyStopChange: (config: EmergencyStopConfig) => void;
   trendConfig: TrendConfig;
   onTrendConfigChange: (config: TrendConfig) => void;
+  deviceId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +89,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   onEmergencyStopChange,
   trendConfig,
   onTrendConfigChange,
+  deviceId,
 }) => {
   const [activeTab, setActiveTab] = useState<TabId>('widget');
 
@@ -206,6 +208,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 <ConfigComponent
                   config={selectedWidget.config}
                   onChange={(updates) => onWidgetConfigChange(selectedWidget.id, updates)}
+                  deviceId={deviceId}
                 />
               </div>
             ) : (

@@ -19,6 +19,7 @@ import { ProcessViewConfig } from './ProcessViewConfig';
 interface WidgetConfigProps {
   config: Record<string, any>;
   onChange: (updates: Record<string, any>) => void;
+  deviceId?: string | null;
 }
 
 export const widgetConfigMap: Record<string, React.FC<WidgetConfigProps>> = {

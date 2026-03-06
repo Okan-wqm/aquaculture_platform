@@ -43,6 +43,7 @@ interface ScadaPackageState {
   packageId: string | null;
   packageName: string;
   processId: string | null;
+  targetDeviceId: string | null;
 
   // Screens
   screens: ScreenDef[];
@@ -88,6 +89,7 @@ interface ScadaPackageState {
   setPackageName: (name: string) => void;
   setPackageId: (id: string | null) => void;
   setProcessId: (id: string | null) => void;
+  setTargetDeviceId: (id: string | null) => void;
 
   // Export/Import
   toScadaPackageJSON: () => any;
@@ -135,6 +137,7 @@ const initialState = {
   packageId: null as string | null,
   packageName: '',
   processId: null as string | null,
+  targetDeviceId: null as string | null,
   screens: [] as ScreenDef[],
   activeScreenId: '',
   alarmRules: [] as AlarmRuleDef[],
@@ -283,6 +286,8 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
 
   setProcessId: (id) => set({ processId: id, isDirty: true }),
 
+  setTargetDeviceId: (id) => set({ targetDeviceId: id }),
+
   // Export to edge-compatible JSON
   toScadaPackageJSON: () => {
     const state = get();
@@ -291,6 +296,7 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
         version: 1,
         packageName: state.packageName,
         processId: state.processId,
+        edgeDeviceId: state.targetDeviceId,
       },
       screens: state.screens.map((s) => ({
         id: s.id,
@@ -341,6 +347,7 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
     set({
       packageName: json.meta?.packageName || '',
       processId: json.meta?.processId || null,
+      targetDeviceId: json.meta?.edgeDeviceId || null,
       screens,
       activeScreenId: screens.find((s) => s.isDefault)?.id || screens[0]?.id || '',
       alarmRules: (json.alarmRules || []).map((r: any) => ({

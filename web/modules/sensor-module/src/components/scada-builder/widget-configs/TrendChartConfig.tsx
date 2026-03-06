@@ -1,11 +1,13 @@
 import React from 'react';
+import { TagBrowser } from '../TagBrowser';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
   onChange: (updates: Record<string, any>) => void;
+  deviceId?: string | null;
 }
 
-export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => {
+export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const tags: string[] = config.tags || [];
 
   const addTag = () => {
@@ -33,12 +35,11 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         <div className="space-y-1">
           {tags.map((tag, i) => (
             <div key={i} className="flex items-center gap-1">
-              <input
-                type="text"
+              <TagBrowser
+                deviceId={deviceId || null}
                 value={tag}
-                onChange={(e) => updateTag(i, e.target.value)}
-                placeholder="sensor.temperature"
-                className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                onChange={(val) => updateTag(i, val)}
+                placeholder="Tag secin..."
               />
               <button
                 onClick={() => removeTag(i)}

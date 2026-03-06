@@ -1,21 +1,22 @@
 import React from 'react';
+import { TagBrowser } from '../TagBrowser';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
   onChange: (updates: Record<string, any>) => void;
+  deviceId?: string | null;
 }
 
-export const SliderConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => {
+export const SliderConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   return (
     <div className="space-y-3">
       <div>
         <label className="block text-xs text-gray-500 mb-1">Tag</label>
-        <input
-          type="text"
+        <TagBrowser
+          deviceId={deviceId || null}
           value={config.tag || ''}
-          onChange={(e) => onChange({ tag: e.target.value })}
-          placeholder="valve.position"
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          onChange={(tag) => onChange({ tag })}
+          placeholder="Tag secin..."
         />
       </div>
       <div>

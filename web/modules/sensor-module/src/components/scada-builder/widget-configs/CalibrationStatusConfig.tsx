@@ -1,11 +1,13 @@
 import React from 'react';
+import { TagBrowser } from '../TagBrowser';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
   onChange: (updates: Record<string, any>) => void;
+  deviceId?: string | null;
 }
 
-export const CalibrationStatusConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => {
+export const CalibrationStatusConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const sensors: string[] = config.sensors || [];
 
   const addSensor = () => {
@@ -33,12 +35,11 @@ export const CalibrationStatusConfig: React.FC<WidgetConfigProps> = ({ config, o
         <div className="space-y-1">
           {sensors.map((sensor, i) => (
             <div key={i} className="flex items-center gap-1">
-              <input
-                type="text"
+              <TagBrowser
+                deviceId={deviceId || null}
                 value={sensor}
-                onChange={(e) => updateSensor(i, e.target.value)}
-                placeholder="sensor.ph"
-                className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                onChange={(val) => updateSensor(i, val)}
+                placeholder="Tag secin..."
               />
               <button
                 onClick={() => removeSensor(i)}

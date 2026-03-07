@@ -173,9 +173,9 @@ export class AutomationProgram {
   category?: string; // startup, shutdown, emergency, process, cleaning
 
   // SFC Definition (JSONB)
-  @Field(() => GraphQLJSON)
-  @Column({ name: 'sfc_definition', type: 'jsonb' })
-  sfcDefinition!: SfcDefinition;
+  @Field(() => GraphQLJSON, { nullable: true })
+  @Column({ name: 'sfc_definition', type: 'jsonb', nullable: true })
+  sfcDefinition?: SfcDefinition;
 
   // IEC 61131-3 Structured Text Source
   @Field({ nullable: true })

@@ -6,6 +6,8 @@
  * outline tree, problems panel, code formatting, and JSON bundle export/import.
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { useStLanguageService } from './useStLanguageService';
+import type { STDiagnostic, STOutlineNode } from '../types/st-editor.types';
 
 export interface StProgram {
   id: string;
@@ -50,6 +52,41 @@ function makeId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+/** Map STDiagnostic (WS) → CompileDiagnostic (editor) */
+function mapWsDiagnostic(d: STDiagnostic): CompileDiagnostic {
+  return {
+    line: d.range.startLine + 1, // WS is 0-based, editor is 1-based
+    column: d.range.startCol + 1,
+    endLine: d.range.endLine + 1,
+    endColumn: d.range.endCol + 1,
+    message: d.message,
+    severity: d.severity === 'hint' ? 'info' : d.severity,
+  };
+}
+
+/** Map STOutlineNode (WS) → OutlineNode (editor) */
+function mapWsOutlineNode(n: STOutlineNode): OutlineNode {
+  const iconToKind: Record<string, OutlineNode['kind']> = {
+    box: 'program',
+    boxes: 'functionBlock',
+    function: 'function',
+    braces: 'varBlock',
+    variable: 'variable',
+    type: 'type',
+    hash: 'struct',
+    list: 'enum',
+    wrench: 'method',
+    'file-text': 'property',
+  };
+  return {
+    name: n.label,
+    kind: iconToKind[n.icon] ?? 'variable',
+    line: n.line + 1, // 0-based → 1-based
+    children: n.children?.map(mapWsOutlineNode),
+    detail: n.detail,
+  };
+}
+
 export interface UseStEditorOptions {
   /** Initial source code for the first program (overrides DEFAULT_SOURCE) */
   initialSource?: string;
@@ -59,6 +96,9 @@ export interface UseStEditorOptions {
 
 export function useStEditor(options?: UseStEditorOptions) {
   const { initialSource, onSourceChange } = options ?? {};
+
+  // Real WebSocket language service (auto-connects on mount)
+  const langService = useStLanguageService();
 
   // Stable ref for onSourceChange to avoid re-renders
   const onSourceChangeRef = useRef(onSourceChange);
@@ -115,7 +155,13 @@ export function useStEditor(options?: UseStEditorOptions) {
 
   // Monaco editor ref (set externally)
   // Typed as minimal interface to avoid hard dependency on monaco-editor package
-  const editorRef = useRef<{ getModel: () => { getLineMaxColumn: (line: number) => number } | null; [key: string]: unknown } | null>(null);
+  const editorRef = useRef<{
+    getModel: () => { getLineMaxColumn: (line: number) => number } | null;
+    revealLineInCenter?: (line: number) => void;
+    setPosition?: (pos: { lineNumber: number; column: number }) => void;
+    focus?: () => void;
+    [key: string]: unknown;
+  } | null>(null);
   const monacoRef = useRef<{ editor: { setModelMarkers: (model: unknown, owner: string, markers: unknown[]) => void }; [key: string]: unknown } | null>(null);
 
   // ---- CRUD ----
@@ -179,83 +225,110 @@ export function useStEditor(options?: UseStEditorOptions) {
     // TODO: persist to backend via GraphQL mutation
   }, []);
 
-  // ---- Compile (mock) ----
+  // ---- Compile (WS → mock fallback) ----
+
+  const compileMock = useCallback((src: string): CompileDiagnostic[] => {
+    const errors: CompileDiagnostic[] = [];
+    const programCount = (src.match(/\bPROGRAM\b/gi) || []).length;
+    const endProgramCount = (src.match(/\bEND_PROGRAM\b/gi) || []).length;
+    if (programCount > endProgramCount) {
+      errors.push({
+        line: src.split('\n').length, column: 1,
+        message: 'Missing END_PROGRAM', severity: 'error',
+      });
+    }
+    const ifCount = (src.match(/\bIF\b/gi) || []).length;
+    const endIfCount = (src.match(/\bEND_IF\b/gi) || []).length;
+    if (ifCount > endIfCount) {
+      errors.push({
+        line: src.split('\n').length, column: 1,
+        message: `Missing END_IF (${ifCount - endIfCount} unmatched)`, severity: 'error',
+      });
+    }
+    return errors;
+  }, []);
 
   const compile = useCallback(async () => {
     const prog = activeProgramRef.current;
     if (!prog) return;
     setCompileStatus('compiling');
     setDiagnostics([]);
+    setIsAnalyzing(true);
 
-    // Mock compile delay
-    await new Promise((r) => setTimeout(r, 800));
+    let errors: CompileDiagnostic[];
 
-    // Simple mock validation: check for unmatched PROGRAM/END_PROGRAM
-    const src = prog.source;
-    const errors: CompileDiagnostic[] = [];
-
-    const programCount = (src.match(/\bPROGRAM\b/gi) || []).length;
-    const endProgramCount = (src.match(/\bEND_PROGRAM\b/gi) || []).length;
-    if (programCount > endProgramCount) {
-      errors.push({
-        line: src.split('\n').length,
-        column: 1,
-        message: 'Missing END_PROGRAM',
-        severity: 'error',
-      });
+    if (langService.isConnected) {
+      try {
+        const wsDiags = await langService.analyze(prog.source, prog.id);
+        errors = wsDiags.map(mapWsDiagnostic);
+      } catch {
+        // WS failed, fall back to local mock
+        errors = compileMock(prog.source);
+      }
+    } else {
+      // WS not connected, use mock
+      await new Promise((r) => setTimeout(r, 800));
+      errors = compileMock(prog.source);
     }
 
-    const ifCount = (src.match(/\bIF\b/gi) || []).length;
-    const endIfCount = (src.match(/\bEND_IF\b/gi) || []).length;
-    if (ifCount > endIfCount) {
-      errors.push({
-        line: src.split('\n').length,
-        column: 1,
-        message: `Missing END_IF (${ifCount - endIfCount} unmatched)`,
-        severity: 'error',
-      });
-    }
-
+    setIsAnalyzing(false);
     setDiagnostics(errors);
-    setCompileStatus(errors.length > 0 ? 'error' : 'success');
-
-    // Set Monaco markers
+    const hasErrors = errors.some((e) => e.severity === 'error');
+    const hasWarnings = errors.some((e) => e.severity === 'warning');
+    setCompileStatus(hasErrors ? 'error' : hasWarnings ? 'warning' : 'success');
     applyMarkers(errors);
 
     return errors;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [langService.isConnected, langService.analyze, compileMock]);
 
-  // ---- Validate (mock) ----
+  // ---- Validate (WS → mock fallback) ----
+
+  const validateMock = useCallback((src: string): CompileDiagnostic[] => {
+    const warnings: CompileDiagnostic[] = [];
+    const lines = src.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (/\bGOTO\b/i.test(lines[i])) {
+        warnings.push({
+          line: i + 1, column: 1,
+          message: 'GOTO usage is discouraged', severity: 'warning',
+        });
+      }
+    }
+    return warnings;
+  }, []);
 
   const validate = useCallback(async () => {
     const prog = activeProgramRef.current;
     if (!prog) return;
     setCompileStatus('compiling');
     setDiagnostics([]);
+    setIsAnalyzing(true);
 
-    await new Promise((r) => setTimeout(r, 400));
+    let warnings: CompileDiagnostic[];
 
-    const warnings: CompileDiagnostic[] = [];
-    const lines = prog.source.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      if (/\bGOTO\b/i.test(lines[i])) {
-        warnings.push({
-          line: i + 1,
-          column: 1,
-          message: 'GOTO usage is discouraged',
-          severity: 'warning',
-        });
+    if (langService.isConnected) {
+      try {
+        const wsDiags = await langService.analyze(prog.source, prog.id);
+        warnings = wsDiags.map(mapWsDiagnostic);
+      } catch {
+        warnings = validateMock(prog.source);
       }
+    } else {
+      await new Promise((r) => setTimeout(r, 400));
+      warnings = validateMock(prog.source);
     }
 
+    setIsAnalyzing(false);
     setDiagnostics(warnings);
-    setCompileStatus(warnings.length > 0 ? 'warning' : 'success');
+    const hasErrors = warnings.some((w) => w.severity === 'error');
+    const hasWarnings = warnings.some((w) => w.severity === 'warning');
+    setCompileStatus(hasErrors ? 'error' : hasWarnings ? 'warning' : 'success');
     applyMarkers(warnings);
 
     return warnings;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [langService.isConnected, langService.analyze, validateMock]);
 
   // ---- Monaco markers ----
 
@@ -318,8 +391,10 @@ export function useStEditor(options?: UseStEditorOptions) {
 
   const [outline, setOutline] = useState<OutlineNode[]>([]);
   const [isProblemsExpanded, setIsProblemsExpanded] = useState(false);
-  const [wsConnected, setWsConnected] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // Derive wsConnected from real language service
+  const wsConnected = langService.isConnected;
 
   // Build a simple outline from source code (local parse, no backend needed)
   const buildOutline = useCallback((source: string): OutlineNode[] => {
@@ -382,23 +457,31 @@ export function useStEditor(options?: UseStEditorOptions) {
     return nodes;
   }, []);
 
-  // Update outline on source change (debounced to avoid per-keystroke work)
+  // Update outline on source change (debounced, WS-first with local fallback)
   useEffect(() => {
     if (!activeProgram) return;
     const source = activeProgram.source;
-    const timer = setTimeout(() => {
-      setOutline(buildOutline(source));
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      if (langService.isConnected) {
+        try {
+          const wsNodes = await langService.outline(source, activeProgram.id);
+          if (!cancelled) setOutline(wsNodes.map(mapWsOutlineNode));
+          return;
+        } catch {
+          // fall through to local parse
+        }
+      }
+      if (!cancelled) setOutline(buildOutline(source));
     }, 300);
-    return () => clearTimeout(timer);
-  }, [activeProgram?.source, buildOutline]);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [activeProgram?.source, activeProgram?.id, buildOutline, langService.isConnected, langService.outline]);
 
-  // ---- Format Code ----
+  // ---- Format Code (WS → mock fallback) ----
 
-  const formatCode = useCallback(() => {
-    const prog = activeProgramRef.current;
-    if (!prog) return;
-
-    const lines = prog.source.split('\n');
+  const formatCodeLocal = useCallback((src: string): string => {
+    const lines = src.split('\n');
     let indent = 0;
     const formatted: string[] = [];
     const incPat = /^(PROGRAM|FUNCTION_BLOCK|FUNCTION|METHOD|PROPERTY|INTERFACE|VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_GLOBAL|VAR_TEMP|VAR_EXTERNAL|IF|FOR|WHILE|REPEAT|CASE|STRUCT|TYPE)\b/i;
@@ -411,17 +494,33 @@ export function useStEditor(options?: UseStEditorOptions) {
       formatted.push('    '.repeat(indent) + trimmed);
       if (incPat.test(trimmed) && !/^(ELSIF|ELSE)\b/i.test(trimmed)) indent++;
     }
-    updateSource(formatted.join('\n'));
-  }, [updateSource]);
+    return formatted.join('\n');
+  }, []);
+
+  const formatCode = useCallback(async () => {
+    const prog = activeProgramRef.current;
+    if (!prog) return;
+
+    if (langService.isConnected) {
+      try {
+        const formatted = await langService.format(prog.source, prog.id);
+        updateSource(formatted);
+        return;
+      } catch {
+        // fall through to local format
+      }
+    }
+    updateSource(formatCodeLocal(prog.source));
+  }, [updateSource, langService.isConnected, langService.format, formatCodeLocal]);
 
   // ---- Navigate to line ----
 
   const navigateToLine = useCallback((line: number) => {
     const editor = editorRef.current;
-    if (editor && typeof (editor as any).revealLineInCenter === 'function') {
-      (editor as any).revealLineInCenter(line);
-      (editor as any).setPosition({ lineNumber: line, column: 1 });
-      (editor as any).focus();
+    if (editor && typeof editor.revealLineInCenter === 'function') {
+      editor.revealLineInCenter(line);
+      editor.setPosition?.({ lineNumber: line, column: 1 });
+      editor.focus?.();
     }
   }, []);
 
@@ -499,11 +598,10 @@ export function useStEditor(options?: UseStEditorOptions) {
     setIsProblemsExpanded,
     toggleProblemsPanel,
 
-    // WS state (placeholder for future backend integration)
+    // WS state (connected to real language service)
     wsConnected,
-    setWsConnected,
     isAnalyzing,
-    setIsAnalyzing,
+    connectionStatus: langService.connectionStatus,
 
     // New actions
     formatCode,

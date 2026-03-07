@@ -86,6 +86,15 @@ export class STLanguageHandler implements OnModuleInit, OnModuleDestroy {
     this.subscribeToSubject(NATS_SUBJECTS.FORMAT, (req) =>
       this.handleFormat(req),
     );
+    this.subscribeToSubject(NATS_SUBJECTS.OUTLINE, (req) =>
+      this.handleOutline(req),
+    );
+    this.subscribeToSubject(NATS_SUBJECTS.DEFINITION, (req) =>
+      this.handleDefinition(req),
+    );
+    this.subscribeToSubject(NATS_SUBJECTS.REFERENCES, (req) =>
+      this.handleReferences(req),
+    );
 
     this.logger.log(
       `Subscribed to ${Object.values(NATS_SUBJECTS).length} ST language subjects`,
@@ -224,5 +233,70 @@ export class STLanguageHandler implements OnModuleInit, OnModuleDestroy {
     req: NatsLanguageRequest & { tenantId: string },
   ): Promise<NatsLanguageReply> {
     return this.languageService.format(req.code, req.requestId);
+  }
+
+  private async handleOutline(
+    req: NatsLanguageRequest & { tenantId: string },
+  ): Promise<NatsLanguageReply> {
+    this.logger.debug(
+      `Outline request ${req.requestId}, tenant=${req.tenantId}, code size=${req.code.length}`,
+    );
+
+    return this.languageService.outline(
+      req.code,
+      req.tenantId,
+      req.requestId,
+      req.programId,
+    );
+  }
+
+  private async handleDefinition(
+    req: NatsLanguageRequest & { tenantId: string },
+  ): Promise<NatsLanguageReply> {
+    if (!req.position) {
+      return {
+        success: false,
+        requestId: req.requestId,
+        type: 'error',
+        data: null,
+        error: {
+          code: 'MISSING_POSITION',
+          message: 'Position is required for definition requests',
+        },
+      };
+    }
+
+    return this.languageService.definition(
+      req.code,
+      req.position,
+      req.tenantId,
+      req.requestId,
+      req.programId,
+    );
+  }
+
+  private async handleReferences(
+    req: NatsLanguageRequest & { tenantId: string },
+  ): Promise<NatsLanguageReply> {
+    if (!req.position) {
+      return {
+        success: false,
+        requestId: req.requestId,
+        type: 'error',
+        data: null,
+        error: {
+          code: 'MISSING_POSITION',
+          message: 'Position is required for references requests',
+        },
+      };
+    }
+
+    return this.languageService.references(
+      req.code,
+      req.position,
+      req.tenantId,
+      req.requestId,
+      req.programId,
+    );
   }
 }

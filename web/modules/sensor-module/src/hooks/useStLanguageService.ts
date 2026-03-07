@@ -98,7 +98,9 @@ export function useStLanguageService(): UseStLanguageServiceReturn {
     async (code: string, programId?: string): Promise<STDiagnostic[]> => {
       try {
         const response = await makeRequest('analyze', code, undefined, programId);
-        return (response.data as STDiagnostic[]) ?? [];
+        const payload = response.data as { diagnostics?: STDiagnostic[] } | STDiagnostic[] | null;
+        if (Array.isArray(payload)) return payload;
+        return (payload as { diagnostics?: STDiagnostic[] })?.diagnostics ?? [];
       } catch (err) {
         console.warn('[STLanguageService] analyze failed:', (err as Error).message);
         return [];
@@ -111,7 +113,9 @@ export function useStLanguageService(): UseStLanguageServiceReturn {
     async (code: string, position: STPosition, programId?: string): Promise<STCompletionItem[]> => {
       try {
         const response = await makeRequest('complete', code, position, programId);
-        return (response.data as STCompletionItem[]) ?? [];
+        const payload = response.data as { completions?: STCompletionItem[] } | STCompletionItem[] | null;
+        if (Array.isArray(payload)) return payload;
+        return (payload as { completions?: STCompletionItem[] })?.completions ?? [];
       } catch (err) {
         console.warn('[STLanguageService] complete failed:', (err as Error).message);
         return [];
@@ -124,7 +128,10 @@ export function useStLanguageService(): UseStLanguageServiceReturn {
     async (code: string, position: STPosition, programId?: string): Promise<STHoverInfo | null> => {
       try {
         const response = await makeRequest('hover', code, position, programId);
-        return (response.data as STHoverInfo) ?? null;
+        const payload = response.data as STHoverInfo | { contents?: string; range?: STHoverInfo['range'] } | null;
+        if (!payload) return null;
+        if ('contents' in payload && typeof payload.contents === 'string') return payload as STHoverInfo;
+        return null;
       } catch (err) {
         console.warn('[STLanguageService] hover failed:', (err as Error).message);
         return null;
@@ -137,7 +144,9 @@ export function useStLanguageService(): UseStLanguageServiceReturn {
     async (code: string, programId?: string): Promise<string> => {
       try {
         const response = await makeRequest('format', code, undefined, programId);
-        return (response.data as string) ?? code;
+        const payload = response.data as { formattedCode?: string } | string | null;
+        if (typeof payload === 'string') return payload;
+        return (payload as { formattedCode?: string })?.formattedCode ?? code;
       } catch (err) {
         console.warn('[STLanguageService] format failed:', (err as Error).message);
         return code;
@@ -150,7 +159,9 @@ export function useStLanguageService(): UseStLanguageServiceReturn {
     async (code: string, programId?: string): Promise<STOutlineNode[]> => {
       try {
         const response = await makeRequest('outline', code, undefined, programId);
-        return (response.data as STOutlineNode[]) ?? [];
+        const payload = response.data as { outline?: STOutlineNode[] } | STOutlineNode[] | null;
+        if (Array.isArray(payload)) return payload;
+        return (payload as { outline?: STOutlineNode[] })?.outline ?? [];
       } catch (err) {
         console.warn('[STLanguageService] outline failed:', (err as Error).message);
         return [];
@@ -163,7 +174,10 @@ export function useStLanguageService(): UseStLanguageServiceReturn {
     async (code: string, position: STPosition, programId?: string): Promise<STDefinitionLocation | null> => {
       try {
         const response = await makeRequest('definition', code, position, programId);
-        return (response.data as STDefinitionLocation) ?? null;
+        const payload = response.data as { location?: STDefinitionLocation } | STDefinitionLocation | null;
+        if (!payload) return null;
+        if ('range' in payload) return payload as STDefinitionLocation;
+        return (payload as { location?: STDefinitionLocation }).location ?? null;
       } catch (err) {
         console.warn('[STLanguageService] definition failed:', (err as Error).message);
         return null;
@@ -176,7 +190,9 @@ export function useStLanguageService(): UseStLanguageServiceReturn {
     async (code: string, position: STPosition, programId?: string): Promise<STReferenceLocation[]> => {
       try {
         const response = await makeRequest('references', code, position, programId);
-        return (response.data as STReferenceLocation[]) ?? [];
+        const payload = response.data as { references?: STReferenceLocation[] } | STReferenceLocation[] | null;
+        if (Array.isArray(payload)) return payload;
+        return (payload as { references?: STReferenceLocation[] })?.references ?? [];
       } catch (err) {
         console.warn('[STLanguageService] references failed:', (err as Error).message);
         return [];

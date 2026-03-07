@@ -14,6 +14,8 @@ import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 
 import { AutomationService } from './automation.service';
+import { tokenize } from './compiler/lexer';
+import { STParser } from './compiler/parser/st-parser';
 import {
   CreateProgramInput,
   UpdateProgramInput,
@@ -31,6 +33,8 @@ import {
   DeployProgramInput,
   DeploymentResult,
   DeploymentLogConnection,
+  ValidationResult,
+  DiagnosticItem,
 } from './dto/automation.dto';
 import { AutomationProgram } from './entities/automation-program.entity';
 import { DeploymentLog } from './entities/deployment-log.entity';
@@ -622,6 +626,94 @@ export class AutomationResolver {
         error: (error as Error).message,
       };
     }
+  }
+
+  // ============================================
+  // ST Validation
+  // ============================================
+
+  /**
+   * Validate Structured Text code
+   * Tokenizes and parses the code, returning diagnostics
+   */
+  @Mutation(() => ValidationResult)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async validateStructuredText(
+    @Args('code') code: string,
+    @Tenant() _tenantId: string,
+  ): Promise<ValidationResult> {
+    // Security: enforce max source size before any CPU-intensive work
+    const MAX_VALIDATE_SIZE = 100 * 1024; // 100 KB
+    if (!code || typeof code !== 'string') {
+      return { valid: false, errors: [{ line: 1, column: 1, severity: 'error', message: 'Code must be a non-empty string' }], warnings: [], infos: [], parsedSymbols: [] };
+    }
+    if (code.length > MAX_VALIDATE_SIZE) {
+      return { valid: false, errors: [{ line: 1, column: 1, severity: 'error', message: `Source code exceeds maximum size of ${MAX_VALIDATE_SIZE} bytes` }], warnings: [], infos: [], parsedSymbols: [] };
+    }
+
+    const errors: DiagnosticItem[] = [];
+    const warnings: DiagnosticItem[] = [];
+    const infos: DiagnosticItem[] = [];
+    const parsedSymbols: string[] = [];
+
+    try {
+      // Tokenize
+      const lexResult = tokenize(code);
+
+      // Collect lexer errors
+      for (const le of lexResult.errors) {
+        errors.push({
+          line: le.line,
+          column: le.col,
+          severity: 'error',
+          message: le.message,
+        });
+      }
+
+      // Parse
+      const parser = new STParser(lexResult.tokens);
+      const parseResult = parser.parse();
+
+      // Collect parser diagnostics
+      for (const pe of parseResult.errors) {
+        const item: DiagnosticItem = {
+          line: pe.line,
+          column: pe.col,
+          severity: pe.severity,
+          message: pe.message,
+          code: pe.code,
+        };
+
+        if (pe.severity === 'warning') {
+          warnings.push(item);
+        } else {
+          errors.push(item);
+        }
+      }
+
+      // Extract symbol names from AST
+      for (const node of parseResult.ast) {
+        if ('name' in node && node.name) {
+          parsedSymbols.push(node.name);
+        }
+      }
+    } catch (err) {
+      this.logger.error(`ST validation internal error: ${(err as Error).message}`, (err as Error).stack);
+      errors.push({
+        line: 1,
+        column: 1,
+        severity: 'error',
+        message: 'Internal validation error occurred',
+      });
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings,
+      infos,
+      parsedSymbols,
+    };
   }
 
   // ============================================

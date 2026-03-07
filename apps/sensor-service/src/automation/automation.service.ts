@@ -17,6 +17,7 @@ import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
+import { AutomationEventsPublisher } from './events/automation-events.publisher';
 import { DeploymentLogService } from './services/deployment-log.service';
 import {
   CreateProgramInput,
@@ -81,6 +82,8 @@ export class AutomationService {
     private readonly mqttClient: MqttClientService,
     @Optional()
     private readonly deploymentLogService: DeploymentLogService,
+    @Optional()
+    private readonly eventsPublisher: AutomationEventsPublisher,
   ) {}
 
   // ============================================
@@ -114,7 +117,7 @@ export class AutomationService {
       executionMode: input.executionMode,
       deviceId: input.deviceId,
       processTemplateId: input.processTemplateId,
-      sfcDefinition: input.sfcDefinition as unknown as SfcDefinition,
+      sfcDefinition: input.sfcDefinition ? input.sfcDefinition as unknown as SfcDefinition : undefined,
       structuredTextCode: input.structuredTextCode,
       scanCycleMs: input.scanCycleMs || 100,
       priority: input.priority || 5,
@@ -133,6 +136,11 @@ export class AutomationService {
 
     const saved = await this.programRepo.save(program);
     this.logger.log(`Created program ${saved.programCode} for tenant ${tenantId}`);
+
+    this.eventsPublisher?.publishProgramSaved(
+      tenantId, saved.id, saved.programCode, saved.version, createdBy ?? 'system',
+    );
+
     return saved;
   }
 
@@ -181,6 +189,11 @@ export class AutomationService {
 
     const saved = await this.programRepo.save(program);
     this.logger.log(`Updated program ${saved.programCode}`);
+
+    this.eventsPublisher?.publishProgramSaved(
+      tenantId, saved.id, saved.programCode, saved.version, 'system',
+    );
+
     return saved;
   }
 
@@ -1195,6 +1208,11 @@ export class AutomationService {
         deployedBy: deployedBy,
         deviceId: deviceId,
       });
+
+      this.eventsPublisher?.publishProgramDeployed(
+        tenantId, programId, program.programCode, program.version,
+        deployedBy, device.deviceCode,
+      );
 
       return {
         success: true,

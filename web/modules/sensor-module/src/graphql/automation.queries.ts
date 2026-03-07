@@ -267,9 +267,8 @@ export const REMOVE_TRANSITION_MUTATION = `
 // Validation
 // ============================================================================
 
-// NOTE: validateStructuredText resolver does not exist in the backend yet.
-// This mutation is exported so the frontend compiles; the call will fail gracefully
-// at runtime and the catch block shows a client-side error message.
+// validateStructuredText resolver is in automation.resolver.ts (sensor-service).
+// Requires TENANT_ADMIN or MODULE_MANAGER role.
 export const VALIDATE_ST_MUTATION = `
   mutation ValidateST($code: String!) {
     validateStructuredText(code: $code) {

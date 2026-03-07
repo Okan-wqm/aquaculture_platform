@@ -7,11 +7,14 @@ import {
   WorkerCompleteResult,
   WorkerHoverResult,
   WorkerFormatResult,
+  WorkerOutlineResult,
+  WorkerDefinitionResult,
+  WorkerReferencesResult,
   CompletionEntry,
 } from '../compiler.types';
 
 import { STIntellisenseService } from './st-intellisense.service';
-import { STWorkerPoolService } from './st-worker-pool.service';
+import { STWorkerPoolService } from '../worker/st-worker-pool.service';
 
 /**
  * ST Language Service
@@ -151,6 +154,95 @@ export class STLanguageService {
       type: 'formatted',
       data: {
         formattedCode: result.formattedCode,
+      },
+      processingTimeMs: result.processingTimeMs,
+    };
+  }
+
+  /**
+   * Get document outline (symbols) for ST code.
+   */
+  async outline(
+    code: string,
+    tenantId: string,
+    requestId: string,
+    programId?: string,
+  ): Promise<NatsLanguageReply> {
+    this.validateInput(code);
+
+    const result = (await this.workerPool.execute(
+      'outline',
+      code,
+      tenantId,
+      { programId },
+    )) as WorkerOutlineResult;
+
+    return {
+      success: result.success,
+      requestId,
+      type: 'outline',
+      data: {
+        outline: result.outline,
+      },
+      processingTimeMs: result.processingTimeMs,
+    };
+  }
+
+  /**
+   * Go-to-definition for a symbol at a given position.
+   */
+  async definition(
+    code: string,
+    position: { line: number; character: number },
+    tenantId: string,
+    requestId: string,
+    programId?: string,
+  ): Promise<NatsLanguageReply> {
+    this.validateInput(code);
+
+    const result = (await this.workerPool.execute(
+      'definition',
+      code,
+      tenantId,
+      { programId, position },
+    )) as WorkerDefinitionResult;
+
+    return {
+      success: result.success,
+      requestId,
+      type: 'definition',
+      data: {
+        location: result.location ?? null,
+      },
+      processingTimeMs: result.processingTimeMs,
+    };
+  }
+
+  /**
+   * Find all references for a symbol at a given position.
+   */
+  async references(
+    code: string,
+    position: { line: number; character: number },
+    tenantId: string,
+    requestId: string,
+    programId?: string,
+  ): Promise<NatsLanguageReply> {
+    this.validateInput(code);
+
+    const result = (await this.workerPool.execute(
+      'references',
+      code,
+      tenantId,
+      { programId, position },
+    )) as WorkerReferencesResult;
+
+    return {
+      success: result.success,
+      requestId,
+      type: 'references',
+      data: {
+        references: result.references,
       },
       processingTimeMs: result.processingTimeMs,
     };

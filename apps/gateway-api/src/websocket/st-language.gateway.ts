@@ -38,6 +38,7 @@ interface STResponse {
   requestId: string;
   data: unknown;
   processingTimeMs?: number;
+  error?: { code: string; message: string };
 }
 
 type STErrorCode =
@@ -49,6 +50,13 @@ type STErrorCode =
   | 'TENANT_MISMATCH'
   | 'RATE_LIMITED'
   | 'INTERNAL_ERROR';
+
+interface NatsLanguageReply {
+  success?: boolean;
+  data?: unknown;
+  error?: { code: string; message: string };
+  processingTimeMs?: number;
+}
 
 interface ConnectedClient {
   socket: Socket;
@@ -266,19 +274,26 @@ export class STLanguageGateway
     const startTime = Date.now();
 
     try {
-      const result = await this.delegateToNats(clientData.tenantId, payload);
+      const natsReply = await this.delegateToNats(clientData.tenantId, payload) as NatsLanguageReply;
+
+      // Check if the NATS handler returned an error
+      if (natsReply.success === false && natsReply.error) {
+        return this.errorResponse(payload.requestId, 'INTERNAL_ERROR', natsReply.error.message);
+      }
+
       return {
         type: this.mapRequestTypeToResponseType(payload.type),
         requestId: payload.requestId,
-        data: result,
-        processingTimeMs: Date.now() - startTime,
+        data: natsReply.data,
+        processingTimeMs: natsReply.processingTimeMs ?? (Date.now() - startTime),
       };
     } catch (error) {
-      const message = (error as Error).message ?? 'Internal error';
+      const internalMessage = (error as Error).message ?? 'Internal error';
       this.logger.error(
-        `ST request failed for tenant ${clientData.tenantId}: ${message}`,
+        `ST request failed for tenant ${clientData.tenantId}: ${internalMessage}`,
       );
-      return this.errorResponse(payload.requestId, 'INTERNAL_ERROR', message);
+      // Do not leak internal error details to client
+      return this.errorResponse(payload.requestId, 'INTERNAL_ERROR', 'Language service request failed');
     }
   }
 
@@ -419,7 +434,8 @@ export class STLanguageGateway
     return {
       type: 'error',
       requestId,
-      data: { code, message },
+      data: null,
+      error: { code, message },
     };
   }
 

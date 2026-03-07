@@ -354,6 +354,13 @@ const AutomationProgramEditorPage: React.FC = () => {
     }
   }, [data]);
 
+  // Switch to 'code' tab when programType is ST for new programs
+  useEffect(() => {
+    if (isNew && formData.programType === ProgramType.ST) {
+      setActiveTab('code');
+    }
+  }, [isNew, formData.programType]);
+
   // Mutations
   const handleMutationError = (error: Error, context: string) => {
     const message = `${context}: ${error.message || 'Bilinmeyen hata'}`;
@@ -519,6 +526,7 @@ const AutomationProgramEditorPage: React.FC = () => {
         description: formData.description,
         programType: formData.programType,
         structuredTextCode: stCode || undefined,
+        sfcDefinition: formData.programType === ProgramType.SFC ? {} : undefined,
         deployTarget,
         ...plcConfig,
       });
@@ -1162,12 +1170,15 @@ const AutomationProgramEditorPage: React.FC = () => {
 
       {/* Code Tab - ST Editor */}
       {activeTab === 'code' && (
-        <StEditorPanel
-          embedded
-          value={stCode}
-          onChange={setStCode}
-          hideActions={['save', 'deploy']}
-        />
+        <div className="flex flex-col" style={{ height: 'calc(100vh - 320px)', minHeight: 400 }}>
+          <StEditorPanel
+            embedded
+            value={stCode}
+            onChange={setStCode}
+            hideActions={['save', 'deploy']}
+            onSave={handleSave}
+          />
+        </div>
       )}
 
       {/* Transitions Tab */}

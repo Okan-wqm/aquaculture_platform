@@ -6,9 +6,9 @@ import React from 'react';
 import { Cpu, Server, Settings2 } from 'lucide-react';
 
 export enum DeployTarget {
-  RUST_ENGINE = 'rust_engine',
-  CODESYS_PLC = 'codesys_plc',
-  PLC_SETPOINT = 'plc_setpoint',
+  RUST_ENGINE = 'RUST_ENGINE',
+  CODESYS_PLC = 'CODESYS_PLC',
+  PLC_SETPOINT = 'PLC_SETPOINT',
 }
 
 interface PlcConfig {

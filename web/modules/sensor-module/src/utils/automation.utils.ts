@@ -10,19 +10,19 @@
 // ============================================================================
 
 export enum ProgramStatus {
-  DRAFT = 'draft',
-  PENDING_REVIEW = 'pending_review',
-  APPROVED = 'approved',
-  DEPLOYING = 'deploying',
-  DEPLOYED = 'deployed',
-  ARCHIVED = 'archived',
+  DRAFT = 'DRAFT',
+  PENDING_REVIEW = 'PENDING_REVIEW',
+  APPROVED = 'APPROVED',
+  DEPLOYING = 'DEPLOYING',
+  DEPLOYED = 'DEPLOYED',
+  ARCHIVED = 'ARCHIVED',
 }
 
 export enum ProgramType {
-  SFC = 'sfc',
-  FBD = 'fbd',
-  ST = 'st',
-  LD = 'ld',
+  SFC = 'SFC',
+  FBD = 'FBD',
+  ST = 'ST',
+  LD = 'LD',
 }
 
 // ============================================================================

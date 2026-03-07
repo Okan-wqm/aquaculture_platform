@@ -98,12 +98,22 @@ export class STWorkerPoolService implements OnModuleInit, OnModuleDestroy {
   /**
    * Execute a task in the worker pool with timeout enforcement.
    *
-   * @param input - Worker input (taskType, code, etc.)
-   * @param timeoutMs - Optional timeout override (default: WORKER_TASK_TIMEOUT_MS)
+   * @param taskType - The type of worker task to execute
+   * @param code - ST source code
+   * @param tenantId - Tenant identifier
+   * @param options - Optional programId and cursor position
    * @returns Worker output
    * @throws Error with code WORKER_BUSY if pool is full, WORKER_TIMEOUT on timeout
    */
-  async execute(input: Omit<WorkerInput, 'limits'>, timeoutMs?: number): Promise<WorkerOutput> {
+  async execute(
+    taskType: WorkerInput['taskType'],
+    code: string,
+    tenantId: string,
+    options?: {
+      programId?: string;
+      position?: { line: number; character: number };
+    },
+  ): Promise<WorkerOutput> {
     if (this.isShuttingDown) {
       throw this.makeError(WorkerErrorCodes.ABORTED, 'Worker pool is shutting down');
     }
@@ -117,12 +127,16 @@ export class STWorkerPoolService implements OnModuleInit, OnModuleDestroy {
 
     // Build full input with security limits
     const fullInput: WorkerInput = {
-      ...input,
+      taskType,
+      code,
+      tenantId,
+      programId: options?.programId,
+      position: options?.position,
       limits: this.defaultLimits,
     };
 
     // Timeout enforcement via AbortController
-    const timeout = timeoutMs ?? WORKER_TASK_TIMEOUT_MS;
+    const timeout = WORKER_TASK_TIMEOUT_MS;
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), timeout);
 
@@ -171,14 +185,23 @@ export class STWorkerPoolService implements OnModuleInit, OnModuleDestroy {
     return {
       runningTasks: this.pool.utilization ? Math.round(this.pool.utilization * WORKER_POOL_MAX_THREADS) : 0,
       waitingTasks: this.pool.waitTime?.mean ? Math.round(this.pool.waitTime.mean) : 0,
-      threads: (this.pool as any).threads?.length ?? WORKER_POOL_MIN_THREADS,
+      threads: (this.pool as unknown as { threads?: unknown[] }).threads?.length ?? WORKER_POOL_MIN_THREADS,
       accepting: !this.isShuttingDown,
     };
   }
 
-  private makeError(code: string, message: string): Error {
-    const err = new Error(message);
-    (err as any).code = code;
+  getPoolStats(): { active: number; idle: number; pending: number } {
+    const status = this.getStatus();
+    return {
+      active: status.runningTasks,
+      idle: Math.max(0, status.threads - status.runningTasks),
+      pending: status.waitingTasks,
+    };
+  }
+
+  private makeError(code: string, message: string): Error & { code: string } {
+    const err = new Error(message) as Error & { code: string };
+    err.code = code;
     return err;
   }
 }

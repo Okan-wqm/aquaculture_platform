@@ -11,7 +11,7 @@ import { COMPILER_SERVICE } from './services/compiler.interface';
 import { CompilerService } from './services/compiler.service';
 import { STIntellisenseService } from './services/st-intellisense.service';
 import { STLanguageService } from './services/st-language.service';
-import { STWorkerPoolService } from './services/st-worker-pool.service';
+import { STWorkerPoolService } from './worker/st-worker-pool.service';
 import { STLanguageHandler } from './nats-handlers/st-language.handler';
 
 /**

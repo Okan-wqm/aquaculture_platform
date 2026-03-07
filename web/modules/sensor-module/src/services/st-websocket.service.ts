@@ -39,16 +39,8 @@ const REQUEST_TIMEOUTS: Record<string, number> = {
 type ConnectionChangeHandler = (connected: boolean) => void;
 type PushHandler = (push: STServerPush) => void;
 
-/** Pending request entry for tracking in-flight WS requests */
-interface PendingRequest {
-  resolve: (response: STResponse) => void;
-  reject: (error: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
 class STWebSocketService {
   private socket: Socket | null = null;
-  private pendingRequests = new Map<string, PendingRequest>();
   private connectionChangeHandlers = new Set<ConnectionChangeHandler>();
   private pushHandlers = new Set<PushHandler>();
   private _isConnected = false;
@@ -82,30 +74,12 @@ class STWebSocketService {
     this.socket.on('disconnect', () => {
       this._isConnected = false;
       this.notifyConnectionChange(false);
-      // Reject all pending requests on disconnect
-      this.rejectAllPending('WebSocket disconnected');
     });
 
     this.socket.on('connect_error', (error) => {
       console.warn('[STWebSocket] Connection error:', error.message);
       this._isConnected = false;
       this.notifyConnectionChange(false);
-    });
-
-    // Server responses to our requests
-    this.socket.on('st:response', (response: STResponse | STErrorResponse) => {
-      const pending = this.pendingRequests.get(response.requestId);
-      if (!pending) return;
-
-      clearTimeout(pending.timer);
-      this.pendingRequests.delete(response.requestId);
-
-      if (response.type === 'error') {
-        const errResp = response as STErrorResponse;
-        pending.reject(new Error(errResp.error.message));
-      } else {
-        pending.resolve(response as STResponse);
-      }
     });
 
     // Server push events
@@ -116,7 +90,6 @@ class STWebSocketService {
 
   disconnect(): void {
     if (this.socket) {
-      this.rejectAllPending('WebSocket disconnecting');
       this.socket.removeAllListeners();
       this.socket.disconnect();
       this.socket = null;
@@ -131,7 +104,7 @@ class STWebSocketService {
 
   /**
    * Send a request and wait for the corresponding response.
-   * Returns a promise that resolves with STResponse or rejects on timeout/error.
+   * Uses socket.io acknowledgement callback (NestJS @SubscribeMessage returns via ack).
    */
   request(req: STRequest): Promise<STResponse> {
     return new Promise<STResponse>((resolve, reject) => {
@@ -142,13 +115,19 @@ class STWebSocketService {
 
       const timeout = REQUEST_TIMEOUTS[req.type] ?? 5_000;
       const timer = setTimeout(() => {
-        this.pendingRequests.delete(req.requestId);
         reject(new Error(`Request ${req.type} timed out after ${timeout}ms`));
       }, timeout);
 
-      this.pendingRequests.set(req.requestId, { resolve, reject, timer });
+      this.socket.emit('st:request', req, (response: STResponse | STErrorResponse) => {
+        clearTimeout(timer);
 
-      this.socket.emit('st:request', req);
+        if (response.type === 'error') {
+          const errResp = response as STErrorResponse;
+          reject(new Error(errResp.error.message));
+        } else {
+          resolve(response as STResponse);
+        }
+      });
     });
   }
 
@@ -178,13 +157,6 @@ class STWebSocketService {
     this.connectionChangeHandlers.forEach((handler) => handler(connected));
   }
 
-  private rejectAllPending(reason: string): void {
-    for (const [id, pending] of this.pendingRequests) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error(reason));
-    }
-    this.pendingRequests.clear();
-  }
 }
 
 /** Singleton instance */

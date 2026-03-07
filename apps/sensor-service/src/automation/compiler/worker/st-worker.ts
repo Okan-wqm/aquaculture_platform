@@ -87,41 +87,40 @@ function handleAnalyze(input: WorkerInput, startTime: number): WorkerAnalyzeResu
     });
   }
 
-  // Step 2: Parse (parser may not exist yet - gracefully handle)
+  // Step 2: Parse
   let ast: ASTNode[] = [];
   try {
-    // Dynamic import to handle case where parser doesn't exist yet
-    const parserModule = require('../parser/st-parser');
-    if (parserModule && typeof parserModule.parse === 'function') {
-      const parseResult = parserModule.parse(lexResult.tokens);
-      ast = parseResult.ast || [];
-      for (const err of parseResult.errors || []) {
-        diagnostics.push({
-          range: {
-            startLine: err.line - 1,
-            startCol: err.col - 1,
-            endLine: (err.endLine || err.line) - 1,
-            endCol: (err.endCol || err.col) - 1,
-          },
-          severity: err.severity || 'error',
-          message: err.message,
-          code: err.code || 'STP001',
-          source: 'st-parser',
-        });
-      }
+    const { STParser } = require('../parser/st-parser');
+    const parser = new STParser(lexResult.tokens);
+    const parseResult = parser.parse();
+    ast = parseResult.ast || [];
+    for (const err of parseResult.errors || []) {
+      diagnostics.push({
+        range: {
+          startLine: err.line - 1,
+          startCol: err.col - 1,
+          endLine: (err.endLine || err.line) - 1,
+          endCol: (err.endCol || err.col) - 1,
+        },
+        severity: err.severity || 'error',
+        message: err.message,
+        code: err.code || 'STP001',
+        source: 'st-parser',
+      });
     }
   } catch {
     // Parser not available yet, lexer-only diagnostics
   }
 
-  // Step 3: Semantic analysis (optional, may not exist yet)
+  // Step 3: Semantic analysis
   try {
-    const semanticModule = require('../analyzer/semantic-analyzer');
-    if (semanticModule && typeof semanticModule.analyze === 'function') {
-      const semResult = semanticModule.analyze(ast);
-      if (semResult && semResult.diagnostics) {
-        diagnostics.push(...semResult.diagnostics);
-      }
+    const { SemanticAnalyzer } = require('../analyzer/semantic-analyzer');
+    const { adaptParserAST } = require('../analyzer/ast-adapter');
+    const analyzer = new SemanticAnalyzer();
+    const adaptedAST = adaptParserAST(ast);
+    const semDiagnostics = analyzer.analyze(adaptedAST);
+    if (semDiagnostics && semDiagnostics.length > 0) {
+      diagnostics.push(...semDiagnostics);
     }
   } catch {
     // Semantic analyzer not available yet
@@ -153,25 +152,18 @@ function handleFormat(input: WorkerInput, startTime: number): WorkerFormatResult
   // Step 2: Parse
   let ast: ASTNode[] = [];
   try {
-    const parserModule = require('../parser/st-parser');
-    if (parserModule && typeof parserModule.parse === 'function') {
-      const parseResult = parserModule.parse(lexResult.tokens);
-      if (parseResult.errors && parseResult.errors.length > 0) {
-        // Don't format code with parse errors
-        return {
-          taskType: 'format',
-          success: false,
-          processingTimeMs: performance.now() - startTime,
-        };
-      }
-      ast = parseResult.ast || [];
-    } else {
+    const { STParser } = require('../parser/st-parser');
+    const parser = new STParser(lexResult.tokens);
+    const parseResult = parser.parse();
+    if (parseResult.errors && parseResult.errors.length > 0) {
+      // Don't format code with parse errors
       return {
         taskType: 'format',
         success: false,
         processingTimeMs: performance.now() - startTime,
       };
     }
+    ast = parseResult.ast || [];
   } catch {
     return {
       taskType: 'format',
@@ -197,11 +189,10 @@ function handleOutline(input: WorkerInput, startTime: number): WorkerOutlineResu
   let ast: ASTNode[] = [];
 
   try {
-    const parserModule = require('../parser/st-parser');
-    if (parserModule && typeof parserModule.parse === 'function') {
-      const parseResult = parserModule.parse(lexResult.tokens);
-      ast = parseResult.ast || [];
-    }
+    const { STParser } = require('../parser/st-parser');
+    const parser = new STParser(lexResult.tokens);
+    const parseResult = parser.parse();
+    ast = parseResult.ast || [];
   } catch {
     // Parser not available
   }

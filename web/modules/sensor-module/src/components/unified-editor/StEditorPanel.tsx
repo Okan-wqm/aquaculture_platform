@@ -73,6 +73,8 @@ export interface StEditorPanelProps {
   embedded?: boolean;
   /** Embedded mode: hide toolbar items that parent handles (Save, Deploy) */
   hideActions?: ('save' | 'deploy')[];
+  /** Embedded mode: callback for Ctrl+S save */
+  onSave?: () => void;
   /** Embedded mode: callback for validate button */
   onValidate?: () => void;
   /** Validation results from parent */
@@ -109,6 +111,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
   onChange,
   embedded = false,
   hideActions = [],
+  onSave,
   onValidate,
   validationResult,
 }) => {
@@ -116,6 +119,13 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
   const isBottomPanelOpen = useEditorModeStore((s) => s.isBottomPanelOpen);
   const toggleBottomPanel = useEditorModeStore((s) => s.toggleBottomPanel);
   const setBottomPanelOpen = useEditorModeStore((s) => s.setBottomPanelOpen);
+
+  // Auto-open panel on mount in standalone mode so the editor is visible
+  useEffect(() => {
+    if (!embedded) {
+      setBottomPanelOpen(true);
+    }
+  }, [embedded, setBottomPanelOpen]);
 
   const {
     programs,
@@ -218,6 +228,10 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
   // Track cursor line for outline highlighting
   const [cursorLine, setCursorLine] = useState(1);
 
+  // Ref to keep onSave callback current for Monaco keybinding
+  const onSaveRef = useRef(onSave);
+  useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
+
   // H32: Store cursor listener disposable for cleanup
   const cursorDisposableRef = useRef<{ dispose(): void } | null>(null);
 
@@ -299,6 +313,15 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
           setCursorLine(e.position.lineNumber);
         },
       );
+
+      // Ctrl+S keybinding: trigger parent save (embedded) or internal save (standalone)
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+        if (onSaveRef.current) {
+          onSaveRef.current();
+        } else {
+          save();
+        }
+      });
 
       editor.focus();
     },

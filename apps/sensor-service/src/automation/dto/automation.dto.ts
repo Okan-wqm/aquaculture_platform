@@ -84,8 +84,9 @@ export class CreateProgramInput {
   @Field({ nullable: true })
   processTemplateId?: string;
 
-  @Field(() => GraphQLJSON)
-  sfcDefinition!: Record<string, unknown>;
+  @IsOptional()
+  @Field(() => GraphQLJSON, { nullable: true })
+  sfcDefinition?: Record<string, unknown>;
 
   @IsOptional()
   @IsString()
@@ -169,6 +170,7 @@ export class UpdateProgramInput {
   @Field(() => ExecutionMode, { nullable: true })
   executionMode?: ExecutionMode;
 
+  @IsOptional()
   @Field(() => GraphQLJSON, { nullable: true })
   sfcDefinition?: Record<string, unknown>;
 
@@ -1036,6 +1038,46 @@ export class DeploymentLogConnection {
 
   @Field()
   hasMore!: boolean;
+}
+
+// ============================================
+// ST Validation Types
+// ============================================
+
+@ObjectType()
+export class DiagnosticItem {
+  @Field(() => Int)
+  line!: number;
+
+  @Field(() => Int)
+  column!: number;
+
+  @Field()
+  severity!: string;
+
+  @Field()
+  message!: string;
+
+  @Field({ nullable: true })
+  code?: string;
+}
+
+@ObjectType()
+export class ValidationResult {
+  @Field()
+  valid!: boolean;
+
+  @Field(() => [DiagnosticItem])
+  errors!: DiagnosticItem[];
+
+  @Field(() => [DiagnosticItem])
+  warnings!: DiagnosticItem[];
+
+  @Field(() => [DiagnosticItem])
+  infos!: DiagnosticItem[];
+
+  @Field(() => [String])
+  parsedSymbols!: string[];
 }
 
 // Re-export entity types for convenience

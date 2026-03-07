@@ -1439,8 +1439,8 @@ export class STParser {
       if (!op) break;
 
       this.advance(); // consume operator
-      // Right-associative for **: use prec instead of prec+1
-      const nextMinPrec = opToken.type === TokenType.POWER ? prec : prec;
+      // Right-associative for **: use prec-1 so same-precedence ** is consumed
+      const nextMinPrec = opToken.type === TokenType.POWER ? prec - 1 : prec;
       const right = this.parseExpression(nextMinPrec);
 
       const prevTok = this.previous();

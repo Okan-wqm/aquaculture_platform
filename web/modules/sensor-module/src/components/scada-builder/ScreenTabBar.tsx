@@ -57,6 +57,7 @@ const ScreenTabBar: React.FC = () => {
 
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ x: number; y: number } | null>(null);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -165,7 +166,13 @@ const ScreenTabBar: React.FC = () => {
       <div className="relative flex items-center gap-0.5">
         <button
           ref={addBtnRef}
-          onClick={() => setShowAddDropdown(!showAddDropdown)}
+          onClick={() => {
+            if (!showAddDropdown && addBtnRef.current) {
+              const rect = addBtnRef.current.getBoundingClientRect();
+              setDropdownPos({ x: rect.left, y: rect.bottom + 4 });
+            }
+            setShowAddDropdown(!showAddDropdown);
+          }}
           className="flex items-center justify-center w-7 h-7 rounded-md text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors"
           title="Ekran Ekle"
         >
@@ -190,7 +197,10 @@ const ScreenTabBar: React.FC = () => {
               className="fixed inset-0 z-40"
               onClick={() => setShowAddDropdown(false)}
             />
-            <div className="absolute left-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+            <div
+              className="fixed w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50"
+              style={{ left: dropdownPos?.x ?? 0, top: dropdownPos?.y ?? 0 }}
+            >
               {SCREEN_TYPE_OPTIONS.map((opt) => (
                 <button
                   key={opt.type}

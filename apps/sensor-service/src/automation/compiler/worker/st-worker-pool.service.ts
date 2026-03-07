@@ -184,7 +184,7 @@ export class STWorkerPoolService implements OnModuleInit, OnModuleDestroy {
 
     return {
       runningTasks: this.pool.utilization ? Math.round(this.pool.utilization * WORKER_POOL_MAX_THREADS) : 0,
-      waitingTasks: this.pool.waitTime?.mean ? Math.round(this.pool.waitTime.mean) : 0,
+      waitingTasks: (this.pool as unknown as { queueSize?: number }).queueSize ?? 0,
       threads: (this.pool as unknown as { threads?: unknown[] }).threads?.length ?? WORKER_POOL_MIN_THREADS,
       accepting: !this.isShuttingDown,
     };

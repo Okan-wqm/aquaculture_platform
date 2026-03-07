@@ -1,24 +1,22 @@
 # =============================================================================
-# DigitalOcean Droplet Deployment
+# DigitalOcean Droplet Deployment — Selective (Affected-Only) Build & Deploy
 #
-# Fixes applied:
-# - GHCR lowercase image paths (Docker registry requirement)
-# - Frontend artifact upload (was missing web/*/dist)
-# - Deploy condition: only deploys when build succeeds
-# - Build timeout: 30 min max
-# - Optimized for 2GB RAM droplet (uses docker-compose.droplet.yml)
-# - SEC-CI-001: GHCR login uses GITHUB_TOKEN + github.actor (masked in logs, run-scoped)
+# PERF-CI-001: Only builds/deploys services affected by the commit.
+#   - Uses `deployed/production` git tag as baseline for change detection
+#   - Dynamic matrix: only affected services get Docker images built
+#   - Selective deploy: `docker compose up -d --no-deps` instead of full down/up
+#   - workflow_dispatch "all" falls back to full rebuild/deploy
+#
+# Previous fixes preserved:
+# - SEC-CI-001: GHCR login uses GITHUB_TOKEN + github.actor
 # - SEC-CI-002: All third-party actions pinned to full commit SHAs
 # - SEC-CI-005: DROPLET_HOST echo removed from verify step
 # - SEC-CI-007: npm tarball integrity verified against package-lock.json sha512
 # - SEC-CI-011/ARCH-CI-006: github.sha removed from NX cache key
 # - SEC-CI-012: git checkout pinned to github.sha instead of git pull
 # - ARCH-CI-002: buildcache tags namespaced with -main suffix
-# - ARCH-CI-003: nx run-many --projects used to always build all services
-#                (nx affected skips builds when only infra files changed)
 # - ARCH-CI-007: Image digest capture + rollback on failed health check
-# - ARCH-CI-010: Split build into separate backend/frontend jobs so a frontend
-#                failure cannot block backend images from being built/deployed
+# - ARCH-CI-010: Split build into separate backend/frontend jobs
 # - ARCH-CI-011: NX binary verified after manual install
 # - ARCH-CI-015: max-parallel increased to 6
 # =============================================================================
@@ -51,7 +49,7 @@ concurrency:
 
 jobs:
   # ===========================================================================
-  # Prepare - Set lowercase image prefix & detect changes
+  # Prepare - Detect affected services & build dynamic matrices
   # ===========================================================================
   prepare:
     # Only deploy if CI workflow succeeded (skip if it failed or was cancelled)
@@ -61,8 +59,15 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image_prefix: ${{ steps.vars.outputs.image_prefix }}
-      has_backend_changes: ${{ steps.changes.outputs.has_backend }}
-      has_frontend_changes: ${{ steps.changes.outputs.has_frontend }}
+      has_backend_changes: ${{ steps.detect.outputs.has_backend }}
+      has_frontend_changes: ${{ steps.detect.outputs.has_frontend }}
+      affected_backend: ${{ steps.detect.outputs.affected_backend }}
+      affected_frontend_matrix: ${{ steps.detect.outputs.affected_frontend_matrix }}
+      backend_csv: ${{ steps.detect.outputs.backend_csv }}
+      nx_frontend_csv: ${{ steps.detect.outputs.nx_frontend_csv }}
+      non_nx_frontend_csv: ${{ steps.detect.outputs.non_nx_frontend_csv }}
+      deploy_services: ${{ steps.detect.outputs.deploy_services }}
+      full_deploy: ${{ steps.detect.outputs.full_deploy }}
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -76,43 +81,179 @@ jobs:
           REPO="${{ github.repository }}"
           echo "image_prefix=ghcr.io/${REPO,,}" >> $GITHUB_OUTPUT
 
-      - name: Detect changes
-        id: changes
+      - name: Detect affected services
+        id: detect
         run: |
-          # workflow_run = automated CI→deploy: always rebuild everything so the
-          # deploy reflects exactly what CI validated, regardless of which files changed.
-          # (github.event.before is not set on workflow_run events, making git diff
-          # unreliable — it silently returns empty output instead of falling back to ALL.)
-          if [ "${{ github.event_name }}" = "workflow_run" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "has_backend=true" >> $GITHUB_OUTPUT
-            echo "has_frontend=true" >> $GITHUB_OUTPUT
-            exit 0
+          set -euo pipefail
+
+          # ── Service definitions ──
+          ALL_BACKEND=(gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service)
+          ALL_FRONTEND=(shell dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module aquamobil)
+          NX_FRONTEND=(shell dashboard farm-module admin-panel tenant-admin)
+          NON_NX_FRONTEND=(sensor-module hr-module hydroponics-module)
+
+          AFFECTED_BACKEND=()
+          AFFECTED_FRONTEND=()
+          FULL_DEPLOY=false
+
+          # ── Case 1: workflow_dispatch with specific services ──
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.services }}" != "all" ] && [ -n "${{ github.event.inputs.services }}" ]; then
+            echo "Mode: workflow_dispatch with specific services"
+            IFS=',' read -ra SPECIFIED <<< "${{ github.event.inputs.services }}"
+            for svc in "${SPECIFIED[@]}"; do
+              svc=$(echo "$svc" | xargs)
+              for b in "${ALL_BACKEND[@]}"; do
+                [ "$b" = "$svc" ] && AFFECTED_BACKEND+=("$svc") && break
+              done
+              for f in "${ALL_FRONTEND[@]}"; do
+                [ "$f" = "$svc" ] && AFFECTED_FRONTEND+=("$svc") && break
+              done
+            done
+
+          # ── Case 2: workflow_dispatch with "all" ──
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.services }}" = "all" ]; then
+            echo "Mode: workflow_dispatch ALL"
+            AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
+            AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
+            FULL_DEPLOY=true
+
+          # ── Case 3: workflow_run — detect from deployed/production tag ──
+          else
+            echo "Mode: workflow_run — detecting changes since last deploy"
+            DEPLOY_BASE=$(git rev-parse deployed/production 2>/dev/null || echo "")
+            if [ -z "$DEPLOY_BASE" ]; then
+              echo "  No deployed/production tag found — full deploy"
+              AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
+              AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
+              FULL_DEPLOY=true
+            else
+              echo "  Baseline: ${DEPLOY_BASE} (deployed/production)"
+              echo "  Head:     ${{ github.sha }}"
+              CHANGED=$(git diff --name-only "$DEPLOY_BASE" "${{ github.sha }}" 2>/dev/null || echo "ALL")
+
+              if [ "$CHANGED" = "ALL" ]; then
+                echo "  git diff failed — full deploy"
+                AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
+                AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
+                FULL_DEPLOY=true
+              else
+                echo "  Changed files: $(echo "$CHANGED" | wc -l)"
+
+                # Shared deps / infra → rebuild everything
+                if echo "$CHANGED" | grep -qE "^(libs/|platform/|\.github/|infrastructure/|docker-compose|nx\.json$)" || \
+                   echo "$CHANGED" | grep -qE "^package(-lock)?\.json$" || \
+                   echo "$CHANGED" | grep -qE "^tsconfig"; then
+                  echo "  Shared/infra change detected — full deploy"
+                  AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
+                  AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
+                  FULL_DEPLOY=true
+                else
+                  # Detect individual backend services
+                  for svc in "${ALL_BACKEND[@]}"; do
+                    if echo "$CHANGED" | grep -q "^apps/${svc}/"; then
+                      AFFECTED_BACKEND+=("$svc")
+                    fi
+                  done
+
+                  # Detect individual frontend modules
+                  SHARED_UI_CHANGED=false
+                  if echo "$CHANGED" | grep -q "^web/shared-ui/"; then
+                    SHARED_UI_CHANGED=true
+                  fi
+
+                  if [ "$SHARED_UI_CHANGED" = "true" ]; then
+                    echo "  web/shared-ui changed — all frontend affected"
+                    AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
+                  else
+                    if echo "$CHANGED" | grep -q "^web/shell/"; then
+                      AFFECTED_FRONTEND+=("shell")
+                    fi
+                    for mod in dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module; do
+                      if echo "$CHANGED" | grep -q "^web/modules/${mod}/"; then
+                        AFFECTED_FRONTEND+=("$mod")
+                      fi
+                    done
+                    if echo "$CHANGED" | grep -q "^web/apps/aquamobil/"; then
+                      AFFECTED_FRONTEND+=("aquamobil")
+                    fi
+                  fi
+                fi
+              fi
+            fi
           fi
 
-          # For any other trigger (push, etc.) detect changes precisely
-          CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null || echo "ALL")
+          # ── Generate outputs ──
 
-          if [ "$CHANGED" = "ALL" ]; then
-            echo "has_backend=true" >> $GITHUB_OUTPUT
-            echo "has_frontend=true" >> $GITHUB_OUTPUT
-            exit 0
+          # JSON arrays (compact, single-line)
+          if [ ${#AFFECTED_BACKEND[@]} -gt 0 ]; then
+            BACKEND_JSON=$(printf '%s\n' "${AFFECTED_BACKEND[@]}" | jq -Rc . | jq -sc .)
+          else
+            BACKEND_JSON="[]"
           fi
 
-          # Shared libs or infra change = rebuild everything
-          if echo "$CHANGED" | grep -q "^libs/\|^platform/\|^\.github/\|^docker-compose"; then
-            echo "has_backend=true" >> $GITHUB_OUTPUT
-            echo "has_frontend=true" >> $GITHUB_OUTPUT
-            exit 0
+          if [ ${#AFFECTED_FRONTEND[@]} -gt 0 ]; then
+            # Build frontend image matrix JSON
+            FE_MATRIX="["
+            first=true
+            for mod in "${AFFECTED_FRONTEND[@]}"; do
+              [ "$first" = true ] || FE_MATRIX+=","
+              first=false
+              case "$mod" in
+                shell)      FE_MATRIX+="{\"module\":\"shell\",\"dockerfile\":\"infrastructure/docker/Dockerfile.shell\",\"module_path\":\"web/shell\"}" ;;
+                aquamobil)  FE_MATRIX+="{\"module\":\"aquamobil\",\"dockerfile\":\"infrastructure/docker/Dockerfile.aquamobil\",\"module_path\":\"web/apps/aquamobil\"}" ;;
+                *)          FE_MATRIX+="{\"module\":\"${mod}\",\"dockerfile\":\"infrastructure/docker/Dockerfile.microfrontend.simple\",\"module_path\":\"web/modules/${mod}\"}" ;;
+              esac
+            done
+            FE_MATRIX+="]"
+          else
+            FE_MATRIX="[]"
           fi
 
-          HAS_BACKEND=$(echo "$CHANGED" | grep -q "^apps/" && echo true || echo false)
-          HAS_FRONTEND=$(echo "$CHANGED" | grep -q "^web/" && echo true || echo false)
-          echo "has_backend=$HAS_BACKEND" >> $GITHUB_OUTPUT
-          echo "has_frontend=$HAS_FRONTEND" >> $GITHUB_OUTPUT
+          # CSV for nx run-many (backend)
+          BACKEND_CSV=$(IFS=,; echo "${AFFECTED_BACKEND[*]}")
+
+          # Split frontend into NX-managed and non-NX
+          NX_FE_AFFECTED=()
+          NON_NX_FE_AFFECTED=()
+          for mod in "${AFFECTED_FRONTEND[@]}"; do
+            for nx in "${NX_FRONTEND[@]}"; do
+              [ "$nx" = "$mod" ] && NX_FE_AFFECTED+=("$mod") && continue 2
+            done
+            for nnx in "${NON_NX_FRONTEND[@]}"; do
+              [ "$nnx" = "$mod" ] && NON_NX_FE_AFFECTED+=("$mod") && continue 2
+            done
+            # aquamobil is neither NX nor non-NX (builds inside Dockerfile)
+          done
+          NX_FE_CSV=$(IFS=,; echo "${NX_FE_AFFECTED[*]}")
+          NON_NX_FE_CSV=$(IFS=,; echo "${NON_NX_FE_AFFECTED[*]}")
+
+          # Compose service names for selective pull/restart
+          DEPLOY_SERVICES="${AFFECTED_BACKEND[*]} ${AFFECTED_FRONTEND[*]}"
+          DEPLOY_SERVICES=$(echo "$DEPLOY_SERVICES" | xargs)
+
+          HAS_BACKEND=$( [ ${#AFFECTED_BACKEND[@]} -gt 0 ] && echo true || echo false )
+          HAS_FRONTEND=$( [ ${#AFFECTED_FRONTEND[@]} -gt 0 ] && echo true || echo false )
+
+          # Summary
+          echo "=== Affected Services ==="
+          echo "  Backend (${#AFFECTED_BACKEND[@]}): ${AFFECTED_BACKEND[*]:-none}"
+          echo "  Frontend (${#AFFECTED_FRONTEND[@]}): ${AFFECTED_FRONTEND[*]:-none}"
+          echo "  Full deploy: ${FULL_DEPLOY}"
+          echo "  Deploy services: ${DEPLOY_SERVICES:-none}"
+
+          # Write outputs
+          echo "has_backend=${HAS_BACKEND}" >> $GITHUB_OUTPUT
+          echo "has_frontend=${HAS_FRONTEND}" >> $GITHUB_OUTPUT
+          echo "affected_backend=${BACKEND_JSON}" >> $GITHUB_OUTPUT
+          echo "affected_frontend_matrix=${FE_MATRIX}" >> $GITHUB_OUTPUT
+          echo "backend_csv=${BACKEND_CSV}" >> $GITHUB_OUTPUT
+          echo "nx_frontend_csv=${NX_FE_CSV}" >> $GITHUB_OUTPUT
+          echo "non_nx_frontend_csv=${NON_NX_FE_CSV}" >> $GITHUB_OUTPUT
+          echo "deploy_services=${DEPLOY_SERVICES}" >> $GITHUB_OUTPUT
+          echo "full_deploy=${FULL_DEPLOY}" >> $GITHUB_OUTPUT
 
   # ===========================================================================
-  # ARCH-CI-010: Build backend artifacts (separate job — 30 min timeout)
-  # A frontend build failure will NOT block backend images from deploying.
+  # Build backend artifacts (affected only)
   # ===========================================================================
   build-backend-artifacts:
     needs: [prepare]
@@ -232,13 +373,13 @@ jobs:
           node -e "require('@nx/nx-linux-x64-gnu')" || { echo "::error::NX linux binary missing or broken"; exit 1; }
           echo "All Linux platform binaries installed successfully"
 
-      # ARCH-CI-003: Use nx run-many --projects to always build all services.
-      # nx affected is NOT used here: when only infra/workflow files change,
-      # nx affected finds no affected projects → no dist/ → artifact download fails.
-      - name: Build all backend services
+      # PERF-CI-001: Build only affected backend services (not all 12)
+      - name: Build affected backend services
         run: |
+          PROJECTS="${{ needs.prepare.outputs.backend_csv }}"
+          echo "Building backend projects: ${PROJECTS}"
           npx nx run-many -t build \
-            --projects=gateway-api,auth-service,farm-service,sensor-service,admin-api-service,alert-engine,billing-service,hr-service,hydroponics-service,notification-service,observability-service,config-service \
+            --projects="${PROJECTS}" \
             --parallel=3
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
@@ -255,8 +396,7 @@ jobs:
           retention-days: 1
 
   # ===========================================================================
-  # ARCH-CI-010: Build frontend artifacts (separate job — 30 min timeout)
-  # A backend build failure will NOT block frontend images from deploying.
+  # Build frontend artifacts (affected only)
   # ===========================================================================
   build-frontend-artifacts:
     needs: [prepare]
@@ -369,25 +509,37 @@ jobs:
           node -e "require('@nx/nx-linux-x64-gnu')" || { echo "::error::NX linux binary missing or broken"; exit 1; }
           echo "All Linux platform binaries installed successfully"
 
-      # ARCH-CI-003: Use nx run-many --projects to always build all frontend apps.
-      # nx affected is NOT used here: when only infra/workflow files change,
-      # nx affected finds no affected projects → no dist/ → artifact download fails.
+      # PERF-CI-001: Build only affected frontend modules (not all 8+aquamobil)
       #
       # Build strategy:
       #   - NX projects (have project.json): built via nx run-many
       #   - Non-NX workspace modules (sensor/hr/hydroponics): built via npm workspaces
       #   - aquamobil (web/apps/aquamobil): builds inside its own Dockerfile — skipped here
-      - name: Build all frontend modules
+      - name: Build affected frontend modules
         run: |
+          NX_CSV="${{ needs.prepare.outputs.nx_frontend_csv }}"
+          NON_NX_CSV="${{ needs.prepare.outputs.non_nx_frontend_csv }}"
+
           # NX-managed frontend apps
-          npx nx run-many -t build \
-            --projects=shell,dashboard,farm-module,admin-panel,tenant-admin \
-            --parallel=3
+          if [ -n "$NX_CSV" ]; then
+            echo "Building NX frontend projects: ${NX_CSV}"
+            npx nx run-many -t build \
+              --projects="${NX_CSV}" \
+              --parallel=3
+          else
+            echo "No NX frontend projects affected — skipping"
+          fi
 
           # Non-NX workspace modules (vite build, deps already hoisted to root node_modules)
-          npm run build --workspace=web/modules/sensor-module
-          npm run build --workspace=web/modules/hr-module
-          npm run build --workspace=web/modules/hydroponics-module
+          if [ -n "$NON_NX_CSV" ]; then
+            IFS=',' read -ra NON_NX_MODS <<< "$NON_NX_CSV"
+            for mod in "${NON_NX_MODS[@]}"; do
+              echo "Building non-NX module: ${mod}"
+              npm run build --workspace="web/modules/${mod}"
+            done
+          else
+            echo "No non-NX frontend modules affected — skipping"
+          fi
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
           NX_DAEMON: 'false'
@@ -406,10 +558,9 @@ jobs:
           retention-days: 1
 
   # ===========================================================================
-  # Build Backend Docker Images
+  # Build Backend Docker Images (dynamic matrix — affected only)
   # ===========================================================================
   build-backend-images:
-    # ARCH-CI-010: Depends on build-backend-artifacts, not the merged build job
     needs: [prepare, build-backend-artifacts]
     if: needs.prepare.outputs.has_backend_changes == 'true'
     runs-on: ubuntu-latest
@@ -422,19 +573,8 @@ jobs:
       # ARCH-CI-015: Increased from 4 to 6 for fewer sequential waves
       max-parallel: 6
       matrix:
-        service:
-          - gateway-api
-          - auth-service
-          - farm-service
-          - sensor-service
-          - admin-api-service
-          - alert-engine
-          - billing-service
-          - hr-service
-          - hydroponics-service
-          - notification-service
-          - observability-service
-          - config-service
+        # PERF-CI-001: Dynamic matrix — only affected backend services
+        service: ${{ fromJson(needs.prepare.outputs.affected_backend) }}
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -473,10 +613,9 @@ jobs:
           cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-main,mode=max
 
   # ===========================================================================
-  # Build Frontend Docker Images
+  # Build Frontend Docker Images (dynamic matrix — affected only)
   # ===========================================================================
   build-frontend-images:
-    # ARCH-CI-010: Depends on build-frontend-artifacts, not the merged build job
     needs: [prepare, build-frontend-artifacts]
     if: needs.prepare.outputs.has_frontend_changes == 'true'
     runs-on: ubuntu-latest
@@ -489,34 +628,8 @@ jobs:
       # ARCH-CI-015: Increased from 4 to 6
       max-parallel: 6
       matrix:
-        include:
-          - module: shell
-            dockerfile: infrastructure/docker/Dockerfile.shell
-            module_path: web/shell
-          - module: dashboard
-            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
-            module_path: web/modules/dashboard
-          - module: farm-module
-            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
-            module_path: web/modules/farm-module
-          - module: sensor-module
-            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
-            module_path: web/modules/sensor-module
-          - module: admin-panel
-            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
-            module_path: web/modules/admin-panel
-          - module: tenant-admin
-            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
-            module_path: web/modules/tenant-admin
-          - module: hr-module
-            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
-            module_path: web/modules/hr-module
-          - module: hydroponics-module
-            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
-            module_path: web/modules/hydroponics-module
-          - module: aquamobil
-            dockerfile: infrastructure/docker/Dockerfile.aquamobil
-            module_path: web/apps/aquamobil
+        # PERF-CI-001: Dynamic matrix — only affected frontend modules
+        include: ${{ fromJson(needs.prepare.outputs.affected_frontend_matrix) }}
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -557,10 +670,9 @@ jobs:
           cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main,mode=max
 
   # ===========================================================================
-  # Deploy to DigitalOcean Droplet
+  # Deploy to DigitalOcean Droplet (selective — affected services only)
   # ===========================================================================
   deploy:
-    # ARCH-CI-010: needs now reference the split artifact jobs instead of the old merged build job
     needs: [prepare, build-backend-artifacts, build-frontend-artifacts, build-backend-images, build-frontend-images]
     # Only deploy if at least one image build succeeded (artifact jobs may be skipped when there are no changes)
     if: |
@@ -575,9 +687,14 @@ jobs:
     timeout-minutes: 15
     environment: production
     permissions:
-      contents: read
+      contents: write
       packages: read
     steps:
+      # SEC-CI-002: pinned to SHA (needed for tag update step)
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+
       - name: Deploy to DigitalOcean Droplet
         # SEC-CI-002: pinned to SHA
         uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.0.3
@@ -589,6 +706,9 @@ jobs:
           script: |
             set -e
             cd /var/aqua-saas
+
+            DEPLOY_SERVICES="${{ needs.prepare.outputs.deploy_services }}"
+            FULL_DEPLOY="${{ needs.prepare.outputs.full_deploy }}"
 
             # SEC-CI-012: Checkout to the specific SHA that triggered the workflow
             # instead of git pull (prevents TOCTOU race if another commit lands mid-deploy)
@@ -606,43 +726,64 @@ jobs:
             PREV_GATEWAY=$(docker inspect --format='{{.Image}}' aqua-saas-gateway-api-1 2>/dev/null || echo "")
             echo "Previous gateway digest: ${PREV_GATEWAY:-none}"
 
-            echo "=== Pulling latest images ==="
-            docker compose -f docker-compose.droplet.yml pull --ignore-pull-failures
+            if [ "$FULL_DEPLOY" = "true" ]; then
+              # ── Full deploy mode (workflow_dispatch "all" or first deploy) ──
+              echo "=== FULL DEPLOY: Pulling all images ==="
+              docker compose -f docker-compose.droplet.yml pull --ignore-pull-failures
 
-            echo "=== Stopping all services ==="
-            docker compose -f docker-compose.droplet.yml down --remove-orphans --timeout 30 2>&1 || true
-            # Force-remove ALL aqua containers (including ones compose couldn't remove)
-            echo "Force-removing any remaining aqua containers..."
-            docker ps -a --format '{{.Names}}' | grep -E 'aqua-' | while read -r name; do
-              echo "  Removing $name..."
-              docker rm -f "$name" 2>&1 || true
-            done
-            sleep 5
-            # Verify clean slate
-            REMAINING=$(docker ps -a --format '{{.Names}}' | grep -E 'aqua-' || true)
-            if [ -n "$REMAINING" ]; then
-              echo "WARNING: containers still exist after cleanup: $REMAINING"
-              echo "Attempting docker stop + rm..."
-              echo "$REMAINING" | xargs -r docker stop --time 5 2>&1 || true
-              echo "$REMAINING" | xargs -r docker rm -f 2>&1 || true
+              echo "=== Stopping all services ==="
+              docker compose -f docker-compose.droplet.yml down --remove-orphans --timeout 30 2>&1 || true
+              # Force-remove ALL aqua containers (including ones compose couldn't remove)
+              echo "Force-removing any remaining aqua containers..."
+              docker ps -a --format '{{.Names}}' | grep -E 'aqua-' | while read -r name; do
+                echo "  Removing $name..."
+                docker rm -f "$name" 2>&1 || true
+              done
               sleep 5
+              # Verify clean slate
+              REMAINING=$(docker ps -a --format '{{.Names}}' | grep -E 'aqua-' || true)
+              if [ -n "$REMAINING" ]; then
+                echo "WARNING: containers still exist after cleanup: $REMAINING"
+                echo "Attempting docker stop + rm..."
+                echo "$REMAINING" | xargs -r docker stop --time 5 2>&1 || true
+                echo "$REMAINING" | xargs -r docker rm -f 2>&1 || true
+                sleep 5
+              fi
+              echo "Containers after cleanup:"
+              docker ps -a --format '{{.Names}}' | grep -E 'aqua-' || echo "none (clean)"
+
+              echo "=== Ensuring infrastructure databases exist ==="
+              # Start only postgres first to create additional databases
+              docker compose -f docker-compose.droplet.yml up -d --no-build postgres 2>&1 || true
+              sleep 10
+              # Create observability database if it doesn't exist (postgres init scripts only run on first start)
+              docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -tc "SELECT 1 FROM pg_database WHERE datname = 'aquaculture_observability'" | grep -q 1 || \
+                docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -c "CREATE DATABASE aquaculture_observability" 2>&1 || true
+
+              echo "=== Starting all services ==="
+              docker compose -f docker-compose.droplet.yml up -d --no-build 2>&1 || true
+
+              echo "=== Waiting 90s for services to bootstrap ==="
+              sleep 90
+
+            else
+              # ── Selective deploy mode (only affected services) ──
+              echo "=== SELECTIVE DEPLOY: ${DEPLOY_SERVICES} ==="
+
+              # Ensure infrastructure services are running (no-op if already up)
+              echo "=== Ensuring infrastructure is running ==="
+              docker compose -f docker-compose.droplet.yml up -d --no-build postgres redis nats mosquitto minio nginx 2>&1 || true
+              sleep 5
+
+              echo "=== Pulling affected images: ${DEPLOY_SERVICES} ==="
+              docker compose -f docker-compose.droplet.yml pull ${DEPLOY_SERVICES} 2>&1 || true
+
+              echo "=== Restarting affected services (no-deps): ${DEPLOY_SERVICES} ==="
+              docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build ${DEPLOY_SERVICES} 2>&1 || true
+
+              echo "=== Waiting 30s for services to bootstrap ==="
+              sleep 30
             fi
-            echo "Containers after cleanup:"
-            docker ps -a --format '{{.Names}}' | grep -E 'aqua-' || echo "none (clean)"
-
-            echo "=== Ensuring infrastructure databases exist ==="
-            # Start only postgres first to create additional databases
-            docker compose -f docker-compose.droplet.yml up -d --no-build postgres 2>&1 || true
-            sleep 10
-            # Create observability database if it doesn't exist (postgres init scripts only run on first start)
-            docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -tc "SELECT 1 FROM pg_database WHERE datname = 'aquaculture_observability'" | grep -q 1 || \
-              docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -c "CREATE DATABASE aquaculture_observability" 2>&1 || true
-
-            echo "=== Starting all services ==="
-            docker compose -f docker-compose.droplet.yml up -d --no-build 2>&1 || true
-
-            echo "=== Waiting 90s for services to bootstrap ==="
-            sleep 90
 
             echo "=== Container health status ==="
             docker compose -f docker-compose.droplet.yml ps --format 'table {{.Name}}\t{{.Status}}' 2>/dev/null || true
@@ -695,8 +836,18 @@ jobs:
 
             echo "=== Deployment completed at $(date) ==="
 
+      # PERF-CI-001: Update deployed/production tag so next deploy only builds changes since this SHA
+      - name: Update deploy baseline tag
+        run: |
+          git tag -f deployed/production ${{ github.sha }}
+          git push -f origin deployed/production
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # SEC-CI-005: Removed echo of DROPLET_HOST to prevent leaking server IP in logs
       - name: Verify deployment
         run: |
           echo "Deployment initiated successfully"
           echo "Commit: ${{ github.sha }}"
+          echo "Services deployed: ${{ needs.prepare.outputs.deploy_services }}"
+          echo "Full deploy: ${{ needs.prepare.outputs.full_deploy }}"

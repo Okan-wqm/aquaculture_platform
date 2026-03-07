@@ -1,21 +1,13 @@
 /**
  * Department Response Types for GraphQL
  */
-import { ObjectType, Field, Int, Float, ID, registerEnumType } from '@nestjs/graphql';
+import { ObjectType, Field, Int, Float, ID } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-type-json';
 import { DepartmentType, DepartmentStatus } from '../entities/department.entity';
 import { SiteResponse } from '../../site/dto/site.response';
 
-// Register enums for GraphQL
-registerEnumType(DepartmentType, {
-  name: 'DepartmentType',
-  description: 'Type of department',
-});
-
-registerEnumType(DepartmentStatus, {
-  name: 'DepartmentStatus',
-  description: 'Status of the department',
-});
+// NOTE: DepartmentType and DepartmentStatus enums are registered in department.entity.ts
+// Do not register them again here to avoid duplicate registration warnings
 
 @ObjectType()
 export class DepartmentResponse {

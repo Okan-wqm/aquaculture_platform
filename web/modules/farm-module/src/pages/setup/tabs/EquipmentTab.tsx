@@ -180,7 +180,7 @@ export const EquipmentTab: React.FC = () => {
   }, [equipmentTypes, selectedType]);
 
   const { data: sitesData } = useSiteList();
-  const { data: departmentsList } = useDepartmentsBySite(formData.siteId || '');
+  const { data: departmentsList, error: deptError } = useDepartmentsBySite(formData.siteId || '');
   const { data: systemsList } = useSystemsBySite(formData.siteId || '');
   const { data: suppliersData } = useSupplierList();
   const createEquipment = useCreateEquipment();
@@ -953,11 +953,12 @@ export const EquipmentTab: React.FC = () => {
                             required
                             disabled={!formData.siteId}
                           >
-                            <option value="">{formData.siteId ? 'Select Department...' : 'Select Site first...'}</option>
+                            <option value="">{deptError ? 'Departmanlar yüklenemedi' : !formData.siteId ? 'Önce site seçin...' : departments.length === 0 ? 'Bu site için departman bulunamadı' : 'Departman seçin...'}</option>
                             {departments.map(dept => (
                               <option key={dept.id} value={dept.id}>{dept.name}</option>
                             ))}
                           </select>
+                          {deptError && <p className="text-xs text-red-500 mt-1">Departmanlar yüklenirken hata oluştu</p>}
                         </div>
                       </div>
                       <div className="mt-4">

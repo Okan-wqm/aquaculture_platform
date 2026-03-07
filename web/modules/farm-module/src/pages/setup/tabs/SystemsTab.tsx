@@ -103,7 +103,7 @@ export const SystemsTab: React.FC = () => {
     search: searchTerm || undefined
   });
   const { data: sitesData } = useSiteList();
-  const { data: departmentsList } = useDepartmentsBySite(formData.siteId || '');
+  const { data: departmentsList, error: deptError } = useDepartmentsBySite(formData.siteId || '');
   const createSystem = useCreateSystem();
   const updateSystem = useUpdateSystem();
   const deleteSystem = useDeleteSystem();
@@ -573,11 +573,12 @@ export const SystemsTab: React.FC = () => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     disabled={!formData.siteId}
                   >
-                    <option value="">Select a department</option>
+                    <option value="">{deptError ? 'Departmanlar yüklenemedi' : departments.length === 0 && formData.siteId ? 'Bu site için departman bulunamadı' : 'Departman seçin'}</option>
                     {departments.map(dept => (
                       <option key={dept.id} value={dept.id}>{dept.name}</option>
                     ))}
                   </select>
+                  {deptError && <p className="text-xs text-red-500 mt-1">Departmanlar yüklenirken hata oluştu</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Parent System</label>

@@ -125,8 +125,10 @@ export class DepartmentResolver {
     @Args('siteId', { type: () => ID }) siteId: string,
     @CurrentTenant() tenantId: string,
   ): Promise<DepartmentResponse[]> {
-    const query = new ListDepartmentsQuery(tenantId, { siteId, isActive: true }, { limit: 1000 });
+    this.logger.debug(`departmentsBySite: tenant=${tenantId}, siteId=${siteId}`);
+    const query = new ListDepartmentsQuery(tenantId, { siteId }, { limit: 1000 });
     const result = await this.queryBus.execute(query);
+    this.logger.debug(`departmentsBySite: found ${result.items.length} departments for site ${siteId}`);
     return result.items;
   }
 

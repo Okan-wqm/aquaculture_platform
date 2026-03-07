@@ -531,7 +531,12 @@ jobs:
           fi
 
           # Non-NX workspace modules (vite build, deps already hoisted to root node_modules)
+          # These modules import from @aquaculture/shared-ui which resolves to web/shared-ui/dist,
+          # so shared-ui must be built first.
           if [ -n "$NON_NX_CSV" ]; then
+            echo "Building shared-ui (dependency for non-NX modules)"
+            npm run build --workspace="web/shared-ui"
+
             IFS=',' read -ra NON_NX_MODS <<< "$NON_NX_CSV"
             for mod in "${NON_NX_MODS[@]}"; do
               echo "Building non-NX module: ${mod}"

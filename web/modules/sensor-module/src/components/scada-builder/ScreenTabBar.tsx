@@ -80,7 +80,11 @@ const ScreenTabBar: React.FC = () => {
 
   const handleContextMenu = useCallback((e: React.MouseEvent, screenId: string) => {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, screenId });
+    const menuWidth = 176; // w-44 = 11rem = 176px
+    const menuHeight = 200; // approximate
+    const x = Math.min(e.clientX, window.innerWidth - menuWidth);
+    const y = Math.min(e.clientY, window.innerHeight - menuHeight);
+    setContextMenu({ x, y, screenId });
   }, []);
 
   const handleRenameStart = useCallback((screen: ScreenDef) => {
@@ -102,6 +106,7 @@ const ScreenTabBar: React.FC = () => {
   }, [duplicateScreen]);
 
   const handleDelete = useCallback((screenId: string) => {
+    if (!window.confirm('Bu ekrani silmek istediginize emin misiniz?')) return;
     removeScreen(screenId);
     setContextMenu(null);
   }, [removeScreen]);
@@ -174,7 +179,7 @@ const ScreenTabBar: React.FC = () => {
               ? 'text-gray-300 cursor-not-allowed'
               : 'text-gray-500 hover:bg-red-100 hover:text-red-600'
           }`}
-          title="Ekrani Sil"
+          title="Ekranı Sil"
         >
           <Minus className="w-4 h-4" />
         </button>
@@ -220,19 +225,19 @@ const ScreenTabBar: React.FC = () => {
               }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
-              Yeniden Adlandir
+              Yeniden Adlandır
             </button>
             <button
               onClick={() => handleDuplicate(contextMenu.screenId)}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
-              Cokla
+              Çoğalt
             </button>
             <button
               onClick={() => handleSetDefault(contextMenu.screenId)}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
-              Varsayilan Yap
+              Varsayılan Yap
             </button>
             <hr className="my-1 border-gray-200" />
             <button

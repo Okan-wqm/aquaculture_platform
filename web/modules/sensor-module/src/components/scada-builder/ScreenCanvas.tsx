@@ -13,6 +13,7 @@
 import React, { useCallback, useRef, useMemo, useEffect, useState } from 'react';
 import ReactFlow, {
   Background,
+  BackgroundVariant,
   Controls,
   MiniMap,
   ReactFlowProvider,
@@ -43,6 +44,8 @@ import {
 
 const nodeTypes = { scadaWidget: ScadaWidgetNode };
 
+const EMPTY_WIDGETS: ScreenWidget[] = [];
+
 /* ------------------------------------------------------------------ */
 /*  Helper: generate unique ID                                         */
 /* ------------------------------------------------------------------ */
@@ -55,7 +58,11 @@ function generateId(): string {
 /*  Inner canvas (needs ReactFlowProvider ancestor)                    */
 /* ------------------------------------------------------------------ */
 
-const CanvasInner: React.FC = () => {
+interface CanvasInnerProps {
+  isPreview?: boolean;
+}
+
+const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   const rfInstance = useReactFlow();
 
   // Track whether we're currently syncing FROM store to prevent loops
@@ -84,7 +91,7 @@ const CanvasInner: React.FC = () => {
   })));
 
   const activeScreen = screens.find((s) => s.id === activeScreenId);
-  const widgets = activeScreen?.widgets ?? [];
+  const widgets = activeScreen?.widgets ?? EMPTY_WIDGETS;
 
   // Keep a ref of last active screen to detect transitions
   const prevScreenIdRef = useRef(activeScreenId);
@@ -92,9 +99,11 @@ const CanvasInner: React.FC = () => {
   // onResize callback for ScadaWidgetNode
   const handleWidgetResize = useCallback(
     (widgetId: string, width: number, height: number) => {
-      if (!activeScreenId) return;
-      const widget = useScadaPackageStore.getState().screens
-        .find((s) => s.id === activeScreenId)
+      const state = useScadaPackageStore.getState();
+      const currentScreenId = state.activeScreenId;
+      if (!currentScreenId) return;
+      const widget = state.screens
+        .find((s) => s.id === currentScreenId)
         ?.widgets.find((w) => w.id === widgetId);
       if (!widget) return;
 
@@ -104,9 +113,9 @@ const CanvasInner: React.FC = () => {
         width,
         height,
       );
-      updateWidgetPosition(activeScreenId, widgetId, newPos);
+      state.updateWidgetPosition(currentScreenId, widgetId, newPos);
     },
-    [activeScreenId, updateWidgetPosition],
+    [],
   );
 
   // Convert store widgets → ReactFlow nodes (source of truth)
@@ -133,7 +142,7 @@ const CanvasInner: React.FC = () => {
         dragHandle: undefined,
       };
     });
-  }, [widgets, selectedWidgetId, activeScreenId, handleWidgetResize]);
+  }, [widgets, activeScreenId, handleWidgetResize]);
 
   // Local nodes state for smooth dragging (synced from store)
   const [nodes, setNodes] = useState<Node<ScadaWidgetNodeData>[]>(storeNodes);
@@ -171,8 +180,11 @@ const CanvasInner: React.FC = () => {
       for (const change of changes) {
         if (change.type === 'position' && change.dragging === false && change.position) {
           // Drag ended → commit position to store in grid units
-          if (!activeScreenId) continue;
-          const widget = widgets.find((w) => w.id === change.id);
+          const state = useScadaPackageStore.getState();
+          const currentScreenId = state.activeScreenId;
+          if (!currentScreenId) continue;
+          const currentWidgets = state.screens.find((s) => s.id === currentScreenId)?.widgets ?? [];
+          const widget = currentWidgets.find((w) => w.id === change.id);
           if (!widget) continue;
           const px = gridToPixel(widget.position);
           const newGrid = pixelToGrid(
@@ -182,17 +194,15 @@ const CanvasInner: React.FC = () => {
             px.height,
           );
           syncingFromStore.current = true;
-          updateWidgetPosition(activeScreenId, change.id, newGrid);
+          state.updateWidgetPosition(currentScreenId, change.id, newGrid);
           requestAnimationFrame(() => { syncingFromStore.current = false; });
         }
-        if (change.type === 'select') {
-          if (change.selected) {
-            setSelectedWidget(change.id);
-          }
+        if (change.type === 'select' && change.selected) {
+          setSelectedWidget(change.id);
         }
       }
     },
-    [activeScreenId, widgets, updateWidgetPosition, setSelectedWidget],
+    [setSelectedWidget],
   );
 
   // Click on empty canvas → deselect
@@ -212,6 +222,7 @@ const CanvasInner: React.FC = () => {
   const onNodesDelete = useCallback(
     (deletedNodes: Node[]) => {
       if (!activeScreenId) return;
+      if (!window.confirm('Bu widget\'i silmek istediginize emin misiniz?')) return;
       for (const node of deletedNodes) {
         removeWidget(activeScreenId, node.id);
       }
@@ -233,13 +244,13 @@ const CanvasInner: React.FC = () => {
       const data = e.dataTransfer.getData('application/reactflow-widget');
       if (!data) return;
 
-      const parsed = JSON.parse(data) as {
-        widgetType: string;
-        label: string;
-        defaultWidth: number;
-        defaultHeight: number;
-        defaultConfig?: Record<string, unknown>;
-      };
+      let parsed: { widgetType: string; label: string; defaultWidth: number; defaultHeight: number; defaultConfig?: Record<string, unknown> };
+      try {
+        parsed = JSON.parse(data);
+      } catch {
+        return;
+      }
+      if (typeof parsed.widgetType !== 'string') return;
 
       // Convert screen coordinates to flow coordinates
       const position = rfInstance.screenToFlowPosition({
@@ -277,33 +288,36 @@ const CanvasInner: React.FC = () => {
   if (!activeScreen) {
     return (
       <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-        Ekran secin veya yeni ekran ekleyin
+        Ekran seçin veya yeni ekran ekleyin
       </div>
     );
   }
 
   return (
-    <div className="flex-1" onDragOver={onDragOver} onDrop={onDrop}>
+    <div className="w-full h-full" aria-label="SCADA tasarim alani" onDragOver={isPreview ? undefined : onDragOver} onDrop={isPreview ? undefined : onDrop}>
       <ReactFlow
-        nodes={nodes}
+        nodes={isPreview ? nodes.map((n) => ({ ...n, draggable: false })) : nodes}
         edges={[]}
         nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        onNodeClick={onNodeClick}
-        onNodesDelete={onNodesDelete}
-        onPaneClick={onPaneClick}
-        snapToGrid
+        onNodesChange={isPreview ? undefined : onNodesChange}
+        onNodeClick={isPreview ? undefined : onNodeClick}
+        onNodesDelete={isPreview ? undefined : onNodesDelete}
+        onPaneClick={isPreview ? undefined : onPaneClick}
+        snapToGrid={!isPreview}
         snapGrid={SNAP_GRID}
         fitView={false}
-        deleteKeyCode="Delete"
+        deleteKeyCode={isPreview ? null : 'Delete'}
         multiSelectionKeyCode={null}
         minZoom={0.2}
         maxZoom={2}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         proOptions={{ hideAttribution: true }}
+        nodesDraggable={!isPreview}
+        nodesConnectable={!isPreview}
+        elementsSelectable={!isPreview}
       >
         <Background
-          variant={'dots' as any}
+          variant={BackgroundVariant.Dots}
           gap={GRID_CELL_W}
           size={1.5}
           color="#d1d5db"
@@ -328,10 +342,14 @@ const CanvasInner: React.FC = () => {
 /*  Exported component with ReactFlowProvider                          */
 /* ------------------------------------------------------------------ */
 
-export const ScreenCanvas: React.FC = () => {
+interface ScreenCanvasProps {
+  isPreview?: boolean;
+}
+
+export const ScreenCanvas: React.FC<ScreenCanvasProps> = ({ isPreview }) => {
   return (
     <ReactFlowProvider>
-      <CanvasInner />
+      <CanvasInner isPreview={isPreview} />
     </ReactFlowProvider>
   );
 };

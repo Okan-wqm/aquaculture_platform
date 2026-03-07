@@ -695,7 +695,7 @@ export class CreateVariableInput {
   programId!: string;
 
   @IsString()
-  @MaxLength(100)
+  @MaxLength(50)
   @Field()
   varName!: string;
 
@@ -992,8 +992,8 @@ export class DeploymentResult {
   error?: string;
 }
 
-@ObjectType()
-export class DeploymentStatus {
+@ObjectType('DeploymentStatusOutput')
+export class DeploymentStatusOutput {
   @Field(() => ID)
   programId!: string;
 

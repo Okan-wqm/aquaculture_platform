@@ -32,7 +32,7 @@ export const MAX_ERRORS = 100;
 // ============================================================================
 
 /** Tenant basina maksimum eszamanli WS baglanti */
-export const WS_MAX_CONNECTIONS_PER_TENANT = 5;
+export const WS_MAX_CONNECTIONS_PER_TENANT = 10;
 
 /** Baglanti basina maksimum mesaj/saniye */
 export const WS_MAX_MESSAGES_PER_SECOND = 10;
@@ -115,12 +115,16 @@ export const NATS_EVENTS = {
 } as const;
 
 /**
- * Tenant-scoped NATS event subject'i olusturur.
+ * Tenant-scoped NATS event subject olusturur.
  * Ornek: buildEventSubject('events.AutomationProgramSaved', 'tenant-123')
  *        → 'events.AutomationProgramSaved.tenant-123'
+ *
+ * NATS subject hiyerarsisinde '.' ayirici karakter oldugu icin,
+ * tenantId icindeki noktalar '_' ile degistirilir.
  */
 export function buildEventSubject(baseSubject: string, tenantId: string): string {
-  return `${baseSubject}.${tenantId}`;
+  const safeTenantId = tenantId.replace(/\./g, '_');
+  return `${baseSubject}.${safeTenantId}`;
 }
 
 // ============================================================================

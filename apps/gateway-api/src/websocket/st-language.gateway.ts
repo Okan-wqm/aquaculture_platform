@@ -71,7 +71,7 @@ const MAX_MESSAGE_SIZE = 150 * 1024;
 /** Idle timeout in milliseconds (5 minutes) */
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 /** Max concurrent connections per tenant */
-const MAX_CONNECTIONS_PER_TENANT = 50;
+const MAX_CONNECTIONS_PER_TENANT = 10;
 
 // ---------------------------------------------------------------------------
 // CORS (same pattern as SensorReadingsGateway)

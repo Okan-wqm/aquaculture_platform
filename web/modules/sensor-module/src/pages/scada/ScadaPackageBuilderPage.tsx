@@ -35,6 +35,12 @@ import {
 } from '../../hooks/useScadaPackage';
 import { useEdgeDevices } from '../../hooks/useEdgeDevices';
 
+const DEFAULT_EMERGENCY_STOP = {
+  holdDuration: 3000,
+  affectedTags: [] as string[],
+  resetRequiresPin: false,
+};
+
 const ScadaPackageBuilderPage: React.FC = () => {
   const { packageId: routePackageId } = useParams<{ packageId: string }>();
   const [searchParams] = useSearchParams();
@@ -43,6 +49,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [showDeployMenu, setShowDeployMenu] = useState(false);
   const [showDeployDialog, setShowDeployDialog] = useState(false);
   const [showDeviceDropdown, setShowDeviceDropdown] = useState(false);
@@ -158,6 +165,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
     if (!packageName.trim()) return;
     setIsSaving(true);
     setSaveSuccess(false);
+    setSaveError(null);
     try {
       const packageData = toScadaPackageJSON();
       if (effectivePackageId) {
@@ -183,6 +191,8 @@ const ScadaPackageBuilderPage: React.FC = () => {
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err) {
       console.error('Save failed:', err);
+      setSaveError('Kaydetme başarısız oldu. Lütfen tekrar deneyin.');
+      setTimeout(() => setSaveError(null), 5000);
     } finally {
       setIsSaving(false);
     }
@@ -214,16 +224,17 @@ const ScadaPackageBuilderPage: React.FC = () => {
   // Widget config change handler
   const handleWidgetConfigChange = useCallback(
     (widgetId: string, updates: Record<string, any>) => {
-      if (!activeScreenId) return;
-      const screen = screens.find((s) => s.id === activeScreenId);
+      const state = useScadaPackageStore.getState();
+      if (!state.activeScreenId) return;
+      const screen = state.screens.find((s) => s.id === state.activeScreenId);
       if (!screen) return;
       const widget = screen.widgets.find((w) => w.id === widgetId);
       if (!widget) return;
-      updateWidget(activeScreenId, widgetId, {
+      state.updateWidget(state.activeScreenId, widgetId, {
         config: { ...widget.config, ...updates },
       });
     },
-    [activeScreenId, screens, updateWidget],
+    [],
   );
 
   // Alarm rules change handler
@@ -266,7 +277,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
       <div className="flex items-center justify-center h-screen bg-gray-100">
         <div className="text-center">
           <Loader2 className="w-8 h-8 animate-spin text-cyan-600 mx-auto" />
-          <p className="mt-2 text-sm text-gray-500">Paket yukleniyor...</p>
+          <p className="mt-2 text-sm text-gray-500">Paket yükleniyor...</p>
         </div>
       </div>
     );
@@ -290,18 +301,24 @@ const ScadaPackageBuilderPage: React.FC = () => {
             type="text"
             value={packageName}
             onChange={(e) => setPackageName(e.target.value)}
-            placeholder="Paket Adi"
+            placeholder="Paket Adı"
+            aria-label="Paket adı"
             className="text-base font-medium text-gray-900 border-none bg-transparent focus:outline-none focus:ring-0 w-56"
           />
           {isDirty && (
             <span className="text-xs text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded">
-              Kaydedilmemis
+              Kaydedilmemiş
             </span>
           )}
           {saveSuccess && (
             <span className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded">
               <CheckCircle className="w-3 h-3" />
               Kaydedildi
+            </span>
+          )}
+          {saveError && (
+            <span className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded">
+              {saveError}
             </span>
           )}
 
@@ -323,7 +340,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
                   )}
                 </span>
               ) : (
-                <span className="text-gray-400">Cihaz Sec</span>
+                <span className="text-gray-400">Cihaz Seç</span>
               )}
               <ChevronDown className="w-3 h-3 text-gray-400" />
             </button>
@@ -342,7 +359,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
                     }}
                     className="w-full text-left px-3 py-2 text-sm text-gray-500 hover:bg-gray-50"
                   >
-                    Cihaz Secme
+                    Cihaz Seçme
                   </button>
                   {devices.map((device) => (
                     <button
@@ -367,7 +384,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
                     </button>
                   ))}
                   {devices.length === 0 && (
-                    <p className="px-3 py-2 text-xs text-gray-400">Edge device bulunamadi</p>
+                    <p className="px-3 py-2 text-xs text-gray-400">Edge device bulunamadı</p>
                   )}
                 </div>
               </>
@@ -403,7 +420,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
             }`}
           >
             <Eye className="w-4 h-4" />
-            {showPreview ? 'Duzenle' : 'Onizleme'}
+            {showPreview ? 'Düzenle' : 'Önizleme'}
           </button>
 
           <div className="relative">
@@ -451,8 +468,8 @@ const ScadaPackageBuilderPage: React.FC = () => {
           <ScreenTabBar />
 
           {/* Canvas */}
-          <div className={`flex-1 ${showPreview ? 'pointer-events-none' : ''}`}>
-            <ScreenCanvas />
+          <div className="flex-1 flex flex-col">
+            <ScreenCanvas isPreview={showPreview} />
           </div>
         </div>
 
@@ -466,13 +483,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
           onControlSecurityChange={(config) =>
             updateControlPermissions({ ...controlPermissions, securityLevels: config })
           }
-          emergencyStop={
-            controlPermissions.emergencyStop || {
-              holdDuration: 3000,
-              affectedTags: [],
-              resetRequiresPin: false,
-            }
-          }
+          emergencyStop={controlPermissions.emergencyStop || DEFAULT_EMERGENCY_STOP}
           onEmergencyStopChange={(config) =>
             updateControlPermissions({ ...controlPermissions, emergencyStop: config })
           }
@@ -499,12 +510,12 @@ const ScadaPackageBuilderPage: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-green-500" />
-          <span>Hazir</span>
+          <span>Hazır</span>
         </div>
       </div>
 
       {/* Deploy Dialog */}
-      {effectivePackageId && (
+      {showDeployDialog && effectivePackageId && (
         <DeployScadaDialog
           packageId={effectivePackageId}
           packageName={packageName}

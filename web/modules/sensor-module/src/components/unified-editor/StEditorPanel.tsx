@@ -54,6 +54,15 @@ import StProblemsPanel, { type Diagnostic } from './StProblemsPanel';
 import ExportDialog from './json-bundle/ExportDialog';
 import ImportDialog from './json-bundle/ImportDialog';
 import type { STBundle, STBundleProgram } from '../../types/st-editor.types';
+import type { editor as monacoEditor, languages as monacoLanguages } from 'monaco-editor';
+
+/** Diagnostic item returned by validation */
+export interface DiagnosticItem {
+  message: string;
+  line?: number;
+  column?: number;
+  severity?: string;
+}
 
 export interface StEditorPanelProps {
   /** Embedded mode: controlled source from parent */
@@ -67,13 +76,33 @@ export interface StEditorPanelProps {
   /** Embedded mode: callback for validate button */
   onValidate?: () => void;
   /** Validation results from parent */
-  validationResult?: { errors: any[]; warnings: any[]; infos: any[] } | null;
+  validationResult?: {
+    errors: DiagnosticItem[];
+    warnings: DiagnosticItem[];
+    infos: DiagnosticItem[];
+  } | null;
 }
 
 const MonacoEditor = React.lazy(() => import('@monaco-editor/react'));
 
 const MIN_HEIGHT = 200;
 const MAX_HEIGHT_RATIO = 0.6;
+
+/** C5: Module-level constant for Monaco editor options (avoids re-creation every render) */
+const MONACO_EDITOR_OPTIONS: monacoEditor.IStandaloneEditorConstructionOptions = {
+  minimap: { enabled: false },
+  fontSize: 13,
+  lineNumbers: 'on',
+  scrollBeyondLastLine: false,
+  wordWrap: 'on',
+  tabSize: 2,
+  automaticLayout: true,
+  suggestOnTriggerCharacters: true,
+  quickSuggestions: true,
+  renderLineHighlight: 'all',
+  bracketPairColorization: { enabled: true },
+  padding: { top: 4 },
+};
 
 const StEditorPanel: React.FC<StEditorPanelProps> = ({
   value,
@@ -189,6 +218,17 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
   // Track cursor line for outline highlighting
   const [cursorLine, setCursorLine] = useState(1);
 
+  // H32: Store cursor listener disposable for cleanup
+  const cursorDisposableRef = useRef<{ dispose(): void } | null>(null);
+
+  // Cleanup cursor listener on unmount
+  useEffect(() => {
+    return () => {
+      cursorDisposableRef.current?.dispose();
+      cursorDisposableRef.current = null;
+    };
+  }, []);
+
   // Ctrl+J toggle (standalone mode only)
   useEffect(() => {
     if (embedded) return;
@@ -232,30 +272,33 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
   // Register ST language on Monaco mount
   const handleEditorMount = useCallback(
-    (editor: any, monaco: any) => {
-      editorRef.current = editor;
-      monacoRef.current = monaco;
+    (editor: monacoEditor.IStandaloneCodeEditor, monaco: typeof import('monaco-editor')) => {
+      editorRef.current = editor as typeof editorRef.current;
+      monacoRef.current = monaco as typeof monacoRef.current;
 
       // Check Monaco's own language registry to avoid duplicates on HMR
-      const languages = monaco.languages.getLanguages();
-      const alreadyRegistered = languages.some(
-        (l: any) => l.id === ST_LANGUAGE_ID,
+      const registeredLanguages = monaco.languages.getLanguages();
+      const alreadyRegistered = registeredLanguages.some(
+        (l: monacoLanguages.ILanguageExtensionPoint) => l.id === ST_LANGUAGE_ID,
       );
 
       if (!alreadyRegistered) {
         monaco.languages.register({ id: ST_LANGUAGE_ID });
         monaco.languages.setMonarchTokensProvider(ST_LANGUAGE_ID, stTokensProvider);
-        monaco.languages.setLanguageConfiguration(ST_LANGUAGE_ID, stLanguageConfig as any);
+        monaco.languages.setLanguageConfiguration(ST_LANGUAGE_ID, stLanguageConfig);
         monaco.languages.registerCompletionItemProvider(
           ST_LANGUAGE_ID,
-          createStCompletionProvider() as any,
+          createStCompletionProvider(),
         );
       }
 
-      // Track cursor position for outline highlighting
-      editor.onDidChangeCursorPosition((e: any) => {
-        setCursorLine(e.position.lineNumber);
-      });
+      // H32: Dispose previous listener if any, then track cursor position
+      cursorDisposableRef.current?.dispose();
+      cursorDisposableRef.current = editor.onDidChangeCursorPosition(
+        (e: monacoEditor.ICursorPositionChangedEvent) => {
+          setCursorLine(e.position.lineNumber);
+        },
+      );
 
       editor.focus();
     },
@@ -298,7 +341,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
           endLine: d.endLine ?? d.line,
           endCol: d.endColumn ?? 999,
         },
-        severity: d.severity === 'info' ? 'info' as const : d.severity as 'error' | 'warning',
+        severity: d.severity,
         message: d.message,
         code: `ST${String(i + 1).padStart(3, '0')}`,
         source: 'st-compiler',
@@ -323,11 +366,17 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
   const handleImport = useCallback(
     (bundle: STBundle) => {
       const name = bundle.program.programName || 'Imported';
-      const prog = createProgram(name);
+      createProgram(name);
       // The createProgram already sets it active, now update the source
       updateSource(bundle.program.structuredTextCode || '');
     },
     [createProgram, updateSource],
+  );
+
+  // M5: Stable onChange handler for Monaco editor
+  const handleMonacoChange = useCallback(
+    (val: string | undefined) => updateSource(val || ''),
+    [updateSource],
   );
 
   const panelStyle = useMemo(() => (embedded ? undefined : { height: panelHeight }), [embedded, panelHeight]);
@@ -589,22 +638,9 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
                 language={ST_LANGUAGE_ID}
                 theme="vs-dark"
                 value={activeProgram?.source ?? ''}
-                onChange={(val: string | undefined) => updateSource(val || '')}
+                onChange={handleMonacoChange}
                 onMount={handleEditorMount}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 13,
-                  lineNumbers: 'on',
-                  scrollBeyondLastLine: false,
-                  wordWrap: 'on',
-                  tabSize: 2,
-                  automaticLayout: true,
-                  suggestOnTriggerCharacters: true,
-                  quickSuggestions: true,
-                  renderLineHighlight: 'all',
-                  bracketPairColorization: { enabled: true },
-                  padding: { top: 4 },
-                }}
+                options={MONACO_EDITOR_OPTIONS}
               />
             </Suspense>
           </div>
@@ -726,7 +762,7 @@ function DiagnosticItem({
   editorRef,
 }: {
   diag: CompileDiagnostic;
-  editorRef: React.RefObject<any>;
+  editorRef: React.RefObject<monacoEditor.IStandaloneCodeEditor | null>;
 }) {
   const isSeverityError = diag.severity === 'error';
 

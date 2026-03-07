@@ -87,6 +87,12 @@ export function useStEditor(options?: UseStEditorOptions) {
 
   const activeProgram = programs.find((p) => p.id === activeProgramId) ?? null;
 
+  // Refs to avoid stale closures and per-keystroke callback churn
+  const activeProgramRef = useRef(activeProgram);
+  activeProgramRef.current = activeProgram;
+  const programsRef = useRef(programs);
+  programsRef.current = programs;
+
   // Dirty flag: tracks if source changed since last save
   const [savedSourceMap, setSavedSourceMap] = useState<Record<string, string>>(
     () => {
@@ -95,6 +101,9 @@ export function useStEditor(options?: UseStEditorOptions) {
       return map;
     },
   );
+
+  const savedSourceMapRef = useRef(savedSourceMap);
+  savedSourceMapRef.current = savedSourceMap;
 
   const isDirty =
     activeProgram != null &&
@@ -161,18 +170,20 @@ export function useStEditor(options?: UseStEditorOptions) {
   // ---- Save ----
 
   const save = useCallback(() => {
-    if (!activeProgram) return;
+    const prog = activeProgramRef.current;
+    if (!prog) return;
     setSavedSourceMap((prev) => ({
       ...prev,
-      [activeProgram.id]: activeProgram.source,
+      [prog.id]: prog.source,
     }));
     // TODO: persist to backend via GraphQL mutation
-  }, [activeProgram]);
+  }, []);
 
   // ---- Compile (mock) ----
 
   const compile = useCallback(async () => {
-    if (!activeProgram) return;
+    const prog = activeProgramRef.current;
+    if (!prog) return;
     setCompileStatus('compiling');
     setDiagnostics([]);
 
@@ -180,7 +191,7 @@ export function useStEditor(options?: UseStEditorOptions) {
     await new Promise((r) => setTimeout(r, 800));
 
     // Simple mock validation: check for unmatched PROGRAM/END_PROGRAM
-    const src = activeProgram.source;
+    const src = prog.source;
     const errors: CompileDiagnostic[] = [];
 
     const programCount = (src.match(/\bPROGRAM\b/gi) || []).length;
@@ -212,19 +223,21 @@ export function useStEditor(options?: UseStEditorOptions) {
     applyMarkers(errors);
 
     return errors;
-  }, [activeProgram]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---- Validate (mock) ----
 
   const validate = useCallback(async () => {
-    if (!activeProgram) return;
+    const prog = activeProgramRef.current;
+    if (!prog) return;
     setCompileStatus('compiling');
     setDiagnostics([]);
 
     await new Promise((r) => setTimeout(r, 400));
 
     const warnings: CompileDiagnostic[] = [];
-    const lines = activeProgram.source.split('\n');
+    const lines = prog.source.split('\n');
     for (let i = 0; i < lines.length; i++) {
       if (/\bGOTO\b/i.test(lines[i])) {
         warnings.push({
@@ -241,7 +254,8 @@ export function useStEditor(options?: UseStEditorOptions) {
     applyMarkers(warnings);
 
     return warnings;
-  }, [activeProgram]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---- Monaco markers ----
 
@@ -288,8 +302,8 @@ export function useStEditor(options?: UseStEditorOptions) {
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const anyDirty = programs.some(
-        (p) => p.source !== (savedSourceMap[p.id] ?? ''),
+      const anyDirty = programsRef.current.some(
+        (p) => p.source !== (savedSourceMapRef.current[p.id] ?? ''),
       );
       if (anyDirty) {
         e.preventDefault();
@@ -298,7 +312,7 @@ export function useStEditor(options?: UseStEditorOptions) {
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [programs, savedSourceMap]);
+  }, []);
 
   // ---- Outline (local parse) ----
 
@@ -368,19 +382,23 @@ export function useStEditor(options?: UseStEditorOptions) {
     return nodes;
   }, []);
 
-  // Update outline on source change
+  // Update outline on source change (debounced to avoid per-keystroke work)
   useEffect(() => {
-    if (activeProgram) {
-      setOutline(buildOutline(activeProgram.source));
-    }
+    if (!activeProgram) return;
+    const source = activeProgram.source;
+    const timer = setTimeout(() => {
+      setOutline(buildOutline(source));
+    }, 300);
+    return () => clearTimeout(timer);
   }, [activeProgram?.source, buildOutline]);
 
   // ---- Format Code ----
 
   const formatCode = useCallback(() => {
-    if (!activeProgram) return;
+    const prog = activeProgramRef.current;
+    if (!prog) return;
 
-    const lines = activeProgram.source.split('\n');
+    const lines = prog.source.split('\n');
     let indent = 0;
     const formatted: string[] = [];
     const incPat = /^(PROGRAM|FUNCTION_BLOCK|FUNCTION|METHOD|PROPERTY|INTERFACE|VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_GLOBAL|VAR_TEMP|VAR_EXTERNAL|IF|FOR|WHILE|REPEAT|CASE|STRUCT|TYPE)\b/i;
@@ -394,7 +412,7 @@ export function useStEditor(options?: UseStEditorOptions) {
       if (incPat.test(trimmed) && !/^(ELSIF|ELSE)\b/i.test(trimmed)) indent++;
     }
     updateSource(formatted.join('\n'));
-  }, [activeProgram, updateSource]);
+  }, [updateSource]);
 
   // ---- Navigate to line ----
 

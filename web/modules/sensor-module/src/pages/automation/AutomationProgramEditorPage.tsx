@@ -204,7 +204,7 @@ const StepCard: React.FC<{
     </div>
     {step.stepType === 'initial' && (
       <span className="mt-2 inline-block text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded">
-        Baslangic Adimi
+        Başlangıç Adımı
       </span>
     )}
   </div>
@@ -374,7 +374,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       setErrorMessage(null);
       navigate(`/sensor/automation/${result.createAutomationProgram.id}`);
     },
-    onError: (error: Error) => handleMutationError(error, 'Program olusturulamadi'),
+    onError: (error: Error) => handleMutationError(error, 'Program oluşturulamadı'),
   });
 
   const updateMutation = useMutation({
@@ -393,7 +393,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
     },
-    onError: (error: Error) => handleMutationError(error, 'Incelemeye gonderilemedi'),
+    onError: (error: Error) => handleMutationError(error, 'İncelemeye gönderilemedi'),
   });
 
   const addStepMutation = useMutation({
@@ -405,7 +405,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       setShowAddStep(false);
       setNewStep({ stepName: '', stepCode: '', stepOrder: (data?.programSteps?.length ?? 0) + 1, stepType: 'normal' });
     },
-    onError: (error: Error) => handleMutationError(error, 'Adim eklenemedi'),
+    onError: (error: Error) => handleMutationError(error, 'Adım eklenemedi'),
   });
 
   const removeStepMutation = useMutation({
@@ -414,7 +414,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
     },
-    onError: (error: Error) => handleMutationError(error, 'Adim silinemedi'),
+    onError: (error: Error) => handleMutationError(error, 'Adım silinemedi'),
   });
 
   const addVariableMutation = useMutation({
@@ -427,7 +427,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       setNewVariable({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL', ioTagName: '', ioConfigId: '' });
       setIoDeviceId('');
     },
-    onError: (error: Error) => handleMutationError(error, 'Degisken eklenemedi'),
+    onError: (error: Error) => handleMutationError(error, 'Değişken eklenemedi'),
   });
 
   const removeVariableMutation = useMutation({
@@ -436,7 +436,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
     },
-    onError: (error: Error) => handleMutationError(error, 'Degisken silinemedi'),
+    onError: (error: Error) => handleMutationError(error, 'Değişken silinemedi'),
   });
 
   const deployMutation = useMutation({
@@ -447,23 +447,23 @@ const AutomationProgramEditorPage: React.FC = () => {
       ),
     onSuccess: (result) => {
       if (result.deployProgram.success) {
-        showSuccess('Dagitim basariyla baslatildi');
+        showSuccess('Dağıtım başarıyla başlatıldı');
         queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
         queryClient.invalidateQueries({ queryKey: ['deploymentHistory'] });
       } else {
-        handleMutationError(new Error(result.deployProgram.error || 'Bilinmeyen hata'), 'Dagitim basarisiz');
+        handleMutationError(new Error(result.deployProgram.error || 'Bilinmeyen hata'), 'Dağıtım başarısız');
       }
     },
-    onError: (error: Error) => handleMutationError(error, 'Dagitim baslatilmadi'),
+    onError: (error: Error) => handleMutationError(error, 'Dağıtım başlatılamadı'),
   });
 
   const approveMutation = useMutation({
     mutationFn: () => graphqlFetch(APPROVE_PROGRAM_MUTATION, { id: programId }),
     onSuccess: () => {
-      showSuccess('Program onaylandi');
+      showSuccess('Program onaylandı');
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
     },
-    onError: (error: Error) => handleMutationError(error, 'Program onaylanamadi'),
+    onError: (error: Error) => handleMutationError(error, 'Program onaylanamadı'),
   });
 
   const rejectMutation = useMutation({
@@ -486,7 +486,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       setShowAddTransition(false);
       setNewTransition({ transitionCode: '', fromStepId: '', toStepId: '', conditionExpression: '', priority: 1 });
     },
-    onError: (error: Error) => handleMutationError(error, 'Gecis eklenemedi'),
+    onError: (error: Error) => handleMutationError(error, 'Geçiş eklenemedi'),
   });
 
   const removeTransitionMutation = useMutation({
@@ -495,7 +495,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
     },
-    onError: (error: Error) => handleMutationError(error, 'Gecis silinemedi'),
+    onError: (error: Error) => handleMutationError(error, 'Geçiş silinemedi'),
   });
 
   // Deployment history query
@@ -611,7 +611,7 @@ const AutomationProgramEditorPage: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white">Programi Reddet</h3>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white">Programı Reddet</h3>
               <button
                 onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
                 className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -622,7 +622,7 @@ const AutomationProgramEditorPage: React.FC = () => {
             <textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Red sebebini yaziniz..."
+              placeholder="Red sebebini yazınız..."
               rows={4}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 mb-4"
             />
@@ -631,7 +631,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                 onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
                 className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
               >
-                Iptal
+                İptal
               </button>
               <button
                 onClick={() => rejectReason.trim() && rejectMutation.mutate(rejectReason.trim())}
@@ -657,7 +657,7 @@ const AutomationProgramEditorPage: React.FC = () => {
           </Link>
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              {isNew ? 'Yeni Otomasyon Programi' : formData.name || 'Program'}
+              {isNew ? 'Yeni Otomasyon Programı' : formData.name || 'Program'}
             </h1>
             {program && (
               <div className="flex items-center gap-2 mt-1">
@@ -677,7 +677,7 @@ const AutomationProgramEditorPage: React.FC = () => {
               className="flex items-center gap-2 px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <Send className="h-4 w-4" />
-              Incelemeye Gonder
+              İncelemeye Gönder
             </button>
           )}
           {program?.status === ProgramStatus.PENDING_REVIEW && (
@@ -736,9 +736,9 @@ const AutomationProgramEditorPage: React.FC = () => {
           <div className="flex items-center justify-between">
             {([
               { key: ProgramStatus.DRAFT, label: 'Taslak' },
-              { key: ProgramStatus.PENDING_REVIEW, label: 'Inceleniyor' },
-              { key: ProgramStatus.APPROVED, label: 'Onaylandi' },
-              { key: ProgramStatus.DEPLOYING, label: 'Yukleniyor' },
+              { key: ProgramStatus.PENDING_REVIEW, label: 'İnceleniyor' },
+              { key: ProgramStatus.APPROVED, label: 'Onaylandı' },
+              { key: ProgramStatus.DEPLOYING, label: 'Yükleniyor' },
               { key: ProgramStatus.DEPLOYED, label: 'Devrede' },
             ] as const).map((step, index, arr) => {
               const statusOrder = [ProgramStatus.DRAFT, ProgramStatus.PENDING_REVIEW, ProgramStatus.APPROVED, ProgramStatus.DEPLOYING, ProgramStatus.DEPLOYED];
@@ -784,52 +784,58 @@ const AutomationProgramEditorPage: React.FC = () => {
       )}
 
       {/* Tabs */}
-      {!isNew && (
-        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6">
-          <TabButton
-            active={activeTab === 'info'}
-            onClick={() => setActiveTab('info')}
-            icon={<Settings className="h-4 w-4" />}
-            label="Bilgiler"
-          />
+      <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6">
+        <TabButton
+          active={activeTab === 'info'}
+          onClick={() => setActiveTab('info')}
+          icon={<Settings className="h-4 w-4" />}
+          label="Bilgiler"
+        />
+        {!isNew && (
           <TabButton
             active={activeTab === 'steps'}
             onClick={() => setActiveTab('steps')}
             icon={<GitBranch className="h-4 w-4" />}
-            label="Adimlar"
+            label="Adımlar"
             count={steps.length}
           />
+        )}
+        {!isNew && (
           <TabButton
             active={activeTab === 'variables'}
             onClick={() => setActiveTab('variables')}
             icon={<Variable className="h-4 w-4" />}
-            label="Degiskenler"
+            label="Değişkenler"
             count={variables.length}
           />
-          <TabButton
-            active={activeTab === 'code'}
-            onClick={() => setActiveTab('code')}
-            icon={<Code className="h-4 w-4" />}
-            label="ST Kodu"
-          />
+        )}
+        <TabButton
+          active={activeTab === 'code'}
+          onClick={() => setActiveTab('code')}
+          icon={<Code className="h-4 w-4" />}
+          label="ST Kodu"
+        />
+        {!isNew && (
           <TabButton
             active={activeTab === 'transitions'}
             onClick={() => setActiveTab('transitions')}
             icon={<ArrowRightLeft className="h-4 w-4" />}
-            label="Gecisler"
+            label="Geçişler"
             count={transitions.length}
           />
+        )}
+        {!isNew && (
           <TabButton
             active={activeTab === 'deploy'}
             onClick={() => setActiveTab('deploy')}
             icon={<Upload className="h-4 w-4" />}
-            label="Dagitim"
+            label="Dağıtım"
           />
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Info Tab / New Form */}
-      {(activeTab === 'info' || isNew) && (
+      {activeTab === 'info' && (
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
           <div className="grid grid-cols-2 gap-6">
             <div>
@@ -847,7 +853,7 @@ const AutomationProgramEditorPage: React.FC = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Program Adi *
+                Program Adı *
               </label>
               <input
                 type="text"
@@ -875,13 +881,13 @@ const AutomationProgramEditorPage: React.FC = () => {
             </div>
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Aciklama
+                Açıklama
               </label>
               <textarea
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 rows={3}
-                placeholder="Program aciklamasi..."
+                placeholder="Program açıklaması..."
                 className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
               />
             </div>
@@ -898,33 +904,33 @@ const AutomationProgramEditorPage: React.FC = () => {
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
             >
               <Plus className="h-4 w-4" />
-              Adim Ekle
+              Adım Ekle
             </button>
           </div>
 
           {showAddStep && (
             <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-              <h3 className="font-medium mb-3">Yeni Adim</h3>
+              <h3 className="font-medium mb-3">Yeni Adım</h3>
               <div className="grid grid-cols-3 gap-4">
                 <input
                   type="text"
                   value={newStep.stepName}
                   onChange={(e) => setNewStep({ ...newStep, stepName: e.target.value })}
-                  placeholder="Adim adi"
+                  placeholder="Adım adı"
                   className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 />
                 <input
                   type="text"
                   value={newStep.stepCode}
                   onChange={(e) => setNewStep({ ...newStep, stepCode: e.target.value })}
-                  placeholder="Adim kodu (S001)"
+                  placeholder="Adım kodu (S001)"
                   className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 />
                 <input
                   type="number"
                   value={newStep.stepOrder}
                   onChange={(e) => setNewStep({ ...newStep, stepOrder: parseInt(e.target.value) || 1 })}
-                  placeholder="Sira no"
+                  placeholder="Sıra no"
                   className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 />
                 <select
@@ -933,8 +939,8 @@ const AutomationProgramEditorPage: React.FC = () => {
                   className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 >
                   <option value="normal">Normal</option>
-                  <option value="initial">Baslangic</option>
-                  <option value="final">Bitis</option>
+                  <option value="initial">Başlangıç</option>
+                  <option value="final">Bitiş</option>
                 </select>
               </div>
               <div className="flex justify-end gap-2 mt-4">
@@ -942,7 +948,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                   onClick={() => setShowAddStep(false)}
                   className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-100"
                 >
-                  Iptal
+                  İptal
                 </button>
                 <button
                   onClick={handleAddStep}
@@ -958,7 +964,7 @@ const AutomationProgramEditorPage: React.FC = () => {
           <div className="grid gap-3">
             {steps.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
-                Henuz adim eklenmemis
+                Henüz adım eklenmemiş
               </div>
             ) : (
               steps.map((step) => (
@@ -982,19 +988,19 @@ const AutomationProgramEditorPage: React.FC = () => {
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
             >
               <Plus className="h-4 w-4" />
-              Degisken Ekle
+              Değişken Ekle
             </button>
           </div>
 
           {showAddVariable && (
             <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-              <h3 className="font-medium mb-3">Yeni Degisken</h3>
+              <h3 className="font-medium mb-3">Yeni Değişken</h3>
               <div className="grid grid-cols-4 gap-4">
                 <input
                   type="text"
                   value={newVariable.varName}
                   onChange={(e) => setNewVariable({ ...newVariable, varName: e.target.value })}
-                  placeholder="Degisken adi"
+                  placeholder="Değişken adı"
                   className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 />
                 <select
@@ -1012,7 +1018,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                   type="text"
                   value={newVariable.initialValue}
                   onChange={(e) => setNewVariable({ ...newVariable, initialValue: e.target.value })}
-                  placeholder="Baslangic degeri"
+                  placeholder="Başlangıç değeri"
                   className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 />
                 <select
@@ -1037,10 +1043,10 @@ const AutomationProgramEditorPage: React.FC = () => {
               {/* I/O Tag Binding -- only INPUT/OUTPUT/IN_OUT variables can be bound to physical tags */}
               {showIoTagPicker && (
                 <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-lg">
-                  <h4 className="text-sm font-medium text-blue-700 dark:text-blue-400 mb-3">I/O Tag Baglama</h4>
+                  <h4 className="text-sm font-medium text-blue-700 dark:text-blue-400 mb-3">I/O Tag Bağlama</h4>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Edge Cihazi</label>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Edge Cihazı</label>
                       <select
                         value={ioDeviceId}
                         onChange={(e) => {
@@ -1049,7 +1055,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                         }}
                         className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
                       >
-                        <option value="">Cihaz seciniz...</option>
+                        <option value="">Cihaz seçiniz...</option>
                         {allActiveDevices.map((device: EdgeDevice) => (
                           <option key={device.id} value={device.id}>
                             {device.deviceName} ({device.deviceCode}) - {getDeviceModelText(device.deviceModel)}
@@ -1079,7 +1085,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                         disabled={!ioDeviceId || ioTags.length === 0}
                         className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800"
                       >
-                        <option value="">{!ioDeviceId ? 'Once cihaz seciniz...' : ioTags.length === 0 ? 'I/O tag bulunamadi' : 'Tag seciniz...'}</option>
+                        <option value="">{!ioDeviceId ? 'Önce cihaz seçiniz...' : ioTags.length === 0 ? 'I/O tag bulunamadı' : 'Tag seçiniz...'}</option>
                         {ioTags.map((tag) => (
                           <option key={tag.id} value={tag.id}>
                             {tag.tagName} ({tag.ioType} - {tag.dataType})
@@ -1092,8 +1098,8 @@ const AutomationProgramEditorPage: React.FC = () => {
                   </div>
                   {newVariable.ioTagName && (
                     <div className="mt-2 text-xs text-blue-600 dark:text-blue-400">
-                      Bagli tag: <span className="font-mono font-medium">{newVariable.ioTagName}</span>
-                      {' | Veri tipi otomatik ayarlandi: '}<span className="font-medium">{newVariable.dataType}</span>
+                      Bağlı tag: <span className="font-mono font-medium">{newVariable.ioTagName}</span>
+                      {' | Veri tipi otomatik ayarlandı: '}<span className="font-medium">{newVariable.dataType}</span>
                     </div>
                   )}
                 </div>
@@ -1106,7 +1112,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                   }}
                   className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-100"
                 >
-                  Iptal
+                  İptal
                 </button>
                 <button
                   onClick={handleAddVariable}
@@ -1123,12 +1129,12 @@ const AutomationProgramEditorPage: React.FC = () => {
             <table className="w-full">
               <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Adi</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Adı</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tip</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Deger</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Değer</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kapsam</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">I/O Tag</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Aciklama</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Açıklama</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"></th>
                 </tr>
               </thead>
@@ -1136,7 +1142,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                 {variables.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                      Henuz degisken eklenmemis
+                      Henüz değişken eklenmemiş
                     </td>
                   </tr>
                 ) : (
@@ -1155,7 +1161,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       )}
 
       {/* Code Tab - ST Editor */}
-      {activeTab === 'code' && !isNew && (
+      {activeTab === 'code' && (
         <StEditorPanel
           embedded
           value={stCode}
@@ -1173,19 +1179,19 @@ const AutomationProgramEditorPage: React.FC = () => {
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
             >
               <Plus className="h-4 w-4" />
-              Gecis Ekle
+              Geçiş Ekle
             </button>
           </div>
 
           {showAddTransition && (
             <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-              <h3 className="font-medium mb-3">Yeni Gecis</h3>
+              <h3 className="font-medium mb-3">Yeni Geçiş</h3>
               <div className="grid grid-cols-2 gap-4">
                 <input
                   type="text"
                   value={newTransition.transitionCode}
                   onChange={(e) => setNewTransition({ ...newTransition, transitionCode: e.target.value })}
-                  placeholder="Gecis kodu (T001)"
+                  placeholder="Geçiş kodu (T001)"
                   className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 />
                 <select
@@ -1193,7 +1199,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                   onChange={(e) => setNewTransition({ ...newTransition, fromStepId: e.target.value })}
                   className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 >
-                  <option value="">Kaynak adim sec...</option>
+                  <option value="">Kaynak adım seç...</option>
                   {steps.map((s) => (
                     <option key={s.id} value={s.id}>{s.stepName} ({s.stepCode})</option>
                   ))}
@@ -1203,7 +1209,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                   onChange={(e) => setNewTransition({ ...newTransition, toStepId: e.target.value })}
                   className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 >
-                  <option value="">Hedef adim sec...</option>
+                  <option value="">Hedef adım seç...</option>
                   {steps.map((s) => (
                     <option key={s.id} value={s.id}>{s.stepName} ({s.stepCode})</option>
                   ))}
@@ -1212,7 +1218,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                   type="number"
                   value={newTransition.priority}
                   onChange={(e) => setNewTransition({ ...newTransition, priority: parseInt(e.target.value) || 1 })}
-                  placeholder="Oncelik"
+                  placeholder="Öncelik"
                   className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 />
                 <div className="col-span-2">
@@ -1220,7 +1226,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                     type="text"
                     value={newTransition.conditionExpression}
                     onChange={(e) => setNewTransition({ ...newTransition, conditionExpression: e.target.value })}
-                    placeholder="Kosul ifadesi (ornegin: temperature > 30)"
+                    placeholder="Koşul ifadesi (örneğin: temperature > 30)"
                     className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg font-mono text-sm"
                   />
                 </div>
@@ -1230,7 +1236,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                   onClick={() => setShowAddTransition(false)}
                   className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-100"
                 >
-                  Iptal
+                  İptal
                 </button>
                 <button
                   onClick={handleAddTransition}
@@ -1248,10 +1254,10 @@ const AutomationProgramEditorPage: React.FC = () => {
               <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kod</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kaynak Adim</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hedef Adim</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kosul</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Oncelik</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kaynak Adım</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hedef Adım</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Koşul</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Öncelik</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"></th>
                 </tr>
               </thead>
@@ -1259,7 +1265,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                 {transitions.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                      Henuz gecis eklenmemis
+                      Henüz geçiş eklenmemiş
                     </td>
                   </tr>
                 ) : (
@@ -1310,12 +1316,12 @@ const AutomationProgramEditorPage: React.FC = () => {
           {/* Edge Device Selector */}
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
             <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
-              Edge Cihazi Sec
+              Edge Cihazı Seç
             </h3>
             {onlineDevices.length === 0 ? (
               <div className="text-center py-4 text-gray-500 text-sm">
                 <WifiOff className="h-8 w-8 mx-auto text-gray-400 mb-2" />
-                Aktif ve cevrimici cihaz bulunamadi
+                Aktif ve çevrimiçi cihaz bulunamadı
               </div>
             ) : (
               <select
@@ -1323,11 +1329,11 @@ const AutomationProgramEditorPage: React.FC = () => {
                 onChange={(e) => setSelectedDeviceId(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
               >
-                <option value="">Cihaz seciniz...</option>
+                <option value="">Cihaz seçiniz...</option>
                 {onlineDevices.map((device: EdgeDevice) => (
                   <option key={device.id} value={device.id}>
                     {device.deviceName} ({device.deviceCode}) - {getDeviceModelText(device.deviceModel)}
-                    {device.isOnline ? ' [Cevrimici]' : ' [Cevrimdisi]'}
+                    {device.isOnline ? ' [Çevrimiçi]' : ' [Çevrimdışı]'}
                   </option>
                 ))}
               </select>
@@ -1336,7 +1342,7 @@ const AutomationProgramEditorPage: React.FC = () => {
               <div className="mt-3 flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
                 <Wifi className="h-4 w-4" />
                 <span>
-                  {onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId)?.deviceName} - Cevrimici
+                  {onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId)?.deviceName} - Çevrimiçi
                 </span>
               </div>
             )}
@@ -1347,12 +1353,12 @@ const AutomationProgramEditorPage: React.FC = () => {
             <div className="text-center py-4">
               <Server className="h-12 w-12 mx-auto text-gray-400 mb-4" />
               <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                Edge Cihazina Dagit
+                Edge Cihazına Dağıt
               </h3>
               <p className="text-gray-500 dark:text-gray-400 mb-4 text-sm">
                 {program?.status === ProgramStatus.APPROVED
-                  ? `${deployTarget === DeployTarget.RUST_ENGINE ? 'Rust Engine' : deployTarget === DeployTarget.CODESYS_PLC ? 'Codesys PLC' : 'PLC Setpoint'} hedefine dagitim yapilacak`
-                  : 'Program dagitilmadan once onaylanmalidir'}
+                  ? `${deployTarget === DeployTarget.RUST_ENGINE ? 'Rust Engine' : deployTarget === DeployTarget.CODESYS_PLC ? 'Codesys PLC' : 'PLC Setpoint'} hedefine dağıtım yapılacak`
+                  : 'Program dağıtılmadan önce onaylanmalıdır'}
               </p>
               <button
                 onClick={handleDeploy}
@@ -1368,16 +1374,16 @@ const AutomationProgramEditorPage: React.FC = () => {
                 ) : (
                   <Upload className="h-4 w-4" />
                 )}
-                Dagitim Baslat
+                Dağıtım Başlat
               </button>
               {program?.status !== ProgramStatus.APPROVED && (
                 <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                  Dagitim icin programin onaylanmis olmasi gerekir.
+                  Dağıtım için programın onaylanmış olması gerekir.
                 </p>
               )}
               {program?.status === ProgramStatus.APPROVED && !selectedDeviceId && (
                 <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                  Lutfen bir edge cihazi seciniz.
+                  Lütfen bir edge cihazı seçiniz.
                 </p>
               )}
             </div>
@@ -1388,12 +1394,12 @@ const AutomationProgramEditorPage: React.FC = () => {
             <div className="flex items-center gap-2 mb-4">
               <History className="h-4 w-4 text-gray-500" />
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Dagitim Gecmisi
+                Dağıtım Geçmişi
               </h3>
             </div>
             {deploymentHistory.length === 0 ? (
               <div className="text-center py-6 text-gray-500 text-sm">
-                Henuz dagitim yapilmamis
+                Henüz dağıtım yapılmamış
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -1402,7 +1408,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                     <tr>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Versiyon</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Dagitan</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Dağıtan</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tarih</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Komut ID</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase"></th>
@@ -1432,7 +1438,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                             {idx === 0 && dep.status === 'success' && (
                               <button
                                 className="inline-flex items-center gap-1 text-xs px-2 py-1 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded"
-                                title="Bu versiyona geri don"
+                                title="Bu versiyona geri dön"
                               >
                                 <Undo2 className="h-3 w-3" />
                                 Rollback

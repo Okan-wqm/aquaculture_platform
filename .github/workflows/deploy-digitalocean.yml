@@ -572,7 +572,7 @@ jobs:
       (needs.build-frontend-images.result == 'success' || needs.build-frontend-images.result == 'skipped') &&
       (needs.build-backend-images.result == 'success' || needs.build-frontend-images.result == 'success')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     environment: production
     permissions:
       contents: read
@@ -585,7 +585,7 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          command_timeout: 10m
+          command_timeout: 15m
           script: |
             set -e
             cd /var/aqua-saas

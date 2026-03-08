@@ -8,6 +8,8 @@
  * 4. After dilution → CO2_WAIT: track CO₂ rate of change, wait until stable
  * 5. If pH out of range (and CO₂ stable) → calculate exact acid/base dose
  * 6. Recalculate pH from thermodynamics
+ *
+ * Reagent selection: user picks acid & base chemical + concentration.
  */
 
 import { useRef, useState, useCallback, useEffect } from 'react';
@@ -21,8 +23,6 @@ import {
   BASE_PUMP_MAX,
   NUT_PUMP_MAX,
   DIL_PUMP_MAX,
-  ACID_CONC,
-  BASE_CONC,
   CO2_EQ_MMOL,
 } from './types';
 import {
@@ -32,21 +32,22 @@ import {
   calcAlkOfDicPh,
   calcPhForAlkDic,
 } from '../engine/carbonate-chemistry';
-import { HYDRO_REAGENTS, reagentDeltas } from '../engine/reagents';
-
-const HNO3 = HYDRO_REAGENTS.find(r => r.name === 'Nitric Acid')!;
-const KOH = HYDRO_REAGENTS.find(r => r.name === 'Potassium Hydroxide')!;
+import { HYDRO_REAGENTS, HydroReagent, reagentDeltas } from '../engine/reagents';
 
 const HISTORY_MAX = 500;
 const TRAIL_MAX = 100;
 const INTERVAL_MS = 40; // 25 fps
 
 // EC model constants
-const EC_PER_ML_PER_L = 0.00015;        // mS/cm per mL nutrient per L tank
-const NUT_ALK_PER_ML_PER_L = -0.00002;  // meq/L per mL nutrient per L tank (acidic effect)
+const EC_PER_ML_PER_L = 0.00015;
+const NUT_ALK_PER_ML_PER_L = -0.00002;
 
-// CO₂ stability threshold: if rate of change < this, CO₂ is stable
-const CO2_STABLE_RATE = 0.05;  // mg/L per second
+// CO₂ stability threshold: mg/L per second
+const CO2_STABLE_RATE = 0.05;
+
+function findReagent(name: string): HydroReagent {
+  return HYDRO_REAGENTS.find(r => r.name === name) || HYDRO_REAGENTS[0];
+}
 
 function createInitialState(config: SimConfig): SimState {
   const DIC = calcDicOfAlk(config.initialAlkMeq, config.initialPH, config.tempC, config.salinity);
@@ -72,30 +73,53 @@ function createInitialState(config: SimConfig): SimState {
 }
 
 // ============================================================================
-// Dosing calculations
+// Dosing calculation - works with any reagent (vertical or diagonal)
 // ============================================================================
 
 /**
- * Calculate grams of acid or base needed to bring pH to target.
- * Uses carbonate chemistry: target ALK = f(DIC, targetPH) → deltaALK → grams.
+ * Calculate grams of reagent needed to move pH to target.
+ * Uses bisection: find grams where pH(ALK + dALK, DIC + dDIC) = targetPH.
  */
-function calcPhDose(
+function calcDoseGrams(
   state: SimState,
   targetPH: number,
+  reagent: HydroReagent,
   config: SimConfig,
-): { acidGrams: number; baseGrams: number } {
-  const targetALK = calcAlkOfDicPh(state.DIC, targetPH, config.tempC, config.salinity);
-  const deltaALK = targetALK - state.ALK;
+): number {
+  const currentPH = state.pH;
+  if (Math.abs(currentPH - targetPH) < 0.01) return 0;
 
-  if (Math.abs(deltaALK) < 0.001) return { acidGrams: 0, baseGrams: 0 };
+  const isBase = reagent.radians < Math.PI; // bases point UP or diagonal UP
 
-  if (deltaALK < 0) {
-    const grams = Math.abs(deltaALK) * HNO3.mw * config.volumeL / (HNO3.meqPerMol * 1000);
-    return { acidGrams: grams, baseGrams: 0 };
-  } else {
-    const grams = deltaALK * KOH.mw * config.volumeL / (KOH.meqPerMol * 1000);
-    return { acidGrams: 0, baseGrams: grams };
+  // Quick check: do we need this reagent?
+  if (isBase && currentPH >= targetPH) return 0;  // pH already high enough
+  if (!isBase && currentPH <= targetPH) return 0;  // pH already low enough
+
+  let lo = 0;
+  let hi = 500; // max 500g per calculation
+
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    const { deltaDIC, deltaALK } = reagentDeltas(reagent, mid, config.volumeL);
+    const newPH = calcPhForAlkDic(
+      state.ALK + deltaALK,
+      Math.max(0.001, state.DIC + deltaDIC),
+      config.tempC,
+      config.salinity,
+    );
+
+    if (isBase) {
+      if (newPH < targetPH) lo = mid;
+      else hi = mid;
+    } else {
+      if (newPH > targetPH) lo = mid;
+      else hi = mid;
+    }
+
+    if (hi - lo < 0.0001) break;
   }
+
+  return (lo + hi) / 2;
 }
 
 function calcEcDose(currentEC: number, targetEC: number, volumeL: number): number {
@@ -155,17 +179,17 @@ export function useSimulation() {
     const dt = cfg.dt;
     const prevCo2 = state.co2;
 
+    // Resolve selected reagents
+    const acidReagent = findReagent(cfg.acidReagent);
+    const baseReagent = findReagent(cfg.baseReagent);
+
     // ── 1. Aeration: CO₂ exchange with atmosphere (Henry's law) ──
-    // CO₂ moves toward atmospheric equilibrium. Rate depends on aerationRate.
-    // CO₂ (as DIC fraction) = alpha0 * DIC. Gas exchange changes DIC, not ALK.
     const co2Now = calcCo2OfDic(state.DIC, state.pH, cfg.tempC, cfg.salinity);
     const dDIC = cfg.aerationRate * (dt / 60) * (CO2_EQ_MMOL - co2Now);
     state.DIC += dDIC;
 
     // ── 2. Plant disturbances ──
-    // Root H⁺ extrusion → ALK decreases
     state.ALK -= 0.0005 * (dt / 60);
-    // Plant nutrient uptake → EC decreases
     state.EC -= 0.002 * (dt / 60);
     state.EC = Math.max(0.1, state.EC);
 
@@ -181,40 +205,40 @@ export function useSimulation() {
     const ecInRange = state.EC >= cfg.ecMin && state.EC <= cfg.ecMax;
 
     if (state.state === 'CO2_WAIT') {
-      // Waiting for CO₂ to stabilize after dilution.
-      // Track rate of change: |dCO₂/dt| in mg/L per second.
-      // Recalculate current co2 after aeration adjustment
+      // Track CO₂ rate of change, wait until stable
       state.DIC = Math.max(0.001, state.DIC);
       state.pH = calcPhForAlkDic(state.ALK, state.DIC, cfg.tempC, cfg.salinity);
       const co2AfterMg = co2MmToMg(calcCo2OfDic(state.DIC, state.pH, cfg.tempC, cfg.salinity));
-      const co2Rate = Math.abs(co2AfterMg - prevCo2) / dt; // mg/L per second
+      const co2Rate = Math.abs(co2AfterMg - prevCo2) / dt;
 
       state.co2 = co2AfterMg;
       state.co2Eq = co2MmToMg(CO2_EQ_MMOL);
 
       if (co2Rate < CO2_STABLE_RATE) {
-        // CO₂ stabilized → back to IDLE
         newState = 'IDLE';
       }
-      // All pumps off during CO2_WAIT
     } else if (!ecInRange) {
       if (state.EC < cfg.ecMin) {
         const mlNeeded = calcEcDose(state.EC, ecMid, cfg.volumeL);
         nutPump = mlToPumpPercent(mlNeeded, NUT_PUMP_MAX, dt);
         newState = 'DOSING_EC';
       } else {
-        // EC too high → dilute with freshwater
         dilPump = 80;
         newState = 'DILUTE';
       }
     } else if (state.state === 'DILUTE') {
-      // EC just came back into range after dilution → wait for CO₂ to stabilize
       newState = 'CO2_WAIT';
     } else if (state.pH < cfg.phMin || state.pH > cfg.phMax) {
-      // EC in range, CO₂ stable → correct pH
-      const { acidGrams, baseGrams } = calcPhDose(state, phMid, cfg);
-      acidPump = gramsToPumpPercent(acidGrams, ACID_PUMP_MAX, ACID_CONC, dt);
-      basePump = gramsToPumpPercent(baseGrams, BASE_PUMP_MAX, BASE_CONC, dt);
+      // pH out of range → calculate dose with selected reagent
+      if (state.pH > cfg.phMax) {
+        // pH too high → need acid
+        const grams = calcDoseGrams(state, phMid, acidReagent, cfg);
+        acidPump = gramsToPumpPercent(grams, ACID_PUMP_MAX, cfg.acidConc, dt);
+      } else {
+        // pH too low → need base
+        const grams = calcDoseGrams(state, phMid, baseReagent, cfg);
+        basePump = gramsToPumpPercent(grams, BASE_PUMP_MAX, cfg.baseConc, dt);
+      }
       newState = 'DOSING_PH';
     } else {
       newState = 'IDLE';
@@ -227,20 +251,20 @@ export function useSimulation() {
     state.state = newState;
 
     // ── 4. Apply doses ──
-    const acidG = pumpGrams(acidPump, ACID_PUMP_MAX, ACID_CONC, dt);
-    const baseG = pumpGrams(basePump, BASE_PUMP_MAX, BASE_CONC, dt);
+    const acidG = pumpGrams(acidPump, ACID_PUMP_MAX, cfg.acidConc, dt);
+    const baseG = pumpGrams(basePump, BASE_PUMP_MAX, cfg.baseConc, dt);
     const nutML = pumpML(nutPump, NUT_PUMP_MAX, dt);
     const dilML = pumpML(dilPump, DIL_PUMP_MAX, dt);
 
     if (acidG > 0) {
-      const d = reagentDeltas(HNO3, acidG, cfg.volumeL);
+      const d = reagentDeltas(acidReagent, acidG, cfg.volumeL);
       state.DIC += d.deltaDIC;
       state.ALK += d.deltaALK;
       state.acidTotalGrams += acidG;
     }
 
     if (baseG > 0) {
-      const d = reagentDeltas(KOH, baseG, cfg.volumeL);
+      const d = reagentDeltas(baseReagent, baseG, cfg.volumeL);
       state.DIC += d.deltaDIC;
       state.ALK += d.deltaALK;
       state.baseTotalGrams += baseG;
@@ -252,15 +276,12 @@ export function useSimulation() {
       state.nutTotalML += nutML;
     }
 
-    // Dilution: mix tank water with freshwater
     if (dilML > 0) {
-      const f = dilML / (cfg.volumeL * 1000); // mixing fraction
-      // Freshwater DIC from its ALK + pH
+      const f = dilML / (cfg.volumeL * 1000);
       const fwDIC = calcDicOfAlk(cfg.freshwaterALK, cfg.freshwaterPH, cfg.tempC, cfg.salinity);
-      // Mix: tank * (1-f) + freshwater * f
       state.ALK = state.ALK * (1 - f) + cfg.freshwaterALK * f;
       state.DIC = state.DIC * (1 - f) + fwDIC * f;
-      state.EC *= (1 - f); // freshwater has ~0 EC
+      state.EC *= (1 - f);
     }
 
     // ── 5. Recalculate pH from thermodynamics ──
@@ -282,16 +303,8 @@ export function useSimulation() {
 
     const s = stateRef.current;
     historyRef.current.push({
-      tick: s.tick,
-      DIC: s.DIC,
-      ALK: s.ALK,
-      pH: s.pH,
-      EC: s.EC,
-      co2: s.co2,
-      acidPump: s.acidPump,
-      basePump: s.basePump,
-      nutPump: s.nutPump,
-      dilPump: s.dilPump,
+      tick: s.tick, DIC: s.DIC, ALK: s.ALK, pH: s.pH, EC: s.EC, co2: s.co2,
+      acidPump: s.acidPump, basePump: s.basePump, nutPump: s.nutPump, dilPump: s.dilPump,
       state: s.state,
     });
     if (historyRef.current.length > HISTORY_MAX) historyRef.current.shift();
@@ -346,13 +359,9 @@ export function useSimulation() {
     state: stateRef.current,
     history: historyRef.current,
     trail: trailRef.current,
-    running,
-    renderCount,
-    config,
-    setConfig,
-    start,
-    stop,
-    reset,
+    running, renderCount,
+    config, setConfig,
+    start, stop, reset,
     applyDisturbance,
   };
 }

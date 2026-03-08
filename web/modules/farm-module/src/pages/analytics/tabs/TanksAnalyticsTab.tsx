@@ -5,7 +5,7 @@
  * Uses mock data — will be replaced with GraphQL queries.
  */
 
-import React from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, KpiCard } from '@aquaculture/shared-ui';
 import {
   BarChart,
@@ -23,6 +23,15 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import { useTanksList } from '../../../hooks/useTanks';
+import { TankWithBatch, tankToTankWithBatch } from '../../tanks/types';
+import {
+  CompactSummaryStats,
+  TankChartsSection,
+  ChartSettingsModal,
+  defaultChartVisibility,
+} from '../../tanks/components';
+import type { ChartVisibility } from '../../tanks/components';
 
 // ============================================================================
 // Constants
@@ -103,6 +112,91 @@ interface TanksAnalyticsTabProps {
 }
 
 const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateRange }) => {
+  // Fetch tank data for chart components
+  const { data } = useTanksList();
+
+  const tankData: TankWithBatch[] = useMemo(() => {
+    if (!data?.items) return [];
+    return data.items.map(tankToTankWithBatch);
+  }, [data?.items]);
+
+  // ============================================================================
+  // CHART SETTINGS STATE
+  // ============================================================================
+
+  const [showChartSettings, setShowChartSettings] = useState(false);
+
+  const [chartSelectedTankIds, setChartSelectedTankIds] = useState<string[]>([]);
+
+  const [chartTimeRange, setChartTimeRange] = useState<'7d' | '30d' | '90d'>(() => {
+    const saved = localStorage.getItem('tanks-chart-time-range');
+    return (saved as '7d' | '30d' | '90d') || '30d';
+  });
+
+  const [chartVisibility, setChartVisibility] = useState<ChartVisibility>(() => {
+    try {
+      const saved = localStorage.getItem('tanks-chart-visibility');
+      if (saved) {
+        const parsed: unknown = JSON.parse(saved);
+        // HIGH-04: validate shape before spreading to prevent prototype pollution
+        if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const safe = Object.assign(
+            {},
+            defaultChartVisibility,
+            Object.fromEntries(
+              Object.entries(parsed as Record<string, unknown>).filter(
+                ([k]) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'
+              )
+            )
+          );
+          return safe as ChartVisibility;
+        }
+      }
+    } catch {
+      // ignore malformed localStorage value
+    }
+    return defaultChartVisibility;
+  });
+
+  // ============================================================================
+  // CHART SETTINGS EFFECTS
+  // ============================================================================
+
+  useEffect(() => {
+    if (tankData.length > 0 && chartSelectedTankIds.length === 0) {
+      const saved = localStorage.getItem('tanks-chart-selected-ids');
+      if (saved) {
+        let parsedIds: unknown;
+        try { parsedIds = JSON.parse(saved); } catch { parsedIds = null; }
+        const savedIds = Array.isArray(parsedIds) && parsedIds.every(x => typeof x === 'string')
+          ? (parsedIds as string[])
+          : [];
+        const validIds = savedIds.filter(id => tankData.some(t => t.id === id));
+        if (validIds.length > 0) {
+          setChartSelectedTankIds(validIds);
+        } else {
+          setChartSelectedTankIds(tankData.map(t => t.id));
+        }
+      } else {
+        setChartSelectedTankIds(tankData.map(t => t.id));
+      }
+    }
+  }, [tankData]);
+
+  useEffect(() => {
+    if (chartSelectedTankIds.length > 0) {
+      localStorage.setItem('tanks-chart-selected-ids', JSON.stringify(chartSelectedTankIds));
+    }
+  }, [chartSelectedTankIds]);
+
+  useEffect(() => {
+    localStorage.setItem('tanks-chart-time-range', chartTimeRange);
+  }, [chartTimeRange]);
+
+  useEffect(() => {
+    localStorage.setItem('tanks-chart-visibility', JSON.stringify(chartVisibility));
+  }, [chartVisibility]);
+
   return (
     <div className="space-y-6">
       {/* KPI Row */}
@@ -240,6 +334,34 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
           </div>
         </Card>
       </div>
+
+      {/* Divider — Live Tank Analytics */}
+      <hr className="border-gray-300" />
+
+      {/* Compact Summary Stats from real data */}
+      <CompactSummaryStats data={tankData} />
+
+      {/* Tank Charts Section */}
+      <TankChartsSection
+        data={tankData}
+        selectedTankIds={chartSelectedTankIds}
+        timeRange={chartTimeRange}
+        chartVisibility={chartVisibility}
+        onSettingsClick={() => setShowChartSettings(true)}
+      />
+
+      {/* Chart Settings Modal */}
+      <ChartSettingsModal
+        isOpen={showChartSettings}
+        onClose={() => setShowChartSettings(false)}
+        tanks={tankData}
+        selectedTankIds={chartSelectedTankIds}
+        onSelectionChange={setChartSelectedTankIds}
+        timeRange={chartTimeRange}
+        onTimeRangeChange={setChartTimeRange}
+        chartVisibility={chartVisibility}
+        onChartVisibilityChange={setChartVisibility}
+      />
     </div>
   );
 };

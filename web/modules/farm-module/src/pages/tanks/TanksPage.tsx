@@ -2,10 +2,10 @@
  * Tanks Page Component
  * Lists all tanks with their batch metrics
  */
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useTanksList, Tank, tankStatusColors, tankTypeLabels, waterTypeLabels } from '../../hooks/useTanks';
-import { TankWithBatch, TankFilterState, initialFilterState } from './types';
+import { useTanksList, tankStatusColors, tankTypeLabels, waterTypeLabels } from '../../hooks/useTanks';
+import { TankWithBatch, TankFilterState, initialFilterState, tankToTankWithBatch } from './types';
 import { tankColumns, cleanerFishColumns } from './columns';
 import { useColumnVisibility } from './useColumnVisibility';
 import { ColumnVisibilityMenu } from './ColumnVisibilityMenu';
@@ -15,12 +15,7 @@ import {
   FishTypeSelector,
   CleanerBatchSelector,
   OperationType,
-  CompactSummaryStats,
-  TankChartsSection,
-  ChartSettingsModal,
-  defaultChartVisibility,
 } from './components';
-import type { ChartVisibility } from './components';
 
 // Production Modals
 import { MortalityModal } from '../production/components/MortalityModal';
@@ -72,83 +67,6 @@ const categoryLabels: Record<string, string> = {
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
-
-/**
- * Transform Equipment entity to TankWithBatch format
- */
-function tankToTankWithBatch(equipment: Tank): TankWithBatch {
-  const bm = equipment.batchMetrics;
-  const specs = equipment.specifications || {};
-
-  // Get category from equipmentType
-  const category = equipment.equipmentType?.category?.toLowerCase() || 'tank';
-
-  return {
-    // Basic info
-    id: equipment.id,
-    name: equipment.name,
-    code: equipment.code,
-    status: equipment.status,
-    category: category as 'tank' | 'pond' | 'cage',
-    isActive: equipment.isActive,
-
-    // Location
-    departmentId: equipment.departmentId,
-    departmentName: equipment.department?.name,
-    siteId: equipment.department?.siteId,
-    siteName: equipment.department?.site?.name,
-
-    // Specifications (from specifications JSON)
-    tankType: specs.tankType as string,
-    material: specs.material as string,
-    waterType: specs.waterType as string,
-    volume: equipment.volume || (specs.effectiveVolume as number) || (specs.waterVolume as number),
-    maxBiomass: specs.maxBiomass as number,
-    maxDensity: specs.maxDensity as number,
-
-    // Batch metrics from TankBatch entity
-    batchNumber: bm?.batchNumber,
-    batchId: bm?.batchId,
-    isMixedBatch: bm?.isMixedBatch || false,
-    pieces: bm?.pieces,
-    avgWeight: bm?.avgWeight,
-    biomass: bm?.biomass,
-    density: bm?.density,
-    capacityUsedPercent: bm?.capacityUsedPercent,
-    isOverCapacity: bm?.isOverCapacity || false,
-    lastFeedingAt: bm?.lastFeedingAt,
-    lastSamplingAt: bm?.lastSamplingAt,
-    lastMortalityAt: bm?.lastMortalityAt,
-    daysSinceStocking: bm?.daysSinceStocking,
-
-    // Performance metrics from Batch entity
-    initialQuantity: bm?.initialQuantity,
-    totalMortality: bm?.totalMortality,
-    totalCull: bm?.totalCull,
-    survivalRate: bm?.survivalRate,
-    mortalityRate: bm?.mortalityRate,
-    fcr: bm?.fcr,
-    growthRate: undefined, // Not yet available
-    sgr: bm?.sgr,
-    projectedHarvestDate: undefined,
-    stockedAt: undefined,
-
-    // Species information
-    speciesCode: bm?.speciesCode,
-
-    // Feeding information
-    feedCode: bm?.feedCode,
-    feedName: bm?.feedName,
-    feedingRatePercent: bm?.feedingRatePercent,
-    dailyFeedKg: bm?.dailyFeedKg,
-
-    // Cleaner Fish metrics
-    cleanerFishQuantity: bm?.cleanerFishQuantity,
-    cleanerFishBiomassKg: bm?.cleanerFishBiomassKg,
-    cleanerFishDetails: bm?.cleanerFishDetails,
-    hasCleanerFish: (bm?.cleanerFishQuantity || 0) > 0,
-  };
-}
 
 /**
  * Convert TankWithBatch to TankBatch format for modals
@@ -279,49 +197,6 @@ export const TanksPage: React.FC = () => {
   const [selectedCleanerBatch, setSelectedCleanerBatch] = useState<CleanerFishBatch | null>(null);
 
   // ============================================================================
-  // CHART SETTINGS STATE
-  // ============================================================================
-
-  // Chart settings modal visibility
-  const [showChartSettings, setShowChartSettings] = useState(false);
-
-  // Selected tanks for charts (default: all tanks)
-  const [chartSelectedTankIds, setChartSelectedTankIds] = useState<string[]>([]);
-
-  // Time range for line charts
-  const [chartTimeRange, setChartTimeRange] = useState<'7d' | '30d' | '90d'>(() => {
-    const saved = localStorage.getItem('tanks-chart-time-range');
-    return (saved as '7d' | '30d' | '90d') || '30d';
-  });
-
-  // Chart visibility settings
-  const [chartVisibility, setChartVisibility] = useState<ChartVisibility>(() => {
-    try {
-      const saved = localStorage.getItem('tanks-chart-visibility');
-      if (saved) {
-        const parsed: unknown = JSON.parse(saved);
-        // HIGH-04: validate shape before spreading to prevent prototype pollution
-        if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          // Filter out any __proto__ / constructor keys
-          const safe = Object.assign(
-            {},
-            defaultChartVisibility,
-            Object.fromEntries(
-              Object.entries(parsed as Record<string, unknown>).filter(
-                ([k]) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'
-              )
-            )
-          );
-          return safe as ChartVisibility;
-        }
-      }
-    } catch {
-      // ignore malformed localStorage value
-    }
-    return defaultChartVisibility;
-  });
-
-  // ============================================================================
   // DATA TRANSFORMATION
   // ============================================================================
 
@@ -336,54 +211,6 @@ export const TanksPage: React.FC = () => {
     if (!selectedTankId) return null;
     return tableData.find((t) => t.id === selectedTankId) || null;
   }, [selectedTankId, tableData]);
-
-  // ============================================================================
-  // CHART SETTINGS EFFECTS
-  // ============================================================================
-
-  // Initialize chart selected tanks when data loads
-  useEffect(() => {
-    if (tableData.length > 0 && chartSelectedTankIds.length === 0) {
-      // Check for saved selection in localStorage
-      const saved = localStorage.getItem('tanks-chart-selected-ids');
-      if (saved) {
-        let parsedIds: unknown;
-        try { parsedIds = JSON.parse(saved); } catch { parsedIds = null; }
-        // HIGH-04: validate it's actually a string array before using
-        const savedIds = Array.isArray(parsedIds) && parsedIds.every(x => typeof x === 'string')
-          ? (parsedIds as string[])
-          : [];
-        // Filter to only include IDs that still exist
-        const validIds = savedIds.filter(id => tableData.some(t => t.id === id));
-        if (validIds.length > 0) {
-          setChartSelectedTankIds(validIds);
-        } else {
-          // All saved IDs are invalid, select all
-          setChartSelectedTankIds(tableData.map(t => t.id));
-        }
-      } else {
-        // No saved selection, select all by default
-        setChartSelectedTankIds(tableData.map(t => t.id));
-      }
-    }
-  }, [tableData]);
-
-  // Save chart selected tanks to localStorage
-  useEffect(() => {
-    if (chartSelectedTankIds.length > 0) {
-      localStorage.setItem('tanks-chart-selected-ids', JSON.stringify(chartSelectedTankIds));
-    }
-  }, [chartSelectedTankIds]);
-
-  // Save time range to localStorage
-  useEffect(() => {
-    localStorage.setItem('tanks-chart-time-range', chartTimeRange);
-  }, [chartTimeRange]);
-
-  // Save chart visibility to localStorage
-  useEffect(() => {
-    localStorage.setItem('tanks-chart-visibility', JSON.stringify(chartVisibility));
-  }, [chartVisibility]);
 
   // ============================================================================
   // QUICK ACTIONS HANDLERS
@@ -1227,18 +1054,6 @@ export const TanksPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Compact Summary Stats */}
-      <CompactSummaryStats data={filteredData} />
-
-      {/* Charts Section */}
-      <TankChartsSection
-        data={filteredData}
-        selectedTankIds={chartSelectedTankIds}
-        timeRange={chartTimeRange}
-        chartVisibility={chartVisibility}
-        onSettingsClick={() => setShowChartSettings(true)}
-      />
-
       {/* Tabs */}
       <div className="flex border-b border-gray-200 mb-6">
         <button
@@ -1594,19 +1409,6 @@ export const TanksPage: React.FC = () => {
           onSuccess={handleRemoveSuccess}
         />
       )}
-
-      {/* Chart Settings Modal */}
-      <ChartSettingsModal
-        isOpen={showChartSettings}
-        onClose={() => setShowChartSettings(false)}
-        tanks={filteredData}
-        selectedTankIds={chartSelectedTankIds}
-        onSelectionChange={setChartSelectedTankIds}
-        timeRange={chartTimeRange}
-        onTimeRangeChange={setChartTimeRange}
-        chartVisibility={chartVisibility}
-        onChartVisibilityChange={setChartVisibility}
-      />
 
       {/* New Batch Modal */}
       <BatchFormModal

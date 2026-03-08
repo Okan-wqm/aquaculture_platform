@@ -1,5 +1,6 @@
 /**
  * Time Series Charts - pH, EC, Pump outputs, DIC/ALK
+ * Shows target ranges as shaded bands.
  */
 import React from 'react';
 import {
@@ -8,15 +9,17 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  ReferenceLine,
+  ReferenceArea,
   ResponsiveContainer,
 } from 'recharts';
 import { SimSnapshot } from '../simulation/types';
 
 interface TimeSeriesChartsProps {
   history: SimSnapshot[];
-  targetPH: number;
-  targetEC: number;
+  phMin: number;
+  phMax: number;
+  ecMin: number;
+  ecMax: number;
   dt: number;
 }
 
@@ -30,7 +33,7 @@ const ChartWrapper: React.FC<{ title: string; children: React.ReactNode }> = ({ 
 );
 
 const TimeSeriesCharts: React.FC<TimeSeriesChartsProps> = ({
-  history, targetPH, targetEC, dt,
+  history, phMin, phMax, ecMin, ecMax, dt,
 }) => {
   const data = history.map(s => ({
     t: parseFloat((s.tick * dt).toFixed(1)),
@@ -70,7 +73,7 @@ const TimeSeriesCharts: React.FC<TimeSeriesChartsProps> = ({
             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
             <XAxis dataKey="t" type="number" domain={[tMin, tMax]} tick={{ fontSize: 9 }} />
             <YAxis tick={{ fontSize: 9 }} domain={['auto', 'auto']} />
-            <ReferenceLine y={targetPH} stroke="#16a34a" strokeDasharray="4 3" strokeWidth={1.5} />
+            <ReferenceArea y1={phMin} y2={phMax} fill="#16a34a" fillOpacity={0.1} strokeOpacity={0} />
             <Line dataKey="pH" stroke="#2563eb" strokeWidth={1.5} dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
@@ -83,7 +86,7 @@ const TimeSeriesCharts: React.FC<TimeSeriesChartsProps> = ({
             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
             <XAxis dataKey="t" type="number" domain={[tMin, tMax]} tick={{ fontSize: 9 }} />
             <YAxis tick={{ fontSize: 9 }} domain={['auto', 'auto']} />
-            <ReferenceLine y={targetEC} stroke="#16a34a" strokeDasharray="4 3" strokeWidth={1.5} />
+            <ReferenceArea y1={ecMin} y2={ecMax} fill="#16a34a" fillOpacity={0.1} strokeOpacity={0} />
             <Line dataKey="EC" stroke="#ea580c" strokeWidth={1.5} dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>

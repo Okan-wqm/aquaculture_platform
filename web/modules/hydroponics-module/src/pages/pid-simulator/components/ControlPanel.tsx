@@ -1,18 +1,14 @@
 /**
- * Control Panel - tank values, setpoints, PID tuning, disturbances
+ * Control Panel - tank values, target ranges, system params, disturbances
  */
 import React from 'react';
-import { SimConfig, SimState, PIDParams } from '../simulation/types';
+import { SimConfig, SimState } from '../simulation/types';
 
 interface ControlPanelProps {
   state: SimState;
   config: SimConfig;
-  phPIDParams: PIDParams;
-  ecPIDParams: PIDParams;
   running: boolean;
   onConfigChange: (c: SimConfig) => void;
-  onPhPIDChange: (p: PIDParams) => void;
-  onEcPIDChange: (p: PIDParams) => void;
   onStart: () => void;
   onStop: () => void;
   onReset: () => void;
@@ -48,12 +44,13 @@ const Slider: React.FC<{
 );
 
 const ControlPanel: React.FC<ControlPanelProps> = ({
-  state, config, phPIDParams, ecPIDParams, running,
-  onConfigChange, onPhPIDChange, onEcPIDChange,
-  onStart, onStop, onReset, onDisturbance,
+  state, config, running,
+  onConfigChange, onStart, onStop, onReset, onDisturbance,
 }) => {
-  const phColor = state.pH < 5.0 || state.pH > 7.5 ? 'text-red-600' : 'text-gray-900';
-  const ecColor = state.EC < 0.5 || state.EC > 3.5 ? 'text-red-600' : 'text-gray-900';
+  const phInRange = state.pH >= config.phMin && state.pH <= config.phMax;
+  const ecInRange = state.EC >= config.ecMin && state.EC <= config.ecMax;
+  const phColor = phInRange ? 'text-green-700' : 'text-red-600';
+  const ecColor = ecInRange ? 'text-green-700' : 'text-red-600';
 
   return (
     <div className="w-[280px] flex-shrink-0 bg-white rounded-lg border border-gray-200 p-3 overflow-y-auto text-sm"
@@ -62,11 +59,11 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       <div className="mb-4">
         <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tank Values</h4>
         <div className="grid grid-cols-2 gap-2">
-          <div className="bg-gray-50 rounded p-2 text-center">
+          <div className={`rounded p-2 text-center ${phInRange ? 'bg-green-50' : 'bg-red-50'}`}>
             <div className="text-[10px] text-gray-500">pH</div>
             <div className={`text-xl font-bold font-mono ${phColor}`}>{state.pH.toFixed(2)}</div>
           </div>
-          <div className="bg-gray-50 rounded p-2 text-center">
+          <div className={`rounded p-2 text-center ${ecInRange ? 'bg-green-50' : 'bg-red-50'}`}>
             <div className="text-[10px] text-gray-500">EC (mS/cm)</div>
             <div className={`text-xl font-bold font-mono ${ecColor}`}>{state.EC.toFixed(2)}</div>
           </div>
@@ -78,28 +75,49 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             <div className="text-[10px] text-gray-500">ALK (meq/L)</div>
             <div className="text-sm font-mono text-gray-700">{state.ALK.toFixed(3)}</div>
           </div>
-          <div className="bg-gray-50 rounded p-2 text-center col-span-2">
+          <div className="bg-gray-50 rounded p-2 text-center">
             <div className="text-[10px] text-gray-500">CO₂ (mg/L)</div>
             <div className="text-sm font-mono text-gray-700">{state.co2.toFixed(1)}</div>
+          </div>
+          <div className="bg-gray-50 rounded p-2 text-center">
+            <div className="text-[10px] text-gray-500">State</div>
+            <div className="text-sm font-mono text-gray-700">{state.state}</div>
           </div>
         </div>
       </div>
 
-      {/* Setpoints */}
+      {/* Target Ranges */}
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Setpoints</h4>
+        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">pH Range</h4>
         <Slider
-          label="Target pH"
-          value={config.targetPH}
-          min={4.0} max={8.0} step={0.1}
-          onChange={v => onConfigChange({ ...config, targetPH: v })}
+          label="pH Min"
+          value={config.phMin}
+          min={4.0} max={config.phMax - 0.1} step={0.1}
+          onChange={v => onConfigChange({ ...config, phMin: v })}
         />
         <Slider
-          label="Target EC"
-          value={config.targetEC}
-          min={0.5} max={4.0} step={0.1}
+          label="pH Max"
+          value={config.phMax}
+          min={config.phMin + 0.1} max={8.0} step={0.1}
+          onChange={v => onConfigChange({ ...config, phMax: v })}
+        />
+      </div>
+
+      <div className="mb-4">
+        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">EC Range</h4>
+        <Slider
+          label="EC Min"
+          value={config.ecMin}
+          min={0.5} max={config.ecMax - 0.1} step={0.1}
           unit=" mS/cm"
-          onChange={v => onConfigChange({ ...config, targetEC: v })}
+          onChange={v => onConfigChange({ ...config, ecMin: v })}
+        />
+        <Slider
+          label="EC Max"
+          value={config.ecMax}
+          min={config.ecMin + 0.1} max={4.0} step={0.1}
+          unit=" mS/cm"
+          onChange={v => onConfigChange({ ...config, ecMax: v })}
         />
       </div>
 
@@ -130,54 +148,23 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         />
       </div>
 
-      {/* pH PID Tuning */}
+      {/* Totals */}
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">pH PID</h4>
-        <Slider
-          label="Kp"
-          value={phPIDParams.Kp}
-          min={0} max={30} step={0.5}
-          onChange={v => onPhPIDChange({ ...phPIDParams, Kp: v })}
-        />
-        <Slider
-          label="Ki"
-          value={phPIDParams.Ki}
-          min={0} max={5} step={0.05}
-          onChange={v => onPhPIDChange({ ...phPIDParams, Ki: v })}
-        />
-        <Slider
-          label="Kd"
-          value={phPIDParams.Kd}
-          min={0} max={10} step={0.1}
-          onChange={v => onPhPIDChange({ ...phPIDParams, Kd: v })}
-        />
-        <div className="flex justify-between text-[10px] text-gray-400 mt-1">
-          <span>Gain Sched: {state.gainSchedule.toFixed(2)}x</span>
-          <span>Buffer: {state.bufferCapacity.toFixed(1)}</span>
+        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Total Dosed</h4>
+        <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-500 font-mono">
+          <div className="text-center">
+            <div>Acid</div>
+            <div className="text-red-600 font-semibold">{state.acidTotalGrams.toFixed(1)}g</div>
+          </div>
+          <div className="text-center">
+            <div>Base</div>
+            <div className="text-green-600 font-semibold">{state.baseTotalGrams.toFixed(1)}g</div>
+          </div>
+          <div className="text-center">
+            <div>Nut</div>
+            <div className="text-orange-600 font-semibold">{state.nutTotalML.toFixed(0)}mL</div>
+          </div>
         </div>
-      </div>
-
-      {/* EC PID Tuning */}
-      <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">EC PID</h4>
-        <Slider
-          label="Kp"
-          value={ecPIDParams.Kp}
-          min={0} max={50} step={1}
-          onChange={v => onEcPIDChange({ ...ecPIDParams, Kp: v })}
-        />
-        <Slider
-          label="Ki"
-          value={ecPIDParams.Ki}
-          min={0} max={10} step={0.1}
-          onChange={v => onEcPIDChange({ ...ecPIDParams, Ki: v })}
-        />
-        <Slider
-          label="Kd"
-          value={ecPIDParams.Kd}
-          min={0} max={5} step={0.1}
-          onChange={v => onEcPIDChange({ ...ecPIDParams, Kd: v })}
-        />
       </div>
 
       {/* Disturbances */}

@@ -54,14 +54,14 @@ export function getK2(tempC: number, S: number): number {
 }
 
 /**
- * Kw - Ion product of water (Millero 1995, Total scale)
+ * Kw - Ion product of water (Millero 1995, SWS scale)
  */
 export function calcKw(tempC: number, S: number): number {
   const T = tempCToK(tempC);
   const lnT = Math.log(T);
   const S2 = Math.sqrt(S);
   const lnKw =
-    148.9652 -
+    148.9802 -
     13847.26 / T -
     23.6521 * lnT +
     (-5.977 + 118.67 / T + 1.0495 * lnT) * S2 -
@@ -230,7 +230,7 @@ export function phLineSlope(pHfree: number, tempC: number, S: number): number {
 /** Y-intercept of pH isoline: [OH-] - [H+] + [B(OH)4-] (meq/L) */
 export function phLineIntercept(pHfree: number, tempC: number, S: number): number {
   const H = Math.pow(10, -pHfree);
-  const Kw = totToFree(calcKw(tempC, S), tempC, S);
+  const Kw = swsToFree(calcKw(tempC, S), tempC, S);
   const OH = Kw / H;
 
   let borate = 0;

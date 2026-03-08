@@ -1,6 +1,6 @@
 /**
- * PID Simulator Page - Hydroponics pH/EC Control
- * Layout: Control Panel (left) | Deffeyes + Time Series (right)
+ * Dosing Simulator Page - Hydroponics pH/EC Control
+ * Range-based dosing with real carbonate chemistry.
  */
 import React from 'react';
 import { useSimulation } from './simulation/use-simulation';
@@ -14,10 +14,10 @@ import { calcAlkOfDicPh } from './engine/carbonate-chemistry';
 const PidSimulatorPage: React.FC = () => {
   const sim = useSimulation();
 
-  // Target ALK: compute from target pH and current DIC (approximate)
+  const phMid = (sim.config.phMin + sim.config.phMax) / 2;
   const targetALK = calcAlkOfDicPh(
     sim.state.DIC,
-    sim.config.targetPH,
+    phMid,
     sim.config.tempC,
     sim.config.salinity,
   );
@@ -28,10 +28,10 @@ const PidSimulatorPage: React.FC = () => {
         {/* Header */}
         <div className="mb-4">
           <h1 className="text-xl font-bold text-gray-900">
-            PID Simulator - Hydroponics pH/EC Control
+            Dosing Simulator - Hydroponics pH/EC Control
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            Thermodynamic plant model with Millero equations | HNO₃ / KOH dosing | Real-time Deffeyes diagram
+            Carbonate chemistry model | HNO₃ / KOH dosing | Range-based control | Real-time Deffeyes diagram
           </p>
         </div>
 
@@ -41,12 +41,8 @@ const PidSimulatorPage: React.FC = () => {
           <ControlPanel
             state={sim.state}
             config={sim.config}
-            phPIDParams={sim.phPIDParams}
-            ecPIDParams={sim.ecPIDParams}
             running={sim.running}
             onConfigChange={sim.setConfig}
-            onPhPIDChange={sim.setPhPIDParams}
-            onEcPIDChange={sim.setEcPIDParams}
             onStart={sim.start}
             onStop={sim.stop}
             onReset={sim.reset}
@@ -60,7 +56,7 @@ const PidSimulatorPage: React.FC = () => {
               <SimDeffeyesChart
                 pH={sim.state.pH}
                 ALK={sim.state.ALK}
-                targetPH={sim.config.targetPH}
+                targetPH={phMid}
                 targetALK={targetALK}
                 tempC={sim.config.tempC}
                 salinity={sim.config.salinity}
@@ -75,9 +71,6 @@ const PidSimulatorPage: React.FC = () => {
                 />
                 <StateIndicator
                   currentState={sim.state.state}
-                  alarmCode={sim.state.alarmCode}
-                  alarmLatched={sim.state.alarmLatched}
-                  onAcknowledge={sim.acknowledgeAlarm}
                 />
               </div>
             </div>
@@ -85,8 +78,10 @@ const PidSimulatorPage: React.FC = () => {
             {/* Bottom: Time Series */}
             <TimeSeriesCharts
               history={sim.history}
-              targetPH={sim.config.targetPH}
-              targetEC={sim.config.targetEC}
+              phMin={sim.config.phMin}
+              phMax={sim.config.phMax}
+              ecMin={sim.config.ecMin}
+              ecMax={sim.config.ecMax}
               dt={sim.config.dt}
             />
           </div>

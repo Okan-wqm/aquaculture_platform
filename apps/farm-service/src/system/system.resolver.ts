@@ -179,13 +179,15 @@ export class SystemResolver {
    */
   @ResolveField(() => SiteResponse, { nullable: true })
   async site(@Parent() system: SystemResponse): Promise<SiteResponse | null> {
+    if ((system as any).site) return (system as any).site;
+
     if (!system.siteId || !system.tenantId) return null;
 
     try {
       const query = new GetSiteQuery(system.siteId, system.tenantId);
-      return this.queryBus.execute(query);
+      return await this.queryBus.execute(query);
     } catch (error: unknown) {
-      this.logger.debug(`Error resolving site: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.debug(`Error resolving site for system ${system.id}: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
@@ -195,13 +197,15 @@ export class SystemResolver {
    */
   @ResolveField(() => DepartmentResponse, { nullable: true })
   async department(@Parent() system: SystemResponse): Promise<DepartmentResponse | null> {
+    if ((system as any).department) return (system as any).department;
+
     if (!system.departmentId || !system.tenantId) return null;
 
     try {
       const query = new GetDepartmentQuery(system.departmentId, system.tenantId);
-      return this.queryBus.execute(query);
+      return await this.queryBus.execute(query);
     } catch (error: unknown) {
-      this.logger.debug(`Error resolving department: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.debug(`Error resolving department for system ${system.id}: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
@@ -211,13 +215,15 @@ export class SystemResolver {
    */
   @ResolveField(() => SystemResponse, { nullable: true })
   async parentSystem(@Parent() system: SystemResponse): Promise<SystemResponse | null> {
+    if ((system as any).parentSystem) return (system as any).parentSystem;
+
     if (!system.parentSystemId || !system.tenantId) return null;
 
     try {
       const query = new GetSystemQuery(system.parentSystemId, system.tenantId);
-      return this.queryBus.execute(query);
+      return await this.queryBus.execute(query);
     } catch (error: unknown) {
-      this.logger.debug(`Error resolving parentSystem: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.debug(`Error resolving parentSystem for system ${system.id}: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
@@ -227,6 +233,8 @@ export class SystemResolver {
    */
   @ResolveField(() => [SystemResponse], { nullable: true })
   async childSystemsField(@Parent() system: SystemResponse): Promise<SystemResponse[]> {
+    if ((system as any).childSystems) return (system as any).childSystems;
+
     if (!system.id || !system.tenantId) return [];
 
     try {
@@ -234,7 +242,7 @@ export class SystemResolver {
       const result = await this.queryBus.execute(query);
       return result.items;
     } catch (error: unknown) {
-      this.logger.debug(`Error resolving childSystemsField: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.debug(`Error resolving childSystemsField for system ${system.id}: ${error instanceof Error ? error.message : String(error)}`);
       return [];
     }
   }

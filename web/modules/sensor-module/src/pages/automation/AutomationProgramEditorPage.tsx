@@ -22,19 +22,19 @@ import {
   CheckCircle,
   AlertCircle,
   Loader2,
-  GitBranch,
   Variable,
   Server,
   Send,
   Code,
   XCircle,
   History,
-  ArrowRightLeft,
   Undo2,
   Wifi,
   WifiOff,
+  Play,
 } from 'lucide-react';
 import StEditorPanel from '../../components/unified-editor/StEditorPanel';
+import SimulationPanel from '../../simulation/SimulationPanel';
 import DeployTargetSelector, { DeployTarget } from '../../components/automation/DeployTargetSelector';
 import { useEdgeDevices, useEdgeDevice, DeviceLifecycleState, getDeviceModelText } from '../../hooks/useEdgeDevices';
 import type { EdgeDevice, DeviceIoConfig } from '../../hooks/useEdgeDevices';
@@ -252,12 +252,12 @@ const AutomationProgramEditorPage: React.FC = () => {
   const isNew = !programId || programId === 'new';
 
   // State
-  const [activeTab, setActiveTab] = useState<'info' | 'steps' | 'variables' | 'code' | 'transitions' | 'deploy'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'steps' | 'variables' | 'code' | 'simulation' | 'transitions' | 'deploy'>('info');
   const [formData, setFormData] = useState({
     programCode: '',
     name: '',
     description: '',
-    programType: ProgramType.SFC,
+    programType: ProgramType.ST,
   });
   const [stCode, setStCode] = useState('');
   const [deployTarget, setDeployTarget] = useState<DeployTarget>(DeployTarget.RUST_ENGINE);
@@ -354,12 +354,12 @@ const AutomationProgramEditorPage: React.FC = () => {
     }
   }, [data]);
 
-  // Switch to 'code' tab when programType is ST for new programs
+  // Switch to 'code' tab for new programs (ST is the only type)
   useEffect(() => {
-    if (isNew && formData.programType === ProgramType.ST) {
+    if (isNew) {
       setActiveTab('code');
     }
-  }, [isNew, formData.programType]);
+  }, [isNew]);
 
   // Mutations
   const handleMutationError = (error: Error, context: string) => {
@@ -526,7 +526,6 @@ const AutomationProgramEditorPage: React.FC = () => {
         description: formData.description,
         programType: formData.programType,
         structuredTextCode: stCode || undefined,
-        sfcDefinition: formData.programType === ProgramType.SFC ? {} : undefined,
         deployTarget,
         ...plcConfig,
       });
@@ -801,15 +800,6 @@ const AutomationProgramEditorPage: React.FC = () => {
         />
         {!isNew && (
           <TabButton
-            active={activeTab === 'steps'}
-            onClick={() => setActiveTab('steps')}
-            icon={<GitBranch className="h-4 w-4" />}
-            label="Adımlar"
-            count={steps.length}
-          />
-        )}
-        {!isNew && (
-          <TabButton
             active={activeTab === 'variables'}
             onClick={() => setActiveTab('variables')}
             icon={<Variable className="h-4 w-4" />}
@@ -823,15 +813,12 @@ const AutomationProgramEditorPage: React.FC = () => {
           icon={<Code className="h-4 w-4" />}
           label="ST Kodu"
         />
-        {!isNew && (
-          <TabButton
-            active={activeTab === 'transitions'}
-            onClick={() => setActiveTab('transitions')}
-            icon={<ArrowRightLeft className="h-4 w-4" />}
-            label="Geçişler"
-            count={transitions.length}
-          />
-        )}
+        <TabButton
+          active={activeTab === 'simulation'}
+          onClick={() => setActiveTab('simulation')}
+          icon={<Play className="h-4 w-4" />}
+          label="Simülasyon"
+        />
         {!isNew && (
           <TabButton
             active={activeTab === 'deploy'}
@@ -875,17 +862,9 @@ const AutomationProgramEditorPage: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Program Tipi
               </label>
-              <select
-                value={formData.programType}
-                onChange={(e) => setFormData({ ...formData, programType: e.target.value as ProgramType })}
-                disabled={!isNew}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 disabled:bg-gray-100"
-              >
-                <option value={ProgramType.SFC}>Sequential Function Chart (SFC)</option>
-                <option value={ProgramType.LD}>Ladder Diagram (LD)</option>
-                <option value={ProgramType.FBD}>Function Block Diagram (FBD)</option>
-                <option value={ProgramType.ST}>Structured Text (ST)</option>
-              </select>
+              <div className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300">
+                Structured Text (ST)
+              </div>
             </div>
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -899,90 +878,6 @@ const AutomationProgramEditorPage: React.FC = () => {
                 className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
               />
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Steps Tab */}
-      {activeTab === 'steps' && !isNew && (
-        <div className="space-y-4">
-          <div className="flex justify-end">
-            <button
-              onClick={() => setShowAddStep(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-            >
-              <Plus className="h-4 w-4" />
-              Adım Ekle
-            </button>
-          </div>
-
-          {showAddStep && (
-            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-              <h3 className="font-medium mb-3">Yeni Adım</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <input
-                  type="text"
-                  value={newStep.stepName}
-                  onChange={(e) => setNewStep({ ...newStep, stepName: e.target.value })}
-                  placeholder="Adım adı"
-                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
-                />
-                <input
-                  type="text"
-                  value={newStep.stepCode}
-                  onChange={(e) => setNewStep({ ...newStep, stepCode: e.target.value })}
-                  placeholder="Adım kodu (S001)"
-                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
-                />
-                <input
-                  type="number"
-                  value={newStep.stepOrder}
-                  onChange={(e) => setNewStep({ ...newStep, stepOrder: parseInt(e.target.value) || 1 })}
-                  placeholder="Sıra no"
-                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
-                />
-                <select
-                  value={newStep.stepType}
-                  onChange={(e) => setNewStep({ ...newStep, stepType: e.target.value })}
-                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
-                >
-                  <option value="normal">Normal</option>
-                  <option value="initial">Başlangıç</option>
-                  <option value="final">Bitiş</option>
-                </select>
-              </div>
-              <div className="flex justify-end gap-2 mt-4">
-                <button
-                  onClick={() => setShowAddStep(false)}
-                  className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-100"
-                >
-                  İptal
-                </button>
-                <button
-                  onClick={handleAddStep}
-                  disabled={addStepMutation.isPending}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                >
-                  Ekle
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="grid gap-3">
-            {steps.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                Henüz adım eklenmemiş
-              </div>
-            ) : (
-              steps.map((step) => (
-                <StepCard
-                  key={step.id}
-                  step={step}
-                  onRemove={() => removeStepMutation.mutate(step.id)}
-                />
-              ))
-            )}
           </div>
         </div>
       )}
@@ -1181,130 +1076,10 @@ const AutomationProgramEditorPage: React.FC = () => {
         </div>
       )}
 
-      {/* Transitions Tab */}
-      {activeTab === 'transitions' && !isNew && (
-        <div className="space-y-4">
-          <div className="flex justify-end">
-            <button
-              onClick={() => setShowAddTransition(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-            >
-              <Plus className="h-4 w-4" />
-              Geçiş Ekle
-            </button>
-          </div>
-
-          {showAddTransition && (
-            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-              <h3 className="font-medium mb-3">Yeni Geçiş</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <input
-                  type="text"
-                  value={newTransition.transitionCode}
-                  onChange={(e) => setNewTransition({ ...newTransition, transitionCode: e.target.value })}
-                  placeholder="Geçiş kodu (T001)"
-                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
-                />
-                <select
-                  value={newTransition.fromStepId}
-                  onChange={(e) => setNewTransition({ ...newTransition, fromStepId: e.target.value })}
-                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
-                >
-                  <option value="">Kaynak adım seç...</option>
-                  {steps.map((s) => (
-                    <option key={s.id} value={s.id}>{s.stepName} ({s.stepCode})</option>
-                  ))}
-                </select>
-                <select
-                  value={newTransition.toStepId}
-                  onChange={(e) => setNewTransition({ ...newTransition, toStepId: e.target.value })}
-                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
-                >
-                  <option value="">Hedef adım seç...</option>
-                  {steps.map((s) => (
-                    <option key={s.id} value={s.id}>{s.stepName} ({s.stepCode})</option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  value={newTransition.priority}
-                  onChange={(e) => setNewTransition({ ...newTransition, priority: parseInt(e.target.value) || 1 })}
-                  placeholder="Öncelik"
-                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
-                />
-                <div className="col-span-2">
-                  <input
-                    type="text"
-                    value={newTransition.conditionExpression}
-                    onChange={(e) => setNewTransition({ ...newTransition, conditionExpression: e.target.value })}
-                    placeholder="Koşul ifadesi (örneğin: temperature > 30)"
-                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg font-mono text-sm"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end gap-2 mt-4">
-                <button
-                  onClick={() => setShowAddTransition(false)}
-                  className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-100"
-                >
-                  İptal
-                </button>
-                <button
-                  onClick={handleAddTransition}
-                  disabled={addTransitionMutation.isPending}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  Ekle
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50 dark:bg-gray-900">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kod</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kaynak Adım</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hedef Adım</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Koşul</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Öncelik</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {transitions.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                      Henüz geçiş eklenmemiş
-                    </td>
-                  </tr>
-                ) : (
-                  transitions.map((t) => {
-                    const fromStep = steps.find((s) => s.id === t.fromStepId);
-                    const toStep = steps.find((s) => s.id === t.toStepId);
-                    return (
-                      <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                        <td className="px-4 py-3 text-sm font-mono">{t.transitionCode || '-'}</td>
-                        <td className="px-4 py-3 text-sm">{fromStep?.stepName || t.fromStepId}</td>
-                        <td className="px-4 py-3 text-sm">{toStep?.stepName || t.toStepId}</td>
-                        <td className="px-4 py-3 text-sm font-mono text-gray-600 dark:text-gray-400">{t.conditionExpression}</td>
-                        <td className="px-4 py-3 text-sm">{t.priority ?? '-'}</td>
-                        <td className="px-4 py-3">
-                          <button
-                            onClick={() => removeTransitionMutation.mutate(t.id)}
-                            className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-red-500"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+      {/* Simulation Tab */}
+      {activeTab === 'simulation' && (
+        <div className="flex flex-col" style={{ height: 'calc(100vh - 320px)', minHeight: 400 }}>
+          <SimulationPanel code={stCode} />
         </div>
       )}
 

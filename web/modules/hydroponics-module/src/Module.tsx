@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthContext } from '@aquaculture/shared-ui';
 import SetupPage from './pages/SetupPage';
 import SolutionPage from './pages/solution/SolutionPage';
+import PidSimulatorPage from './pages/pid-simulator/PidSimulatorPage';
 // PERF-HYD-002: Provide a single shared nutrient-profiles instance that is
 // shared by both SetupPage (NutrientProfileManager) and SolutionPage
 // (useLookupValues inside UserOptionsTab / ResultTab).  Previously each call
@@ -43,6 +44,7 @@ const HydroponicsModule: React.FC = () => (
         <Route index element={<Navigate to="setup" replace />} />
         <Route path="setup" element={<SetupPage />} />
         <Route path="solution/*" element={<SolutionPage />} />
+        <Route path="pid-simulator" element={<PidSimulatorPage />} />
         <Route path="*" element={<Navigate to="/hydroponics/setup" replace />} />
       </Routes>
     </NutrientProfilesProvider>

@@ -19,10 +19,7 @@ export enum ProgramStatus {
 }
 
 export enum ProgramType {
-  SFC = 'SFC',
-  FBD = 'FBD',
   ST = 'ST',
-  LD = 'LD',
 }
 
 // ============================================================================
@@ -55,9 +52,6 @@ export const getStatusText = (status: ProgramStatus): string => {
 
 export const getProgramTypeText = (type: ProgramType): string => {
   const texts: Record<ProgramType, string> = {
-    [ProgramType.SFC]: 'SFC',
-    [ProgramType.LD]: 'Ladder',
-    [ProgramType.FBD]: 'FBD',
     [ProgramType.ST]: 'ST',
   };
   return texts[type] || type;

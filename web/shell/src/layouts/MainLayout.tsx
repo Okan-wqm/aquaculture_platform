@@ -214,6 +214,7 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
 { id: 'sites-health', label: 'Health Events', path: '/sites/health', icon: 'activity' },
       { id: 'sites-harvest', label: 'Harvest', path: '/sites/harvest' },
       { id: 'sites-reports', label: 'Reports', path: '/sites/reports' },
+      { id: 'sites-analytics', label: 'Analytics', path: '/sites/analytics', icon: 'analytics' },
     ],
   },
   sensor: {
@@ -256,6 +257,7 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'hydroponics-water', label: 'Water Analysis', path: '/hydroponics/solution/water_analysis' },
       { id: 'hydroponics-user', label: 'User Options', path: '/hydroponics/solution/user_options' },
       { id: 'hydroponics-result', label: 'Result', path: '/hydroponics/solution/result' },
+      { id: 'hydroponics-pid-sim', label: 'PID Simulator', path: '/hydroponics/pid-simulator' },
     ],
   },
   // 'process' module removed: no corresponding route exists in App.tsx

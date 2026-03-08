@@ -24,6 +24,7 @@ import HarvestPlansPage from './pages/harvest/HarvestPlansPage';
 import TasksPage from './pages/tasks/TasksPage';
 import CompanyPage from './pages/company/CompanyPage';
 import WaterChemistryPage from './pages/water-chemistry/WaterChemistryPage';
+import AnalyticsPage from './pages/analytics/AnalyticsPage';
 
 // ============================================================================
 // Sites Module
@@ -96,6 +97,9 @@ const FarmModule: React.FC = () => {
 
       {/* Ayarlar - Sentinel Hub */}
       <Route path="settings/sentinel-hub" element={<SentinelHubSettingsPage />} />
+
+      {/* Analytics - Performance metrics and insights */}
+      <Route path="analytics/*" element={<AnalyticsPage />} />
 
       {/* Bilinmeyen route'lar -> map'e yönlendir */}
       <Route path="*" element={<Navigate to="/sites/map" replace />} />

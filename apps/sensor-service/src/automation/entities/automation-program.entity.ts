@@ -164,7 +164,7 @@ export class AutomationProgram {
     name: 'program_type',
     type: 'enum',
     enum: ProgramType,
-    default: ProgramType.SFC,
+    default: ProgramType.ST,
   })
   programType!: ProgramType;
 

@@ -66,7 +66,7 @@ export class CreateProgramInput {
 
   @IsOptional()
   @IsEnum(ProgramType)
-  @Field(() => ProgramType, { defaultValue: ProgramType.SFC })
+  @Field(() => ProgramType, { defaultValue: ProgramType.ST })
   programType?: ProgramType;
 
   @IsOptional()

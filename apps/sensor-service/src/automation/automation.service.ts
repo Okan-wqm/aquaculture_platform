@@ -113,7 +113,7 @@ export class AutomationService {
       programCode: input.programCode,
       programName: input.programName,
       description: input.description,
-      programType: input.programType || ProgramType.SFC,
+      programType: input.programType || ProgramType.ST,
       executionMode: input.executionMode,
       deviceId: input.deviceId,
       processTemplateId: input.processTemplateId,

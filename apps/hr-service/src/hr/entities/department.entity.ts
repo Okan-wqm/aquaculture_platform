@@ -25,7 +25,7 @@ export enum DepartmentType {
   GENERAL = 'general',
 }
 
-registerEnumType(DepartmentType, { name: 'DepartmentType' });
+registerEnumType(DepartmentType, { name: 'HRDepartmentType' });
 
 @ObjectType()
 @Entity('departments_hr')

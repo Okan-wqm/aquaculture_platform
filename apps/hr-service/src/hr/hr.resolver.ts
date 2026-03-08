@@ -286,7 +286,7 @@ export class HRResolver {
   }
 
   // Department Queries
-  @Query(() => [DepartmentHR], { name: 'departments' })
+  @Query(() => [DepartmentHR], { name: 'hrDepartments' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async getDepartments(
@@ -298,7 +298,7 @@ export class HRResolver {
     return this.queryBus.execute(new GetDepartmentsQuery(tenantId, siteId, isDeleted));
   }
 
-  @Query(() => DepartmentHR, { name: 'department' })
+  @Query(() => DepartmentHR, { name: 'hrDepartment' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async getDepartment(
@@ -310,10 +310,10 @@ export class HRResolver {
   }
 
   // Department Mutations
-  @Mutation(() => DepartmentHR)
+  @Mutation(() => DepartmentHR, { name: 'createHRDepartment' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  async createDepartment(
+  async createHRDepartment(
     @Args('input') input: CreateDepartmentInput,
     @Context() context: GraphQLContext,
   ): Promise<DepartmentHR> {
@@ -324,10 +324,10 @@ export class HRResolver {
     );
   }
 
-  @Mutation(() => DepartmentHR)
+  @Mutation(() => DepartmentHR, { name: 'updateHRDepartment' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  async updateDepartment(
+  async updateHRDepartment(
     @Args('input') input: UpdateDepartmentInput,
     @Context() context: GraphQLContext,
   ): Promise<DepartmentHR> {

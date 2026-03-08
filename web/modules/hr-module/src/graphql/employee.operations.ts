@@ -91,7 +91,7 @@ export const SEARCH_EMPLOYEES = gql`
 
 export const GET_DEPARTMENTS = gql`
   query GetDepartments($siteId: ID, $isDeleted: Boolean) {
-    departments(siteId: $siteId, isDeleted: $isDeleted) {
+    hrDepartments(siteId: $siteId, isDeleted: $isDeleted) {
       id
       name
       code
@@ -256,8 +256,8 @@ export const UPDATE_EMERGENCY_INFO = gql`
 `;
 
 export const CREATE_DEPARTMENT = gql`
-  mutation CreateDepartment($input: CreateDepartmentInput!) {
-    createDepartment(input: $input) {
+  mutation CreateDepartment($input: CreateHRDepartmentInput!) {
+    createHRDepartment(input: $input) {
       id
       name
       code
@@ -275,8 +275,8 @@ export const CREATE_DEPARTMENT = gql`
 `;
 
 export const UPDATE_DEPARTMENT = gql`
-  mutation UpdateDepartment($input: UpdateDepartmentInput!) {
-    updateDepartment(input: $input) {
+  mutation UpdateDepartment($input: UpdateHRDepartmentInput!) {
+    updateHRDepartment(input: $input) {
       id
       name
       code

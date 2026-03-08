@@ -240,12 +240,12 @@ export function useDepartments(filter?: { siteId?: string; isDeleted?: boolean }
   return useQuery({
     queryKey: departmentKeys.list(filter),
     queryFn: () =>
-      graphqlRequest<{ departments: Department[] }, unknown>(
+      graphqlRequest<{ hrDepartments: Department[] }, unknown>(
         client,
         GET_DEPARTMENTS,
         { siteId: filter?.siteId, isDeleted: filter?.isDeleted ?? false }
       ),
-    select: (data) => data.departments,
+    select: (data) => data.hrDepartments,
   });
 }
 
@@ -447,7 +447,7 @@ export function useCreateDepartment() {
 
   return useMutation({
     mutationFn: (input: CreateDepartmentInput) =>
-      graphqlRequest<{ createDepartment: Department }, unknown>(
+      graphqlRequest<{ createHRDepartment: Department }, unknown>(
         client,
         CREATE_DEPARTMENT,
         { input }
@@ -464,7 +464,7 @@ export function useUpdateDepartment() {
 
   return useMutation({
     mutationFn: (input: UpdateDepartmentInput) =>
-      graphqlRequest<{ updateDepartment: Department }, unknown>(
+      graphqlRequest<{ updateHRDepartment: Department }, unknown>(
         client,
         UPDATE_DEPARTMENT,
         { input }

@@ -1,7 +1,7 @@
 import { InputType, Field } from '@nestjs/graphql';
 import { DepartmentType } from '../entities/department.entity';
 
-@InputType()
+@InputType('CreateHRDepartmentInput')
 export class CreateDepartmentInput {
   @Field()
   name!: string;

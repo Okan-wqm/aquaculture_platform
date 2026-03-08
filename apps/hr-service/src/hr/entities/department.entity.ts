@@ -7,25 +7,7 @@ import {
   VersionColumn,
   Index,
 } from 'typeorm';
-import { ObjectType, Field, ID, Int, registerEnumType } from '@nestjs/graphql';
-
-export enum DepartmentType {
-  OPERATIONS = 'operations',
-  MAINTENANCE = 'maintenance',
-  FEEDING = 'feeding',
-  QUALITY_CONTROL = 'quality_control',
-  ADMINISTRATION = 'administration',
-  MANAGEMENT = 'management',
-  LOGISTICS = 'logistics',
-  SECURITY = 'security',
-  HATCHERY = 'hatchery',
-  GROW_OUT = 'grow_out',
-  PROCESSING = 'processing',
-  LABORATORY = 'laboratory',
-  GENERAL = 'general',
-}
-
-registerEnumType(DepartmentType, { name: 'HRDepartmentType' });
+import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
 
 @ObjectType()
 @Entity('departments_hr')
@@ -57,10 +39,6 @@ export class DepartmentHR {
   @Field()
   @Column({ length: 20 })
   code!: string;
-
-  @Field(() => DepartmentType)
-  @Column({ type: 'enum', enum: DepartmentType, default: DepartmentType.GENERAL })
-  type!: DepartmentType;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })

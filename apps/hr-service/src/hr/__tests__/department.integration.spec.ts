@@ -23,7 +23,7 @@ import { CreateDepartmentCommand } from '../commands/create-department.command';
 import { UpdateDepartmentCommand } from '../commands/update-department.command';
 import { GetDepartmentsQuery, GetDepartmentQuery } from '../queries/get-departments.query';
 import { GetHRDashboardStatsQuery } from '../queries/get-hr-dashboard-stats.query';
-import { DepartmentHR, DepartmentType } from '../entities/department.entity';
+import { DepartmentHR } from '../entities/department.entity';
 
 // ============================================================================
 // Mock Factories
@@ -39,7 +39,6 @@ const createMockDepartment = (overrides: Partial<DepartmentHR> = {}): Department
     tenantId,
     name: 'Operations',
     code: 'OPS',
-    type: DepartmentType.OPERATIONS,
     isActive: true,
     sortOrder: 0,
     isDeleted: false,
@@ -123,7 +122,7 @@ describe('Department Management Integration Tests', () => {
 
       const command = new CreateDepartmentCommand(
         tenantId,
-        { name: 'Operations', code: 'OPS', type: DepartmentType.OPERATIONS },
+        { name: 'Operations', code: 'OPS' },
         userId,
       );
 
@@ -142,7 +141,7 @@ describe('Department Management Integration Tests', () => {
 
       const command = new CreateDepartmentCommand(
         tenantId,
-        { name: 'Operations 2', code: 'OPS', type: DepartmentType.OPERATIONS },
+        { name: 'Operations 2', code: 'OPS' },
         userId,
       );
 
@@ -201,7 +200,6 @@ describe('Department Management Integration Tests', () => {
         {
           name: 'Quality Control',
           code: 'QC',
-          type: DepartmentType.QUALITY_CONTROL,
           description: 'Quality control department',
           siteId: 'site-uuid-001',
           managerId: 'manager-uuid-001',
@@ -619,7 +617,6 @@ describe('Department Management Integration Tests', () => {
       const dept = createMockDepartment({
         name: 'Operations',
         code: 'OPS',
-        type: DepartmentType.OPERATIONS,
       });
 
       // Verify initial state

@@ -119,22 +119,6 @@ export interface Employee extends BaseEntity {
   version?: number;
 }
 
-export enum DepartmentType {
-  OPERATIONS = 'operations',
-  MAINTENANCE = 'maintenance',
-  FEEDING = 'feeding',
-  QUALITY_CONTROL = 'quality_control',
-  ADMINISTRATION = 'administration',
-  MANAGEMENT = 'management',
-  LOGISTICS = 'logistics',
-  SECURITY = 'security',
-  HATCHERY = 'hatchery',
-  GROW_OUT = 'grow_out',
-  PROCESSING = 'processing',
-  LABORATORY = 'laboratory',
-  GENERAL = 'general',
-}
-
 export interface Department {
   id: string;
   tenantId?: string;
@@ -142,7 +126,6 @@ export interface Department {
   parentDepartmentId?: string;
   name: string;
   code: string;
-  type: DepartmentType;
   description?: string;
   managerId?: string;
   budgetCode?: string;
@@ -157,7 +140,6 @@ export interface Department {
 export interface CreateDepartmentInput {
   name: string;
   code: string;
-  type?: DepartmentType;
   description?: string;
   siteId?: string;
   parentDepartmentId?: string;
@@ -170,7 +152,6 @@ export interface UpdateDepartmentInput {
   id: string;
   name?: string;
   code?: string;
-  type?: DepartmentType;
   description?: string;
   siteId?: string;
   parentDepartmentId?: string;

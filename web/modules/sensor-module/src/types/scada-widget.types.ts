@@ -21,7 +21,56 @@ export type ScadaWidgetType =
   | 'calibrationWizard'
   | 'calibrationHistory'
   | 'calibrationStatus'
-  | 'processView';
+  | 'processView'
+  | 'equipment';
+
+/* ------------------------------------------------------------------ */
+/*  Equipment sub-types                                                */
+/* ------------------------------------------------------------------ */
+
+export type EquipmentSubType =
+  // Pumps
+  | 'centrifugalPump'
+  | 'gearPump'
+  | 'diaphragmPump'
+  | 'pistonPump'
+  | 'submersiblePump'
+  | 'vacuumPump'
+  // Valves
+  | 'gateValve'
+  | 'ballValve'
+  | 'butterflyValve'
+  | 'globeValve'
+  | 'checkValve'
+  | 'reliefValve'
+  | 'controlValve'
+  | 'needleValve'
+  | 'solenoidValve'
+  // Tanks
+  | 'verticalTank'
+  | 'horizontalTank'
+  | 'conicalBottomTank'
+  | 'pressureVessel'
+  | 'silo'
+  | 'mixingTank'
+  // Heat Exchangers
+  | 'shellAndTube'
+  | 'plateHeatExchanger'
+  | 'airCooler'
+  | 'condenser'
+  | 'evaporator';
+
+export type EquipmentState = 'running' | 'stopped' | 'open' | 'closed' | 'fault';
+
+export interface EquipmentConnectionPoint {
+  id: string;
+  label: string;
+  side: 'top' | 'right' | 'bottom' | 'left';
+  /** Offset ratio along the side (0 = start, 1 = end) */
+  offset: number;
+  /** Whether this point acts as an inlet, outlet or both */
+  direction: 'in' | 'out' | 'inout';
+}
 
 export interface ScadaWidgetNodeData {
   widgetType: ScadaWidgetType;

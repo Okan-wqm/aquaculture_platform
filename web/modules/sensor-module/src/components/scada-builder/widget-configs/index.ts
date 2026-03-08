@@ -15,6 +15,7 @@ import { CalibrationWizardConfig } from './CalibrationWizardConfig';
 import { CalibrationHistoryConfig } from './CalibrationHistoryConfig';
 import { CalibrationStatusConfig } from './CalibrationStatusConfig';
 import { ProcessViewConfig } from './ProcessViewConfig';
+import { EquipmentConfig } from './EquipmentConfig';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -39,4 +40,5 @@ export const widgetConfigMap: Record<string, React.FC<WidgetConfigProps>> = {
   calibrationHistory: CalibrationHistoryConfig,
   calibrationStatus: CalibrationStatusConfig,
   processView: ProcessViewConfig,
+  equipment: EquipmentConfig,
 };

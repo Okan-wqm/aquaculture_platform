@@ -57,6 +57,7 @@ const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<Widg
   calibrationHistory:  React.lazy(() => import('./widget-renderers/CalibrationHistoryRenderer')),
   calibrationStatus:   React.lazy(() => import('./widget-renderers/CalibrationStatusRenderer')),
   processView:         React.lazy(() => import('./widget-renderers/ProcessViewRenderer')),
+  equipment:           React.lazy(() => import('./widget-renderers/EquipmentRenderer')),
 };
 
 /* ------------------------------------------------------------------ */

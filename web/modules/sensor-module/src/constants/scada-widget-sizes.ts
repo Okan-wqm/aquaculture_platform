@@ -8,6 +8,7 @@
  */
 
 import type { WidgetPosition } from '../types/scada-package.types';
+import type { EquipmentSubType } from '../types/scada-widget.types';
 
 // Grid cell dimensions in pixels
 export const GRID_CELL_W = 120;
@@ -84,14 +85,73 @@ export const WIDGET_SIZES: Record<string, WidgetSizeDef> = {
   alarmBanner:       { defaultW: 12, defaultH: 2, minW: 4, minH: 1, maxW: 12, maxH: 3 },
   // full (12x6)
   processView:       { defaultW: 12, defaultH: 6, minW: 4, minH: 3, maxW: 12, maxH: 8 },
+  // equipment (fallback 2x2 — actual size resolved via EQUIPMENT_SUBTYPE_SIZES)
+  equipment:         { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 6, maxH: 6 },
+};
+
+/* ------------------------------------------------------------------ */
+/*  Equipment sub-type size definitions (grid units)                   */
+/* ------------------------------------------------------------------ */
+
+export const EQUIPMENT_SUBTYPE_SIZES: Record<EquipmentSubType, WidgetSizeDef> = {
+  // Pumps (2x2)
+  centrifugalPump:    { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 4, maxH: 4 },
+  gearPump:           { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 4, maxH: 4 },
+  diaphragmPump:      { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 4, maxH: 4 },
+  pistonPump:         { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 4, maxH: 4 },
+  submersiblePump:    { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 4, maxH: 4 },
+  vacuumPump:         { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 4, maxH: 4 },
+  // Valves (2x2)
+  gateValve:          { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 3, maxH: 3 },
+  ballValve:          { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 3, maxH: 3 },
+  butterflyValve:     { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 3, maxH: 3 },
+  globeValve:         { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 3, maxH: 3 },
+  checkValve:         { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 3, maxH: 3 },
+  reliefValve:        { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 3, maxH: 3 },
+  controlValve:       { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 3, maxH: 3 },
+  needleValve:        { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 3, maxH: 3 },
+  solenoidValve:      { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 3, maxH: 3 },
+  // Tanks
+  verticalTank:       { defaultW: 3, defaultH: 4, minW: 2, minH: 2, maxW: 5, maxH: 6 },
+  horizontalTank:     { defaultW: 4, defaultH: 3, minW: 2, minH: 2, maxW: 6, maxH: 4 },
+  conicalBottomTank:  { defaultW: 3, defaultH: 4, minW: 2, minH: 2, maxW: 5, maxH: 6 },
+  pressureVessel:     { defaultW: 4, defaultH: 3, minW: 2, minH: 2, maxW: 6, maxH: 4 },
+  silo:               { defaultW: 2, defaultH: 4, minW: 1, minH: 2, maxW: 4, maxH: 6 },
+  mixingTank:         { defaultW: 3, defaultH: 4, minW: 2, minH: 2, maxW: 5, maxH: 6 },
+  // Heat Exchangers
+  shellAndTube:       { defaultW: 4, defaultH: 2, minW: 2, minH: 1, maxW: 6, maxH: 3 },
+  plateHeatExchanger: { defaultW: 3, defaultH: 3, minW: 2, minH: 2, maxW: 5, maxH: 4 },
+  airCooler:          { defaultW: 3, defaultH: 2, minW: 2, minH: 1, maxW: 5, maxH: 3 },
+  condenser:          { defaultW: 3, defaultH: 3, minW: 2, minH: 2, maxW: 5, maxH: 4 },
+  evaporator:         { defaultW: 3, defaultH: 3, minW: 2, minH: 2, maxW: 5, maxH: 4 },
 };
 
 const DEFAULT_SIZE: WidgetSizeDef = {
   defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 12, maxH: 8,
 };
 
-export function getWidgetSize(widgetType: string): WidgetSizeDef {
+/**
+ * Returns the size definition for a widget type.
+ * For `equipment` widgets, pass `equipmentSubType` to resolve the sub-type
+ * specific size; otherwise the generic equipment fallback is returned.
+ */
+export function getWidgetSize(
+  widgetType: string,
+  equipmentSubType?: string,
+): WidgetSizeDef {
+  if (widgetType === 'equipment' && equipmentSubType) {
+    return (
+      EQUIPMENT_SUBTYPE_SIZES[equipmentSubType as EquipmentSubType] ||
+      WIDGET_SIZES['equipment'] ||
+      DEFAULT_SIZE
+    );
+  }
   return WIDGET_SIZES[widgetType] || DEFAULT_SIZE;
+}
+
+/** Convenience accessor — returns size definition for an equipment sub-type. */
+export function getEquipmentSize(subType: EquipmentSubType): WidgetSizeDef {
+  return EQUIPMENT_SUBTYPE_SIZES[subType] || WIDGET_SIZES['equipment'] || DEFAULT_SIZE;
 }
 
 /** Convert grid-unit size constraints to pixel constraints */

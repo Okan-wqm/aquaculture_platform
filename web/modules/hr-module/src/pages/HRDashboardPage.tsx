@@ -149,10 +149,9 @@ export function HRDashboardPage() {
 
   const totalEmployees = stats?.totalEmployees || 0;
   const activeEmployees = stats?.activeEmployees || 0;
-  const onLeaveCount = stats?.onLeaveCount || 0;
-  const offshoreCount = stats?.offshoreCount || offshoreEmployees?.length || 0;
-  const seaWorthyCount = stats?.seaWorthyCount || 0;
-  const departmentCount = stats?.departmentCount || departments?.length || 0;
+  const onLeaveCount = stats?.onLeaveEmployees || 0;
+  const offshoreCount = stats?.offshoreEmployees || offshoreEmployees?.length || 0;
+  const departmentCount = stats?.totalDepartments || departments?.length || 0;
   const pendingLeavesCount = pendingLeaves?.length || 0;
   const expiringCertsCount = expiringCerts?.length || 0;
 
@@ -354,9 +353,9 @@ export function HRDashboardPage() {
       {/* Secondary Stats */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          title="Sea Worthy"
-          value={seaWorthyCount}
-          change="Certified for offshore"
+          title="Onshore Crew"
+          value={stats?.onshoreEmployees || 0}
+          change="Currently onshore"
           changeType="positive"
           icon={<Anchor className="h-6 w-6 text-teal-600" />}
           color="bg-teal-50 dark:bg-teal-900/30"

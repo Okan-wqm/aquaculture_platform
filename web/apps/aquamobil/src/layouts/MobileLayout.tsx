@@ -1,7 +1,7 @@
 import { ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Page } from 'konsta/react';
-import { Home, Skull, Scissors, Package, Cloud, CloudOff, Clock } from 'lucide-react';
+import { Home, Skull, Scissors, Package, Cloud, CloudOff, Clock, MapPin, CalendarOff } from 'lucide-react';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { clsx } from 'clsx';
@@ -24,6 +24,8 @@ const allTabs: TabItem[] = [
   { id: 'mortality', icon: Skull, label: 'Mortality', path: '/mortality/record', activeColor: 'text-mortality', feature: 'mortality' },
   { id: 'cull', icon: Scissors, label: 'Cull', path: '/cull/record', activeColor: 'text-cull', feature: 'cull' },
   { id: 'harvest', icon: Package, label: 'Harvest', path: '/harvest/record', activeColor: 'text-harvest', feature: 'harvest' },
+  { id: 'attendance', icon: MapPin, label: 'Attendance', path: '/attendance', activeColor: 'text-green-600', feature: 'attendance' },
+  { id: 'leave', icon: CalendarOff, label: 'Leave', path: '/leave', activeColor: 'text-violet-600', feature: 'leave' },
   { id: 'schedule', icon: Clock, label: 'Schedule', path: '/schedule', activeColor: 'text-ocean-600', feature: 'schedule' },
   { id: 'sync', icon: Cloud, label: 'Sync', path: '/sync', activeColor: 'text-ocean-600' },
 ];

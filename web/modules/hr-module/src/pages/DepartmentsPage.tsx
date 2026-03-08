@@ -1,18 +1,271 @@
 /**
  * Departments Page
  *
- * BUG-006: Mock data replaced with real API hook (useDepartments).
+ * Displays departments from the real backend API with create/edit modals.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, Users, Plus, ChevronRight } from 'lucide-react';
-import { useDepartments } from '../hooks';
+import { Building2, Users, Plus, ChevronRight, X, Pencil } from 'lucide-react';
+import { useDepartments, useCreateDepartment, useUpdateDepartment } from '../hooks';
+import type { Department, CreateDepartmentInput, UpdateDepartmentInput, DepartmentType } from '../types';
+
+// ============================================================================
+// Department Form Modal
+// ============================================================================
+
+interface DepartmentFormModalProps {
+  department?: Department | null;
+  onClose: () => void;
+}
+
+const DEPARTMENT_TYPES: { value: DepartmentType; label: string }[] = [
+  { value: 'general' as DepartmentType, label: 'General' },
+  { value: 'operations' as DepartmentType, label: 'Operations' },
+  { value: 'maintenance' as DepartmentType, label: 'Maintenance' },
+  { value: 'feeding' as DepartmentType, label: 'Feeding' },
+  { value: 'quality_control' as DepartmentType, label: 'Quality Control' },
+  { value: 'administration' as DepartmentType, label: 'Administration' },
+  { value: 'management' as DepartmentType, label: 'Management' },
+  { value: 'logistics' as DepartmentType, label: 'Logistics' },
+  { value: 'security' as DepartmentType, label: 'Security' },
+  { value: 'hatchery' as DepartmentType, label: 'Hatchery' },
+  { value: 'grow_out' as DepartmentType, label: 'Grow Out' },
+  { value: 'processing' as DepartmentType, label: 'Processing' },
+  { value: 'laboratory' as DepartmentType, label: 'Laboratory' },
+];
+
+const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, onClose }) => {
+  const isEditing = !!department;
+  const createMutation = useCreateDepartment();
+  const updateMutation = useUpdateDepartment();
+
+  const [name, setName] = useState(department?.name || '');
+  const [code, setCode] = useState(department?.code || '');
+  const [type, setType] = useState<string>(department?.type || 'general');
+  const [description, setDescription] = useState(department?.description || '');
+  const [budgetCode, setBudgetCode] = useState(department?.budgetCode || '');
+  const [costCenter, setCostCenter] = useState(department?.costCenter || '');
+  const [error, setError] = useState<string | null>(null);
+
+  const isPending = createMutation.isPending || updateMutation.isPending;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (!name.trim() || !code.trim()) {
+      setError('Name and code are required.');
+      return;
+    }
+
+    try {
+      if (isEditing && department) {
+        const input: UpdateDepartmentInput = {
+          id: department.id,
+          name: name.trim(),
+          code: code.trim(),
+          type: type as DepartmentType,
+          description: description.trim() || undefined,
+          budgetCode: budgetCode.trim() || undefined,
+          costCenter: costCenter.trim() || undefined,
+        };
+        await updateMutation.mutateAsync(input);
+      } else {
+        const input: CreateDepartmentInput = {
+          name: name.trim(),
+          code: code.trim(),
+          type: type as DepartmentType,
+          description: description.trim() || undefined,
+          budgetCode: budgetCode.trim() || undefined,
+          costCenter: costCenter.trim() || undefined,
+        };
+        await createMutation.mutateAsync(input);
+      }
+      onClose();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred';
+      setError(message);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            {isEditing ? 'Edit Department' : 'New Department'}
+          </h2>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Operations"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Code <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              placeholder="e.g. OPS"
+              maxLength={20}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Type
+            </label>
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            >
+              {DEPARTMENT_TYPES.map((dt) => (
+                <option key={dt.value} value={dt.value}>
+                  {dt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Description
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              placeholder="Brief description of the department"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Budget Code
+              </label>
+              <input
+                type="text"
+                value={budgetCode}
+                onChange={(e) => setBudgetCode(e.target.value)}
+                placeholder="e.g. BC-001"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Cost Center
+              </label>
+              <input
+                type="text"
+                value={costCenter}
+                onChange={(e) => setCostCenter(e.target.value)}
+                placeholder="e.g. CC-001"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isPending}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {isPending ? 'Saving...' : isEditing ? 'Update' : 'Create'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// Department Type Badge
+// ============================================================================
+
+const TYPE_COLORS: Record<string, string> = {
+  operations: '#6366f1',
+  maintenance: '#f59e0b',
+  feeding: '#10b981',
+  quality_control: '#3b82f6',
+  administration: '#8b5cf6',
+  management: '#ec4899',
+  logistics: '#f97316',
+  security: '#ef4444',
+  hatchery: '#14b8a6',
+  grow_out: '#06b6d4',
+  processing: '#84cc16',
+  laboratory: '#a855f7',
+  general: '#6b7280',
+};
+
+// ============================================================================
+// Departments Page
+// ============================================================================
 
 const DepartmentsPage: React.FC = () => {
-  const { data: departments, isLoading } = useDepartments();
+  const { data: departments, isLoading, error } = useDepartments();
+  const [showModal, setShowModal] = useState(false);
+  const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
 
-  const totalEmployees = 0; // Backend doesn't return employee counts per department
+  const handleCreate = () => {
+    setEditingDepartment(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (department: Department) => {
+    setEditingDepartment(department);
+    setShowModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowModal(false);
+    setEditingDepartment(null);
+  };
+
+  const getColorForType = (type?: string): string => {
+    return TYPE_COLORS[type || 'general'] || '#6366f1';
+  };
 
   return (
     <div className="space-y-6 p-6">
@@ -21,14 +274,24 @@ const DepartmentsPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Departments</h1>
           <p className="mt-1 text-gray-500 dark:text-gray-400">
-            {departments?.length ?? '-'} departments, {totalEmployees} employees
+            {departments?.length ?? '-'} departments
           </p>
         </div>
-        <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-          <Plus className="w-4 h-4" />
+        <button
+          onClick={handleCreate}
+          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+        >
+          <Plus className="h-4 w-4" />
           New Department
         </button>
       </div>
+
+      {/* Error */}
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+          Failed to load departments: {error instanceof Error ? error.message : 'Unknown error'}
+        </div>
+      )}
 
       {/* Loading */}
       {isLoading && (
@@ -43,67 +306,101 @@ const DepartmentsPage: React.FC = () => {
       )}
 
       {/* Departments Grid */}
-      {!isLoading && departments && (
+      {!isLoading && departments && departments.length > 0 && (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {departments.map((department) => (
-            <div
-              key={department.id}
-              className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
-            >
+          {departments.map((department) => {
+            const color = getColorForType(department.type);
+            return (
               <div
-                className="h-2"
-                style={{ backgroundColor: department.colorCode || '#6366f1' }}
-              />
-              <div className="p-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="rounded-lg p-3"
-                      style={{ backgroundColor: `${department.colorCode || '#6366f1'}20` }}
+                key={department.id}
+                className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
+              >
+                <div className="h-2" style={{ backgroundColor: color }} />
+                <div className="p-6">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="rounded-lg p-3"
+                        style={{ backgroundColor: `${color}20` }}
+                      >
+                        <Building2
+                          className="h-6 w-6"
+                          style={{ color }}
+                        />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-gray-900 dark:text-white">
+                          {department.name}
+                        </h3>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {department.code}
+                          {department.type && department.type !== 'general' && (
+                            <span className="ml-2 inline-block rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-400">
+                              {department.type.replace(/_/g, ' ')}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleEdit(department)}
+                      className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+                      title="Edit department"
                     >
-                      <Building2
-                        className="h-6 w-6"
-                        style={{ color: department.colorCode || '#6366f1' }}
-                      />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-900 dark:text-white">
-                        {department.name}
-                      </h3>
-                    </div>
+                      <Pencil className="h-4 w-4" />
+                    </button>
                   </div>
-                </div>
 
-                {department.description && (
-                  <p className="mt-4 text-sm text-gray-600 dark:text-gray-400">
-                    {department.description}
-                  </p>
-                )}
+                  {department.description && (
+                    <p className="mt-4 text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+                      {department.description}
+                    </p>
+                  )}
 
-                <div className="mt-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-gray-500">
-                    <Users className="h-4 w-4" />
-                    <span className="text-sm">{'-'} employees</span>
+                  {(department.budgetCode || department.costCenter) && (
+                    <div className="mt-3 flex gap-3 text-xs text-gray-500">
+                      {department.budgetCode && (
+                        <span>Budget: {department.budgetCode}</span>
+                      )}
+                      {department.costCenter && (
+                        <span>CC: {department.costCenter}</span>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="mt-4 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-gray-500">
+                      <Users className="h-4 w-4" />
+                      <span className="text-sm">
+                        {department.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                    <Link
+                      to={`/hr/employees?departmentId=${department.id}`}
+                      className="flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
+                    >
+                      View Employees
+                      <ChevronRight className="h-4 w-4" />
+                    </Link>
                   </div>
-                  <Link
-                    to={`/hr/employees?departmentId=${department.id}`}
-                    className="flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
-                  >
-                    View
-                    <ChevronRight className="h-4 w-4" />
-                  </Link>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* Empty state */}
-      {!isLoading && (!departments || departments.length === 0) && (
+      {!isLoading && (!departments || departments.length === 0) && !error && (
         <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 text-center dark:border-gray-600 dark:bg-gray-800/50">
           <Building2 className="mb-3 h-10 w-10 text-gray-400" />
           <p className="text-gray-500">No departments found</p>
+          <button
+            onClick={handleCreate}
+            className="mt-3 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
+          >
+            Create your first department
+          </button>
         </div>
       )}
 
@@ -123,6 +420,14 @@ const DepartmentsPage: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* CRUD Modal */}
+      {showModal && (
+        <DepartmentFormModal
+          department={editingDepartment}
+          onClose={handleCloseModal}
+        />
+      )}
     </div>
   );
 };

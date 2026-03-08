@@ -101,13 +101,13 @@ export interface ScheduleEntry extends BaseEntity {
 export interface AttendanceRecord extends BaseEntity {
   employeeId: string;
   employee?: Employee;
-  attendanceDate: string;
+  date: string;
   scheduleId?: string;
   schedule?: Schedule;
   shiftId?: string;
   shift?: Shift;
-  clockInTime?: string;
-  clockOutTime?: string;
+  clockIn?: string;
+  clockOut?: string;
   clockInMethod?: ClockMethod;
   clockOutMethod?: ClockMethod;
   clockInLocation?: GeoLocation;
@@ -116,12 +116,12 @@ export interface AttendanceRecord extends BaseEntity {
   isLate: boolean;
   lateMinutes: number;
   isEarlyDeparture: boolean;
-  earlyDepartureMinutes: number;
+  earlyLeaveMinutes: number;
   workedMinutes: number;
   overtimeMinutes: number;
-  isOffshoreWork: boolean;
+  isOffshore: boolean;
   workAreaId?: string;
-  notes?: string;
+  remarks?: string;
   approvedBy?: string;
   approvedAt?: string;
 }
@@ -144,13 +144,12 @@ export interface AttendanceSummary {
 }
 
 export interface DailyAttendanceOverview {
-  date: string;
   totalEmployees: number;
-  presentCount: number;
-  absentCount: number;
-  onLeaveCount: number;
-  offshoreCount: number;
-  lateCount: number;
+  present: number;
+  absent: number;
+  late: number;
+  onLeave: number;
+  offshore: number;
   attendanceRate: number;
 }
 
@@ -163,36 +162,36 @@ export interface ClockInInput {
   method: ClockMethod;
   location?: GeoLocation;
   workAreaId?: string;
-  isOffshoreWork?: boolean;
-  notes?: string;
+  isOffshore?: boolean;
+  remarks?: string;
 }
 
 export interface ClockOutInput {
   employeeId: string;
   method: ClockMethod;
   location?: GeoLocation;
-  notes?: string;
+  remarks?: string;
 }
 
 export interface CreateAttendanceRecordInput {
   employeeId: string;
-  attendanceDate: string;
+  date: string;
   scheduleId?: string;
   shiftId?: string;
-  clockInTime?: string;
-  clockOutTime?: string;
+  clockIn?: string;
+  clockOut?: string;
   status: AttendanceStatus;
-  isOffshoreWork?: boolean;
+  isOffshore?: boolean;
   workAreaId?: string;
-  notes?: string;
+  remarks?: string;
 }
 
 export interface UpdateAttendanceRecordInput {
   id: string;
-  clockInTime?: string;
-  clockOutTime?: string;
+  clockIn?: string;
+  clockOut?: string;
   status?: AttendanceStatus;
-  notes?: string;
+  remarks?: string;
 }
 
 export interface CreateShiftInput {
@@ -216,7 +215,7 @@ export interface AttendanceFilterInput {
   startDate?: string;
   endDate?: string;
   status?: AttendanceStatus;
-  isOffshoreWork?: boolean;
+  isOffshore?: boolean;
 }
 
 export interface AttendanceSummaryInput {

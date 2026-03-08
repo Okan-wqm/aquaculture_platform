@@ -542,3 +542,59 @@ export const GOAL_FRAGMENT = gql`
   }
   ${EMPLOYEE_BASIC_FRAGMENT}
 `;
+
+// =====================
+// Payroll Fragments
+// =====================
+
+export const PAYROLL_FRAGMENT = gql`
+  fragment PayrollFields on Payroll {
+    id
+    tenantId
+    employeeId
+    employee {
+      ...EmployeeBasic
+    }
+    payrollNumber
+    payPeriodType
+    payPeriodStart
+    payPeriodEnd
+    paymentDate
+    workHours {
+      regularHours
+      overtimeHours
+      holidayHours
+      sickLeaveHours
+      vacationHours
+    }
+    earnings {
+      baseSalary
+      overtime
+      bonus
+      commission
+      allowances
+      grossPay
+    }
+    deductions {
+      tax
+      socialSecurity
+      healthInsurance
+      retirement
+      otherDeductions
+      totalDeductions
+    }
+    netPay
+    currency
+    status
+    approvedBy
+    approvedAt
+    notes
+    paymentReference
+    createdAt
+    updatedAt
+    createdBy
+    updatedBy
+    version
+  }
+  ${EMPLOYEE_BASIC_FRAGMENT}
+`;

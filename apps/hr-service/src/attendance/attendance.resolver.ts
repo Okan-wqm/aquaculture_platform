@@ -1,4 +1,4 @@
-import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field, Float } from '@nestjs/graphql';
 import { UnauthorizedException, ForbiddenException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role } from '@platform/backend-common';
@@ -20,11 +20,14 @@ import {
   GetAttendanceRecordsQuery,
   GetAttendanceSummaryQuery,
   GetPendingAttendanceApprovalsQuery,
+  GetTodaysAttendanceQuery,
+  GetDailyAttendanceOverviewQuery,
 } from './queries';
 import { PaginatedAttendanceRecords } from './query-handlers/get-attendance-records.handler';
 import { AttendanceSummary } from './query-handlers/get-attendance-summary.handler';
 import { PaginatedShifts } from './query-handlers/get-shifts.handler';
 import { PaginatedPendingAttendanceApprovals } from './query-handlers/get-pending-attendance-approvals.handler';
+import { DailyAttendanceOverview } from './query-handlers/get-daily-attendance-overview.handler';
 
 // SECURITY: Context only exposes JWT-verified user fields.
 // Do NOT add x-tenant-id or x-user-id headers here — those are attacker-controlled
@@ -233,6 +236,32 @@ export class AttendanceResolver {
     return this.queryBus.execute(
       new GetPendingAttendanceApprovalsQuery(tenantId, userId, departmentId, limit, offset),
     );
+  }
+
+  // =====================
+  // Today's Attendance
+  // =====================
+  @Query(() => [AttendanceRecord], { name: 'todaysAttendance' })
+  async getTodaysAttendance(
+    @Context() context: GraphQLContext,
+    @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
+  ): Promise<AttendanceRecord[]> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(new GetTodaysAttendanceQuery(tenantId, employeeId));
+  }
+
+  // =====================
+  // Daily Attendance Overview
+  // =====================
+  @Query(() => DailyAttendanceOverview, { name: 'dailyAttendanceOverview' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  async getDailyAttendanceOverview(
+    @Context() context: GraphQLContext,
+    @Args('date', { nullable: true }) date?: string,
+  ): Promise<DailyAttendanceOverview> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(new GetDailyAttendanceOverviewQuery(tenantId, date));
   }
 
   // =====================

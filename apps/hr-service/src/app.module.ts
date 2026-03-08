@@ -32,6 +32,7 @@ import { SchedulingModule } from './scheduling/scheduling.module';
 // Core HR entities
 import { Employee } from './hr/entities/employee.entity';
 import { Payroll } from './hr/entities/payroll.entity';
+import { DepartmentHR } from './hr/entities/department.entity';
 // Leave entities
 import { LeaveType } from './leave/entities/leave-type.entity';
 import { LeaveBalance } from './leave/entities/leave-balance.entity';
@@ -60,6 +61,8 @@ import { Holiday } from './scheduling/entities/holiday.entity';
 import { ContactInfo, Address, NextOfKin, EmergencyInfo } from './hr/entities/employee.entity';
 import { GeoCoordinates } from './aquaculture/entities/work-area.entity';
 import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquaculture/entities/work-rotation.entity';
+import { DailyAttendanceOverview } from './attendance/query-handlers/get-daily-attendance-overview.handler';
+import { HRDashboardStats } from './hr/query-handlers/get-hr-dashboard-stats.handler';
 
 @Module({
   imports: [
@@ -93,6 +96,7 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
           // Core HR
           Employee,
           Payroll,
+          DepartmentHR,
           // Leave
           LeaveType,
           LeaveBalance,
@@ -164,6 +168,8 @@ import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquacultu
           TransportInfo,
           CheckInLocation,
           CheckInHistoryEntry,
+          DailyAttendanceOverview,
+          HRDashboardStats,
         ],
       },
       validationRules: [depthLimit(10)],

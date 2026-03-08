@@ -50,7 +50,7 @@ export function TimeClockWidget({
 
   // Get current employee's record
   const todayRecord = todayRecords?.find((r) => r.employeeId === employeeId);
-  const isClockedIn = todayRecord?.clockInTime && !todayRecord?.clockOutTime;
+  const isClockedIn = todayRecord?.clockIn && !todayRecord?.clockOut;
 
   // Update time every second
   useEffect(() => {
@@ -166,16 +166,16 @@ export function TimeClockWidget({
             <div>
               <span className="text-gray-500">Clock In</span>
               <p className="font-medium text-gray-900 dark:text-white">
-                {todayRecord.clockInTime
-                  ? new Date(todayRecord.clockInTime).toLocaleTimeString()
+                {todayRecord.clockIn
+                  ? new Date(todayRecord.clockIn).toLocaleTimeString()
                   : '-'}
               </p>
             </div>
             <div>
               <span className="text-gray-500">Clock Out</span>
               <p className="font-medium text-gray-900 dark:text-white">
-                {todayRecord.clockOutTime
-                  ? new Date(todayRecord.clockOutTime).toLocaleTimeString()
+                {todayRecord.clockOut
+                  ? new Date(todayRecord.clockOut).toLocaleTimeString()
                   : '-'}
               </p>
             </div>

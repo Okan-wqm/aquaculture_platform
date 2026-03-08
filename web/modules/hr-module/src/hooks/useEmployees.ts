@@ -36,6 +36,8 @@ import type {
   EmployeeFilterInput,
   CreateEmployeeInput,
   UpdateEmployeeInput,
+  CreateDepartmentInput,
+  UpdateDepartmentInput,
   EmployeeStatus,
   PaginatedResponse,
 } from '../types';
@@ -168,10 +170,6 @@ export function useSearchEmployees(search: string, limit = 10) {
 /**
  * Pre-aggregated dashboard statistics — replaces the limit:1000 employee fetch.
  * CRIT-3 / PERF-001: no raw employee records, no PII transmitted.
- *
- * NOTE: Backend resolver for hrDashboardStats is not yet implemented.
- * Query is disabled to prevent 400 errors. Dashboard falls back to
- * offshoreEmployees/departments counts via other hooks.
  */
 export function useHRDashboardStats() {
   const client = useGraphQLClient();
@@ -183,15 +181,18 @@ export function useHRDashboardStats() {
         hrDashboardStats: {
           totalEmployees: number;
           activeEmployees: number;
-          onLeaveCount: number;
-          offshoreCount: number;
-          onshoreCount: number;
-          seaWorthyCount: number;
-          departmentCount: number;
+          onLeaveEmployees: number;
+          terminatedEmployees: number;
+          newHiresThisMonth: number;
+          offshoreEmployees: number;
+          onshoreEmployees: number;
+          attendanceRate: number;
+          pendingLeaveRequests: number;
+          totalDepartments: number;
         };
       }, unknown>(client, GET_HR_DASHBOARD_STATS, {}),
     select: (data) => data.hrDashboardStats,
-    enabled: false, // Backend resolver not yet implemented
+    enabled: true,
   });
 }
 
@@ -233,24 +234,19 @@ export function useDirectReports(supervisorId: string) {
 // Department Queries
 // =====================
 
-/**
- * Department is an enum in the backend, not a separate entity.
- * This hook returns a static list of department options for backward compatibility.
- */
-export function useDepartments(_filter?: Record<string, unknown>) {
-  // Return static department list since backend has no Department entity
-  const departments: Department[] = [
-    { name: 'Operations', code: 'operations', isActive: true },
-    { name: 'Maintenance', code: 'maintenance', isActive: true },
-    { name: 'Biology', code: 'biology', isActive: true },
-    { name: 'Engineering', code: 'engineering', isActive: true },
-    { name: 'Administration', code: 'administration', isActive: true },
-    { name: 'Logistics', code: 'logistics', isActive: true },
-    { name: 'Quality', code: 'quality', isActive: true },
-    { name: 'Safety', code: 'safety', isActive: true },
-  ];
+export function useDepartments(filter?: { siteId?: string; isDeleted?: boolean }) {
+  const client = useGraphQLClient();
 
-  return { data: departments, isLoading: false, error: null };
+  return useQuery({
+    queryKey: departmentKeys.list(filter),
+    queryFn: () =>
+      graphqlRequest<{ departments: Department[] }, unknown>(
+        client,
+        GET_DEPARTMENTS,
+        { siteId: filter?.siteId, isDeleted: filter?.isDeleted ?? false }
+      ),
+    select: (data) => data.departments,
+  });
 }
 
 export function useDepartment(department: string) {
@@ -445,17 +441,17 @@ export function useAssignManager() {
 // Department Mutations
 // =====================
 
-/**
- * Department is an enum in the backend. These mutation stubs are kept for API compatibility
- * but they actually create/update employees since there's no separate Department entity.
- */
 export function useCreateDepartment() {
+  const client = useGraphQLClient();
   const queryClient = useQueryClient();
+
   return useMutation({
-    mutationFn: async (_input: { code: string; name: string }) => {
-      // No-op: department is an enum, not a separate entity
-      return { createDepartment: { name: _input.name } as Department };
-    },
+    mutationFn: (input: CreateDepartmentInput) =>
+      graphqlRequest<{ createDepartment: Department }, unknown>(
+        client,
+        CREATE_DEPARTMENT,
+        { input }
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: departmentKeys.all });
     },
@@ -463,12 +459,16 @@ export function useCreateDepartment() {
 }
 
 export function useUpdateDepartment() {
+  const client = useGraphQLClient();
   const queryClient = useQueryClient();
+
   return useMutation({
-    mutationFn: async (_input: { id: string; name?: string }) => {
-      // No-op: department is an enum, not a separate entity
-      return { updateDepartment: { name: _input.name || '' } as Department };
-    },
+    mutationFn: (input: UpdateDepartmentInput) =>
+      graphqlRequest<{ updateDepartment: Department }, unknown>(
+        client,
+        UPDATE_DEPARTMENT,
+        { input }
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: departmentKeys.all });
     },

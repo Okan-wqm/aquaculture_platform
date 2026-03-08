@@ -204,6 +204,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // Core Employee & Payroll
       'employees',
       'payrolls',
+      'departments_hr',
 
       // Leave Management
       'leave_types',

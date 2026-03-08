@@ -118,10 +118,110 @@ export interface FeedingInput {
   notes?: string;
 }
 
-// Offline queue types
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding';
+// Attendance types
+export type ClockMethod = 'BIOMETRIC' | 'CARD' | 'MOBILE' | 'WEB' | 'MANUAL' | 'GPS';
+export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'EARLY_LEAVE' | 'HALF_DAY' | 'ON_LEAVE' | 'HOLIDAY' | 'OFFSHORE' | 'REST_DAY' | 'WORK_FROM_HOME';
 
-export type OperationPayload = MortalityInput | CullInput | HarvestInput | FeedingInput;
+export interface GeoLocation {
+  latitude: number;
+  longitude: number;
+  address?: string;
+  accuracy?: number;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  employeeId: string;
+  date: string;
+  clockIn?: string;
+  clockOut?: string;
+  clockInMethod?: ClockMethod;
+  clockOutMethod?: ClockMethod;
+  status: AttendanceStatus;
+  workedMinutes: number;
+  overtimeMinutes: number;
+  lateMinutes: number;
+  isOffshore: boolean;
+  remarks?: string;
+  shiftId?: string;
+}
+
+export interface AttendanceSummary {
+  totalWorkingDays: number;
+  presentDays: number;
+  absentDays: number;
+  lateDays: number;
+  leaveDays: number;
+  totalWorkedMinutes: number;
+  totalOvertimeMinutes: number;
+  attendanceRate: number;
+}
+
+export interface ClockInInput {
+  employeeId: string;
+  method: ClockMethod;
+  location?: GeoLocation;
+  workAreaId?: string;
+  remarks?: string;
+}
+
+export interface ClockOutInput {
+  employeeId: string;
+  method: ClockMethod;
+  location?: GeoLocation;
+  remarks?: string;
+}
+
+// Leave types
+export type LeaveRequestStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+
+export interface LeaveType {
+  id: string;
+  name: string;
+  code: string;
+  category: string;
+  isPaid: boolean;
+  defaultDaysPerYear?: number;
+  color?: string;
+}
+
+export interface LeaveBalance {
+  id: string;
+  leaveTypeId: string;
+  leaveType?: LeaveType;
+  totalEntitlement: number;
+  usedDays: number;
+  pendingDays: number;
+  remainingDays: number;
+  year: number;
+}
+
+export interface LeaveRequest {
+  id: string;
+  employeeId: string;
+  leaveTypeId: string;
+  leaveType?: LeaveType;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+  isHalfDay: boolean;
+  reason?: string;
+  status: LeaveRequestStatus;
+  createdAt: string;
+}
+
+export interface CreateLeaveRequestInput {
+  leaveTypeId: string;
+  startDate: string;
+  endDate: string;
+  isHalfDay?: boolean;
+  reason?: string;
+}
+
+// Offline queue types
+export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest';
+
+export type OperationPayload = MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput;
 
 export interface QueuedOperation {
   id: string;

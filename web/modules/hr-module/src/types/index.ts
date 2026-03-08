@@ -12,3 +12,4 @@ export * from './attendance.types';
 export * from './certification.types';
 export * from './aquaculture.types';
 export * from './performance.types';
+export * from './payroll.types';

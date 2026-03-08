@@ -96,12 +96,12 @@ export class CreateShiftInput {
   @Min(0)
   graceMinutes!: number;
 
-  @Field(() => Int, { defaultValue: 0 })
+  @Field(() => Int, { defaultValue: 60 })
   @IsInt()
   @Min(0)
   earlyClockInMinutes!: number;
 
-  @Field(() => Int, { defaultValue: 0 })
+  @Field(() => Int, { defaultValue: 300 })
   @IsInt()
   @Min(0)
   lateClockOutMinutes!: number;

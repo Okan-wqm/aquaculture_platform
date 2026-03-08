@@ -250,21 +250,21 @@ export function LeavesPage() {
         </div>
       )}
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Leave Management</h1>
           <p className="mt-1 text-gray-500 dark:text-gray-400">
             Track and manage employee leave requests
           </p>
         </div>
-        <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+        <button className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 sm:w-auto">
           <Plus className="h-4 w-4" />
           New Request
         </button>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex gap-4 overflow-x-auto border-b border-gray-200 dark:border-gray-700">
         <button
           onClick={() => setActiveTab('all')}
           className={cn(
@@ -335,7 +335,7 @@ export function LeavesPage() {
       {/* Filter Panel */}
       {showFilters && (
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Status
@@ -410,17 +410,19 @@ export function LeavesPage() {
       {/* Data Table
           BUG-007: the pending tab returns a flat array (no server-side pagination),
           so omit total/onPageChange for that tab to avoid a broken pagination UI. */}
-      <DataTable
-        data={requests || []}
-        columns={columns}
-        keyExtractor={leaveKeyExtractor}
-        isLoading={isLoading}
-        emptyMessage="No leave requests found"
-        total={activeTab === 'pending' ? undefined : allRequests?.total}
-        page={activeTab === 'pending' ? 1 : Math.floor((pagination.offset || 0) / (pagination.limit || 20)) + 1}
-        pageSize={pagination.limit || 20}
-        onPageChange={activeTab === 'pending' ? undefined : handlePageChange}
-      />
+      <div className="overflow-x-auto -mx-6 px-6">
+        <DataTable
+          data={requests || []}
+          columns={columns}
+          keyExtractor={leaveKeyExtractor}
+          isLoading={isLoading}
+          emptyMessage="No leave requests found"
+          total={activeTab === 'pending' ? undefined : allRequests?.total}
+          page={activeTab === 'pending' ? 1 : Math.floor((pagination.offset || 0) / (pagination.limit || 20)) + 1}
+          pageSize={pagination.limit || 20}
+          onPageChange={activeTab === 'pending' ? undefined : handlePageChange}
+        />
+      </div>
     </div>
   );
 }

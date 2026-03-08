@@ -7,11 +7,14 @@ import {
   VersionColumn,
   Index,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
 import { ObjectType, Field, HideField, ID, Int, registerEnumType } from '@nestjs/graphql';
 import { Payroll } from './payroll.entity';
+import { DepartmentHR } from './department.entity';
 
 export enum EmployeeStatus {
   ACTIVE = 'active',
@@ -270,6 +273,11 @@ export class Employee {
   @Field({ nullable: true })
   @Column({ nullable: true })
   departmentHrId?: string;
+
+  @Field(() => DepartmentHR, { nullable: true })
+  @ManyToOne(() => DepartmentHR, { nullable: true })
+  @JoinColumn({ name: 'departmentHrId' })
+  departmentHr?: DepartmentHR;
 
   @HideField()
   @Column('jsonb', { nullable: true })

@@ -2,7 +2,7 @@ import { createElement, useState, useEffect, useCallback, useRef, createContext,
 import { get, set } from 'idb-keyval';
 import { useAuth } from './useAuth';
 
-export type MobileFeature = 'mortality' | 'cull' | 'harvest' | 'feeding' | 'waterQuality' | 'tankView' | 'schedule';
+export type MobileFeature = 'mortality' | 'cull' | 'harvest' | 'feeding' | 'waterQuality' | 'tankView' | 'schedule' | 'attendance' | 'leave';
 
 interface MobileAllowedFeatures {
   mortality: boolean;
@@ -12,6 +12,8 @@ interface MobileAllowedFeatures {
   waterQuality: boolean;
   tankView: boolean;
   schedule: boolean;
+  attendance: boolean;
+  leave: boolean;
 }
 
 interface MobileSettings {
@@ -37,6 +39,8 @@ const DEFAULT_SETTINGS: MobileSettings = {
     waterQuality: false,
     tankView: true,
     schedule: true,
+    attendance: true,
+    leave: true,
   },
 };
 

@@ -53,10 +53,10 @@ export const attendanceKeys = {
     [...attendanceKeys.all, 'myRecords', { filter, pagination }] as const,
   summary: (employeeId: string, month: number, year: number) =>
     [...attendanceKeys.all, 'summary', employeeId, month, year] as const,
-  dailyOverview: (date: string, departmentId?: string) =>
-    [...attendanceKeys.all, 'dailyOverview', date, departmentId] as const,
-  today: (departmentId?: string) =>
-    [...attendanceKeys.all, 'today', departmentId] as const,
+  dailyOverview: (date: string) =>
+    [...attendanceKeys.all, 'dailyOverview', date] as const,
+  today: (employeeId?: string) =>
+    [...attendanceKeys.all, 'today', employeeId] as const,
   schedule: (employeeId: string, startDate: string, endDate: string) =>
     [...attendanceKeys.all, 'schedule', employeeId, startDate, endDate] as const,
   schedules: (filter?: Record<string, unknown>) =>
@@ -166,37 +166,37 @@ export function useAttendanceSummary(employeeId: string, month: number, year: nu
   });
 }
 
-export function useDailyAttendanceOverview(date: string, departmentId?: string) {
+export function useDailyAttendanceOverview(date: string) {
   const client = useGraphQLClient();
 
   return useQuery({
-    queryKey: attendanceKeys.dailyOverview(date, departmentId),
+    queryKey: attendanceKeys.dailyOverview(date),
     queryFn: () =>
       graphqlRequest<{ dailyAttendanceOverview: DailyAttendanceOverview }, unknown>(
         client,
         GET_DAILY_ATTENDANCE_OVERVIEW,
-        { date, departmentId }
+        { date }
       ),
     select: (data) => data.dailyAttendanceOverview,
-    enabled: false, // Backend resolver not yet implemented
+    enabled: !!date,
   });
 }
 
-export function useTodaysAttendance(departmentId?: string) {
+export function useTodaysAttendance(employeeId?: string) {
   const client = useGraphQLClient();
 
   return useQuery({
-    queryKey: attendanceKeys.today(departmentId),
+    queryKey: attendanceKeys.today(employeeId),
     queryFn: () =>
       graphqlRequest<{ todaysAttendance: AttendanceRecord[] }, unknown>(
         client,
         GET_TODAYS_ATTENDANCE,
-        { departmentId }
+        { employeeId }
       ),
     select: (data) => data.todaysAttendance,
     refetchInterval: 60000, // Refresh every minute
     refetchIntervalInBackground: false, // PERF-003: don't poll when tab is hidden
-    enabled: false, // Backend resolver not yet implemented
+    enabled: true,
   });
 }
 

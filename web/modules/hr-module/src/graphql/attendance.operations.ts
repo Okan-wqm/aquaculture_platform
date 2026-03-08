@@ -115,23 +115,22 @@ export const GET_ATTENDANCE_SUMMARY = gql`
 `;
 
 export const GET_DAILY_ATTENDANCE_OVERVIEW = gql`
-  query GetDailyAttendanceOverview($date: String!, $departmentId: ID) {
-    dailyAttendanceOverview(date: $date, departmentId: $departmentId) {
-      date
+  query GetDailyAttendanceOverview($date: String) {
+    dailyAttendanceOverview(date: $date) {
       totalEmployees
-      presentCount
-      absentCount
-      onLeaveCount
-      offshoreCount
-      lateCount
+      present
+      absent
+      late
+      onLeave
+      offshore
       attendanceRate
     }
   }
 `;
 
 export const GET_TODAYS_ATTENDANCE = gql`
-  query GetTodaysAttendance($departmentId: ID) {
-    todaysAttendance(departmentId: $departmentId) {
+  query GetTodaysAttendance($employeeId: ID) {
+    todaysAttendance(employeeId: $employeeId) {
       ...AttendanceRecordFull
     }
   }

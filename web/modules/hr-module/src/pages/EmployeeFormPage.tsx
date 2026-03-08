@@ -3,6 +3,7 @@
  *
  * Create / edit employee.
  * CRIT-2 / BUG-002: connected to real API (createEmployee / updateEmployee mutations).
+ * Updated: all backend-required fields (personal info, contact, address, financial, aquaculture).
  */
 
 import React, { useState, useEffect } from 'react';
@@ -16,9 +17,54 @@ import {
   Building2,
   Calendar,
   AlertCircle,
+  MapPin,
+  DollarSign,
+  Anchor,
+  CreditCard,
+  ShieldCheck,
 } from 'lucide-react';
-import { useEmployee, useCreateEmployee, useUpdateEmployee } from '../hooks';
-import type { CreateEmployeeInput, UpdateEmployeeInput, EmploymentType } from '../types';
+import { useEmployee, useCreateEmployee, useUpdateEmployee, useDepartments } from '../hooks';
+import type {
+  CreateEmployeeInput,
+  UpdateEmployeeInput,
+  EmploymentType,
+  ContactInfo,
+  Address,
+  PersonnelCategory,
+  Department,
+} from '../types';
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const inputClass =
+  'w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white';
+const inputDisabledClass =
+  'w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:disabled:bg-gray-800';
+const labelClass = 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2';
+const sectionClass =
+  'bg-white rounded-xl shadow-sm border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800';
+
+const CURRENCY_OPTIONS = [
+  { value: 'USD', label: 'USD - US Dollar' },
+  { value: 'EUR', label: 'EUR - Euro' },
+  { value: 'TRY', label: 'TRY - Turkish Lira' },
+  { value: 'GBP', label: 'GBP - British Pound' },
+  { value: 'NOK', label: 'NOK - Norwegian Krone' },
+  { value: 'SEK', label: 'SEK - Swedish Krona' },
+  { value: 'JPY', label: 'JPY - Japanese Yen' },
+  { value: 'CAD', label: 'CAD - Canadian Dollar' },
+  { value: 'AUD', label: 'AUD - Australian Dollar' },
+];
+
+/**
+ * Map DepartmentHR type (from the departments entity) back to the legacy
+ * department enum string that the employee entity expects.
+ */
+function mapDepartmentType(dept: Department): string {
+  return dept.type || dept.code || dept.name.toLowerCase();
+}
 
 // ============================================================================
 // Employee Form Page
@@ -32,21 +78,49 @@ const EmployeeFormPage: React.FC = () => {
   // Fetch existing employee for edit mode
   const { data: employee, isLoading: loadingEmployee } = useEmployee(employeeId || '');
 
+  // Fetch departments from API
+  const { data: departments, isLoading: loadingDepartments } = useDepartments();
+
   const createMutation = useCreateEmployee();
   const updateMutation = useUpdateEmployee();
 
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
   const mutationError = createMutation.error || updateMutation.error;
 
+  // ------------------------------------------------------------------
+  // Form state
+  // ------------------------------------------------------------------
   const [formData, setFormData] = useState({
+    // Basic
     firstName: '',
     lastName: '',
     email: '',
-    phone: '',
+    // Personal
+    dateOfBirth: '',
+    nationalId: '',
+    // Contact
+    contactPhone: '',
+    contactEmail: '',
+    emergencyContact: '',
+    emergencyPhone: '',
+    // Address
+    street: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    country: '',
+    // Work
+    departmentHrId: '',
     department: '',
     position: '',
     hireDate: '',
-    employmentType: 'full_time' as const,
+    employmentType: 'FULL_TIME' as string,
+    // Financial
+    baseSalary: '',
+    currency: 'USD',
+    // Aquaculture
+    personnelCategory: '' as string,
+    seaWorthy: false,
   });
 
   // Populate form when editing
@@ -56,23 +130,89 @@ const EmployeeFormPage: React.FC = () => {
         firstName: employee.firstName || '',
         lastName: employee.lastName || '',
         email: employee.email || '',
-        phone: employee.contactInfo?.phone || '',
+        dateOfBirth: '',
+        nationalId: '',
+        contactPhone: employee.contactInfo?.phone || '',
+        contactEmail: employee.contactInfo?.email || employee.email || '',
+        emergencyContact: employee.contactInfo?.emergencyContact || '',
+        emergencyPhone: employee.contactInfo?.emergencyPhone || '',
+        street: employee.address?.street || '',
+        city: employee.address?.city || '',
+        state: employee.address?.state || '',
+        postalCode: employee.address?.postalCode || '',
+        country: employee.address?.country || '',
+        departmentHrId: employee.departmentHrId || '',
         department: employee.department || '',
         position: employee.position || '',
         hireDate: employee.hireDate || '',
-        employmentType: (employee.employmentType as typeof formData.employmentType) || 'full_time',
+        employmentType: employee.employmentType || 'FULL_TIME',
+        baseSalary: '',
+        currency: employee.currency || 'USD',
+        personnelCategory: employee.personnelCategory || '',
+        seaWorthy: employee.seaWorthy ?? false,
       });
     }
   }, [isEditing, employee]);
 
+  // ------------------------------------------------------------------
+  // Handlers
+  // ------------------------------------------------------------------
+
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
+    const { name, value, type } = e.target;
+    if (type === 'checkbox') {
+      const checked = (e.target as HTMLInputElement).checked;
+      setFormData((prev) => ({ ...prev, [name]: checked }));
+    } else {
+      setFormData((prev) => ({ ...prev, [name]: value }));
+    }
+  };
+
+  /**
+   * When a department is selected from the dropdown, set both
+   * departmentHrId (the entity UUID) and department (the legacy enum string).
+   */
+  const handleDepartmentChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedId = e.target.value;
+    const dept = (departments || []).find((d) => d.id === selectedId);
+    setFormData((prev) => ({
+      ...prev,
+      departmentHrId: selectedId,
+      department: dept ? mapDepartmentType(dept) : '',
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const contactInfo: ContactInfo = {
+      email: formData.contactEmail || formData.email,
+      phone: formData.contactPhone,
+      emergencyContact: formData.emergencyContact || undefined,
+      emergencyPhone: formData.emergencyPhone || undefined,
+    };
+
+    const address: Address = {
+      street: formData.street,
+      city: formData.city,
+      state: formData.state,
+      postalCode: formData.postalCode,
+      country: formData.country,
+    };
 
     if (isEditing && employeeId) {
       const input: UpdateEmployeeInput = {
         id: employeeId,
         firstName: formData.firstName,
         lastName: formData.lastName,
+        contactInfo,
+        address,
+        position: formData.position || undefined,
+        currency: formData.currency || undefined,
+        personnelCategory: (formData.personnelCategory as PersonnelCategory) || undefined,
+        seaWorthy: formData.seaWorthy,
       };
       updateMutation.mutate(input, {
         onSuccess: () => navigate(`/hr/employees/${employeeId}`),
@@ -82,10 +222,19 @@ const EmployeeFormPage: React.FC = () => {
         firstName: formData.firstName,
         lastName: formData.lastName,
         email: formData.email,
+        dateOfBirth: formData.dateOfBirth,
+        nationalId: formData.nationalId,
+        contactInfo,
+        address,
         department: formData.department || undefined,
+        departmentHrId: formData.departmentHrId || undefined,
         position: formData.position || undefined,
         hireDate: formData.hireDate || new Date().toISOString().split('T')[0]!,
         employmentType: formData.employmentType as EmploymentType,
+        baseSalary: formData.baseSalary ? Number(formData.baseSalary) : 0,
+        currency: formData.currency || undefined,
+        personnelCategory: (formData.personnelCategory as PersonnelCategory) || undefined,
+        seaWorthy: formData.seaWorthy,
       };
       createMutation.mutate(input, {
         onSuccess: (data) => navigate(`/hr/employees/${data.createEmployee.id}`),
@@ -93,12 +242,9 @@ const EmployeeFormPage: React.FC = () => {
     }
   };
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
+  // ------------------------------------------------------------------
+  // Loading state
+  // ------------------------------------------------------------------
 
   if (isEditing && loadingEmployee) {
     return (
@@ -107,6 +253,10 @@ const EmployeeFormPage: React.FC = () => {
       </div>
     );
   }
+
+  // ------------------------------------------------------------------
+  // Render
+  // ------------------------------------------------------------------
 
   return (
     <div className="p-6 space-y-6">
@@ -140,119 +290,302 @@ const EmployeeFormPage: React.FC = () => {
 
       {/* Form */}
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Basic Info */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800">
+        {/* ============================================================ */}
+        {/* Basic Information */}
+        {/* ============================================================ */}
+        <div className={sectionClass}>
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
             Basic Information
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className={labelClass}>
                 <User className="w-4 h-4 inline mr-2" />
-                First Name
+                First Name <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 name="firstName"
                 value={formData.firstName}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                className={inputClass}
                 placeholder="First name"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Last Name
+              <label className={labelClass}>
+                Last Name <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 name="lastName"
                 value={formData.lastName}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                className={inputClass}
                 placeholder="Last name"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className={labelClass}>
                 <Mail className="w-4 h-4 inline mr-2" />
-                Email
+                Email <span className="text-red-500">*</span>
               </label>
               <input
                 type="email"
                 name="email"
                 value={formData.email}
                 onChange={handleChange}
-                disabled={isEditing} // email is immutable after creation
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:disabled:bg-gray-800"
+                disabled={isEditing}
+                className={inputDisabledClass}
                 placeholder="email@example.com"
                 required={!isEditing}
               />
             </div>
+          </div>
+        </div>
+
+        {/* ============================================================ */}
+        {/* Personal Information */}
+        {/* ============================================================ */}
+        <div className={sectionClass}>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            <ShieldCheck className="w-5 h-5 inline mr-2" />
+            Personal Information
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                <Phone className="w-4 h-4 inline mr-2" />
-                Phone
+              <label className={labelClass}>
+                <Calendar className="w-4 h-4 inline mr-2" />
+                Date of Birth <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                name="dateOfBirth"
+                value={formData.dateOfBirth}
+                onChange={handleChange}
+                className={isEditing ? inputDisabledClass : inputClass}
+                disabled={isEditing}
+                required={!isEditing}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>
+                <CreditCard className="w-4 h-4 inline mr-2" />
+                National ID <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="nationalId"
+                value={formData.nationalId}
+                onChange={handleChange}
+                className={isEditing ? inputDisabledClass : inputClass}
+                disabled={isEditing}
+                placeholder="National ID / SSN"
+                required={!isEditing}
+                maxLength={50}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ============================================================ */}
+        {/* Contact Information */}
+        {/* ============================================================ */}
+        <div className={sectionClass}>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            <Phone className="w-5 h-5 inline mr-2" />
+            Contact Information
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className={labelClass}>
+                Contact Email <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="email"
+                name="contactEmail"
+                value={formData.contactEmail}
+                onChange={handleChange}
+                className={inputClass}
+                placeholder="contact@example.com"
+                required={!isEditing}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>
+                Phone <span className="text-red-500">*</span>
               </label>
               <input
                 type="tel"
-                name="phone"
-                value={formData.phone}
+                name="contactPhone"
+                value={formData.contactPhone}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                className={inputClass}
+                placeholder="+1 555 000 0000"
+                required={!isEditing}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Emergency Contact Name</label>
+              <input
+                type="text"
+                name="emergencyContact"
+                value={formData.emergencyContact}
+                onChange={handleChange}
+                className={inputClass}
+                placeholder="Emergency contact full name"
+                maxLength={100}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Emergency Phone</label>
+              <input
+                type="tel"
+                name="emergencyPhone"
+                value={formData.emergencyPhone}
+                onChange={handleChange}
+                className={inputClass}
                 placeholder="+1 555 000 0000"
               />
             </div>
           </div>
         </div>
 
-        {/* Work Info */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800">
+        {/* ============================================================ */}
+        {/* Address */}
+        {/* ============================================================ */}
+        <div className={sectionClass}>
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            <MapPin className="w-5 h-5 inline mr-2" />
+            Address
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="md:col-span-2">
+              <label className={labelClass}>
+                Street Address <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="street"
+                value={formData.street}
+                onChange={handleChange}
+                className={inputClass}
+                placeholder="123 Main St"
+                required={!isEditing}
+                maxLength={255}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>
+                City <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="city"
+                value={formData.city}
+                onChange={handleChange}
+                className={inputClass}
+                placeholder="City"
+                required={!isEditing}
+                maxLength={100}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>
+                State / Province <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="state"
+                value={formData.state}
+                onChange={handleChange}
+                className={inputClass}
+                placeholder="State"
+                required={!isEditing}
+                maxLength={100}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>
+                Postal Code <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="postalCode"
+                value={formData.postalCode}
+                onChange={handleChange}
+                className={inputClass}
+                placeholder="12345"
+                required={!isEditing}
+                maxLength={20}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>
+                Country <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="country"
+                value={formData.country}
+                onChange={handleChange}
+                className={inputClass}
+                placeholder="Country"
+                required={!isEditing}
+                maxLength={100}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ============================================================ */}
+        {/* Work Information */}
+        {/* ============================================================ */}
+        <div className={sectionClass}>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            <Building2 className="w-5 h-5 inline mr-2" />
             Work Information
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                <Building2 className="w-4 h-4 inline mr-2" />
+              <label className={labelClass}>
                 Department
               </label>
               <select
-                name="department"
-                value={formData.department}
-                onChange={handleChange}
+                name="departmentHrId"
+                value={formData.departmentHrId}
+                onChange={handleDepartmentChange}
                 disabled={isEditing}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                className={isEditing ? inputDisabledClass : inputClass}
               >
-                <option value="">Select department</option>
-                <option value="operations">Operations</option>
-                <option value="maintenance">Maintenance</option>
-                <option value="biology">Biology</option>
-                <option value="engineering">Engineering</option>
-                <option value="administration">Administration</option>
-                <option value="logistics">Logistics</option>
-                <option value="quality">Quality</option>
-                <option value="safety">Safety</option>
+                <option value="">
+                  {loadingDepartments ? 'Loading departments...' : 'Select department'}
+                </option>
+                {(departments || [])
+                  .filter((d) => d.isActive)
+                  .map((dept) => (
+                    <option key={dept.id} value={dept.id}>
+                      {dept.name} ({dept.code})
+                    </option>
+                  ))}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Position
-              </label>
+              <label className={labelClass}>Position</label>
               <input
                 type="text"
                 name="position"
                 value={formData.position}
                 onChange={handleChange}
                 disabled={isEditing}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                className={isEditing ? inputDisabledClass : inputClass}
                 placeholder="e.g. Site Manager, Dive Operator"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className={labelClass}>
                 <Calendar className="w-4 h-4 inline mr-2" />
                 Hire Date
               </label>
@@ -262,29 +595,116 @@ const EmployeeFormPage: React.FC = () => {
                 value={formData.hireDate}
                 onChange={handleChange}
                 disabled={isEditing}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                className={isEditing ? inputDisabledClass : inputClass}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Employment Type
-              </label>
+              <label className={labelClass}>Employment Type</label>
               <select
                 name="employmentType"
                 value={formData.employmentType}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                className={inputClass}
               >
-                <option value="full_time">Full Time</option>
-                <option value="part_time">Part Time</option>
-                <option value="contract">Contract</option>
-                <option value="intern">Intern</option>
+                <option value="FULL_TIME">Full Time</option>
+                <option value="PART_TIME">Part Time</option>
+                <option value="CONTRACT">Contract</option>
+                <option value="SEASONAL">Seasonal</option>
               </select>
             </div>
           </div>
         </div>
 
+        {/* ============================================================ */}
+        {/* Financial Information */}
+        {/* ============================================================ */}
+        <div className={sectionClass}>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            <DollarSign className="w-5 h-5 inline mr-2" />
+            Financial Information
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className={labelClass}>
+                Base Salary {!isEditing && <span className="text-red-500">*</span>}
+              </label>
+              <input
+                type="number"
+                name="baseSalary"
+                value={formData.baseSalary}
+                onChange={handleChange}
+                className={inputClass}
+                placeholder="0.00"
+                min="0"
+                max="100000000"
+                step="0.01"
+                required={!isEditing}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Currency</label>
+              <select
+                name="currency"
+                value={formData.currency}
+                onChange={handleChange}
+                className={inputClass}
+              >
+                {CURRENCY_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* ============================================================ */}
+        {/* Aquaculture Information */}
+        {/* ============================================================ */}
+        <div className={sectionClass}>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            <Anchor className="w-5 h-5 inline mr-2" />
+            Aquaculture Information
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className={labelClass}>Personnel Category</label>
+              <select
+                name="personnelCategory"
+                value={formData.personnelCategory}
+                onChange={handleChange}
+                className={inputClass}
+              >
+                <option value="">Select category</option>
+                <option value="OFFSHORE">Offshore</option>
+                <option value="ONSHORE">Onshore</option>
+                <option value="HYBRID">Hybrid</option>
+              </select>
+            </div>
+            <div className="flex items-center">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="seaWorthy"
+                  checked={formData.seaWorthy}
+                  onChange={handleChange}
+                  className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700"
+                />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Sea Worthy
+                </span>
+              </label>
+              <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
+                Certified for offshore deployment
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* ============================================================ */}
         {/* Actions */}
+        {/* ============================================================ */}
         <div className="flex items-center justify-end gap-4">
           <Link
             to={isEditing && employeeId ? `/hr/employees/${employeeId}` : '/hr/employees'}

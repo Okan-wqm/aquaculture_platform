@@ -119,16 +119,66 @@ export interface Employee extends BaseEntity {
   version?: number;
 }
 
-// NOTE: Department is an enum in the backend, not a separate entity.
-// This interface is kept for backward compatibility with UI components.
+export enum DepartmentType {
+  OPERATIONS = 'operations',
+  MAINTENANCE = 'maintenance',
+  FEEDING = 'feeding',
+  QUALITY_CONTROL = 'quality_control',
+  ADMINISTRATION = 'administration',
+  MANAGEMENT = 'management',
+  LOGISTICS = 'logistics',
+  SECURITY = 'security',
+  HATCHERY = 'hatchery',
+  GROW_OUT = 'grow_out',
+  PROCESSING = 'processing',
+  LABORATORY = 'laboratory',
+  GENERAL = 'general',
+}
+
 export interface Department {
-  id?: string;
+  id: string;
   tenantId?: string;
-  code?: string;
+  siteId?: string;
+  parentDepartmentId?: string;
   name: string;
+  code: string;
+  type: DepartmentType;
   description?: string;
-  colorCode?: string;
+  managerId?: string;
+  budgetCode?: string;
+  costCenter?: string;
+  isActive: boolean;
+  sortOrder: number;
+  colorCode?: string; // kept for backward compat in UI (not from backend)
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateDepartmentInput {
+  name: string;
+  code: string;
+  type?: DepartmentType;
+  description?: string;
+  siteId?: string;
+  parentDepartmentId?: string;
+  managerId?: string;
+  budgetCode?: string;
+  costCenter?: string;
+}
+
+export interface UpdateDepartmentInput {
+  id: string;
+  name?: string;
+  code?: string;
+  type?: DepartmentType;
+  description?: string;
+  siteId?: string;
+  parentDepartmentId?: string;
+  managerId?: string;
+  budgetCode?: string;
+  costCenter?: string;
   isActive?: boolean;
+  isDeleted?: boolean;
 }
 
 // NOTE: Position is a string field in the backend, not a separate entity.
@@ -150,18 +200,23 @@ export interface CreateEmployeeInput {
   firstName: string;
   lastName: string;
   email: string;
-  contactInfo?: ContactInfo;
-  address?: Address;
+  dateOfBirth: string;
+  nationalId: string;
+  contactInfo: ContactInfo;
+  address: Address;
   employmentType: EmploymentType;
   department?: string;
   position?: string;
+  departmentHrId?: string;
   supervisorId?: string;
   farmId?: string;
   hireDate: string;
+  baseSalary: number;
   currency?: string;
   personnelCategory?: PersonnelCategory;
   assignedWorkAreas?: WorkAreaType[];
   seaWorthy?: boolean;
+  isFarmWorker?: boolean;
 }
 
 export interface UpdateEmployeeInput extends Partial<CreateEmployeeInput> {

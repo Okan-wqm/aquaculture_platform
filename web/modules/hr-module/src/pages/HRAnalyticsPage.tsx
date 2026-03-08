@@ -65,7 +65,7 @@ const HRAnalyticsPage: React.FC = () => {
                 <div>
                   <p className="text-sm text-gray-500">Departments</p>
                   <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
-                    {stats?.departmentCount ?? departments?.length ?? '-'}
+                    {stats?.totalDepartments ?? departments?.length ?? '-'}
                   </p>
                 </div>
                 <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-900/30">
@@ -79,7 +79,7 @@ const HRAnalyticsPage: React.FC = () => {
                 <div>
                   <p className="text-sm text-gray-500">Offshore</p>
                   <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
-                    {stats?.offshoreCount ?? '-'}
+                    {stats?.offshoreEmployees ?? '-'}
                   </p>
                   <p className="mt-0.5 text-xs text-gray-500">Currently deployed</p>
                 </div>
@@ -94,7 +94,7 @@ const HRAnalyticsPage: React.FC = () => {
                 <div>
                   <p className="text-sm text-gray-500">On Leave</p>
                   <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
-                    {stats?.onLeaveCount ?? '-'}
+                    {stats?.onLeaveEmployees ?? '-'}
                   </p>
                 </div>
                 <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/30">

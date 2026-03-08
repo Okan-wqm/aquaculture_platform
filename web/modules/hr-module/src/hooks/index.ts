@@ -22,3 +22,6 @@ export * from './useAquaculture';
 
 // Performance management hooks
 export * from './usePerformance';
+
+// Payroll management hooks
+export * from './usePayroll';

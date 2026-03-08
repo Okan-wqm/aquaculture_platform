@@ -41,11 +41,14 @@ export const GET_HR_DASHBOARD_STATS = gql`
     hrDashboardStats {
       totalEmployees
       activeEmployees
-      onLeaveCount
-      offshoreCount
-      onshoreCount
-      seaWorthyCount
-      departmentCount
+      onLeaveEmployees
+      terminatedEmployees
+      newHiresThisMonth
+      offshoreEmployees
+      onshoreEmployees
+      attendanceRate
+      pendingLeaveRequests
+      totalDepartments
     }
   }
 `;
@@ -86,11 +89,21 @@ export const SEARCH_EMPLOYEES = gql`
   ${EMPLOYEE_BASIC_FRAGMENT}
 `;
 
-// NOTE: Department is an enum in the backend. Use employeesByDepartment query instead.
 export const GET_DEPARTMENTS = gql`
-  query GetDepartments {
-    employees(filter: { limit: 0 }) {
-      total
+  query GetDepartments($siteId: ID, $isDeleted: Boolean) {
+    departments(siteId: $siteId, isDeleted: $isDeleted) {
+      id
+      name
+      code
+      type
+      description
+      siteId
+      parentDepartmentId
+      managerId
+      budgetCode
+      costCenter
+      isActive
+      sortOrder
     }
   }
 `;
@@ -242,22 +255,40 @@ export const UPDATE_EMERGENCY_INFO = gql`
   }
 `;
 
-// NOTE: Department is an enum in backend, not a separate entity.
-// These mutations are kept as stubs for API compatibility.
 export const CREATE_DEPARTMENT = gql`
-  mutation CreateDepartment($input: CreateEmployeeInput!) {
-    createEmployee(input: $input) {
+  mutation CreateDepartment($input: CreateDepartmentInput!) {
+    createDepartment(input: $input) {
       id
-      department
+      name
+      code
+      type
+      description
+      siteId
+      parentDepartmentId
+      managerId
+      budgetCode
+      costCenter
+      isActive
+      sortOrder
     }
   }
 `;
 
 export const UPDATE_DEPARTMENT = gql`
-  mutation UpdateDepartment($input: UpdateEmployeeInput!) {
-    updateEmployee(input: $input) {
+  mutation UpdateDepartment($input: UpdateDepartmentInput!) {
+    updateDepartment(input: $input) {
       id
-      department
+      name
+      code
+      type
+      description
+      siteId
+      parentDepartmentId
+      managerId
+      budgetCode
+      costCenter
+      isActive
+      sortOrder
     }
   }
 `;

@@ -68,6 +68,40 @@ const MUTATIONS: Record<OperationType, string> = {
       }
     }
   `,
+  clockIn: `
+    mutation ClockIn($input: ClockInInput!) {
+      clockIn(input: $input) {
+        id
+        date
+        clockIn
+        status
+        workedMinutes
+        remarks
+      }
+    }
+  `,
+  clockOut: `
+    mutation ClockOut($input: ClockOutInput!) {
+      clockOut(input: $input) {
+        id
+        date
+        clockOut
+        status
+        workedMinutes
+      }
+    }
+  `,
+  createLeaveRequest: `
+    mutation CreateLeaveRequest($input: CreateLeaveRequestInput!) {
+      createLeaveRequest(input: $input) {
+        id
+        startDate
+        endDate
+        totalDays
+        status
+      }
+    }
+  `,
 };
 
 export function OfflineProvider({ children }: { children: ReactNode }) {

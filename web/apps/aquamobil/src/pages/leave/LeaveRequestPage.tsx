@@ -1,0 +1,277 @@
+import { useState, useEffect, useCallback, ChangeEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { List, ListInput, BlockTitle } from 'konsta/react';
+import { ArrowLeft, CalendarOff, CheckCircle, AlertCircle } from 'lucide-react';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useLeaveTypes, useMyLeaveBalances } from '@/hooks/useLeave';
+import { useSubmitLeaveRequest } from '@/hooks/useLeave';
+import { useAuth } from '@/hooks/useAuth';
+import type { LeaveType } from '@/types';
+import { clsx } from 'clsx';
+
+interface FormErrors {
+  leaveType?: string;
+  startDate?: string;
+  endDate?: string;
+  general?: string;
+}
+
+export function LeaveRequestPage() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { addToQueue, isOnline } = useOfflineQueue();
+  const { data: leaveTypes, fetch: fetchLeaveTypes } = useLeaveTypes();
+  const { data: balances, fetch: fetchBalances } = useMyLeaveBalances();
+  const { submit: submitRequest } = useSubmitLeaveRequest();
+
+  const [selectedTypeId, setSelectedTypeId] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [isHalfDay, setIsHalfDay] = useState(false);
+  const [reason, setReason] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [errors, setErrors] = useState<FormErrors>({});
+
+  useEffect(() => {
+    fetchLeaveTypes();
+    fetchBalances(new Date().getFullYear());
+  }, [fetchLeaveTypes, fetchBalances]);
+
+  // Set default start date to tomorrow
+  useEffect(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setStartDate(tomorrow.toISOString().split('T')[0]!);
+    setEndDate(tomorrow.toISOString().split('T')[0]!);
+  }, []);
+
+  const selectedType = leaveTypes.find((t: LeaveType) => t.id === selectedTypeId);
+  const selectedBalance = balances.find((b) => b.leaveTypeId === selectedTypeId);
+
+  const calculateDays = useCallback((): number => {
+    if (!startDate || !endDate) return 0;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diff = Math.ceil((end.getTime() - start.getTime()) / 86400000) + 1;
+    return isHalfDay ? 0.5 : Math.max(0, diff);
+  }, [startDate, endDate, isHalfDay]);
+
+  const totalDays = calculateDays();
+
+  const validateForm = useCallback((): boolean => {
+    const newErrors: FormErrors = {};
+    if (!selectedTypeId) newErrors.leaveType = 'Please select a leave type';
+    if (!startDate) newErrors.startDate = 'Start date is required';
+    if (!endDate) newErrors.endDate = 'End date is required';
+    if (startDate && endDate && new Date(endDate) < new Date(startDate)) {
+      newErrors.endDate = 'End date must be after start date';
+    }
+    if (selectedBalance && totalDays > selectedBalance.remainingDays) {
+      newErrors.general = `Insufficient balance. You have ${selectedBalance.remainingDays} days remaining.`;
+    }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  }, [selectedTypeId, startDate, endDate, selectedBalance, totalDays]);
+
+  const handleSubmit = async () => {
+    if (!validateForm()) return;
+    setIsSubmitting(true);
+    setErrors({});
+
+    try {
+      // Create draft via offline queue, then submit it
+      const queueId = await addToQueue('createLeaveRequest', {
+        leaveTypeId: selectedTypeId,
+        startDate,
+        endDate,
+        isHalfDay,
+        reason: reason.trim() || undefined,
+      });
+
+      // If online, the queue will sync immediately and we can try to submit
+      // If offline, it will stay as DRAFT until sync
+      if (isOnline && queueId) {
+        // Small delay for sync to complete, then submit
+        setTimeout(async () => {
+          try {
+            await submitRequest(queueId);
+          } catch {
+            // Draft created successfully, submit will happen later
+          }
+        }, 2000);
+      }
+
+      setShowSuccess(true);
+      setTimeout(() => navigate('/leave'), 1500);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create leave request';
+      setErrors({ general: message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (showSuccess) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-violet-50 dark:bg-violet-900/10">
+        <div className="w-20 h-20 bg-violet-100 dark:bg-violet-900/30 rounded-full flex items-center justify-center mb-4">
+          <CheckCircle size={48} className="text-violet-600" />
+        </div>
+        <h2 className="text-xl font-bold text-violet-700 dark:text-violet-300">Request Submitted!</h2>
+        <p className="text-violet-600 dark:text-violet-400 text-sm mt-1">Queued for processing</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-violet-600 to-violet-500 text-white">
+        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
+          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
+            <ArrowLeft size={22} />
+          </button>
+          <div className="flex items-center gap-2.5">
+            <CalendarOff size={22} />
+            <h1 className="text-lg font-bold">New Leave Request</h1>
+          </div>
+        </div>
+      </div>
+
+      {/* Error Banner */}
+      {errors.general && (
+        <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
+          <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
+          <span className="text-red-600 dark:text-red-300 text-sm">{errors.general}</span>
+        </div>
+      )}
+
+      {/* Leave Type Selector */}
+      <div className="px-4 mt-5">
+        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Leave Type</h3>
+        <div className="grid grid-cols-2 gap-2">
+          {leaveTypes.map((type: LeaveType) => (
+            <button
+              key={type.id}
+              onClick={() => {
+                setSelectedTypeId(type.id);
+                setErrors((prev) => ({ ...prev, leaveType: undefined }));
+              }}
+              className={clsx(
+                'flex flex-col p-3 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900',
+                selectedTypeId === type.id
+                  ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20'
+                  : 'border-gray-100 dark:border-gray-800',
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-3 h-3 rounded-full"
+                  style={{ backgroundColor: type.color || '#6366f1' }}
+                />
+                <span className="text-sm font-semibold text-gray-900 dark:text-white">{type.name}</span>
+              </div>
+              {type.isPaid && <span className="text-[10px] text-green-600 font-medium mt-1">Paid</span>}
+            </button>
+          ))}
+        </div>
+        {errors.leaveType && <p className="text-red-500 text-sm mt-2">{errors.leaveType}</p>}
+      </div>
+
+      {/* Balance Info */}
+      {selectedBalance && (
+        <div className="mx-4 mt-3 bg-violet-50 dark:bg-violet-900/20 rounded-xl p-3 border border-violet-200 dark:border-violet-800">
+          <p className="text-sm text-violet-700 dark:text-violet-300">
+            Available: <span className="font-bold">{selectedBalance.remainingDays}</span> days
+            (Used: {selectedBalance.usedDays} / Total: {selectedBalance.totalEntitlement})
+          </p>
+        </div>
+      )}
+
+      {/* Dates */}
+      <BlockTitle>Dates</BlockTitle>
+      <List strongIos insetIos>
+        <ListInput
+          type="date"
+          label="Start Date"
+          value={startDate}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => {
+            setStartDate(e.target.value);
+            setErrors((prev) => ({ ...prev, startDate: undefined }));
+          }}
+          error={errors.startDate}
+        />
+        <ListInput
+          type="date"
+          label="End Date"
+          value={endDate}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => {
+            setEndDate(e.target.value);
+            setErrors((prev) => ({ ...prev, endDate: undefined }));
+          }}
+          error={errors.endDate}
+        />
+      </List>
+
+      {/* Half Day Toggle */}
+      <div className="px-4">
+        <label className="flex items-center gap-3 bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
+          <input
+            type="checkbox"
+            checked={isHalfDay}
+            onChange={(e) => setIsHalfDay(e.target.checked)}
+            className="w-5 h-5 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+          />
+          <span className="text-sm font-medium text-gray-900 dark:text-white">Half Day</span>
+        </label>
+      </div>
+
+      {/* Total Days */}
+      {totalDays > 0 && (
+        <div className="mx-4 mt-3 bg-ocean-50 dark:bg-ocean-900/20 rounded-xl p-3 text-center">
+          <span className="text-2xl font-bold text-ocean-600">{totalDays}</span>
+          <span className="text-sm text-ocean-600 ml-1">day{totalDays !== 1 ? 's' : ''}</span>
+        </div>
+      )}
+
+      {/* Reason */}
+      <BlockTitle>Reason (Optional)</BlockTitle>
+      <List strongIos insetIos>
+        <ListInput
+          type="textarea"
+          placeholder="Why are you taking leave?"
+          value={reason}
+          onInput={(e: ChangeEvent<HTMLTextAreaElement>) => setReason(e.target.value)}
+          inputClassName="!h-24"
+        />
+      </List>
+
+      {/* Submit Button */}
+      <div className="px-4 pb-28">
+        <button
+          onClick={handleSubmit}
+          disabled={!selectedTypeId || !startDate || !endDate || isSubmitting}
+          className="w-full py-4 bg-gradient-to-r from-violet-600 to-violet-500 text-white font-bold rounded-2xl shadow-lg shadow-violet-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
+        >
+          {isSubmitting ? (
+            <>
+              <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+              Submitting...
+            </>
+          ) : (
+            <>
+              <CalendarOff size={20} />
+              Submit Leave Request
+            </>
+          )}
+        </button>
+        {!isOnline && (
+          <p className="text-center text-amber-500 text-sm mt-3 font-medium">
+            Offline - will sync when connected
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}

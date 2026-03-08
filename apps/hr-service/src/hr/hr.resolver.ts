@@ -1,24 +1,32 @@
-import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field, Float } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Employee, EmployeeStatus, Department } from './entities/employee.entity';
+import { DepartmentHR } from './entities/department.entity';
 import { Payroll, PayrollStatus } from './entities/payroll.entity';
 import { CreateEmployeeInput } from './dto/create-employee.input';
 import { UpdateEmployeeInput } from './dto/update-employee.input';
 import { CreatePayrollInput } from './dto/create-payroll.input';
+import { CreateDepartmentInput } from './dto/create-department.input';
+import { UpdateDepartmentInput } from './dto/update-department.input';
 import { EmployeeFilterInput } from './dto/employee-filter.input';
 import { CreateEmployeeCommand } from './commands/create-employee.command';
 import { UpdateEmployeeCommand } from './commands/update-employee.command';
 import { CreatePayrollCommand } from './commands/create-payroll.command';
 import { ApprovePayrollCommand } from './commands/approve-payroll.command';
+import { CreateDepartmentCommand } from './commands/create-department.command';
+import { UpdateDepartmentCommand } from './commands/update-department.command';
 import { GetEmployeeQuery } from './queries/get-employee.query';
 import { GetEmployeesQuery } from './queries/get-employees.query';
 import { GetPayrollsQuery, PayrollFilterInput } from './queries/get-payrolls.query';
+import { GetDepartmentsQuery, GetDepartmentQuery } from './queries/get-departments.query';
+import { GetHRDashboardStatsQuery } from './queries/get-hr-dashboard-stats.query';
 import { PaginatedEmployees } from './query-handlers/get-employees.handler';
 import { PaginatedPayrolls } from './query-handlers/get-payrolls.handler';
+import { HRDashboardStats } from './query-handlers/get-hr-dashboard-stats.handler';
 
 @ObjectType()
 class EmployeeConnection {
@@ -275,5 +283,69 @@ export class HRResolver {
     return this.commandBus.execute(
       new ApprovePayrollCommand(tenantId, id, userId),
     );
+  }
+
+  // Department Queries
+  @Query(() => [DepartmentHR], { name: 'departments' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  async getDepartments(
+    @Context() context: GraphQLContext,
+    @Args('siteId', { type: () => ID, nullable: true }) siteId?: string,
+    @Args('isDeleted', { nullable: true, defaultValue: false }) isDeleted?: boolean,
+  ): Promise<DepartmentHR[]> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(new GetDepartmentsQuery(tenantId, siteId, isDeleted));
+  }
+
+  @Query(() => DepartmentHR, { name: 'department' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  async getDepartment(
+    @Args('id', { type: () => ID }) id: string,
+    @Context() context: GraphQLContext,
+  ): Promise<DepartmentHR> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(new GetDepartmentQuery(tenantId, id));
+  }
+
+  // Department Mutations
+  @Mutation(() => DepartmentHR)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async createDepartment(
+    @Args('input') input: CreateDepartmentInput,
+    @Context() context: GraphQLContext,
+  ): Promise<DepartmentHR> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute(
+      new CreateDepartmentCommand(tenantId, input, userId),
+    );
+  }
+
+  @Mutation(() => DepartmentHR)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async updateDepartment(
+    @Args('input') input: UpdateDepartmentInput,
+    @Context() context: GraphQLContext,
+  ): Promise<DepartmentHR> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute(
+      new UpdateDepartmentCommand(tenantId, input, userId),
+    );
+  }
+
+  // HR Dashboard Stats
+  @Query(() => HRDashboardStats, { name: 'hrDashboardStats' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  async getHRDashboardStats(
+    @Context() context: GraphQLContext,
+  ): Promise<HRDashboardStats> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(new GetHRDashboardStatsQuery(tenantId));
   }
 }

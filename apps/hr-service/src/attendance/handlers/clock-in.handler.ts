@@ -124,22 +124,52 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
 
       let lateMinutes = 0;
       let status: AttendanceStatus = AttendanceStatus.PRESENT;
+      let isScheduled = true;
 
       // Calculate if late based on shift (using local time for comparison)
       if (schedule?.shift) {
-        // Safely parse shift start time with validation
-        const [shiftHours, shiftMinutes] = safeParseTime(schedule.shift.startTime);
+        const shift = schedule.shift;
+        // Safely parse shift start/end time with validation
+        const [shiftHours, shiftMinutes] = safeParseTime(shift.startTime);
         const shiftStartLocal = new Date(today);
         shiftStartLocal.setHours(shiftHours, shiftMinutes, 0, 0);
 
-        // Convert shift start to UTC for comparison
+        const [endHours, endMinutes] = safeParseTime(shift.endTime);
+        const shiftEndLocal = new Date(today);
+        shiftEndLocal.setHours(endHours, endMinutes, 0, 0);
+        // Handle overnight shifts
+        if (shift.crossesMidnight && shiftEndLocal <= shiftStartLocal) {
+          shiftEndLocal.setDate(shiftEndLocal.getDate() + 1);
+        }
+
+        // Convert to UTC for comparison
         const shiftStartUtc = convertLocalToUtc(shiftStartLocal, timezone);
-        const graceEndUtc = new Date(shiftStartUtc.getTime() + (schedule.shift.graceMinutes || 0) * 60000);
+        const shiftEndUtc = convertLocalToUtc(shiftEndLocal, timezone);
+
+        // Time window validation: earliest allowed = shiftStart - earlyClockInMinutes
+        // latest allowed = shiftEnd + lateClockOutMinutes
+        const earlyClockIn = shift.earlyClockInMinutes ?? 60;
+        const lateClockOut = shift.lateClockOutMinutes ?? 300;
+        const windowStart = new Date(shiftStartUtc.getTime() - earlyClockIn * 60000);
+        const windowEnd = new Date(shiftEndUtc.getTime() + lateClockOut * 60000);
+
+        if (nowUtc < windowStart || nowUtc > windowEnd) {
+          const windowStartLocal = new Date(windowStart.getTime() - getTimezoneOffset(timezone, windowStart) * 60000);
+          const windowEndLocal = new Date(windowEnd.getTime() - getTimezoneOffset(timezone, windowEnd) * 60000);
+          throw new BadRequestException(
+            `Clock-in is only allowed between ${windowStartLocal.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })} and ${windowEndLocal.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`,
+          );
+        }
+
+        const graceEndUtc = new Date(shiftStartUtc.getTime() + (shift.graceMinutes || 0) * 60000);
 
         if (nowUtc > graceEndUtc) {
           lateMinutes = Math.floor((nowUtc.getTime() - shiftStartUtc.getTime()) / 60000);
           status = AttendanceStatus.LATE;
         }
+      } else {
+        // No shift assigned - employee can still clock in but marked as unscheduled
+        isScheduled = false;
       }
 
       // Determine if offshore
@@ -165,6 +195,9 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
         savedRecord = await queryRunner.manager.save(AttendanceRecord, existingRecord);
       } else {
         // Create new attendance record
+        const effectiveRemarks = !isScheduled
+          ? (remarks ? `[Unscheduled] ${remarks}` : '[Unscheduled]')
+          : remarks;
         const attendanceRecord = queryRunner.manager.create(AttendanceRecord, {
           tenantId,
           employeeId,
@@ -177,10 +210,10 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
           clockInLocation: location,
           status,
           lateMinutes,
-          approvalStatus: lateMinutes > 0 ? ApprovalStatus.PENDING_REVIEW : ApprovalStatus.AUTO_APPROVED,
+          approvalStatus: !isScheduled ? ApprovalStatus.PENDING_REVIEW : (lateMinutes > 0 ? ApprovalStatus.PENDING_REVIEW : ApprovalStatus.AUTO_APPROVED),
           isOffshore,
           workAreaId,
-          remarks,
+          remarks: effectiveRemarks,
           createdBy: userId,
           updatedBy: userId,
         });

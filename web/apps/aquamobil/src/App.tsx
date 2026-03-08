@@ -27,6 +27,15 @@ const SyncStatusPage = lazy(() =>
 const MySchedulePage = lazy(() =>
   import('./pages/schedule/MySchedulePage').then((m) => ({ default: m.MySchedulePage }))
 );
+const AttendancePage = lazy(() =>
+  import('./pages/attendance/AttendancePage').then((m) => ({ default: m.AttendancePage }))
+);
+const LeaveRequestPage = lazy(() =>
+  import('./pages/leave/LeaveRequestPage').then((m) => ({ default: m.LeaveRequestPage }))
+);
+const MyLeavesPage = lazy(() =>
+  import('./pages/leave/MyLeavesPage').then((m) => ({ default: m.MyLeavesPage }))
+);
 
 function PageLoader() {
   return (
@@ -159,6 +168,30 @@ export function App() {
                         element={
                           <FeatureRoute feature="schedule">
                             <MySchedulePage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/attendance"
+                        element={
+                          <FeatureRoute feature="attendance">
+                            <AttendancePage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/leave"
+                        element={
+                          <FeatureRoute feature="leave">
+                            <MyLeavesPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/leave/request"
+                        element={
+                          <FeatureRoute feature="leave">
+                            <LeaveRequestPage />
                           </FeatureRoute>
                         }
                       />

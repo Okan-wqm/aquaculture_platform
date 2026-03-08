@@ -66,7 +66,7 @@ export function AttendancePage() {
       sortable: true,
       accessor: (row) => (
         <span className="text-gray-700 dark:text-gray-300">
-          {new Date(row.attendanceDate).toLocaleDateString()}
+          {new Date(row.date).toLocaleDateString()}
         </span>
       ),
     },
@@ -75,7 +75,7 @@ export function AttendancePage() {
       header: 'Clock In',
       accessor: (row) => (
         <span className="text-gray-700 dark:text-gray-300">
-          {row.clockInTime ? new Date(row.clockInTime).toLocaleTimeString() : '-'}
+          {row.clockIn ? new Date(row.clockIn).toLocaleTimeString() : '-'}
         </span>
       ),
     },
@@ -84,7 +84,7 @@ export function AttendancePage() {
       header: 'Clock Out',
       accessor: (row) => (
         <span className="text-gray-700 dark:text-gray-300">
-          {row.clockOutTime ? new Date(row.clockOutTime).toLocaleTimeString() : '-'}
+          {row.clockOut ? new Date(row.clockOut).toLocaleTimeString() : '-'}
         </span>
       ),
     },
@@ -117,7 +117,7 @@ export function AttendancePage() {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Attendance</h1>
           <p className="mt-1 text-gray-500 dark:text-gray-400">
@@ -126,7 +126,7 @@ export function AttendancePage() {
         </div>
         <Link
           to="/hr/scheduling"
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 sm:w-auto"
         >
           <Calendar className="h-4 w-4" />
           Schedule
@@ -145,7 +145,7 @@ export function AttendancePage() {
                     <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200" />
                   ) : (
                     <p className="mt-1 text-2xl font-bold text-green-600">
-                      {overview?.presentCount ?? '-'}
+                      {overview?.present ?? '-'}
                     </p>
                   )}
                 </div>
@@ -162,7 +162,7 @@ export function AttendancePage() {
                     <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200" />
                   ) : (
                     <p className="mt-1 text-2xl font-bold text-red-600">
-                      {overview?.absentCount ?? '-'}
+                      {overview?.absent ?? '-'}
                     </p>
                   )}
                 </div>
@@ -179,7 +179,7 @@ export function AttendancePage() {
                     <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200" />
                   ) : (
                     <p className="mt-1 text-2xl font-bold text-amber-600">
-                      {overview?.onLeaveCount ?? '-'}
+                      {overview?.onLeave ?? '-'}
                     </p>
                   )}
                 </div>
@@ -210,7 +210,7 @@ export function AttendancePage() {
 
           {/* Time Clock Widget */}
           {employeeId && (
-            <div className="max-w-sm">
+            <div className="w-full sm:max-w-sm">
               <TimeClockWidget employeeId={employeeId} />
             </div>
           )}
@@ -281,7 +281,7 @@ export function AttendancePage() {
           {/* Filter Panel */}
           {showFilters && (
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Start Date
@@ -332,17 +332,19 @@ export function AttendancePage() {
             </div>
           )}
 
-          <DataTable
-            data={records?.items || []}
-            columns={columns}
-            keyExtractor={(row) => row.id}
-            isLoading={loadingRecords}
-            emptyMessage="No attendance records found"
-            total={records?.total}
-            page={Math.floor((pagination.offset || 0) / (pagination.limit || 20)) + 1}
-            pageSize={pagination.limit || 20}
-            onPageChange={handlePageChange}
-          />
+          <div className="overflow-x-auto -mx-6 px-6">
+            <DataTable
+              data={records?.items || []}
+              columns={columns}
+              keyExtractor={(row) => row.id}
+              isLoading={loadingRecords}
+              emptyMessage="No attendance records found"
+              total={records?.total}
+              page={Math.floor((pagination.offset || 0) / (pagination.limit || 20)) + 1}
+              pageSize={pagination.limit || 20}
+              onPageChange={handlePageChange}
+            />
+          </div>
         </>
       )}
     </div>

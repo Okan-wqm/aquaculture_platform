@@ -12,3 +12,4 @@ export * from './attendance.operations';
 export * from './certification.operations';
 export * from './aquaculture.operations';
 export * from './performance.operations';
+export * from './payroll.operations';

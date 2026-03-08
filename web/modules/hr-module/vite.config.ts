@@ -15,7 +15,6 @@ export default defineConfig({
       exposes: {
         './Module': './src/Module.tsx',
         './Dashboard': './src/pages/HRDashboardPage.tsx',
-        './Employees': './src/pages/EmployeesPage.tsx',
         './Payroll': './src/pages/PayrollPage.tsx',
       },
       shared: {

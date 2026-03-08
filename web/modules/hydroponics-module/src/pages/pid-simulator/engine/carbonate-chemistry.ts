@@ -294,3 +294,31 @@ export function calcCo2OfDic(dicMM: number, pHnbs: number, tempC: number, S: num
 export function co2MmToMg(co2Mm: number): number {
   return co2Mm * 44.0096;
 }
+
+/**
+ * Find DIC at atmospheric CO₂ equilibrium for a given ALK.
+ * Solves: CO2(DIC, pH(ALK, DIC)) = co2EqMmol via bisection.
+ * Returns equilibrated { DIC, pH }.
+ */
+export function equilibrateCo2(
+  alkMeq: number,
+  co2EqMmol: number,
+  tempC: number,
+  salinity: number,
+): { DIC: number; pH: number } {
+  let lo = 0.001, hi = 20.0;
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2;
+    const pH = calcPhForAlkDic(alkMeq, mid, tempC, salinity);
+    const co2 = calcCo2OfDic(mid, pH, tempC, salinity);
+    if (co2 < co2EqMmol) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+    if (hi - lo < 1e-8) break;
+  }
+  const DIC = (lo + hi) / 2;
+  const pH = calcPhForAlkDic(alkMeq, DIC, tempC, salinity);
+  return { DIC, pH };
+}

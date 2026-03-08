@@ -1,9 +1,9 @@
 /**
- * IEC 61131-3 Structured Text Interpreter Engine
+ * IEC 61131-3 Structured Text AST Tree-Walker Interpreter
  *
- * Tree-walker interpreter that executes a parsed ST AST.
- * Each `runCycle()` call executes all body statements once — equivalent to one PLC scan cycle.
- * Variable state is preserved between cycles.
+ * Executes a parsed ST program/function_block/function by walking the AST.
+ * Each `runCycle()` call executes all body statements once (one PLC scan).
+ * Variable state persists between cycles until `reset()`.
  */
 
 import type {
@@ -13,22 +13,18 @@ import type {
   FunctionNode,
   VarBlockNode,
   VarBlockKind,
+  VarDeclarationNode,
+  TypeNode,
   Statement,
   Expression,
-  TypeNode,
-  VarDeclarationNode,
   BinaryOperator,
   UnaryOperator,
-  IfStatement,
-  CaseStatement,
-  ForStatement,
-  WhileStatement,
-  RepeatStatement,
   CaseLabel,
-  ElsifBranch,
 } from './st-ast-types';
 
-// ── Public Types ─────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// Public types
+// ────────────────────────────────────────────────────────────────────────────
 
 export type SimValue = boolean | number | string;
 
@@ -39,131 +35,313 @@ export interface VariableInfo {
   value: SimValue;
 }
 
-// ── Signal types for flow control ────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// Internal control-flow signals
+// ────────────────────────────────────────────────────────────────────────────
 
-type FlowSignal = 'normal' | 'return' | 'exit';
+const RETURN_SIGNAL = Symbol('RETURN');
+const EXIT_SIGNAL = Symbol('EXIT');
 
-// ── Interpreter ──────────────────────────────────────────
+type ControlSignal = typeof RETURN_SIGNAL | typeof EXIT_SIGNAL;
+
+// ────────────────────────────────────────────────────────────────────────────
+// Constants
+// ────────────────────────────────────────────────────────────────────────────
 
 const MAX_ITERATIONS = 100_000;
 
+// ────────────────────────────────────────────────────────────────────────────
+// Internal metadata stored alongside each variable
+// ────────────────────────────────────────────────────────────────────────────
+
+interface VarMeta {
+  originalName: string; // preserves original casing for getVariableInfo()
+  scope: VarBlockKind;
+  dataType: string;
+  defaultValue: SimValue;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Built-in function registry
+// ────────────────────────────────────────────────────────────────────────────
+
+type BuiltinFn = (args: SimValue[]) => SimValue;
+
+function buildBuiltins(): Map<string, BuiltinFn> {
+  const m = new Map<string, BuiltinFn>();
+
+  // ── Math ──────────────────────────────────────────────────────────────
+  m.set('abs', (a) => Math.abs(toNum(a[0])));
+  m.set('sqrt', (a) => {
+    const v = toNum(a[0]);
+    if (v < 0) {
+      console.warn(`ST Interpreter: SQRT of negative number (${v}), returning 0`);
+      return 0;
+    }
+    return Math.sqrt(v);
+  });
+  m.set('sin', (a) => Math.sin(toNum(a[0])));
+  m.set('cos', (a) => Math.cos(toNum(a[0])));
+  m.set('tan', (a) => Math.tan(toNum(a[0])));
+  m.set('asin', (a) => Math.asin(toNum(a[0])));
+  m.set('acos', (a) => Math.acos(toNum(a[0])));
+  m.set('atan', (a) => Math.atan(toNum(a[0])));
+  m.set('ln', (a) => Math.log(toNum(a[0])));
+  m.set('log', (a) => Math.log10(toNum(a[0])));
+  m.set('exp', (a) => Math.exp(toNum(a[0])));
+  m.set('trunc', (a) => Math.trunc(toNum(a[0])));
+  m.set('expt', (a) => Math.pow(toNum(a[0]), toNum(a[1])));
+
+  // ── Selection ─────────────────────────────────────────────────────────
+  m.set('min', (a) => Math.min(toNum(a[0]), toNum(a[1])));
+  m.set('max', (a) => Math.max(toNum(a[0]), toNum(a[1])));
+  m.set('limit', (a) => {
+    const mn = toNum(a[0]);
+    const val = toNum(a[1]);
+    const mx = toNum(a[2]);
+    return Math.min(Math.max(val, mn), mx);
+  });
+  m.set('sel', (a) => {
+    // SEL(cond, false_val, true_val)
+    const cond = isTruthyStatic(a[0]);
+    return cond ? a[2] : a[1];
+  });
+
+  // ── Type conversion ───────────────────────────────────────────────────
+  m.set('int_to_real', (a) => toNum(a[0]));
+  m.set('real_to_int', (a) => Math.trunc(toNum(a[0])));
+  m.set('bool_to_int', (a) => (isTruthyStatic(a[0]) ? 1 : 0));
+  m.set('int_to_bool', (a) => toNum(a[0]) !== 0);
+
+  return m;
+}
+
+/** Coerce SimValue to number */
+function toNum(v: SimValue | undefined): number {
+  if (v === undefined) return 0;
+  if (typeof v === 'number') return v;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+}
+
+/** Static truthiness check used by built-in functions */
+function isTruthyStatic(v: SimValue | undefined): boolean {
+  if (v === undefined) return false;
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'string') return v.length > 0;
+  if (typeof v === 'number') return !isNaN(v) && v !== 0;
+  return false;
+}
+
+const BUILTINS = buildBuiltins();
+
+// ────────────────────────────────────────────────────────────────────────────
+// Interpreter
+// ────────────────────────────────────────────────────────────────────────────
+
 export class StInterpreter {
+  private readonly varBlocks: VarBlockNode[];
+  private readonly body: Statement[];
+
+  /** Runtime variable store – keys are always lowercase */
   private variables: Map<string, SimValue> = new Map();
-  private varMeta: Map<string, { scope: VarBlockKind; dataType: string }> = new Map();
-  private initialValues: Map<string, SimValue> = new Map();
-  private body: Statement[];
-  private varBlocks: VarBlockNode[];
+
+  /** Metadata per variable (keyed lowercase) */
+  private meta: Map<string, VarMeta> = new Map();
 
   constructor(node: ASTNode) {
-    const pou = node as ProgramNode | FunctionBlockNode | FunctionNode;
-    this.varBlocks = pou.varBlocks ?? [];
-    this.body = pou.body ?? [];
-    this.initVariables(this.varBlocks);
+    switch (node.kind) {
+      case 'program':
+        this.varBlocks = (node as ProgramNode).varBlocks;
+        this.body = (node as ProgramNode).body;
+        break;
+      case 'functionBlock':
+        this.varBlocks = (node as FunctionBlockNode).varBlocks;
+        this.body = (node as FunctionBlockNode).body;
+        break;
+      case 'function':
+        this.varBlocks = (node as FunctionNode).varBlocks;
+        this.body = (node as FunctionNode).body;
+        break;
+      default:
+        // InterfaceNode and TypeDeclarationNode are not executable
+        this.varBlocks = [];
+        this.body = [];
+        break;
+    }
+
+    this.initVariables();
   }
 
-  // ── Public API ───────────────────────────────────────────
+  // ── Public API ──────────────────────────────────────────────────────────
 
-  /** Set a variable value (typically used for VAR_INPUT before runCycle) */
+  /** Set a variable value by name (case-insensitive). */
   setVariable(name: string, value: SimValue): void {
-    // Case-insensitive lookup for the canonical name
-    const canonical = this.findCanonicalName(name);
-    this.variables.set(canonical, value);
+    this.variables.set(name.toLowerCase(), value);
   }
 
-  /** Get a variable's current value */
+  /** Get a variable value by name (case-insensitive). */
   getVariable(name: string): SimValue | undefined {
-    const canonical = this.findCanonicalName(name);
-    return this.variables.get(canonical);
+    return this.variables.get(name.toLowerCase());
   }
 
-  /** Get metadata + current value for all variables */
+  /** Return structured info for every declared variable. */
   getVariableInfo(): VariableInfo[] {
     const result: VariableInfo[] = [];
-    for (const [name, meta] of this.varMeta) {
-      result.push({
-        name,
-        scope: meta.scope,
-        dataType: meta.dataType,
-        value: this.variables.get(name) ?? this.getDefaultForType(meta.dataType),
-      });
+    for (const [key, value] of this.variables) {
+      const m = this.meta.get(key);
+      if (m) {
+        result.push({
+          name: m.originalName,
+          scope: m.scope,
+          dataType: m.dataType,
+          value,
+        });
+      }
     }
     return result;
   }
 
-  /** Get all variables as a Map */
+  /** Return a copy of the full variable map. */
   getAllVariables(): Map<string, SimValue> {
     return new Map(this.variables);
   }
 
-  /** Execute all body statements once (one PLC scan cycle) */
+  /** Execute one PLC scan cycle (all body statements once). */
   runCycle(): void {
     this.executeStatements(this.body);
   }
 
-  /** Re-initialize all variables to their declared default values */
+  /** Re-initialize all variables to their declared defaults. */
   reset(): void {
     this.variables.clear();
-    for (const [name, val] of this.initialValues) {
-      this.variables.set(name, val);
+    this.meta.clear();
+    this.initVariables();
+  }
+
+  // ── Variable initialization ─────────────────────────────────────────────
+
+  private initVariables(): void {
+    for (const block of this.varBlocks) {
+      for (const decl of block.declarations) {
+        const dataType = this.typeNodeToString(decl.type);
+        const defaultVal = decl.initialValue !== undefined
+          ? this.evaluateExpression(decl.initialValue)
+          : this.defaultForType(decl.type);
+
+        for (const name of decl.names) {
+          const key = name.toLowerCase();
+          this.variables.set(key, defaultVal);
+          this.meta.set(key, {
+            originalName: name,
+            scope: block.blockType,
+            dataType,
+            defaultValue: defaultVal,
+          });
+        }
+
+        // If the type is an array, initialize individual elements
+        if (decl.type.kind === 'arrayType') {
+          this.initArrayElements(decl, block.blockType);
+        }
+
+        // If the type is a struct, initialize individual members
+        if (decl.type.kind === 'structType') {
+          this.initStructMembers(decl, block.blockType);
+        }
+      }
     }
   }
 
-  // ── Variable Initialization ──────────────────────────────
+  private initArrayElements(decl: VarDeclarationNode, scope: VarBlockKind): void {
+    if (decl.type.kind !== 'arrayType') return;
+    const arrType = decl.type;
+    const elemDefault = this.defaultForType(arrType.elementType);
 
-  private initVariables(varBlocks: VarBlockNode[]): void {
-    for (const block of varBlocks) {
-      for (const decl of block.declarations) {
-        const dataType = this.resolveTypeName(decl.type);
-        const defaultVal = decl.initialValue
-          ? this.evaluateExpression(decl.initialValue)
-          : this.getDefaultValue(decl.type);
+    for (const name of decl.names) {
+      // Only handle single-dimension arrays for flat key strategy
+      for (const dim of arrType.dimensions) {
+        const lower = toNum(this.evaluateExpression(dim.lower));
+        const upper = toNum(this.evaluateExpression(dim.upper));
+        for (let i = lower; i <= upper; i++) {
+          const key = `${name.toLowerCase()}_${i}`;
+          if (!this.variables.has(key)) {
+            this.variables.set(key, elemDefault);
+            this.meta.set(key, {
+              originalName: `${name}[${i}]`,
+              scope,
+              dataType: this.typeNodeToString(arrType.elementType),
+              defaultValue: elemDefault,
+            });
+          }
+        }
+      }
+    }
+  }
 
-        for (const name of decl.names) {
-          this.variables.set(name, defaultVal);
-          this.initialValues.set(name, defaultVal);
-          this.varMeta.set(name, {
-            scope: block.blockType,
-            dataType,
+  private initStructMembers(decl: VarDeclarationNode, scope: VarBlockKind): void {
+    if (decl.type.kind !== 'structType') return;
+    const structType = decl.type;
+
+    for (const varName of decl.names) {
+      for (const member of structType.members) {
+        const memberDefault = member.initialValue !== undefined
+          ? this.evaluateExpression(member.initialValue)
+          : this.defaultForType(member.type);
+        const key = `${varName.toLowerCase()}_${member.name.toLowerCase()}`;
+        if (!this.variables.has(key)) {
+          this.variables.set(key, memberDefault);
+          this.meta.set(key, {
+            originalName: `${varName}.${member.name}`,
+            scope,
+            dataType: this.typeNodeToString(member.type),
+            defaultValue: memberDefault,
           });
         }
       }
     }
   }
 
-  private resolveTypeName(type: TypeNode): string {
-    switch (type.kind) {
+  private typeNodeToString(t: TypeNode): string {
+    switch (t.kind) {
       case 'elementaryType':
-        return type.name;
-      case 'stringType':
-        return type.baseType;
+        return t.name;
       case 'arrayType':
-        return `ARRAY OF ${this.resolveTypeName(type.elementType)}`;
-      case 'namedType':
-        return type.name;
-      case 'enumType':
-        return 'ENUM';
+        return `ARRAY OF ${this.typeNodeToString(t.elementType)}`;
+      case 'stringType':
+        return t.baseType;
       case 'structType':
         return 'STRUCT';
+      case 'enumType':
+        return 'ENUM';
+      case 'namedType':
+        return t.name;
       case 'subrangeType':
-        return this.resolveTypeName(type.baseType);
+        return this.typeNodeToString(t.baseType);
       default:
         return 'UNKNOWN';
     }
   }
 
-  private getDefaultValue(type: TypeNode): SimValue {
-    switch (type.kind) {
-      case 'elementaryType':
-        return this.getDefaultForType(type.name);
+  private defaultForType(t: TypeNode): SimValue {
+    switch (t.kind) {
+      case 'elementaryType': {
+        const upper = t.name.toUpperCase();
+        if (upper === 'BOOL') return false;
+        if (upper === 'STRING' || upper === 'WSTRING') return '';
+        // INT, DINT, SINT, USINT, UINT, UDINT, LINT, ULINT, REAL, LREAL, BYTE, WORD, DWORD, LWORD, TIME, DATE, etc.
+        return 0;
+      }
       case 'stringType':
         return '';
       case 'arrayType':
-        return 0;
-      case 'namedType':
-        return 0;
+        return 0; // The array variable itself; individual elements are initialized separately
+      case 'structType':
+        return 0; // The struct variable itself; individual members are initialized separately
       case 'enumType':
         return 0;
-      case 'structType':
+      case 'namedType':
         return 0;
       case 'subrangeType':
         return 0;
@@ -172,27 +350,21 @@ export class StInterpreter {
     }
   }
 
-  private getDefaultForType(typeName: string): SimValue {
-    const upper = typeName.toUpperCase();
-    if (upper === 'BOOL') return false;
-    if (upper === 'STRING' || upper === 'WSTRING') return '';
-    // INT, REAL, DINT, SINT, UINT, UDINT, LINT, ULINT, LREAL, BYTE, WORD, DWORD, LWORD, TIME
-    return 0;
-  }
+  // ── Statement execution ─────────────────────────────────────────────────
 
-  // ── Statement Execution ──────────────────────────────────
-
-  private executeStatements(stmts: Statement[]): FlowSignal {
+  /**
+   * Execute a list of statements. Returns a ControlSignal if RETURN or EXIT
+   * is encountered, otherwise undefined.
+   */
+  private executeStatements(stmts: Statement[]): ControlSignal | undefined {
     for (const stmt of stmts) {
       const signal = this.executeStatement(stmt);
-      if (signal !== 'normal') {
-        return signal;
-      }
+      if (signal !== undefined) return signal;
     }
-    return 'normal';
+    return undefined;
   }
 
-  private executeStatement(stmt: Statement): FlowSignal {
+  private executeStatement(stmt: Statement): ControlSignal | undefined {
     switch (stmt.kind) {
       case 'assignment':
         return this.execAssignment(stmt);
@@ -207,50 +379,60 @@ export class StInterpreter {
       case 'repeatStatement':
         return this.execRepeat(stmt);
       case 'returnStatement':
-        return 'return';
+        return RETURN_SIGNAL;
       case 'exitStatement':
-        return 'exit';
+        return EXIT_SIGNAL;
       case 'expressionStatement':
         this.evaluateExpression(stmt.expression);
-        return 'normal';
+        return undefined;
       case 'emptyStatement':
-        return 'normal';
+        return undefined;
       default:
-        return 'normal';
+        return undefined;
     }
   }
 
-  private execAssignment(stmt: { target: Expression; value: Expression }): FlowSignal {
+  private execAssignment(stmt: { target: Expression; value: Expression }): undefined {
     const value = this.evaluateExpression(stmt.value);
-    this.assignToTarget(stmt.target, value);
-    return 'normal';
+    const key = this.resolveAssignmentTarget(stmt.target);
+    this.variables.set(key, value);
+    return undefined;
   }
 
-  private execIf(stmt: IfStatement): FlowSignal {
+  /**
+   * Resolve an assignment target expression to a flat variable key (lowercase).
+   */
+  private resolveAssignmentTarget(expr: Expression): string {
+    switch (expr.kind) {
+      case 'identifier':
+        return expr.name.toLowerCase();
+      case 'memberAccess': {
+        const objKey = this.resolveAssignmentTarget(expr.object);
+        return `${objKey}_${expr.member.toLowerCase()}`;
+      }
+      case 'arrayAccess': {
+        const arrKey = this.resolveAssignmentTarget(expr.array);
+        const index = toNum(this.evaluateExpression(expr.indices[0]));
+        return `${arrKey}_${index}`;
+      }
+      default:
+        // Fallback: evaluate and return as string key
+        return String(this.evaluateExpression(expr)).toLowerCase();
+    }
+  }
+
+  private execIf(stmt: {
+    condition: Expression;
+    thenBody: Statement[];
+    elsifBranches: { condition: Expression; body: Statement[] }[];
+    elseBody?: Statement[];
+  }): ControlSignal | undefined {
     if (this.isTruthy(this.evaluateExpression(stmt.condition))) {
       return this.executeStatements(stmt.thenBody);
     }
 
-    if (stmt.elsifBranches) {
-      for (const elsif of stmt.elsifBranches) {
-        if (this.isTruthy(this.evaluateExpression(elsif.condition))) {
-          return this.executeStatements(elsif.body);
-        }
-      }
-    }
-
-    if (stmt.elseBody) {
-      return this.executeStatements(stmt.elseBody);
-    }
-
-    return 'normal';
-  }
-
-  private execCase(stmt: CaseStatement): FlowSignal {
-    const value = this.evaluateExpression(stmt.expression);
-
-    for (const branch of stmt.cases) {
-      if (this.matchesCaseLabels(value, branch.labels)) {
+    for (const branch of stmt.elsifBranches) {
+      if (this.isTruthy(this.evaluateExpression(branch.condition))) {
         return this.executeStatements(branch.body);
       }
     }
@@ -259,236 +441,226 @@ export class StInterpreter {
       return this.executeStatements(stmt.elseBody);
     }
 
-    return 'normal';
+    return undefined;
   }
 
-  private matchesCaseLabels(value: SimValue, labels: CaseLabel[]): boolean {
+  private execCase(stmt: {
+    expression: Expression;
+    cases: { labels: CaseLabel[]; body: Statement[] }[];
+    elseBody?: Statement[];
+  }): ControlSignal | undefined {
+    const val = this.evaluateExpression(stmt.expression);
+    const numVal = toNum(val);
+
+    for (const branch of stmt.cases) {
+      if (this.matchesCaseLabels(numVal, branch.labels)) {
+        return this.executeStatements(branch.body);
+      }
+    }
+
+    if (stmt.elseBody) {
+      return this.executeStatements(stmt.elseBody);
+    }
+
+    return undefined;
+  }
+
+  private matchesCaseLabels(val: number, labels: CaseLabel[]): boolean {
     for (const label of labels) {
       if (label.kind === 'single') {
-        const labelVal = this.evaluateExpression(label.value);
-        if (value === labelVal) return true;
-      } else if (label.kind === 'range') {
-        const lower = this.evaluateExpression(label.lower);
-        const upper = this.evaluateExpression(label.upper);
-        if (typeof value === 'number' && typeof lower === 'number' && typeof upper === 'number') {
-          if (value >= lower && value <= upper) return true;
-        }
+        const labelVal = toNum(this.evaluateExpression(label.value));
+        if (val === labelVal) return true;
+      } else {
+        // range
+        const lower = toNum(this.evaluateExpression(label.lower));
+        const upper = toNum(this.evaluateExpression(label.upper));
+        if (val >= lower && val <= upper) return true;
       }
     }
     return false;
   }
 
-  private execFor(stmt: ForStatement): FlowSignal {
-    const fromVal = this.toNumber(this.evaluateExpression(stmt.from));
-    const toVal = this.toNumber(this.evaluateExpression(stmt.to));
-    const byVal = stmt.by ? this.toNumber(this.evaluateExpression(stmt.by)) : 1;
+  private execFor(stmt: {
+    variable: string;
+    from: Expression;
+    to: Expression;
+    by?: Expression;
+    body: Statement[];
+  }): ControlSignal | undefined {
+    const varKey = stmt.variable.toLowerCase();
+    const fromVal = toNum(this.evaluateExpression(stmt.from));
+    const toVal = toNum(this.evaluateExpression(stmt.to));
+    const byVal = stmt.by !== undefined ? toNum(this.evaluateExpression(stmt.by)) : 1;
 
-    if (byVal === 0) {
-      // Avoid infinite loop with zero step
-      return 'normal';
-    }
+    // BY = 0 would cause infinite loop; skip entirely
+    if (byVal === 0) return undefined;
+
+    this.variables.set(varKey, fromVal);
 
     let iterations = 0;
-    this.variables.set(stmt.variable, fromVal);
-
-    // Determine loop direction
-    const goingUp = byVal > 0;
 
     while (iterations < MAX_ITERATIONS) {
-      const current = this.toNumber(this.variables.get(stmt.variable) ?? 0);
+      const current = toNum(this.variables.get(varKey));
 
-      // Check termination condition based on direction
-      if (goingUp && current > toVal) break;
-      if (!goingUp && current < toVal) break;
+      // Check termination
+      if (byVal > 0 && current > toVal) break;
+      if (byVal < 0 && current < toVal) break;
 
       const signal = this.executeStatements(stmt.body);
-      if (signal === 'return') return 'return';
-      if (signal === 'exit') break;
+      if (signal === RETURN_SIGNAL) return RETURN_SIGNAL;
+      if (signal === EXIT_SIGNAL) break; // EXIT breaks innermost loop
 
       // Increment
-      this.variables.set(stmt.variable, current + byVal);
+      this.variables.set(varKey, toNum(this.variables.get(varKey)) + byVal);
       iterations++;
     }
 
-    return 'normal';
+    return undefined;
   }
 
-  private execWhile(stmt: WhileStatement): FlowSignal {
+  private execWhile(stmt: {
+    condition: Expression;
+    body: Statement[];
+  }): ControlSignal | undefined {
     let iterations = 0;
 
     while (iterations < MAX_ITERATIONS) {
       if (!this.isTruthy(this.evaluateExpression(stmt.condition))) break;
 
       const signal = this.executeStatements(stmt.body);
-      if (signal === 'return') return 'return';
-      if (signal === 'exit') break;
+      if (signal === RETURN_SIGNAL) return RETURN_SIGNAL;
+      if (signal === EXIT_SIGNAL) break;
 
       iterations++;
     }
 
-    return 'normal';
+    return undefined;
   }
 
-  private execRepeat(stmt: RepeatStatement): FlowSignal {
+  private execRepeat(stmt: {
+    body: Statement[];
+    condition: Expression;
+  }): ControlSignal | undefined {
     let iterations = 0;
 
     while (iterations < MAX_ITERATIONS) {
       const signal = this.executeStatements(stmt.body);
-      if (signal === 'return') return 'return';
-      if (signal === 'exit') break;
+      if (signal === RETURN_SIGNAL) return RETURN_SIGNAL;
+      if (signal === EXIT_SIGNAL) break;
 
-      // REPEAT...UNTIL: exit when condition becomes TRUE
+      // REPEAT ... UNTIL condition — exits when condition is TRUE
       if (this.isTruthy(this.evaluateExpression(stmt.condition))) break;
 
       iterations++;
     }
 
-    return 'normal';
+    return undefined;
   }
 
-  // ── Expression Evaluation ────────────────────────────────
+  // ── Expression evaluation ───────────────────────────────────────────────
 
   private evaluateExpression(expr: Expression): SimValue {
     switch (expr.kind) {
       case 'integerLiteral':
         return expr.value;
-
       case 'realLiteral':
         return expr.value;
-
       case 'stringLiteral':
         return expr.value;
-
       case 'booleanLiteral':
         return expr.value;
-
-      case 'timeLiteral':
-        // Parse time literal to milliseconds as number
-        return this.parseTimeLiteral(expr.raw);
-
-      case 'identifier':
-        return this.variables.get(expr.name) ?? this.variables.get(expr.name.toUpperCase()) ?? this.variables.get(expr.name.toLowerCase()) ?? 0;
-
-      case 'binaryExpression':
-        return this.evalBinary(expr.operator, expr.left, expr.right);
-
-      case 'unaryExpression':
-        return this.evalUnary(expr.operator, expr.operand);
-
-      case 'functionCall':
-        return this.evalFunctionCall(expr.name, expr.args);
-
-      case 'memberAccess':
-        return this.evalMemberAccess(expr.object, expr.member);
-
-      case 'arrayAccess':
-        return this.evalArrayAccess(expr.array, expr.indices);
-
-      case 'parenthesized':
-        return this.evaluateExpression(expr.expression);
-
       case 'hexLiteral':
         return expr.value;
-
       case 'octalLiteral':
         return expr.value;
-
       case 'binaryLiteral':
         return expr.value;
-
+      case 'timeLiteral':
+        return 0; // TIME literals → numeric 0 (ms-based representation not implemented)
       case 'dateLiteral':
-        return 0; // Date literals are not used in simulation
-
+        return 0; // DATE literals → numeric 0
+      case 'identifier':
+        return this.evalIdentifier(expr.name);
+      case 'binaryExpression':
+        return this.evalBinary(expr.operator, expr.left, expr.right);
+      case 'unaryExpression':
+        return this.evalUnary(expr.operator, expr.operand);
+      case 'functionCall':
+        return this.evalFunctionCall(expr.name, expr.args, expr.namedArgs);
+      case 'arrayAccess':
+        return this.evalArrayAccess(expr.array, expr.indices);
+      case 'memberAccess':
+        return this.evalMemberAccess(expr.object, expr.member);
       case 'deref':
-        // Pointer dereference — not supported in simulation, evaluate operand
+        // Pointer dereference not supported in simulation; evaluate inner
         return this.evaluateExpression(expr.operand);
-
+      case 'parenthesized':
+        return this.evaluateExpression(expr.expression);
       default:
         return 0;
     }
   }
 
-  private evalBinary(op: BinaryOperator, left: Expression, right: Expression): SimValue {
-    const lVal = this.evaluateExpression(left);
-    const rVal = this.evaluateExpression(right);
+  private evalIdentifier(name: string): SimValue {
+    const key = name.toLowerCase();
+    const val = this.variables.get(key);
+    if (val !== undefined) return val;
+    // Unknown identifier → 0 (could be an undeclared enum value, etc.)
+    return 0;
+  }
+
+  private evalBinary(op: BinaryOperator, leftExpr: Expression, rightExpr: Expression): SimValue {
+    const left = this.evaluateExpression(leftExpr);
+    const right = this.evaluateExpression(rightExpr);
+
+    // String concatenation with +
+    if (op === '+' && (typeof left === 'string' || typeof right === 'string')) {
+      return String(left) + String(right);
+    }
+
+    const l = toNum(left);
+    const r = toNum(right);
 
     switch (op) {
       // Arithmetic
-      case '+':
-        if (typeof lVal === 'string' || typeof rVal === 'string') {
-          return String(lVal) + String(rVal);
-        }
-        return this.toNumber(lVal) + this.toNumber(rVal);
-      case '-':
-        return this.toNumber(lVal) - this.toNumber(rVal);
-      case '*':
-        return this.toNumber(lVal) * this.toNumber(rVal);
-      case '/': {
-        const divisor = this.toNumber(rVal);
-        if (divisor === 0) {
-          // Division by zero: return Infinity (don't crash)
-          const dividend = this.toNumber(lVal);
-          if (dividend === 0) return 0; // 0/0 = 0 (NaN avoidance)
-          return dividend > 0 ? Infinity : -Infinity;
-        }
-        return this.toNumber(lVal) / divisor;
-      }
-      case 'MOD': {
-        const divisor = this.toNumber(rVal);
-        if (divisor === 0) return 0;
-        return this.toNumber(lVal) % divisor;
-      }
-      case '**':
-        return Math.pow(this.toNumber(lVal), this.toNumber(rVal));
+      case '+': return l + r;
+      case '-': return l - r;
+      case '*': return l * r;
+      case '/':
+        if (r === 0) return 0; // Division by zero → 0
+        return l / r;
+      case 'MOD':
+        if (r === 0) return 0; // Mod by zero → 0
+        return l % r;
+      case '**': return Math.pow(l, r);
 
-      // Comparison
-      case '=':
-        return lVal === rVal;
-      case '<>':
-        return lVal !== rVal;
-      case '<':
-        return this.toNumber(lVal) < this.toNumber(rVal);
-      case '>':
-        return this.toNumber(lVal) > this.toNumber(rVal);
-      case '<=':
-        return this.toNumber(lVal) <= this.toNumber(rVal);
-      case '>=':
-        return this.toNumber(lVal) >= this.toNumber(rVal);
+      // Comparison (return boolean)
+      case '=': return l === r;
+      case '<>': return l !== r;
+      case '<': return l < r;
+      case '>': return l > r;
+      case '<=': return l <= r;
+      case '>=': return l >= r;
 
-      // Boolean / Bitwise
-      case 'AND':
-        if (typeof lVal === 'boolean' && typeof rVal === 'boolean') {
-          return lVal && rVal;
-        }
-        // Bitwise AND for integers
-        return (this.toNumber(lVal) | 0) & (this.toNumber(rVal) | 0);
-      case 'OR':
-        if (typeof lVal === 'boolean' && typeof rVal === 'boolean') {
-          return lVal || rVal;
-        }
-        // Bitwise OR for integers
-        return (this.toNumber(lVal) | 0) | (this.toNumber(rVal) | 0);
-      case 'XOR':
-        if (typeof lVal === 'boolean' && typeof rVal === 'boolean') {
-          return lVal !== rVal;
-        }
-        // Bitwise XOR for integers
-        return (this.toNumber(lVal) | 0) ^ (this.toNumber(rVal) | 0);
+      // Boolean
+      case 'AND': return this.isTruthy(left) && this.isTruthy(right);
+      case 'OR': return this.isTruthy(left) || this.isTruthy(right);
+      case 'XOR': return this.isTruthy(left) !== this.isTruthy(right);
 
-      // Bitwise shift / rotate
-      case 'SHL':
-        return (this.toNumber(lVal) | 0) << (this.toNumber(rVal) | 0);
-      case 'SHR':
-        return (this.toNumber(lVal) | 0) >>> (this.toNumber(rVal) | 0);
+      // Bitwise shift/rotate (operate on integer values)
+      case 'SHL': return (Math.trunc(l) << Math.trunc(r));
+      case 'SHR': return (Math.trunc(l) >>> Math.trunc(r));
       case 'ROL': {
-        const v = this.toNumber(lVal) | 0;
-        const n = (this.toNumber(rVal) | 0) % 32;
-        return (v << n) | (v >>> (32 - n));
+        const bits = 32;
+        const shift = Math.trunc(r) % bits;
+        const v = Math.trunc(l);
+        return ((v << shift) | (v >>> (bits - shift))) | 0;
       }
       case 'ROR': {
-        const v = this.toNumber(lVal) | 0;
-        const n = (this.toNumber(rVal) | 0) % 32;
-        return (v >>> n) | (v << (32 - n));
+        const bits = 32;
+        const shift = Math.trunc(r) % bits;
+        const v = Math.trunc(l);
+        return ((v >>> shift) | (v << (bits - shift))) | 0;
       }
 
       default:
@@ -496,187 +668,73 @@ export class StInterpreter {
     }
   }
 
-  private evalUnary(op: UnaryOperator, operand: Expression): SimValue {
-    const val = this.evaluateExpression(operand);
+  private evalUnary(op: UnaryOperator, operandExpr: Expression): SimValue {
+    const operand = this.evaluateExpression(operandExpr);
+
     switch (op) {
       case 'NOT':
-        if (typeof val === 'boolean') return !val;
-        // Bitwise NOT for integers
-        return ~(this.toNumber(val) | 0);
+        return !this.isTruthy(operand);
       case '-':
-        return -this.toNumber(val);
+        return -toNum(operand);
       case '+':
-        return +this.toNumber(val);
+        return toNum(operand);
       default:
-        return val;
+        return operand;
     }
   }
 
-  private evalFunctionCall(name: string, args: Expression[]): SimValue {
-    const evaluatedArgs = args.map(a => this.evaluateExpression(a));
-    return this.callBuiltinFunction(name.toUpperCase(), evaluatedArgs);
-  }
+  private evalFunctionCall(
+    name: string,
+    args: Expression[],
+    namedArgs: { name: string; value: Expression; assignType: 'input' | 'output' }[],
+  ): SimValue {
+    const fnKey = name.toLowerCase();
 
-  private evalMemberAccess(object: Expression, member: string): SimValue {
-    // Flat lookup: obj.field → obj_field
-    if (object.kind === 'identifier') {
-      const flatKey = `${object.name}_${member}`;
-      return this.variables.get(flatKey) ?? 0;
+    // Evaluate positional args
+    const evaluatedArgs: SimValue[] = args.map((a) => this.evaluateExpression(a));
+
+    // Also collect named input args as positional (for built-in dispatch)
+    for (const na of namedArgs) {
+      if (na.assignType === 'input') {
+        evaluatedArgs.push(this.evaluateExpression(na.value));
+      }
     }
-    // Nested: obj.inner.field → obj_inner_field
-    if (object.kind === 'memberAccess') {
-      const parentVal = this.buildMemberPath(object);
-      const flatKey = `${parentVal}_${member}`;
-      return this.variables.get(flatKey) ?? 0;
+
+    // Look up built-in
+    const builtin = BUILTINS.get(fnKey);
+    if (builtin) {
+      return builtin(evaluatedArgs);
     }
+
+    console.warn(`ST Interpreter: unknown function '${name}', returning 0`);
     return 0;
   }
 
-  private buildMemberPath(expr: Expression): string {
-    if (expr.kind === 'identifier') {
-      return expr.name;
-    }
-    if (expr.kind === 'memberAccess') {
-      return `${this.buildMemberPath(expr.object)}_${expr.member}`;
-    }
-    return '';
-  }
-
-  private evalArrayAccess(array: Expression, indices: Expression[]): SimValue {
-    // Flat key: arr_0, arr_1, arr_0_1 etc.
-    const baseName = array.kind === 'identifier' ? array.name : this.buildMemberPath(array);
-    const indexParts = indices.map(i => String(this.toNumber(this.evaluateExpression(i))));
-    const flatKey = `${baseName}_${indexParts.join('_')}`;
+  private evalArrayAccess(arrayExpr: Expression, indices: Expression[]): SimValue {
+    const arrKey = this.resolveAssignmentTarget(arrayExpr);
+    const index = toNum(this.evaluateExpression(indices[0]));
+    const flatKey = `${arrKey}_${index}`;
     return this.variables.get(flatKey) ?? 0;
   }
 
-  // ── Target Assignment ────────────────────────────────────
-
-  private assignToTarget(target: Expression, value: SimValue): void {
-    if (target.kind === 'identifier') {
-      const canonical = this.findCanonicalName(target.name);
-      this.variables.set(canonical, value);
-    } else if (target.kind === 'memberAccess') {
-      const flatKey = `${this.buildMemberPath(target.object)}_${target.member}`;
-      this.variables.set(flatKey, value);
-    } else if (target.kind === 'arrayAccess') {
-      const baseName = target.array.kind === 'identifier' ? target.array.name : this.buildMemberPath(target.array);
-      const indexParts = target.indices.map(i => String(this.toNumber(this.evaluateExpression(i))));
-      const flatKey = `${baseName}_${indexParts.join('_')}`;
-      this.variables.set(flatKey, value);
-    }
+  private evalMemberAccess(objectExpr: Expression, member: string): SimValue {
+    const objKey = this.resolveAssignmentTarget(objectExpr);
+    const flatKey = `${objKey}_${member.toLowerCase()}`;
+    return this.variables.get(flatKey) ?? 0;
   }
 
-  // ── Built-in Functions ───────────────────────────────────
+  // ── Helpers ─────────────────────────────────────────────────────────────
 
-  private callBuiltinFunction(name: string, args: SimValue[]): SimValue {
-    switch (name) {
-      // Math
-      case 'ABS':
-        return Math.abs(this.toNumber(args[0] ?? 0));
-      case 'SQRT':
-        return Math.sqrt(this.toNumber(args[0] ?? 0));
-      case 'SIN':
-        return Math.sin(this.toNumber(args[0] ?? 0));
-      case 'COS':
-        return Math.cos(this.toNumber(args[0] ?? 0));
-      case 'TAN':
-        return Math.tan(this.toNumber(args[0] ?? 0));
-      case 'ASIN':
-        return Math.asin(this.toNumber(args[0] ?? 0));
-      case 'ACOS':
-        return Math.acos(this.toNumber(args[0] ?? 0));
-      case 'ATAN':
-        return Math.atan(this.toNumber(args[0] ?? 0));
-      case 'LN':
-        return Math.log(this.toNumber(args[0] ?? 0));
-      case 'LOG':
-        return Math.log10(this.toNumber(args[0] ?? 0));
-      case 'EXP':
-        return Math.exp(this.toNumber(args[0] ?? 0));
-      case 'TRUNC':
-        return Math.trunc(this.toNumber(args[0] ?? 0));
-      case 'EXPT':
-        return Math.pow(this.toNumber(args[0] ?? 0), this.toNumber(args[1] ?? 0));
-
-      // Selection
-      case 'MIN':
-        return Math.min(this.toNumber(args[0] ?? 0), this.toNumber(args[1] ?? 0));
-      case 'MAX':
-        return Math.max(this.toNumber(args[0] ?? 0), this.toNumber(args[1] ?? 0));
-      case 'LIMIT': {
-        // LIMIT(min, val, max)
-        const min = this.toNumber(args[0] ?? 0);
-        const val = this.toNumber(args[1] ?? 0);
-        const max = this.toNumber(args[2] ?? 0);
-        return Math.min(Math.max(val, min), max);
-      }
-      case 'SEL': {
-        // SEL(cond, false_val, true_val)
-        const cond = this.isTruthy(args[0] ?? false);
-        return cond ? (args[2] ?? 0) : (args[1] ?? 0);
-      }
-
-      // Type conversion
-      case 'INT_TO_REAL':
-        return this.toNumber(args[0] ?? 0);
-      case 'REAL_TO_INT':
-        return Math.trunc(this.toNumber(args[0] ?? 0));
-      case 'BOOL_TO_INT':
-        return this.isTruthy(args[0] ?? false) ? 1 : 0;
-      case 'INT_TO_BOOL':
-        return this.toNumber(args[0] ?? 0) !== 0;
-
-      default:
-        console.warn(`[StInterpreter] Unknown function: ${name}`);
-        return 0;
-    }
-  }
-
-  // ── Helper Utilities ─────────────────────────────────────
-
+  /**
+   * Truthiness check that handles NaN correctly.
+   * - boolean → value itself
+   * - string → non-empty
+   * - number → not zero AND not NaN
+   */
   private isTruthy(value: SimValue): boolean {
     if (typeof value === 'boolean') return value;
-    if (typeof value === 'number') return value !== 0;
     if (typeof value === 'string') return value.length > 0;
+    if (typeof value === 'number') return !isNaN(value) && value !== 0;
     return false;
-  }
-
-  private toNumber(value: SimValue | undefined): number {
-    if (value === undefined) return 0;
-    if (typeof value === 'number') return value;
-    if (typeof value === 'boolean') return value ? 1 : 0;
-    if (typeof value === 'string') {
-      const n = parseFloat(value);
-      return isNaN(n) ? 0 : n;
-    }
-    return 0;
-  }
-
-  private findCanonicalName(name: string): string {
-    // Direct match first
-    if (this.variables.has(name)) return name;
-    // Case-insensitive fallback
-    for (const key of this.variables.keys()) {
-      if (key.toLowerCase() === name.toLowerCase()) return key;
-    }
-    return name;
-  }
-
-  private parseTimeLiteral(raw: string): number {
-    // Basic TIME literal parsing: T#100ms, T#1s, T#1m, T#1h
-    const cleaned = raw.replace(/^(T|TIME)#/i, '');
-    let ms = 0;
-    const hMatch = cleaned.match(/([\d.]+)h/i);
-    const mMatch = cleaned.match(/([\d.]+)m(?!s)/i);
-    const sMatch = cleaned.match(/([\d.]+)s/i);
-    const msMatch = cleaned.match(/([\d.]+)ms/i);
-
-    if (hMatch) ms += parseFloat(hMatch[1]) * 3600000;
-    if (mMatch) ms += parseFloat(mMatch[1]) * 60000;
-    if (sMatch) ms += parseFloat(sMatch[1]) * 1000;
-    if (msMatch) ms += parseFloat(msMatch[1]);
-
-    return ms;
   }
 }

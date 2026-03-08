@@ -18,6 +18,8 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { EQUIPMENT_TYPES_SEED } from '../../equipment/seeds/equipment-types.seed';
+import { CHEMICAL_TYPES_SEED } from '../../chemical/seeds/chemical-types.seed';
+import { SUPPLIER_TYPES_SEED } from '../../supplier/seeds/supplier-types.seed';
 
 /**
  * Interface for raw query row with id field
@@ -36,23 +38,27 @@ export class FarmSeedService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    // Sadece gelistirme ortaminda otomatik calistir
+    try {
+      // Reference data (equipment_types, chemical_types, supplier_types) her ortamda çalışır
+      // Bu tablolar sistem geneli ve tenant provisioning'de kopyalanır
+      await this.seedReferenceDataStandalone();
+    } catch (error) {
+      this.logger.error('Error during reference data seed:', error);
+    }
+
+    // Test verileri sadece geliştirme ortamında çalışır
     if (process.env.NODE_ENV === 'production') {
-      this.logger.log('Skipping seed in production environment');
+      this.logger.log('Skipping test data seed in production environment');
       return;
     }
 
-    // Check if farm seeding is disabled via environment variable
     if (process.env.FARM_SEED_ENABLED === 'false') {
       this.logger.log('Farm seed disabled via FARM_SEED_ENABLED=false');
       return;
     }
 
     try {
-      // Equipment types sistem geneli olduğu için önce ve bağımsız olarak çalıştır
-      await this.seedEquipmentTypesStandalone();
-
-      // Tenant'a bağlı diğer verileri seed et
+      // Tenant'a bağlı test verileri seed et
       await this.seedFarmData();
     } catch (error) {
       this.logger.error('Error during farm seed:', error);
@@ -60,10 +66,10 @@ export class FarmSeedService implements OnModuleInit {
   }
 
   /**
-   * Equipment Types'ı bağımsız olarak seed eder (tenant'a bağlı değil)
+   * Tüm referans verileri bağımsız olarak seed eder (tenant'a bağlı değil)
    */
-  private async seedEquipmentTypesStandalone() {
-    this.logger.log('Seeding equipment types (system-wide)...');
+  private async seedReferenceDataStandalone() {
+    this.logger.log('Seeding reference data (system-wide)...');
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -71,12 +77,13 @@ export class FarmSeedService implements OnModuleInit {
 
     try {
       await this.seedEquipmentTypes(queryRunner);
+      await this.seedChemicalTypes(queryRunner);
+      await this.seedSupplierTypes(queryRunner);
       await queryRunner.commitTransaction();
-      this.logger.log('Equipment types seeding completed successfully');
+      this.logger.log('Reference data seeding completed successfully');
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.error('Equipment types seeding failed:', error);
-      // Equipment types hatası diğer seed'leri engellemesin
+      this.logger.error('Reference data seeding failed:', error);
     } finally {
       await queryRunner.release();
     }
@@ -255,6 +262,70 @@ export class FarmSeedService implements OnModuleInit {
     }
 
     this.logger.log(`  Seeded ${EQUIPMENT_TYPES_SEED.length} equipment types`);
+  }
+
+  /**
+   * Chemical Types seed - CHEMICAL_TYPES_SEED'den veriler kullanır
+   */
+  private async seedChemicalTypes(queryRunner: QueryRunner) {
+    this.logger.log('  Seeding chemical types...');
+
+    for (const ct of CHEMICAL_TYPES_SEED) {
+      const exists = await queryRunner.query(
+        `SELECT id FROM farm.chemical_types WHERE code = $1`,
+        [ct.code]
+      );
+
+      if (exists.length > 0) {
+        await queryRunner.query(
+          `UPDATE farm.chemical_types
+           SET name = $1, description = $2, icon = $3, "sortOrder" = $4, "updatedAt" = NOW()
+           WHERE code = $5`,
+          [ct.name, ct.description, ct.icon, ct.sortOrder, ct.code]
+        );
+      } else {
+        await queryRunner.query(
+          `INSERT INTO farm.chemical_types (id, name, code, description, icon, "isActive", "isSystem", "sortOrder", "createdAt", "updatedAt")
+           VALUES (uuid_generate_v4(), $1, $2, $3, $4, true, true, $5, NOW(), NOW())`,
+          [ct.name, ct.code, ct.description, ct.icon, ct.sortOrder]
+        );
+        this.logger.log(`  Created chemical type: ${ct.name} (${ct.code})`);
+      }
+    }
+
+    this.logger.log(`  Seeded ${CHEMICAL_TYPES_SEED.length} chemical types`);
+  }
+
+  /**
+   * Supplier Types seed - SUPPLIER_TYPES_SEED'den veriler kullanır
+   */
+  private async seedSupplierTypes(queryRunner: QueryRunner) {
+    this.logger.log('  Seeding supplier types...');
+
+    for (const st of SUPPLIER_TYPES_SEED) {
+      const exists = await queryRunner.query(
+        `SELECT id FROM farm.supplier_types WHERE code = $1`,
+        [st.code]
+      );
+
+      if (exists.length > 0) {
+        await queryRunner.query(
+          `UPDATE farm.supplier_types
+           SET name = $1, description = $2, icon = $3, "sortOrder" = $4, "updatedAt" = NOW()
+           WHERE code = $5`,
+          [st.name, st.description, st.icon, st.sortOrder, st.code]
+        );
+      } else {
+        await queryRunner.query(
+          `INSERT INTO farm.supplier_types (id, name, code, description, icon, "isActive", "isSystem", "sortOrder", "createdAt", "updatedAt")
+           VALUES (uuid_generate_v4(), $1, $2, $3, $4, true, true, $5, NOW(), NOW())`,
+          [st.name, st.code, st.description, st.icon, st.sortOrder]
+        );
+        this.logger.log(`  Created supplier type: ${st.name} (${st.code})`);
+      }
+    }
+
+    this.logger.log(`  Seeded ${SUPPLIER_TYPES_SEED.length} supplier types`);
   }
 
   private async ensureSite(queryRunner: QueryRunner, tenantId: string): Promise<string> {

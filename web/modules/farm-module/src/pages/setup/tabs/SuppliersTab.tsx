@@ -218,6 +218,10 @@ export const SuppliersTab: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!formData.name) { alert('Please enter a supplier name.'); return; }
+    if (!formData.type) { alert('Please select a supplier type.'); return; }
+
     try {
       // Base input fields (without status - status is only for updates)
       const baseInput: CreateSupplierInput = {

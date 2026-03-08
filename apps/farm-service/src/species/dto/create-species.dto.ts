@@ -190,20 +190,23 @@ export class LightRegimeInput {
 
 @InputType()
 export class OptimalConditionsInput {
-  @Field(() => TemperatureRangeInput)
+  @Field(() => TemperatureRangeInput, { nullable: true })
+  @IsOptional()
   @ValidateNested()
   @Type(() => TemperatureRangeInput)
-  temperature: TemperatureRangeInput;
+  temperature?: TemperatureRangeInput;
 
-  @Field(() => PHRangeInput)
+  @Field(() => PHRangeInput, { nullable: true })
+  @IsOptional()
   @ValidateNested()
   @Type(() => PHRangeInput)
-  ph: PHRangeInput;
+  ph?: PHRangeInput;
 
-  @Field(() => DissolvedOxygenInput)
+  @Field(() => DissolvedOxygenInput, { nullable: true })
+  @IsOptional()
   @ValidateNested()
   @Type(() => DissolvedOxygenInput)
-  dissolvedOxygen: DissolvedOxygenInput;
+  dissolvedOxygen?: DissolvedOxygenInput;
 
   @Field(() => SalinityInput, { nullable: true })
   @IsOptional()

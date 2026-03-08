@@ -464,6 +464,7 @@ export const ChemicalsTab: React.FC = () => {
 
     if (!formData.name) { alert('Please enter a name.'); return; }
     if (!formData.code) { alert('Please enter a code.'); return; }
+    if (!formData.type) { alert('Please select a chemical type.'); return; }
     if (!formData.siteId) { alert('Please select a site.'); return; }
 
     setIsSaving(true);
@@ -483,8 +484,6 @@ export const ChemicalsTab: React.FC = () => {
         storageTempMax: formData.storageTempMax !== '' ? Number(formData.storageTempMax) : undefined,
         storageHumidityMin: formData.storageHumidityMin !== '' ? Number(formData.storageHumidityMin) : undefined,
         storageHumidityMax: formData.storageHumidityMax !== '' ? Number(formData.storageHumidityMax) : undefined,
-        withdrawalPeriodDays: formData.withdrawalPeriodDays || undefined,
-        status: formData.status,
         notes: formData.notes || undefined,
       };
 

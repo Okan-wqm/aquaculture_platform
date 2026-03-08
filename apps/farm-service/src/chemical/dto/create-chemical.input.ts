@@ -75,15 +75,15 @@ export class ChemicalSafetyInfoInput {
 
 @InputType()
 export class UsageProtocolInput {
-  @Field()
-  @IsNotEmpty()
+  @Field({ nullable: true })
+  @IsOptional()
   @IsString()
-  dosage: string;
+  dosage?: string;
 
-  @Field()
-  @IsNotEmpty()
+  @Field({ nullable: true })
+  @IsOptional()
   @IsString()
-  applicationMethod: string;
+  applicationMethod?: string;
 
   @Field({ nullable: true })
   @IsOptional()

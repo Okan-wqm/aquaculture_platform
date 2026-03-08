@@ -77,7 +77,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
           <div className="bg-gray-50 rounded p-2 text-center">
             <div className="text-[10px] text-gray-500">CO₂ (mg/L)</div>
-            <div className="text-sm font-mono text-gray-700">{state.co2.toFixed(1)}</div>
+            <div className="text-sm font-mono text-gray-700">
+              {state.co2.toFixed(1)}
+              <span className="text-[9px] text-gray-400"> / {state.co2Eq.toFixed(1)} eq</span>
+            </div>
           </div>
           <div className="bg-gray-50 rounded p-2 text-center">
             <div className="text-[10px] text-gray-500">State</div>
@@ -145,6 +148,31 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           min={0} max={5} step={0.1}
           unit=" ppt"
           onChange={v => onConfigChange({ ...config, salinity: v })}
+        />
+      </div>
+
+      {/* Freshwater */}
+      <div className="mb-4">
+        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Freshwater</h4>
+        <Slider
+          label="Water ALK"
+          value={config.freshwaterALK}
+          min={0.5} max={8.0} step={0.1}
+          unit=" meq/L"
+          onChange={v => onConfigChange({ ...config, freshwaterALK: v })}
+        />
+        <Slider
+          label="Water pH"
+          value={config.freshwaterPH}
+          min={5.0} max={8.5} step={0.1}
+          onChange={v => onConfigChange({ ...config, freshwaterPH: v })}
+        />
+        <Slider
+          label="Aeration"
+          value={config.aerationRate}
+          min={0.01} max={0.3} step={0.01}
+          unit=" /min"
+          onChange={v => onConfigChange({ ...config, aerationRate: v })}
         />
       </div>
 

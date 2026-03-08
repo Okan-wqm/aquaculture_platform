@@ -16,9 +16,16 @@ export interface SimConfig {
   ecMax: number;
   dt: number;
   speedMultiplier: number;
+
+  // Freshwater (makeup water) properties
+  freshwaterALK: number;   // meq/L - incoming water alkalinity
+  freshwaterPH: number;    // pH of incoming water (determines dissolved CO₂)
+
+  // Aeration
+  aerationRate: number;    // CO₂ mass transfer coeff (1/min), higher = faster equilibration
 }
 
-export type SimStateName = 'IDLE' | 'DOSING_EC' | 'DOSING_PH' | 'DILUTE';
+export type SimStateName = 'IDLE' | 'DOSING_EC' | 'DOSING_PH' | 'DILUTE' | 'CO2_WAIT';
 
 export interface SimState {
   tick: number;
@@ -41,6 +48,9 @@ export interface SimState {
   acidTotalGrams: number;
   baseTotalGrams: number;
   nutTotalML: number;
+
+  // CO₂ equilibrium tracking
+  co2Eq: number;      // atmospheric equilibrium CO₂ (mg/L)
 }
 
 export interface SimSnapshot {
@@ -70,6 +80,9 @@ export const DEFAULT_SIM_CONFIG: SimConfig = {
   ecMax: 2.0,
   dt: 0.1,
   speedMultiplier: 1,
+  freshwaterALK: 3.0,    // typical well water
+  freshwaterPH: 7.2,     // typical well water (may have high CO₂)
+  aerationRate: 0.05,    // moderate aeration (1/min)
 };
 
 // Pump max flow rates (mL/min)
@@ -81,3 +94,7 @@ export const DIL_PUMP_MAX = 500;
 // Reagent concentrations (g/L)
 export const ACID_CONC = 100;  // ~10% HNO3
 export const BASE_CONC = 100;  // ~10% KOH
+
+// Atmospheric CO₂ equilibrium (Henry's law, ~415 ppm, 22°C)
+// KH ≈ 0.034 mol/(L·atm), pCO₂ ≈ 415e-6 atm → ~0.014 mmol/L → ~0.6 mg/L
+export const CO2_EQ_MMOL = 0.014;

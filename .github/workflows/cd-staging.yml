@@ -15,8 +15,6 @@ on:
   push:
     branches:
       - develop
-      - 'feature/*'
-      - 'hotfix/*'
   workflow_dispatch:
 
 env:

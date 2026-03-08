@@ -1,20 +1,12 @@
 # =============================================================================
-# CD - Staging (Optimized)
+# CD - Staging (DISABLED - no K8s staging cluster provisioned yet)
 #
-# Fixes applied:
-# - ARCH-CI-002: buildcache tags namespaced with -staging suffix
-# - ARCH-CI-006: github.sha removed from NX cache key
-# - ARCH-CI-008: Added preflight check for deploy/staging/ K8s manifests directory
-# - SEC-CI-002: All third-party actions pinned to full commit SHAs
-# - SEC-CI-010: kubeconfig file deleted in if:always() cleanup step
+# Re-enable when deploy/staging/ manifests and KUBE_CONFIG_STAGING are ready.
 # =============================================================================
 
-name: CD - Staging
+name: CD - Staging (Disabled)
 
 on:
-  push:
-    branches:
-      - develop
   workflow_dispatch:
 
 env:

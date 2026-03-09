@@ -1,5 +1,5 @@
 /**
- * ScadaWidgetNode - Generic ReactFlow node wrapper for ALL SCADA widgets.
+ * SCADA Builder ScadaWidgetNode - Generic ReactFlow node wrapper for ALL SCADA widgets.
  *
  * Every SCADA widget placed on the canvas is rendered through this single
  * node type.  The `widgetType` field inside `data` determines which
@@ -8,7 +8,7 @@
  * Features:
  * - Manual resize via corner/edge drag handles (selected state)
  * - Per-widget-type min/max size constraints
- * - connectable: false (SCADA widgets never participate in edges)
+ * - Connection handles for equipment widgets (P&ID flow connections)
  * - Cyan selection border matching SCADA theme
  * - Widget-type badge shown in edit mode (top-left corner)
  */
@@ -16,11 +16,11 @@
 import React, { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type { NodeProps } from 'reactflow';
 import { Handle, Position } from 'reactflow';
-import { WidgetRenderer } from '../../scada-builder/WidgetRenderer';
+import { WidgetRenderer } from '../WidgetRenderer';
 import type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 import type { EquipmentConnectionPoint } from '../../../types/scada-widget.types';
 import { getWidgetPixelConstraints } from '../../../constants/scada-widget-sizes';
-import { CONNECTION_POINTS, CONNECTION_POINT_COLORS } from '../../scada-builder/equipment-symbols/types';
+import { CONNECTION_POINTS, CONNECTION_POINT_COLORS } from '../equipment-symbols/types';
 export type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 
 /* ------------------------------------------------------------------ */
@@ -85,9 +85,18 @@ const BADGE_STYLE: React.CSSProperties = {
   letterSpacing: 0.5,
 };
 
-const CONTENT_STYLE: React.CSSProperties = { width: '100%', height: '100%' };
+const CONTENT_STYLE: React.CSSProperties = {
+  width: '100%',
+  height: '100%',
+  overflow: 'hidden' as const,
+};
 
-const HANDLE_HOVER_CSS = `
+/**
+ * CSS for handle hover/pulse effects.
+ * TODO: Inject this once at the canvas level (e.g. in ScreenCanvas) instead of
+ * rendering a <style> tag inside every ScadaWidgetNode instance.
+ */
+export const HANDLE_HOVER_CSS = `
   .react-flow__handle:hover {
     transform: scale(1.5);
     box-shadow: 0 0 6px 2px rgba(6, 182, 212, 0.5);
@@ -195,7 +204,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
     border: selected ? '2px solid #06b6d4' : '1px solid #e5e7eb',
     boxShadow: selected ? '0 0 0 2px rgba(6,182,212,0.35)' : '0 1px 3px rgba(0,0,0,0.1)',
     background: '#ffffff',
-    overflow: 'hidden' as const,
+    overflow: 'visible' as const,
     userSelect: 'none' as const,
   }), [size.width, size.height, selected]);
 
@@ -215,6 +224,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
+      {/* TODO: Move this to canvas level so it's injected once, not per node */}
       <style>{HANDLE_HOVER_CSS}</style>
 
       {/* Widget type badge (edit mode, top-left) */}
@@ -224,7 +234,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
           : data.widgetType}
       </span>
 
-      {/* Widget content */}
+      {/* Widget content - overflow hidden here to clip widget internals */}
       <div style={CONTENT_STYLE}>
         <WidgetRenderer
           widgetType={data.widgetType}
@@ -292,10 +302,11 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
 
         if (pt.direction === 'inout') {
           // Render both source and target handles at same position
+          // Use distinct IDs so ReactFlow can distinguish them
           return [
             <Handle
               key={`${pt.id}-source`}
-              id={`${pt.id}`}
+              id={`${pt.id}-out`}
               type="source"
               position={position}
               style={handleStyle}
@@ -303,7 +314,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
             />,
             <Handle
               key={`${pt.id}-target`}
-              id={`${pt.id}`}
+              id={`${pt.id}-in`}
               type="target"
               position={position}
               style={{ ...handleStyle, opacity: 0, pointerEvents: 'all' as const }}

@@ -86,6 +86,11 @@ const ScadaPackageBuilderPage: React.FC = () => {
     setTargetDeviceId,
     // Screen actions
     addScreen,
+    // Edge state + actions
+    selectedEdgeId,
+    updateEdgeData,
+    updateEdgeType,
+    removeEdge,
   } = useScadaPackageStore(useShallow((s) => ({
     packageId: s.packageId,
     packageName: s.packageName,
@@ -111,6 +116,10 @@ const ScadaPackageBuilderPage: React.FC = () => {
     targetDeviceId: s.targetDeviceId,
     setTargetDeviceId: s.setTargetDeviceId,
     addScreen: s.addScreen,
+    selectedEdgeId: s.selectedEdgeId,
+    updateEdgeData: s.updateEdgeData,
+    updateEdgeType: s.updateEdgeType,
+    removeEdge: s.removeEdge,
   })));
 
   // Effective packageId (from route or store)
@@ -237,6 +246,38 @@ const ScadaPackageBuilderPage: React.FC = () => {
     [],
   );
 
+  // Find selected edge for PropertiesPanel
+  const selectedEdge = useMemo(() => {
+    if (!selectedEdgeId || !activeScreenId) return null;
+    const screen = screens.find((s) => s.id === activeScreenId);
+    return screen?.edges.find((e) => e.id === selectedEdgeId) || null;
+  }, [selectedEdgeId, activeScreenId, screens]);
+
+  // Edge handlers for PropertiesPanel
+  const handleEdgeDataChange = useCallback(
+    (edgeId: string, updates: Record<string, unknown>) => {
+      if (!activeScreenId) return;
+      updateEdgeData(activeScreenId, edgeId, updates);
+    },
+    [activeScreenId, updateEdgeData],
+  );
+
+  const handleEdgeTypeChange = useCallback(
+    (edgeId: string, newType: string) => {
+      if (!activeScreenId) return;
+      updateEdgeType(activeScreenId, edgeId, newType as any);
+    },
+    [activeScreenId, updateEdgeType],
+  );
+
+  const handleEdgeDelete = useCallback(
+    (edgeId: string) => {
+      if (!activeScreenId) return;
+      removeEdge(activeScreenId, edgeId);
+    },
+    [activeScreenId, removeEdge],
+  );
+
   // Alarm rules change handler
   const handleAlarmRulesChange = useCallback(
     (rules: typeof alarmRules) => {
@@ -260,8 +301,9 @@ const ScadaPackageBuilderPage: React.FC = () => {
     [alarmRules, addAlarmRule, removeAlarmRule, updateAlarmRule],
   );
 
-  // Count total widgets across all screens
+  // Count total widgets and edges across all screens
   const totalWidgets = screens.reduce((sum, s) => sum + s.widgets.length, 0);
+  const totalEdges = screens.reduce((sum, s) => sum + s.edges.length, 0);
   const alarmWidgets = screens.reduce(
     (sum, s) =>
       sum +
@@ -490,6 +532,10 @@ const ScadaPackageBuilderPage: React.FC = () => {
           trendConfig={trendConfig}
           onTrendConfigChange={updateTrendConfig}
           deviceId={targetDeviceId}
+          selectedEdge={selectedEdge}
+          onEdgeDataChange={handleEdgeDataChange}
+          onEdgeTypeChange={handleEdgeTypeChange}
+          onEdgeDelete={handleEdgeDelete}
         />}
       </div>
 
@@ -500,6 +546,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
           <span>v1</span>
           <span>{screens.length} ekran</span>
           <span>{totalWidgets} widget</span>
+          <span>{totalEdges} baglanti</span>
           <span>{alarmWidgets} alarm</span>
           {selectedDevice && (
             <span className="flex items-center gap-1">

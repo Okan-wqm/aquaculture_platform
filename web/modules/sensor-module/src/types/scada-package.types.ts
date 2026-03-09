@@ -1,3 +1,5 @@
+import type { ScadaEdge } from './scada-edge.types';
+
 export type ScadaPackageStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 
 export type ScreenType = 'dashboard' | 'process' | 'alarms' | 'trends' | 'calibration' | 'control';
@@ -24,6 +26,7 @@ export interface Screen {
   icon: string;
   layout: { type: string; cols: number; rows: number };
   widgets: ScreenWidget[];
+  edges?: ScadaEdge[];
 }
 
 export interface AlarmRule {

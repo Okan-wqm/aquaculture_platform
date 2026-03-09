@@ -8,6 +8,7 @@
  * - Real widget renderers (not emoji placeholders)
  * - Two-way sync: Store ↔ ReactFlow nodes
  * - Grid ↔ Pixel conversion for edge compatibility
+ * - P&ID edge connections between equipment widgets
  */
 
 import React, { useCallback, useRef, useMemo, useEffect, useState } from 'react';
@@ -19,8 +20,12 @@ import ReactFlow, {
   ReactFlowProvider,
   useReactFlow,
   applyNodeChanges,
+  ConnectionLineType,
   type Node,
+  type Edge,
   type NodeChange,
+  type EdgeChange,
+  type Connection,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { useShallow } from 'zustand/react/shallow';
@@ -28,7 +33,13 @@ import { useShallow } from 'zustand/react/shallow';
 import { useScadaPackageStore } from '../../store/scadaPackageStore';
 import type { ScreenWidget } from '../../types/scada-package.types';
 import type { ScadaWidgetNodeData } from '../../types/scada-widget.types';
-import ScadaWidgetNode from '../process-editor/nodes/ScadaWidgetNode';
+import type { ScadaEdge, ScadaEdgeType } from '../../types/scada-edge.types';
+import ScadaWidgetNode from './nodes/ScadaWidgetNode';
+import { edgeTypes } from './edges';
+import { EdgeStoreContextProvider } from './EdgeStoreContext';
+import { EdgeToolbar } from './EdgeToolbar';
+import { getEdgeStyle } from '../../config/connectionTypes';
+import type { ConnectionType } from '../../config/connectionTypes';
 import {
   GRID_CELL_W,
   GRID_CELL_H,
@@ -45,6 +56,7 @@ import {
 const nodeTypes = { scadaWidget: ScadaWidgetNode };
 
 const EMPTY_WIDGETS: ScreenWidget[] = [];
+const EMPTY_EDGES: ScadaEdge[] = [];
 
 /* ------------------------------------------------------------------ */
 /*  Helper: generate unique ID                                         */
@@ -53,6 +65,21 @@ const EMPTY_WIDGETS: ScreenWidget[] = [];
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Animated flow CSS                                                   */
+/* ------------------------------------------------------------------ */
+
+const ANIMATED_EDGE_CSS = `
+  .react-flow__edge.animated-flow .react-flow__edge-path {
+    stroke-dasharray: 8 4 !important;
+    animation: edge-flow 0.6s linear infinite;
+  }
+  @keyframes edge-flow {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: -12; }
+  }
+`;
 
 /* ------------------------------------------------------------------ */
 /*  Inner canvas (needs ReactFlowProvider ancestor)                    */
@@ -68,33 +95,61 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   // Track whether we're currently syncing FROM store to prevent loops
   const syncingFromStore = useRef(false);
 
+  // Default edge creation settings
+  const [defaultEdgeType, setDefaultEdgeType] = useState<ScadaEdgeType>('orthogonal');
+  const [defaultConnectionType, setDefaultConnectionType] = useState<ConnectionType>('process-pipe');
+
   const {
     activeScreenId,
     screens,
     selectedWidgetId,
+    selectedEdgeId,
     setSelectedWidget,
+    setSelectedEdge,
     addWidget,
     removeWidget,
     updateWidgetPosition,
+    addEdge: storeAddEdge,
+    removeEdge: storeRemoveEdge,
+    updateEdgeData: storeUpdateEdgeData,
+    updateEdgeType: storeUpdateEdgeType,
     saveScreenViewport,
     getScreenViewport,
   } = useScadaPackageStore(useShallow((s) => ({
     activeScreenId: s.activeScreenId,
     screens: s.screens,
     selectedWidgetId: s.selectedWidgetId,
+    selectedEdgeId: s.selectedEdgeId,
     setSelectedWidget: s.setSelectedWidget,
+    setSelectedEdge: s.setSelectedEdge,
     addWidget: s.addWidget,
     removeWidget: s.removeWidget,
     updateWidgetPosition: s.updateWidgetPosition,
+    addEdge: s.addEdge,
+    removeEdge: s.removeEdge,
+    updateEdgeData: s.updateEdgeData,
+    updateEdgeType: s.updateEdgeType,
     saveScreenViewport: s.saveScreenViewport,
     getScreenViewport: s.getScreenViewport,
   })));
 
   const activeScreen = screens.find((s) => s.id === activeScreenId);
   const widgets = activeScreen?.widgets ?? EMPTY_WIDGETS;
+  const storeEdges = activeScreen?.edges ?? EMPTY_EDGES;
 
   // Keep a ref of last active screen to detect transitions
   const prevScreenIdRef = useRef(activeScreenId);
+
+  // EdgeStoreContext value: bridges edge components → scadaPackageStore
+  // Uses getState() to avoid stale activeScreenId closure
+  const edgeStoreValue = useMemo(() => ({
+    updateEdgeData: (edgeId: string, data: Record<string, unknown>) => {
+      const currentScreenId = useScadaPackageStore.getState().activeScreenId;
+      if (currentScreenId) {
+        storeUpdateEdgeData(currentScreenId, edgeId, data);
+      }
+    },
+  }), [storeUpdateEdgeData]);
 
   // onResize callback for ScadaWidgetNode
   const handleWidgetResize = useCallback(
@@ -142,7 +197,31 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
         dragHandle: undefined,
       };
     });
-  }, [widgets, activeScreenId, handleWidgetResize]);
+  }, [widgets, activeScreenId, handleWidgetResize, selectedWidgetId]);
+
+  // Convert store edges → ReactFlow edges
+  const rfEdges: Edge[] = useMemo(() => {
+    return storeEdges.map((e) => {
+      const style = getEdgeStyle(e.data.connectionType);
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle,
+        targetHandle: e.targetHandle,
+        type: e.type,
+        selected: e.id === selectedEdgeId,
+        animated: false, // We use CSS animation instead
+        data: {
+          ...e.data,
+          // Pass connection type for P&ID styling inside the edge component
+          connectionType: e.data.connectionType,
+        },
+        style,
+        className: e.data.animated ? 'animated-flow' : undefined,
+      };
+    });
+  }, [storeEdges, selectedEdgeId]);
 
   // Local nodes state for smooth dragging (synced from store)
   const [nodes, setNodes] = useState<Node<ScadaWidgetNodeData>[]>(storeNodes);
@@ -199,23 +278,106 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
         }
         if (change.type === 'select' && change.selected) {
           setSelectedWidget(change.id);
+          setSelectedEdge(null);
         }
       }
     },
-    [setSelectedWidget],
+    [setSelectedWidget, setSelectedEdge],
+  );
+
+  // Handle edge changes (deletion, selection)
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      for (const change of changes) {
+        if (change.type === 'remove' && activeScreenId) {
+          storeRemoveEdge(activeScreenId, change.id);
+        }
+        if (change.type === 'select' && change.selected) {
+          setSelectedEdge(change.id);
+        }
+      }
+    },
+    [activeScreenId, storeRemoveEdge, setSelectedEdge],
+  );
+
+  // Handle new connection (edge creation)
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      if (!activeScreenId) return;
+      if (!connection.source || !connection.target) return;
+      // Prevent self-connections
+      if (connection.source === connection.target) return;
+
+      const newEdge: ScadaEdge = {
+        id: generateId(),
+        source: connection.source,
+        target: connection.target,
+        sourceHandle: connection.sourceHandle || 'outlet',
+        targetHandle: connection.targetHandle || 'inlet',
+        type: defaultEdgeType,
+        data: {
+          connectionType: defaultConnectionType,
+        },
+      };
+
+      storeAddEdge(activeScreenId, newEdge);
+    },
+    [activeScreenId, defaultEdgeType, defaultConnectionType, storeAddEdge],
+  );
+
+  // Connection validation
+  const isValidConnection = useCallback(
+    (connection: Connection) => {
+      // No self-connections
+      if (connection.source === connection.target) return false;
+
+      // Prevent duplicate edges between same source handle → target handle
+      const currentEdges = useScadaPackageStore.getState().screens
+        .find((s) => s.id === useScadaPackageStore.getState().activeScreenId)?.edges ?? [];
+      const duplicate = currentEdges.some(
+        (e) =>
+          e.source === connection.source &&
+          e.target === connection.target &&
+          e.sourceHandle === connection.sourceHandle &&
+          e.targetHandle === connection.targetHandle,
+      );
+      if (duplicate) return false;
+
+      // Validate handle direction: source handle should end with '-out' or be an 'out'/'inout' port,
+      // target handle should end with '-in' or be an 'in'/'inout' port
+      const sh = connection.sourceHandle || '';
+      const th = connection.targetHandle || '';
+      // Block connecting two '-in' handles or two '-out' handles
+      if (sh.endsWith('-in') && !sh.endsWith('-out')) return false;
+      if (th.endsWith('-out') && !th.endsWith('-in')) return false;
+
+      return true;
+    },
+    [],
+  );
+
+  // Edge click → select
+  const onEdgeClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge) => {
+      setSelectedEdge(edge.id);
+      setSelectedWidget(null);
+    },
+    [setSelectedEdge, setSelectedWidget],
   );
 
   // Click on empty canvas → deselect
   const onPaneClick = useCallback(() => {
     setSelectedWidget(null);
-  }, [setSelectedWidget]);
+    setSelectedEdge(null);
+  }, [setSelectedWidget, setSelectedEdge]);
 
   // Handle node click for selection
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
       setSelectedWidget(node.id);
+      setSelectedEdge(null);
     },
-    [setSelectedWidget],
+    [setSelectedWidget, setSelectedEdge],
   );
 
   // Delete key handler
@@ -228,6 +390,29 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
       }
     },
     [activeScreenId, removeWidget],
+  );
+
+  // Edge toolbar handlers
+  const handleEdgeTypeChange = useCallback(
+    (type: ScadaEdgeType) => {
+      setDefaultEdgeType(type);
+      // If an edge is selected, atomically change its type (clears stale geometry)
+      if (selectedEdgeId && activeScreenId) {
+        storeUpdateEdgeType(activeScreenId, selectedEdgeId, type);
+      }
+    },
+    [selectedEdgeId, activeScreenId, storeUpdateEdgeType],
+  );
+
+  const handleConnectionTypeChange = useCallback(
+    (type: ConnectionType) => {
+      setDefaultConnectionType(type);
+      // If an edge is selected, update its connection type
+      if (selectedEdgeId && activeScreenId) {
+        storeUpdateEdgeData(activeScreenId, selectedEdgeId, { connectionType: type });
+      }
+    },
+    [selectedEdgeId, activeScreenId, storeUpdateEdgeData],
   );
 
   // Drop handler for new widgets from WidgetPalette
@@ -294,47 +479,69 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   }
 
   return (
-    <div className="w-full h-full" aria-label="SCADA tasarim alani" onDragOver={isPreview ? undefined : onDragOver} onDrop={isPreview ? undefined : onDrop}>
-      <ReactFlow
-        nodes={isPreview ? nodes.map((n) => ({ ...n, draggable: false })) : nodes}
-        edges={[]}
-        nodeTypes={nodeTypes}
-        onNodesChange={isPreview ? undefined : onNodesChange}
-        onNodeClick={isPreview ? undefined : onNodeClick}
-        onNodesDelete={isPreview ? undefined : onNodesDelete}
-        onPaneClick={isPreview ? undefined : onPaneClick}
-        snapToGrid={!isPreview}
-        snapGrid={SNAP_GRID}
-        fitView={false}
-        deleteKeyCode={isPreview ? null : 'Delete'}
-        multiSelectionKeyCode={null}
-        minZoom={0.2}
-        maxZoom={2}
-        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-        proOptions={{ hideAttribution: true }}
-        nodesDraggable={!isPreview}
-        nodesConnectable={!isPreview}
-        elementsSelectable={!isPreview}
-      >
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={GRID_CELL_W}
-          size={1.5}
-          color="#d1d5db"
-        />
-        <Controls
-          showInteractive={false}
-          position="bottom-right"
-        />
-        <MiniMap
-          nodeColor="#06b6d4"
-          maskColor="rgba(0,0,0,0.1)"
-          position="bottom-left"
-          pannable
-          zoomable
-        />
-      </ReactFlow>
-    </div>
+    <EdgeStoreContextProvider value={edgeStoreValue}>
+      <style>{ANIMATED_EDGE_CSS}</style>
+      <div className="w-full h-full relative" aria-label="SCADA tasarim alani" onDragOver={isPreview ? undefined : onDragOver} onDrop={isPreview ? undefined : onDrop}>
+        {/* Edge Toolbar (edit mode only) */}
+        {!isPreview && (
+          <EdgeToolbar
+            selectedEdgeType={defaultEdgeType}
+            selectedConnectionType={defaultConnectionType}
+            onEdgeTypeChange={handleEdgeTypeChange}
+            onConnectionTypeChange={handleConnectionTypeChange}
+            hasSelectedEdge={!!selectedEdgeId}
+          />
+        )}
+
+        <ReactFlow
+          nodes={isPreview ? nodes.map((n) => ({ ...n, draggable: false })) : nodes}
+          edges={rfEdges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodesChange={isPreview ? undefined : onNodesChange}
+          onEdgesChange={isPreview ? undefined : onEdgesChange}
+          onConnect={isPreview ? undefined : onConnect}
+          onNodeClick={isPreview ? undefined : onNodeClick}
+          onEdgeClick={isPreview ? undefined : onEdgeClick}
+          onNodesDelete={isPreview ? undefined : onNodesDelete}
+          onPaneClick={isPreview ? undefined : onPaneClick}
+          isValidConnection={isValidConnection}
+          snapToGrid={!isPreview}
+          snapGrid={SNAP_GRID}
+          fitView={false}
+          deleteKeyCode={isPreview ? null : 'Delete'}
+          multiSelectionKeyCode={null}
+          minZoom={0.2}
+          maxZoom={2}
+          defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+          proOptions={{ hideAttribution: true }}
+          nodesDraggable={!isPreview}
+          nodesConnectable={!isPreview}
+          elementsSelectable={!isPreview}
+          connectionLineStyle={{ stroke: '#06b6d4', strokeWidth: 2 }}
+          connectionLineType={ConnectionLineType.SmoothStep}
+          connectionRadius={20}
+        >
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={GRID_CELL_W}
+            size={1.5}
+            color="#d1d5db"
+          />
+          <Controls
+            showInteractive={false}
+            position="bottom-right"
+          />
+          <MiniMap
+            nodeColor="#06b6d4"
+            maskColor="rgba(0,0,0,0.1)"
+            position="bottom-left"
+            pannable
+            zoomable
+          />
+        </ReactFlow>
+      </div>
+    </EdgeStoreContextProvider>
   );
 };
 

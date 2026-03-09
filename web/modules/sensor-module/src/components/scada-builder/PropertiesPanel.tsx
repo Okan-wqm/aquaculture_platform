@@ -6,6 +6,8 @@
 import React, { useState } from 'react';
 import { Settings, Plus, Trash2 } from 'lucide-react';
 import { widgetConfigMap } from './widget-configs';
+import { CONNECTION_TYPES, type ConnectionType } from '../../config/connectionTypes';
+import type { ScadaEdge, ScadaEdgeType, ScadaEdgeData } from '../../types/scada-edge.types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,6 +58,10 @@ interface PropertiesPanelProps {
   trendConfig: TrendConfig;
   onTrendConfigChange: (config: TrendConfig) => void;
   deviceId?: string | null;
+  selectedEdge?: ScadaEdge | null;
+  onEdgeDataChange?: (edgeId: string, updates: Partial<ScadaEdgeData>) => void;
+  onEdgeTypeChange?: (edgeId: string, type: ScadaEdgeType) => void;
+  onEdgeDelete?: (edgeId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +96,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   trendConfig,
   onTrendConfigChange,
   deviceId,
+  selectedEdge,
+  onEdgeDataChange,
+  onEdgeTypeChange,
+  onEdgeDelete,
 }) => {
   const [activeTab, setActiveTab] = useState<TabId>('widget');
 
@@ -210,6 +220,93 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   onChange={(updates) => onWidgetConfigChange(selectedWidget.id, updates)}
                   deviceId={deviceId}
                 />
+              </div>
+            ) : selectedEdge && onEdgeDataChange ? (
+              <div className="space-y-4">
+                <h4 className="text-sm font-medium text-gray-700">Baglanti Ozellikleri</h4>
+
+                {/* Connection Type */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Baglanti Tipi</label>
+                  <select
+                    value={selectedEdge.data.connectionType}
+                    onChange={(e) => onEdgeDataChange(selectedEdge.id, { connectionType: e.target.value as ConnectionType })}
+                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  >
+                    {CONNECTION_TYPES.map((ct) => (
+                      <option key={ct.id} value={ct.id}>{ct.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Edge Type */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Cizgi Tipi</label>
+                  <div className="flex gap-1">
+                    {([
+                      { type: 'orthogonal' as const, label: 'Orthogonal' },
+                      { type: 'multiHandle' as const, label: 'Polyline' },
+                      { type: 'draggable' as const, label: 'Bezier' },
+                    ]).map((opt) => (
+                      <button
+                        key={opt.type}
+                        onClick={() => onEdgeTypeChange?.(selectedEdge.id, opt.type)}
+                        className={`flex-1 px-2 py-1.5 text-xs rounded border transition-colors ${
+                          selectedEdge.type === opt.type
+                            ? 'bg-cyan-50 border-cyan-300 text-cyan-700 font-medium'
+                            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Label */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Etiket</label>
+                  <input
+                    type="text"
+                    value={selectedEdge.data.label || ''}
+                    onChange={(e) => onEdgeDataChange(selectedEdge.id, { label: e.target.value || undefined })}
+                    placeholder="Baglanti etiketi"
+                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  />
+                </div>
+
+                {/* Animated Flow Toggle */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="edgeAnimated"
+                    checked={!!selectedEdge.data.animated}
+                    onChange={(e) => onEdgeDataChange(selectedEdge.id, { animated: e.target.checked })}
+                    className="text-cyan-600 rounded focus:ring-cyan-500"
+                  />
+                  <label htmlFor="edgeAnimated" className="text-xs text-gray-700">
+                    Animasyonlu akis
+                  </label>
+                </div>
+
+                {/* Connection Info */}
+                <div className="pt-3 border-t border-gray-200">
+                  <p className="text-[10px] text-gray-400">
+                    Kaynak: {selectedEdge.source} ({selectedEdge.sourceHandle})
+                  </p>
+                  <p className="text-[10px] text-gray-400">
+                    Hedef: {selectedEdge.target} ({selectedEdge.targetHandle})
+                  </p>
+                </div>
+
+                {/* Delete Button */}
+                <button
+                  onClick={() => onEdgeDelete?.(selectedEdge.id)}
+                  className="w-full mt-2 px-3 py-2 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Baglantiyi Sil
+                </button>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center text-gray-400 py-12">

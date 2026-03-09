@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 import type { WidgetPosition, ScreenWidget } from '../types/scada-package.types';
+import type { ScadaEdge, ScadaEdgeData } from '../types/scada-edge.types';
 export type { WidgetPosition, ScreenWidget } from '../types/scada-package.types';
 export type { ScadaWidgetType } from '../types/scada-widget.types';
+export type { ScadaEdge, ScadaEdgeData } from '../types/scada-edge.types';
 
 // Screen type
 export type ScreenType = 'dashboard' | 'process' | 'alarms' | 'trends' | 'calibration' | 'control';
@@ -20,6 +22,7 @@ export interface ScreenDef {
   icon: string;
   layout: { type: string; cols: number; rows: number };
   widgets: ScreenWidget[];
+  edges: ScadaEdge[];
 }
 
 export interface AlarmRuleDef {
@@ -62,6 +65,7 @@ export interface ScreenJSON {
     position?: Partial<WidgetPosition>;
     config?: Record<string, unknown>;
   }>;
+  edges?: ScadaEdge[];
 }
 
 export interface AlarmRuleJSON {
@@ -115,6 +119,7 @@ interface ScadaPackageState {
   // UI State
   isDirty: boolean;
   selectedWidgetId: string | null;
+  selectedEdgeId: string | null;
   rightPanelTab: 'widget' | 'alarms' | 'controls' | 'trends';
 
   // Screen actions
@@ -132,6 +137,13 @@ interface ScadaPackageState {
   removeWidget: (screenId: string, widgetId: string) => void;
   updateWidget: (screenId: string, widgetId: string, updates: Partial<ScreenWidget>) => void;
   updateWidgetPosition: (screenId: string, widgetId: string, position: WidgetPosition) => void;
+
+  // Edge actions
+  addEdge: (screenId: string, edge: ScadaEdge) => void;
+  removeEdge: (screenId: string, edgeId: string) => void;
+  updateEdgeData: (screenId: string, edgeId: string, data: Partial<ScadaEdgeData>) => void;
+  updateEdgeType: (screenId: string, edgeId: string, newType: ScadaEdge['type']) => void;
+  setSelectedEdge: (id: string | null) => void;
 
   // Alarm actions
   addAlarmRule: (rule: AlarmRuleDef) => void;
@@ -204,6 +216,7 @@ const initialState = {
   screenHistory: [] as string[],
   isDirty: false,
   selectedWidgetId: null as string | null,
+  selectedEdgeId: null as string | null,
   rightPanelTab: 'widget' as const,
 };
 
@@ -222,6 +235,7 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
       icon: SCREEN_ICONS[type] || 'LayoutDashboard',
       layout: { type: 'grid', cols: 12, rows: 8 },
       widgets: [],
+      edges: [],
     };
     set((state) => ({
       screens: [...state.screens, screen],
@@ -245,7 +259,7 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
       const updated = wasDefault && remaining.length > 0
         ? remaining.map((s, i) => i === 0 ? { ...s, isDefault: true } : s)
         : remaining;
-      return { screens: updated, activeScreenId: newActiveId, selectedWidgetId: null, isDirty: true };
+      return { screens: updated, activeScreenId: newActiveId, selectedWidgetId: null, selectedEdgeId: null, isDirty: true };
     }),
 
   duplicateScreen: (id) =>
@@ -253,22 +267,41 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
       const source = state.screens.find((s) => s.id === id);
       if (!source) return state;
       const newId = generateId();
+      // Build widget ID mapping for edge remapping
+      const widgetIdMap = new Map<string, string>();
+      const newWidgets = source.widgets.map((w) => {
+        const nid = generateId();
+        widgetIdMap.set(w.id, nid);
+        return { ...w, id: nid, position: { ...w.position }, config: { ...w.config } };
+      });
+      const newEdges = source.edges.map((e) => {
+        const dataCopy: ScadaEdgeData = { ...e.data };
+        // Deep clone nested geometry arrays/objects
+        if (dataCopy.bendPoints) dataCopy.bendPoints = dataCopy.bendPoints.map((p) => ({ ...p }));
+        if (dataCopy.points) dataCopy.points = dataCopy.points.map((p) => ({ ...p }));
+        if (dataCopy.controlPoint) dataCopy.controlPoint = { ...dataCopy.controlPoint };
+        if (dataCopy.controlPoint2) dataCopy.controlPoint2 = { ...dataCopy.controlPoint2 };
+        return {
+          ...e,
+          id: generateId(),
+          source: widgetIdMap.get(e.source) || e.source,
+          target: widgetIdMap.get(e.target) || e.target,
+          data: dataCopy,
+        };
+      });
       const newScreen: ScreenDef = {
         ...source,
         id: newId,
         name: `${source.name} (Copy)`,
         isDefault: false,
-        widgets: source.widgets.map((w) => ({
-          ...w,
-          id: generateId(),
-          position: { ...w.position },
-          config: { ...w.config },
-        })),
+        widgets: newWidgets,
+        edges: newEdges,
       };
       return {
         screens: [...state.screens, newScreen],
         activeScreenId: newId,
         selectedWidgetId: null,
+        selectedEdgeId: null,
         isDirty: true,
       };
     }),
@@ -287,6 +320,7 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
       return {
         activeScreenId: id,
         selectedWidgetId: null,
+        selectedEdgeId: null,
         screenHistory: history.slice(-20), // keep last 20
       };
     }),
@@ -320,10 +354,17 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
     set((state) => ({
       screens: state.screens.map((s) =>
         s.id === screenId
-          ? { ...s, widgets: s.widgets.filter((w) => w.id !== widgetId) }
+          ? {
+              ...s,
+              widgets: s.widgets.filter((w) => w.id !== widgetId),
+              edges: s.edges.filter((e) => e.source !== widgetId && e.target !== widgetId),
+            }
           : s,
       ),
       selectedWidgetId: state.selectedWidgetId === widgetId ? null : state.selectedWidgetId,
+      selectedEdgeId: state.screens.find((s) => s.id === screenId)
+        ?.edges.some((e) => (e.source === widgetId || e.target === widgetId) && e.id === state.selectedEdgeId)
+        ? null : state.selectedEdgeId,
       isDirty: true,
     })),
 
@@ -357,6 +398,70 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
       isDirty: true,
     })),
 
+  // Edge actions
+  addEdge: (screenId, edge) =>
+    set((state) => ({
+      screens: state.screens.map((s) =>
+        s.id === screenId ? { ...s, edges: [...s.edges, edge] } : s,
+      ),
+      isDirty: true,
+    })),
+
+  removeEdge: (screenId, edgeId) =>
+    set((state) => ({
+      screens: state.screens.map((s) =>
+        s.id === screenId ? { ...s, edges: s.edges.filter((e) => e.id !== edgeId) } : s,
+      ),
+      selectedEdgeId: state.selectedEdgeId === edgeId ? null : state.selectedEdgeId,
+      isDirty: true,
+    })),
+
+  updateEdgeData: (screenId, edgeId, data) =>
+    set((state) => ({
+      screens: state.screens.map((s) =>
+        s.id === screenId
+          ? {
+              ...s,
+              edges: s.edges.map((e) =>
+                e.id === edgeId ? { ...e, data: { ...e.data, ...data } } : e,
+              ),
+            }
+          : s,
+      ),
+      isDirty: true,
+    })),
+
+  updateEdgeType: (screenId, edgeId, newType) =>
+    set((state) => ({
+      screens: state.screens.map((s) =>
+        s.id === screenId
+          ? {
+              ...s,
+              edges: s.edges.map((e) =>
+                e.id === edgeId
+                  ? {
+                      ...e,
+                      type: newType,
+                      // Clear type-specific geometry data to avoid stale control/bend points
+                      data: {
+                        connectionType: e.data.connectionType,
+                        label: e.data.label,
+                        animated: e.data.animated,
+                      },
+                    }
+                  : e,
+              ),
+            }
+          : s,
+      ),
+      isDirty: true,
+    })),
+
+  setSelectedEdge: (id) => set((state) => ({
+    selectedEdgeId: id,
+    ...(id ? { selectedWidgetId: null } : {}),
+  })),
+
   // Alarm actions
   addAlarmRule: (rule) =>
     set((state) => ({
@@ -383,7 +488,10 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
   updateTrendConfig: (config) =>
     set({ trendConfig: config, isDirty: true }),
 
-  setSelectedWidget: (id) => set({ selectedWidgetId: id }),
+  setSelectedWidget: (id) => set((state) => ({
+    selectedWidgetId: id,
+    ...(id ? { selectedEdgeId: null } : {}),
+  })),
 
   setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
 
@@ -418,6 +526,7 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
           position: w.position,
           config: w.config,
         })),
+        ...(s.edges.length > 0 ? { edges: s.edges } : {}),
       })),
       alarmRules: state.alarmRules.map((r) => ({
         id: r.id,
@@ -449,6 +558,16 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
         position: (w.position as WidgetPosition) || { col: 0, row: 0, w: 2, h: 2 },
         config: (w.config || {}) as Record<string, unknown>,
       })),
+      edges: (s.edges || [])
+        .filter((e): e is ScadaEdge =>
+          !!e && typeof e.id === 'string' && typeof e.source === 'string' && typeof e.target === 'string'
+          && typeof e.type === 'string' && !!e.data && typeof e.data.connectionType === 'string'
+        )
+        .map((e) => ({
+          ...e,
+          type: (['orthogonal', 'multiHandle', 'draggable'].includes(e.type) ? e.type : 'orthogonal') as ScadaEdge['type'],
+          data: { ...e.data },
+        })),
     }));
 
     set({
@@ -471,6 +590,7 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
       trendConfig: json.trendConfig || { ...defaultTrendConfig },
       isDirty: false,
       selectedWidgetId: null,
+      selectedEdgeId: null,
     });
   },
 
@@ -499,6 +619,7 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
           },
         },
       ],
+      edges: [],
     };
 
     set((state) => ({

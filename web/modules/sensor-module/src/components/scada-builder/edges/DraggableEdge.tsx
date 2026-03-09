@@ -11,7 +11,7 @@
  * - Proper state persistence via EdgeStoreContext
  */
 
-import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, MouseEvent as ReactMouseEvent } from 'react';
 import { EdgeProps } from 'reactflow';
 import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';
@@ -123,7 +123,12 @@ const DraggableEdge: React.FC<EdgeProps<DraggableEdgeData>> = (props) => {
   }, [sourceX, sourceY, targetX, targetY, controlPoint, controlPoint2, curveType]);
 
   /* ---------- Persist changes via store --------- */
+  const isFirstRender = useRef(true);
   useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
     const newData: Partial<DraggableEdgeData> = {
       controlPoint,
       ...(curveType === 'cubic' ? { controlPoint2 } : {}),
@@ -235,7 +240,9 @@ const DraggableEdge: React.FC<EdgeProps<DraggableEdgeData>> = (props) => {
         onMouseDown={(e) => handleMouseDown(e, 1)}
         onMouseEnter={() => setHoveredCP(1)}
         onMouseLeave={() => setHoveredCP(null)}
-      />
+      >
+        <title>Kontrol noktasi 1 — surukle: egriyi ayarla</title>
+      </circle>
 
       {/* Control point 2 (only for cubic) */}
       {curveType === 'cubic' && (
@@ -254,7 +261,9 @@ const DraggableEdge: React.FC<EdgeProps<DraggableEdgeData>> = (props) => {
           onMouseDown={(e) => handleMouseDown(e, 2)}
           onMouseEnter={() => setHoveredCP(2)}
           onMouseLeave={() => setHoveredCP(null)}
-        />
+        >
+          <title>Kontrol noktasi 2 — surukle: egriyi ayarla</title>
+        </circle>
       )}
 
       {/* Endpoint indicators when selected */}

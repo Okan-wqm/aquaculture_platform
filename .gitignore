@@ -106,3 +106,4 @@ sens-repo-temp/
 sens-repo/
 
 vite.config.*.timestamp*NUL
+.worktrees/

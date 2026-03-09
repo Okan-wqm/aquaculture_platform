@@ -32,7 +32,7 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { useScadaPackageStore } from '../../store/scadaPackageStore';
 import type { ScreenWidget } from '../../types/scada-package.types';
-import type { ScadaWidgetNodeData } from '../../types/scada-widget.types';
+import type { ScadaWidgetNodeData, ScadaWidgetType } from '../../types/scada-widget.types';
 import type { ScadaEdge, ScadaEdgeType } from '../../types/scada-edge.types';
 import ScadaWidgetNode from './nodes/ScadaWidgetNode';
 import { edgeTypes } from './edges';
@@ -183,7 +183,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
         position: { x: px.x, y: px.y },
         selected: w.id === selectedWidgetId,
         data: {
-          widgetType: w.widgetType,
+          widgetType: w.widgetType as ScadaWidgetType,
           config: w.config,
           screenId: activeScreenId,
           width: px.width,
@@ -228,9 +228,11 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
 
   // Sync store → local nodes when store changes (not during drag)
   useEffect(() => {
-    if (!syncingFromStore.current) {
-      setNodes(storeNodes);
+    if (syncingFromStore.current) {
+      syncingFromStore.current = false;
+      return; // Skip this sync cycle — we just pushed to store
     }
+    setNodes(storeNodes);
   }, [storeNodes]);
 
   // Handle screen transitions: save/restore viewport
@@ -274,7 +276,6 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
           );
           syncingFromStore.current = true;
           state.updateWidgetPosition(currentScreenId, change.id, newGrid);
-          requestAnimationFrame(() => { syncingFromStore.current = false; });
         }
         if (change.type === 'select' && change.selected) {
           setSelectedWidget(change.id);
@@ -470,6 +471,23 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
     [activeScreenId, rfInstance, addWidget, setSelectedWidget],
   );
 
+  // B2: Toolbar reflects selected edge's actual values
+  const toolbarEdgeType = useMemo(() => {
+    if (selectedEdgeId) {
+      const edge = storeEdges.find(e => e.id === selectedEdgeId);
+      return (edge?.type as ScadaEdgeType) ?? defaultEdgeType;
+    }
+    return defaultEdgeType;
+  }, [selectedEdgeId, storeEdges, defaultEdgeType]);
+
+  const toolbarConnectionType = useMemo(() => {
+    if (selectedEdgeId) {
+      const edge = storeEdges.find(e => e.id === selectedEdgeId);
+      return (edge?.data.connectionType as ConnectionType) ?? defaultConnectionType;
+    }
+    return defaultConnectionType;
+  }, [selectedEdgeId, storeEdges, defaultConnectionType]);
+
   if (!activeScreen) {
     return (
       <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
@@ -485,8 +503,8 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
         {/* Edge Toolbar (edit mode only) */}
         {!isPreview && (
           <EdgeToolbar
-            selectedEdgeType={defaultEdgeType}
-            selectedConnectionType={defaultConnectionType}
+            selectedEdgeType={toolbarEdgeType}
+            selectedConnectionType={toolbarConnectionType}
             onEdgeTypeChange={handleEdgeTypeChange}
             onConnectionTypeChange={handleConnectionTypeChange}
             hasSelectedEdge={!!selectedEdgeId}

@@ -20,7 +20,7 @@ import { WidgetRenderer } from '../WidgetRenderer';
 import type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 import type { EquipmentConnectionPoint } from '../../../types/scada-widget.types';
 import { getWidgetPixelConstraints } from '../../../constants/scada-widget-sizes';
-import { CONNECTION_POINTS, CONNECTION_POINT_COLORS } from '../equipment-symbols/types';
+import { CONNECTION_POINTS, CONNECTION_POINT_COLORS, EQUIPMENT_VIEWBOX } from '../equipment-symbols/types';
 export type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 
 /* ------------------------------------------------------------------ */
@@ -195,18 +195,24 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
   }, [data]);
 
   /* ---------- Memoized styles ------------------------------------- */
+  const isEquipment = data.widgetType === 'equipment';
+
   const containerStyle = useMemo(() => ({
     width: size.width,
     height: size.height,
     position: 'relative' as const,
     zIndex: 500,
-    borderRadius: 8,
-    border: selected ? '2px solid #06b6d4' : '1px solid #e5e7eb',
-    boxShadow: selected ? '0 0 0 2px rgba(6,182,212,0.35)' : '0 1px 3px rgba(0,0,0,0.1)',
-    background: '#ffffff',
+    borderRadius: isEquipment ? 4 : 8,
+    border: selected
+      ? '2px solid #06b6d4'
+      : isEquipment ? '1px solid transparent' : '1px solid #e5e7eb',
+    boxShadow: selected
+      ? '0 0 0 2px rgba(6,182,212,0.35)'
+      : isEquipment ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
+    background: isEquipment ? 'transparent' : '#ffffff',
     overflow: 'visible' as const,
     userSelect: 'none' as const,
-  }), [size.width, size.height, selected]);
+  }), [size.width, size.height, selected, isEquipment]);
 
   /* ---------- Connection handles for equipment widgets ------------- */
   const connectionHandles = useMemo(() => {
@@ -216,6 +222,30 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
     if (!points || points.length === 0) return null;
     return points;
   }, [data.widgetType, data.config.equipmentSubType]);
+
+  /* ---------- SVG render rect for handle alignment --------------- */
+  const svgRect = useMemo(() => {
+    if (data.widgetType !== 'equipment') return null;
+    const subType = (data.config.equipmentSubType as string) || '';
+    const vb = EQUIPMENT_VIEWBOX[subType];
+    if (!vb) return null;
+    const containerW = size.width;
+    const containerH = size.height;
+    const containerAR = containerW / containerH;
+    const svgAR = vb.width / vb.height;
+    let renderW: number, renderH: number;
+    if (containerAR > svgAR) {
+      renderH = containerH; renderW = containerH * svgAR;
+    } else {
+      renderW = containerW; renderH = containerW / svgAR;
+    }
+    return {
+      x: (containerW - renderW) / 2,
+      y: (containerH - renderH) / 2,
+      width: renderW,
+      height: renderH,
+    };
+  }, [data.widgetType, data.config.equipmentSubType, size.width, size.height]);
 
   /* ---------- Render ---------------------------------------------- */
   return (
@@ -282,12 +312,20 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
         };
         const position = posMap[pt.side] || Position.Left;
 
-        // Calculate offset percentage
-        const style: React.CSSProperties = {};
-        if (pt.side === 'top' || pt.side === 'bottom') {
-          style.left = `${pt.offset * 100}%`;
+        // Calculate offset — use SVG render rect for proper alignment
+        const posStyle: React.CSSProperties = {};
+        if (svgRect) {
+          if (pt.side === 'top' || pt.side === 'bottom') {
+            posStyle.left = `${((svgRect.x + pt.offset * svgRect.width) / size.width) * 100}%`;
+          } else {
+            posStyle.top = `${((svgRect.y + pt.offset * svgRect.height) / size.height) * 100}%`;
+          }
         } else {
-          style.top = `${pt.offset * 100}%`;
+          if (pt.side === 'top' || pt.side === 'bottom') {
+            posStyle.left = `${pt.offset * 100}%`;
+          } else {
+            posStyle.top = `${pt.offset * 100}%`;
+          }
         }
 
         const color = CONNECTION_POINT_COLORS[pt.direction];
@@ -297,7 +335,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
           background: color,
           border: '2px solid white',
           borderRadius: '50%',
-          ...style,
+          ...posStyle,
         };
 
         if (pt.direction === 'inout') {

@@ -71,6 +71,11 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           <div className={`rounded p-2 text-center ${phInRange ? 'bg-green-50' : 'bg-red-50'}`}>
             <div className="text-[10px] text-gray-500">pH</div>
             <div className={`text-xl font-bold font-mono ${phColor}`}>{state.pH.toFixed(2)}</div>
+            <div className="text-[9px] font-mono text-gray-400">
+              eq: <span className={state.eqPH >= config.phMin && state.eqPH <= config.phMax ? 'text-green-600' : 'text-red-500'}>
+                {state.eqPH.toFixed(2)}
+              </span>
+            </div>
           </div>
           <div className={`rounded p-2 text-center ${ecInRange ? 'bg-green-50' : 'bg-red-50'}`}>
             <div className="text-[10px] text-gray-500">EC (mS/cm)</div>

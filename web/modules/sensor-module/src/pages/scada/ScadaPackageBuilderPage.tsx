@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useScadaPackageStore, type ScadaPackageJSON } from '../../store/scadaPackageStore';
 import { WidgetPalette } from '../../components/scada-builder/WidgetPalette';
 import { ScreenCanvas } from '../../components/scada-builder/ScreenCanvas';
 import { PropertiesPanel } from '../../components/scada-builder/PropertiesPanel';
@@ -149,7 +149,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
       setPackageId(scadaPackage.id);
       setPackageName(scadaPackage.name);
       if (scadaPackage.packageData) {
-        loadFromJSON(scadaPackage.packageData);
+        loadFromJSON(scadaPackage.packageData as unknown as ScadaPackageJSON);
       }
     }
   }, [scadaPackage, routePackageId, setPackageId, setPackageName, loadFromJSON]);

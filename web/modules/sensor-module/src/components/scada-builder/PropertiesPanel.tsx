@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { Settings, Plus, Trash2 } from 'lucide-react';
 import { widgetConfigMap } from './widget-configs';
+import { AutomationBindingPanel } from './AutomationBindingPanel';
 import { CONNECTION_TYPES, type ConnectionType } from '../../config/connectionTypes';
 import type { ScadaEdge, ScadaEdgeType, ScadaEdgeData } from '../../types/scada-edge.types';
 
@@ -18,7 +19,7 @@ interface AlarmRule {
   tag: string;
   condition: string;
   value: number;
-  severity: string;
+  severity: 'critical' | 'high' | 'warning' | 'info';
   message: string;
 }
 
@@ -68,13 +69,14 @@ interface PropertiesPanelProps {
 // Tab definitions
 // ---------------------------------------------------------------------------
 
-type TabId = 'widget' | 'alarms' | 'control' | 'trend';
+type TabId = 'widget' | 'alarms' | 'control' | 'trend' | 'automation';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'widget', label: 'Widget' },
   { id: 'alarms', label: 'Alarmlar' },
   { id: 'control', label: 'Kontrol' },
   { id: 'trend', label: 'Trend' },
+  { id: 'automation', label: 'Otomasyon' },
 ];
 
 const CONDITIONS = ['>', '<', '>=', '<=', '==', '!='];
@@ -545,6 +547,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             </div>
           </div>
         )}
+
+        {/* ===== Otomasyon Tab ===== */}
+        {activeTab === 'automation' && <AutomationBindingPanel />}
       </div>
     </div>
   );

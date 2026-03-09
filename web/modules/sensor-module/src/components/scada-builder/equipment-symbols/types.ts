@@ -1,5 +1,39 @@
 import type { EquipmentState, EquipmentConnectionPoint } from '../../../types/scada-widget.types';
 
+// ViewBox dimensions for each equipment subtype (used for handle alignment)
+export const EQUIPMENT_VIEWBOX: Record<string, { width: number; height: number }> = {
+  // Pumps — 100×100
+  centrifugalPump:  { width: 100, height: 100 },
+  gearPump:         { width: 100, height: 100 },
+  diaphragmPump:    { width: 100, height: 100 },
+  pistonPump:       { width: 100, height: 100 },
+  submersiblePump:  { width: 100, height: 100 },
+  vacuumPump:       { width: 100, height: 100 },
+  // Valves — 100×80
+  gateValve:        { width: 100, height: 80 },
+  ballValve:        { width: 100, height: 80 },
+  butterflyValve:   { width: 100, height: 80 },
+  globeValve:       { width: 100, height: 80 },
+  checkValve:       { width: 100, height: 80 },
+  reliefValve:      { width: 100, height: 80 },
+  controlValve:     { width: 100, height: 80 },
+  needleValve:      { width: 100, height: 80 },
+  solenoidValve:    { width: 100, height: 80 },
+  // Tanks — various
+  verticalTank:     { width: 100, height: 140 },
+  horizontalTank:   { width: 140, height: 100 },
+  conicalBottomTank: { width: 100, height: 140 },
+  pressureVessel:   { width: 140, height: 100 },
+  silo:             { width: 100, height: 140 },
+  mixingTank:       { width: 100, height: 140 },
+  // Heat Exchangers
+  shellAndTube:     { width: 140, height: 100 },
+  plateHeatExchanger: { width: 140, height: 100 },
+  airCooler:        { width: 140, height: 100 },
+  condenser:        { width: 100, height: 120 },
+  evaporator:       { width: 100, height: 120 },
+};
+
 export interface EquipmentSymbolProps {
   state: EquipmentState;
   width: number;

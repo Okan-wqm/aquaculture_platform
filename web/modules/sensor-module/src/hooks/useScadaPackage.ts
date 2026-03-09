@@ -11,11 +11,11 @@ import {
 } from '../graphql/scada-package.queries';
 import type {
   ScadaPackage,
-  ScadaPackageData,
   ScadaPackageFilter,
   ScadaPackageListResult,
   ScadaPackageStatus,
 } from '../types/scada-package.types';
+import type { ScadaPackageJSON } from '../store/scadaPackageStore';
 
 // Re-export types for backwards compatibility
 export type {
@@ -32,6 +32,7 @@ export type {
   ScadaPackageFilter,
   ScadaPackageListResult,
 } from '../types/scada-package.types';
+export type { ScadaPackageJSON } from '../store/scadaPackageStore';
 
 // Hook for fetching SCADA packages list
 export function useScadaPackages(filter?: ScadaPackageFilter) {
@@ -126,7 +127,7 @@ export function useCreateScadaPackage() {
       name: string;
       description?: string;
       processId?: string;
-      packageData: ScadaPackageData;
+      packageData: ScadaPackageJSON;
       status?: ScadaPackageStatus;
     }) => {
       const data = await graphqlFetch<{ createScadaPackage: ScadaPackage }>(
@@ -147,7 +148,7 @@ export function useUpdateScadaPackage() {
         name?: string;
         description?: string;
         processId?: string;
-        packageData?: ScadaPackageData;
+        packageData?: ScadaPackageJSON;
         status?: ScadaPackageStatus;
       };
     }) => {

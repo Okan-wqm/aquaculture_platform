@@ -1,8 +1,9 @@
 import { create } from 'zustand';
-import type { WidgetPosition, ScreenWidget } from '../types/scada-package.types';
+import type { WidgetPosition, ScreenWidget, AutomationBinding, VariableBinding } from '../types/scada-package.types';
 import type { ScadaEdge, ScadaEdgeData } from '../types/scada-edge.types';
 export type { WidgetPosition, ScreenWidget } from '../types/scada-package.types';
 export type { ScadaWidgetType } from '../types/scada-widget.types';
+export type { AutomationBinding, VariableBinding } from '../types/scada-package.types';
 export type { ScadaEdge, ScadaEdgeData } from '../types/scada-edge.types';
 
 // Screen type
@@ -85,6 +86,7 @@ export interface ScadaPackageJSON {
     packageName?: string;
     processId?: string | null;
     edgeDeviceId?: string | null;
+    automationBindings?: AutomationBinding[];
   };
   screens?: ScreenJSON[];
   alarmRules?: AlarmRuleJSON[];
@@ -112,6 +114,9 @@ interface ScadaPackageState {
   // Trend Config
   trendConfig: TrendConfigDef;
 
+  // Automation Bindings
+  automationBindings: AutomationBinding[];
+
   // Viewport state per screen
   screenViewports: Record<string, ScreenViewport>;
   screenHistory: string[];
@@ -120,7 +125,7 @@ interface ScadaPackageState {
   isDirty: boolean;
   selectedWidgetId: string | null;
   selectedEdgeId: string | null;
-  rightPanelTab: 'widget' | 'alarms' | 'controls' | 'trends';
+  rightPanelTab: 'widget' | 'alarms' | 'controls' | 'trends' | 'automation';
 
   // Screen actions
   addScreen: (type: ScreenType, name: string) => void;
@@ -159,6 +164,13 @@ interface ScadaPackageState {
   setPackageId: (id: string | null) => void;
   setProcessId: (id: string | null) => void;
   setTargetDeviceId: (id: string | null) => void;
+
+  // Automation Binding actions
+  addAutomationProgram: (programId: string, programName: string, programCode: string, variables: { id: string; varName: string; scope: string; dataType: string; ioTagName?: string }[]) => void;
+  removeAutomationProgram: (programId: string) => void;
+  bindVariableToWidget: (programId: string, variableId: string, widgetId: string, tag: string) => void;
+  unbindVariable: (programId: string, variableId: string) => void;
+  autoBindByTag: () => { matched: number; unmatched: number };
 
   // Export/Import
   toScadaPackageJSON: () => ScadaPackageJSON;
@@ -210,6 +222,7 @@ const initialState = {
   screens: [] as ScreenDef[],
   activeScreenId: '',
   alarmRules: [] as AlarmRuleDef[],
+  automationBindings: [] as AutomationBinding[],
   controlPermissions: { ...defaultControlPermissions },
   trendConfig: { ...defaultTrendConfig },
   screenViewports: {} as Record<string, ScreenViewport>,
@@ -503,6 +516,95 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
 
   setTargetDeviceId: (id) => set({ targetDeviceId: id }),
 
+  // Automation Binding actions
+  addAutomationProgram: (programId, programName, programCode, variables) =>
+    set((state) => {
+      if (state.automationBindings.some((b) => b.programId === programId)) return state;
+      const binding: AutomationBinding = {
+        programId,
+        programName,
+        programCode,
+        variableBindings: variables
+          .filter((v) => v.scope === 'INPUT' || v.scope === 'OUTPUT' || v.scope === 'IN_OUT')
+          .map((v) => ({
+            variableId: v.id,
+            varName: v.varName,
+            scope: v.scope as VariableBinding['scope'],
+            dataType: v.dataType,
+            boundWidgetId: null,
+            boundTag: null,
+            ioTagName: v.ioTagName,
+          })),
+      };
+      return { automationBindings: [...state.automationBindings, binding], isDirty: true };
+    }),
+
+  removeAutomationProgram: (programId) =>
+    set((state) => ({
+      automationBindings: state.automationBindings.filter((b) => b.programId !== programId),
+      isDirty: true,
+    })),
+
+  bindVariableToWidget: (programId, variableId, widgetId, tag) =>
+    set((state) => ({
+      automationBindings: state.automationBindings.map((b) =>
+        b.programId === programId
+          ? {
+              ...b,
+              variableBindings: b.variableBindings.map((v) =>
+                v.variableId === variableId ? { ...v, boundWidgetId: widgetId, boundTag: tag } : v,
+              ),
+            }
+          : b,
+      ),
+      isDirty: true,
+    })),
+
+  unbindVariable: (programId, variableId) =>
+    set((state) => ({
+      automationBindings: state.automationBindings.map((b) =>
+        b.programId === programId
+          ? {
+              ...b,
+              variableBindings: b.variableBindings.map((v) =>
+                v.variableId === variableId ? { ...v, boundWidgetId: null, boundTag: null } : v,
+              ),
+            }
+          : b,
+      ),
+      isDirty: true,
+    })),
+
+  autoBindByTag: () => {
+    const state = get();
+    const allWidgets = state.screens.flatMap((s) => s.widgets);
+    const tagToWidget = new Map<string, { id: string; tag: string }>();
+    for (const w of allWidgets) {
+      const tag = w.config.tag as string | undefined;
+      if (tag) tagToWidget.set(tag.toLowerCase(), { id: w.id, tag });
+    }
+
+    let matched = 0;
+    let unmatched = 0;
+    const updatedBindings = state.automationBindings.map((b) => ({
+      ...b,
+      variableBindings: b.variableBindings.map((v) => {
+        if (v.boundWidgetId) { matched++; return v; }
+        const tagName = v.ioTagName || v.varName;
+        const widget = tagToWidget.get(tagName.toLowerCase());
+        if (widget) {
+          matched++;
+          return { ...v, boundWidgetId: widget.id, boundTag: widget.tag };
+        }
+        unmatched++;
+        return v;
+      }),
+    }));
+
+    set({ automationBindings: updatedBindings, isDirty: true });
+    return { matched, unmatched };
+  },
+
   // Export to edge-compatible JSON
   toScadaPackageJSON: () => {
     const state = get();
@@ -512,6 +614,7 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
         packageName: state.packageName,
         processId: state.processId,
         edgeDeviceId: state.targetDeviceId,
+        ...(state.automationBindings.length > 0 ? { automationBindings: state.automationBindings } : {}),
       },
       screens: state.screens.map((s) => ({
         id: s.id,
@@ -586,6 +689,7 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
         deadband: r.deadband,
         delay: r.delay,
       })),
+      automationBindings: json.meta?.automationBindings || [],
       controlPermissions: json.controlPermissions || { ...defaultControlPermissions },
       trendConfig: json.trendConfig || { ...defaultTrendConfig },
       isDirty: false,

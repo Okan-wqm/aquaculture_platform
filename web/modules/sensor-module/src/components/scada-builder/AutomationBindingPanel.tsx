@@ -1,0 +1,405 @@
+/**
+ * AutomationBindingPanel
+ *
+ * SCADA package'a otomasyon programı bağlama ve tag eşleştirme paneli.
+ * PropertiesPanel'in "Otomasyon" tab'ında render edilir.
+ */
+
+import React, { useState, useMemo } from 'react';
+import { Plus, Trash2, Link, Unlink, Zap, ChevronDown, ChevronRight, Check, AlertTriangle, Search } from 'lucide-react';
+import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useAutomationPrograms, useAutomationProgramVariables } from '../../hooks/useAutomationPrograms';
+import { getStatusColor, getStatusText, ProgramStatus } from '../../utils/automation.utils';
+import type { AutomationBinding, VariableBinding } from '../../types/scada-package.types';
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+const ScopeLabel: React.FC<{ scope: VariableBinding['scope'] }> = ({ scope }) => {
+  const colors = {
+    INPUT: 'bg-blue-100 text-blue-700',
+    OUTPUT: 'bg-orange-100 text-orange-700',
+    IN_OUT: 'bg-purple-100 text-purple-700',
+  };
+  return (
+    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${colors[scope]}`}>
+      {scope}
+    </span>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Widget Picker Dropdown
+// ---------------------------------------------------------------------------
+
+interface WidgetPickerProps {
+  onSelect: (widgetId: string, tag: string) => void;
+  onClose: () => void;
+}
+
+const WidgetPicker: React.FC<WidgetPickerProps> = ({ onSelect, onClose }) => {
+  const screens = useScadaPackageStore((s) => s.screens);
+  const [search, setSearch] = useState('');
+
+  const taggedWidgets = useMemo(() => {
+    const result: { widgetId: string; tag: string; widgetType: string; screenName: string }[] = [];
+    for (const screen of screens) {
+      for (const w of screen.widgets) {
+        const tag = w.config.tag as string | undefined;
+        if (tag) {
+          result.push({ widgetId: w.id, tag, widgetType: w.widgetType, screenName: screen.name });
+        }
+      }
+    }
+    return result;
+  }, [screens]);
+
+  const filtered = search
+    ? taggedWidgets.filter(
+        (w) =>
+          w.tag.toLowerCase().includes(search.toLowerCase()) ||
+          w.widgetType.toLowerCase().includes(search.toLowerCase()),
+      )
+    : taggedWidgets;
+
+  return (
+    <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-hidden flex flex-col">
+      <div className="p-2 border-b border-gray-100">
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 rounded border border-gray-200">
+          <Search className="w-3 h-3 text-gray-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Tag veya widget ara..."
+            className="flex-1 text-xs bg-transparent outline-none"
+            autoFocus
+          />
+        </div>
+      </div>
+      <div className="overflow-y-auto flex-1">
+        {filtered.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-4">
+            {taggedWidgets.length === 0 ? 'Tag atanmis widget yok' : 'Sonuc bulunamadi'}
+          </p>
+        ) : (
+          filtered.map((w) => (
+            <button
+              key={w.widgetId}
+              onClick={() => { onSelect(w.widgetId, w.tag); onClose(); }}
+              className="w-full text-left px-3 py-2 text-xs hover:bg-cyan-50 flex items-center gap-2 border-b border-gray-50 last:border-0"
+            >
+              <span className="font-mono text-cyan-700 flex-1 truncate">{w.tag}</span>
+              <span className="text-gray-400 truncate text-[10px]">{w.widgetType}</span>
+            </button>
+          ))
+        )}
+      </div>
+      <div className="p-1.5 border-t border-gray-100">
+        <button onClick={onClose} className="w-full text-xs text-gray-500 hover:text-gray-700 py-1">
+          Kapat
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Program Selector Modal
+// ---------------------------------------------------------------------------
+
+interface ProgramSelectorProps {
+  onSelect: (programId: string) => void;
+  onClose: () => void;
+  existingProgramIds: string[];
+}
+
+const ProgramSelector: React.FC<ProgramSelectorProps> = ({ onSelect, onClose, existingProgramIds }) => {
+  const { data, isLoading } = useAutomationPrograms();
+  const programs = data?.automationPrograms || [];
+  const available = programs.filter((p) => !existingProgramIds.includes(p.id));
+
+  return (
+    <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-hidden flex flex-col">
+      <div className="px-3 py-2 border-b border-gray-100">
+        <h5 className="text-xs font-medium text-gray-700">Otomasyon Programi Sec</h5>
+      </div>
+      <div className="overflow-y-auto flex-1">
+        {isLoading ? (
+          <p className="text-xs text-gray-400 text-center py-4">Yukleniyor...</p>
+        ) : available.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-4">
+            {programs.length === 0 ? 'Onaylanmis program yok' : 'Tum programlar eklendi'}
+          </p>
+        ) : (
+          available.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => { onSelect(p.id); onClose(); }}
+              className="w-full text-left px-3 py-2.5 hover:bg-cyan-50 border-b border-gray-50 last:border-0"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-800">{p.programName}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded ${getStatusColor(p.status)}`}>
+                  {getStatusText(p.status)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-[10px] text-gray-400 font-mono">{p.programCode}</span>
+                <span className="text-[10px] text-gray-400">{p.variableCount} degisken</span>
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+      <div className="p-1.5 border-t border-gray-100">
+        <button onClick={onClose} className="w-full text-xs text-gray-500 hover:text-gray-700 py-1">
+          Iptal
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// ProgramCard with variable bindings
+// ---------------------------------------------------------------------------
+
+interface PendingProgram {
+  programId: string;
+  loading: boolean;
+}
+
+const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
+  const [expanded, setExpanded] = useState(true);
+  const [pickerVarId, setPickerVarId] = useState<string | null>(null);
+  const removeAutomationProgram = useScadaPackageStore((s) => s.removeAutomationProgram);
+  const bindVariableToWidget = useScadaPackageStore((s) => s.bindVariableToWidget);
+  const unbindVariable = useScadaPackageStore((s) => s.unbindVariable);
+
+  const boundCount = binding.variableBindings.filter((v) => v.boundWidgetId).length;
+  const totalCount = binding.variableBindings.length;
+
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
+      {/* Header */}
+      <div className="px-3 py-2 bg-gray-50 flex items-center gap-2">
+        <button onClick={() => setExpanded(!expanded)} className="text-gray-500">
+          {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-medium text-gray-800 truncate">{binding.programName}</div>
+          <div className="text-[10px] text-gray-400 font-mono">{binding.programCode}</div>
+        </div>
+        <span className="text-[10px] text-gray-500">
+          {boundCount}/{totalCount}
+        </span>
+        <button
+          onClick={() => removeAutomationProgram(binding.programId)}
+          className="text-red-400 hover:text-red-600 p-0.5"
+          title="Programi kaldir"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Variable List */}
+      {expanded && (
+        <div className="divide-y divide-gray-100">
+          {binding.variableBindings.length === 0 ? (
+            <p className="text-xs text-gray-400 text-center py-3">I/O degisken yok</p>
+          ) : (
+            binding.variableBindings.map((v) => (
+              <div key={v.variableId} className="px-3 py-2 relative">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-xs font-mono text-gray-700">{v.varName}</span>
+                  <ScopeLabel scope={v.scope} />
+                  <span className="text-[10px] text-gray-400">{v.dataType}</span>
+                </div>
+                {v.boundWidgetId ? (
+                  <div className="flex items-center gap-1.5">
+                    <Check className="w-3 h-3 text-green-500" />
+                    <span className="text-[10px] text-green-700 font-mono flex-1 truncate">{v.boundTag}</span>
+                    <button
+                      onClick={() => unbindVariable(binding.programId, v.variableId)}
+                      className="text-gray-400 hover:text-red-500 p-0.5"
+                      title="Eslestirmeyi kaldir"
+                    >
+                      <Unlink className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <AlertTriangle className="w-3 h-3 text-amber-500" />
+                    <span className="text-[10px] text-amber-600 flex-1">Eslestirilmedi</span>
+                    <button
+                      onClick={() => setPickerVarId(v.variableId)}
+                      className="text-xs text-cyan-600 hover:text-cyan-700 flex items-center gap-0.5"
+                    >
+                      <Link className="w-3 h-3" />
+                      Eslestir
+                    </button>
+                  </div>
+                )}
+                {v.ioTagName && (
+                  <div className="text-[10px] text-gray-400 mt-0.5">I/O: {v.ioTagName}</div>
+                )}
+
+                {pickerVarId === v.variableId && (
+                  <WidgetPicker
+                    onSelect={(widgetId, tag) =>
+                      bindVariableToWidget(binding.programId, v.variableId, widgetId, tag)
+                    }
+                    onClose={() => setPickerVarId(null)}
+                  />
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Main Panel
+// ---------------------------------------------------------------------------
+
+export const AutomationBindingPanel: React.FC = () => {
+  const automationBindings = useScadaPackageStore((s) => s.automationBindings);
+  const addAutomationProgram = useScadaPackageStore((s) => s.addAutomationProgram);
+  const autoBindByTag = useScadaPackageStore((s) => s.autoBindByTag);
+
+  const [showSelector, setShowSelector] = useState(false);
+  const [pendingProgram, setPendingProgram] = useState<PendingProgram | null>(null);
+  const [autoBindResult, setAutoBindResult] = useState<{ matched: number; unmatched: number } | null>(null);
+
+  // When a program is selected from the selector, fetch its variables
+  const { data: programData } = useAutomationProgramVariables(pendingProgram?.programId ?? null);
+
+  // Process pending program when data arrives
+  React.useEffect(() => {
+    if (pendingProgram && programData && !pendingProgram.loading) return;
+    if (pendingProgram && programData) {
+      const { automationProgram, programVariables } = programData;
+      addAutomationProgram(
+        automationProgram.id,
+        automationProgram.programName,
+        automationProgram.programCode,
+        programVariables,
+      );
+      setPendingProgram(null);
+    }
+  }, [programData, pendingProgram, addAutomationProgram]);
+
+  const handleSelectProgram = (programId: string) => {
+    setPendingProgram({ programId, loading: true });
+  };
+
+  const handleAutoBind = () => {
+    const result = autoBindByTag();
+    setAutoBindResult(result);
+    setTimeout(() => setAutoBindResult(null), 3000);
+  };
+
+  // Summary counts
+  const totalBound = automationBindings.reduce(
+    (acc, b) => acc + b.variableBindings.filter((v) => v.boundWidgetId).length,
+    0,
+  );
+  const totalUnbound = automationBindings.reduce(
+    (acc, b) => acc + b.variableBindings.filter((v) => !v.boundWidgetId).length,
+    0,
+  );
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-medium text-gray-700">Otomasyon Programlari</h4>
+        <div className="relative">
+          <button
+            onClick={() => setShowSelector(!showSelector)}
+            className="flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700"
+          >
+            <Plus className="w-3 h-3" />
+            Program Ekle
+          </button>
+          {showSelector && (
+            <ProgramSelector
+              onSelect={handleSelectProgram}
+              onClose={() => setShowSelector(false)}
+              existingProgramIds={automationBindings.map((b) => b.programId)}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Auto-bind button */}
+      {automationBindings.length > 0 && (
+        <button
+          onClick={handleAutoBind}
+          className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-lg hover:bg-cyan-100 transition-colors"
+        >
+          <Zap className="w-3.5 h-3.5" />
+          Otomatik Eslestir
+        </button>
+      )}
+
+      {/* Auto-bind result toast */}
+      {autoBindResult && (
+        <div className="px-3 py-2 text-xs bg-green-50 text-green-700 border border-green-200 rounded-lg">
+          {autoBindResult.matched} eslesti, {autoBindResult.unmatched} eslesmedi
+        </div>
+      )}
+
+      {/* Summary */}
+      {automationBindings.length > 0 && (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="px-3 py-2 bg-green-50 border border-green-100 rounded-lg">
+            <div className="flex items-center gap-1 mb-0.5">
+              <Check className="w-3 h-3 text-green-600" />
+              <span className="text-[10px] text-green-700 font-medium">Eslesmis</span>
+            </div>
+            <span className="text-sm font-semibold text-green-800">{totalBound}</span>
+          </div>
+          <div className="px-3 py-2 bg-amber-50 border border-amber-100 rounded-lg">
+            <div className="flex items-center gap-1 mb-0.5">
+              <AlertTriangle className="w-3 h-3 text-amber-600" />
+              <span className="text-[10px] text-amber-700 font-medium">Bosta</span>
+            </div>
+            <span className="text-sm font-semibold text-amber-800">{totalUnbound}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Program Cards */}
+      {automationBindings.length === 0 ? (
+        <div className="flex flex-col items-center py-8 text-center text-gray-400">
+          <Zap className="w-8 h-8 mb-2 text-gray-300" />
+          <p className="text-xs">Henuz program baglenmadi</p>
+          <p className="text-[10px] mt-1">
+            "Program Ekle" ile otomasyon programi secin
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {automationBindings.map((binding) => (
+            <ProgramCard key={binding.programId} binding={binding} />
+          ))}
+        </div>
+      )}
+
+      {/* Pending indicator */}
+      {pendingProgram && (
+        <div className="text-xs text-gray-500 text-center py-2">
+          Program degiskenleri yukleniyor...
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default AutomationBindingPanel;

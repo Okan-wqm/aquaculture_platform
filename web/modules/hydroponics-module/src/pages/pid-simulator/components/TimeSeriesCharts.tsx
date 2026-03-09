@@ -10,6 +10,7 @@ import {
   YAxis,
   CartesianGrid,
   ReferenceArea,
+  Tooltip,
   ResponsiveContainer,
 } from 'recharts';
 import { SimSnapshot } from '../simulation/types';
@@ -38,6 +39,7 @@ const TimeSeriesCharts: React.FC<TimeSeriesChartsProps> = ({
   const data = history.map(s => ({
     t: parseFloat((s.tick * dt).toFixed(1)),
     pH: s.pH,
+    eqPH: s.eqPH,
     EC: s.EC,
     acid: s.acidPump,
     base: s.basePump,
@@ -74,7 +76,9 @@ const TimeSeriesCharts: React.FC<TimeSeriesChartsProps> = ({
             <XAxis dataKey="t" type="number" domain={[tMin, tMax]} tick={{ fontSize: 9 }} />
             <YAxis tick={{ fontSize: 9 }} domain={['auto', 'auto']} />
             <ReferenceArea y1={phMin} y2={phMax} fill="#16a34a" fillOpacity={0.1} strokeOpacity={0} />
-            <Line dataKey="pH" stroke="#2563eb" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+            <Tooltip contentStyle={{ fontSize: 10 }} />
+            <Line dataKey="pH" name="pH" stroke="#2563eb" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+            <Line dataKey="eqPH" name="eq pH" stroke="#a855f7" strokeWidth={1} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
       </ChartWrapper>

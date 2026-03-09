@@ -13,7 +13,7 @@
  * - Proper state persistence via EdgeStoreContext
  */
 
-import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, MouseEvent as ReactMouseEvent } from 'react';
 import { EdgeProps } from 'reactflow';
 import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';
@@ -154,7 +154,12 @@ const MultiHandleEdge: React.FC<EdgeProps<MultiHandleEdgeData>> = (props) => {
   }, [points]);
 
   /* ---------- Persist changes via store ------- */
+  const isFirstRender = useRef(true);
   useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
     updateEdgeData(id, { points } as any);
   }, [points, id, updateEdgeData]);
 
@@ -334,7 +339,9 @@ const MultiHandleEdge: React.FC<EdgeProps<MultiHandleEdgeData>> = (props) => {
           onContextMenu={e => handlePointRightClick(e, idx)}
           onMouseEnter={() => setHoveredPoint(idx)}
           onMouseLeave={() => setHoveredPoint(null)}
-        />
+        >
+          <title>{pt.locked ? 'Sabit nokta' : 'Surukle: tasima | Sag-tikla: sil'}</title>
+        </circle>
       ))}
 
       {/* Endpoint indicators when selected */}

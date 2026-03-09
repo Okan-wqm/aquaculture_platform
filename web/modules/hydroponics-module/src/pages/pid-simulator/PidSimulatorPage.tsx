@@ -9,14 +9,19 @@ import ControlPanel from './components/ControlPanel';
 import PumpBars from './components/PumpBars';
 import TimeSeriesCharts from './components/TimeSeriesCharts';
 import StateIndicator from './components/StateIndicator';
-import { calcAlkOfDicPh } from './engine/carbonate-chemistry';
+import { calcAlkOfDicPh, alphaZero, phNbsToFree } from './engine/carbonate-chemistry';
+import { CO2_EQ_MMOL } from './simulation/types';
 
 const PidSimulatorPage: React.FC = () => {
   const sim = useSimulation();
 
   const phMid = (sim.config.phMin + sim.config.phMax) / 2;
+  // Target ALK based on equilibrium DIC (when CO₂ reaches atmospheric equilibrium)
+  const pHfree = phNbsToFree(phMid, sim.config.tempC, sim.config.salinity);
+  const a0 = alphaZero(pHfree, sim.config.tempC, sim.config.salinity);
+  const eqDIC = a0 > 1e-15 ? Math.min(CO2_EQ_MMOL / a0, 1e6) : 100;
   const targetALK = calcAlkOfDicPh(
-    sim.state.DIC,
+    eqDIC,
     phMid,
     sim.config.tempC,
     sim.config.salinity,

@@ -479,7 +479,11 @@
       "Bash(kill 3397696:*)",
       "Bash(/snap/bin/node:*)",
       "Bash(PATH=\"/snap/bin:$PATH\" node:*)",
-      "Bash(git status:*)"
+      "Bash(git status:*)",
+      "Bash(git:*)",
+      "Bash(do cp:*)",
+      "Bash(wait:*)",
+      "Bash(timeout 180 npx tsc:*)"
     ],
     "deny": [],
     "ask": []

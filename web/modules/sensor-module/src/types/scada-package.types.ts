@@ -57,6 +57,11 @@ export interface TrendConfig {
 }
 
 export interface PackageMeta {
+  version?: number;
+  packageName?: string;
+  processId?: string | null;
+  edgeDeviceId?: string | null;
+  automationBindings?: AutomationBinding[];
   author?: string;
   description?: string;
   [key: string]: unknown;
@@ -83,6 +88,27 @@ export interface ScadaPackage {
   updatedBy?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Automation Binding (SCADA ↔ Otomasyon Program entegrasyonu)
+// ---------------------------------------------------------------------------
+
+export interface VariableBinding {
+  variableId: string;
+  varName: string;
+  scope: 'INPUT' | 'OUTPUT' | 'IN_OUT';
+  dataType: string;
+  boundWidgetId: string | null;
+  boundTag: string | null;
+  ioTagName?: string;
+}
+
+export interface AutomationBinding {
+  programId: string;
+  programName: string;
+  programCode: string;
+  variableBindings: VariableBinding[];
 }
 
 export interface ScadaPackageFilter {

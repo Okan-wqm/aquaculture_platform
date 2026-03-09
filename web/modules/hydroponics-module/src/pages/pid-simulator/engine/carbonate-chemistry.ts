@@ -284,6 +284,28 @@ export function calcPhForAlkDic(alkMeq: number, dicMM: number, tempC: number, S:
   return (lo + hi) / 2;
 }
 
+/**
+ * Equilibrium pH: the pH that would result if CO₂ reached atmospheric equilibrium.
+ * At equilibrium [CO₂*] = co2EqMmol (constant), so DIC_eq = co2EqMmol / alpha0(pH).
+ * Bisection finds pH where calcAlkOfDicPh(DIC_eq, pH) = alkMeq.
+ */
+export function calcEquilibriumPH(
+  alkMeq: number, co2EqMmol: number, tempC: number, S: number
+): number {
+  let lo = 2.0, hi = 12.0;
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2;
+    const pHfree = phNbsToFree(mid, tempC, S);
+    const a0 = alphaZero(pHfree, tempC, S);
+    if (a0 < 1e-15) { hi = mid; continue; }
+    const dicEq = Math.min(co2EqMmol / a0, 1e6);
+    const alkCalc = calcAlkOfDicPh(dicEq, mid, tempC, S);
+    if (alkCalc < alkMeq) lo = mid; else hi = mid;
+    if (hi - lo < 1e-8) break;
+  }
+  return (lo + hi) / 2;
+}
+
 /** CO2 from DIC + pH (returns mmol/L) */
 export function calcCo2OfDic(dicMM: number, pHnbs: number, tempC: number, S: number): number {
   const pHfree = phNbsToFree(pHnbs, tempC, S);

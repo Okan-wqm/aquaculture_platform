@@ -17,12 +17,12 @@ import {
   Package,
 } from 'lucide-react';
 import { useEdgeDevices, EdgeDevice, formatLastSeen } from '../../hooks/useEdgeDevices';
-import { useDeployScadaPackage, ScadaPackageData } from '../../hooks/useScadaPackage';
+import { useDeployScadaPackage, type ScadaPackageJSON } from '../../hooks/useScadaPackage';
 
 interface DeployScadaDialogProps {
   packageId: string;
   packageName: string;
-  packageData: ScadaPackageData;
+  packageData: ScadaPackageJSON;
   isOpen: boolean;
   onClose: () => void;
 }

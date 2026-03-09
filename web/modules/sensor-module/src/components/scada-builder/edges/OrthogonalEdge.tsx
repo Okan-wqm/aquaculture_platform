@@ -12,7 +12,7 @@
  * - Proper state persistence via EdgeStoreContext
  */
 
-import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMemo } from 'react';
+import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMemo, useRef } from 'react';
 import { EdgeProps } from 'reactflow';
 import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';
@@ -228,7 +228,12 @@ const OrthogonalEdge: React.FC<EdgeProps<OrthogonalEdgeData>> = (props) => {
   }, [sourceX, sourceY, targetX, targetY, bendPoints]);
 
   /* ---------- Persist changes via store ------------ */
+  const isFirstRender = useRef(true);
   useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
     updateEdgeData(id, { bendPoints } as any);
   }, [bendPoints, id, updateEdgeData]);
 
@@ -403,7 +408,9 @@ const OrthogonalEdge: React.FC<EdgeProps<OrthogonalEdgeData>> = (props) => {
           onContextMenu={(e) => handlePointRightClick(e, idx)}
           onMouseEnter={() => setHoveredPoint(idx)}
           onMouseLeave={() => setHoveredPoint(null)}
-        />
+        >
+          <title>Surukle: tasima | Sag-tikla: sil</title>
+        </rect>
       ))}
 
       {/* Endpoint indicators when selected */}

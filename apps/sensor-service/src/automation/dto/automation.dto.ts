@@ -114,9 +114,12 @@ export class CreateProgramInput {
   @Field({ nullable: true })
   category?: string;
 
+  @IsOptional()
   @Field(() => GraphQLJSON, { nullable: true })
   triggerConfig?: Record<string, unknown>;
 
+  @IsOptional()
+  @IsArray()
   @Field(() => [String], { nullable: true })
   tags?: string[];
 
@@ -200,12 +203,16 @@ export class UpdateProgramInput {
   @Field({ nullable: true })
   category?: string;
 
+  @IsOptional()
   @Field(() => GraphQLJSON, { nullable: true })
   triggerConfig?: Record<string, unknown>;
 
+  @IsOptional()
+  @IsArray()
   @Field(() => [String], { nullable: true })
   tags?: string[];
 
+  @IsOptional()
   @Field(() => GraphQLJSON, { nullable: true })
   metadata?: Record<string, unknown>;
 

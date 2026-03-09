@@ -354,13 +354,6 @@ const AutomationProgramEditorPage: React.FC = () => {
     }
   }, [data]);
 
-  // Switch to 'code' tab for new programs (ST is the only type)
-  useEffect(() => {
-    if (isNew) {
-      setActiveTab('code');
-    }
-  }, [isNew]);
-
   // Mutations
   const handleMutationError = (error: Error, context: string) => {
     const message = `${context}: ${error.message || 'Bilinmeyen hata'}`;
@@ -520,6 +513,16 @@ const AutomationProgramEditorPage: React.FC = () => {
   // Handlers
   const handleSave = () => {
     if (isNew) {
+      if (!formData.programCode?.trim()) {
+        setErrorMessage('Program kodu zorunludur');
+        setActiveTab('info');
+        return;
+      }
+      if (!formData.name?.trim()) {
+        setErrorMessage('Program adı zorunludur');
+        setActiveTab('info');
+        return;
+      }
       createMutation.mutate({
         programCode: formData.programCode,
         programName: formData.name,

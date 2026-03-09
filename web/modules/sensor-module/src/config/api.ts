@@ -38,6 +38,10 @@ export async function graphqlFetch<T>(
     body: JSON.stringify({ query, variables }),
   });
 
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
   const result = await response.json();
 
   if (result.errors) {

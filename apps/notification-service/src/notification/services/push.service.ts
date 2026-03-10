@@ -209,14 +209,24 @@ export class PushService {
   /**
    * Get or initialize Firebase Admin SDK
    */
-  private getFirebaseApp(): unknown {
+  private async getFirebaseAdmin(): Promise<any> {
+    // Dynamic import to avoid webpack bundling firebase-admin when not installed
+    try {
+      return await (Function('return import("firebase-admin")')() as Promise<any>);
+    } catch {
+      throw new Error(
+        'firebase-admin package is not installed. Run: npm install firebase-admin',
+      );
+    }
+  }
+
+  private async getFirebaseApp(): Promise<unknown> {
     if (this.firebaseApp) return this.firebaseApp;
     const serviceAccountJson = this.configService.get<string>('FIREBASE_SERVICE_ACCOUNT');
     if (!serviceAccountJson) {
       throw new Error('FIREBASE_SERVICE_ACCOUNT env var not set');
     }
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const admin = require('firebase-admin');
+    const admin = await this.getFirebaseAdmin();
     const serviceAccount = JSON.parse(serviceAccountJson);
     this.firebaseApp = admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
@@ -231,9 +241,8 @@ export class PushService {
     deviceToken: string,
     notification: PushNotificationData,
   ): Promise<string> {
-    const app = this.getFirebaseApp();
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const admin = require('firebase-admin');
+    const app = await this.getFirebaseApp();
+    const admin = await this.getFirebaseAdmin();
     const message = {
       token: deviceToken,
       notification: { title: notification.title, body: notification.body },

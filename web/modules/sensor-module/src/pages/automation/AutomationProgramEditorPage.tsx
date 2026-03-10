@@ -175,23 +175,34 @@ const TabButton: React.FC<{
   icon: React.ReactNode;
   label: string;
   count?: number;
-}> = ({ active, onClick, icon, label, count }) => (
-  <button
-    onClick={onClick}
-    className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-colors ${
-      active
-        ? 'border-indigo-600 text-indigo-600'
-        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-    }`}
-  >
-    {icon}
-    <span>{label}</span>
-    {count !== undefined && (
-      <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-gray-100">
-        {count}
-      </span>
+  disabled?: boolean;
+  disabledTooltip?: string;
+}> = ({ active, onClick, icon, label, count, disabled, disabledTooltip }) => (
+  <div className="relative group">
+    <button
+      onClick={disabled ? undefined : onClick}
+      className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-colors ${
+        disabled
+          ? 'border-transparent text-gray-300 cursor-not-allowed'
+          : active
+            ? 'border-indigo-600 text-indigo-600'
+            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+      }`}
+    >
+      {icon}
+      <span>{label}</span>
+      {count !== undefined && (
+        <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-gray-100">
+          {count}
+        </span>
+      )}
+    </button>
+    {disabled && disabledTooltip && (
+      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 px-2 py-1 text-xs bg-gray-800 text-white rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10">
+        {disabledTooltip}
+      </div>
     )}
-  </button>
+  </div>
 );
 
 const StepCard: React.FC<{
@@ -644,9 +655,9 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: (input: Record<string, unknown>) =>
       graphqlFetch<{ createAutomationProgram: { id: string } }>(CREATE_PROGRAM_MUTATION, { input }),
     onSuccess: (result) => {
-      setErrorMessage(null);
+      showSuccess('Program başarıyla oluşturuldu');
       queryClient.invalidateQueries({ queryKey: ['automationPrograms'] });
-      navigate(`/sensor/automation/${result.createAutomationProgram.id}`);
+      navigate(`/sensor/automation/${result.createAutomationProgram.id}`, { replace: true });
     },
     onError: (error: Error) => handleMutationError(error, 'Program oluşturulamadı'),
   });
@@ -655,7 +666,7 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: (input: Record<string, unknown>) =>
       graphqlFetch(UPDATE_PROGRAM_MUTATION, { id: programId, input }),
     onSuccess: () => {
-      setErrorMessage(null);
+      showSuccess('Program başarıyla güncellendi');
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
     },
     onError: (error: Error) => handleMutationError(error, 'Program kaydedilemedi'),
@@ -813,7 +824,7 @@ const AutomationProgramEditorPage: React.FC = () => {
         description: formData.description || undefined,
         programType: formData.programType,
         executionMode: 'MANUAL',
-        structuredTextCode: stCode || undefined,
+        structuredTextCode: stCode,
         deployTarget,
         ...sanitizedPlcConfig,
       });
@@ -827,7 +838,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       updateMutation.mutate({
         programName: formData.name,
         description: formData.description || undefined,
-        structuredTextCode: stCode || undefined,
+        structuredTextCode: stCode,
         deployTarget,
         ...sanitizedPlcConfig,
       });
@@ -1179,19 +1190,19 @@ const AutomationProgramEditorPage: React.FC = () => {
           icon={<Settings className="h-4 w-4" />}
           label="Bilgiler"
         />
-        {!isNew && (
-          <TabButton
-            active={activeTab === 'variables'}
-            onClick={() => setActiveTab('variables')}
-            icon={
-              ioBindings.some((b) => b.status === 'unbound')
-                ? <AlertCircle className="h-4 w-4 text-amber-500" />
-                : <Variable className="h-4 w-4" />
-            }
-            label="Değişkenler"
-            count={variables.length}
-          />
-        )}
+        <TabButton
+          active={activeTab === 'variables'}
+          onClick={() => setActiveTab('variables')}
+          icon={
+            ioBindings.some((b) => b.status === 'unbound')
+              ? <AlertCircle className="h-4 w-4 text-amber-500" />
+              : <Variable className="h-4 w-4" />
+          }
+          label="Değişkenler"
+          count={isNew ? undefined : variables.length}
+          disabled={isNew}
+          disabledTooltip="Önce programı kaydedin"
+        />
         <TabButton
           active={activeTab === 'code'}
           onClick={() => setActiveTab('code')}
@@ -1204,14 +1215,14 @@ const AutomationProgramEditorPage: React.FC = () => {
           icon={<Play className="h-4 w-4" />}
           label="Simülasyon"
         />
-        {!isNew && (
-          <TabButton
-            active={activeTab === 'deploy'}
-            onClick={() => setActiveTab('deploy')}
-            icon={<Upload className="h-4 w-4" />}
-            label="Dağıtım"
-          />
-        )}
+        <TabButton
+          active={activeTab === 'deploy'}
+          onClick={() => setActiveTab('deploy')}
+          icon={<Upload className="h-4 w-4" />}
+          label="Dağıtım"
+          disabled={isNew}
+          disabledTooltip="Önce programı kaydedin"
+        />
       </div>
 
       {/* Info Tab / New Form */}
@@ -1268,6 +1279,12 @@ const AutomationProgramEditorPage: React.FC = () => {
       )}
 
       {/* Variables Tab */}
+      {activeTab === 'variables' && isNew && (
+        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center text-gray-400">
+          <Variable className="h-12 w-12 mx-auto mb-3 opacity-50" />
+          <p>Bu sekmeyi kullanmak için önce programı kaydedin.</p>
+        </div>
+      )}
       {activeTab === 'variables' && !isNew && (
         <div className="space-y-4">
           {/* Auto-detected variables from ST code */}
@@ -1517,6 +1534,12 @@ const AutomationProgramEditorPage: React.FC = () => {
       )}
 
       {/* Deploy Tab */}
+      {activeTab === 'deploy' && isNew && (
+        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center text-gray-400">
+          <Upload className="h-12 w-12 mx-auto mb-3 opacity-50" />
+          <p>Bu sekmeyi kullanmak için önce programı kaydedin.</p>
+        </div>
+      )}
       {activeTab === 'deploy' && !isNew && (
         <div className="space-y-6">
           {/* Deploy Target Selection */}

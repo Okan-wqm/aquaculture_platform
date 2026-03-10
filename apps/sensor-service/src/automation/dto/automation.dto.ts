@@ -200,7 +200,7 @@ export class UpdateProgramInput {
   description?: string;
 
   @IsOptional()
-  @Transform(enumTransform(ExecutionMode.MANUAL))
+  @Transform(enumTransform(undefined))
   @IsEnum(ExecutionMode)
   @Field(() => ExecutionMode, { nullable: true })
   executionMode?: ExecutionMode;
@@ -250,7 +250,7 @@ export class UpdateProgramInput {
 
   // Deploy target configuration
   @IsOptional()
-  @Transform(enumTransform(DeployTarget.RUST_ENGINE))
+  @Transform(enumTransform(undefined))
   @IsEnum(DeployTarget)
   @Field(() => DeployTarget, { nullable: true })
   deployTarget?: DeployTarget;

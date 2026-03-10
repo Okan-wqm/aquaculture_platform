@@ -725,7 +725,7 @@ export class AutomationResolver {
    */
   @ResolveField(() => Int, { name: 'stepCount' })
   async resolveStepCount(@Parent() program: AutomationProgram): Promise<number> {
-    return this.automationService.countSteps(program.id);
+    return this.automationService.countSteps(program.id, program.tenantId);
   }
 
   /**
@@ -733,7 +733,7 @@ export class AutomationResolver {
    */
   @ResolveField(() => Int, { name: 'transitionCount' })
   async resolveTransitionCount(@Parent() program: AutomationProgram): Promise<number> {
-    return this.automationService.countTransitions(program.id);
+    return this.automationService.countTransitions(program.id, program.tenantId);
   }
 
   /**
@@ -741,7 +741,7 @@ export class AutomationResolver {
    */
   @ResolveField(() => Int, { name: 'variableCount' })
   async resolveVariableCount(@Parent() program: AutomationProgram): Promise<number> {
-    return this.automationService.countVariables(program.id);
+    return this.automationService.countVariables(program.id, program.tenantId);
   }
 }
 

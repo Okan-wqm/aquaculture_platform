@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, In, LessThan } from 'typeorm';
+import { Repository, DataSource, EntityManager, In, LessThan } from 'typeorm';
 
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
@@ -87,6 +87,41 @@ export class AutomationService {
   ) {}
 
   // ============================================
+  // Tenant Schema Helper
+  // ============================================
+
+  /**
+   * Generate tenant schema name from tenant UUID.
+   * Must match TenantSchemaMiddleware.getTenantSchemaName.
+   */
+  private getTenantSchemaName(tenantId: string): string {
+    return `tenant_${tenantId.replace(/-/g, '').substring(0, 16).toLowerCase()}`;
+  }
+
+  /**
+   * Execute a callback with a dedicated QueryRunner whose search_path is set
+   * to the correct tenant schema. This ensures the SET and subsequent queries
+   * share the same connection, avoiding connection-pool contamination where
+   * the middleware's SET search_path lands on one connection but repository
+   * queries run on a different one (HIGH-001 pattern from MqttListenerService).
+   */
+  private async withTenantSchema<T>(
+    tenantId: string,
+    fn: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    const schemaName = this.getTenantSchemaName(tenantId);
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    try {
+      await qr.query(`SET search_path TO "${schemaName}", sensor, public`);
+      return await fn(qr.manager);
+    } finally {
+      try { await qr.query('RESET search_path'); } catch { /* ignore */ }
+      await qr.release();
+    }
+  }
+
+  // ============================================
   // Program CRUD Operations
   // ============================================
 
@@ -98,50 +133,54 @@ export class AutomationService {
     input: CreateProgramInput,
     createdBy?: string,
   ): Promise<AutomationProgram> {
-    // Check for duplicate code
-    const existing = await this.programRepo.findOne({
-      where: { tenantId, programCode: input.programCode },
-    });
-    if (existing) {
-      throw new ConflictException(
-        `Program with code "${input.programCode}" already exists`,
+    return this.withTenantSchema(tenantId, async (manager) => {
+      const repo = manager.getRepository(AutomationProgram);
+
+      // Check for duplicate code
+      const existing = await repo.findOne({
+        where: { tenantId, programCode: input.programCode },
+      });
+      if (existing) {
+        throw new ConflictException(
+          `Program with code "${input.programCode}" already exists`,
+        );
+      }
+
+      const program = repo.create({
+        tenantId,
+        programCode: input.programCode,
+        programName: input.programName,
+        description: input.description,
+        programType: input.programType || ProgramType.ST,
+        executionMode: input.executionMode,
+        deviceId: input.deviceId,
+        processTemplateId: input.processTemplateId,
+        sfcDefinition: input.sfcDefinition ? input.sfcDefinition as unknown as SfcDefinition : undefined,
+        structuredTextCode: input.structuredTextCode,
+        scanCycleMs: input.scanCycleMs || 100,
+        priority: input.priority || 5,
+        category: input.category,
+        triggerConfig: input.triggerConfig as TriggerConfig,
+        tags: input.tags,
+        deployTarget: input.deployTarget,
+        targetPlcAddress: input.targetPlcAddress,
+        targetPlcPort: input.targetPlcPort,
+        targetPlcModel: input.targetPlcModel,
+        targetPlcProtocol: input.targetPlcProtocol,
+        status: ProgramStatus.DRAFT,
+        version: 1,
+        createdBy,
+      });
+
+      const saved = await repo.save(program);
+      this.logger.log(`Created program ${saved.programCode} for tenant ${tenantId}`);
+
+      this.eventsPublisher?.publishProgramSaved(
+        tenantId, saved.id, saved.programCode, saved.version, createdBy ?? 'system',
       );
-    }
 
-    const program = this.programRepo.create({
-      tenantId,
-      programCode: input.programCode,
-      programName: input.programName,
-      description: input.description,
-      programType: input.programType || ProgramType.ST,
-      executionMode: input.executionMode,
-      deviceId: input.deviceId,
-      processTemplateId: input.processTemplateId,
-      sfcDefinition: input.sfcDefinition ? input.sfcDefinition as unknown as SfcDefinition : undefined,
-      structuredTextCode: input.structuredTextCode,
-      scanCycleMs: input.scanCycleMs || 100,
-      priority: input.priority || 5,
-      category: input.category,
-      triggerConfig: input.triggerConfig as TriggerConfig,
-      tags: input.tags,
-      deployTarget: input.deployTarget,
-      targetPlcAddress: input.targetPlcAddress,
-      targetPlcPort: input.targetPlcPort,
-      targetPlcModel: input.targetPlcModel,
-      targetPlcProtocol: input.targetPlcProtocol,
-      status: ProgramStatus.DRAFT,
-      version: 1,
-      createdBy,
+      return saved;
     });
-
-    const saved = await this.programRepo.save(program);
-    this.logger.log(`Created program ${saved.programCode} for tenant ${tenantId}`);
-
-    this.eventsPublisher?.publishProgramSaved(
-      tenantId, saved.id, saved.programCode, saved.version, createdBy ?? 'system',
-    );
-
-    return saved;
   }
 
   /**
@@ -152,58 +191,64 @@ export class AutomationService {
     tenantId: string,
     input: UpdateProgramInput,
   ): Promise<AutomationProgram> {
-    const program = await this.findByIdOrFail(id, tenantId);
+    return this.withTenantSchema(tenantId, async (manager) => {
+      const repo = manager.getRepository(AutomationProgram);
+      const program = await repo.findOne({ where: { id, tenantId } });
+      if (!program) {
+        throw new NotFoundException(`Program ${id} not found`);
+      }
 
-    if (program.isLocked) {
-      throw new ForbiddenException('Program is locked and cannot be edited');
-    }
+      if (program.isLocked) {
+        throw new ForbiddenException('Program is locked and cannot be edited');
+      }
 
-    if (program.status === ProgramStatus.DEPLOYED) {
-      throw new ForbiddenException('Cannot edit deployed program. Create a new version instead.');
-    }
+      if (program.status === ProgramStatus.DEPLOYED) {
+        throw new ForbiddenException('Cannot edit deployed program. Create a new version instead.');
+      }
 
-    // Update fields
-    if (input.programName !== undefined) program.programName = input.programName;
-    if (input.description !== undefined) program.description = input.description;
-    if (input.executionMode !== undefined) program.executionMode = input.executionMode;
-    if (input.sfcDefinition !== undefined) program.sfcDefinition = input.sfcDefinition as unknown as SfcDefinition;
-    if (input.structuredTextCode !== undefined) program.structuredTextCode = input.structuredTextCode;
-    if (input.scanCycleMs !== undefined) program.scanCycleMs = input.scanCycleMs;
-    if (input.priority !== undefined) program.priority = input.priority;
-    if (input.category !== undefined) program.category = input.category;
-    if (input.triggerConfig !== undefined) program.triggerConfig = input.triggerConfig as TriggerConfig;
-    if (input.tags !== undefined) program.tags = input.tags;
-    if (input.metadata !== undefined) program.metadata = input.metadata;
-    if (input.deployTarget !== undefined) program.deployTarget = input.deployTarget;
-    if (input.targetPlcAddress !== undefined) program.targetPlcAddress = input.targetPlcAddress;
-    if (input.targetPlcPort !== undefined) program.targetPlcPort = input.targetPlcPort;
-    if (input.targetPlcModel !== undefined) program.targetPlcModel = input.targetPlcModel;
-    if (input.targetPlcProtocol !== undefined) program.targetPlcProtocol = input.targetPlcProtocol;
+      // Update fields
+      if (input.programName !== undefined) program.programName = input.programName;
+      if (input.description !== undefined) program.description = input.description;
+      if (input.executionMode !== undefined) program.executionMode = input.executionMode;
+      if (input.sfcDefinition !== undefined) program.sfcDefinition = input.sfcDefinition as unknown as SfcDefinition;
+      if (input.structuredTextCode !== undefined) program.structuredTextCode = input.structuredTextCode;
+      if (input.scanCycleMs !== undefined) program.scanCycleMs = input.scanCycleMs;
+      if (input.priority !== undefined) program.priority = input.priority;
+      if (input.category !== undefined) program.category = input.category;
+      if (input.triggerConfig !== undefined) program.triggerConfig = input.triggerConfig as TriggerConfig;
+      if (input.tags !== undefined) program.tags = input.tags;
+      if (input.metadata !== undefined) program.metadata = input.metadata;
+      if (input.deployTarget !== undefined) program.deployTarget = input.deployTarget;
+      if (input.targetPlcAddress !== undefined) program.targetPlcAddress = input.targetPlcAddress;
+      if (input.targetPlcPort !== undefined) program.targetPlcPort = input.targetPlcPort;
+      if (input.targetPlcModel !== undefined) program.targetPlcModel = input.targetPlcModel;
+      if (input.targetPlcProtocol !== undefined) program.targetPlcProtocol = input.targetPlcProtocol;
 
-    // Reset status to DRAFT if it was approved but content changed
-    if (program.status === ProgramStatus.APPROVED && (input.sfcDefinition || input.structuredTextCode)) {
-      program.status = ProgramStatus.DRAFT;
-      program.approvedAt = undefined;
-      program.approvedBy = undefined;
-    }
+      // Reset status to DRAFT if it was approved but content changed
+      if (program.status === ProgramStatus.APPROVED && (input.sfcDefinition || input.structuredTextCode)) {
+        program.status = ProgramStatus.DRAFT;
+        program.approvedAt = undefined;
+        program.approvedBy = undefined;
+      }
 
-    const saved = await this.programRepo.save(program);
-    this.logger.log(`Updated program ${saved.programCode}`);
+      const saved = await repo.save(program);
+      this.logger.log(`Updated program ${saved.programCode}`);
 
-    this.eventsPublisher?.publishProgramSaved(
-      tenantId, saved.id, saved.programCode, saved.version, 'system',
-    );
+      this.eventsPublisher?.publishProgramSaved(
+        tenantId, saved.id, saved.programCode, saved.version, 'system',
+      );
 
-    return saved;
+      return saved;
+    });
   }
 
   /**
-   * Find program by ID
+   * Find program by ID (uses dedicated QueryRunner for correct tenant schema)
    */
   async findById(id: string, tenantId: string): Promise<AutomationProgram | null> {
-    return this.programRepo.findOne({
-      where: { id, tenantId },
-    });
+    return this.withTenantSchema(tenantId, (manager) =>
+      manager.findOne(AutomationProgram, { where: { id, tenantId } }),
+    );
   }
 
   /**
@@ -221,9 +266,9 @@ export class AutomationService {
    * Find program by code
    */
   async findByCode(code: string, tenantId: string): Promise<AutomationProgram | null> {
-    return this.programRepo.findOne({
-      where: { programCode: code, tenantId },
-    });
+    return this.withTenantSchema(tenantId, (manager) =>
+      manager.findOne(AutomationProgram, { where: { programCode: code, tenantId } }),
+    );
   }
 
   /**
@@ -235,32 +280,34 @@ export class AutomationService {
     page = 1,
     limit = 20,
   ): Promise<{ items: AutomationProgram[]; total: number }> {
-    const queryBuilder = this.programRepo.createQueryBuilder('p')
-      .where('p.tenantId = :tenantId', { tenantId });
+    return this.withTenantSchema(tenantId, async (manager) => {
+      const queryBuilder = manager.createQueryBuilder(AutomationProgram, 'p')
+        .where('p.tenantId = :tenantId', { tenantId });
 
-    if (filter?.status) {
-      queryBuilder.andWhere('p.status = :status', { status: filter.status });
-    }
-    if (filter?.programType) {
-      queryBuilder.andWhere('p.programType = :programType', { programType: filter.programType });
-    }
-    if (filter?.deviceId) {
-      queryBuilder.andWhere('p.deviceId = :deviceId', { deviceId: filter.deviceId });
-    }
-    if (filter?.search) {
-      queryBuilder.andWhere(
-        '(p.programName ILIKE :search OR p.programCode ILIKE :search)',
-        { search: `%${filter.search}%` },
-      );
-    }
+      if (filter?.status) {
+        queryBuilder.andWhere('p.status = :status', { status: filter.status });
+      }
+      if (filter?.programType) {
+        queryBuilder.andWhere('p.programType = :programType', { programType: filter.programType });
+      }
+      if (filter?.deviceId) {
+        queryBuilder.andWhere('p.deviceId = :deviceId', { deviceId: filter.deviceId });
+      }
+      if (filter?.search) {
+        queryBuilder.andWhere(
+          '(p.programName ILIKE :search OR p.programCode ILIKE :search)',
+          { search: `%${filter.search}%` },
+        );
+      }
 
-    const [items, total] = await queryBuilder
-      .orderBy('p.updatedAt', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
+      const [items, total] = await queryBuilder
+        .orderBy('p.updatedAt', 'DESC')
+        .skip((page - 1) * limit)
+        .take(limit)
+        .getManyAndCount();
 
-    return { items, total };
+      return { items, total };
+    });
   }
 
   /**
@@ -409,11 +456,12 @@ export class AutomationService {
    * Get all steps for a program
    */
   async getSteps(programId: string, tenantId: string): Promise<ProgramStep[]> {
-    await this.findByIdOrFail(programId, tenantId);
-    return this.stepRepo.find({
-      where: { programId },
-      order: { stepOrder: 'ASC', createdAt: 'ASC' },
-    });
+    return this.withTenantSchema(tenantId, (manager) =>
+      manager.find(ProgramStep, {
+        where: { programId },
+        order: { stepOrder: 'ASC', createdAt: 'ASC' },
+      }),
+    );
   }
 
   // ============================================
@@ -616,11 +664,12 @@ export class AutomationService {
    * Get all transitions for a program
    */
   async getTransitions(programId: string, tenantId: string): Promise<ProgramTransition[]> {
-    await this.findByIdOrFail(programId, tenantId);
-    return this.transitionRepo.find({
-      where: { programId },
-      order: { priority: 'ASC', createdAt: 'ASC' },
-    });
+    return this.withTenantSchema(tenantId, (manager) =>
+      manager.find(ProgramTransition, {
+        where: { programId },
+        order: { priority: 'ASC', createdAt: 'ASC' },
+      }),
+    );
   }
 
   // ============================================
@@ -631,41 +680,51 @@ export class AutomationService {
    * Add a variable to a program
    */
   async addVariable(tenantId: string, input: CreateVariableInput): Promise<ProgramVariable> {
-    await this.findByIdOrFail(input.programId, tenantId);
+    return this.withTenantSchema(tenantId, async (manager) => {
+      // Verify program exists
+      const program = await manager.findOne(AutomationProgram, {
+        where: { id: input.programId, tenantId },
+      });
+      if (!program) {
+        throw new NotFoundException(`Program ${input.programId} not found`);
+      }
 
-    // Check for duplicate variable name
-    const existing = await this.variableRepo.findOne({
-      where: { programId: input.programId, varName: input.varName },
+      const varRepo = manager.getRepository(ProgramVariable);
+
+      // Check for duplicate variable name
+      const existing = await varRepo.findOne({
+        where: { programId: input.programId, varName: input.varName },
+      });
+      if (existing) {
+        throw new ConflictException(`Variable "${input.varName}" already exists in this program`);
+      }
+
+      const variable = varRepo.create({
+        programId: input.programId,
+        varName: input.varName,
+        displayName: input.displayName,
+        description: input.description,
+        dataType: input.dataType,
+        scope: input.scope,
+        initialValue: input.initialValue,
+        ioConfigId: input.ioConfigId,
+        ioTagName: input.ioTagName,
+        equipmentNodeId: input.equipmentNodeId,
+        equipmentProperty: input.equipmentProperty,
+        sensorChannelId: input.sensorChannelId,
+        minValue: input.minValue,
+        maxValue: input.maxValue,
+        engUnit: input.engUnit,
+        alarmHH: input.alarmHH,
+        alarmH: input.alarmH,
+        alarmL: input.alarmL,
+        alarmLL: input.alarmLL,
+        metadata: input.metadata,
+        varOrder: input.varOrder || 0,
+      });
+
+      return varRepo.save(variable);
     });
-    if (existing) {
-      throw new ConflictException(`Variable "${input.varName}" already exists in this program`);
-    }
-
-    const variable = this.variableRepo.create({
-      programId: input.programId,
-      varName: input.varName,
-      displayName: input.displayName,
-      description: input.description,
-      dataType: input.dataType,
-      scope: input.scope,
-      initialValue: input.initialValue,
-      ioConfigId: input.ioConfigId,
-      ioTagName: input.ioTagName,
-      equipmentNodeId: input.equipmentNodeId,
-      equipmentProperty: input.equipmentProperty,
-      sensorChannelId: input.sensorChannelId,
-      minValue: input.minValue,
-      maxValue: input.maxValue,
-      engUnit: input.engUnit,
-      alarmHH: input.alarmHH,
-      alarmH: input.alarmH,
-      alarmL: input.alarmL,
-      alarmLL: input.alarmLL,
-      metadata: input.metadata,
-      varOrder: input.varOrder || 0,
-    });
-
-    return this.variableRepo.save(variable);
   }
 
   /**
@@ -710,25 +769,35 @@ export class AutomationService {
    * Remove a variable
    */
   async removeVariable(id: string, tenantId: string): Promise<boolean> {
-    const variable = await this.variableRepo.findOne({ where: { id } });
-    if (!variable) {
-      throw new NotFoundException(`Variable ${id} not found`);
-    }
+    return this.withTenantSchema(tenantId, async (manager) => {
+      const variable = await manager.findOne(ProgramVariable, { where: { id } });
+      if (!variable) {
+        throw new NotFoundException(`Variable ${id} not found`);
+      }
 
-    await this.findByIdOrFail(variable.programId, tenantId);
-    await this.variableRepo.delete(id);
-    return true;
+      // Verify program belongs to tenant
+      const program = await manager.findOne(AutomationProgram, {
+        where: { id: variable.programId, tenantId },
+      });
+      if (!program) {
+        throw new NotFoundException(`Program ${variable.programId} not found`);
+      }
+
+      await manager.delete(ProgramVariable, id);
+      return true;
+    });
   }
 
   /**
    * Get all variables for a program
    */
   async getVariables(programId: string, tenantId: string): Promise<ProgramVariable[]> {
-    await this.findByIdOrFail(programId, tenantId);
-    return this.variableRepo.find({
-      where: { programId },
-      order: { varOrder: 'ASC', createdAt: 'ASC' },
-    });
+    return this.withTenantSchema(tenantId, (manager) =>
+      manager.find(ProgramVariable, {
+        where: { programId },
+        order: { varOrder: 'ASC', createdAt: 'ASC' },
+      }),
+    );
   }
 
   // ============================================
@@ -2263,68 +2332,86 @@ export class AutomationService {
    * Get program statistics for tenant
    */
   async getStats(tenantId: string): Promise<ProgramStats> {
-    const [total, statusResult, typeResult, lockedCount, deployedCount] = await Promise.all([
-      this.programRepo.count({ where: { tenantId } }),
+    return this.withTenantSchema(tenantId, async (manager) => {
+      const repo = manager.getRepository(AutomationProgram);
+      const [total, statusResult, typeResult, lockedCount, deployedCount] = await Promise.all([
+        repo.count({ where: { tenantId } }),
 
-      // By status
-      this.programRepo
-        .createQueryBuilder('p')
-        .select('p.status', 'status')
-        .addSelect('COUNT(*)', 'count')
-        .where('p.tenantId = :tenantId', { tenantId })
-        .groupBy('p.status')
-        .getRawMany() as Promise<Array<{ status: ProgramStatus; count: string }>>,
+        // By status
+        repo
+          .createQueryBuilder('p')
+          .select('p.status', 'status')
+          .addSelect('COUNT(*)', 'count')
+          .where('p.tenantId = :tenantId', { tenantId })
+          .groupBy('p.status')
+          .getRawMany() as Promise<Array<{ status: ProgramStatus; count: string }>>,
 
-      // By type
-      this.programRepo
-        .createQueryBuilder('p')
-        .select('p.programType', 'type')
-        .addSelect('COUNT(*)', 'count')
-        .where('p.tenantId = :tenantId', { tenantId })
-        .groupBy('p.programType')
-        .getRawMany() as Promise<Array<{ type: ProgramType; count: string }>>,
+        // By type
+        repo
+          .createQueryBuilder('p')
+          .select('p.programType', 'type')
+          .addSelect('COUNT(*)', 'count')
+          .where('p.tenantId = :tenantId', { tenantId })
+          .groupBy('p.programType')
+          .getRawMany() as Promise<Array<{ type: ProgramType; count: string }>>,
 
-      this.programRepo.count({
-        where: { tenantId, isLocked: true },
-      }),
+        repo.count({
+          where: { tenantId, isLocked: true },
+        }),
 
-      this.programRepo.count({
-        where: { tenantId, status: ProgramStatus.DEPLOYED },
-      }),
-    ]);
+        repo.count({
+          where: { tenantId, status: ProgramStatus.DEPLOYED },
+        }),
+      ]);
 
-    const byStatus = statusResult.map((r) => ({
-      status: r.status,
-      count: parseInt(r.count, 10),
-    }));
+      const byStatus = statusResult.map((r) => ({
+        status: r.status,
+        count: parseInt(r.count, 10),
+      }));
 
-    const byType = typeResult.map((r) => ({
-      type: r.type,
-      count: parseInt(r.count, 10),
-    }));
+      const byType = typeResult.map((r) => ({
+        type: r.type,
+        count: parseInt(r.count, 10),
+      }));
 
-    return {
-      total,
-      byStatus,
-      byType,
-      lockedCount,
-      deployedCount,
-    };
+      return {
+        total,
+        byStatus,
+        byType,
+        lockedCount,
+        deployedCount,
+      };
+    });
   }
 
   // ============================================
   // Count Helpers (for Field Resolvers)
   // ============================================
 
-  async countSteps(programId: string): Promise<number> {
+  async countSteps(programId: string, tenantId?: string): Promise<number> {
+    if (tenantId) {
+      return this.withTenantSchema(tenantId, (manager) =>
+        manager.count(ProgramStep, { where: { programId } }),
+      );
+    }
     return this.stepRepo.count({ where: { programId } });
   }
 
-  async countTransitions(programId: string): Promise<number> {
+  async countTransitions(programId: string, tenantId?: string): Promise<number> {
+    if (tenantId) {
+      return this.withTenantSchema(tenantId, (manager) =>
+        manager.count(ProgramTransition, { where: { programId } }),
+      );
+    }
     return this.transitionRepo.count({ where: { programId } });
   }
 
-  async countVariables(programId: string): Promise<number> {
+  async countVariables(programId: string, tenantId?: string): Promise<number> {
+    if (tenantId) {
+      return this.withTenantSchema(tenantId, (manager) =>
+        manager.count(ProgramVariable, { where: { programId } }),
+      );
+    }
     return this.variableRepo.count({ where: { programId } });
   }
 

@@ -707,7 +707,7 @@ export const EquipmentTab: React.FC = () => {
                     </div>
                   )}
                   {/* Auto Filling Badge for feeders */}
-                  {eq.equipmentType?.code?.startsWith('feeder-') && (eq.specifications as Record<string, unknown>)?.autoFilling && (
+                  {eq.equipmentType?.code?.startsWith('feeder-') && !!(eq.specifications as Record<string, unknown>)?.autoFilling && (
                     <div className="flex items-center">
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
                         Auto Fill

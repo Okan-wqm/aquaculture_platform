@@ -10,7 +10,7 @@
 import React, { useState, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSiteList } from '../../hooks/useSites';
-import { useBatchList } from '../../hooks/useBatches';
+import { useBatchList, BatchStatus } from '../../hooks/useBatches';
 import { useFeedConsumptionForecast } from '../../hooks/useFeeding';
 
 // Tab Components
@@ -97,14 +97,11 @@ const FeedingPage: React.FC = () => {
 
   // Data fetching
   const { data: sitesData, isLoading: sitesLoading } = useSiteList();
-  // Only fetch batches when on a batch-dependent tab (PERF-009)
-  const needsBatchData = activeTab === 'fcr' || activeTab === 'sampling';
   const { data: batchesData, isLoading: batchesLoading } = useBatchList(
     {
       siteId: selectedSiteId || undefined,
-      status: 'ACTIVE',
+      status: ['ACTIVE'] as BatchStatus[],
     },
-    { enabled: needsBatchData },
   );
 
   // Memoize forecast input to prevent stale-time bypass (PERF-003)

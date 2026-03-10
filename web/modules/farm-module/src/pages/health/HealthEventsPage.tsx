@@ -292,7 +292,7 @@ export const HealthEventsPage: React.FC = () => {
           title: formData.title,
           description: formData.description || undefined,
           eventType: formData.eventType,
-          eventDate: formData.eventDate ? new Date(formData.eventDate) : undefined,
+          eventDate: formData.eventDate || undefined,
           eventTime: formData.eventTime || undefined,
           diseaseCategory: formData.diseaseCategory,
           diseaseName: formData.diseaseName || undefined,
@@ -301,7 +301,7 @@ export const HealthEventsPage: React.FC = () => {
           mortalityCount: formData.mortalityCount || undefined,
           notes: formData.notes || undefined,
           followUpRequired: formData.followUpRequired,
-          followUpDate: formData.followUpDate ? new Date(formData.followUpDate) : undefined,
+          followUpDate: formData.followUpDate || undefined,
         });
       } else {
         const input: CreateHealthEventInput = {

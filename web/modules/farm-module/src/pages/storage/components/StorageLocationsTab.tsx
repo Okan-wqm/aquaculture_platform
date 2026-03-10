@@ -27,7 +27,10 @@ const typeLabels: Record<string, string> = {
   FEED_SILO: 'Feed Silo', OUTDOOR: 'Outdoor', HAZMAT: 'Hazmat',
 };
 
-const LOCATION_TYPES: StorageLocationType[] = ['WAREHOUSE', 'COLD_ROOM', 'CHEMICAL_STORE', 'FEED_SILO', 'OUTDOOR', 'HAZMAT'];
+const LOCATION_TYPES: StorageLocationType[] = [
+  StorageLocationType.WAREHOUSE, StorageLocationType.COLD_ROOM, StorageLocationType.CHEMICAL_STORE,
+  StorageLocationType.FEED_SILO, StorageLocationType.OUTDOOR, StorageLocationType.HAZMAT,
+];
 
 interface FormData {
   siteId: string;
@@ -44,7 +47,7 @@ interface FormData {
 }
 
 const emptyForm: FormData = {
-  siteId: '', name: '', code: '', type: 'WAREHOUSE',
+  siteId: '', name: '', code: '', type: StorageLocationType.WAREHOUSE,
   description: '', capacity: '', capacityUnit: 'm³',
   temperatureMin: '', temperatureMax: '',
   humidityMin: '', humidityMax: '',

@@ -865,13 +865,10 @@ const Step1BasicInfo: React.FC<Step1Props> = ({ data, onChange, errors }) => {
             Baslangic Tarihi <span className="text-red-500">*</span>
           </label>
           <DatePicker
-            id={startDateInputId}
             value={data.startDate}
             onChange={(date) => onChange({ startDate: date })}
             placeholder="Tarih secin"
             error={errors.startDate}
-            aria-describedby={errors.startDate ? `${startDateInputId}-error` : undefined}
-            aria-invalid={!!errors.startDate}
             required
           />
           {errors.startDate && (
@@ -1868,7 +1865,7 @@ const Step5Settings: React.FC<Step5Props> = ({ data, onChange, errors }) => {
             </div>
             <Switch
               checked={data.autoTransition}
-              onChange={(checked) => onChange({ autoTransition: checked })}
+              onChange={(e) => onChange({ autoTransition: e.target.checked })}
               aria-labelledby="auto-transition-label"
             />
           </div>
@@ -1948,7 +1945,7 @@ const Step5Settings: React.FC<Step5Props> = ({ data, onChange, errors }) => {
             </div>
             <Switch
               checked={data.notifyOnTransition}
-              onChange={(checked) => onChange({ notifyOnTransition: checked })}
+              onChange={(e) => onChange({ notifyOnTransition: e.target.checked })}
               aria-labelledby="notify-transition-label"
             />
           </div>

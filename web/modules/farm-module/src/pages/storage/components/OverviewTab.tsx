@@ -423,7 +423,7 @@ export const OverviewTab: React.FC = () => {
             <h3 className="text-sm font-semibold text-gray-900">Location Fill Rates</h3>
 
             {/* Location filter dropdown */}
-            {(locations || []).length > 0 && (
+            {(locations?.items || []).length > 0 && (
               <div className="relative">
                 <button
                   onClick={() => setLocationDropdownOpen(!locationDropdownOpen)}
@@ -446,7 +446,7 @@ export const OverviewTab: React.FC = () => {
                           Clear selection
                         </button>
                       )}
-                      {(locations || []).map(loc => (
+                      {(locations?.items || []).map((loc: any) => (
                         <label key={loc.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer">
                           <input
                             type="checkbox"

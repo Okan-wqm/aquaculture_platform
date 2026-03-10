@@ -684,41 +684,7 @@ export const FeedingProgramsPage: React.FC = () => {
             columns={columns}
             keyExtractor={(row) => row.id}
             loading={isLoading}
-            // Issue #16: No empty state call-to-action - Add custom empty state
-            emptyMessage={
-              <div className="text-center py-8">
-                <svg
-                  className="mx-auto h-12 w-12 text-gray-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                  />
-                </svg>
-                <h3 className="mt-2 text-sm font-medium text-gray-900">Henuz yemleme programi bulunmuyor</h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  Yemleme programi olusturarak baslayin.
-                </p>
-                {canManagePrograms && (
-                  <div className="mt-6">
-                    <Link to="/feeding/programs/new">
-                      <Button aria-label="Ilk yemleme programinizi olusturun">
-                        <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                        Yeni Program Olustur
-                      </Button>
-                    </Link>
-                  </div>
-                )}
-              </div>
-            }
+            emptyMessage="Henüz yemleme programı bulunmuyor. Yemleme programı oluşturarak başlayın."
             striped
             hoverable
             pagination={data ? {

@@ -36,9 +36,9 @@ const severityIcon = {
 };
 
 const severityBg = {
-  error: 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800',
-  warning: 'bg-yellow-50 dark:bg-yellow-900/10 border-yellow-200 dark:border-yellow-800',
-  info: 'bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800',
+  error: 'bg-red-50 border-red-200',
+  warning: 'bg-yellow-50 border-yellow-200',
+  info: 'bg-blue-50 border-blue-200',
 };
 
 const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
@@ -48,9 +48,9 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
 }) => {
   if (isValidating) {
     return (
-      <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+      <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-lg border border-gray-200">
         <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
-        <span className="text-sm text-gray-600 dark:text-gray-400">ST kodu dogrulanıyor...</span>
+        <span className="text-sm text-gray-600">ST kodu dogrulanıyor...</span>
       </div>
     );
   }
@@ -70,15 +70,15 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
       {/* Summary */}
       <div className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${
         result.valid
-          ? 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800'
-          : 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800'
+          ? 'bg-green-50 border-green-200'
+          : 'bg-red-50 border-red-200'
       }`}>
         {result.valid ? (
           <CheckCircle className="h-4 w-4 text-green-500" />
         ) : (
           <AlertCircle className="h-4 w-4 text-red-500" />
         )}
-        <span className={`text-sm font-medium ${result.valid ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
+        <span className={`text-sm font-medium ${result.valid ? 'text-green-700' : 'text-red-700'}`}>
           {result.valid ? 'Dogrulama basarili' : 'Dogrulama hatasi'}
         </span>
         <span className="text-xs text-gray-500 ml-auto">
@@ -89,12 +89,12 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
 
       {/* Diagnostics List */}
       {allDiagnostics.length > 0 && (
-        <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800">
+        <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-100">
           {allDiagnostics.map((diag, idx) => (
             <button
               key={idx}
               onClick={() => onDiagnosticClick?.(diag.line, diag.column)}
-              className={`w-full flex items-start gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${
+              className={`w-full flex items-start gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 transition-colors ${
                 idx === 0 ? '' : ''
               }`}
             >
@@ -102,7 +102,7 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
               <span className="text-gray-400 font-mono text-xs min-w-[4rem]">
                 {diag.line}:{diag.column}
               </span>
-              <span className="text-gray-700 dark:text-gray-300 flex-1">{diag.message}</span>
+              <span className="text-gray-700 flex-1">{diag.message}</span>
               {diag.code && (
                 <span className="text-xs text-gray-400 font-mono">{diag.code}</span>
               )}

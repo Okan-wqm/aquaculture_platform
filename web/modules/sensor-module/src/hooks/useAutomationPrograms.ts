@@ -61,15 +61,15 @@ const PROGRAM_VARIABLES_QUERY = `
 export function useAutomationPrograms() {
   return useQuery({
     queryKey: ['automationProgramsForBinding'],
-    queryFn: () =>
-      graphqlFetch<{ automationPrograms: AutomationProgramSummary[] }>(
+    queryFn: async () => {
+      const result = await graphqlFetch<{ automationPrograms: AutomationProgramSummary[] }>(
         PROGRAMS_LIST_QUERY,
-        {
-          filter: {
-            status: [ProgramStatus.APPROVED, ProgramStatus.DEPLOYED],
-          },
-        },
-      ),
+        { filter: {} },
+      );
+      return {
+        automationPrograms: result.automationPrograms,
+      };
+    },
     staleTime: 30_000,
   });
 }

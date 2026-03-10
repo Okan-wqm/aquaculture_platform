@@ -136,45 +136,45 @@ const ProgramCard: React.FC<{
   const navigate = useNavigate();
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow">
+    <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Workflow className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+          <Workflow className="h-5 w-5 text-indigo-600" />
+          <span className="text-xs text-gray-500 font-mono">
             {program.programCode}
           </span>
         </div>
         <div className="relative">
           <button
             onClick={() => setShowMenu(!showMenu)}
-            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="p-1 rounded hover:bg-gray-100"
           >
             <MoreVertical className="h-4 w-4 text-gray-500" />
           </button>
           {showMenu && (
-            <div className="absolute right-0 top-8 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10">
+            <div className="absolute right-0 top-8 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
               <button
                 onClick={() => { navigate(`/sensor/automation/${program.id}`); setShowMenu(false); }}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
               >
                 <Edit className="h-4 w-4" /> Duzenle
               </button>
               <button
                 onClick={() => { onClone(); setShowMenu(false); }}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
               >
                 <Copy className="h-4 w-4" /> Kopyala
               </button>
               <button
                 onClick={() => { onArchive(); setShowMenu(false); }}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
               >
                 <Archive className="h-4 w-4" /> Arsivle
               </button>
-              <hr className="my-1 border-gray-200 dark:border-gray-700" />
+              <hr className="my-1 border-gray-200" />
               <button
                 onClick={() => { onDelete(); setShowMenu(false); }}
-                className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2"
+                className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
               >
                 <Trash2 className="h-4 w-4" /> Sil
               </button>
@@ -184,23 +184,23 @@ const ProgramCard: React.FC<{
       </div>
 
       <Link to={`/sensor/automation/${program.id}`}>
-        <h3 className="font-semibold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 mb-1">
+        <h3 className="font-semibold text-gray-900 hover:text-indigo-600 mb-1">
           {program.programName}
         </h3>
       </Link>
 
       {program.description && (
-        <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mb-3">
+        <p className="text-sm text-gray-500 line-clamp-2 mb-3">
           {program.description}
         </p>
       )}
 
       <div className="flex items-center gap-2 mb-3">
         <StatusBadge status={program.status} />
-        <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded">
+        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
           {getProgramTypeText(program.programType)}
         </span>
-        <span className="text-xs text-gray-500 dark:text-gray-400">
+        <span className="text-xs text-gray-500">
           v{program.version}
         </span>
       </div>
@@ -210,14 +210,14 @@ const ProgramCard: React.FC<{
         <div className="flex items-center gap-2 mb-3">
           <button
             onClick={onApprove}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-100 hover:bg-green-200 dark:text-green-300 dark:bg-green-900/30 dark:hover:bg-green-900/50 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-100 hover:bg-green-200 rounded-lg transition-colors"
           >
             <ThumbsUp className="h-3.5 w-3.5" />
             Onayla
           </button>
           <button
             onClick={onReject}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 dark:text-red-300 dark:bg-red-900/30 dark:hover:bg-red-900/50 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 rounded-lg transition-colors"
           >
             <ThumbsDown className="h-3.5 w-3.5" />
             Reddet
@@ -225,7 +225,7 @@ const ProgramCard: React.FC<{
         </div>
       )}
 
-      <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-3 border-t border-gray-100 dark:border-gray-700">
+      <div className="flex items-center justify-between text-xs text-gray-500 pt-3 border-t border-gray-100">
         <div className="flex items-center gap-3">
           <span>{program.stepCount ?? 0} adim</span>
           <span>{program.variableCount ?? 0} degisken</span>
@@ -247,13 +247,13 @@ const ProgramRow: React.FC<{
   const navigate = useNavigate();
 
   return (
-    <tr className="hover:bg-gray-50 dark:hover:bg-gray-800">
+    <tr className="hover:bg-gray-50">
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
-          <Workflow className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+          <Workflow className="h-4 w-4 text-indigo-600" />
           <Link
             to={`/sensor/automation/${program.id}`}
-            className="font-medium text-gray-900 dark:text-white hover:text-indigo-600"
+            className="font-medium text-gray-900 hover:text-indigo-600"
           >
             {program.programName}
           </Link>
@@ -263,16 +263,16 @@ const ProgramRow: React.FC<{
       <td className="px-4 py-3">
         <StatusBadge status={program.status} />
       </td>
-      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+      <td className="px-4 py-3 text-sm text-gray-500">
         {getProgramTypeText(program.programType)}
       </td>
-      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+      <td className="px-4 py-3 text-sm text-gray-500">
         v{program.version}
       </td>
-      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+      <td className="px-4 py-3 text-sm text-gray-500">
         {program.stepCount ?? 0}
       </td>
-      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+      <td className="px-4 py-3 text-sm text-gray-500">
         {formatDate(program.updatedAt)}
       </td>
       <td className="px-4 py-3">
@@ -281,14 +281,14 @@ const ProgramRow: React.FC<{
             <>
               <button
                 onClick={onApprove}
-                className="p-1.5 rounded hover:bg-green-100 dark:hover:bg-green-900/20"
+                className="p-1.5 rounded hover:bg-green-100"
                 title="Onayla"
               >
                 <ThumbsUp className="h-4 w-4 text-green-600" />
               </button>
               <button
                 onClick={onReject}
-                className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/20"
+                className="p-1.5 rounded hover:bg-red-100"
                 title="Reddet"
               >
                 <ThumbsDown className="h-4 w-4 text-red-500" />
@@ -297,28 +297,28 @@ const ProgramRow: React.FC<{
           )}
           <button
             onClick={() => navigate(`/sensor/automation/${program.id}`)}
-            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="p-1.5 rounded hover:bg-gray-100"
             title="Duzenle"
           >
             <Edit className="h-4 w-4 text-gray-500" />
           </button>
           <button
             onClick={onClone}
-            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="p-1.5 rounded hover:bg-gray-100"
             title="Kopyala"
           >
             <Copy className="h-4 w-4 text-gray-500" />
           </button>
           <button
             onClick={onArchive}
-            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="p-1.5 rounded hover:bg-gray-100"
             title="Arsivle"
           >
             <Archive className="h-4 w-4 text-gray-500" />
           </button>
           <button
             onClick={onDelete}
-            className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/20"
+            className="p-1.5 rounded hover:bg-red-100"
             title="Sil"
           >
             <Trash2 className="h-4 w-4 text-red-500" />
@@ -456,11 +456,11 @@ const AutomationProgramsPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Workflow className="h-6 w-6 text-indigo-600" />
             Otomasyon Programlari
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-gray-500 mt-1">
             IEC 61131-3 uyumlu otomasyon programlarini yonetin
           </p>
         </div>
@@ -476,11 +476,11 @@ const AutomationProgramsPage: React.FC = () => {
       {/* Stats */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-          <StatCard label="Toplam" value={stats.total} color="bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white" />
-          <StatCard label="Taslak" value={stats.byStatus?.draft ?? 0} color="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300" />
-          <StatCard label="Onaylandi" value={stats.byStatus?.approved ?? 0} color="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" />
-          <StatCard label="Devrede" value={stats.byStatus?.deployed ?? 0} color="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300" />
-          <StatCard label="Inceleniyor" value={stats.byStatus?.pending_review ?? 0} color="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300" />
+          <StatCard label="Toplam" value={stats.total} color="bg-gray-100 text-gray-900" />
+          <StatCard label="Taslak" value={stats.byStatus?.draft ?? 0} color="bg-gray-100 text-gray-700" />
+          <StatCard label="Onaylandi" value={stats.byStatus?.approved ?? 0} color="bg-blue-100 text-blue-700" />
+          <StatCard label="Devrede" value={stats.byStatus?.deployed ?? 0} color="bg-green-100 text-green-700" />
+          <StatCard label="Inceleniyor" value={stats.byStatus?.pending_review ?? 0} color="bg-yellow-100 text-yellow-700" />
         </div>
       )}
 
@@ -493,14 +493,14 @@ const AutomationProgramsPage: React.FC = () => {
             placeholder="Program ara..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg bg-white text-gray-900"
           />
         </div>
 
         <select
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value as ProgramStatus | ''); setPage(1); }}
-          className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+          className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900"
         >
           <option value="">Tum Durumlar</option>
           {Object.values(ProgramStatus).map((status) => (
@@ -513,7 +513,7 @@ const AutomationProgramsPage: React.FC = () => {
         <select
           value={typeFilter}
           onChange={(e) => { setTypeFilter(e.target.value as ProgramType | ''); setPage(1); }}
-          className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+          className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900"
         >
           <option value="">Tum Tipler</option>
           {Object.values(ProgramType).map((type) => (
@@ -523,16 +523,16 @@ const AutomationProgramsPage: React.FC = () => {
           ))}
         </select>
 
-        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
           <button
             onClick={() => setViewMode('grid')}
-            className={`p-2 rounded ${viewMode === 'grid' ? 'bg-white dark:bg-gray-700 shadow' : ''}`}
+            className={`p-2 rounded ${viewMode === 'grid' ? 'bg-white shadow' : ''}`}
           >
             <LayoutGrid className="h-4 w-4" />
           </button>
           <button
             onClick={() => setViewMode('list')}
-            className={`p-2 rounded ${viewMode === 'list' ? 'bg-white dark:bg-gray-700 shadow' : ''}`}
+            className={`p-2 rounded ${viewMode === 'list' ? 'bg-white shadow' : ''}`}
           >
             <List className="h-4 w-4" />
           </button>
@@ -540,7 +540,7 @@ const AutomationProgramsPage: React.FC = () => {
 
         <button
           onClick={() => refetch()}
-          className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800"
+          className="p-2 rounded-lg border border-gray-200 hover:bg-gray-100"
         >
           <RefreshCw className="h-4 w-4" />
         </button>
@@ -552,12 +552,12 @@ const AutomationProgramsPage: React.FC = () => {
           <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
         </div>
       ) : filteredPrograms.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-lg">
+        <div className="text-center py-12 bg-gray-50 rounded-lg">
           <Workflow className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
             Program bulunamadi
           </h3>
-          <p className="text-gray-500 dark:text-gray-400 mb-4">
+          <p className="text-gray-500 mb-4">
             Yeni bir otomasyon programi olusturun
           </p>
           <button
@@ -583,9 +583,9 @@ const AutomationProgramsPage: React.FC = () => {
           ))}
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-900">
+            <thead className="bg-gray-50">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Program</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
@@ -596,7 +596,7 @@ const AutomationProgramsPage: React.FC = () => {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Islemler</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            <tbody className="divide-y divide-gray-200">
               {filteredPrograms.map((program) => (
                 <ProgramRow
                   key={program.id}
@@ -616,7 +616,7 @@ const AutomationProgramsPage: React.FC = () => {
       {/* Pagination Controls */}
       {!isLoading && filteredPrograms.length > 0 && (
         <div className="flex items-center justify-between mt-6 px-1">
-          <span className="text-sm text-gray-500 dark:text-gray-400">
+          <span className="text-sm text-gray-500">
             {totalPrograms > 0
               ? `${(page - 1) * limit + 1} - ${Math.min(page * limit, totalPrograms)} / ${totalPrograms} program`
               : `${filteredPrograms.length} program`}
@@ -625,18 +625,18 @@ const AutomationProgramsPage: React.FC = () => {
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page <= 1}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <ChevronLeft className="h-4 w-4" />
               Onceki
             </button>
-            <span className="text-sm text-gray-700 dark:text-gray-300 px-2">
+            <span className="text-sm text-gray-700 px-2">
               {page} / {totalPages}
             </span>
             <button
               onClick={() => setPage((p) => p + 1)}
               disabled={isLastPage}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Sonraki
               <ChevronRight className="h-4 w-4" />

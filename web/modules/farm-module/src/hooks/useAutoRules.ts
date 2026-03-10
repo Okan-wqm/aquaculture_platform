@@ -61,13 +61,16 @@ export interface UpdateAutoRuleInput {
 
 /**
  * Hook to fetch and manage auto rules
+ * @param enabled - false ise sorgu çalışmaz (lazy loading)
  */
-export function useAutoRules() {
+export function useAutoRules(enabled = true) {
   const queryClient = useQueryClient();
 
   // Auto rules query
   const autoRulesQuery = useQuery({
     queryKey: ['autoRules'],
+    enabled,
+    staleTime: 60_000, // 1 dakika
     queryFn: async () => {
       const query = `
         query AutoRules {

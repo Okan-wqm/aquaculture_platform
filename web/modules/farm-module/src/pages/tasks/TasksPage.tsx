@@ -127,14 +127,13 @@ const TasksPage: React.FC = () => {
 
   const {
     templates,
-    loading: templatesLoading,
     toggleActive: toggleTemplateActive,
-  } = useRecurringTemplates();
+  } = useRecurringTemplates(activeTab === 'recurring');
 
   const {
     autoRules,
     toggleActive: toggleRuleActive,
-  } = useAutoRules();
+  } = useAutoRules(activeTab === 'auto-rules');
 
   const handleTabChange = (tabId: TabId) => {
     setSearchParams({ tab: tabId });

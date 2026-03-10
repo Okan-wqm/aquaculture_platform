@@ -10,13 +10,6 @@ import { RecurringTemplate } from '../pages/tasks/types/task.types';
 // GRAPHQL FIELD FRAGMENTS
 // ============================================================================
 
-const CHECKLIST_ITEM_FIELDS = `
-  id
-  text
-  isCompleted
-  completedAt
-`;
-
 const RECURRING_TEMPLATE_FIELDS = `
   id
   title
@@ -29,9 +22,7 @@ const RECURRING_TEMPLATE_FIELDS = `
   assignedToName
   location
   estimatedMinutes
-  checklistItems {
-    ${CHECKLIST_ITEM_FIELDS}
-  }
+  checklistItems
   isActive
   lastGenerated
   nextGeneration
@@ -80,13 +71,16 @@ export interface UpdateRecurringTemplateInput {
 
 /**
  * Hook to fetch and manage recurring templates
+ * @param enabled - false ise sorgu çalışmaz (lazy loading)
  */
-export function useRecurringTemplates() {
+export function useRecurringTemplates(enabled = true) {
   const queryClient = useQueryClient();
 
   // Templates query
   const templatesQuery = useQuery({
     queryKey: ['recurringTemplates'],
+    enabled,
+    staleTime: 60_000, // 1 dakika
     queryFn: async () => {
       const query = `
         query RecurringTemplates {

@@ -26,6 +26,7 @@ import {
   CheckCircle,
   Clock,
   Loader2,
+  AlertCircle,
   LayoutGrid,
   List,
   RefreshCw,
@@ -33,7 +34,6 @@ import {
   ThumbsDown,
   ChevronLeft,
   ChevronRight,
-  Tag,
 } from 'lucide-react';
 import { useAuth } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../../config/api';
@@ -65,7 +65,6 @@ interface AutomationProgram {
   version: string;
   programType: ProgramType;
   status: ProgramStatus;
-  tags?: string[];
   stepCount?: number;
   transitionCount?: number;
   variableCount?: number;
@@ -207,21 +206,6 @@ const ProgramCard: React.FC<{
         </span>
       </div>
 
-      {/* Tags */}
-      {program.tags && program.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-3">
-          {program.tags.map((tag, i) => (
-            <span
-              key={i}
-              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-full"
-            >
-              <Tag className="h-3 w-3" />
-              {tag}
-            </span>
-          ))}
-        </div>
-      )}
-
       {/* Approve/Reject actions for pending programs */}
       {program.status === ProgramStatus.PENDING_REVIEW && (
         <div className="flex items-center gap-2 mb-3">
@@ -275,19 +259,7 @@ const ProgramRow: React.FC<{
             {program.programName}
           </Link>
         </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-xs text-gray-500 font-mono">{program.programCode}</span>
-          {program.tags && program.tags.length > 0 && (
-            <div className="flex gap-1">
-              {program.tags.map((tag, i) => (
-                <span key={i} className="inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] font-medium bg-indigo-50 text-indigo-600 rounded-full">
-                  <Tag className="h-2.5 w-2.5" />
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
+        <div className="text-xs text-gray-500 font-mono mt-0.5">{program.programCode}</div>
       </td>
       <td className="px-4 py-3">
         <StatusBadge status={program.status} />
@@ -375,17 +347,25 @@ const AutomationProgramsPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const limit = 20;
 
+  // Build filter — only include when there are actual filter values.
+  // Sending filter: {} (empty object) can cause edge-case validation issues
+  // on the backend with class-validator + class-transformer.
+  const hasFilter = !!(statusFilter || typeFilter);
+  const filterInput = hasFilter
+    ? {
+        ...(statusFilter && { status: statusFilter }),
+        ...(typeFilter && { programType: typeFilter }),
+      }
+    : undefined;
+
   // Query
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['automationPrograms', statusFilter, typeFilter, page],
     queryFn: () =>
       graphqlFetch<{ automationPrograms: AutomationProgram[]; automationProgramStats: ProgramStats }>(
         AUTOMATION_PROGRAMS_QUERY,
         {
-          filter: {
-            ...(statusFilter && { status: statusFilter }),
-            ...(typeFilter && { programType: typeFilter }),
-          },
+          ...(filterInput && { filter: filterInput }),
           page,
           limit,
         }
@@ -421,13 +401,14 @@ const AutomationProgramsPage: React.FC = () => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['automationPrograms'] }),
   });
 
-  // Filtered programs
+  // Filtered programs — guard against non-array responses
   const filteredPrograms = useMemo(() => {
-    if (!data?.automationPrograms) return [];
-    if (!searchTerm) return data.automationPrograms;
+    const programs = Array.isArray(data?.automationPrograms) ? data.automationPrograms : [];
+    if (programs.length === 0) return [];
+    if (!searchTerm) return programs;
 
     const term = searchTerm.toLowerCase();
-    return data.automationPrograms.filter(
+    return programs.filter(
       (p) =>
         p.programName.toLowerCase().includes(term) ||
         p.programCode.toLowerCase().includes(term) ||
@@ -579,6 +560,23 @@ const AutomationProgramsPage: React.FC = () => {
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+        </div>
+      ) : isError ? (
+        <div className="text-center py-12 bg-red-50 rounded-lg">
+          <AlertCircle className="h-12 w-12 mx-auto text-red-400 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            Programlar yuklenemedi
+          </h3>
+          <p className="text-red-600 text-sm mb-4">
+            {error instanceof Error ? error.message : 'Bilinmeyen hata'}
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Tekrar Dene
+          </button>
         </div>
       ) : filteredPrograms.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 rounded-lg">

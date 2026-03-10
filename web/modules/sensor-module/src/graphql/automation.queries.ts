@@ -18,7 +18,6 @@ export const AUTOMATION_PROGRAMS_QUERY = `
       version
       programType
       status
-      tags
       stepCount
       transitionCount
       variableCount
@@ -51,8 +50,6 @@ export const AUTOMATION_PROGRAM_QUERY = `
       version
       programType
       status
-      tags
-      category
       executionMode
       structuredTextCode
       deployTarget

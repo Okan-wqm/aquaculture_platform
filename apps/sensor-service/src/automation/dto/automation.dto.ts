@@ -285,11 +285,13 @@ export class UpdateProgramInput {
 @InputType()
 export class ProgramFilterInput {
   @IsOptional()
+  @Transform(enumTransform(undefined))
   @IsEnum(ProgramStatus)
   @Field(() => ProgramStatus, { nullable: true })
   status?: ProgramStatus;
 
   @IsOptional()
+  @Transform(enumTransform(undefined))
   @IsEnum(ProgramType)
   @Field(() => ProgramType, { nullable: true })
   programType?: ProgramType;

@@ -9,7 +9,7 @@
  * - Deployment to edge devices
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -34,14 +34,29 @@ import {
   Play,
   Tag,
   X,
+  Link2,
+  Unlink,
+  Zap,
 } from 'lucide-react';
 import StEditorPanel from '../../components/unified-editor/StEditorPanel';
+import { setTags as setEditorTags } from '../../components/unified-editor/StCompletionProvider';
 import SimulationPanel from '../../simulation/SimulationPanel';
+import VariableSyncPanel from '../../components/automation/VariableSyncPanel';
 import DeployTargetSelector, { DeployTarget } from '../../components/automation/DeployTargetSelector';
 import { useEdgeDevices, useEdgeDevice, DeviceLifecycleState, getDeviceModelText } from '../../hooks/useEdgeDevices';
 import type { EdgeDevice, DeviceIoConfig } from '../../hooks/useEdgeDevices';
 import { graphqlFetch } from '../../config/api';
 import { ProgramStatus, ProgramType, getStatusColor, getStatusText } from '../../utils/automation.utils';
+import {
+  extractIoVariables,
+  analyzeBindings,
+  suggestTagBindings,
+  type ExtractedIoVariable,
+  type IoVariableWithBinding,
+  type TagBindingSuggestion,
+  type TagExtractionResult,
+  type DeviceTag,
+} from '../../utils/st-tag-extractor';
 import {
   AUTOMATION_PROGRAM_QUERY,
   CREATE_PROGRAM_MUTATION,
@@ -71,8 +86,6 @@ interface AutomationProgram {
   version: number;
   programType: ProgramType;
   status: ProgramStatus;
-  tags?: string[];
-  category?: string;
   executionMode?: string;
   structuredTextCode?: string;
   deployTarget?: string;
@@ -247,6 +260,246 @@ const VariableRow: React.FC<{
 );
 
 // ============================================================================
+// I/O Tag Analysis Panel
+// ============================================================================
+
+/** Direction badge color */
+const directionBadge: Record<string, string> = {
+  input: 'bg-blue-100 text-blue-700',
+  output: 'bg-orange-100 text-orange-700',
+  inout: 'bg-purple-100 text-purple-700',
+};
+
+const directionLabel: Record<string, string> = {
+  input: 'INPUT',
+  output: 'OUTPUT',
+  inout: 'IN_OUT',
+};
+
+/** Status badge styling */
+const statusBadgeStyle: Record<string, string> = {
+  bound: 'bg-green-100 text-green-700',
+  unbound: 'bg-red-100 text-red-700',
+  mismatch: 'bg-yellow-100 text-yellow-700',
+};
+
+const statusLabel: Record<string, string> = {
+  bound: 'Bagli',
+  unbound: 'Bagli Degil',
+  mismatch: 'Tip Uyumsuz',
+};
+
+const IoTagAnalysisPanel: React.FC<{
+  analysisResult: TagExtractionResult;
+  bindings: IoVariableWithBinding[];
+  suggestions: TagBindingSuggestion[];
+  onApplySuggestion: (variableName: string, tag: DeviceTag) => void;
+  hasDevice: boolean;
+}> = ({ analysisResult, bindings, suggestions, onApplySuggestion, hasDevice }) => {
+  const { ioVariables, inputCount, outputCount, inoutCount, parseErrors } = analysisResult;
+
+  if (ioVariables.length === 0 && parseErrors.length === 0) {
+    return (
+      <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+        <div className="flex items-center gap-2 text-gray-500 text-sm">
+          <Unlink className="h-4 w-4" />
+          <span>
+            ST kodunda VAR_INPUT / VAR_OUTPUT / VAR_IN_OUT degiskeni bulunamadi.
+            I/O degiskenleri fiziksel cihaz tag&apos;larina baglanmak icin gereklidir.
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const unboundCount = bindings.filter((b) => b.status === 'unbound').length;
+  const mismatchCount = bindings.filter((b) => b.status === 'mismatch').length;
+  const boundCount = bindings.filter((b) => b.status === 'bound').length;
+
+  return (
+    <div className="space-y-3">
+      {/* Summary bar */}
+      <div className="bg-white rounded-lg border border-gray-200 p-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Zap className="h-4 w-4 text-indigo-600" />
+            <span className="text-sm font-medium text-gray-700">
+              I/O Tag Analizi
+            </span>
+          </div>
+          <div className="flex items-center gap-3 text-xs">
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700">
+              {inputCount} Giris
+            </span>
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-orange-50 text-orange-700">
+              {outputCount} Cikis
+            </span>
+            {inoutCount > 0 && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-purple-50 text-purple-700">
+                {inoutCount} In/Out
+              </span>
+            )}
+            <span className="mx-1 text-gray-300">|</span>
+            <span className={`flex items-center gap-1 px-2 py-0.5 rounded ${boundCount > 0 ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500'}`}>
+              <Link2 className="h-3 w-3" />
+              {boundCount} Bagli
+            </span>
+            {unboundCount > 0 && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-red-50 text-red-700">
+                <Unlink className="h-3 w-3" />
+                {unboundCount} Bagsiz
+              </span>
+            )}
+            {mismatchCount > 0 && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-yellow-50 text-yellow-700">
+                <AlertCircle className="h-3 w-3" />
+                {mismatchCount} Uyumsuz
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Parse errors */}
+      {parseErrors.length > 0 && (
+        <div className="bg-red-50 rounded-lg border border-red-200 p-3">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-red-700">
+              <p className="font-medium mb-1">ST Parse Hatalari:</p>
+              {parseErrors.map((err, i) => (
+                <div key={i} className="text-xs font-mono">
+                  Satir {err.line}, Sutun {err.col}: {err.message}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unbound warnings */}
+      {unboundCount > 0 && (
+        <div className="bg-amber-50 rounded-lg border border-amber-200 p-3">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-amber-700">
+              <p className="font-medium">
+                {unboundCount} I/O degiskeni fiziksel bir tag&apos;a bagli degil
+              </p>
+              <p className="text-xs mt-0.5">
+                Bu degiskenlerin donanima erisebilmesi icin bir cihazin I/O tag&apos;ina baglanmasi gerekir.
+                Asagidaki Degiskenler tablosundan her birini bir tag&apos;a baglayabilirsiniz.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Binding suggestions */}
+      {suggestions.length > 0 && hasDevice && (
+        <div className="bg-indigo-50 rounded-lg border border-indigo-200 p-3">
+          <div className="flex items-start gap-2 mb-2">
+            <Zap className="h-4 w-4 text-indigo-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-indigo-700 font-medium">
+              Otomatik Baglama Onerileri
+            </div>
+          </div>
+          <div className="space-y-1">
+            {suggestions.map((s) => (
+              <div
+                key={s.variableName}
+                className="flex items-center justify-between bg-white rounded px-3 py-1.5 border border-indigo-100"
+              >
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="font-mono font-medium text-gray-900">{s.variableName}</span>
+                  <span className="text-gray-400">&#8594;</span>
+                  <span className="font-mono text-indigo-700">{s.suggestedTag.tagName}</span>
+                  <span className="text-gray-400">({s.suggestedTag.ioType} {s.suggestedTag.dataType})</span>
+                  {s.matchType === 'exact' && (
+                    <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-[10px]">Tam Eslesme</span>
+                  )}
+                  {s.matchType === 'normalized' && (
+                    <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">Benzer</span>
+                  )}
+                  {s.matchType === 'partial' && (
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px]">Kismi</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => onApplySuggestion(s.variableName, s.suggestedTag)}
+                  className="px-2 py-0.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                >
+                  Uygula
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* I/O variable binding table */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Degisken</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tip</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Yon</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Bagli Tag</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Satir</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {bindings.map((b) => (
+              <tr key={`${b.name}-${b.line}`} className="hover:bg-gray-50">
+                <td className="px-4 py-2 font-mono text-sm text-gray-900">{b.name}</td>
+                <td className="px-4 py-2 text-xs text-gray-600">{b.dataType}</td>
+                <td className="px-4 py-2">
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${directionBadge[b.direction] || 'bg-gray-100 text-gray-600'}`}>
+                    {directionLabel[b.direction] || b.direction}
+                  </span>
+                </td>
+                <td className="px-4 py-2">
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${statusBadgeStyle[b.status]}`}>
+                    {statusLabel[b.status]}
+                  </span>
+                </td>
+                <td className="px-4 py-2">
+                  {b.boundTagName ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-mono">
+                      <Link2 className="h-3 w-3" />
+                      {b.boundTagName}
+                    </span>
+                  ) : (
+                    <span className="text-gray-400 text-xs">-</span>
+                  )}
+                </td>
+                <td className="px-4 py-2 text-xs text-gray-400 font-mono">L{b.line}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Warnings list */}
+      {bindings.some((b) => b.warning) && (
+        <div className="space-y-1">
+          {bindings.filter((b) => b.warning).map((b) => (
+            <div key={`warn-${b.name}-${b.line}`} className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 rounded px-3 py-1.5">
+              <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+              <span>
+                <span className="font-mono font-medium">{b.name}</span>: {b.warning}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -263,8 +516,6 @@ const AutomationProgramEditorPage: React.FC = () => {
     name: '',
     description: '',
     programType: ProgramType.ST,
-    tags: [] as string[],
-    category: '',
   });
   const [stCode, setStCode] = useState('');
   const [deployTarget, setDeployTarget] = useState<DeployTarget>(DeployTarget.RUST_ENGINE);
@@ -286,7 +537,6 @@ const AutomationProgramEditorPage: React.FC = () => {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
-  const [newTagInput, setNewTagInput] = useState('');
   const [showAddTransition, setShowAddTransition] = useState(false);
   const [newTransition, setNewTransition] = useState({
     transitionCode: '',
@@ -322,6 +572,23 @@ const AutomationProgramEditorPage: React.FC = () => {
   });
   const allActiveDevices = allDevicesData?.items ?? [];
 
+  // Wire I/O tags from the selected device into the Monaco editor autocompletion.
+  useEffect(() => {
+    if (!ioDeviceId || ioTags.length === 0) {
+      setEditorTags([]);
+      return;
+    }
+    setEditorTags(
+      ioTags.map((io) => ({
+        name: io.tagName,
+        ioType: io.ioType,
+        dataType: io.dataType,
+        description: io.description,
+      })),
+    );
+    return () => { setEditorTags([]); };
+  }, [ioDeviceId, ioTags]);
+
   // Query
   const { data, isLoading } = useQuery({
     queryKey: ['automationProgram', programId],
@@ -344,8 +611,6 @@ const AutomationProgramEditorPage: React.FC = () => {
         name: prog.programName,
         description: prog.description || '',
         programType: prog.programType,
-        tags: Array.isArray(prog.tags) ? prog.tags : [],
-        category: prog.category || '',
       });
       setStCode(prog.structuredTextCode ?? '');
       if (prog.deployTarget) {
@@ -550,8 +815,6 @@ const AutomationProgramEditorPage: React.FC = () => {
         executionMode: 'MANUAL',
         structuredTextCode: stCode || undefined,
         deployTarget,
-        tags: formData.tags.length > 0 ? formData.tags : undefined,
-        category: formData.category || undefined,
         ...sanitizedPlcConfig,
       });
     } else {
@@ -566,8 +829,6 @@ const AutomationProgramEditorPage: React.FC = () => {
         description: formData.description || undefined,
         structuredTextCode: stCode || undefined,
         deployTarget,
-        tags: formData.tags,
-        category: formData.category || undefined,
         ...sanitizedPlcConfig,
       });
     }
@@ -612,6 +873,82 @@ const AutomationProgramEditorPage: React.FC = () => {
   const steps = data?.programSteps || [];
   const variables = data?.programVariables || [];
   const transitions = data?.programTransitions || [];
+
+  // ── I/O Tag Analysis ──────────────────────────────────────────────────
+  const tagAnalysis: TagExtractionResult = useMemo(
+    () => extractIoVariables(stCode),
+    [stCode],
+  );
+
+  const ioBindings: IoVariableWithBinding[] = useMemo(
+    () => analyzeBindings(tagAnalysis.ioVariables, variables),
+    [tagAnalysis.ioVariables, variables],
+  );
+
+  const deviceTagsForSuggestion: DeviceTag[] = useMemo(() => {
+    return ioTags.map((io) => ({
+      id: io.id,
+      tagName: io.tagName,
+      ioType: io.ioType,
+      dataType: io.dataType,
+      description: io.description,
+    }));
+  }, [ioTags]);
+
+  const unboundVars = useMemo(
+    () => tagAnalysis.ioVariables.filter((v) => {
+      const binding = ioBindings.find((b) => b.name === v.name && b.line === v.line);
+      return binding && binding.status !== 'bound';
+    }),
+    [tagAnalysis.ioVariables, ioBindings],
+  );
+
+  const tagSuggestions: TagBindingSuggestion[] = useMemo(
+    () => suggestTagBindings(unboundVars, deviceTagsForSuggestion),
+    [unboundVars, deviceTagsForSuggestion],
+  );
+
+  const handleApplySuggestion = (variableName: string, tag: DeviceTag) => {
+    if (!programId || isNew) return;
+    const existingVar = variables.find((v) => v.varName.toLowerCase() === variableName.toLowerCase());
+    const extracted = tagAnalysis.ioVariables.find((v) => v.name === variableName);
+    if (!extracted) return;
+
+    if (existingVar) {
+      setSuccessMessage(`"${variableName}" degiskenini Degiskenler sekmesinden "${tag.tagName}" tag'ina baglayiniz.`);
+    } else {
+      const scopeMap: Record<string, string> = { input: 'INPUT', output: 'OUTPUT', inout: 'INOUT' };
+      const scope = scopeMap[extracted.direction] || 'INPUT';
+      addVariableMutation.mutate({
+        varName: variableName,
+        dataType: extracted.dataType || 'REAL',
+        scope,
+        initialValue: extracted.initialValue || '',
+        ioTagName: tag.tagName,
+        ioConfigId: tag.id,
+        programId,
+      });
+    }
+  };
+
+  // Add a detected variable from ST code sync panel
+  const handleAddDetectedVariable = (variable: {
+    varName: string;
+    dataType: string;
+    initialValue?: string;
+    scope: string;
+  }) => {
+    if (!isNew && programId && variable.varName) {
+      const sanitized: Record<string, unknown> = {
+        varName: variable.varName,
+        dataType: variable.dataType,
+        scope: variable.scope,
+        programId,
+      };
+      if (variable.initialValue) sanitized.initialValue = variable.initialValue;
+      addVariableMutation.mutate(sanitized as typeof newVariable & { programId: string });
+    }
+  };
 
   if (!isNew && isLoading) {
     return (
@@ -846,7 +1183,11 @@ const AutomationProgramEditorPage: React.FC = () => {
           <TabButton
             active={activeTab === 'variables'}
             onClick={() => setActiveTab('variables')}
-            icon={<Variable className="h-4 w-4" />}
+            icon={
+              ioBindings.some((b) => b.status === 'unbound')
+                ? <AlertCircle className="h-4 w-4 text-amber-500" />
+                : <Variable className="h-4 w-4" />
+            }
             label="Değişkenler"
             count={variables.length}
           />
@@ -922,89 +1263,6 @@ const AutomationProgramEditorPage: React.FC = () => {
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Kategori
-              </label>
-              <select
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white"
-              >
-                <option value="">Kategori secin...</option>
-                <option value="startup">Baslangic (Startup)</option>
-                <option value="shutdown">Kapanis (Shutdown)</option>
-                <option value="emergency">Acil Durum (Emergency)</option>
-                <option value="process">Proses (Process)</option>
-                <option value="cleaning">Temizlik (Cleaning)</option>
-              </select>
-            </div>
-            <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                <span className="flex items-center gap-1.5">
-                  <Tag className="h-4 w-4" />
-                  Etiketler (Tags)
-                </span>
-              </label>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {formData.tags.map((tag, index) => (
-                  <span
-                    key={index}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 text-sm font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full"
-                  >
-                    {tag}
-                    <button
-                      type="button"
-                      onClick={() => setFormData({
-                        ...formData,
-                        tags: formData.tags.filter((_, i) => i !== index),
-                      })}
-                      className="hover:text-red-500 transition-colors"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newTagInput}
-                  onChange={(e) => setNewTagInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && newTagInput.trim()) {
-                      e.preventDefault();
-                      const tag = newTagInput.trim();
-                      if (!formData.tags.includes(tag)) {
-                        setFormData({ ...formData, tags: [...formData.tags, tag] });
-                      }
-                      setNewTagInput('');
-                    }
-                  }}
-                  placeholder="Etiket girin ve Enter'a basin..."
-                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg bg-white"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const tag = newTagInput.trim();
-                    if (tag && !formData.tags.includes(tag)) {
-                      setFormData({ ...formData, tags: [...formData.tags, tag] });
-                    }
-                    setNewTagInput('');
-                  }}
-                  disabled={!newTagInput.trim()}
-                  className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium"
-                >
-                  Ekle
-                </button>
-              </div>
-              {formData.tags.length === 0 && (
-                <p className="text-xs text-gray-400 mt-1">
-                  Programi kategorize etmek icin etiket ekleyin (orn: yemleme, su-kalitesi, havalandirma)
-                </p>
-              )}
-            </div>
           </div>
         </div>
       )}
@@ -1012,6 +1270,27 @@ const AutomationProgramEditorPage: React.FC = () => {
       {/* Variables Tab */}
       {activeTab === 'variables' && !isNew && (
         <div className="space-y-4">
+          {/* Auto-detected variables from ST code */}
+          <VariableSyncPanel
+            stCode={stCode}
+            registeredVariables={variables}
+            onAddVariable={handleAddDetectedVariable}
+            onRemoveVariable={(id) => removeVariableMutation.mutate(id)}
+            isAdding={addVariableMutation.isPending}
+            isRemoving={removeVariableMutation.isPending}
+          />
+
+          {/* I/O Tag Analysis Panel */}
+          {stCode && stCode.trim().length > 0 && (
+            <IoTagAnalysisPanel
+              analysisResult={tagAnalysis}
+              bindings={ioBindings}
+              suggestions={tagSuggestions}
+              onApplySuggestion={handleApplySuggestion}
+              hasDevice={!!ioDeviceId && ioTags.length > 0}
+            />
+          )}
+
           <div className="flex justify-end">
             <button
               onClick={() => setShowAddVariable(true)}
@@ -1194,6 +1473,32 @@ const AutomationProgramEditorPage: React.FC = () => {
       {/* Code Tab - ST Editor */}
       {activeTab === 'code' && (
         <div className="flex flex-col" style={{ height: 'calc(100vh - 320px)', minHeight: 400 }}>
+          {/* I/O Tag status bar */}
+          {tagAnalysis.ioVariables.length > 0 && (
+            <div className="flex items-center gap-3 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-t-lg text-xs flex-shrink-0">
+              <span className="flex items-center gap-1 text-gray-600">
+                <Zap className="h-3.5 w-3.5" />
+                I/O Degiskenler:
+              </span>
+              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">{tagAnalysis.inputCount} Giris</span>
+              <span className="px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">{tagAnalysis.outputCount} Cikis</span>
+              {tagAnalysis.inoutCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700">{tagAnalysis.inoutCount} In/Out</span>
+              )}
+              {ioBindings.filter((b) => b.status === 'unbound').length > 0 && (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">
+                  <AlertCircle className="h-3 w-3" />
+                  {ioBindings.filter((b) => b.status === 'unbound').length} bagsiz tag
+                </span>
+              )}
+              {ioBindings.filter((b) => b.status === 'unbound').length === 0 && tagAnalysis.ioVariables.length > 0 && (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-green-50 text-green-700">
+                  <CheckCircle className="h-3 w-3" />
+                  Tum tag&apos;lar bagli
+                </span>
+              )}
+            </div>
+          )}
           <StEditorPanel
             embedded
             value={stCode}

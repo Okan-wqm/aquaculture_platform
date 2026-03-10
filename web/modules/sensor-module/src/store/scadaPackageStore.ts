@@ -166,7 +166,7 @@ interface ScadaPackageState {
   setTargetDeviceId: (id: string | null) => void;
 
   // Automation Binding actions
-  addAutomationProgram: (programId: string, programName: string, programCode: string, variables: { id: string; varName: string; scope: string; dataType: string; ioTagName?: string }[], tags?: string[]) => void;
+  addAutomationProgram: (programId: string, programName: string, programCode: string, variables: { id: string; varName: string; scope: string; dataType: string; ioTagName?: string }[]) => void;
   removeAutomationProgram: (programId: string) => void;
   bindVariableToWidget: (programId: string, variableId: string, widgetId: string, tag: string) => void;
   unbindVariable: (programId: string, variableId: string) => void;
@@ -517,14 +517,13 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
   setTargetDeviceId: (id) => set({ targetDeviceId: id }),
 
   // Automation Binding actions
-  addAutomationProgram: (programId, programName, programCode, variables, tags) =>
+  addAutomationProgram: (programId, programName, programCode, variables) =>
     set((state) => {
       if (state.automationBindings.some((b) => b.programId === programId)) return state;
       const binding: AutomationBinding = {
         programId,
         programName,
         programCode,
-        tags,
         variableBindings: variables
           .filter((v) => v.scope === 'INPUT' || v.scope === 'OUTPUT' || v.scope === 'IN_OUT')
           .map((v) => ({

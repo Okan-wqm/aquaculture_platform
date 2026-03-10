@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Plus, Trash2, Link, Unlink, Zap, ChevronDown, ChevronRight, Check, AlertTriangle, Search, Tag } from 'lucide-react';
+import { Plus, Trash2, Link, Unlink, Zap, ChevronDown, ChevronRight, Check, AlertTriangle, Search } from 'lucide-react';
 import { useScadaPackageStore } from '../../store/scadaPackageStore';
 import { useAutomationPrograms, useAutomationProgramVariables } from '../../hooks/useAutomationPrograms';
 import { getStatusColor, getStatusText, ProgramStatus } from '../../utils/automation.utils';
@@ -149,16 +149,6 @@ const ProgramSelector: React.FC<ProgramSelectorProps> = ({ onSelect, onClose, ex
                 <span className="text-[10px] text-gray-400 font-mono">{p.programCode}</span>
                 <span className="text-[10px] text-gray-400">{p.variableCount} degisken</span>
               </div>
-              {p.tags && p.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {p.tags.map((tag, i) => (
-                    <span key={i} className="inline-flex items-center gap-0.5 px-1.5 py-0 text-[9px] font-medium bg-indigo-50 text-indigo-600 rounded-full">
-                      <Tag className="h-2 w-2" />
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              )}
             </button>
           ))
         )}
@@ -200,18 +190,7 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
         </button>
         <div className="flex-1 min-w-0">
           <div className="text-xs font-medium text-gray-800 truncate">{binding.programName}</div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-gray-400 font-mono">{binding.programCode}</span>
-            {binding.tags && binding.tags.length > 0 && (
-              <div className="flex gap-0.5">
-                {binding.tags.map((tag, i) => (
-                  <span key={i} className="inline-flex items-center gap-0.5 px-1 py-0 text-[9px] font-medium bg-indigo-50 text-indigo-600 rounded">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+          <span className="text-[10px] text-gray-400 font-mono">{binding.programCode}</span>
         </div>
         <span className="text-[10px] text-gray-500">
           {boundCount}/{totalCount}
@@ -310,7 +289,6 @@ export const AutomationBindingPanel: React.FC = () => {
         automationProgram.programName,
         automationProgram.programCode,
         programVariables,
-        automationProgram.tags,
       );
       setPendingProgram(null);
     }

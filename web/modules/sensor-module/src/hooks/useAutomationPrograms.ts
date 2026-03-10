@@ -17,7 +17,6 @@ export interface AutomationProgramSummary {
   programName: string;
   status: ProgramStatus;
   variableCount: number;
-  tags?: string[];
 }
 
 interface ProgramWithVariables {
@@ -25,7 +24,6 @@ interface ProgramWithVariables {
   programCode: string;
   programName: string;
   status: ProgramStatus;
-  tags?: string[];
   variables: ProgramVariableSummary[];
 }
 
@@ -37,7 +35,6 @@ const PROGRAMS_LIST_QUERY = `
       programName
       status
       variableCount
-      tags
     }
   }
 `;
@@ -49,7 +46,6 @@ const PROGRAM_VARIABLES_QUERY = `
       programCode
       programName
       status
-      tags
     }
     programVariables(programId: $id) {
       id

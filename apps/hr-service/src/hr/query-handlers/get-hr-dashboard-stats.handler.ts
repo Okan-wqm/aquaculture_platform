@@ -84,7 +84,7 @@ export class GetHRDashboardStatsHandler implements IQueryHandler<GetHRDashboardS
     const deptResult = await this.dataSource.query(`
       SELECT COUNT(*) AS "deptCount"
       FROM departments_hr
-      WHERE "tenantId" = $1 AND "is_deleted" = false
+      WHERE "tenantId" = $1 AND "isDeleted" = false
     `, [tenantId]);
 
     const stats = employeeStats[0];

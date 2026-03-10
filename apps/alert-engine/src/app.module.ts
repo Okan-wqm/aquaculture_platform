@@ -53,7 +53,7 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
         password: dbPassword || 'postgres',
         database: configService.get('DATABASE_NAME', 'aquaculture'),
         // NOTE: Do NOT set 'schema' here! Schema is managed dynamically by TenantSchemaMiddleware
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
+        autoLoadEntities: true,
         synchronize: false,
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
         // SECURITY: SSL configuration with proper certificate validation

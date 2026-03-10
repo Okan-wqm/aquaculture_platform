@@ -20,8 +20,8 @@ import {
 import { Type } from 'class-transformer';
 import { TaskCategory, TaskPriority } from '../entities/task.entity';
 
-@InputType()
-export class ChecklistItemInput {
+@InputType('TaskChecklistItemInput')
+export class TaskChecklistItemInput {
   @Field()
   @IsNotEmpty()
   @IsString()
@@ -98,12 +98,12 @@ export class CreateTaskInput {
   @Min(1)
   estimatedMinutes?: number;
 
-  @Field(() => [ChecklistItemInput], { nullable: true })
+  @Field(() => [TaskChecklistItemInput], { nullable: true })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => ChecklistItemInput)
-  checklistItems?: ChecklistItemInput[];
+  @Type(() => TaskChecklistItemInput)
+  checklistItems?: TaskChecklistItemInput[];
 
   @Field(() => [String], { nullable: true })
   @IsOptional()

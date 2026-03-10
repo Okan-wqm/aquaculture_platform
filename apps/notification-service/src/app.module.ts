@@ -44,7 +44,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
         username: configService.get('DATABASE_USER', 'postgres'),
         password: dbPassword || 'postgres',
         database: configService.get('DATABASE_NAME', 'notification_service'),
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
+        autoLoadEntities: true,
         synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
         extra: {

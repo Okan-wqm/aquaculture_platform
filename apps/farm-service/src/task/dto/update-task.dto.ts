@@ -20,7 +20,7 @@ import {
 import { Type } from 'class-transformer';
 import GraphQLJSON from 'graphql-type-json';
 import { TaskCategory, TaskPriority, TaskStatus } from '../entities/task.entity';
-import { ChecklistItemInput } from './create-task.dto';
+import { TaskChecklistItemInput } from './create-task.dto';
 
 /**
  * Görev güncelleme input
@@ -96,12 +96,12 @@ export class UpdateTaskInput {
   @Min(1)
   estimatedMinutes?: number;
 
-  @Field(() => [ChecklistItemInput], { nullable: true })
+  @Field(() => [TaskChecklistItemInput], { nullable: true })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => ChecklistItemInput)
-  checklistItems?: ChecklistItemInput[];
+  @Type(() => TaskChecklistItemInput)
+  checklistItems?: TaskChecklistItemInput[];
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()

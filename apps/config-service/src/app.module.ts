@@ -34,7 +34,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
           username: configService.get('DATABASE_USER', 'postgres'),
           password: dbPassword || 'postgres',
           database: configService.get('DATABASE_NAME', 'config_service'),
-          entities: [__dirname + '/**/*.entity{.ts,.js}'],
+          autoLoadEntities: true,
           synchronize: false,
           logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
           ssl: (() => {

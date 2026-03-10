@@ -44,7 +44,7 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
         password: dbPassword,
         database: configService.get('DATABASE_NAME', 'aquaculture'),
         schema: configService.get('DATABASE_SCHEMA', 'billing'),
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
+        autoLoadEntities: true,
         synchronize: configService.get('NODE_ENV') !== 'production',
         logging: configService.get('NODE_ENV') === 'development',
         // SECURITY: SSL configuration with proper certificate validation

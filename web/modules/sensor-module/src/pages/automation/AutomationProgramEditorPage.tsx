@@ -955,10 +955,12 @@ const AutomationProgramEditorPage: React.FC = () => {
     scope: string;
   }) => {
     if (!isNew && programId && variable.varName) {
+      // GraphQL VariableScope enum expects UPPERCASE keys (INPUT, OUTPUT, etc.)
+      // The ST parser should already return uppercase, but normalize as safety net.
       const sanitized: Record<string, unknown> = {
         varName: variable.varName,
         dataType: variable.dataType,
-        scope: variable.scope,
+        scope: variable.scope.toUpperCase(),
         programId,
       };
       if (variable.initialValue) sanitized.initialValue = variable.initialValue;

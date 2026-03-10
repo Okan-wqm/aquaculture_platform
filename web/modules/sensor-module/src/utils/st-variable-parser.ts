@@ -29,19 +29,21 @@ import type {
 // ============================================================================
 
 /**
- * Variable scope values aligned with the backend VariableScope enum.
+ * Variable scope values aligned with the GraphQL VariableScope enum KEYS.
  *
- * Backend enum (program-variable.entity.ts):
- *   LOCAL = 'local', INPUT = 'input', OUTPUT = 'output',
- *   INOUT = 'inout', RETAIN = 'retain', CONSTANT = 'constant'
+ * GraphQL registerEnumType exposes TypeScript enum KEYS as valid values:
+ *   LOCAL, INPUT, OUTPUT, INOUT, RETAIN, CONSTANT
+ *
+ * The backend DTO @Transform lowercases them after GraphQL validation,
+ * so we must send UPPERCASE to pass GraphQL schema validation.
  */
 export type VariableScope =
-  | 'local'
-  | 'input'
-  | 'output'
-  | 'inout'
-  | 'retain'
-  | 'constant';
+  | 'LOCAL'
+  | 'INPUT'
+  | 'OUTPUT'
+  | 'INOUT'
+  | 'RETAIN'
+  | 'CONSTANT';
 
 /**
  * A single variable extracted from ST code.
@@ -91,26 +93,26 @@ function mapScope(
   isConstant: boolean,
   isRetain: boolean,
 ): VariableScope {
-  if (isConstant) return 'constant';
-  if (isRetain) return 'retain';
+  if (isConstant) return 'CONSTANT';
+  if (isRetain) return 'RETAIN';
 
   switch (blockType) {
     case 'VAR':
-      return 'local';
+      return 'LOCAL';
     case 'VAR_INPUT':
-      return 'input';
+      return 'INPUT';
     case 'VAR_OUTPUT':
-      return 'output';
+      return 'OUTPUT';
     case 'VAR_IN_OUT':
-      return 'inout';
+      return 'INOUT';
     case 'VAR_GLOBAL':
-      return 'local';
+      return 'LOCAL';
     case 'VAR_TEMP':
-      return 'local';
+      return 'LOCAL';
     case 'VAR_EXTERNAL':
-      return 'local';
+      return 'LOCAL';
     default:
-      return 'local';
+      return 'LOCAL';
   }
 }
 
@@ -295,11 +297,11 @@ function extractVarBlocks(node: ASTNode): VarBlockNode[] {
  * `);
  *
  * // result.variables = [
- * //   { varName: 'temperature', dataType: 'REAL', scope: 'local',
+ * //   { varName: 'temperature', dataType: 'REAL', scope: 'LOCAL',
  * //     initialValue: '25.0', description: 'Water temperature', line: 4 },
- * //   { varName: 'pump_on', dataType: 'BOOL', scope: 'local',
+ * //   { varName: 'pump_on', dataType: 'BOOL', scope: 'LOCAL',
  * //     initialValue: 'FALSE', line: 5 },
- * //   { varName: 'setpoint', dataType: 'REAL', scope: 'input', line: 8 },
+ * //   { varName: 'setpoint', dataType: 'REAL', scope: 'INPUT', line: 8 },
  * // ]
  * ```
  */

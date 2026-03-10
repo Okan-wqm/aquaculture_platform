@@ -534,10 +534,16 @@ export function useStEditor(options?: UseStEditorOptions) {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+S → save
+      // Ctrl+S → save (internal dirty tracking only; parent handleSave is
+      // triggered by Monaco's own keybinding when the editor has focus)
       if (e.ctrlKey && e.key === 's') {
         e.preventDefault();
-        save();
+        // Only update dirty-tracking map; do NOT call save() here because
+        // the parent component's onSave callback (wired through Monaco
+        // keybinding in StEditorPanel) is the one that triggers the actual
+        // GraphQL mutation.  Calling save() from this window-level handler
+        // would skip the real persist and confuse users into thinking their
+        // code was saved when it was only marked clean in-memory.
         return;
       }
       // F5 → compile

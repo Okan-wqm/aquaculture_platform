@@ -40,7 +40,6 @@ export type VariableScope =
   | 'input'
   | 'output'
   | 'inout'
-  | 'global'
   | 'retain'
   | 'constant';
 
@@ -105,11 +104,11 @@ function mapScope(
     case 'VAR_IN_OUT':
       return 'inout';
     case 'VAR_GLOBAL':
-      return 'global';
+      return 'local';
     case 'VAR_TEMP':
       return 'local';
     case 'VAR_EXTERNAL':
-      return 'global';
+      return 'local';
     default:
       return 'local';
   }

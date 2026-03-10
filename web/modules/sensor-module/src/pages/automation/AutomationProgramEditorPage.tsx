@@ -797,6 +797,11 @@ const AutomationProgramEditorPage: React.FC = () => {
 
   // Handlers
   const handleSave = () => {
+    // Prevent saving stale/empty data while the program is still loading
+    if (!isNew && isLoading) {
+      setErrorMessage('Program yükleniyor, lütfen bekleyin');
+      return;
+    }
     if (isNew) {
       if (!formData.programCode?.trim()) {
         setErrorMessage('Program kodu zorunludur');

@@ -16,6 +16,7 @@ import {
   IsArray,
   ValidateIf,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import {
@@ -67,11 +68,13 @@ export class CreateProgramInput {
   description?: string;
 
   @IsOptional()
+  @Transform(({ value }) => value ?? ProgramType.ST)
   @IsEnum(ProgramType)
   @Field(() => ProgramType, { defaultValue: ProgramType.ST })
   programType?: ProgramType;
 
   @IsOptional()
+  @Transform(({ value }) => value ?? ExecutionMode.MANUAL)
   @IsEnum(ExecutionMode)
   @Field(() => ExecutionMode, { defaultValue: ExecutionMode.MANUAL })
   executionMode?: ExecutionMode;
@@ -127,6 +130,7 @@ export class CreateProgramInput {
 
   // Deploy target configuration
   @IsOptional()
+  @Transform(({ value }) => value ?? DeployTarget.RUST_ENGINE)
   @IsEnum(DeployTarget)
   @Field(() => DeployTarget, { defaultValue: DeployTarget.RUST_ENGINE })
   deployTarget?: DeployTarget;
@@ -318,6 +322,7 @@ export class CreateStepInput {
   stepName!: string;
 
   @IsOptional()
+  @Transform(({ value }) => value ?? StepType.NORMAL)
   @IsEnum(StepType)
   @Field(() => StepType, { defaultValue: StepType.NORMAL })
   stepType?: StepType;
@@ -456,11 +461,13 @@ export class CreateActionInput {
   description?: string;
 
   @IsOptional()
+  @Transform(({ value }) => value ?? ActionQualifier.N)
   @IsEnum(ActionQualifier)
   @Field(() => ActionQualifier, { defaultValue: ActionQualifier.N })
   qualifier?: ActionQualifier;
 
   @IsOptional()
+  @Transform(({ value }) => value ?? ActionType.CUSTOM_ST)
   @IsEnum(ActionType)
   @Field(() => ActionType, { defaultValue: ActionType.CUSTOM_ST })
   actionType?: ActionType;
@@ -616,6 +623,7 @@ export class CreateTransitionInput {
   toStepCode?: string;
 
   @IsOptional()
+  @Transform(({ value }) => value ?? ConditionType.EXPRESSION)
   @IsEnum(ConditionType)
   @Field(() => ConditionType, { defaultValue: ConditionType.EXPRESSION })
   conditionType?: ConditionType;
@@ -736,11 +744,13 @@ export class CreateVariableInput {
   description?: string;
 
   @IsOptional()
+  @Transform(({ value }) => value ?? VariableDataType.REAL)
   @IsEnum(VariableDataType)
   @Field(() => VariableDataType, { defaultValue: VariableDataType.REAL })
   dataType?: VariableDataType;
 
   @IsOptional()
+  @Transform(({ value }) => value ?? VariableScope.LOCAL)
   @IsEnum(VariableScope)
   @Field(() => VariableScope, { defaultValue: VariableScope.LOCAL })
   scope?: VariableScope;

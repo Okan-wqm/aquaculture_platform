@@ -275,7 +275,7 @@ export function RecordHarvestPage() {
         <div className="px-4 mt-1">
           <div className="bg-gradient-to-r from-sea-500/10 to-sea-600/10 dark:from-sea-500/20 dark:to-sea-600/20 rounded-2xl p-4 text-center border border-sea-500/20">
             <div className="text-2xl font-bold text-sea-700 dark:text-sea-300">
-              {estimatedValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL
+              {estimatedValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
             </div>
             <div className="text-sm text-sea-600/70 dark:text-sea-400 font-medium">Estimated Value</div>
           </div>

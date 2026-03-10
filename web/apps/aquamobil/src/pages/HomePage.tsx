@@ -23,7 +23,7 @@ const allQuickActions: QuickAction[] = [
     feature: 'feeding',
     path: '/feeding/record',
     icon: Package,
-    label: 'Yemleme',
+    label: 'Feeding',
     gradient: 'from-green-600 to-green-500',
     iconColor: 'text-white',
   },
@@ -31,7 +31,7 @@ const allQuickActions: QuickAction[] = [
     feature: 'mortality',
     path: '/mortality/record',
     icon: Skull,
-    label: 'Olum',
+    label: 'Mortality',
     gradient: 'from-red-500 to-red-600',
     iconColor: 'text-white',
   },
@@ -39,7 +39,7 @@ const allQuickActions: QuickAction[] = [
     feature: 'cull',
     path: '/cull/record',
     icon: Scissors,
-    label: 'Ayiklama',
+    label: 'Culling',
     gradient: 'from-cull to-orange-600',
     iconColor: 'text-white',
   },
@@ -47,7 +47,7 @@ const allQuickActions: QuickAction[] = [
     feature: 'harvest',
     path: '/harvest/record',
     icon: Package,
-    label: 'Hasat',
+    label: 'Harvest',
     gradient: 'from-harvest to-violet-700',
     iconColor: 'text-white',
   },
@@ -63,7 +63,7 @@ const allQuickActions: QuickAction[] = [
     feature: 'attendance',
     path: '/attendance',
     icon: MapPin,
-    label: 'Yoklama',
+    label: 'Attendance',
     gradient: 'from-green-500 to-emerald-600',
     iconColor: 'text-white',
   },
@@ -116,11 +116,11 @@ export function HomePage() {
           <div className="grid grid-cols-3 gap-3 pb-5">
             <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 text-center">
               <div className="text-2xl font-bold">{allTanks.length}</div>
-              <div className="text-ocean-200 text-[11px] font-medium">Toplam Tank</div>
+              <div className="text-ocean-200 text-[11px] font-medium">Total Tanks</div>
             </div>
             <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 text-center">
               <div className="text-2xl font-bold">{activeTanks.length}</div>
-              <div className="text-ocean-200 text-[11px] font-medium">Batch'li</div>
+              <div className="text-ocean-200 text-[11px] font-medium">With Batch</div>
             </div>
             <div className={clsx(
               'rounded-xl p-3 text-center backdrop-blur-sm',
@@ -131,7 +131,7 @@ export function HomePage() {
                 'text-[11px] font-medium',
                 pendingCount > 0 ? 'text-coral-200' : 'text-sea-200'
               )}>
-                Bekleyen
+                Pending
               </div>
             </div>
           </div>
@@ -157,9 +157,9 @@ export function HomePage() {
             </div>
             <div className="flex-1 text-left">
               <p className="text-white font-bold text-sm">
-                {pendingTaskCount} gorev bugun sizi bekliyor
+                {pendingTaskCount} tasks waiting for you today
               </p>
-              <p className="text-amber-100 text-xs mt-0.5">Gorevleri goruntule</p>
+              <p className="text-amber-100 text-xs mt-0.5">View Tasks</p>
             </div>
             <div className="text-white/70">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -174,7 +174,7 @@ export function HomePage() {
       {visibleActions.length > 0 && (
         <div className="px-5 pt-4">
           <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
-            Hizli Islemler
+            Quick Actions
           </h2>
           {/* PERF-09: Use a static lookup map instead of a template literal so Tailwind's
               JIT/PurgeCSS can detect the complete class strings at build time. */}
@@ -205,7 +205,7 @@ export function HomePage() {
           <div className="flex items-center gap-2">
             <Waves size={16} className="text-ocean-500" />
             <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              Tanklar ({allTanks.length})
+              Tanks ({allTanks.length})
             </h2>
           </div>
           <button
@@ -226,8 +226,8 @@ export function HomePage() {
         ) : allTanks.length === 0 ? (
           <div className="text-center py-12 text-gray-400">
             <Fish size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">Tank bulunamadi</p>
-            {!isOnline && <p className="text-sm mt-1">Cevrimdisiniz - onbellek verisi gosteriliyor</p>}
+            <p className="font-medium">No tanks found</p>
+            {!isOnline && <p className="text-sm mt-1">You are offline - showing cached data</p>}
           </div>
         ) : (
           <div className="space-y-3">

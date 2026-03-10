@@ -12,10 +12,10 @@ interface RecordAction {
 }
 
 const allActions: RecordAction[] = [
-  { feature: 'feeding', path: '/feeding/record', icon: Utensils, label: 'Yemleme', gradient: 'from-orange-500 to-orange-600' },
-  { feature: 'mortality', path: '/mortality/record', icon: Skull, label: 'Olum Kaydi', gradient: 'from-red-500 to-red-600' },
-  { feature: 'cull', path: '/cull/record', icon: Scissors, label: 'Ayiklama', gradient: 'from-amber-500 to-amber-600' },
-  { feature: 'harvest', path: '/harvest/record', icon: Package, label: 'Hasat', gradient: 'from-green-500 to-green-600' },
+  { feature: 'feeding', path: '/feeding/record', icon: Utensils, label: 'Feeding', gradient: 'from-orange-500 to-orange-600' },
+  { feature: 'mortality', path: '/mortality/record', icon: Skull, label: 'Mortality Record', gradient: 'from-red-500 to-red-600' },
+  { feature: 'cull', path: '/cull/record', icon: Scissors, label: 'Culling', gradient: 'from-amber-500 to-amber-600' },
+  { feature: 'harvest', path: '/harvest/record', icon: Package, label: 'Harvest', gradient: 'from-green-500 to-green-600' },
   { feature: 'transfer', path: '/transfer/record', icon: ArrowLeftRight, label: 'Transfer', gradient: 'from-blue-500 to-blue-600' },
 ];
 
@@ -34,7 +34,7 @@ export function RecordHubPage() {
             <div className="w-10 h-10 bg-white/15 backdrop-blur-sm rounded-xl flex items-center justify-center">
               <ClipboardList size={22} className="text-white" />
             </div>
-            <h1 className="text-lg font-bold tracking-tight">Kayit Islemleri</h1>
+            <h1 className="text-lg font-bold tracking-tight">Record Operations</h1>
           </div>
         </div>
         <div className="relative">
@@ -68,7 +68,7 @@ export function RecordHubPage() {
         ) : (
           <div className="text-center py-12 text-gray-400">
             <ClipboardList size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">Erisim izniniz yok</p>
+            <p className="font-medium">You do not have access</p>
           </div>
         )}
       </div>

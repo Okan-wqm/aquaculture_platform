@@ -15,17 +15,17 @@ const PRIORITY_COLORS: Record<string, string> = {
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
-  FEEDING: 'Yemleme',
-  WATER_QUALITY: 'Su Kalitesi',
-  HEALTH_CHECK: 'Saglik',
-  EQUIPMENT_MAINTENANCE: 'Ekipman',
-  STOCK_MANAGEMENT: 'Stok',
-  CLEANING: 'Temizlik',
-  REGULATORY: 'Mevzuat',
-  HARVEST: 'Hasat',
-  ENVIRONMENTAL: 'Cevre',
-  SAFETY: 'Guvenlik',
-  GENERAL: 'Genel',
+  FEEDING: 'Feeding',
+  WATER_QUALITY: 'Water Quality',
+  HEALTH_CHECK: 'Health',
+  EQUIPMENT_MAINTENANCE: 'Equipment',
+  STOCK_MANAGEMENT: 'Stock',
+  CLEANING: 'Cleaning',
+  REGULATORY: 'Regulatory',
+  HARVEST: 'Harvest',
+  ENVIRONMENTAL: 'Environment',
+  SAFETY: 'Safety',
+  GENERAL: 'General',
 };
 
 export function TaskCard({ task, onPress }: TaskCardProps) {
@@ -78,7 +78,7 @@ export function TaskCard({ task, onPress }: TaskCardProps) {
             </span>
             {task.status === 'IN_PROGRESS' && (
               <span className="text-[11px] font-semibold text-amber-600 bg-amber-50 dark:bg-amber-900/30 px-2 py-0.5 rounded-md">
-                Devam Ediyor
+                In Progress
               </span>
             )}
           </div>

@@ -36,14 +36,14 @@ export function RecordTransferPage() {
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
-    if (!sourceTankId) newErrors.sourceTank = 'Kaynak tank seciniz';
-    if (!sourceMetrics) newErrors.sourceTank = 'Secili tankta aktif batch yok';
-    if (!destinationTankId) newErrors.destinationTank = 'Hedef tank seciniz';
-    if (sourceTankId === destinationTankId) newErrors.destinationTank = 'Kaynak ve hedef tank ayni olamaz';
+    if (!sourceTankId) newErrors.sourceTank = 'Please select source tank';
+    if (!sourceMetrics) newErrors.sourceTank = 'Selected tank has no active batch';
+    if (!destinationTankId) newErrors.destinationTank = 'Please select destination tank';
+    if (sourceTankId === destinationTankId) newErrors.destinationTank = 'Source and destination tank cannot be the same';
     const qty = parseInt(quantity, 10);
-    if (!qty || qty < 1) newErrors.quantity = 'Miktar en az 1 olmalidir';
+    if (!qty || qty < 1) newErrors.quantity = 'Quantity must be at least 1';
     if (sourceMetrics && qty > (sourceMetrics.pieces ?? 0)) {
-      newErrors.quantity = `Miktar ${sourceMetrics.pieces} adetten fazla olamaz`;
+      newErrors.quantity = `Quantity cannot exceed ${sourceMetrics.pieces} pieces`;
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -70,7 +70,7 @@ export function RecordTransferPage() {
       setShowSuccess(true);
       setTimeout(() => navigate(-1), 1500);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Transfer kaydedilemedi';
+      const message = error instanceof Error ? error.message : 'Failed to save transfer';
       setErrors({ general: message });
     } finally {
       setIsSubmitting(false);
@@ -83,9 +83,9 @@ export function RecordTransferPage() {
         <div className="w-20 h-20 bg-sea-100 dark:bg-sea-900/30 rounded-full flex items-center justify-center mb-4">
           <CheckCircle size={48} className="text-sea-600" />
         </div>
-        <h2 className="text-xl font-bold text-sea-700 dark:text-sea-300">Kaydedildi!</h2>
+        <h2 className="text-xl font-bold text-sea-700 dark:text-sea-300">Saved!</h2>
         <p className="text-sea-600 dark:text-sea-400 text-sm mt-1">
-          Senkronizasyon icin kuyruga alindi
+          Queued for synchronization
         </p>
       </div>
     );
@@ -101,7 +101,7 @@ export function RecordTransferPage() {
           </button>
           <div className="flex items-center gap-2.5">
             <ArrowLeftRight size={22} />
-            <h1 className="text-lg font-bold">Transfer Kaydi</h1>
+            <h1 className="text-lg font-bold">Transfer Record</h1>
           </div>
         </div>
       </div>
@@ -116,7 +116,7 @@ export function RecordTransferPage() {
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white">{sourceTank.name}</h3>
               <p className="text-sm text-gray-500">
-                {sourceMetrics.batchNumber ?? '--'} &middot; {(sourceMetrics.pieces ?? 0).toLocaleString()} adet
+                {sourceMetrics.batchNumber ?? '--'} &middot; {(sourceMetrics.pieces ?? 0).toLocaleString()} pcs
               </p>
             </div>
           </div>
@@ -134,7 +134,7 @@ export function RecordTransferPage() {
       {/* Source tank selector */}
       {!tankId && (
         <>
-          <BlockTitle>Kaynak Tank</BlockTitle>
+          <BlockTitle>Source Tank</BlockTitle>
           <List strongIos insetIos>
             <ListInput
               type="select"
@@ -145,7 +145,7 @@ export function RecordTransferPage() {
               }}
               error={errors.sourceTank}
             >
-              <option value="">-- Tank Seciniz --</option>
+              <option value="">-- Select Tank --</option>
               {tanks?.filter((t) => t.batchMetrics).map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
@@ -158,7 +158,7 @@ export function RecordTransferPage() {
       )}
 
       {/* Destination tank selector */}
-      <BlockTitle>Hedef Tank</BlockTitle>
+      <BlockTitle>Destination Tank</BlockTitle>
       <List strongIos insetIos>
         <ListInput
           type="select"
@@ -169,10 +169,10 @@ export function RecordTransferPage() {
           }}
           error={errors.destinationTank}
         >
-          <option value="">-- Tank Seciniz --</option>
+          <option value="">-- Select Tank --</option>
           {tanks?.filter((t) => t.id !== sourceTankId).map((t) => (
             <option key={t.id} value={t.id}>
-              {t.name} {t.batchMetrics ? `- ${t.batchMetrics.batchNumber}` : '(Bos)'}
+              {t.name} {t.batchMetrics ? `- ${t.batchMetrics.batchNumber}` : '(Empty)'}
             </option>
           ))}
         </ListInput>
@@ -180,11 +180,11 @@ export function RecordTransferPage() {
       {errors.destinationTank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.destinationTank}</p>}
 
       {/* Quantity */}
-      <BlockTitle>Adet</BlockTitle>
+      <BlockTitle>Quantity</BlockTitle>
       <List strongIos insetIos>
         <ListInput
           type="number"
-          placeholder="Transfer edilecek adet"
+          placeholder="Number of pieces to transfer"
           value={quantity}
           onInput={(e: ChangeEvent<HTMLInputElement>) => {
             setQuantity(e.target.value);
@@ -196,22 +196,22 @@ export function RecordTransferPage() {
       {errors.quantity && <p className="text-red-500 text-sm px-4 -mt-2">{errors.quantity}</p>}
 
       {/* Biomass */}
-      <BlockTitle>Biyokütle (kg) - Opsiyonel</BlockTitle>
+      <BlockTitle>Biomass (kg) - Optional</BlockTitle>
       <List strongIos insetIos>
         <ListInput
           type="number"
-          placeholder="Toplam biyokütle kg"
+          placeholder="Total biomass kg"
           value={biomassKg}
           onInput={(e: ChangeEvent<HTMLInputElement>) => setBiomassKg(e.target.value)}
         />
       </List>
 
       {/* Transfer reason */}
-      <BlockTitle>Transfer Nedeni (Opsiyonel)</BlockTitle>
+      <BlockTitle>Transfer Reason (Optional)</BlockTitle>
       <List strongIos insetIos>
         <ListInput
           type="textarea"
-          placeholder="Transfer nedeni..."
+          placeholder="Transfer reason..."
           value={transferReason}
           onInput={(e: ChangeEvent<HTMLTextAreaElement>) => setTransferReason(e.target.value)}
           inputClassName="!h-20"
@@ -228,18 +228,18 @@ export function RecordTransferPage() {
           {isSubmitting ? (
             <>
               <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
-              Kaydediliyor...
+              Saving...
             </>
           ) : (
             <>
               <ArrowLeftRight size={20} />
-              Transfer Kaydet
+              Save Transfer
             </>
           )}
         </button>
         {!isOnline && (
           <p className="text-center text-amber-500 text-sm mt-3 font-medium">
-            Cevrimdisi - baglaninca senkronize edilecek
+            Offline - will sync when connected
           </p>
         )}
       </div>

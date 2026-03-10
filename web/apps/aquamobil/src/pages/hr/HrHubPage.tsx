@@ -18,8 +18,8 @@ const hrCards: HrCard[] = [
     feature: 'attendance',
     path: '/attendance',
     icon: MapPin,
-    label: 'Yoklama',
-    description: 'Giris/Cikis kaydi yap',
+    label: 'Attendance',
+    description: 'Clock in/out',
     gradient: 'from-green-500 to-green-600',
     iconBg: 'bg-green-100 dark:bg-green-900/30',
   },
@@ -27,8 +27,8 @@ const hrCards: HrCard[] = [
     feature: 'leave',
     path: '/leave',
     icon: CalendarOff,
-    label: 'Izin',
-    description: 'Izin talebi ve bakiye',
+    label: 'Leave',
+    description: 'Leave request and balance',
     gradient: 'from-blue-500 to-blue-600',
     iconBg: 'bg-blue-100 dark:bg-blue-900/30',
   },
@@ -36,8 +36,8 @@ const hrCards: HrCard[] = [
     feature: 'schedule',
     path: '/schedule',
     icon: Clock,
-    label: 'Vardiya',
-    description: 'Vardiya programi',
+    label: 'Shift',
+    description: 'Shift schedule',
     gradient: 'from-purple-500 to-purple-600',
     iconBg: 'bg-purple-100 dark:bg-purple-900/30',
   },
@@ -58,7 +58,7 @@ export function HrHubPage() {
             <div className="w-10 h-10 bg-white/15 backdrop-blur-sm rounded-xl flex items-center justify-center">
               <Users size={22} className="text-white" />
             </div>
-            <h1 className="text-lg font-bold tracking-tight">IK Islemleri</h1>
+            <h1 className="text-lg font-bold tracking-tight">HR Operations</h1>
           </div>
         </div>
         <div className="relative">
@@ -103,7 +103,7 @@ export function HrHubPage() {
         ) : (
           <div className="text-center py-12 text-gray-400">
             <Users size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">Erisim izniniz yok</p>
+            <p className="font-medium">You do not have access</p>
           </div>
         )}
       </div>

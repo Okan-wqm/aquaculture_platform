@@ -11,11 +11,11 @@ function formatTimeAgo(dateStr: string): string {
   const hours = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);
 
-  if (minutes < 1) return 'Az once';
-  if (minutes < 60) return `${minutes} dk once`;
-  if (hours < 24) return `${hours} saat once`;
-  if (days < 7) return `${days} gun once`;
-  return new Date(dateStr).toLocaleDateString('tr-TR');
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return new Date(dateStr).toLocaleDateString('en-US');
 }
 
 export function NotificationsPage() {
@@ -52,7 +52,7 @@ export function NotificationsPage() {
             </button>
             <div className="flex items-center gap-2.5">
               <Bell size={22} />
-              <h1 className="text-lg font-bold">Bildirimler</h1>
+              <h1 className="text-lg font-bold">Notifications</h1>
             </div>
           </div>
           {unreadCount > 0 && (
@@ -61,7 +61,7 @@ export function NotificationsPage() {
               className="flex items-center gap-1.5 text-sm font-medium bg-white/20 px-3 py-1.5 rounded-lg touch-feedback"
             >
               <CheckCheck size={16} />
-              Tumunu Oku
+              Mark All Read
             </button>
           )}
         </div>
@@ -78,7 +78,7 @@ export function NotificationsPage() {
         ) : notifications.length === 0 ? (
           <div className="text-center py-12 text-gray-400">
             <Bell size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">Bildirim yok</p>
+            <p className="font-medium">No notifications</p>
           </div>
         ) : (
           notifications.map((notification) => (

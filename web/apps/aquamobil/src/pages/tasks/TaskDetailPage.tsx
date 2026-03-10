@@ -8,32 +8,32 @@ import { GET_TASK_DETAIL } from '@/graphql/operations';
 import { clsx } from 'clsx';
 
 const PRIORITY_LABELS: Record<string, { label: string; color: string }> = {
-  URGENT: { label: 'Acil', color: 'bg-red-100 text-red-700' },
-  HIGH: { label: 'Yuksek', color: 'bg-orange-100 text-orange-700' },
-  MEDIUM: { label: 'Orta', color: 'bg-blue-100 text-blue-700' },
-  LOW: { label: 'Dusuk', color: 'bg-gray-100 text-gray-600' },
+  URGENT: { label: 'Urgent', color: 'bg-red-100 text-red-700' },
+  HIGH: { label: 'High', color: 'bg-orange-100 text-orange-700' },
+  MEDIUM: { label: 'Medium', color: 'bg-blue-100 text-blue-700' },
+  LOW: { label: 'Low', color: 'bg-gray-100 text-gray-600' },
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
-  FEEDING: 'Yemleme',
-  WATER_QUALITY: 'Su Kalitesi',
-  HEALTH_CHECK: 'Saglik',
-  EQUIPMENT_MAINTENANCE: 'Ekipman',
-  STOCK_MANAGEMENT: 'Stok',
-  CLEANING: 'Temizlik',
-  REGULATORY: 'Mevzuat',
-  HARVEST: 'Hasat',
-  ENVIRONMENTAL: 'Cevre',
-  SAFETY: 'Guvenlik',
-  GENERAL: 'Genel',
+  FEEDING: 'Feeding',
+  WATER_QUALITY: 'Water Quality',
+  HEALTH_CHECK: 'Health',
+  EQUIPMENT_MAINTENANCE: 'Equipment',
+  STOCK_MANAGEMENT: 'Stock',
+  CLEANING: 'Cleaning',
+  REGULATORY: 'Regulatory',
+  HARVEST: 'Harvest',
+  ENVIRONMENTAL: 'Environment',
+  SAFETY: 'Safety',
+  GENERAL: 'General',
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  PENDING: { label: 'Bekliyor', color: 'bg-gray-100 text-gray-600' },
-  IN_PROGRESS: { label: 'Devam Ediyor', color: 'bg-amber-100 text-amber-700' },
-  COMPLETED: { label: 'Tamamlandi', color: 'bg-green-100 text-green-700' },
-  OVERDUE: { label: 'Gecikmis', color: 'bg-red-100 text-red-700' },
-  CANCELLED: { label: 'Iptal', color: 'bg-gray-100 text-gray-500' },
+  PENDING: { label: 'Pending', color: 'bg-gray-100 text-gray-600' },
+  IN_PROGRESS: { label: 'In Progress', color: 'bg-amber-100 text-amber-700' },
+  COMPLETED: { label: 'Completed', color: 'bg-green-100 text-green-700' },
+  OVERDUE: { label: 'Overdue', color: 'bg-red-100 text-red-700' },
+  CANCELLED: { label: 'Cancelled', color: 'bg-gray-100 text-gray-500' },
 };
 
 export function TaskDetailPage() {
@@ -73,7 +73,7 @@ export function TaskDetailPage() {
 
       setTask(result.data?.task ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gorev yuklenemedi');
+      setError(err instanceof Error ? err.message : 'Failed to load task');
     } finally {
       setLoading(false);
     }
@@ -88,14 +88,14 @@ export function TaskDetailPage() {
     setIsSubmitting(true);
     try {
       await startTask(taskId);
-      setSuccessMessage('Gorev baslatildi!');
+      setSuccessMessage('Task started!');
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
         fetchTask();
       }, 1000);
     } catch {
-      setError('Gorev baslatilamadi');
+      setError('Failed to start task');
     } finally {
       setIsSubmitting(false);
     }
@@ -106,14 +106,14 @@ export function TaskDetailPage() {
     setIsSubmitting(true);
     try {
       await completeTask(taskId);
-      setSuccessMessage('Gorev tamamlandi!');
+      setSuccessMessage('Task completed!');
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
         fetchTask();
       }, 1000);
     } catch {
-      setError('Gorev tamamlanamadi');
+      setError('Failed to complete task');
     } finally {
       setIsSubmitting(false);
     }
@@ -159,7 +159,7 @@ export function TaskDetailPage() {
             <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
               <ArrowLeft size={22} />
             </button>
-            <h1 className="text-lg font-bold">Gorev Detayi</h1>
+            <h1 className="text-lg font-bold">Task Details</h1>
           </div>
         </div>
         <div className="flex items-center justify-center min-h-[50vh]">
@@ -177,13 +177,13 @@ export function TaskDetailPage() {
             <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
               <ArrowLeft size={22} />
             </button>
-            <h1 className="text-lg font-bold">Gorev Detayi</h1>
+            <h1 className="text-lg font-bold">Task Details</h1>
           </div>
         </div>
         <div className="px-4 mt-4">
           <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 flex items-center gap-3 border border-red-200 dark:border-red-800">
             <AlertCircle size={20} className="text-red-500 flex-shrink-0" />
-            <span className="text-red-600 dark:text-red-300 text-sm">{error || 'Gorev bulunamadi'}</span>
+            <span className="text-red-600 dark:text-red-300 text-sm">{error || 'Task not found'}</span>
           </div>
         </div>
       </div>
@@ -218,7 +218,7 @@ export function TaskDetailPage() {
           <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
             <ArrowLeft size={22} />
           </button>
-          <h1 className="text-lg font-bold">Gorev Detayi</h1>
+          <h1 className="text-lg font-bold">Task Details</h1>
         </div>
       </div>
 
@@ -250,7 +250,7 @@ export function TaskDetailPage() {
               <div className="flex items-center gap-2 text-sm text-gray-500">
                 <Clock size={14} />
                 <span>
-                  {new Date(task.dueDate).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  {new Date(task.dueDate).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}
                   {task.dueTime && ` - ${task.dueTime}`}
                 </span>
               </div>
@@ -264,7 +264,7 @@ export function TaskDetailPage() {
             {task.estimatedMinutes && (
               <div className="flex items-center gap-2 text-sm text-gray-500">
                 <Clock size={14} />
-                <span>Tahmini: {task.estimatedMinutes} dakika</span>
+                <span>Estimated: {task.estimatedMinutes} minutes</span>
               </div>
             )}
             {task.tags && task.tags.length > 0 && (
@@ -287,7 +287,7 @@ export function TaskDetailPage() {
       {checklistItems.length > 0 && (
         <div className="px-4 mt-4">
           <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
-            Kontrol Listesi ({checklistItems.filter((c) => c.isCompleted).length}/{checklistItems.length})
+            Checklist ({checklistItems.filter((c) => c.isCompleted).length}/{checklistItems.length})
           </h3>
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
             {checklistItems.map((item, index) => (
@@ -331,7 +331,7 @@ export function TaskDetailPage() {
 
       {/* Notes */}
       <div className="px-4 mt-4">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Notlar</h3>
+        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Notes</h3>
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 p-4">
           {notes.length > 0 && (
             <div className="space-y-3 mb-4">
@@ -340,7 +340,7 @@ export function TaskDetailPage() {
                   <p className="text-sm text-gray-900 dark:text-white">{note.text}</p>
                   <p className="text-xs text-gray-400 mt-1">
                     {note.createdBy && `${note.createdBy} - `}
-                    {note.createdAt && new Date(note.createdAt).toLocaleString('tr-TR')}
+                    {note.createdAt && new Date(note.createdAt).toLocaleString('en-US')}
                   </p>
                 </div>
               ))}
@@ -352,7 +352,7 @@ export function TaskDetailPage() {
               type="text"
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
-              placeholder="Not ekle..."
+              placeholder="Add a note..."
               className="flex-1 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-sm bg-transparent text-gray-900 dark:text-white placeholder-gray-400"
             />
             <button
@@ -381,7 +381,7 @@ export function TaskDetailPage() {
                 ) : (
                   <>
                     <Play size={20} />
-                    Basla
+                    Start
                   </>
                 )}
               </button>
@@ -395,7 +395,7 @@ export function TaskDetailPage() {
                 ) : (
                   <>
                     <CheckCircle size={20} />
-                    Tamamla
+                    Complete
                   </>
                 )}
               </button>
@@ -411,7 +411,7 @@ export function TaskDetailPage() {
               ) : (
                 <>
                   <CheckCircle size={20} />
-                  Tamamla
+                  Complete
                 </>
               )}
             </button>

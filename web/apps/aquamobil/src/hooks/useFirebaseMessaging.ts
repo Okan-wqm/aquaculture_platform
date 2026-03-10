@@ -42,7 +42,7 @@ export function useFirebaseMessaging() {
     const data = payload?.data ?? {};
 
     const detail: PushNotificationDetail = {
-      title: notification.title ?? data.title ?? 'Bildirim',
+      title: notification.title ?? data.title ?? 'Notification',
       body: notification.body ?? data.body ?? '',
       taskId: data.taskId,
       data,

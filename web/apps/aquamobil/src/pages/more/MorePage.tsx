@@ -25,7 +25,7 @@ export function MorePage() {
     {
       id: 'sync',
       icon: Cloud,
-      label: 'Senkronizasyon',
+      label: 'Synchronization',
       path: '/sync',
       iconColor: 'text-ocean-600',
       iconBg: 'bg-ocean-50 dark:bg-ocean-900/30',
@@ -34,7 +34,7 @@ export function MorePage() {
     {
       id: 'notifications',
       icon: Bell,
-      label: 'Bildirimler',
+      label: 'Notifications',
       path: '/notifications',
       iconColor: 'text-amber-600',
       iconBg: 'bg-amber-50 dark:bg-amber-900/30',
@@ -43,7 +43,7 @@ export function MorePage() {
     {
       id: 'logout',
       icon: LogOut,
-      label: 'Cikis Yap',
+      label: 'Log Out',
       action: logout,
       iconColor: 'text-red-600',
       iconBg: 'bg-red-50 dark:bg-red-900/30',
@@ -67,7 +67,7 @@ export function MorePage() {
             <div className="w-10 h-10 bg-white/15 backdrop-blur-sm rounded-xl flex items-center justify-center">
               <MoreHorizontal size={22} className="text-white" />
             </div>
-            <h1 className="text-lg font-bold tracking-tight">Diger</h1>
+            <h1 className="text-lg font-bold tracking-tight">More</h1>
           </div>
         </div>
         <div className="relative">

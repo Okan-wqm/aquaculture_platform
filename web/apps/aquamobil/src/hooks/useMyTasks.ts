@@ -69,7 +69,7 @@ export function useMyTasks(segment: Segment = 'today') {
       if (cached) {
         setAllTasks(cached);
       } else {
-        setError(err instanceof Error ? err.message : 'Gorevler yuklenemedi');
+        setError(err instanceof Error ? err.message : 'Failed to load tasks');
       }
     } finally {
       setLoading(false);

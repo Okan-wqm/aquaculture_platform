@@ -28,11 +28,11 @@ export function MobileLayout({ children }: MobileLayoutProps) {
   const { canAccess } = useMobilePermissions();
 
   const allTabs: TabItem[] = [
-    { id: 'home', icon: Home, label: 'Ana Sayfa', path: '/', activeColor: 'text-ocean-600' },
+    { id: 'home', icon: Home, label: 'Home', path: '/', activeColor: 'text-ocean-600' },
     {
       id: 'record',
       icon: ClipboardList,
-      label: 'Kayit',
+      label: 'Record',
       path: '/record',
       activeColor: 'text-orange-600',
       features: ['feeding', 'mortality', 'cull', 'harvest', 'transfer'],
@@ -40,7 +40,7 @@ export function MobileLayout({ children }: MobileLayoutProps) {
     {
       id: 'tasks',
       icon: CheckSquare,
-      label: 'Gorevler',
+      label: 'Tasks',
       path: '/tasks',
       activeColor: 'text-green-600',
       features: ['tasks'],
@@ -48,7 +48,7 @@ export function MobileLayout({ children }: MobileLayoutProps) {
     {
       id: 'hr',
       icon: Users,
-      label: 'IK',
+      label: 'HR',
       path: '/hr',
       activeColor: 'text-violet-600',
       features: ['attendance', 'leave', 'schedule'],
@@ -56,7 +56,7 @@ export function MobileLayout({ children }: MobileLayoutProps) {
     {
       id: 'more',
       icon: MoreHorizontal,
-      label: 'Diger',
+      label: 'More',
       path: '/more',
       activeColor: 'text-gray-600',
     },
@@ -79,7 +79,7 @@ export function MobileLayout({ children }: MobileLayoutProps) {
       {!isOnline && (
         <div className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-4 py-2.5 flex items-center justify-center gap-2 text-sm font-medium shadow-md">
           <CloudOff size={16} />
-          <span>Cevrimdisi - Degisiklikler baglaninca senkronize edilecek</span>
+          <span>Offline - Changes will sync when connected</span>
         </div>
       )}
 
@@ -87,7 +87,7 @@ export function MobileLayout({ children }: MobileLayoutProps) {
       {isSyncing && (
         <div className="bg-gradient-to-r from-ocean-500 to-ocean-600 text-white px-4 py-2.5 flex items-center justify-center gap-2 text-sm font-medium shadow-md">
           <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
-          <span>Veri senkronize ediliyor...</span>
+          <span>Syncing data...</span>
         </div>
       )}
 

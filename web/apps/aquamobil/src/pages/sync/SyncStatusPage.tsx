@@ -17,7 +17,7 @@ export function SyncStatusPage() {
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
-    return date.toLocaleString('tr-TR', {
+    return date.toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',

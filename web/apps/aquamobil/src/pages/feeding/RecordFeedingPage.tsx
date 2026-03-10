@@ -34,8 +34,8 @@ interface FeedingExecution {
 type FeedingMethodOption = 'manual' | 'automatic' | 'demand';
 
 const FEEDING_METHODS: { value: FeedingMethodOption; label: string; Icon: typeof Hand }[] = [
-  { value: 'manual', label: 'Manuel', Icon: Hand },
-  { value: 'automatic', label: 'Otomatik', Icon: Settings },
+  { value: 'manual', label: 'Manual', Icon: Hand },
+  { value: 'automatic', label: 'Automatic', Icon: Settings },
   { value: 'demand', label: 'Demand', Icon: Radio },
 ];
 

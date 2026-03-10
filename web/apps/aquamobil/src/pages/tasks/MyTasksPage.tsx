@@ -7,9 +7,9 @@ import { clsx } from 'clsx';
 type Segment = 'today' | 'upcoming' | 'overdue';
 
 const SEGMENTS: { key: Segment; label: string }[] = [
-  { key: 'today', label: 'Bugun' },
-  { key: 'upcoming', label: 'Yaklasan' },
-  { key: 'overdue', label: 'Gecikmis' },
+  { key: 'today', label: 'Today' },
+  { key: 'upcoming', label: 'Upcoming' },
+  { key: 'overdue', label: 'Overdue' },
 ];
 
 export function MyTasksPage() {
@@ -33,7 +33,7 @@ export function MyTasksPage() {
             <div className="w-10 h-10 bg-white/15 backdrop-blur-sm rounded-xl flex items-center justify-center">
               <CheckSquare size={22} className="text-white" />
             </div>
-            <h1 className="text-lg font-bold tracking-tight">Gorevlerim</h1>
+            <h1 className="text-lg font-bold tracking-tight">My Tasks</h1>
           </div>
         </div>
         <div className="relative">
@@ -70,7 +70,7 @@ export function MyTasksPage() {
           disabled={isRefreshing}
           className="text-xs text-ocean-500 font-medium touch-feedback"
         >
-          {isRefreshing ? 'Yenileniyor...' : 'Yenile'}
+          {isRefreshing ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
 
@@ -86,9 +86,9 @@ export function MyTasksPage() {
           <div className="text-center py-12 text-gray-400">
             <ClipboardList size={48} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">
-              {segment === 'today' && 'Bugun gorev yok'}
-              {segment === 'upcoming' && 'Yaklasan gorev yok'}
-              {segment === 'overdue' && 'Gecikmis gorev yok'}
+              {segment === 'today' && 'No tasks today'}
+              {segment === 'upcoming' && 'No upcoming tasks'}
+              {segment === 'overdue' && 'No overdue tasks'}
             </p>
           </div>
         ) : (

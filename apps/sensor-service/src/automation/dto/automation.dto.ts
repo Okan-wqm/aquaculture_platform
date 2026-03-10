@@ -29,6 +29,15 @@ const enumTransform = <T>(defaultValue: T) =>
     return typeof value === 'string' ? value.toLowerCase() : value;
   };
 
+// Some IEC 61131-3 enums (VariableDataType) use UPPERCASE values ('BOOL', 'INT', 'REAL')
+// that match their keys. The generic enumTransform would lowercase them and break @IsEnum().
+// This variant keeps the original case, only returning the default when the value is missing.
+const enumTransformKeepCase = <T>(defaultValue: T) =>
+  ({ value }: { value: unknown }) => {
+    if (value === undefined || value === null) return defaultValue;
+    return value;
+  };
+
 import {
   AutomationProgram,
   ProgramType,
@@ -191,6 +200,7 @@ export class UpdateProgramInput {
   description?: string;
 
   @IsOptional()
+  @Transform(enumTransform(ExecutionMode.MANUAL))
   @IsEnum(ExecutionMode)
   @Field(() => ExecutionMode, { nullable: true })
   executionMode?: ExecutionMode;
@@ -240,6 +250,7 @@ export class UpdateProgramInput {
 
   // Deploy target configuration
   @IsOptional()
+  @Transform(enumTransform(DeployTarget.RUST_ENGINE))
   @IsEnum(DeployTarget)
   @Field(() => DeployTarget, { nullable: true })
   deployTarget?: DeployTarget;
@@ -754,7 +765,7 @@ export class CreateVariableInput {
   description?: string;
 
   @IsOptional()
-  @Transform(enumTransform(VariableDataType.REAL))
+  @Transform(enumTransformKeepCase(VariableDataType.REAL))
   @IsEnum(VariableDataType)
   @Field(() => VariableDataType, { defaultValue: VariableDataType.REAL })
   dataType?: VariableDataType;
@@ -772,7 +783,10 @@ export class CreateVariableInput {
   initialValue?: string;
 
   // I/O Mapping
+  // SECURITY FIX: @ValidateIf ensures empty strings are treated as "not provided"
+  // so @IsUUID() doesn't reject them. The frontend sends "" when no I/O tag is selected.
   @IsOptional()
+  @ValidateIf((_obj, value) => value !== null && value !== undefined && value !== '')
   @IsUUID()
   @Field({ nullable: true, description: 'Reference to DeviceIoConfig.id' })
   ioConfigId?: string;
@@ -785,6 +799,7 @@ export class CreateVariableInput {
 
   // Equipment binding (Process Editor integration)
   @IsOptional()
+  @ValidateIf((_obj, value) => value !== null && value !== undefined && value !== '')
   @IsUUID()
   @Field({ nullable: true, description: 'Reference to equipment node in process template' })
   equipmentNodeId?: string;
@@ -797,6 +812,7 @@ export class CreateVariableInput {
 
   // Sensor binding
   @IsOptional()
+  @ValidateIf((_obj, value) => value !== null && value !== undefined && value !== '')
   @IsUUID()
   @Field({ nullable: true, description: 'Reference to sensor data channel' })
   sensorChannelId?: string;
@@ -865,6 +881,7 @@ export class UpdateVariableInput {
   description?: string;
 
   @IsOptional()
+  @Transform(enumTransformKeepCase(undefined))
   @IsEnum(VariableDataType)
   @Field(() => VariableDataType, { nullable: true })
   dataType?: VariableDataType;
@@ -881,6 +898,7 @@ export class UpdateVariableInput {
   initialValue?: string;
 
   @IsOptional()
+  @ValidateIf((_obj, value) => value !== null && value !== undefined && value !== '')
   @IsUUID()
   @Field({ nullable: true })
   ioConfigId?: string;
@@ -892,6 +910,7 @@ export class UpdateVariableInput {
   ioTagName?: string;
 
   @IsOptional()
+  @ValidateIf((_obj, value) => value !== null && value !== undefined && value !== '')
   @IsUUID()
   @Field({ nullable: true })
   equipmentNodeId?: string;
@@ -903,6 +922,7 @@ export class UpdateVariableInput {
   equipmentProperty?: string;
 
   @IsOptional()
+  @ValidateIf((_obj, value) => value !== null && value !== undefined && value !== '')
   @IsUUID()
   @Field({ nullable: true })
   sensorChannelId?: string;

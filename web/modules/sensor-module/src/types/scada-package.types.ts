@@ -108,6 +108,7 @@ export interface AutomationBinding {
   programId: string;
   programName: string;
   programCode: string;
+  tags?: string[];
   variableBindings: VariableBinding[];
 }
 

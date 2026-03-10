@@ -18,6 +18,7 @@ export const AUTOMATION_PROGRAMS_QUERY = `
       version
       programType
       status
+      tags
       stepCount
       transitionCount
       variableCount
@@ -50,6 +51,9 @@ export const AUTOMATION_PROGRAM_QUERY = `
       version
       programType
       status
+      tags
+      category
+      executionMode
       structuredTextCode
       deployTarget
       targetPlcAddress
@@ -122,6 +126,7 @@ export const CREATE_PROGRAM_MUTATION = `
     createAutomationProgram(input: $input) {
       id
       programCode
+      structuredTextCode
     }
   }
 `;
@@ -131,6 +136,7 @@ export const UPDATE_PROGRAM_MUTATION = `
     updateAutomationProgram(id: $id, input: $input) {
       id
       programName
+      structuredTextCode
     }
   }
 `;

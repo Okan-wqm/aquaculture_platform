@@ -32,6 +32,8 @@ import {
   Wifi,
   WifiOff,
   Play,
+  Tag,
+  X,
 } from 'lucide-react';
 import StEditorPanel from '../../components/unified-editor/StEditorPanel';
 import SimulationPanel from '../../simulation/SimulationPanel';
@@ -69,6 +71,9 @@ interface AutomationProgram {
   version: number;
   programType: ProgramType;
   status: ProgramStatus;
+  tags?: string[];
+  category?: string;
+  executionMode?: string;
   structuredTextCode?: string;
   deployTarget?: string;
   targetPlcAddress?: string;
@@ -102,8 +107,8 @@ interface ProgramStep {
 }
 
 /** IEC 61131-3 variable scopes that map to physical I/O on an edge device */
-type IoVariableScope = 'INPUT' | 'OUTPUT' | 'IN_OUT';
-const IO_VARIABLE_SCOPES: readonly IoVariableScope[] = ['INPUT', 'OUTPUT', 'IN_OUT'] as const;
+type IoVariableScope = 'INPUT' | 'OUTPUT' | 'INOUT';
+const IO_VARIABLE_SCOPES: readonly IoVariableScope[] = ['INPUT', 'OUTPUT', 'INOUT'] as const;
 
 /**
  * Maps IoDataType (hardware-level types from DeviceIoConfig) to IEC 61131-3 PLC data types.
@@ -258,6 +263,8 @@ const AutomationProgramEditorPage: React.FC = () => {
     name: '',
     description: '',
     programType: ProgramType.ST,
+    tags: [] as string[],
+    category: '',
   });
   const [stCode, setStCode] = useState('');
   const [deployTarget, setDeployTarget] = useState<DeployTarget>(DeployTarget.RUST_ENGINE);
@@ -279,6 +286,7 @@ const AutomationProgramEditorPage: React.FC = () => {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [newTagInput, setNewTagInput] = useState('');
   const [showAddTransition, setShowAddTransition] = useState(false);
   const [newTransition, setNewTransition] = useState({
     transitionCode: '',
@@ -336,10 +344,10 @@ const AutomationProgramEditorPage: React.FC = () => {
         name: prog.programName,
         description: prog.description || '',
         programType: prog.programType,
+        tags: Array.isArray(prog.tags) ? prog.tags : [],
+        category: prog.category || '',
       });
-      if (prog.structuredTextCode) {
-        setStCode(prog.structuredTextCode);
-      }
+      setStCode(prog.structuredTextCode ?? '');
       if (prog.deployTarget) {
         setDeployTarget(prog.deployTarget as DeployTarget);
       }
@@ -372,6 +380,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch<{ createAutomationProgram: { id: string } }>(CREATE_PROGRAM_MUTATION, { input }),
     onSuccess: (result) => {
       setErrorMessage(null);
+      queryClient.invalidateQueries({ queryKey: ['automationPrograms'] });
       navigate(`/sensor/automation/${result.createAutomationProgram.id}`);
     },
     onError: (error: Error) => handleMutationError(error, 'Program oluşturulamadı'),
@@ -541,6 +550,8 @@ const AutomationProgramEditorPage: React.FC = () => {
         executionMode: 'MANUAL',
         structuredTextCode: stCode || undefined,
         deployTarget,
+        tags: formData.tags.length > 0 ? formData.tags : undefined,
+        category: formData.category || undefined,
         ...sanitizedPlcConfig,
       });
     } else {
@@ -555,6 +566,8 @@ const AutomationProgramEditorPage: React.FC = () => {
         description: formData.description || undefined,
         structuredTextCode: stCode || undefined,
         deployTarget,
+        tags: formData.tags,
+        category: formData.category || undefined,
         ...sanitizedPlcConfig,
       });
     }
@@ -568,7 +581,18 @@ const AutomationProgramEditorPage: React.FC = () => {
 
   const handleAddVariable = () => {
     if (!isNew && programId && newVariable.varName) {
-      addVariableMutation.mutate({ ...newVariable, programId });
+      // Sanitize: convert empty strings to undefined so backend @IsOptional()
+      // correctly skips validation for unneeded fields (e.g. ioConfigId, ioTagName).
+      const sanitized: Record<string, unknown> = {
+        varName: newVariable.varName,
+        dataType: newVariable.dataType,
+        scope: newVariable.scope,
+        programId,
+      };
+      if (newVariable.initialValue) sanitized.initialValue = newVariable.initialValue;
+      if (newVariable.ioTagName) sanitized.ioTagName = newVariable.ioTagName;
+      if (newVariable.ioConfigId) sanitized.ioConfigId = newVariable.ioConfigId;
+      addVariableMutation.mutate(sanitized as typeof newVariable & { programId: string });
     }
   };
 
@@ -898,6 +922,89 @@ const AutomationProgramEditorPage: React.FC = () => {
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white"
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Kategori
+              </label>
+              <select
+                value={formData.category}
+                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white"
+              >
+                <option value="">Kategori secin...</option>
+                <option value="startup">Baslangic (Startup)</option>
+                <option value="shutdown">Kapanis (Shutdown)</option>
+                <option value="emergency">Acil Durum (Emergency)</option>
+                <option value="process">Proses (Process)</option>
+                <option value="cleaning">Temizlik (Cleaning)</option>
+              </select>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                <span className="flex items-center gap-1.5">
+                  <Tag className="h-4 w-4" />
+                  Etiketler (Tags)
+                </span>
+              </label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {formData.tags.map((tag, index) => (
+                  <span
+                    key={index}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-sm font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full"
+                  >
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => setFormData({
+                        ...formData,
+                        tags: formData.tags.filter((_, i) => i !== index),
+                      })}
+                      className="hover:text-red-500 transition-colors"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newTagInput}
+                  onChange={(e) => setNewTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newTagInput.trim()) {
+                      e.preventDefault();
+                      const tag = newTagInput.trim();
+                      if (!formData.tags.includes(tag)) {
+                        setFormData({ ...formData, tags: [...formData.tags, tag] });
+                      }
+                      setNewTagInput('');
+                    }
+                  }}
+                  placeholder="Etiket girin ve Enter'a basin..."
+                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const tag = newTagInput.trim();
+                    if (tag && !formData.tags.includes(tag)) {
+                      setFormData({ ...formData, tags: [...formData.tags, tag] });
+                    }
+                    setNewTagInput('');
+                  }}
+                  disabled={!newTagInput.trim()}
+                  className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium"
+                >
+                  Ekle
+                </button>
+              </div>
+              {formData.tags.length === 0 && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Programi kategorize etmek icin etiket ekleyin (orn: yemleme, su-kalitesi, havalandirma)
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -959,8 +1066,9 @@ const AutomationProgramEditorPage: React.FC = () => {
                   <option value="LOCAL">LOCAL</option>
                   <option value="INPUT">INPUT</option>
                   <option value="OUTPUT">OUTPUT</option>
-                  <option value="IN_OUT">IN_OUT</option>
-                  <option value="GLOBAL">GLOBAL</option>
+                  <option value="INOUT">INOUT</option>
+                  <option value="RETAIN">RETAIN</option>
+                  <option value="CONSTANT">CONSTANT</option>
                 </select>
               </div>
               {/* I/O Tag Binding -- only INPUT/OUTPUT/IN_OUT variables can be bound to physical tags */}

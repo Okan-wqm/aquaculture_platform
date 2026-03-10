@@ -33,6 +33,7 @@ import {
   ThumbsDown,
   ChevronLeft,
   ChevronRight,
+  Tag,
 } from 'lucide-react';
 import { useAuth } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../../config/api';
@@ -64,6 +65,7 @@ interface AutomationProgram {
   version: string;
   programType: ProgramType;
   status: ProgramStatus;
+  tags?: string[];
   stepCount?: number;
   transitionCount?: number;
   variableCount?: number;
@@ -205,6 +207,21 @@ const ProgramCard: React.FC<{
         </span>
       </div>
 
+      {/* Tags */}
+      {program.tags && program.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-3">
+          {program.tags.map((tag, i) => (
+            <span
+              key={i}
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-full"
+            >
+              <Tag className="h-3 w-3" />
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Approve/Reject actions for pending programs */}
       {program.status === ProgramStatus.PENDING_REVIEW && (
         <div className="flex items-center gap-2 mb-3">
@@ -258,7 +275,19 @@ const ProgramRow: React.FC<{
             {program.programName}
           </Link>
         </div>
-        <span className="text-xs text-gray-500 font-mono">{program.programCode}</span>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-xs text-gray-500 font-mono">{program.programCode}</span>
+          {program.tags && program.tags.length > 0 && (
+            <div className="flex gap-1">
+              {program.tags.map((tag, i) => (
+                <span key={i} className="inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] font-medium bg-indigo-50 text-indigo-600 rounded-full">
+                  <Tag className="h-2.5 w-2.5" />
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       </td>
       <td className="px-4 py-3">
         <StatusBadge status={program.status} />

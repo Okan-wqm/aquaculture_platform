@@ -538,6 +538,7 @@ const AutomationProgramEditorPage: React.FC = () => {
         programName: formData.name,
         description: formData.description || undefined,
         programType: formData.programType,
+        executionMode: 'MANUAL',
         structuredTextCode: stCode || undefined,
         deployTarget,
         ...sanitizedPlcConfig,

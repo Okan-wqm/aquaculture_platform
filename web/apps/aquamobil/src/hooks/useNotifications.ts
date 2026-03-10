@@ -73,21 +73,31 @@ export function useNotifications() {
 
   const markAsRead = useCallback(
     async (id: string) => {
-      await executeGraphQL(MARK_NOTIFICATION_READ, { id });
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, isRead: true, readAt: new Date().toISOString() } : n)),
-      );
-      setUnreadCount((prev) => Math.max(0, prev - 1));
+      try {
+        const result = await executeGraphQL(MARK_NOTIFICATION_READ, { id });
+        if (result == null) return;
+        setNotifications((prev) =>
+          prev.map((n) => (n.id === id ? { ...n, isRead: true, readAt: new Date().toISOString() } : n)),
+        );
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      } catch {
+        // silently fail — don't apply optimistic update on error
+      }
     },
     [executeGraphQL],
   );
 
   const markAllAsRead = useCallback(async () => {
-    await executeGraphQL(MARK_ALL_READ);
-    setNotifications((prev) =>
-      prev.map((n) => ({ ...n, isRead: true, readAt: new Date().toISOString() })),
-    );
-    setUnreadCount(0);
+    try {
+      const result = await executeGraphQL(MARK_ALL_READ);
+      if (result == null) return;
+      setNotifications((prev) =>
+        prev.map((n) => ({ ...n, isRead: true, readAt: new Date().toISOString() })),
+      );
+      setUnreadCount(0);
+    } catch {
+      // silently fail — don't apply optimistic update on error
+    }
   }, [executeGraphQL]);
 
   // Initial fetch + polling every 60 seconds

@@ -12,6 +12,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   Index,
 } from 'typeorm';
 import {
@@ -89,6 +90,7 @@ registerEnumType(TaskStatus, {
 @Index(['tenantId', 'assignedTo', 'status'])
 @Index(['tenantId', 'dueDate'])
 @Index(['tenantId', 'status', 'priority'])
+@Index(['status', 'dueDate'])
 export class Task {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -96,7 +98,6 @@ export class Task {
 
   @Field()
   @Column('uuid')
-  @Index()
   tenantId: string;
 
   // -------------------------------------------------------------------------
@@ -158,7 +159,7 @@ export class Task {
   dueDate: Date;
 
   @Field({ nullable: true })
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'time', nullable: true })
   dueTime?: string;
 
   @Field({ nullable: true })
@@ -190,7 +191,7 @@ export class Task {
   // -------------------------------------------------------------------------
 
   @Field(() => [String], { nullable: true })
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'jsonb', nullable: true, default: [] })
   tags?: string[];
 
   // -------------------------------------------------------------------------
@@ -224,6 +225,10 @@ export class Task {
   // -------------------------------------------------------------------------
   // AUDIT FIELDS
   // -------------------------------------------------------------------------
+
+  @Field({ nullable: true })
+  @DeleteDateColumn({ type: 'timestamptz' })
+  deletedAt?: Date;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })

@@ -73,7 +73,7 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
                       <td className="px-4 py-3">
                         <div>
                           <p className="text-sm font-medium text-gray-900">{tmpl.title}</p>
-                          <p className="text-xs text-gray-500">{tmpl.description.substring(0, 60)}...</p>
+                          <p className="text-xs text-gray-500">{tmpl.description ? (tmpl.description.length > 60 ? `${tmpl.description.substring(0, 60)}...` : tmpl.description) : ''}</p>
                           {tmpl.checklistItems.length > 0 && (
                             <p className="text-xs text-gray-400 mt-0.5">{tmpl.checklistItems.length} kontrol maddesi</p>
                           )}
@@ -100,8 +100,8 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-700">{tmpl.assignedToName}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{tmpl.lastGenerated || '-'}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{tmpl.nextGeneration || '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{tmpl.lastGenerated ? new Date(tmpl.lastGenerated).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{tmpl.nextGeneration ? new Date(tmpl.nextGeneration).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}</td>
                       <td className="px-4 py-3">
                         <button
                           onClick={() => onToggleActive(tmpl.id)}

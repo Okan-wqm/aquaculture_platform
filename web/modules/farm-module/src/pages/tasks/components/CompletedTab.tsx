@@ -23,8 +23,10 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
   const completedTasks = tasks
     .filter(t => t.status === 'COMPLETED')
     .filter(t => {
-      if (dateFrom && t.completedAt && t.completedAt < dateFrom) return false;
-      if (dateTo && t.completedAt && t.completedAt > dateTo) return false;
+      if (!t.completedAt) return true;
+      const completedDate = t.completedAt.split('T')[0];
+      if (dateFrom && completedDate < dateFrom) return false;
+      if (dateTo && completedDate > dateTo) return false;
       return true;
     })
     .sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));

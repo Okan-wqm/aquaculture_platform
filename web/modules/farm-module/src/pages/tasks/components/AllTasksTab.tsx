@@ -70,13 +70,19 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
     }
   };
 
-  const handleBulkComplete = () => {
-    selectedIds.forEach(id => onToggleComplete(id));
+  const handleBulkComplete = async () => {
+    if (!window.confirm(`${selectedIds.size} görevi tamamlamak istediğinize emin misiniz?`)) return;
+    for (const id of selectedIds) {
+      await onToggleComplete(id);
+    }
     setSelectedIds(new Set());
   };
 
-  const handleBulkDelete = () => {
-    selectedIds.forEach(id => onDeleteTask(id));
+  const handleBulkDelete = async () => {
+    if (!window.confirm(`${selectedIds.size} görevi silmek istediğinize emin misiniz?`)) return;
+    for (const id of selectedIds) {
+      await onDeleteTask(id);
+    }
     setSelectedIds(new Set());
   };
 
@@ -257,7 +263,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
       {showCreateModal && (
         <TaskFormModal
           onClose={() => setShowCreateModal(false)}
-          onSave={(data) => { onCreateTask(data); setShowCreateModal(false); }}
+          onSave={async (data) => { await onCreateTask(data); setShowCreateModal(false); }}
           users={users}
         />
       )}

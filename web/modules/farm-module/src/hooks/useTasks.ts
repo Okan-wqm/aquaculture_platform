@@ -191,6 +191,9 @@ export function useTasks(filter?: TaskFilterInput) {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['taskStats'] });
     },
+    onError: (error: Error) => {
+      console.error('Mutation failed:', error.message);
+    },
   });
 
   const updateTaskMutation = useMutation({
@@ -213,6 +216,9 @@ export function useTasks(filter?: TaskFilterInput) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['taskStats'] });
+    },
+    onError: (error: Error) => {
+      console.error('Mutation failed:', error.message);
     },
   });
 
@@ -237,6 +243,9 @@ export function useTasks(filter?: TaskFilterInput) {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['taskStats'] });
     },
+    onError: (error: Error) => {
+      console.error('Mutation failed:', error.message);
+    },
   });
 
   const startTaskMutation = useMutation({
@@ -260,6 +269,9 @@ export function useTasks(filter?: TaskFilterInput) {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['taskStats'] });
     },
+    onError: (error: Error) => {
+      console.error('Mutation failed:', error.message);
+    },
   });
 
   const deleteTaskMutation = useMutation({
@@ -280,6 +292,9 @@ export function useTasks(filter?: TaskFilterInput) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['taskStats'] });
+    },
+    onError: (error: Error) => {
+      console.error('Mutation failed:', error.message);
     },
   });
 
@@ -303,6 +318,9 @@ export function useTasks(filter?: TaskFilterInput) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
+    onError: (error: Error) => {
+      console.error('Mutation failed:', error.message);
+    },
   });
 
   const addTaskNoteMutation = useMutation({
@@ -324,6 +342,9 @@ export function useTasks(filter?: TaskFilterInput) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
+    onError: (error: Error) => {
+      console.error('Mutation failed:', error.message);
     },
   });
 
@@ -348,6 +369,10 @@ export function useTasks(filter?: TaskFilterInput) {
     creating: createTaskMutation.isPending,
     updating: updateTaskMutation.isPending,
     deleting: deleteTaskMutation.isPending,
+    // Mutation errors
+    createError: createTaskMutation.error,
+    updateError: updateTaskMutation.error,
+    deleteError: deleteTaskMutation.error,
     // Refetch
     refetch: tasksQuery.refetch,
   };

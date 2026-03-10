@@ -15,7 +15,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, LessThan } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
@@ -29,6 +29,14 @@ import { EventNames } from '../../events/event-types';
 @Injectable()
 export class TaskService {
   private readonly logger = new Logger(TaskService.name);
+
+  private static readonly VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
+    [TaskStatus.PENDING]: [TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED],
+    [TaskStatus.IN_PROGRESS]: [TaskStatus.COMPLETED, TaskStatus.PENDING, TaskStatus.CANCELLED],
+    [TaskStatus.OVERDUE]: [TaskStatus.IN_PROGRESS, TaskStatus.COMPLETED, TaskStatus.CANCELLED],
+    [TaskStatus.COMPLETED]: [TaskStatus.PENDING],
+    [TaskStatus.CANCELLED]: [TaskStatus.PENDING],
+  };
 
   constructor(
     @InjectRepository(Task)
@@ -116,6 +124,14 @@ export class TaskService {
     if (input.description !== undefined) task.description = input.description;
     if (input.category !== undefined) task.category = input.category;
     if (input.priority !== undefined) task.priority = input.priority;
+    if (input.status !== undefined && input.status !== task.status) {
+      const validNext = TaskService.VALID_TRANSITIONS[task.status];
+      if (!validNext?.includes(input.status)) {
+        throw new BadRequestException(
+          `Geçersiz durum geçişi: ${task.status} → ${input.status}`,
+        );
+      }
+    }
     if (input.status !== undefined) task.status = input.status;
     if (input.assignedTo !== undefined) task.assignedTo = input.assignedTo;
     if (input.assignedToName !== undefined) task.assignedToName = input.assignedToName;
@@ -212,7 +228,10 @@ export class TaskService {
 
     query
       .orderBy('task.dueDate', 'ASC')
-      .addOrderBy('task.priority', 'ASC')
+      .addOrderBy(
+        `CASE task.priority WHEN 'URGENT' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 3 ELSE 4 END`,
+        'ASC',
+      )
       .skip(offset)
       .take(limit);
 
@@ -233,19 +252,22 @@ export class TaskService {
     userId: string,
     statuses?: TaskStatus[],
   ): Promise<Task[]> {
-    const whereClause: Record<string, unknown> = {
-      tenantId,
-      assignedTo: userId,
-    };
+    const query = this.taskRepository
+      .createQueryBuilder('task')
+      .where('task.tenantId = :tenantId', { tenantId })
+      .andWhere('task.assignedTo = :userId', { userId });
 
     if (statuses?.length) {
-      whereClause.status = In(statuses);
+      query.andWhere('task.status IN (:...statuses)', { statuses });
     }
 
-    return this.taskRepository.find({
-      where: whereClause,
-      order: { dueDate: 'ASC', priority: 'ASC' },
-    });
+    return query
+      .orderBy('task.dueDate', 'ASC')
+      .addOrderBy(
+        `CASE task.priority WHEN 'URGENT' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 3 ELSE 4 END`,
+        'ASC',
+      )
+      .getMany();
   }
 
   /**
@@ -394,6 +416,13 @@ export class TaskService {
     text: string,
     userId: string,
   ): Promise<Task> {
+    if (!text || text.trim().length === 0) {
+      throw new BadRequestException('Not metni boş olamaz');
+    }
+    if (text.length > 2000) {
+      throw new BadRequestException('Not metni en fazla 2000 karakter olabilir');
+    }
+
     const task = await this.findById(tenantId, taskId);
 
     if (!Array.isArray(task.notes)) {
@@ -420,7 +449,7 @@ export class TaskService {
       throw new BadRequestException('Devam eden görevler silinemez');
     }
 
-    await this.taskRepository.remove(task);
+    await this.taskRepository.softRemove(task);
     return true;
   }
 
@@ -439,77 +468,43 @@ export class TaskService {
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
     const endOfWeek = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
-
-    // Today's tasks
-    const todayTasks = await this.taskRepository
-      .createQueryBuilder('task')
-      .where('task.tenantId = :tenantId', { tenantId })
-      .andWhere('task.dueDate >= :startOfDay', { startOfDay })
-      .andWhere('task.dueDate < :endOfDay', { endOfDay })
-      .andWhere('task.status != :cancelled', { cancelled: TaskStatus.CANCELLED })
-      .getMany();
-
-    const totalToday = todayTasks.length;
-    const completedToday = todayTasks.filter(
-      (t) => t.status === TaskStatus.COMPLETED,
-    ).length;
-
-    // Overdue count
-    const overdueCount = await this.taskRepository.count({
-      where: {
-        tenantId,
-        status: TaskStatus.OVERDUE,
-      },
-    });
-
-    // Upcoming tasks (next 7 days, excluding today)
-    const upcomingCount = await this.taskRepository
-      .createQueryBuilder('task')
-      .where('task.tenantId = :tenantId', { tenantId })
-      .andWhere('task.dueDate >= :endOfDay', { endOfDay })
-      .andWhere('task.dueDate < :endOfWeek', { endOfWeek })
-      .andWhere('task.status IN (:...activeStatuses)', {
-        activeStatuses: [TaskStatus.PENDING, TaskStatus.IN_PROGRESS],
-      })
-      .getCount();
-
-    // Completion rate (last 30 days)
     const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const recentTasks = await this.taskRepository
-      .createQueryBuilder('task')
-      .where('task.tenantId = :tenantId', { tenantId })
-      .andWhere('task.createdAt >= :thirtyDaysAgo', { thirtyDaysAgo })
-      .andWhere('task.status != :cancelled', { cancelled: TaskStatus.CANCELLED })
-      .getMany();
 
-    const totalRecent = recentTasks.length;
-    const completedRecent = recentTasks.filter(
-      (t) => t.status === TaskStatus.COMPLETED,
-    ).length;
+    const [todayStats] = await this.taskRepository.query(
+      `SELECT
+        COUNT(*) FILTER (WHERE "dueDate" >= $2 AND "dueDate" < $3 AND status != $4) AS "totalToday",
+        COUNT(*) FILTER (WHERE "dueDate" >= $2 AND "dueDate" < $3 AND status = $5) AS "completedToday",
+        COUNT(*) FILTER (WHERE status = $6) AS "overdueCount",
+        COUNT(*) FILTER (WHERE "dueDate" >= $3 AND "dueDate" < $7 AND status IN ($8, $9)) AS "upcomingCount"
+      FROM tasks
+      WHERE "tenantId" = $1 AND "deletedAt" IS NULL`,
+      [tenantId, startOfDay, endOfDay, TaskStatus.CANCELLED, TaskStatus.COMPLETED, TaskStatus.OVERDUE, endOfWeek, TaskStatus.PENDING, TaskStatus.IN_PROGRESS],
+    );
+
+    const [recentStats] = await this.taskRepository.query(
+      `SELECT
+        COUNT(*) FILTER (WHERE status != $3) AS "totalRecent",
+        COUNT(*) FILTER (WHERE status = $4) AS "completedRecent",
+        AVG(EXTRACT(EPOCH FROM ("completedAt" - "createdAt")) / 60)
+          FILTER (WHERE status = $4 AND "completedAt" IS NOT NULL) AS "avgMinutes"
+      FROM tasks
+      WHERE "tenantId" = $1 AND "createdAt" >= $2 AND "deletedAt" IS NULL`,
+      [tenantId, thirtyDaysAgo, TaskStatus.CANCELLED, TaskStatus.COMPLETED],
+    );
+
+    const totalRecent = parseInt(recentStats?.totalRecent || '0', 10);
+    const completedRecent = parseInt(recentStats?.completedRecent || '0', 10);
     const completionRate = totalRecent > 0
       ? Math.round((completedRecent / totalRecent) * 100)
       : 0;
 
-    // Average completion time
-    const completedWithTime = recentTasks.filter(
-      (t) => t.status === TaskStatus.COMPLETED && t.completedAt && t.createdAt,
-    );
-    let avgCompletionMinutes = 0;
-    if (completedWithTime.length > 0) {
-      const totalMinutes = completedWithTime.reduce((sum, t) => {
-        const diff = new Date(t.completedAt!).getTime() - new Date(t.createdAt).getTime();
-        return sum + diff / 60000;
-      }, 0);
-      avgCompletionMinutes = Math.round(totalMinutes / completedWithTime.length);
-    }
-
     return {
-      totalToday,
-      completedToday,
-      overdueCount,
-      upcomingCount,
+      totalToday: parseInt(todayStats?.totalToday || '0', 10),
+      completedToday: parseInt(todayStats?.completedToday || '0', 10),
+      overdueCount: parseInt(todayStats?.overdueCount || '0', 10),
+      upcomingCount: parseInt(todayStats?.upcomingCount || '0', 10),
       completionRate,
-      avgCompletionMinutes,
+      avgCompletionMinutes: Math.round(parseFloat(recentStats?.avgMinutes || '0')),
     };
   }
 
@@ -523,61 +518,61 @@ export class TaskService {
   @Cron('0 */30 * * * *')
   async detectOverdueTasks(): Promise<void> {
     this.logger.log('Running overdue task detection...');
-
     const now = new Date();
 
-    const overdueTasks = await this.taskRepository.find({
-      where: {
-        status: In([TaskStatus.PENDING, TaskStatus.IN_PROGRESS]),
-        dueDate: LessThan(now),
-      },
-    });
+    await this.taskRepository.manager.transaction(async (manager) => {
+      const overdueTasks: Task[] = await manager.query(
+        `SELECT * FROM tasks
+         WHERE status IN ($1, $2)
+         AND "dueDate" < $3
+         AND "deletedAt" IS NULL
+         FOR UPDATE SKIP LOCKED`,
+        [TaskStatus.PENDING, TaskStatus.IN_PROGRESS, now],
+      );
 
-    if (overdueTasks.length === 0) {
-      this.logger.debug('No overdue tasks found');
-      return;
-    }
-
-    // Group by tenant for event publishing
-    const tasksByTenant = new Map<string, Task[]>();
-    for (const task of overdueTasks) {
-      const tenantTasks = tasksByTenant.get(task.tenantId) || [];
-      tenantTasks.push(task);
-      tasksByTenant.set(task.tenantId, tenantTasks);
-    }
-
-    // Update status and publish events
-    for (const [tenantId, tasks] of tasksByTenant) {
-      for (const task of tasks) {
-        task.status = TaskStatus.OVERDUE;
+      if (overdueTasks.length === 0) {
+        this.logger.debug('No overdue tasks found');
+        return;
       }
-      await this.taskRepository.save(tasks);
 
-      // Publish overdue events
+      const tasksByTenant = new Map<string, Task[]>();
+      for (const task of overdueTasks) {
+        const tenantTasks = tasksByTenant.get(task.tenantId) || [];
+        tenantTasks.push(task);
+        tasksByTenant.set(task.tenantId, tenantTasks);
+      }
+
+      const ids = overdueTasks.map(t => t.id);
+      await manager.query(
+        `UPDATE tasks SET status = $1, "updatedAt" = NOW() WHERE id = ANY($2::uuid[])`,
+        [TaskStatus.OVERDUE, ids],
+      );
+
       if (this.eventBus) {
-        for (const task of tasks) {
-          try {
-            const hoursOverdue = Math.round(
-              (now.getTime() - new Date(task.dueDate).getTime()) / 3600000,
-            );
-            await this.eventBus.publish({
-              ...createBaseEvent('TaskOverdue', tenantId),
-              taskId: task.id,
-              title: task.title,
-              assignedTo: task.assignedTo,
-              dueDate: task.dueDate.toISOString(),
-              priority: task.priority,
-              hoursOverdue,
-            });
-          } catch (eventError) {
-            this.logger.warn(
-              `Failed to publish TaskOverdue event for task ${task.id}: ${(eventError as Error).message}`,
-            );
+        for (const [tenantId, tasks] of tasksByTenant) {
+          for (const task of tasks) {
+            try {
+              const hoursOverdue = Math.round(
+                (now.getTime() - new Date(task.dueDate).getTime()) / 3600000,
+              );
+              await this.eventBus.publish({
+                ...createBaseEvent('TaskOverdue', tenantId),
+                taskId: task.id,
+                title: task.title,
+                assignedTo: task.assignedTo,
+                dueDate: new Date(task.dueDate).toISOString(),
+                priority: task.priority,
+                hoursOverdue,
+              });
+            } catch (eventError) {
+              this.logger.warn(
+                `Failed to publish TaskOverdue event for task ${task.id}: ${(eventError as Error).message}`,
+              );
+            }
           }
+          this.logger.log(`Marked ${tasks.length} tasks as overdue for tenant ${tenantId}`);
         }
       }
-
-      this.logger.log(`Marked ${tasks.length} tasks as overdue for tenant ${tenantId}`);
-    }
+    });
   }
 }

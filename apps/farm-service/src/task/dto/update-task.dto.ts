@@ -15,9 +15,12 @@ import {
   IsArray,
   Min,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import GraphQLJSON from 'graphql-type-json';
 import { TaskCategory, TaskPriority, TaskStatus } from '../entities/task.entity';
+import { ChecklistItemInput } from './create-task.dto';
 
 /**
  * Görev güncelleme input
@@ -38,6 +41,7 @@ export class UpdateTaskInput {
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
+  @MaxLength(5000)
   description?: string;
 
   @Field(() => TaskCategory, { nullable: true })
@@ -83,6 +87,7 @@ export class UpdateTaskInput {
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   location?: string;
 
   @Field(() => Int, { nullable: true })
@@ -91,9 +96,12 @@ export class UpdateTaskInput {
   @Min(1)
   estimatedMinutes?: number;
 
-  @Field(() => GraphQLJSON, { nullable: true })
+  @Field(() => [ChecklistItemInput], { nullable: true })
   @IsOptional()
-  checklistItems?: any;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ChecklistItemInput)
+  checklistItems?: ChecklistItemInput[];
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()

@@ -81,7 +81,9 @@ export const AutoRulesTab: React.FC<AutoRulesTabProps> = ({ rules, onToggleActiv
                     {/* Stats */}
                     <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
                       <span>Tetiklenme: {rule.triggerCount} kez</span>
-                      {rule.lastTriggered && <span>Son: {rule.lastTriggered}</span>}
+                      {rule.lastTriggered && (
+                        <span>Son: {new Date(rule.lastTriggered).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                      )}
                     </div>
                   </div>
 

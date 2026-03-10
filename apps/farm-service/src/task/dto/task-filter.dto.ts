@@ -11,6 +11,7 @@ import {
   IsString,
   IsNumber,
   Min,
+  Max,
 } from 'class-validator';
 import { TaskStatus, TaskCategory, TaskPriority } from '../entities/task.entity';
 
@@ -58,6 +59,7 @@ export class TaskFilterInput {
   @IsOptional()
   @IsNumber()
   @Min(1)
+  @Max(200)
   limit?: number;
 
   @Field(() => Int, { nullable: true, defaultValue: 0 })

@@ -1,56 +1,85 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Task,
+  RecurringTemplate,
   TaskCategory,
   TaskPriority,
+  RecurrenceFrequency,
   CATEGORY_CONFIG,
   PRIORITY_CONFIG,
+  FREQUENCY_CONFIG,
   ChecklistItem,
 } from '../types/task.types';
 
-interface TaskFormModalProps {
-  task?: Task | null;
+interface RecurringTemplateFormModalProps {
+  isOpen: boolean;
   onClose: () => void;
-  onSave: (data: TaskFormData) => void;
+  onSubmit: (data: RecurringTemplateFormData) => void;
+  initialData?: RecurringTemplate;
+  loading?: boolean;
   users?: { id: string; name: string }[];
 }
 
-export interface TaskFormData {
+export interface RecurringTemplateFormData {
   title: string;
   description: string;
   category: TaskCategory;
   priority: TaskPriority;
+  frequency: RecurrenceFrequency;
+  frequencyDetail: string;
   assignedTo: string;
   assignedToName: string;
-  dueDate: string;
-  dueTime: string;
   location: string;
   estimatedMinutes: number;
   checklistItems: ChecklistItem[];
   tags: string[];
 }
 
-export const TaskFormModal: React.FC<TaskFormModalProps> = ({ task, onClose, onSave, users = [] }) => {
-  const isEdit = !!task;
+export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProps> = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  initialData,
+  loading = false,
+  users = [],
+}) => {
+  const isEdit = !!initialData;
 
-  const [formData, setFormData] = useState<TaskFormData>({
-    title: task?.title || '',
-    description: task?.description || '',
-    category: task?.category || 'GENERAL',
-    priority: task?.priority || 'MEDIUM',
-    assignedTo: task?.assignedTo || '',
-    assignedToName: task?.assignedToName || '',
-    dueDate: task?.dueDate || new Date().toISOString().split('T')[0],
-    dueTime: task?.dueTime || '',
-    location: task?.location || '',
-    estimatedMinutes: task?.estimatedMinutes || 30,
-    checklistItems: task?.checklistItems || [],
-    tags: task?.tags || [],
+  const [formData, setFormData] = useState<RecurringTemplateFormData>({
+    title: initialData?.title || '',
+    description: initialData?.description || '',
+    category: initialData?.category || 'GENERAL',
+    priority: initialData?.priority || 'MEDIUM',
+    frequency: initialData?.frequency || 'DAILY',
+    frequencyDetail: initialData?.frequencyDetail || '',
+    assignedTo: initialData?.assignedTo || '',
+    assignedToName: initialData?.assignedToName || '',
+    location: initialData?.location || '',
+    estimatedMinutes: initialData?.estimatedMinutes || 30,
+    checklistItems: initialData?.checklistItems || [],
+    tags: initialData?.tags || [],
   });
+
+  useEffect(() => {
+    setFormData({
+      title: initialData?.title || '',
+      description: initialData?.description || '',
+      category: initialData?.category || 'GENERAL',
+      priority: initialData?.priority || 'MEDIUM',
+      frequency: initialData?.frequency || 'DAILY',
+      frequencyDetail: initialData?.frequencyDetail || '',
+      assignedTo: initialData?.assignedTo || '',
+      assignedToName: initialData?.assignedToName || '',
+      location: initialData?.location || '',
+      estimatedMinutes: initialData?.estimatedMinutes || 30,
+      checklistItems: initialData?.checklistItems || [],
+      tags: initialData?.tags || [],
+    });
+  }, [initialData]);
 
   const [newChecklistItem, setNewChecklistItem] = useState('');
   const [newTag, setNewTag] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+
+  if (!isOpen) return null;
 
   const handleAssigneeChange = (userId: string) => {
     const assignee = users.find(a => a.id === userId);
@@ -94,13 +123,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({ task, onClose, onS
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.title.trim() || !formData.assignedTo || submitting) return;
-    setSubmitting(true);
-    try {
-      onSave(formData);
-    } finally {
-      setSubmitting(false);
-    }
+    if (!formData.title.trim() || !formData.assignedTo) return;
+    onSubmit(formData);
   };
 
   return (
@@ -111,14 +135,14 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({ task, onClose, onS
           <form onSubmit={handleSubmit}>
             <div className="px-6 pt-6 pb-4 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900">
-                {isEdit ? 'Görevi Düzenle' : 'Yeni Görev'}
+                {isEdit ? 'Şablonu Düzenle' : 'Yeni Tekrarlayan Şablon'}
               </h3>
             </div>
 
             <div className="px-6 py-4 space-y-4">
               {/* Title */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Görev Adı *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Şablon Adı *</label>
                 <input
                   type="text"
                   value={formData.title}
@@ -142,7 +166,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({ task, onClose, onS
               {/* Category + Priority */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Kategori *</label>
                   <select
                     value={formData.category}
                     onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value as TaskCategory }))}
@@ -154,7 +178,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({ task, onClose, onS
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Öncelik</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Öncelik *</label>
                   <select
                     value={formData.priority}
                     onChange={(e) => setFormData(prev => ({ ...prev, priority: e.target.value as TaskPriority }))}
@@ -165,6 +189,34 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({ task, onClose, onS
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Frequency + Frequency Detail */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Sıklık *</label>
+                  <select
+                    value={formData.frequency}
+                    onChange={(e) => setFormData(prev => ({ ...prev, frequency: e.target.value as RecurrenceFrequency }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    {Object.entries(FREQUENCY_CONFIG).map(([key, val]) => (
+                      <option key={key} value={key}>{val.label}</option>
+                    ))}
+                  </select>
+                </div>
+                {formData.frequency === 'CUSTOM' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Saat cinsinden interval</label>
+                    <input
+                      type="text"
+                      value={formData.frequencyDetail}
+                      onChange={(e) => setFormData(prev => ({ ...prev, frequencyDetail: e.target.value }))}
+                      placeholder="Örn: 8 (8 saatte bir)"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Assignee */}
@@ -181,29 +233,6 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({ task, onClose, onS
                     <option key={a.id} value={a.id}>{a.name}</option>
                   ))}
                 </select>
-              </div>
-
-              {/* Due Date + Time */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Bitiş Tarihi *</label>
-                  <input
-                    type="date"
-                    value={formData.dueDate}
-                    onChange={(e) => setFormData(prev => ({ ...prev, dueDate: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Saat</label>
-                  <input
-                    type="time"
-                    value={formData.dueTime}
-                    onChange={(e) => setFormData(prev => ({ ...prev, dueTime: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
               </div>
 
               {/* Location + Estimated Minutes */}
@@ -306,10 +335,10 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({ task, onClose, onS
               </button>
               <button
                 type="submit"
-                disabled={submitting}
+                disabled={loading}
                 className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {submitting ? 'Kaydediliyor...' : (isEdit ? 'Güncelle' : 'Oluştur')}
+                {loading ? 'Kaydediliyor...' : isEdit ? 'Güncelle' : 'Oluştur'}
               </button>
             </div>
           </form>

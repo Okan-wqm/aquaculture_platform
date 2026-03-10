@@ -1,28 +1,210 @@
 /**
- * Auto Rules hook for farm-module
- * Currently uses mock data as there is no backend for auto rules yet.
- * Will be migrated to GraphQL when the backend is available.
+ * Auto Rules hooks for farm-module
+ * Handles CRUD operations for auto rules via GraphQL API
  */
-import { useState, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { graphqlClient } from '@aquaculture/shared-ui';
 import { AutoRule } from '../pages/tasks/types/task.types';
-import { mockAutoRules } from '../pages/tasks/mock';
+
+// ============================================================================
+// GRAPHQL FIELD FRAGMENTS
+// ============================================================================
+
+const AUTO_RULE_FIELDS = `
+  id
+  name
+  description
+  trigger
+  triggerCondition
+  taskTitle
+  taskDescription
+  taskCategory
+  taskPriority
+  assignTo
+  isActive
+  lastTriggered
+  triggerCount
+`;
+
+// ============================================================================
+// INPUT TYPES
+// ============================================================================
+
+export interface CreateAutoRuleInput {
+  name: string;
+  description?: string;
+  trigger: string;
+  triggerCondition: string;
+  taskTitle: string;
+  taskDescription?: string;
+  taskCategory: string;
+  taskPriority: string;
+  assignTo?: string;
+}
+
+export interface UpdateAutoRuleInput {
+  id: string;
+  name?: string;
+  description?: string;
+  trigger?: string;
+  triggerCondition?: string;
+  taskTitle?: string;
+  taskDescription?: string;
+  taskCategory?: string;
+  taskPriority?: string;
+  assignTo?: string;
+}
+
+// ============================================================================
+// HOOKS
+// ============================================================================
 
 /**
- * Hook to manage auto rules (mock data for now)
+ * Hook to fetch and manage auto rules
  */
 export function useAutoRules() {
-  const [autoRules, setAutoRules] = useState<AutoRule[]>(mockAutoRules);
+  const queryClient = useQueryClient();
 
-  const toggleActive = useCallback((ruleId: string) => {
-    setAutoRules(prev => prev.map(r =>
-      r.id === ruleId ? { ...r, isActive: !r.isActive } : r
-    ));
-  }, []);
+  // Auto rules query
+  const autoRulesQuery = useQuery({
+    queryKey: ['autoRules'],
+    queryFn: async () => {
+      const query = `
+        query AutoRules {
+          autoRules {
+            ${AUTO_RULE_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{
+        autoRules: AutoRule[];
+      }>(query);
+
+      return result.autoRules;
+    },
+  });
+
+  // --- Mutations ---
+
+  const createRuleMutation = useMutation({
+    mutationFn: async (input: CreateAutoRuleInput) => {
+      const mutation = `
+        mutation CreateAutoRule($input: CreateAutoRuleInput!) {
+          createAutoRule(input: $input) {
+            ${AUTO_RULE_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ createAutoRule: AutoRule }>(
+        mutation,
+        { input }
+      );
+
+      return result.createAutoRule;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['autoRules'] });
+    },
+    onError: (error: Error) => {
+      console.error('CreateAutoRule failed:', error.message);
+    },
+  });
+
+  const updateRuleMutation = useMutation({
+    mutationFn: async (input: UpdateAutoRuleInput) => {
+      const mutation = `
+        mutation UpdateAutoRule($input: UpdateAutoRuleInput!) {
+          updateAutoRule(input: $input) {
+            ${AUTO_RULE_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ updateAutoRule: AutoRule }>(
+        mutation,
+        { input }
+      );
+
+      return result.updateAutoRule;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['autoRules'] });
+    },
+    onError: (error: Error) => {
+      console.error('UpdateAutoRule failed:', error.message);
+    },
+  });
+
+  const deleteRuleMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const mutation = `
+        mutation DeleteAutoRule($id: ID!) {
+          deleteAutoRule(id: $id)
+        }
+      `;
+
+      const result = await graphqlClient.request<{ deleteAutoRule: boolean }>(
+        mutation,
+        { id }
+      );
+
+      return result.deleteAutoRule;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['autoRules'] });
+    },
+    onError: (error: Error) => {
+      console.error('DeleteAutoRule failed:', error.message);
+    },
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const mutation = `
+        mutation ToggleAutoRuleActive($id: ID!) {
+          toggleAutoRuleActive(id: $id) {
+            ${AUTO_RULE_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ toggleAutoRuleActive: AutoRule }>(
+        mutation,
+        { id }
+      );
+
+      return result.toggleAutoRuleActive;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['autoRules'] });
+    },
+    onError: (error: Error) => {
+      console.error('ToggleAutoRuleActive failed:', error.message);
+    },
+  });
 
   return {
-    autoRules,
-    loading: false,
-    error: null,
-    toggleActive,
+    // Data
+    autoRules: autoRulesQuery.data ?? [],
+    // Loading / error
+    loading: autoRulesQuery.isLoading,
+    error: autoRulesQuery.error,
+    // Mutations
+    createRule: createRuleMutation.mutateAsync,
+    updateRule: updateRuleMutation.mutateAsync,
+    deleteRule: deleteRuleMutation.mutateAsync,
+    toggleActive: toggleActiveMutation.mutateAsync,
+    // Mutation loading states
+    creating: createRuleMutation.isPending,
+    updating: updateRuleMutation.isPending,
+    deleting: deleteRuleMutation.isPending,
+    // Error states
+    createError: createRuleMutation.error,
+    updateError: updateRuleMutation.error,
+    deleteError: deleteRuleMutation.error,
+    // Refetch
+    refetch: autoRulesQuery.refetch,
   };
 }

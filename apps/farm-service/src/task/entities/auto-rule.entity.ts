@@ -1,7 +1,9 @@
 /**
- * RecurringTemplate Entity - Tekrarlayan Görev Şablonu
+ * AutoRule Entity - Otomatik Kural Yönetimi
  *
- * Periyodik olarak otomatik görev oluşturmak için şablon tanımları.
+ * Belirli tetikleyicilere göre otomatik görev oluşturma kuralları.
+ * Stok azalması, bakım zamanı, lisans süresi gibi olaylarda
+ * otomatik görev oluşturulmasını sağlar.
  *
  * @module Task
  */
@@ -21,7 +23,6 @@ import {
   Int,
   registerEnumType,
 } from '@nestjs/graphql';
-import GraphQLJSON from 'graphql-type-json';
 import { TaskCategory, TaskPriority } from './task.entity';
 
 // ============================================================================
@@ -29,20 +30,20 @@ import { TaskCategory, TaskPriority } from './task.entity';
 // ============================================================================
 
 /**
- * Tekrarlama sıklığı
+ * Otomatik kural tetikleyici türü
  */
-export enum RecurrenceFrequency {
-  HOURLY = 'HOURLY',
-  DAILY = 'DAILY',
-  WEEKLY = 'WEEKLY',
-  BIWEEKLY = 'BIWEEKLY',
-  MONTHLY = 'MONTHLY',
-  CUSTOM = 'CUSTOM',
+export enum AutoRuleTrigger {
+  STOCK_LOW = 'STOCK_LOW',
+  EXPIRY_NEAR = 'EXPIRY_NEAR',
+  MAINTENANCE_DUE = 'MAINTENANCE_DUE',
+  SCHEDULE = 'SCHEDULE',
+  LICENSE_EXPIRY = 'LICENSE_EXPIRY',
+  WATER_PARAM_ALERT = 'WATER_PARAM_ALERT',
 }
 
-registerEnumType(RecurrenceFrequency, {
-  name: 'RecurrenceFrequency',
-  description: 'Tekrarlama sıklığı',
+registerEnumType(AutoRuleTrigger, {
+  name: 'AutoRuleTrigger',
+  description: 'Otomatik kural tetikleyici türü',
 });
 
 // ============================================================================
@@ -50,10 +51,9 @@ registerEnumType(RecurrenceFrequency, {
 // ============================================================================
 
 @ObjectType()
-@Entity('recurring_templates')
+@Entity('auto_rules')
 @Index(['tenantId', 'isActive'])
-@Index(['isActive', 'nextGeneration'])
-export class RecurringTemplate {
+export class AutoRule {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -68,68 +68,56 @@ export class RecurringTemplate {
 
   @Field()
   @Column({ length: 255 })
-  title: string;
+  name: string;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
   description?: string;
+
+  // -------------------------------------------------------------------------
+  // TETİKLEYİCİ
+  // -------------------------------------------------------------------------
+
+  @Field(() => AutoRuleTrigger)
+  @Column({
+    type: 'enum',
+    enum: AutoRuleTrigger,
+  })
+  trigger: AutoRuleTrigger;
+
+  @Field()
+  @Column({ type: 'text' })
+  triggerCondition: string;
+
+  // -------------------------------------------------------------------------
+  // OLUŞTURULACAK GÖREV BİLGİLERİ
+  // -------------------------------------------------------------------------
+
+  @Field()
+  @Column({ length: 255 })
+  taskTitle: string;
+
+  @Field({ nullable: true })
+  @Column({ type: 'text', nullable: true })
+  taskDescription?: string;
 
   @Field(() => TaskCategory)
   @Column({
     type: 'enum',
     enum: TaskCategory,
   })
-  category: TaskCategory;
+  taskCategory: TaskCategory;
 
   @Field(() => TaskPriority)
   @Column({
     type: 'enum',
     enum: TaskPriority,
   })
-  priority: TaskPriority;
-
-  // -------------------------------------------------------------------------
-  // TEKRARLAMA AYARLARI
-  // -------------------------------------------------------------------------
-
-  @Field(() => RecurrenceFrequency)
-  @Column({
-    type: 'enum',
-    enum: RecurrenceFrequency,
-  })
-  frequency: RecurrenceFrequency;
+  taskPriority: TaskPriority;
 
   @Field({ nullable: true })
-  @Column({ type: 'varchar', nullable: true })
-  frequencyDetail?: string;
-
-  // -------------------------------------------------------------------------
-  // ATAMA
-  // -------------------------------------------------------------------------
-
-  @Field()
-  @Column('uuid')
-  assignedTo: string;
-
-  @Field()
-  @Column({ length: 255 })
-  assignedToName: string;
-
-  // -------------------------------------------------------------------------
-  // DETAYLAR
-  // -------------------------------------------------------------------------
-
-  @Field({ nullable: true })
-  @Column({ type: 'varchar', nullable: true })
-  location?: string;
-
-  @Field(() => Int, { nullable: true })
-  @Column({ type: 'int', nullable: true })
-  estimatedMinutes?: number;
-
-  @Field(() => GraphQLJSON, { nullable: true })
-  @Column({ type: 'jsonb', default: [] })
-  checklistItems: any[];
+  @Column('uuid', { nullable: true })
+  assignTo?: string;
 
   // -------------------------------------------------------------------------
   // DURUM
@@ -141,27 +129,15 @@ export class RecurringTemplate {
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
-  lastGenerated?: Date;
+  lastTriggered?: Date;
 
-  @Field({ nullable: true })
-  @Column({ type: 'timestamptz', nullable: true })
-  nextGeneration?: Date;
-
-  // -------------------------------------------------------------------------
-  // ETIKETLER
-  // -------------------------------------------------------------------------
-
-  @Field(() => [String], { nullable: true })
-  @Column({ type: 'jsonb', nullable: true, default: [] })
-  tags?: string[];
+  @Field(() => Int)
+  @Column({ type: 'int', default: 0 })
+  triggerCount: number;
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS
   // -------------------------------------------------------------------------
-
-  @Field({ nullable: true })
-  @DeleteDateColumn({ type: 'timestamptz' })
-  deletedAt?: Date;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
@@ -170,4 +146,8 @@ export class RecurringTemplate {
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
+
+  @Field({ nullable: true })
+  @DeleteDateColumn({ type: 'timestamptz' })
+  deletedAt?: Date;
 }

@@ -126,6 +126,9 @@ export function useRecurringTemplates() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recurringTemplates'] });
     },
+    onError: (error: Error) => {
+      console.error('Mutation failed:', error.message);
+    },
   });
 
   const updateTemplateMutation = useMutation({
@@ -148,6 +151,9 @@ export function useRecurringTemplates() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recurringTemplates'] });
     },
+    onError: (error: Error) => {
+      console.error('Mutation failed:', error.message);
+    },
   });
 
   const deleteTemplateMutation = useMutation({
@@ -167,6 +173,9 @@ export function useRecurringTemplates() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recurringTemplates'] });
+    },
+    onError: (error: Error) => {
+      console.error('Mutation failed:', error.message);
     },
   });
 
@@ -190,6 +199,9 @@ export function useRecurringTemplates() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recurringTemplates'] });
     },
+    onError: (error: Error) => {
+      console.error('Mutation failed:', error.message);
+    },
   });
 
   return {
@@ -207,6 +219,10 @@ export function useRecurringTemplates() {
     creating: createTemplateMutation.isPending,
     updating: updateTemplateMutation.isPending,
     deleting: deleteTemplateMutation.isPending,
+    // Mutation errors
+    createError: createTemplateMutation.error,
+    updateError: updateTemplateMutation.error,
+    deleteError: deleteTemplateMutation.error,
     // Refetch
     refetch: templatesQuery.refetch,
   };

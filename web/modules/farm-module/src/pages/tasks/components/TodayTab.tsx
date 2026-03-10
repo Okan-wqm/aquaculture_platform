@@ -29,7 +29,8 @@ export const TodayTab: React.FC<TodayTabProps> = ({
   const [filterAssignee, setFilterAssignee] = useState<string>('all');
   const [filterPriority, setFilterPriority] = useState<string>('all');
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const todayTasks = tasks.filter(t => t.dueDate === todayStr || t.status === 'OVERDUE');
 
   const filteredTasks = todayTasks.filter(t => {

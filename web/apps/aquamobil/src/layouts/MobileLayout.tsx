@@ -1,7 +1,7 @@
 import { ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Page } from 'konsta/react';
-import { Home, Skull, Scissors, Package, Cloud, CloudOff, Clock, MapPin, CalendarOff } from 'lucide-react';
+import { Home, ClipboardList, CheckSquare, Users, MoreHorizontal, CloudOff } from 'lucide-react';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { clsx } from 'clsx';
@@ -16,19 +16,10 @@ interface TabItem {
   label: string;
   path: string;
   activeColor?: string;
-  feature?: MobileFeature;
+  // If features is set, tab shows if ANY of these features are enabled
+  features?: MobileFeature[];
+  getBadge?: () => number;
 }
-
-const allTabs: TabItem[] = [
-  { id: 'home', icon: Home, label: 'Home', path: '/', activeColor: 'text-ocean-600' },
-  { id: 'mortality', icon: Skull, label: 'Mortality', path: '/mortality/record', activeColor: 'text-mortality', feature: 'mortality' },
-  { id: 'cull', icon: Scissors, label: 'Cull', path: '/cull/record', activeColor: 'text-cull', feature: 'cull' },
-  { id: 'harvest', icon: Package, label: 'Harvest', path: '/harvest/record', activeColor: 'text-harvest', feature: 'harvest' },
-  { id: 'attendance', icon: MapPin, label: 'Attendance', path: '/attendance', activeColor: 'text-green-600', feature: 'attendance' },
-  { id: 'leave', icon: CalendarOff, label: 'Leave', path: '/leave', activeColor: 'text-violet-600', feature: 'leave' },
-  { id: 'schedule', icon: Clock, label: 'Schedule', path: '/schedule', activeColor: 'text-ocean-600', feature: 'schedule' },
-  { id: 'sync', icon: Cloud, label: 'Sync', path: '/sync', activeColor: 'text-ocean-600' },
-];
 
 export function MobileLayout({ children }: MobileLayoutProps) {
   const location = useLocation();
@@ -36,14 +27,50 @@ export function MobileLayout({ children }: MobileLayoutProps) {
   const { pendingCount, isOnline, isSyncing } = useOfflineQueue();
   const { canAccess } = useMobilePermissions();
 
+  const allTabs: TabItem[] = [
+    { id: 'home', icon: Home, label: 'Ana Sayfa', path: '/', activeColor: 'text-ocean-600' },
+    {
+      id: 'record',
+      icon: ClipboardList,
+      label: 'Kayit',
+      path: '/record',
+      activeColor: 'text-orange-600',
+      features: ['feeding', 'mortality', 'cull', 'harvest', 'transfer'],
+    },
+    {
+      id: 'tasks',
+      icon: CheckSquare,
+      label: 'Gorevler',
+      path: '/tasks',
+      activeColor: 'text-green-600',
+      features: ['tasks'],
+    },
+    {
+      id: 'hr',
+      icon: Users,
+      label: 'IK',
+      path: '/hr',
+      activeColor: 'text-violet-600',
+      features: ['attendance', 'leave', 'schedule'],
+    },
+    {
+      id: 'more',
+      icon: MoreHorizontal,
+      label: 'Diger',
+      path: '/more',
+      activeColor: 'text-gray-600',
+    },
+  ];
+
   const tabs = allTabs.filter((tab) => {
-    if (!tab.feature) return true;
-    return canAccess(tab.feature);
+    if (!tab.features) return true;
+    // Show tab if ANY of its features are enabled
+    return tab.features.some((f) => canAccess(f));
   });
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/';
-    return location.pathname.startsWith(path.replace('/record', ''));
+    return location.pathname.startsWith(path);
   };
 
   return (
@@ -52,7 +79,7 @@ export function MobileLayout({ children }: MobileLayoutProps) {
       {!isOnline && (
         <div className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-4 py-2.5 flex items-center justify-center gap-2 text-sm font-medium shadow-md">
           <CloudOff size={16} />
-          <span>Offline - Changes will sync when connected</span>
+          <span>Cevrimdisi - Degisiklikler baglaninca senkronize edilecek</span>
         </div>
       )}
 
@@ -60,7 +87,7 @@ export function MobileLayout({ children }: MobileLayoutProps) {
       {isSyncing && (
         <div className="bg-gradient-to-r from-ocean-500 to-ocean-600 text-white px-4 py-2.5 flex items-center justify-center gap-2 text-sm font-medium shadow-md">
           <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
-          <span>Syncing data...</span>
+          <span>Veri senkronize ediliyor...</span>
         </div>
       )}
 
@@ -68,12 +95,13 @@ export function MobileLayout({ children }: MobileLayoutProps) {
       <div className="flex-1 overflow-auto">{children}</div>
 
       {/* Bottom Tab Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-gray-900/90 backdrop-blur-lg border-t border-gray-200/60 dark:border-gray-800 pb-safe z-50">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-lg border-t border-gray-200/60 pb-safe z-50">
         <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const active = isActive(tab.path);
-            const showBadge = tab.id === 'sync' && pendingCount > 0;
+            // Badge logic: More tab shows pending + unread, Tasks could show count
+            const showBadge = tab.id === 'more' && pendingCount > 0;
 
             return (
               <button
@@ -83,7 +111,7 @@ export function MobileLayout({ children }: MobileLayoutProps) {
                   'flex flex-col items-center justify-center w-full h-full gap-0.5 transition-all touch-feedback',
                   active
                     ? tab.activeColor
-                    : 'text-gray-400 dark:text-gray-500'
+                    : 'text-gray-400'
                 )}
               >
                 <div className="relative">

@@ -35,9 +35,11 @@ export class PushService {
   private readonly isProduction: boolean;
   private providerHealthy = true;
 
+  private firebaseApp: unknown = null;
+
   // Supported providers that have actual implementations
-  private static readonly IMPLEMENTED_PROVIDERS = ['mock'];
-  private static readonly PLANNED_PROVIDERS = ['firebase', 'onesignal', 'apns'];
+  private static readonly IMPLEMENTED_PROVIDERS = ['mock', 'firebase'];
+  private static readonly PLANNED_PROVIDERS = ['onesignal', 'apns'];
 
   constructor(private readonly configService: ConfigService) {
     this.isEnabled = this.configService.get('PUSH_ENABLED', 'false') === 'true';
@@ -176,6 +178,22 @@ export class PushService {
   }
 
   /**
+   * Send task push notification
+   */
+  async sendTaskPush(
+    deviceToken: string,
+    taskData: { title: string; taskId: string; type: string },
+  ): Promise<string> {
+    const notification: PushNotificationData = {
+      title: 'G\u00F6rev Bildirimi',
+      body: taskData.title,
+      data: { type: taskData.type, taskId: taskData.taskId },
+      sound: 'default',
+    };
+    return await this.sendPushNotification(deviceToken, notification);
+  }
+
+  /**
    * Mock push provider (for development/testing)
    */
   private async sendViaMock(
@@ -189,21 +207,46 @@ export class PushService {
   }
 
   /**
-   * Firebase Cloud Messaging provider (placeholder)
+   * Get or initialize Firebase Admin SDK
+   */
+  private getFirebaseApp(): unknown {
+    if (this.firebaseApp) return this.firebaseApp;
+    const serviceAccountJson = this.configService.get<string>('FIREBASE_SERVICE_ACCOUNT');
+    if (!serviceAccountJson) {
+      throw new Error('FIREBASE_SERVICE_ACCOUNT env var not set');
+    }
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const admin = require('firebase-admin');
+    const serviceAccount = JSON.parse(serviceAccountJson);
+    this.firebaseApp = admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+    return this.firebaseApp;
+  }
+
+  /**
+   * Firebase Cloud Messaging provider
    */
   private async sendViaFirebase(
-    _deviceToken: string,
-    _notification: PushNotificationData,
+    deviceToken: string,
+    notification: PushNotificationData,
   ): Promise<string> {
-    // TODO: Implement Firebase integration
-    // const admin = require('firebase-admin');
-    // const message = { token: deviceToken, notification: { title, body }, data };
-    // const result = await admin.messaging().send(message);
-    // return result;
-
-    throw new Error(
-      'Firebase push provider is not yet implemented. Set PUSH_PROVIDER=mock or implement Firebase integration.',
-    );
+    const app = this.getFirebaseApp();
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const admin = require('firebase-admin');
+    const message = {
+      token: deviceToken,
+      notification: { title: notification.title, body: notification.body },
+      data: notification.data
+        ? Object.fromEntries(
+            Object.entries(notification.data).map(([k, v]) => [k, String(v)]),
+          )
+        : undefined,
+      android: { notification: { sound: notification.sound || 'default' } },
+      webpush: { notification: { badge: notification.badge?.toString() } },
+    };
+    const result = await admin.messaging(app).send(message);
+    return result;
   }
 
   /**

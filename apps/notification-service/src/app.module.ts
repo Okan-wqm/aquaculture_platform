@@ -1,9 +1,17 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { GraphQLModule } from '@nestjs/graphql';
+import {
+  ApolloFederationDriver,
+  ApolloFederationDriverConfig,
+} from '@nestjs/apollo';
+import { JwtModule } from '@nestjs/jwt';
 import { APP_FILTER } from '@nestjs/core';
 import {
   CorrelationIdMiddleware,
+  UserContextMiddleware,
+  TenantContextMiddleware,
 } from '@platform/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import { NotificationModule } from './notification/notification.module';
@@ -67,6 +75,44 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       },
     }),
 
+    // GraphQL Federation
+    GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({
+      driver: ApolloFederationDriver,
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        autoSchemaFile: { federation: 2 },
+        playground: configService.get('NODE_ENV') !== 'production',
+        introspection: configService.get('NODE_ENV') !== 'production',
+        context: ({ req }: { req: Record<string, unknown> & { headers: Record<string, string | undefined>; user?: Record<string, unknown> } }) => {
+          const userPayloadHeader = req.headers['x-user-payload'];
+          const userIdHeader = req.headers['x-user-id'];
+          const userRolesHeader = req.headers['x-user-roles'];
+          if (typeof userPayloadHeader === 'string') {
+            try { req.user = JSON.parse(userPayloadHeader); } catch {
+              if (typeof userIdHeader === 'string') {
+                req.user = { sub: userIdHeader, roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [] };
+              }
+            }
+          } else if (typeof userIdHeader === 'string') {
+            req.user = { sub: userIdHeader, roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [] };
+          }
+          return { req };
+        },
+      }),
+    }),
+
+    // JWT Module for auth
+    JwtModule.registerAsync({
+      global: true,
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.getOrThrow<string>('JWT_SECRET'),
+        signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '1d') },
+      }),
+    }),
+
     // Event Bus Module
     EventBusModule.forRootAsync({
       imports: [ConfigModule],
@@ -91,7 +137,11 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
-      .apply(CorrelationIdMiddleware)
+      .apply(
+        CorrelationIdMiddleware,
+        UserContextMiddleware,
+        TenantContextMiddleware,
+      )
       .forRoutes('*');
   }
 }

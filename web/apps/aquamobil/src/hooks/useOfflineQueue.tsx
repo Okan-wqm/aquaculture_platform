@@ -102,6 +102,31 @@ const MUTATIONS: Record<OperationType, string> = {
       }
     }
   `,
+  completeTask: `
+    mutation CompleteTask($id: String!) {
+      completeTask(id: $id) {
+        id
+        status
+        completedAt
+        completedBy
+      }
+    }
+  `,
+  startTask: `
+    mutation StartTask($id: String!) {
+      startTask(id: $id) {
+        id
+        status
+      }
+    }
+  `,
+  recordTransfer: `
+    mutation RecordTransfer($input: TransferBatchInput!) {
+      transferBatch(input: $input) {
+        id
+      }
+    }
+  `,
 };
 
 export function OfflineProvider({ children }: { children: ReactNode }) {
@@ -171,6 +196,12 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         throw new Error('Not authenticated');
       }
 
+      // Task mutations (completeTask, startTask) use { id } variable instead of { input }
+      const isIdMutation = type === 'completeTask' || type === 'startTask';
+      const variables = isIdMutation
+        ? (payload as Record<string, unknown>)
+        : { input: payload };
+
       const response = await fetch('/graphql', {
         method: 'POST',
         headers: {
@@ -182,9 +213,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         },
         body: JSON.stringify({
           query: MUTATIONS[type],
-          variables: {
-            input: payload,
-          },
+          variables,
         }),
       });
 

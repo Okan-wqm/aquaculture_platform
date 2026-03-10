@@ -37,6 +37,29 @@ const MyLeavesPage = lazy(() =>
   import('./pages/leave/MyLeavesPage').then((m) => ({ default: m.MyLeavesPage }))
 );
 
+// New lazy-loaded pages
+const RecordHubPage = lazy(() =>
+  import('./pages/record/RecordHubPage').then((m) => ({ default: m.RecordHubPage }))
+);
+const MyTasksPage = lazy(() =>
+  import('./pages/tasks/MyTasksPage').then((m) => ({ default: m.MyTasksPage }))
+);
+const TaskDetailPage = lazy(() =>
+  import('./pages/tasks/TaskDetailPage').then((m) => ({ default: m.TaskDetailPage }))
+);
+const HrHubPage = lazy(() =>
+  import('./pages/hr/HrHubPage').then((m) => ({ default: m.HrHubPage }))
+);
+const MorePage = lazy(() =>
+  import('./pages/more/MorePage').then((m) => ({ default: m.MorePage }))
+);
+const NotificationsPage = lazy(() =>
+  import('./pages/notifications/NotificationsPage').then((m) => ({ default: m.NotificationsPage }))
+);
+const RecordTransferPage = lazy(() =>
+  import('./pages/transfer/RecordTransferPage').then((m) => ({ default: m.RecordTransferPage }))
+);
+
 function PageLoader() {
   return (
     <div className="flex items-center justify-center min-h-[50vh]">
@@ -99,6 +122,26 @@ export function App() {
                   <Suspense fallback={<PageLoader />}>
                     <Routes>
                       <Route path="/" element={<HomePage />} />
+                      <Route path="/record" element={<RecordHubPage />} />
+                      <Route
+                        path="/tasks"
+                        element={
+                          <FeatureRoute feature="tasks">
+                            <MyTasksPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/tasks/:taskId"
+                        element={
+                          <FeatureRoute feature="tasks">
+                            <TaskDetailPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route path="/hr" element={<HrHubPage />} />
+                      <Route path="/more" element={<MorePage />} />
+                      <Route path="/notifications" element={<NotificationsPage />} />
                       <Route
                         path="/mortality/record"
                         element={
@@ -160,6 +203,22 @@ export function App() {
                         element={
                           <FeatureRoute feature="feeding">
                             <RecordFeedingPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/transfer/record"
+                        element={
+                          <FeatureRoute feature="transfer">
+                            <RecordTransferPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/transfer/record/:tankId"
+                        element={
+                          <FeatureRoute feature="transfer">
+                            <RecordTransferPage />
                           </FeatureRoute>
                         }
                       />

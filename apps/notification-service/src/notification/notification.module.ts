@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 
 // Entities
 import { NotificationLog } from './entities/notification-log.entity';
+import { DeviceToken } from './entities/device-token.entity';
 
 // Services
 import { EmailService } from './services/email.service';
@@ -12,21 +13,27 @@ import { PushService } from './services/push.service';
 import { NotificationDispatcherService } from './services/notification-dispatcher.service';
 import { NotificationRetentionService } from './services/notification-retention.service';
 import { RetrySchedulerService } from './services/retry-scheduler.service';
+import { InAppNotificationService } from './services/in-app.service';
 
 // Event Handlers
 import { AlertTriggeredEventHandler } from './event-handlers/alert-triggered.handler';
+import { TaskAssignedEventHandler } from './event-handlers/task-assigned.handler';
+
+// Resolvers
+import { NotificationResolver } from './resolvers/notification.resolver';
 
 /**
  * Notification Module
  * Contains all notification-related functionality including:
- * - Multi-channel notification dispatch (Email, SMS, Push, Webhook)
+ * - Multi-channel notification dispatch (Email, SMS, Push, Webhook, In-App)
  * - Notification logging and tracking
  * - Retry mechanism for failed notifications (scheduled every 5 minutes)
  * - Nightly log retention cleanup (removes logs older than retention window)
+ * - In-app notification queries and mutations via GraphQL
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([NotificationLog]),
+    TypeOrmModule.forFeature([NotificationLog, DeviceToken]),
     // Required for @Cron decorators in RetrySchedulerService and NotificationRetentionService
     ScheduleModule.forRoot(),
   ],
@@ -36,6 +43,7 @@ import { AlertTriggeredEventHandler } from './event-handlers/alert-triggered.han
     SmsService,
     PushService,
     NotificationDispatcherService,
+    InAppNotificationService,
 
     // Scheduled jobs
     NotificationRetentionService,
@@ -43,7 +51,11 @@ import { AlertTriggeredEventHandler } from './event-handlers/alert-triggered.han
 
     // Event Handlers
     AlertTriggeredEventHandler,
+    TaskAssignedEventHandler,
+
+    // Resolvers
+    NotificationResolver,
   ],
-  exports: [NotificationDispatcherService, EmailService, SmsService, PushService],
+  exports: [NotificationDispatcherService, EmailService, SmsService, PushService, InAppNotificationService],
 })
 export class NotificationModule {}

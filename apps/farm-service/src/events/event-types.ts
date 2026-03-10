@@ -359,6 +359,63 @@ export interface MonthlyComplianceReportEventPayload {
 }
 
 // ============================================================================
+// TASK EVENTS
+// ============================================================================
+
+/**
+ * Event emitted when a task is created
+ */
+export interface TaskCreatedEventPayload {
+  tenantId: string;
+  taskId: string;
+  title: string;
+  category: string;
+  priority: string;
+  assignedTo: string;
+  assignedToName: string;
+  dueDate: string;
+  createdBy: string;
+}
+
+/**
+ * Event emitted when a task is assigned to a user
+ */
+export interface TaskAssignedEventPayload {
+  tenantId: string;
+  taskId: string;
+  title: string;
+  assignedTo: string;
+  assignedBy: string;
+  dueDate: string;
+  priority: string;
+}
+
+/**
+ * Event emitted when a task is completed
+ */
+export interface TaskCompletedEventPayload {
+  tenantId: string;
+  taskId: string;
+  title: string;
+  completedBy: string;
+  completedAt: Date;
+  assignedTo: string;
+}
+
+/**
+ * Event emitted when a task becomes overdue
+ */
+export interface TaskOverdueEventPayload {
+  tenantId: string;
+  taskId: string;
+  title: string;
+  assignedTo: string;
+  dueDate: string;
+  priority: string;
+  hoursOverdue: number;
+}
+
+// ============================================================================
 // EVENT NAME CONSTANTS
 // ============================================================================
 
@@ -403,6 +460,13 @@ export const EventNames = {
   // Report events
   REPORT_WEEKLY_MAINTENANCE: 'report.weeklyMaintenance',
   REPORT_MONTHLY_COMPLIANCE: 'report.monthlyCompliance',
+
+  // Task events
+  TASK_CREATED: 'task.created',
+  TASK_ASSIGNED: 'task.assigned',
+  TASK_STATUS_CHANGED: 'task.statusChanged',
+  TASK_COMPLETED: 'task.completed',
+  TASK_OVERDUE: 'task.overdue',
 
   // Alert events
   ALERT_HIGH_MORTALITY: 'alert.highMortality',

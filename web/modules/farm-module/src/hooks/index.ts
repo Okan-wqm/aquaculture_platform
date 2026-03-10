@@ -16,3 +16,6 @@ export * from './useSentinelHub';
 export * from './useMapPointQuery';
 export * from './useMaintenance';
 export * from './useHealthEvents';
+export * from './useTasks';
+export * from './useRecurringTemplates';
+export * from './useAutoRules';

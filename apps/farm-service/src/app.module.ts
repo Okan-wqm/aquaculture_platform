@@ -56,6 +56,7 @@ import { RegulatoryModule } from './regulatory/regulatory.module';
 import { WeatherModule } from './weather/weather.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { EventListenersModule } from './events/event-listeners.module';
+import { TaskModule } from './task/task.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
 @Module({
@@ -232,6 +233,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     WeatherModule,
     SchedulerModule,
     EventListenersModule,
+    TaskModule,
   ],
   providers: [
     // Global exception filter

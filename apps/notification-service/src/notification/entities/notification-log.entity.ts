@@ -25,6 +25,7 @@ export enum NotificationChannel {
   SMS = 'sms',
   PUSH = 'push',
   WEBHOOK = 'webhook',
+  IN_APP = 'in_app',
 }
 
 /**

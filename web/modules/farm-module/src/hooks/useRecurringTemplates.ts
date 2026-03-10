@@ -1,0 +1,213 @@
+/**
+ * Recurring Template hooks for farm-module
+ * Handles CRUD operations for recurring task templates via GraphQL API
+ */
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { graphqlClient } from '@aquaculture/shared-ui';
+import { RecurringTemplate } from '../pages/tasks/types/task.types';
+
+// ============================================================================
+// GRAPHQL FIELD FRAGMENTS
+// ============================================================================
+
+const CHECKLIST_ITEM_FIELDS = `
+  id
+  text
+  isCompleted
+  completedAt
+`;
+
+const RECURRING_TEMPLATE_FIELDS = `
+  id
+  title
+  description
+  category
+  priority
+  frequency
+  frequencyDetail
+  assignedTo
+  assignedToName
+  location
+  estimatedMinutes
+  checklistItems {
+    ${CHECKLIST_ITEM_FIELDS}
+  }
+  isActive
+  lastGenerated
+  nextGeneration
+  tags
+`;
+
+// ============================================================================
+// INPUT TYPES
+// ============================================================================
+
+export interface CreateRecurringTemplateInput {
+  title: string;
+  description?: string;
+  category: string;
+  priority: string;
+  frequency: string;
+  frequencyDetail?: string;
+  assignedTo?: string;
+  assignedToName?: string;
+  location?: string;
+  estimatedMinutes?: number;
+  checklistItems?: { text: string; isCompleted?: boolean }[];
+  tags?: string[];
+}
+
+export interface UpdateRecurringTemplateInput {
+  id: string;
+  title?: string;
+  description?: string;
+  category?: string;
+  priority?: string;
+  frequency?: string;
+  frequencyDetail?: string;
+  assignedTo?: string;
+  assignedToName?: string;
+  location?: string;
+  estimatedMinutes?: number;
+  checklistItems?: { text: string; isCompleted?: boolean }[];
+  isActive?: boolean;
+  tags?: string[];
+}
+
+// ============================================================================
+// HOOKS
+// ============================================================================
+
+/**
+ * Hook to fetch and manage recurring templates
+ */
+export function useRecurringTemplates() {
+  const queryClient = useQueryClient();
+
+  // Templates query
+  const templatesQuery = useQuery({
+    queryKey: ['recurringTemplates'],
+    queryFn: async () => {
+      const query = `
+        query RecurringTemplates {
+          recurringTemplates {
+            ${RECURRING_TEMPLATE_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{
+        recurringTemplates: RecurringTemplate[];
+      }>(query);
+
+      return result.recurringTemplates;
+    },
+  });
+
+  // --- Mutations ---
+
+  const createTemplateMutation = useMutation({
+    mutationFn: async (input: CreateRecurringTemplateInput) => {
+      const mutation = `
+        mutation CreateRecurringTemplate($input: CreateRecurringTemplateInput!) {
+          createRecurringTemplate(input: $input) {
+            ${RECURRING_TEMPLATE_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ createRecurringTemplate: RecurringTemplate }>(
+        mutation,
+        { input }
+      );
+
+      return result.createRecurringTemplate;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recurringTemplates'] });
+    },
+  });
+
+  const updateTemplateMutation = useMutation({
+    mutationFn: async (input: UpdateRecurringTemplateInput) => {
+      const mutation = `
+        mutation UpdateRecurringTemplate($input: UpdateRecurringTemplateInput!) {
+          updateRecurringTemplate(input: $input) {
+            ${RECURRING_TEMPLATE_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ updateRecurringTemplate: RecurringTemplate }>(
+        mutation,
+        { input }
+      );
+
+      return result.updateRecurringTemplate;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recurringTemplates'] });
+    },
+  });
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const mutation = `
+        mutation DeleteRecurringTemplate($id: String!) {
+          deleteRecurringTemplate(id: $id)
+        }
+      `;
+
+      const result = await graphqlClient.request<{ deleteRecurringTemplate: boolean }>(
+        mutation,
+        { id }
+      );
+
+      return result.deleteRecurringTemplate;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recurringTemplates'] });
+    },
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const mutation = `
+        mutation ToggleRecurringTemplateActive($id: String!) {
+          toggleRecurringTemplateActive(id: $id) {
+            ${RECURRING_TEMPLATE_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ toggleRecurringTemplateActive: RecurringTemplate }>(
+        mutation,
+        { id }
+      );
+
+      return result.toggleRecurringTemplateActive;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recurringTemplates'] });
+    },
+  });
+
+  return {
+    // Data
+    templates: templatesQuery.data ?? [],
+    // Loading / error
+    loading: templatesQuery.isLoading,
+    error: templatesQuery.error,
+    // Mutations
+    createTemplate: createTemplateMutation.mutateAsync,
+    updateTemplate: updateTemplateMutation.mutateAsync,
+    deleteTemplate: deleteTemplateMutation.mutateAsync,
+    toggleActive: toggleActiveMutation.mutateAsync,
+    // Mutation loading states
+    creating: createTemplateMutation.isPending,
+    updating: updateTemplateMutation.isPending,
+    deleting: deleteTemplateMutation.isPending,
+    // Refetch
+    refetch: templatesQuery.refetch,
+  };
+}

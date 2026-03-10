@@ -2,12 +2,22 @@
  * Task Management Page
  * 6-tab page for farm task management: today, all tasks, recurring, auto rules, calendar, completed
  */
-import React, { useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { mockTasks, mockRecurringTemplates, mockAutoRules, mockTaskStats } from './mock';
-import { Task, RecurringTemplate, AutoRule, TaskStats, ChecklistItem, TaskNote } from './types/task.types';
+import { TaskStats } from './types/task.types';
 import { TaskFormData } from './components/TaskFormModal';
 import { useTenantUsers } from '../../hooks/useTenantUsers';
+import { useTasks, useRecurringTemplates, useAutoRules } from '../../hooks';
+
+// Default stats used while loading
+const defaultStats: TaskStats = {
+  totalToday: 0,
+  completedToday: 0,
+  overdueCount: 0,
+  upcomingCount: 0,
+  completionRate: 0,
+  avgCompletionMinutes: 0,
+};
 
 // Tab Components
 import { TodayTab } from './components/TodayTab';
@@ -100,104 +110,107 @@ const TasksPage: React.FC = () => {
 
   const { users: tenantUsers } = useTenantUsers();
 
-  // State - mock data with local mutations
-  const [tasks, setTasks] = useState<Task[]>(mockTasks);
-  const [templates, setTemplates] = useState<RecurringTemplate[]>(mockRecurringTemplates);
-  const [autoRules, setAutoRules] = useState<AutoRule[]>(mockAutoRules);
-  const [stats] = useState<TaskStats>(mockTaskStats);
+  // Real GraphQL hooks
+  const {
+    tasks,
+    stats,
+    loading,
+    createTask,
+    updateTask,
+    completeTask: completeTaskMutation,
+    startTask,
+    deleteTask: deleteTaskMutation,
+    toggleChecklistItem: toggleChecklistMutation,
+    addTaskNote: addNoteMutation,
+    refetch,
+  } = useTasks();
+
+  const {
+    templates,
+    loading: templatesLoading,
+    toggleActive: toggleTemplateActive,
+  } = useRecurringTemplates();
+
+  const {
+    autoRules,
+    toggleActive: toggleRuleActive,
+  } = useAutoRules();
 
   const handleTabChange = (tabId: TabId) => {
     setSearchParams({ tab: tabId });
   };
 
   // Task actions
-  const handleToggleComplete = useCallback((taskId: string) => {
-    setTasks(prev => prev.map(t => {
-      if (t.id !== taskId) return t;
-      const isNowComplete = t.status !== 'COMPLETED';
-      return {
-        ...t,
-        status: isNowComplete ? 'COMPLETED' as const : 'PENDING' as const,
-        completedAt: isNowComplete ? new Date().toISOString().split('T')[0] : undefined,
-        completedBy: isNowComplete ? 'Mevcut Kullanıcı' : undefined,
-      };
-    }));
-  }, []);
+  const handleToggleComplete = useCallback(async (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
 
-  const handleToggleChecklist = useCallback((taskId: string, checklistId: string) => {
-    setTasks(prev => prev.map(t => {
-      if (t.id !== taskId) return t;
-      return {
-        ...t,
-        checklistItems: t.checklistItems.map(c =>
-          c.id === checklistId
-            ? { ...c, isCompleted: !c.isCompleted, completedAt: !c.isCompleted ? new Date().toISOString().split('T')[0] : undefined }
-            : c
-        ),
-      };
-    }));
-  }, []);
+    if (task.status !== 'COMPLETED') {
+      await completeTaskMutation(taskId);
+    } else {
+      await updateTask({ id: taskId, status: 'PENDING' });
+    }
+  }, [tasks, completeTaskMutation, updateTask]);
 
-  const handleAddNote = useCallback((taskId: string, noteText: string) => {
-    const newNote: TaskNote = {
-      id: `note-${Date.now()}`,
-      text: noteText,
-      createdBy: 'Mevcut Kullanıcı',
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setTasks(prev => prev.map(t =>
-      t.id === taskId ? { ...t, notes: [...t.notes, newNote] } : t
-    ));
-  }, []);
+  const handleToggleChecklist = useCallback(async (taskId: string, checklistId: string) => {
+    await toggleChecklistMutation({ taskId, itemId: checklistId });
+  }, [toggleChecklistMutation]);
 
-  const handleCreateTask = useCallback((data: TaskFormData) => {
-    const newTask: Task = {
-      id: `t-${Date.now()}`,
+  const handleAddNote = useCallback(async (taskId: string, noteText: string) => {
+    await addNoteMutation({ taskId, text: noteText });
+  }, [addNoteMutation]);
+
+  const handleCreateTask = useCallback(async (data: TaskFormData) => {
+    await createTask({
       title: data.title,
-      description: data.description,
+      description: data.description || undefined,
       category: data.category,
       priority: data.priority,
-      status: 'PENDING',
-      assignedTo: data.assignedTo,
-      assignedToName: data.assignedToName,
+      assignedTo: data.assignedTo || undefined,
+      assignedToName: data.assignedToName || undefined,
       dueDate: data.dueDate,
       dueTime: data.dueTime || undefined,
-      createdAt: new Date().toISOString().split('T')[0],
       location: data.location || undefined,
       estimatedMinutes: data.estimatedMinutes || undefined,
-      checklistItems: data.checklistItems,
-      notes: [],
+      checklistItems: data.checklistItems.map(c => ({
+        text: c.text,
+        isCompleted: c.isCompleted,
+      })),
       tags: data.tags,
-      isRecurring: false,
-      isAutoGenerated: false,
-    };
-    setTasks(prev => [newTask, ...prev]);
-  }, []);
+    });
+  }, [createTask]);
 
-  const handleDeleteTask = useCallback((taskId: string) => {
-    setTasks(prev => prev.filter(t => t.id !== taskId));
-  }, []);
+  const handleDeleteTask = useCallback(async (taskId: string) => {
+    await deleteTaskMutation(taskId);
+  }, [deleteTaskMutation]);
 
-  const handleToggleTemplateActive = useCallback((templateId: string) => {
-    setTemplates(prev => prev.map(t =>
-      t.id === templateId ? { ...t, isActive: !t.isActive } : t
-    ));
-  }, []);
+  const handleToggleTemplateActive = useCallback(async (templateId: string) => {
+    await toggleTemplateActive(templateId);
+  }, [toggleTemplateActive]);
 
   const handleToggleRuleActive = useCallback((ruleId: string) => {
-    setAutoRules(prev => prev.map(r =>
-      r.id === ruleId ? { ...r, isActive: !r.isActive } : r
-    ));
-  }, []);
+    toggleRuleActive(ruleId);
+  }, [toggleRuleActive]);
 
   // Render active tab
   const renderTab = () => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-20">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+            <p className="text-sm text-gray-500">Görevler yükleniyor...</p>
+          </div>
+        </div>
+      );
+    }
+
     switch (activeTab) {
       case 'today':
         return (
           <TodayTab
             tasks={tasks}
-            stats={stats}
+            stats={stats ?? defaultStats}
             onToggleComplete={handleToggleComplete}
             onToggleChecklist={handleToggleChecklist}
             onAddNote={handleAddNote}

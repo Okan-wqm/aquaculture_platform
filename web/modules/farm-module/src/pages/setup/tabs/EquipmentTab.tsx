@@ -49,11 +49,23 @@ const EQUIPMENT_CATEGORIES = [
 ];
 
 const statusColors: Record<string, string> = {
+  // General equipment statuses
   OPERATIONAL: 'bg-green-100 text-green-800',
   MAINTENANCE: 'bg-yellow-100 text-yellow-800',
-  FAULTY: 'bg-red-100 text-red-800',
+  REPAIR: 'bg-orange-100 text-orange-800',
+  STANDBY: 'bg-blue-100 text-blue-800',
+  OUT_OF_SERVICE: 'bg-red-100 text-red-800',
   DECOMMISSIONED: 'bg-gray-100 text-gray-800',
+  // Tank-specific statuses
+  ACTIVE: 'bg-green-100 text-green-800',
+  PREPARING: 'bg-blue-100 text-blue-800',
+  CLEANING: 'bg-cyan-100 text-cyan-800',
+  HARVESTING: 'bg-purple-100 text-purple-800',
+  FALLOW: 'bg-gray-200 text-gray-700',
+  QUARANTINE: 'bg-red-100 text-red-800',
 };
+
+const TANK_CATEGORIES = ['TANK', 'POND', 'CAGE'];
 
 // PERF-018: Pre-compile the camelCase regex once at module scope so it is not
 // reallocated inside the render loop on every equipment card render.
@@ -534,9 +546,22 @@ export const EquipmentTab: React.FC = () => {
             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Status</option>
-            <option value="OPERATIONAL">Operational</option>
-            <option value="MAINTENANCE">Maintenance</option>
-            <option value="FAULTY">Faulty</option>
+            <optgroup label="General">
+              <option value="OPERATIONAL">Operational</option>
+              <option value="MAINTENANCE">Maintenance</option>
+              <option value="REPAIR">Repair</option>
+              <option value="STANDBY">Standby</option>
+              <option value="OUT_OF_SERVICE">Out of Service</option>
+              <option value="DECOMMISSIONED">Decommissioned</option>
+            </optgroup>
+            <optgroup label="Tank / Pond / Cage">
+              <option value="ACTIVE">Active</option>
+              <option value="PREPARING">Preparing</option>
+              <option value="CLEANING">Cleaning</option>
+              <option value="HARVESTING">Harvesting</option>
+              <option value="FALLOW">Fallow</option>
+              <option value="QUARANTINE">Quarantine</option>
+            </optgroup>
           </select>
           <label className="flex items-center text-sm text-gray-600 ml-2">
             <input
@@ -902,10 +927,24 @@ export const EquipmentTab: React.FC = () => {
                             onChange={e => setFormData(prev => ({ ...prev, status: e.target.value }))}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                           >
-                            <option value="OPERATIONAL">Operational</option>
-                            <option value="MAINTENANCE">Maintenance</option>
-                            <option value="FAULTY">Faulty</option>
-                            <option value="DECOMMISSIONED">Decommissioned</option>
+                            <optgroup label="General">
+                              <option value="OPERATIONAL">Operational</option>
+                              <option value="MAINTENANCE">Maintenance</option>
+                              <option value="REPAIR">Repair</option>
+                              <option value="STANDBY">Standby</option>
+                              <option value="OUT_OF_SERVICE">Out of Service</option>
+                              <option value="DECOMMISSIONED">Decommissioned</option>
+                            </optgroup>
+                            {TANK_CATEGORIES.includes(formData.selectedCategory) && (
+                              <optgroup label="Tank / Pond / Cage">
+                                <option value="ACTIVE">Active</option>
+                                <option value="PREPARING">Preparing</option>
+                                <option value="CLEANING">Cleaning</option>
+                                <option value="HARVESTING">Harvesting</option>
+                                <option value="FALLOW">Fallow</option>
+                                <option value="QUARANTINE">Quarantine</option>
+                              </optgroup>
+                            )}
                           </select>
                         </div>
                         <div>

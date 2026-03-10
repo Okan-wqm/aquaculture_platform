@@ -11,7 +11,7 @@ import { Repository, Not, In } from 'typeorm';
 import { ConflictException, NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
 import { UpdateEquipmentCommand } from '../commands/update-equipment.command';
-import { Equipment } from '../entities/equipment.entity';
+import { Equipment, EquipmentStatus } from '../entities/equipment.entity';
 import { EquipmentSystem } from '../entities/equipment-system.entity';
 import { Department } from '../../department/entities/department.entity';
 import { System } from '../../system/entities/system.entity';
@@ -309,6 +309,50 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
       }
     }
 
+    // Handle systemIds for tank (single FK, not many-to-many)
+    const hasSystemIds = Object.prototype.hasOwnProperty.call(input, 'systemIds');
+    if (hasSystemIds && input.systemIds) {
+      if (input.systemIds.length > 1) {
+        throw new BadRequestException('Tank can only be associated with one system');
+      }
+      if (input.systemIds.length === 1) {
+        const system = await this.systemRepository.findOne({
+          where: { id: input.systemIds[0], tenantId },
+        });
+        if (!system) {
+          throw new NotFoundException(`System with ID "${input.systemIds[0]}" not found`);
+        }
+        if (system.isDeleted) {
+          throw new BadRequestException(`System with ID "${input.systemIds[0]}" is deleted`);
+        }
+        // Validate same site as department
+        const deptId = input.departmentId ?? tank.departmentId;
+        if (deptId) {
+          const dept = await this.departmentRepository.findOne({ where: { id: deptId, tenantId } });
+          if (dept && system.siteId !== dept.siteId) {
+            throw new BadRequestException(
+              `System "${system.name}" does not belong to the same site as the department`,
+            );
+          }
+        }
+        tank.systemId = system.id;
+      } else {
+        // Empty array: clear system association
+        tank.systemId = undefined;
+      }
+    }
+
+    // Handle departmentId change
+    if (input.departmentId !== undefined && input.departmentId !== tank.departmentId) {
+      const newDept = await this.departmentRepository.findOne({
+        where: { id: input.departmentId, tenantId },
+      });
+      if (!newDept) {
+        throw new NotFoundException(`Department with ID "${input.departmentId}" not found`);
+      }
+      tank.departmentId = input.departmentId;
+    }
+
     // Map UpdateEquipmentInput fields to Tank fields
     if (input.name !== undefined) tank.name = input.name;
     if (input.description !== undefined) tank.description = input.description;
@@ -370,13 +414,22 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
       }
     }
 
-    // Map equipment status to tank status if provided
+    // Map equipment status to tank status if provided (complete mapping for all 12 values)
     if (input.status !== undefined) {
       const statusMapping: Record<string, TankStatus> = {
         'operational': TankStatus.ACTIVE,
+        'active': TankStatus.ACTIVE,
+        'preparing': TankStatus.PREPARING,
+        'cleaning': TankStatus.CLEANING,
         'maintenance': TankStatus.MAINTENANCE,
-        'inactive': TankStatus.INACTIVE,
+        'repair': TankStatus.MAINTENANCE,
+        'harvesting': TankStatus.HARVESTING,
+        'fallow': TankStatus.FALLOW,
+        'standby': TankStatus.FALLOW,
+        'quarantine': TankStatus.QUARANTINE,
+        'out_of_service': TankStatus.INACTIVE,
         'decommissioned': TankStatus.INACTIVE,
+        'inactive': TankStatus.INACTIVE,
       };
       const mappedStatus = statusMapping[input.status.toLowerCase()];
       if (mappedStatus) {
@@ -406,14 +459,15 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
 
     tank.updatedBy = userId;
 
-    // Recalculate volume if dimensions changed
-    tank.calculateVolume();
+    // Only recalculate and validate volume if dimensions were actually changed
+    if (hasDimensionChanges) {
+      tank.calculateVolume();
 
-    // Validate volume
-    if (tank.volume <= 0) {
-      throw new BadRequestException(
-        'Invalid dimensions: calculated volume must be greater than 0',
-      );
+      if (tank.volume <= 0) {
+        throw new BadRequestException(
+          'Invalid dimensions: calculated volume must be greater than 0',
+        );
+      }
     }
 
     // Save the tank
@@ -446,18 +500,18 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
     equipment.createdBy = tank.createdBy;
     equipment.updatedBy = tank.updatedBy;
 
-    // Map tank status to equipment status
-    const statusMapping: Record<TankStatus, string> = {
-      [TankStatus.ACTIVE]: 'operational',
-      [TankStatus.PREPARING]: 'operational',
-      [TankStatus.CLEANING]: 'maintenance',
-      [TankStatus.MAINTENANCE]: 'maintenance',
-      [TankStatus.HARVESTING]: 'operational',
-      [TankStatus.FALLOW]: 'inactive',
-      [TankStatus.QUARANTINE]: 'operational',
-      [TankStatus.INACTIVE]: 'inactive',
+    // Map tank status to equipment status (1:1 mapping, consistent with list handler)
+    const statusMapping: Record<TankStatus, EquipmentStatus> = {
+      [TankStatus.ACTIVE]: EquipmentStatus.ACTIVE,
+      [TankStatus.PREPARING]: EquipmentStatus.PREPARING,
+      [TankStatus.CLEANING]: EquipmentStatus.CLEANING,
+      [TankStatus.MAINTENANCE]: EquipmentStatus.MAINTENANCE,
+      [TankStatus.HARVESTING]: EquipmentStatus.HARVESTING,
+      [TankStatus.FALLOW]: EquipmentStatus.FALLOW,
+      [TankStatus.QUARANTINE]: EquipmentStatus.QUARANTINE,
+      [TankStatus.INACTIVE]: EquipmentStatus.OUT_OF_SERVICE,
     };
-    equipment.status = statusMapping[tank.status] as Equipment['status'];
+    equipment.status = statusMapping[tank.status] ?? EquipmentStatus.OPERATIONAL;
 
     // Build specifications from tank fields
     equipment.specifications = {
@@ -491,6 +545,23 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
         coordinates: tank.location.coordinates,
         notes: tank.location.notes,
       };
+    }
+
+    // Populate equipmentSystems from tank's systemId for consistent response
+    if (tank.systemId) {
+      equipment.equipmentSystems = [{
+        id: `${tank.id}-${tank.systemId}`,
+        tenantId: tank.tenantId,
+        equipmentId: tank.id,
+        systemId: tank.systemId,
+        isPrimary: true,
+        criticalityLevel: 3,
+        createdAt: tank.createdAt,
+        updatedAt: tank.updatedAt,
+        createdBy: tank.createdBy,
+      }] as any;
+    } else {
+      equipment.equipmentSystems = [];
     }
 
     return equipment;

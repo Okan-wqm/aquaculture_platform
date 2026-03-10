@@ -440,8 +440,22 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
       equipment.equipmentType = equipmentType;
     }
 
-    // Initialize empty arrays/collections for consistency
-    equipment.equipmentSystems = [];
+    // Populate equipmentSystems from tank's systemId (single FK → synthetic junction)
+    if (tank.systemId) {
+      equipment.equipmentSystems = [{
+        id: `${tank.id}-${tank.systemId}`,
+        tenantId: tank.tenantId,
+        equipmentId: tank.id,
+        systemId: tank.systemId,
+        isPrimary: true,
+        criticalityLevel: 3,
+        createdAt: tank.createdAt,
+        updatedAt: tank.updatedAt,
+        createdBy: tank.createdBy,
+      }] as any;
+    } else {
+      equipment.equipmentSystems = [];
+    }
     equipment.childEquipment = [];
 
     return equipment;

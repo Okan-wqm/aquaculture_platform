@@ -1,4 +1,5 @@
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { BadRequestException, Logger, ValidationPipe } from '@nestjs/common';
+import { ValidationError } from 'class-validator';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
@@ -81,6 +82,25 @@ async function bootstrap(): Promise<void> {
   });
 
   // Global validation pipe with security settings
+  // Custom exceptionFactory replaces disableErrorMessages so that:
+  //   - validation details are always logged server-side (observability)
+  //   - client receives sanitized "Bad Request" in production (security)
+  const validationLogger = new Logger('ValidationPipe');
+
+  const flattenErrors = (errors: ValidationError[], parent = ''): string[] => {
+    const messages: string[] = [];
+    for (const err of errors) {
+      const prop = parent ? `${parent}.${err.property}` : err.property;
+      if (err.constraints) {
+        messages.push(...Object.values(err.constraints).map((c) => `${prop}: ${c}`));
+      }
+      if (err.children?.length) {
+        messages.push(...flattenErrors(err.children, prop));
+      }
+    }
+    return messages;
+  };
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -94,7 +114,17 @@ async function bootstrap(): Promise<void> {
         target: false,
         value: false,
       },
-      disableErrorMessages: isProduction,
+      // Custom factory: always log details server-side, hide from client in production
+      exceptionFactory: (errors: ValidationError[]) => {
+        const details = flattenErrors(errors);
+        validationLogger.warn(
+          `Validation failed: ${details.join(' | ')}`,
+        );
+        if (isProduction) {
+          return new BadRequestException('Bad Request');
+        }
+        return new BadRequestException(details);
+      },
     }),
   );
 

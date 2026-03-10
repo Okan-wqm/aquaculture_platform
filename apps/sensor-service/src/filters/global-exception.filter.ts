@@ -158,14 +158,29 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const correlationId = String(errorResponse['correlationId'] || 'N/A');
     const message = String(errorResponse['message'] || '');
 
+    // Extract raw exception response for richer server-side logging
+    // (validation details may be stripped from the client response in production)
+    let rawDetail: string | undefined;
+    if (exception instanceof HttpException) {
+      const raw = exception.getResponse();
+      if (typeof raw === 'object' && raw !== null) {
+        const obj = raw as Record<string, unknown>;
+        if (Array.isArray(obj['message']) && obj['message'].length > 0) {
+          rawDetail = (obj['message'] as string[]).join(' | ');
+        }
+      }
+    }
+
+    const detail = rawDetail ? ` [details: ${rawDetail}]` : '';
+
     if (statusCode >= 500) {
       this.logger.error(
-        `[${correlationId}] ${message}`,
+        `[${correlationId}] ${message}${detail}`,
         exception instanceof Error ? exception.stack : undefined,
       );
     } else if (statusCode >= 400) {
       this.logger.warn(
-        `[${correlationId}] ${message}`,
+        `[${correlationId}] ${message}${detail}`,
       );
     }
   }

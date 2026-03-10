@@ -7,12 +7,14 @@ import {
   MinLength,
   IsEnum,
   IsInt,
+  IsNumber,
   Min,
   Max,
   IsIP,
   IsIn,
   IsBoolean,
   IsArray,
+  ValidateIf,
 } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
@@ -129,7 +131,11 @@ export class CreateProgramInput {
   @Field(() => DeployTarget, { defaultValue: DeployTarget.RUST_ENGINE })
   deployTarget?: DeployTarget;
 
+  // SECURITY FIX: @IsOptional() only skips validation for null/undefined,
+  // NOT for empty string "". @ValidateIf ensures empty strings are also
+  // treated as "not provided" so @IsIP()/@IsIn() don't reject them.
   @IsOptional()
+  @ValidateIf((_obj, value) => value !== null && value !== undefined && value !== '')
   @IsIP()
   @Field({ nullable: true, description: 'PLC IP address for Codesys/setpoint targets' })
   targetPlcAddress?: string;
@@ -142,12 +148,14 @@ export class CreateProgramInput {
   targetPlcPort?: number;
 
   @IsOptional()
+  @ValidateIf((_obj, value) => value !== null && value !== undefined && value !== '')
   @IsString()
   @MaxLength(100)
   @Field({ nullable: true, description: 'PLC model (e.g., WAGO PFC200, Beckhoff CX)' })
   targetPlcModel?: string;
 
   @IsOptional()
+  @ValidateIf((_obj, value) => value !== null && value !== undefined && value !== '')
   @IsIn(['codesys_v3', 'opcua', 'modbus', 's7comm'])
   @Field({ nullable: true, description: 'PLC protocol: codesys_v3, opcua, modbus, s7comm' })
   targetPlcProtocol?: string;
@@ -223,6 +231,7 @@ export class UpdateProgramInput {
   deployTarget?: DeployTarget;
 
   @IsOptional()
+  @ValidateIf((_obj, value) => value !== null && value !== undefined && value !== '')
   @IsIP()
   @Field({ nullable: true })
   targetPlcAddress?: string;
@@ -235,12 +244,14 @@ export class UpdateProgramInput {
   targetPlcPort?: number;
 
   @IsOptional()
+  @ValidateIf((_obj, value) => value !== null && value !== undefined && value !== '')
   @IsString()
   @MaxLength(100)
   @Field({ nullable: true })
   targetPlcModel?: string;
 
   @IsOptional()
+  @ValidateIf((_obj, value) => value !== null && value !== undefined && value !== '')
   @IsIn(['codesys_v3', 'opcua', 'modbus', 's7comm'])
   @Field({ nullable: true })
   targetPlcProtocol?: string;
@@ -465,6 +476,7 @@ export class CreateActionInput {
   @Field({ nullable: true })
   targetRef?: string;
 
+  @IsOptional()
   @Field(() => GraphQLJSON, { nullable: true })
   params?: Record<string, unknown>;
 
@@ -528,6 +540,7 @@ export class UpdateActionInput {
   @Field({ nullable: true })
   targetRef?: string;
 
+  @IsOptional()
   @Field(() => GraphQLJSON, { nullable: true })
   params?: Record<string, unknown>;
 
@@ -619,6 +632,7 @@ export class CreateTransitionInput {
   @Field(() => Int, { defaultValue: 1 })
   priority?: number;
 
+  @IsOptional()
   @Field(() => GraphQLJSON, { nullable: true })
   controlPoints?: Array<{ x: number; y: number }>;
 
@@ -672,6 +686,7 @@ export class UpdateTransitionInput {
   @Field(() => Int, { nullable: true })
   priority?: number;
 
+  @IsOptional()
   @Field(() => GraphQLJSON, { nullable: true })
   controlPoints?: Array<{ x: number; y: number }>;
 
@@ -767,9 +782,13 @@ export class CreateVariableInput {
   sensorChannelId?: string;
 
   // Constraints
+  @IsOptional()
+  @IsNumber()
   @Field(() => Float, { nullable: true })
   minValue?: number;
 
+  @IsOptional()
+  @IsNumber()
   @Field(() => Float, { nullable: true })
   maxValue?: number;
 
@@ -780,18 +799,27 @@ export class CreateVariableInput {
   engUnit?: string;
 
   // Alarms
+  @IsOptional()
+  @IsNumber()
   @Field(() => Float, { nullable: true })
   alarmHH?: number;
 
+  @IsOptional()
+  @IsNumber()
   @Field(() => Float, { nullable: true })
   alarmH?: number;
 
+  @IsOptional()
+  @IsNumber()
   @Field(() => Float, { nullable: true })
   alarmL?: number;
 
+  @IsOptional()
+  @IsNumber()
   @Field(() => Float, { nullable: true })
   alarmLL?: number;
 
+  @IsOptional()
   @Field(() => GraphQLJSON, { nullable: true })
   metadata?: Record<string, unknown>;
 
@@ -859,9 +887,13 @@ export class UpdateVariableInput {
   @Field({ nullable: true })
   sensorChannelId?: string;
 
+  @IsOptional()
+  @IsNumber()
   @Field(() => Float, { nullable: true })
   minValue?: number;
 
+  @IsOptional()
+  @IsNumber()
   @Field(() => Float, { nullable: true })
   maxValue?: number;
 
@@ -871,18 +903,27 @@ export class UpdateVariableInput {
   @Field({ nullable: true })
   engUnit?: string;
 
+  @IsOptional()
+  @IsNumber()
   @Field(() => Float, { nullable: true })
   alarmHH?: number;
 
+  @IsOptional()
+  @IsNumber()
   @Field(() => Float, { nullable: true })
   alarmH?: number;
 
+  @IsOptional()
+  @IsNumber()
   @Field(() => Float, { nullable: true })
   alarmL?: number;
 
+  @IsOptional()
+  @IsNumber()
   @Field(() => Float, { nullable: true })
   alarmLL?: number;
 
+  @IsOptional()
   @Field(() => GraphQLJSON, { nullable: true })
   metadata?: Record<string, unknown>;
 

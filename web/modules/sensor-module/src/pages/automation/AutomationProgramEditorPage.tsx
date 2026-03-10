@@ -523,22 +523,38 @@ const AutomationProgramEditorPage: React.FC = () => {
         setActiveTab('info');
         return;
       }
+      // Sanitize plcConfig: convert empty strings to undefined so that
+      // @IsOptional() in the backend DTO correctly skips validation.
+      // Without this, "" passes the @IsOptional() check (only null/undefined
+      // are treated as missing) and then fails @IsIP() / @IsIn() validators.
+      const sanitizedPlcConfig = {
+        targetPlcAddress: plcConfig.targetPlcAddress || undefined,
+        targetPlcPort: plcConfig.targetPlcPort || undefined,
+        targetPlcModel: plcConfig.targetPlcModel || undefined,
+        targetPlcProtocol: plcConfig.targetPlcProtocol || undefined,
+      };
       createMutation.mutate({
         programCode: formData.programCode,
         programName: formData.name,
-        description: formData.description,
+        description: formData.description || undefined,
         programType: formData.programType,
         structuredTextCode: stCode || undefined,
         deployTarget,
-        ...plcConfig,
+        ...sanitizedPlcConfig,
       });
     } else {
+      const sanitizedPlcConfig = {
+        targetPlcAddress: plcConfig.targetPlcAddress || undefined,
+        targetPlcPort: plcConfig.targetPlcPort || undefined,
+        targetPlcModel: plcConfig.targetPlcModel || undefined,
+        targetPlcProtocol: plcConfig.targetPlcProtocol || undefined,
+      };
       updateMutation.mutate({
         programName: formData.name,
-        description: formData.description,
+        description: formData.description || undefined,
         structuredTextCode: stCode || undefined,
         deployTarget,
-        ...plcConfig,
+        ...sanitizedPlcConfig,
       });
     }
   };

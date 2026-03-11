@@ -38,6 +38,10 @@ import ScadaWidgetNode from './nodes/ScadaWidgetNode';
 import { edgeTypes } from './edges';
 import { EdgeStoreContextProvider } from './EdgeStoreContext';
 import { EdgeToolbar } from './EdgeToolbar';
+import { CanvasContextMenu } from './CanvasContextMenu';
+import { CanvasSettings } from './CanvasSettings';
+import { AlignmentToolbar } from './AlignmentToolbar';
+import { PidFaceplate } from './PidFaceplate';
 import { getEdgeStyle } from '../../config/connectionTypes';
 import type { ConnectionType } from '../../config/connectionTypes';
 import { CONNECTION_POINTS } from './equipment-symbols/types';
@@ -103,13 +107,32 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   const [defaultEdgeType, setDefaultEdgeType] = useState<ScadaEdgeType>('orthogonal');
   const [defaultConnectionType, setDefaultConnectionType] = useState<ConnectionType>('process-pipe');
 
+  // Canvas settings
+  const [snapEnabled, setSnapEnabled] = useState(true);
+  const [showGrid, setShowGrid] = useState(true);
+  const [currentZoom, setCurrentZoom] = useState(1);
+
+  const [contextMenu, setContextMenu] = useState<{
+    position: { x: number; y: number };
+    target: 'widget' | 'edge' | 'canvas';
+  } | null>(null);
+
+  const [faceplateWidget, setFaceplateWidget] = useState<{
+    id: string;
+    widgetType: string;
+    config: Record<string, unknown>;
+    position: { col: number; row: number; w: number; h: number };
+  } | null>(null);
+
   const {
     activeScreenId,
     screens,
     selectedWidgetId,
+    selectedWidgetIds,
     selectedEdgeId,
     setSelectedWidget,
     setSelectedEdge,
+    toggleWidgetSelection,
     addWidget,
     removeWidget,
     updateWidgetPosition,
@@ -123,9 +146,11 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
     activeScreenId: s.activeScreenId,
     screens: s.screens,
     selectedWidgetId: s.selectedWidgetId,
+    selectedWidgetIds: s.selectedWidgetIds,
     selectedEdgeId: s.selectedEdgeId,
     setSelectedWidget: s.setSelectedWidget,
     setSelectedEdge: s.setSelectedEdge,
+    toggleWidgetSelection: s.toggleWidgetSelection,
     addWidget: s.addWidget,
     removeWidget: s.removeWidget,
     updateWidgetPosition: s.updateWidgetPosition,
@@ -433,16 +458,77 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   const onPaneClick = useCallback(() => {
     setSelectedWidget(null);
     setSelectedEdge(null);
+    setContextMenu(null);
   }, [setSelectedWidget, setSelectedEdge]);
 
-  // Handle node click for selection
+  // Track zoom level for CanvasSettings
+  const onMoveEnd = useCallback((_event: unknown, viewport: { x: number; y: number; zoom: number }) => {
+    setCurrentZoom(viewport.zoom);
+  }, []);
+
+  // Handle node click for selection (shift+click for multi-select)
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
-      setSelectedWidget(node.id);
-      setSelectedEdge(null);
+      if (_event.shiftKey) {
+        toggleWidgetSelection(node.id);
+      } else {
+        // Check if widget is part of a group
+        const state = useScadaPackageStore.getState();
+        const screen = state.screens.find((s) => s.id === state.activeScreenId);
+        const widget = screen?.widgets.find((w) => w.id === node.id);
+        if (widget?.groupId && 'selectGroup' in state) {
+          (state as any).selectGroup(state.activeScreenId, widget.groupId);
+        } else {
+          setSelectedWidget(node.id);
+        }
+        setSelectedEdge(null);
+      }
     },
-    [setSelectedWidget, setSelectedEdge],
+    [setSelectedWidget, setSelectedEdge, toggleWidgetSelection],
   );
+
+  // Right-click context menu
+  const onPaneContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({
+      position: { x: e.clientX, y: e.clientY },
+      target: 'canvas',
+    });
+  }, []);
+
+  const onNodeContextMenu = useCallback((_e: React.MouseEvent, node: Node) => {
+    _e.preventDefault();
+    setSelectedWidget(node.id);
+    setSelectedEdge(null);
+    setContextMenu({
+      position: { x: _e.clientX, y: _e.clientY },
+      target: 'widget',
+    });
+  }, [setSelectedWidget, setSelectedEdge]);
+
+  const onEdgeContextMenu = useCallback((_e: React.MouseEvent, edge: Edge) => {
+    _e.preventDefault();
+    setSelectedEdge(edge.id);
+    setSelectedWidget(null);
+    setContextMenu({
+      position: { x: _e.clientX, y: _e.clientY },
+      target: 'edge',
+    });
+  }, [setSelectedEdge, setSelectedWidget]);
+
+  const onNodeDoubleClick = useCallback((_e: React.MouseEvent, node: Node<ScadaWidgetNodeData>) => {
+    const state = useScadaPackageStore.getState();
+    const screen = state.screens.find((s) => s.id === state.activeScreenId);
+    if (!screen) return;
+    const widget = screen.widgets.find((w) => w.id === node.id);
+    if (!widget) return;
+    setFaceplateWidget({
+      id: widget.id,
+      widgetType: widget.widgetType,
+      config: widget.config,
+      position: widget.position,
+    });
+  }, []);
 
   // Delete key handler (ReactFlow callback)
   const onNodesDelete = useCallback(
@@ -598,6 +684,9 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
           />
         )}
 
+        {/* Alignment toolbar (shown when 2+ widgets selected) */}
+        {!isPreview && <AlignmentToolbar />}
+
         <ReactFlow
           nodes={isPreview ? nodes.map((n) => ({ ...n, draggable: false })) : nodes}
           edges={rfEdges}
@@ -610,8 +699,12 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
           onEdgeClick={isPreview ? undefined : onEdgeClick}
           onNodesDelete={isPreview ? undefined : onNodesDelete}
           onPaneClick={isPreview ? undefined : onPaneClick}
+          onPaneContextMenu={isPreview ? undefined : onPaneContextMenu}
+          onNodeContextMenu={isPreview ? undefined : onNodeContextMenu}
+          onEdgeContextMenu={isPreview ? undefined : onEdgeContextMenu}
+          onNodeDoubleClick={isPreview ? undefined : onNodeDoubleClick}
           isValidConnection={isValidConnection}
-          snapToGrid={!isPreview}
+          snapToGrid={!isPreview && snapEnabled}
           snapGrid={SNAP_GRID}
           fitView={false}
           deleteKeyCode={isPreview ? null : 'Delete'}
@@ -626,25 +719,70 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
           connectionLineStyle={{ stroke: '#06b6d4', strokeWidth: 2 }}
           connectionLineType={ConnectionLineType.SmoothStep}
           connectionRadius={20}
+          onMoveEnd={onMoveEnd}
         >
-          <Background
-            variant={BackgroundVariant.Dots}
-            gap={GRID_CELL_W}
-            size={1.5}
-            color="#d1d5db"
-          />
+          {showGrid && (
+            <Background
+              variant={BackgroundVariant.Dots}
+              gap={GRID_CELL_W}
+              size={1.5}
+              color="#d1d5db"
+            />
+          )}
           <Controls
             showInteractive={false}
             position="bottom-right"
           />
           <MiniMap
-            nodeColor="#06b6d4"
+            nodeColor={(node: Node) => {
+              const data = node.data as ScadaWidgetNodeData | undefined;
+              if (!data) return '#06b6d4';
+              const type = data.widgetType;
+              // Equipment types get industrial colors
+              if (type === 'equipment') return '#f59e0b'; // amber
+              if (type === 'gauge') return '#10b981'; // emerald
+              if (type === 'alarmBanner' || type === 'alarmList') return '#ef4444'; // red
+              if (type === 'trendChart') return '#8b5cf6'; // violet
+              if (type === 'screenLink') return '#3b82f6'; // blue
+              if (type === 'staticText') return '#6b7280'; // gray
+              return '#06b6d4'; // cyan default
+            }}
             maskColor="rgba(0,0,0,0.1)"
             position="bottom-left"
             pannable
             zoomable
           />
         </ReactFlow>
+
+        {/* Canvas Settings */}
+        {!isPreview && (
+          <CanvasSettings
+            snapEnabled={snapEnabled}
+            onSnapToggle={setSnapEnabled}
+            showGrid={showGrid}
+            onGridToggle={setShowGrid}
+            zoom={currentZoom}
+            onZoomChange={(z) => rfInstance.setViewport({ ...rfInstance.getViewport(), zoom: z })}
+            onFitView={() => rfInstance.fitView({ padding: 0.1, duration: 200 })}
+          />
+        )}
+
+        {/* Context Menu */}
+        {!isPreview && contextMenu && (
+          <CanvasContextMenu
+            position={contextMenu.position}
+            target={contextMenu.target}
+            onClose={() => setContextMenu(null)}
+          />
+        )}
+
+        {/* PID Faceplate */}
+        {faceplateWidget && (
+          <PidFaceplate
+            widget={faceplateWidget}
+            onClose={() => setFaceplateWidget(null)}
+          />
+        )}
       </div>
     </EdgeStoreContextProvider>
   );

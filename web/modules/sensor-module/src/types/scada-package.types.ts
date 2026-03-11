@@ -16,6 +16,10 @@ export interface ScreenWidget {
   widgetType: string;
   position: WidgetPosition;
   config: Record<string, unknown>;
+  /** Widgets sharing the same groupId are in a group. */
+  groupId?: string | null;
+  /** When true, widget cannot be dragged or resized. */
+  locked?: boolean;
 }
 
 export interface Screen {

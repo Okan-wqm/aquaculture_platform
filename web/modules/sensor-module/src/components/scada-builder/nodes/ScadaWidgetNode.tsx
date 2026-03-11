@@ -16,11 +16,13 @@
 import React, { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type { NodeProps } from 'reactflow';
 import { Handle, Position } from 'reactflow';
+import { Lock } from 'lucide-react';
 import { WidgetRenderer } from '../WidgetRenderer';
 import type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 import type { EquipmentConnectionPoint } from '../../../types/scada-widget.types';
 import { getWidgetPixelConstraints } from '../../../constants/scada-widget-sizes';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS, EQUIPMENT_VIEWBOX } from '../equipment-symbols/types';
+import { useScadaPackageStore } from '../../../store/scadaPackageStore';
 export type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 
 /* ------------------------------------------------------------------ */
@@ -115,8 +117,22 @@ export const HANDLE_HOVER_CSS = `
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selected }) => {
+const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, selected }) => {
   const constraints = WIDGET_SIZE_CONSTRAINTS[data.widgetType] || DEFAULT_CONSTRAINTS;
+
+  /* ---------- Locked state from store -------------------------------- */
+  const locked = useScadaPackageStore((s) => {
+    const screen = s.screens.find((scr) => scr.id === data.screenId);
+    return screen?.widgets.find((w) => w.id === id)?.locked ?? false;
+  });
+
+  /* ---------- Runtime command dispatch -------------------------------- */
+  const handleCommand = useCallback((command: string, value?: unknown) => {
+    if (command === 'navigate' && typeof value === 'string') {
+      useScadaPackageStore.getState().setActiveScreen(value);
+    }
+    // Future commands (e.g. 'writeTag', 'openFaceplate') can be added here
+  }, []);
 
   const [size, setSize] = useState({
     width: data.width ?? constraints.defaultW,
@@ -202,17 +218,17 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
     height: size.height,
     position: 'relative' as const,
     zIndex: 500,
-    borderRadius: isEquipment ? 4 : 8,
+    borderRadius: 4,
     border: selected
       ? '2px solid #06b6d4'
-      : isEquipment ? '1px solid transparent' : '1px solid #e5e7eb',
+      : '1px solid transparent',
     boxShadow: selected
       ? '0 0 0 2px rgba(6,182,212,0.35)'
-      : isEquipment ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
-    background: isEquipment ? 'transparent' : '#ffffff',
+      : 'none',
+    background: 'transparent',
     overflow: 'visible' as const,
     userSelect: 'none' as const,
-  }), [size.width, size.height, selected, isEquipment]);
+  }), [size.width, size.height, selected]);
 
   /* ---------- Connection handles for all widget types --------------- */
   const connectionHandles = useMemo(() => {
@@ -266,6 +282,25 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
           : data.widgetType)}
       </span>
 
+      {/* Lock indicator (top-right, only when locked) */}
+      {locked && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            zIndex: 10,
+            background: 'rgba(31, 41, 55, 0.6)',
+            borderRadius: 4,
+            padding: 2,
+            lineHeight: 0,
+          }}
+          title="Kilitli"
+        >
+          <Lock style={{ width: 12, height: 12, color: '#ffffff' }} />
+        </div>
+      )}
+
       {/* Widget content - overflow hidden here to clip widget internals */}
       <div style={CONTENT_STYLE}>
         <WidgetRenderer
@@ -275,6 +310,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
           width={size.width}
           height={size.height}
           isEditing
+          onCommand={handleCommand}
         />
       </div>
 

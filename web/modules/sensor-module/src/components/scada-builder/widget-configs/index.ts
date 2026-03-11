@@ -23,6 +23,8 @@ import { DirtyWaterTankConfig } from './DirtyWaterTankConfig';
 import { MbbrConfig } from './MbbrConfig';
 import { HepaFilterConfig } from './HepaFilterConfig';
 import { CornellDualDrainConfig } from './CornellDualDrainConfig';
+import { ScreenLinkConfig } from './ScreenLinkConfig';
+import { StaticTextConfig } from './StaticTextConfig';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -55,4 +57,6 @@ export const widgetConfigMap: Record<string, React.FC<WidgetConfigProps>> = {
   mbbr: MbbrConfig,
   hepaFilter: HepaFilterConfig,
   cornellDualDrain: CornellDualDrainConfig,
+  screenLink: ScreenLinkConfig,
+  staticText: StaticTextConfig,
 };

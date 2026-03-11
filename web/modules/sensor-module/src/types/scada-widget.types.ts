@@ -29,7 +29,9 @@ export type ScadaWidgetType =
   | 'dirtyWaterTank'
   | 'mbbr'
   | 'hepaFilter'
-  | 'cornellDualDrain';
+  | 'cornellDualDrain'
+  | 'screenLink'
+  | 'staticText';
 
 /* ------------------------------------------------------------------ */
 /*  Equipment sub-types                                                */

@@ -65,6 +65,8 @@ const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<Widg
   mbbr:                React.lazy(() => import('./widget-renderers/MbbrRenderer')),
   hepaFilter:          React.lazy(() => import('./widget-renderers/HepaFilterRenderer')),
   cornellDualDrain:    React.lazy(() => import('./widget-renderers/CornellDualDrainRenderer')),
+  screenLink:        React.lazy(() => import('./widget-renderers/ScreenLinkRenderer')),
+  staticText:        React.lazy(() => import('./widget-renderers/StaticTextRenderer')),
 };
 
 /* ------------------------------------------------------------------ */

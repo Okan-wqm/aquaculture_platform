@@ -19,6 +19,7 @@ import {
   Wifi,
   WifiOff,
   CheckCircle,
+  Search,
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -28,12 +29,18 @@ import { ScreenCanvas } from '../../components/scada-builder/ScreenCanvas';
 import { PropertiesPanel } from '../../components/scada-builder/PropertiesPanel';
 import { DeployScadaDialog } from '../../components/scada-builder/DeployScadaDialog';
 import ScreenTabBar from '../../components/scada-builder/ScreenTabBar';
+import { SceneTreePanel } from '../../components/scada-builder/SceneTreePanel';
+import { ScreenBreadcrumb } from '../../components/scada-builder/ScreenBreadcrumb';
+import { GlobalAlarmBanner } from '../../components/scada-builder/GlobalAlarmBanner';
+import { WidgetSearchPanel } from '../../components/scada-builder/WidgetSearchPanel';
+import { UndoRedoToolbar } from '../../components/scada-builder/UndoRedoToolbar';
 import {
   useScadaPackageById,
   useCreateScadaPackage,
   useUpdateScadaPackage,
 } from '../../hooks/useScadaPackage';
 import { useEdgeDevices } from '../../hooks/useEdgeDevices';
+import { useScadaKeyboardShortcuts } from '../../hooks/useScadaKeyboardShortcuts';
 
 const DEFAULT_EMERGENCY_STOP = {
   holdDuration: 3000,
@@ -54,6 +61,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
   const [showDeployDialog, setShowDeployDialog] = useState(false);
   const [showDeviceDropdown, setShowDeviceDropdown] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
 
   const {
     packageId: storePackageId,
@@ -206,6 +214,12 @@ const ScadaPackageBuilderPage: React.FC = () => {
       setIsSaving(false);
     }
   }, [packageName, effectivePackageId, toScadaPackageJSON, updateMutation, createMutation, processId, setPackageId, navigate]);
+
+  // Keyboard shortcuts (Ctrl+Z/Y, Ctrl+C/V/X, Del, Ctrl+S, Esc)
+  useScadaKeyboardShortcuts({
+    onSave: handleSave,
+    isPreview: showPreview,
+  });
 
   // Deploy handler - ensure save first
   const handleDeployClick = useCallback(async () => {
@@ -436,6 +450,31 @@ const ScadaPackageBuilderPage: React.FC = () => {
 
         {/* Right */}
         <div className="flex items-center gap-2">
+          <UndoRedoToolbar />
+          {/* Widget Search */}
+          <div className="relative">
+            <button
+              onClick={() => setShowSearch(!showSearch)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                showSearch
+                  ? 'text-white bg-cyan-600 hover:bg-cyan-700'
+                  : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
+              }`}
+              title="Widget Ara"
+            >
+              <Search className="w-4 h-4" />
+              Ara
+            </button>
+            {showSearch && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setShowSearch(false)} />
+                <div className="absolute right-0 mt-1 z-40">
+                  <WidgetSearchPanel />
+                </div>
+              </>
+            )}
+          </div>
+
           <button
             onClick={handleSave}
             disabled={isSaving || !packageName.trim()}
@@ -501,13 +540,22 @@ const ScadaPackageBuilderPage: React.FC = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
+        {/* Scene Tree Panel (hidden in preview) */}
+        {!showPreview && <SceneTreePanel />}
+
         {/* Left Panel - Widget Palette (hidden in preview) */}
         {!showPreview && <WidgetPalette />}
 
         {/* Center - Canvas with Screen Tabs */}
         <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Global Alarm Banner */}
+          <GlobalAlarmBanner />
+
           {/* Screen tabs - using ScreenTabBar component */}
           <ScreenTabBar />
+
+          {/* Breadcrumb navigation for nested screens */}
+          <ScreenBreadcrumb />
 
           {/* Canvas */}
           <div className="flex-1 flex flex-col">
@@ -555,7 +603,12 @@ const ScadaPackageBuilderPage: React.FC = () => {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {activeScreenId && (
+            <span className="text-gray-400">
+              {screens.find((s) => s.id === activeScreenId)?.name ?? ''}
+            </span>
+          )}
           <span className="w-2 h-2 rounded-full bg-green-500" />
           <span>Hazır</span>
         </div>

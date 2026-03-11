@@ -128,7 +128,6 @@ export function useCreateScadaPackage() {
       description?: string;
       processId?: string;
       packageData: ScadaPackageJSON;
-      status?: ScadaPackageStatus;
     }) => {
       const data = await graphqlFetch<{ createScadaPackage: ScadaPackage }>(
         CREATE_SCADA_PACKAGE,

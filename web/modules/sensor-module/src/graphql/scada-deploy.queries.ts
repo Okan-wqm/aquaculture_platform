@@ -1,12 +1,3 @@
 // GraphQL queries and mutations for SCADA package deployment
-
-export const DEPLOY_SCADA_PACKAGE = `
-  mutation DeployScadaPackage($packageId: ID!, $deviceId: ID!) {
-    deployScadaPackageToEdge(packageId: $packageId, deviceId: $deviceId) {
-      success
-      message
-      packageId
-      deviceId
-    }
-  }
-`;
+// Re-export from canonical location to avoid duplication
+export { DEPLOY_SCADA_PACKAGE } from './scada-package.queries';

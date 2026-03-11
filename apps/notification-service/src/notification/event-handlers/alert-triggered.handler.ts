@@ -64,21 +64,19 @@ interface AlertTriggeredEvent {
   eventId: string;
   eventType: string;
   timestamp: Date;
-  payload: {
-    alertId: string;
-    ruleId: string;
-    ruleName: string;
-    tenantId: string;
-    severity: string;
-    message: string;
-    channels: string[];
-    recipients: string[];
-    triggeringData?: {
-      sensorId?: string;
-      farmId?: string;
-      pondId?: string;
-      readings?: Record<string, number>;
-    };
+  tenantId: string;
+  alertId: string;
+  ruleId: string;
+  ruleName: string;
+  severity: string;
+  message: string;
+  channels: string[];
+  recipients: string[];
+  triggeringData?: {
+    sensorId?: string;
+    farmId?: string;
+    pondId?: string;
+    readings?: Record<string, number>;
   };
 }
 
@@ -116,19 +114,17 @@ export class AlertTriggeredEventHandler
   }
 
   async handle(event: AlertTriggeredEvent): Promise<void> {
-    const { payload } = event;
-
     // SECURITY: Validate tenantId format to ensure data isolation
-    if (!payload.tenantId || !UUID_REGEX.test(payload.tenantId)) {
+    if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
       this.logger.error(
-        `Alert ${payload.alertId} has invalid or missing tenantId. ` +
+        `Alert ${event.alertId} has invalid or missing tenantId. ` +
         'Skipping to prevent cross-tenant notification leakage.',
       );
       return;
     }
 
     // Validate required fields
-    if (!payload.alertId || !payload.ruleId) {
+    if (!event.alertId || !event.ruleId) {
       this.logger.error(
         `Alert event missing required alertId or ruleId. Skipping.`,
       );
@@ -136,43 +132,43 @@ export class AlertTriggeredEventHandler
     }
 
     this.logger.log(
-      `Processing alert ${payload.alertId} for tenant ${payload.tenantId.substring(0, 8)}...`,
+      `Processing alert ${event.alertId} for tenant ${event.tenantId.substring(0, 8)}...`,
     );
 
     // Skip if no channels or recipients
-    if (!payload.channels?.length || !payload.recipients?.length) {
+    if (!event.channels?.length || !event.recipients?.length) {
       this.logger.warn(
-        `Alert ${payload.alertId} has no channels or recipients configured`,
+        `Alert ${event.alertId} has no channels or recipients configured`,
       );
       return;
     }
 
-    // Use local copies to avoid mutating the original event payload
-    const recipients = payload.recipients.length > MAX_RECIPIENTS
-      ? payload.recipients.slice(0, MAX_RECIPIENTS)
-      : [...payload.recipients];
+    // Use local copies to avoid mutating the original event
+    const recipients = event.recipients.length > MAX_RECIPIENTS
+      ? event.recipients.slice(0, MAX_RECIPIENTS)
+      : [...event.recipients];
 
-    if (payload.recipients.length > MAX_RECIPIENTS) {
+    if (event.recipients.length > MAX_RECIPIENTS) {
       this.logger.warn(
-        `Alert ${payload.alertId} has too many recipients (${payload.recipients.length}). ` +
+        `Alert ${event.alertId} has too many recipients (${event.recipients.length}). ` +
         `Limiting to first ${MAX_RECIPIENTS}.`,
       );
     }
 
     // Validate and sanitize severity against allowlist to prevent header injection
-    const rawSeverity = (payload.severity || 'info').toLowerCase();
+    const rawSeverity = (event.severity || 'info').toLowerCase();
     const severity = ALLOWED_SEVERITIES.includes(rawSeverity) ? rawSeverity : 'info';
     if (!ALLOWED_SEVERITIES.includes(rawSeverity)) {
       this.logger.warn(
-        `Alert ${payload.alertId} has invalid severity "${rawSeverity.substring(0, 50)}". Defaulting to "info".`,
+        `Alert ${event.alertId} has invalid severity "${rawSeverity.substring(0, 50)}". Defaulting to "info".`,
       );
     }
 
     // Truncate and strip CRLF from strings used in SMTP headers
     const sanitizedRuleName = stripCrlf(
-      (payload.ruleName || 'Unknown Rule').substring(0, MAX_RULE_NAME_LENGTH),
+      (event.ruleName || 'Unknown Rule').substring(0, MAX_RULE_NAME_LENGTH),
     );
-    const sanitizedMessage = (payload.message || '').substring(0, MAX_MESSAGE_LENGTH);
+    const sanitizedMessage = (event.message || '').substring(0, MAX_MESSAGE_LENGTH);
 
     // Acquire semaphore slot before dispatching to enforce backpressure (L1).
     // If MAX_EVENT_CONCURRENCY events are already in-flight this will queue
@@ -181,16 +177,16 @@ export class AlertTriggeredEventHandler
 
     try {
       await this.dispatcher.dispatchAlertNotification(
-        payload.tenantId,
-        [...payload.channels],
+        event.tenantId,
+        [...event.channels],
         recipients,
         {
-          alertId: payload.alertId,
-          ruleId: payload.ruleId,
+          alertId: event.alertId,
+          ruleId: event.ruleId,
           ruleName: sanitizedRuleName,
           severity,
           message: sanitizedMessage,
-          sensorId: payload.triggeringData?.sensorId,
+          sensorId: event.triggeringData?.sensorId,
           timestamp: event.timestamp,
         },
       );

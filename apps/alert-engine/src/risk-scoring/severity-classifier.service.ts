@@ -299,6 +299,7 @@ export class SeverityClassifierService {
     const severityOrder = [
       AlertSeverity.INFO,
       AlertSeverity.LOW,
+      AlertSeverity.WARNING,
       AlertSeverity.MEDIUM,
       AlertSeverity.HIGH,
       AlertSeverity.CRITICAL,

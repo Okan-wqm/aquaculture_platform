@@ -58,7 +58,7 @@ export class ScadaPackage {
   version!: number;
 
   @Field({ nullable: true })
-  @Column({ name: 'process_id', nullable: true })
+  @Column({ type: 'uuid', name: 'process_id', nullable: true })
   processId?: string;
 
   @Field(() => GraphQLJSON)

@@ -82,6 +82,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'tenant_provisioning_keys',
       'device_events',
       'deployment_logs',
+
+      // SCADA & Unified Tag entities
+      'scada_packages',
+      'scada_deploy_logs',
+      'unified_tags',
     ],
   },
   {

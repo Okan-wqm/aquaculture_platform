@@ -604,6 +604,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             await this.scadaDeployLogService.updateStatus(
               payload.commandId,
               ScadaDeployStatus.SUCCESS,
+              undefined,
+              tenantId,
             );
             this.logger.log(
               `SCADA deploy succeeded for command ${payload.commandId}`,
@@ -613,6 +615,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
               payload.commandId,
               ScadaDeployStatus.FAILED,
               { errorMessage: payload.error || 'SCADA deployment failed on device' },
+              tenantId,
             );
             this.logger.warn(
               `SCADA deploy failed for command ${payload.commandId}: ${payload.error || 'unknown error'}`,
@@ -1471,23 +1474,26 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      // Get all tenant schemas
+      // Get all tenant schemas (safe read-only query, no search_path mutation)
       const tenantSchemas: Array<{ schema_name: string }> = await this.dataSource.query(`
         SELECT schema_name FROM information_schema.schemata
         WHERE schema_name LIKE 'tenant_%'
         ORDER BY schema_name
       `);
 
-      // Search in each tenant schema
+      // Search in each tenant schema using a dedicated QueryRunner so the
+      // SET search_path mutation is scoped to a single connection and never
+      // leaks back to the pool under concurrent MQTT messages (HIGH-001).
       for (const { schema_name } of tenantSchemas) {
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
         try {
-          // Set search_path to this tenant's schema
           // Sanitize schema name to prevent SQL injection
           const safeSchemaName = schema_name.replace(/[^a-zA-Z0-9_]/g, '');
-          await this.dataSource.query(`SET search_path TO "${safeSchemaName}", public`);
+          await queryRunner.query(`SET search_path TO "${safeSchemaName}", public`);
 
           // Check if sensors table exists in this schema
-          const tableCheck: Array<{ '1': number }> = await this.dataSource.query(`
+          const tableCheck: Array<{ '1': number }> = await queryRunner.query(`
             SELECT 1 FROM information_schema.tables
             WHERE table_schema = $1 AND table_name = 'sensors'
           `, [schema_name]);
@@ -1496,8 +1502,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             continue; // Skip schemas without sensors table
           }
 
-          // Try exact topic match
-          const sensorByTopic = await this.sensorRepository
+          // Try exact topic match (use queryRunner.manager to stay on the same connection)
+          const sensorByTopic = await queryRunner.manager
+            .getRepository(Sensor)
             .createQueryBuilder('sensor')
             .where(`sensor."protocol_configuration"->>'topic' = :topic`, { topic })
             .getOne();
@@ -1508,7 +1515,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           }
 
           // Try wildcard match
-          const sensorsWithWildcard = await this.sensorRepository
+          const sensorsWithWildcard = await queryRunner.manager
+            .getRepository(Sensor)
             .createQueryBuilder('sensor')
             .where(`sensor."protocol_configuration"->>'topic' LIKE '%#%'`)
             .orWhere(`sensor."protocol_configuration"->>'topic' LIKE '%+%'`)
@@ -1524,7 +1532,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
           // Try by sensor ID from topic
           if (parsed?.sensorId) {
-            const sensorById = await this.sensorRepository.findOne({
+            const sensorById = await queryRunner.manager.findOne(Sensor, {
               where: { id: parsed.sensorId },
             });
             if (sensorById) {
@@ -1532,7 +1540,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             }
 
             // Try by serial number
-            const sensorBySerial = await this.sensorRepository.findOne({
+            const sensorBySerial = await queryRunner.manager.findOne(Sensor, {
               where: { serialNumber: parsed.sensorId },
             });
             if (sensorBySerial) {
@@ -1543,6 +1551,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           // Skip this schema if there's an error
           this.logger.debug(`Error searching in schema ${schema_name}: ${(schemaError as Error).message}`);
           continue;
+        } finally {
+          // Reset search_path on this specific connection before returning it to the pool
+          try { await queryRunner.query(`RESET search_path`); } catch { /* ignore */ }
+          await queryRunner.release();
         }
       }
 

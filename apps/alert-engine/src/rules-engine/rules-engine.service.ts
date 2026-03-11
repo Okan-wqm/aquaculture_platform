@@ -371,12 +371,12 @@ export class RulesEngineService implements OnModuleInit, OnModuleDestroy {
 
   private getHighestSeverity(conditions: AlertCondition[]): AlertSeverity {
     const severityOrder: Record<AlertSeverity, number> = {
-      [AlertSeverity.CRITICAL]: 6,
-      [AlertSeverity.HIGH]: 5,
-      [AlertSeverity.MEDIUM]: 4,
-      [AlertSeverity.WARNING]: 3,
-      [AlertSeverity.LOW]: 2,
-      [AlertSeverity.INFO]: 1,
+      [AlertSeverity.CRITICAL]: 5,
+      [AlertSeverity.HIGH]: 4,
+      [AlertSeverity.MEDIUM]: 3,
+      [AlertSeverity.WARNING]: 2,
+      [AlertSeverity.LOW]: 1,
+      [AlertSeverity.INFO]: 0,
     };
 
     let highest = AlertSeverity.INFO;
@@ -404,12 +404,12 @@ export class RulesEngineService implements OnModuleInit, OnModuleDestroy {
     if (strategy === RuleMatchStrategy.BEST_MATCH) {
       // Sort by severity (CRITICAL > HIGH > MEDIUM > WARNING > LOW > INFO)
       const severityOrder: Record<AlertSeverity, number> = {
-        [AlertSeverity.CRITICAL]: 6,
-        [AlertSeverity.HIGH]: 5,
-        [AlertSeverity.MEDIUM]: 4,
-        [AlertSeverity.WARNING]: 3,
-        [AlertSeverity.LOW]: 2,
-        [AlertSeverity.INFO]: 1,
+        [AlertSeverity.CRITICAL]: 5,
+        [AlertSeverity.HIGH]: 4,
+        [AlertSeverity.MEDIUM]: 3,
+        [AlertSeverity.WARNING]: 2,
+        [AlertSeverity.LOW]: 1,
+        [AlertSeverity.INFO]: 0,
       };
 
       return [...matches].sort((a, b) => {

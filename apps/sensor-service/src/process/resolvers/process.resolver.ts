@@ -22,10 +22,16 @@ import {
   DeployScadaWithAutomationInput,
   UnifiedDeployResultType,
 } from '../dto/scada-package.dto';
+import {
+  DeployLogFilterInput,
+  ScadaDeployLogType,
+  ScadaDeployLogListType,
+} from '../dto/scada-deploy-log.dto';
 import { Process } from '../entities/process.entity';
 import { ScadaPackage } from '../entities/scada-package.entity';
 import { ProcessService } from '../services/process.service';
 import { ScadaPackageService } from '../services/scada-package.service';
+import { ScadaDeployLogService } from '../services/scada-deploy-log.service';
 
 
 @Resolver(() => ProcessType)
@@ -33,6 +39,7 @@ export class ProcessResolver {
   constructor(
     private processService: ProcessService,
     private scadaPackageService: ScadaPackageService,
+    private scadaDeployLogService: ScadaDeployLogService,
   ) {}
 
   // ============================================================================
@@ -279,6 +286,41 @@ export class ProcessResolver {
       limit: result.limit,
       hasMore: result.hasMore,
     };
+  }
+
+  // ============================================================================
+  // SCADA Deploy Log Queries
+  // ============================================================================
+
+  @Query(() => ScadaDeployLogListType, { name: 'scadaDeployLogs' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async scadaDeployLogs(
+    @Args('filter') filter: DeployLogFilterInput,
+    @Tenant() tenantId: string,
+  ): Promise<ScadaDeployLogListType> {
+    if (filter.packageId) {
+      const items = await this.scadaDeployLogService.getByPackage(filter.packageId, tenantId);
+      return { items, total: items.length };
+    }
+    if (filter.deviceId) {
+      return this.scadaDeployLogService.getByDevice(
+        filter.deviceId,
+        tenantId,
+        filter.page,
+        filter.limit,
+      );
+    }
+    // Neither filter provided — return empty result
+    return { items: [], total: 0 };
+  }
+
+  @Query(() => ScadaDeployLogType, { name: 'latestScadaDeployLog', nullable: true })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async latestScadaDeployLog(
+    @Args('deviceId', { type: () => ID }) deviceId: string,
+    @Tenant() tenantId: string,
+  ): Promise<ScadaDeployLogType | null> {
+    return this.scadaDeployLogService.getLatestByDevice(deviceId, tenantId);
   }
 
   // ============================================================================

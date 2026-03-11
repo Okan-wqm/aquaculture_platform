@@ -48,7 +48,14 @@ export class ScadaDeployLogService {
     return saved;
   }
 
-  /** @internal MQTT handler only - no tenant context available */
+  /**
+   * Update status of a SCADA deploy log by commandId.
+   * @param commandId  Unique command identifier
+   * @param status     New deploy status
+   * @param data       Optional extra data (error, health-check, rollback info)
+   * @param tenantId   When provided, scopes the lookup to this tenant for data isolation.
+   *                   Omit only for backward-compatible callers that cannot supply it.
+   */
   async updateStatus(
     commandId: string,
     status: ScadaDeployStatus,
@@ -57,11 +64,23 @@ export class ScadaDeployLogService {
       healthCheckResults?: Record<string, unknown>;
       rolledBackTo?: number;
     },
+    tenantId?: string,
   ): Promise<ScadaDeployLog | null> {
-    const log = await this.deployLogRepo.findOne({ where: { commandId } });
+    const where: Record<string, string> = { commandId };
+    if (tenantId) {
+      where.tenantId = tenantId;
+    }
+    const log = await this.deployLogRepo.findOne({ where });
     if (!log) {
-      this.logger.warn(`SCADA deploy log not found for command ${commandId}`);
+      this.logger.warn(`SCADA deploy log not found for command ${commandId}${tenantId ? ` (tenant: ${tenantId})` : ''}`);
       return null;
+    }
+
+    // If tenantId was not provided, log a warning for audit visibility
+    if (!tenantId) {
+      this.logger.warn(
+        `updateStatus called without tenantId for command ${commandId} — tenant isolation not enforced`,
+      );
     }
 
     log.status = status;

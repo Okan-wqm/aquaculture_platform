@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In, Not } from 'typeorm';
 import {
   AlertRule,
   AlertCondition,
@@ -9,6 +9,12 @@ import {
   AlertSeverity,
 } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
+import {
+  AlertIncident,
+  IncidentStatus,
+  TimelineEventType,
+} from '../../database/entities/alert-incident.entity';
+import { EscalationManagerService } from '../../escalation/escalation-manager.service';
 import { IEventBus } from '@platform/event-bus';
 import { RedisService } from '@platform/backend-common';
 
@@ -49,9 +55,12 @@ export class AlertEvaluationService {
     private readonly ruleRepository: Repository<AlertRule>,
     @InjectRepository(AlertHistory)
     private readonly historyRepository: Repository<AlertHistory>,
+    @InjectRepository(AlertIncident)
+    private readonly incidentRepository: Repository<AlertIncident>,
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus,
     private readonly redisService: RedisService,
+    private readonly escalationManager: EscalationManagerService,
   ) {}
 
   /**
@@ -156,8 +165,8 @@ export class AlertEvaluationService {
   private static readonly SEVERITY_RANK: Record<string, number> = {
     [AlertSeverity.INFO]: 0,
     [AlertSeverity.LOW]: 1,
-    [AlertSeverity.MEDIUM]: 2,
-    [AlertSeverity.WARNING]: 3,
+    [AlertSeverity.WARNING]: 2,
+    [AlertSeverity.MEDIUM]: 3,
     [AlertSeverity.HIGH]: 4,
     [AlertSeverity.CRITICAL]: 5,
   };
@@ -273,12 +282,118 @@ export class AlertEvaluationService {
 
       const savedHistory = await this.historyRepository.save(history);
 
+      // Create or update an AlertIncident to feed the escalation pipeline.
+      await this.ensureIncident(rule, reading, condition, savedHistory, message);
+
       // Publish event after the DB write succeeds.
       await this.publishAlertEvent(rule, reading, condition, savedHistory.id, message);
     } catch (error) {
       // Log but don't throw – we don't want to fail other rule evaluations.
       this.logger.error(
         `Failed to trigger alert for rule ${rule.id}: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Ensure an AlertIncident exists for the triggered rule.
+   *
+   * If an active (non-resolved/closed/suppressed) incident already exists for
+   * this ruleId + tenantId combination, we bump its occurrence count instead of
+   * creating a duplicate.  Otherwise we create a NEW incident and kick off the
+   * escalation pipeline.
+   */
+  private async ensureIncident(
+    rule: AlertRule,
+    reading: SensorReadingData,
+    condition: AlertCondition,
+    savedHistory: AlertHistory,
+    message: string,
+  ): Promise<void> {
+    try {
+      // Look for an existing open incident for this rule + tenant.
+      const activeStatuses: IncidentStatus[] = [
+        IncidentStatus.NEW,
+        IncidentStatus.ACKNOWLEDGED,
+        IncidentStatus.INVESTIGATING,
+      ];
+
+      const existingIncident = await this.incidentRepository.findOne({
+        where: {
+          ruleId: rule.id,
+          tenantId: reading.tenantId,
+          status: In(activeStatuses),
+        },
+        order: { createdAt: 'DESC' },
+      });
+
+      if (existingIncident) {
+        // Bump occurrence count on the existing incident.
+        existingIncident.recordOccurrence();
+        await this.incidentRepository.save(existingIncident);
+        this.logger.debug(
+          `Updated existing incident ${existingIncident.id} for rule ${rule.id} ` +
+          `(occurrences: ${existingIncident.occurrenceCount})`,
+        );
+        return;
+      }
+
+      // No active incident – create a new one.
+      const incident = this.incidentRepository.create({
+        tenantId: reading.tenantId,
+        ruleId: rule.id,
+        title: `${rule.name}: ${condition.parameter} ${this.formatOperator(condition.operator)} ${condition.threshold}`,
+        description: message,
+        severity: condition.severity,
+        status: IncidentStatus.NEW,
+        riskScore: 0,
+        triggerData: {
+          historyId: savedHistory.id,
+          sensorId: reading.sensorId,
+          readings: reading.readings,
+          timestamp: reading.timestamp,
+          condition: {
+            parameter: condition.parameter,
+            operator: condition.operator,
+            threshold: condition.threshold,
+            actualValue: reading.readings[condition.parameter],
+          },
+        },
+        farmId: reading.farmId,
+        pondId: reading.pondId,
+        sensorId: reading.sensorId,
+        escalationLevel: 0,
+        timeline: [],
+        relatedIncidentIds: [],
+        occurrenceCount: 1,
+        lastOccurredAt: reading.timestamp,
+      });
+
+      // Seed the timeline with a CREATED event.
+      incident.addTimelineEvent({
+        type: TimelineEventType.CREATED,
+        description: message,
+      });
+
+      const savedIncident = await this.incidentRepository.save(incident);
+
+      this.logger.log(
+        `Created incident ${savedIncident.id} for rule ${rule.id} (severity: ${condition.severity})`,
+      );
+
+      // Start the escalation pipeline (non-blocking for the alert flow).
+      this.escalationManager
+        .startEscalation(savedIncident, condition.severity, rule.id, reading.farmId)
+        .catch((err: Error) => {
+          this.logger.error(
+            `Failed to start escalation for incident ${savedIncident.id}: ${err.message}`,
+          );
+        });
+    } catch (error) {
+      // Incident/escalation failure must not break the existing AlertHistory flow.
+      this.logger.error(
+        `Failed to ensure incident for rule ${rule.id}: ${(error as Error).message}`,
+        (error as Error).stack,
       );
     }
   }

@@ -7,6 +7,7 @@ import {
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
@@ -119,6 +120,9 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
         };
       },
     }),
+
+    // In-process event emitter (used by EscalationManagerService, etc.)
+    EventEmitterModule.forRoot(),
 
     // Feature modules
     AlertModule,

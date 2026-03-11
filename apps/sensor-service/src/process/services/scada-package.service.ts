@@ -44,6 +44,44 @@ export class ScadaPackageService {
     }
   }
 
+  private validatePackageDataStructure(data: Record<string, unknown>): void {
+    // Screens must be an array if present
+    if (data.screens !== undefined && !Array.isArray(data.screens)) {
+      throw new BadRequestException('packageData.screens must be an array');
+    }
+    // Each screen must have widgets as array if present
+    if (Array.isArray(data.screens)) {
+      for (const screen of data.screens) {
+        if (screen && typeof screen === 'object' && 'widgets' in screen) {
+          if (!Array.isArray((screen as any).widgets)) {
+            throw new BadRequestException('Each screen.widgets must be an array');
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Strip sensitive fields (e.g. pinHash) from packageData before returning to clients.
+   * Returns a shallow-modified copy — does NOT mutate the DB record.
+   */
+  private sanitizePackageData(pkg: ScadaPackage): ScadaPackage {
+    const data = pkg.packageData as Record<string, any>;
+    if (data?.controlPermissions?.pinHash) {
+      // Return a copy — do not mutate the original entity that may be cached by TypeORM
+      const clone = Object.assign(Object.create(Object.getPrototypeOf(pkg)), pkg);
+      clone.packageData = {
+        ...data,
+        controlPermissions: {
+          ...data.controlPermissions,
+          pinHash: '[REDACTED]',
+        },
+      };
+      return clone;
+    }
+    return pkg;
+  }
+
   constructor(
     @InjectRepository(ScadaPackage)
     private readonly scadaPackageRepository: Repository<ScadaPackage>,
@@ -77,6 +115,7 @@ export class ScadaPackageService {
     this.logger.log(`Creating SCADA package "${input.name}" for tenant ${tenantId}`);
 
     this.validatePackageDataSize(input.packageData);
+    this.validatePackageDataStructure(input.packageData);
 
     if (input.processId) {
       const process = await this.processRepository.findOne({
@@ -121,12 +160,14 @@ export class ScadaPackageService {
 
     if (input.packageData !== undefined) {
       this.validatePackageDataSize(input.packageData);
+      this.validatePackageDataStructure(input.packageData);
     }
 
     if (input.name !== undefined) pkg.name = input.name;
     if (input.description !== undefined) pkg.description = input.description;
     if (input.processId !== undefined) pkg.processId = input.processId;
     if (input.packageData !== undefined) pkg.packageData = input.packageData;
+    if (input.status !== undefined) pkg.status = input.status;
 
     pkg.version = pkg.version + 1;
     pkg.updatedBy = userId;
@@ -135,7 +176,8 @@ export class ScadaPackageService {
   }
 
   async getScadaPackage(id: string, tenantId: string): Promise<ScadaPackage | null> {
-    return this.scadaPackageRepository.findOne({ where: { id, tenantId } });
+    const pkg = await this.scadaPackageRepository.findOne({ where: { id, tenantId } });
+    return pkg ? this.sanitizePackageData(pkg) : null;
   }
 
   async listScadaPackages(
@@ -152,8 +194,9 @@ export class ScadaPackageService {
 
     let whereConditions: FindOptionsWhere<ScadaPackage> | FindOptionsWhere<ScadaPackage>[];
     if (filter?.searchTerm) {
+      const escapedTerm = filter.searchTerm.replace(/%/g, '\\%').replace(/_/g, '\\_');
       whereConditions = [
-        { ...where, name: ILike(`%${filter.searchTerm}%`) },
+        { ...where, name: ILike(`%${escapedTerm}%`) },
       ];
     } else {
       whereConditions = where;
@@ -166,7 +209,8 @@ export class ScadaPackageService {
       take: limit,
     });
 
-    return { items, total, offset, limit, hasMore: offset + items.length < total };
+    const sanitizedItems = items.map((item) => this.sanitizePackageData(item));
+    return { items: sanitizedItems, total, offset, limit, hasMore: offset + items.length < total };
   }
 
   async deleteScadaPackage(id: string, tenantId: string): Promise<boolean> {

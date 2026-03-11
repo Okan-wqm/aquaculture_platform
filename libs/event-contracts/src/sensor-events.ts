@@ -180,6 +180,48 @@ export interface ParentReadingRoutedEvent extends BaseEvent {
   errorCount: number;
 }
 
+// ==================== SCADA Package Lifecycle Events ====================
+
+/**
+ * SCADA Package Deployed Event
+ * Published when a SCADA package is sent (deployed) to an edge device.
+ */
+export interface ScadaPackageDeployedEvent extends BaseEvent {
+  eventType: 'ScadaPackageDeployed';
+  packageId: string;
+  deviceId: string;
+  commandId: string;
+  packageVersion: number;
+  deployedBy?: string;
+}
+
+/**
+ * SCADA Deploy Succeeded Event
+ * Published when the edge device confirms successful SCADA deployment.
+ */
+export interface ScadaDeploySucceededEvent extends BaseEvent {
+  eventType: 'ScadaDeploySucceeded';
+  packageId: string;
+  deviceId: string;
+  commandId: string;
+  packageVersion: number;
+}
+
+/**
+ * SCADA Deploy Failed Event
+ * Published when the edge device reports a SCADA deployment failure.
+ */
+export interface ScadaDeployFailedEvent extends BaseEvent {
+  eventType: 'ScadaDeployFailed';
+  packageId: string;
+  deviceId: string;
+  commandId: string;
+  packageVersion: number;
+  errorMessage?: string;
+}
+
+// ==================== Type Union ====================
+
 /**
  * Union type for all sensor events
  */
@@ -198,4 +240,7 @@ export type SensorEvent =
   | SensorReactivatedEvent
   | SensorDiscoveryStartedEvent
   | SensorDiscoveryCompletedEvent
-  | ParentReadingRoutedEvent;
+  | ParentReadingRoutedEvent
+  | ScadaPackageDeployedEvent
+  | ScadaDeploySucceededEvent
+  | ScadaDeployFailedEvent;

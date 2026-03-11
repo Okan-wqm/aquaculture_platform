@@ -224,8 +224,12 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
           widgetType: w.widgetType,
           position: w.position,
           config: w.config,
+          ...(w.groupId != null ? { groupId: w.groupId } : {}),
+          ...(w.locked ? { locked: w.locked } : {}),
         })),
         ...(s.edges.length > 0 ? { edges: s.edges } : {}),
+        ...(s.parentId != null ? { parentId: s.parentId } : {}),
+        ...(s.sortOrder != null && s.sortOrder !== 0 ? { sortOrder: s.sortOrder } : {}),
       })),
       alarmRules: state.alarmRules.map((r) => ({
         id: r.id,
@@ -259,6 +263,8 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
         widgetType: normalizeWidgetType(w.widgetType || 'unknown'),
         position: (w.position as WidgetPosition) || { col: 0, row: 0, w: 2, h: 2 },
         config: (w.config || {}) as Record<string, unknown>,
+        groupId: w.groupId ?? null,
+        locked: w.locked ?? false,
       })),
       edges: (s.edges || [])
         .filter(

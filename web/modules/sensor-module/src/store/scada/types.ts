@@ -116,6 +116,8 @@ export interface ScreenJSON {
     widgetType?: string;
     position?: Partial<WidgetPosition>;
     config?: Record<string, unknown>;
+    groupId?: string | null;
+    locked?: boolean;
   }>;
   edges?: ScadaEdge[];
   parentId?: string | null;

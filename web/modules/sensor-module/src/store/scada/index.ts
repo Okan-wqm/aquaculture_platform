@@ -23,6 +23,8 @@ export type {
   HistoryEntry,
   ClipboardData,
   GroupSlice,
+  WidgetTemplate,
+  TemplateSlice,
   ScadaStore,
 } from './types';
 
@@ -35,6 +37,9 @@ export type { ScreenTreeNode } from './sceneUtils';
 
 // Alignment utilities
 export { alignLeft, alignRight, alignTop, alignBottom, alignCenterH, alignCenterV, distributeH, distributeV, matchWidth, matchHeight } from './alignmentUtils';
+
+// Template slice
+export { createTemplateSlice } from './templateSlice';
 
 // Screen import/export utilities
 export { exportScreen, importScreen, downloadScreenJSON } from './screenIO';

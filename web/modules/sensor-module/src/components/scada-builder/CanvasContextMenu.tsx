@@ -11,6 +11,7 @@ import {
   Ungroup,
   Lock,
   Unlock,
+  Bookmark,
 } from 'lucide-react';
 import { useScadaStore } from '../../store/scada';
 
@@ -190,6 +191,23 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
     onClose();
   };
 
+  const handleSaveAsTemplate = () => {
+    const store = useScadaStore.getState();
+    if (!store.activeScreenId || !store.selectedWidgetId) { onClose(); return; }
+    const screen = store.screens.find((s) => s.id === store.activeScreenId);
+    const widget = screen?.widgets.find((w) => w.id === store.selectedWidgetId);
+    if (!widget) { onClose(); return; }
+
+    // Use widget type as default name, could be enhanced with a dialog later
+    const name = (widget.config?.label as string) || widget.widgetType;
+    const category = widget.widgetType;
+
+    if ('saveAsTemplate' in store) {
+      (store as any).saveAsTemplate(name, category, widget);
+    }
+    onClose();
+  };
+
   const handleToggleLock = () => {
     const store = useScadaStore.getState();
     if ('toggleWidgetLock' in store && store.activeScreenId && store.selectedWidgetId) {
@@ -262,6 +280,11 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
             label={isLocked ? "Kilidi Aç" : "Kilitle"}
             shortcut="Ctrl+L"
             onClick={handleToggleLock}
+          />
+          <MenuItem
+            icon={<Bookmark className="h-4 w-4" />}
+            label="Sablon Olarak Kaydet"
+            onClick={handleSaveAsTemplate}
           />
           <Separator />
           <MenuItem

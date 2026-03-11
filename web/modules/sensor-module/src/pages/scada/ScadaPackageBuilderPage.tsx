@@ -33,6 +33,7 @@ import { SceneTreePanel } from '../../components/scada-builder/SceneTreePanel';
 import { ScreenBreadcrumb } from '../../components/scada-builder/ScreenBreadcrumb';
 import { GlobalAlarmBanner } from '../../components/scada-builder/GlobalAlarmBanner';
 import { WidgetSearchPanel } from '../../components/scada-builder/WidgetSearchPanel';
+import { UndoRedoToolbar } from '../../components/scada-builder/UndoRedoToolbar';
 import {
   useScadaPackageById,
   useCreateScadaPackage,
@@ -449,6 +450,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
 
         {/* Right */}
         <div className="flex items-center gap-2">
+          <UndoRedoToolbar />
           {/* Widget Search */}
           <div className="relative">
             <button

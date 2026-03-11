@@ -8,6 +8,7 @@ import {
   AlignEndHorizontal,
   GripHorizontal,
   GripVertical,
+  Focus,
 } from 'lucide-react';
 import { useScadaStore } from '../../store/scada';
 import type { WidgetPosition } from '../../store/scada/types';
@@ -21,6 +22,7 @@ import {
   distributeH,
   distributeV,
 } from '../../store/scada/alignmentUtils';
+import { GRID_CELL_W, GRID_CELL_H } from '../../constants/scada-widget-sizes';
 
 type WidgetRect = { id: string; position: WidgetPosition };
 type AlignFn = (widgets: WidgetRect[]) => Map<string, WidgetPosition>;
@@ -28,21 +30,43 @@ type AlignFn = (widgets: WidgetRect[]) => Map<string, WidgetPosition>;
 export const AlignmentToolbar: React.FC = () => {
   const selectedWidgetIds = useScadaStore((s) => s.selectedWidgetIds);
 
-  const handleAlign = useCallback((alignFn: AlignFn) => {
+  const getSelectedRects = useCallback((): WidgetRect[] => {
     const state = useScadaStore.getState();
     const screen = state.screens.find((s) => s.id === state.activeScreenId);
-    if (!screen) return;
+    if (!screen) return [];
 
     const selectedSet = new Set(state.selectedWidgetIds);
-    const widgets: WidgetRect[] = screen.widgets
+    return screen.widgets
       .filter((w) => selectedSet.has(w.id))
       .map((w) => ({ id: w.id, position: { ...w.position } }));
+  }, []);
 
-    const updates = alignFn(widgets);
+  const handleAlign = useCallback((alignFn: AlignFn) => {
+    const state = useScadaStore.getState();
+    const rects = getSelectedRects();
+    if (rects.length === 0) return;
+
+    const updates = alignFn(rects);
     updates.forEach((pos, id) => {
       state.updateWidgetPosition(state.activeScreenId, id, pos);
     });
-  }, []);
+  }, [getSelectedRects]);
+
+  const handleZoomToSelection = useCallback(() => {
+    const rects = getSelectedRects();
+    if (rects.length === 0) return;
+
+    const minX = Math.min(...rects.map((r) => r.position.col * GRID_CELL_W));
+    const minY = Math.min(...rects.map((r) => r.position.row * GRID_CELL_H));
+    const maxX = Math.max(...rects.map((r) => (r.position.col + r.position.w) * GRID_CELL_W));
+    const maxY = Math.max(...rects.map((r) => (r.position.row + r.position.h) * GRID_CELL_H));
+
+    window.dispatchEvent(
+      new CustomEvent('scada-zoom-to-bounds', {
+        detail: { minX, minY, maxX, maxY, padding: 50 },
+      }),
+    );
+  }, [getSelectedRects]);
 
   if (selectedWidgetIds.length < 2) return null;
 
@@ -141,6 +165,18 @@ export const AlignmentToolbar: React.FC = () => {
         onClick={() => handleAlign(distributeV)}
       >
         <GripVertical className="w-4 h-4" />
+      </button>
+
+      {/* Separator */}
+      <div className="w-px h-5 bg-gray-200 mx-1" />
+
+      {/* Zoom to Selection */}
+      <button
+        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
+        title="Se\u00e7ime Odaklan"
+        onClick={handleZoomToSelection}
+      >
+        <Focus className="w-4 h-4" />
       </button>
     </div>
   );

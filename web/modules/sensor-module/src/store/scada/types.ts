@@ -181,6 +181,20 @@ export interface ClipboardData {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Widget Template Types                                              */
+/* ------------------------------------------------------------------ */
+
+export interface WidgetTemplate {
+  id: string;
+  name: string;
+  category: string;
+  widgetType: string;
+  config: Record<string, unknown>;
+  defaultSize: { w: number; h: number };
+  createdAt: number;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Slice Interfaces                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -279,6 +293,16 @@ export interface GroupSlice {
   getGroupMembers: (screenId: string, groupId: string) => string[]; // returns widget IDs
 }
 
+// --- Template Slice ---
+
+export interface TemplateSlice {
+  widgetTemplates: WidgetTemplate[];
+  saveAsTemplate: (name: string, category: string, widget: ScreenWidget) => string;
+  deleteTemplate: (id: string) => void;
+  applyTemplate: (screenId: string, templateId: string, position: { col: number; row: number }) => void;
+  getTemplatesByCategory: () => Record<string, WidgetTemplate[]>;
+}
+
 // --- Project Slice ---
 
 export interface ProjectSlice {
@@ -332,6 +356,7 @@ export type ScadaStore =
   HistorySlice &
   AlarmSlice &
   GroupSlice &
+  TemplateSlice &
   ProjectSlice;
 
 /* ------------------------------------------------------------------ */

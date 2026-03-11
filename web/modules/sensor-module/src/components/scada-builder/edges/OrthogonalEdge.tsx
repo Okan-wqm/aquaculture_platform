@@ -168,7 +168,7 @@ const renderArrow = (source: Point, target: Point, bends: BendPoint[], color: st
   const angle = Math.atan2(end.y - prev.y, end.x - prev.x) * (180 / Math.PI);
   return (
     <polygon
-      points="0,-5 12,0 0,5"
+      points="-12,-5 0,0 -12,5"
       fill={color}
       transform={`translate(${end.x},${end.y}) rotate(${angle})`}
       style={{ pointerEvents: 'none' }}
@@ -242,17 +242,21 @@ const OrthogonalEdge: React.FC<EdgeProps<OrthogonalEdgeData>> = (props) => {
     e.stopPropagation();
     e.preventDefault();
 
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const { x: initX, y: initY } = bendPoints[idx];
+    const svg = (e.target as Element).closest('svg') as SVGSVGElement | null;
+    if (!svg) return;
 
     const onMove = (mv: globalThis.MouseEvent) => {
-      const dx = mv.clientX - startX;
-      const dy = mv.clientY - startY;
+      const ctm = svg.getScreenCTM()?.inverse();
+      if (!ctm) return;
+
+      const pt = svg.createSVGPoint();
+      pt.x = mv.clientX;
+      pt.y = mv.clientY;
+      const svgPt = pt.matrixTransform(ctm);
 
       // Snap to grid
-      const newX = Math.round((initX + dx) / SNAP) * SNAP;
-      const newY = Math.round((initY + dy) / SNAP) * SNAP;
+      const newX = Math.round(svgPt.x / SNAP) * SNAP;
+      const newY = Math.round(svgPt.y / SNAP) * SNAP;
 
       setBendPoints(prev => {
         const copy = [...prev];

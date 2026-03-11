@@ -57,7 +57,7 @@ const renderArrow = (pts: Point[], color: string = '#374151'): JSX.Element | nul
   const angle = Math.atan2(end.y - prev.y, end.x - prev.x) * (180 / Math.PI);
   return (
     <polygon
-      points="0,-5 12,0 0,5"
+      points="-12,-5 0,0 -12,5"
       fill={color}
       transform={`translate(${end.x},${end.y}) rotate(${angle})`}
       style={{ pointerEvents: 'none' }}
@@ -170,13 +170,24 @@ const MultiHandleEdge: React.FC<EdgeProps<MultiHandleEdgeData>> = (props) => {
 
     if (points[idx].locked) return;
 
-    const startX = e.clientX;
-    const startY = e.clientY;
+    const svg = (e.target as SVGCircleElement).ownerSVGElement;
+    if (!svg) return;
+
+    // Convert initial mouse position to SVG space via CTM
+    const toSVG = (clientX: number, clientY: number) => {
+      const pt = svg.createSVGPoint();
+      pt.x = clientX;
+      pt.y = clientY;
+      return pt.matrixTransform(svg.getScreenCTM()?.inverse());
+    };
+
+    const startSVG = toSVG(e.clientX, e.clientY);
     const { x: initX, y: initY } = points[idx];
 
     const onMove = (mv: globalThis.MouseEvent) => {
-      const dx = mv.clientX - startX;
-      const dy = mv.clientY - startY;
+      const curSVG = toSVG(mv.clientX, mv.clientY);
+      const dx = curSVG.x - startSVG.x;
+      const dy = curSVG.y - startSVG.y;
       const newX = Math.round((initX + dx) / SNAP) * SNAP;
       const newY = Math.round((initY + dy) / SNAP) * SNAP;
 
@@ -320,8 +331,8 @@ const MultiHandleEdge: React.FC<EdgeProps<MultiHandleEdgeData>> = (props) => {
         />
       )}
 
-      {/* Control points */}
-      {points.map((pt, idx) => (
+      {/* Control points (visible only when selected) */}
+      {selected && points.map((pt, idx) => (
         <circle
           key={idx}
           cx={pt.x}

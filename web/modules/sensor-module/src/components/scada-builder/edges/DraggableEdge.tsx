@@ -51,7 +51,7 @@ const renderArrow = (
   const angle = Math.atan2(targetY - prevY, targetX - prevX) * (180 / Math.PI);
   return (
     <polygon
-      points="0,-5 12,0 0,5"
+      points="-12,-5 0,0 -12,5"
       fill={color}
       transform={`translate(${targetX},${targetY}) rotate(${angle})`}
       style={{ pointerEvents: 'none' }}
@@ -103,6 +103,26 @@ const DraggableEdge: React.FC<EdgeProps<DraggableEdgeData>> = (props) => {
     data?.controlPoint2 ?? defaultCP2
   );
 
+  // Track whether user has manually dragged control points
+  const userDraggedCP1 = useRef(!!data?.controlPoint);
+  const userDraggedCP2 = useRef(!!data?.controlPoint2);
+
+  /* ---------- Sync control points with node movement ------- */
+  useEffect(() => {
+    if (!userDraggedCP1.current) {
+      setControlPoint({
+        x: (sourceX + targetX) / 2 + 40,
+        y: (sourceY + targetY) / 2 - 40,
+      });
+    }
+    if (!userDraggedCP2.current) {
+      setControlPoint2({
+        x: (sourceX + targetX) / 2 - 40,
+        y: (sourceY + targetY) / 2 + 40,
+      });
+    }
+  }, [sourceX, sourceY, targetX, targetY]);
+
   const [hoveredCP, setHoveredCP] = useState<1 | 2 | null>(null);
 
   /* ---------- Build path ------------------------ */
@@ -142,15 +162,26 @@ const DraggableEdge: React.FC<EdgeProps<DraggableEdgeData>> = (props) => {
       e.stopPropagation();
       e.preventDefault();
 
-      const startX = e.clientX;
-      const startY = e.clientY;
-      const cp = cpIndex === 1 ? controlPoint : controlPoint2;
-      const { x: initX, y: initY } = cp;
+      const svg = (e.target as Element).closest('svg') as SVGSVGElement | null;
+      if (!svg) return;
+
+      // Mark this control point as user-customized
+      if (cpIndex === 1) {
+        userDraggedCP1.current = true;
+      } else {
+        userDraggedCP2.current = true;
+      }
 
       const onMove = (mv: globalThis.MouseEvent) => {
-        const dx = mv.clientX - startX;
-        const dy = mv.clientY - startY;
-        const newCP = { x: initX + dx, y: initY + dy };
+        const ctm = svg.getScreenCTM()?.inverse();
+        if (!ctm) return;
+
+        const pt = svg.createSVGPoint();
+        pt.x = mv.clientX;
+        pt.y = mv.clientY;
+        const svgPt = pt.matrixTransform(ctm);
+
+        const newCP = { x: svgPt.x, y: svgPt.y };
 
         if (cpIndex === 1) {
           setControlPoint(newCP);
@@ -167,7 +198,7 @@ const DraggableEdge: React.FC<EdgeProps<DraggableEdgeData>> = (props) => {
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
     },
-    [controlPoint, controlPoint2]
+    []
   );
 
   /* ---------- Guide lines path ------------------ */
@@ -224,46 +255,51 @@ const DraggableEdge: React.FC<EdgeProps<DraggableEdgeData>> = (props) => {
         : renderArrow(targetX, targetY, controlPoint.x, controlPoint.y, edgeStyle.stroke)
       }
 
-      {/* Control point 1 */}
-      <circle
-        cx={controlPoint.x}
-        cy={controlPoint.y}
-        r={hoveredCP === 1 ? CONTROL_RADIUS_HOVER : CONTROL_RADIUS}
-        fill="#f97316"
-        stroke="#ea580c"
-        strokeWidth={2}
-        style={{
-          pointerEvents: 'all',
-          cursor: 'grab',
-          transition: 'r 0.1s ease-out',
-        }}
-        onMouseDown={(e) => handleMouseDown(e, 1)}
-        onMouseEnter={() => setHoveredCP(1)}
-        onMouseLeave={() => setHoveredCP(null)}
-      >
-        <title>Kontrol noktasi 1 — surukle: egriyi ayarla</title>
-      </circle>
+      {/* Control point handles - only visible when selected */}
+      {selected && (
+        <>
+          {/* Control point 1 */}
+          <circle
+            cx={controlPoint.x}
+            cy={controlPoint.y}
+            r={hoveredCP === 1 ? CONTROL_RADIUS_HOVER : CONTROL_RADIUS}
+            fill="#f97316"
+            stroke="#ea580c"
+            strokeWidth={2}
+            style={{
+              pointerEvents: 'all',
+              cursor: 'grab',
+              transition: 'r 0.1s ease-out',
+            }}
+            onMouseDown={(e) => handleMouseDown(e, 1)}
+            onMouseEnter={() => setHoveredCP(1)}
+            onMouseLeave={() => setHoveredCP(null)}
+          >
+            <title>Kontrol noktasi 1 — surukle: egriyi ayarla</title>
+          </circle>
 
-      {/* Control point 2 (only for cubic) */}
-      {curveType === 'cubic' && (
-        <circle
-          cx={controlPoint2.x}
-          cy={controlPoint2.y}
-          r={hoveredCP === 2 ? CONTROL_RADIUS_HOVER : CONTROL_RADIUS}
-          fill="#8b5cf6"
-          stroke="#7c3aed"
-          strokeWidth={2}
-          style={{
-            pointerEvents: 'all',
-            cursor: 'grab',
-            transition: 'r 0.1s ease-out',
-          }}
-          onMouseDown={(e) => handleMouseDown(e, 2)}
-          onMouseEnter={() => setHoveredCP(2)}
-          onMouseLeave={() => setHoveredCP(null)}
-        >
-          <title>Kontrol noktasi 2 — surukle: egriyi ayarla</title>
-        </circle>
+          {/* Control point 2 (only for cubic) */}
+          {curveType === 'cubic' && (
+            <circle
+              cx={controlPoint2.x}
+              cy={controlPoint2.y}
+              r={hoveredCP === 2 ? CONTROL_RADIUS_HOVER : CONTROL_RADIUS}
+              fill="#8b5cf6"
+              stroke="#7c3aed"
+              strokeWidth={2}
+              style={{
+                pointerEvents: 'all',
+                cursor: 'grab',
+                transition: 'r 0.1s ease-out',
+              }}
+              onMouseDown={(e) => handleMouseDown(e, 2)}
+              onMouseEnter={() => setHoveredCP(2)}
+              onMouseLeave={() => setHoveredCP(null)}
+            >
+              <title>Kontrol noktasi 2 — surukle: egriyi ayarla</title>
+            </circle>
+          )}
+        </>
       )}
 
       {/* Endpoint indicators when selected */}

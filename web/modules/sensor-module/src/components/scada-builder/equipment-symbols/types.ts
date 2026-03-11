@@ -187,4 +187,41 @@ export const CONNECTION_POINTS: Record<string, EquipmentConnectionPoint[]> = {
     { id: 'heat-in', label: 'Isı Giriş', side: 'left', offset: 0.5, direction: 'in' },
     { id: 'heat-out', label: 'Isı Çıkış', side: 'right', offset: 0.5, direction: 'out' },
   ],
+  // ── Process Equipment Widgets ──
+  feeder: [
+    { id: 'inlet', label: 'Feed In', side: 'top', offset: 0.5, direction: 'in' },
+    { id: 'outlet', label: 'Feed Out', side: 'bottom', offset: 0.5, direction: 'out' },
+    { id: 'control', label: 'Control', side: 'right', offset: 0.5, direction: 'in' },
+  ],
+  radialFilter: [
+    { id: 'inlet', label: 'Inlet', side: 'left', offset: 0.3, direction: 'in' },
+    { id: 'outlet', label: 'Outlet', side: 'right', offset: 0.4, direction: 'out' },
+    { id: 'drain', label: 'Drain', side: 'bottom', offset: 0.5, direction: 'out' },
+  ],
+  cleanWaterTank: [
+    { id: 'inlet', label: 'Inlet', side: 'left', offset: 0.3, direction: 'in' },
+    { id: 'outlet', label: 'Outlet', side: 'right', offset: 0.7, direction: 'out' },
+    { id: 'level', label: 'Level', side: 'right', offset: 0.3, direction: 'out' },
+    { id: 'drain', label: 'Drain', side: 'bottom', offset: 0.5, direction: 'out' },
+  ],
+  dirtyWaterTank: [
+    { id: 'inlet', label: 'Inlet', side: 'left', offset: 0.3, direction: 'in' },
+    { id: 'outlet', label: 'Outlet', side: 'right', offset: 0.7, direction: 'out' },
+    { id: 'drain', label: 'Drain', side: 'bottom', offset: 0.5, direction: 'out' },
+  ],
+  mbbr: [
+    { id: 'inlet', label: 'Inlet', side: 'left', offset: 0.4, direction: 'in' },
+    { id: 'outlet', label: 'Outlet', side: 'right', offset: 0.4, direction: 'out' },
+    { id: 'air', label: 'Air Supply', side: 'bottom', offset: 0.5, direction: 'in' },
+  ],
+  hepaFilter: [
+    { id: 'inlet', label: 'Air In', side: 'left', offset: 0.5, direction: 'in' },
+    { id: 'outlet', label: 'Air Out', side: 'right', offset: 0.5, direction: 'out' },
+  ],
+  cornellDualDrain: [
+    { id: 'inlet-1', label: 'Inlet 1', side: 'top', offset: 0.35, direction: 'in' },
+    { id: 'inlet-2', label: 'Inlet 2', side: 'top', offset: 0.65, direction: 'in' },
+    { id: 'center-drain', label: 'Center Drain', side: 'bottom', offset: 0.45, direction: 'out' },
+    { id: 'side-drain', label: 'Side Drain', side: 'right', offset: 0.6, direction: 'out' },
+  ],
 };

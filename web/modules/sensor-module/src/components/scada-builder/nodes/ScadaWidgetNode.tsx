@@ -8,7 +8,7 @@
  * Features:
  * - Manual resize via corner/edge drag handles (selected state)
  * - Per-widget-type min/max size constraints
- * - Connection handles for equipment widgets (P&ID flow connections)
+ * - Connection handles for all widget types (P&ID flow connections)
  * - Cyan selection border matching SCADA theme
  * - Widget-type badge shown in edit mode (top-left corner)
  */
@@ -214,11 +214,12 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
     userSelect: 'none' as const,
   }), [size.width, size.height, selected, isEquipment]);
 
-  /* ---------- Connection handles for equipment widgets ------------- */
+  /* ---------- Connection handles for all widget types --------------- */
   const connectionHandles = useMemo(() => {
-    if (data.widgetType !== 'equipment') return null;
-    const subType = (data.config.equipmentSubType as string) || '';
-    const points = CONNECTION_POINTS[subType];
+    const lookupKey = data.widgetType === 'equipment'
+      ? (data.config.equipmentSubType as string) || ''
+      : data.widgetType;
+    const points = CONNECTION_POINTS[lookupKey];
     if (!points || points.length === 0) return null;
     return points;
   }, [data.widgetType, data.config.equipmentSubType]);
@@ -245,6 +246,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
       width: renderW,
       height: renderH,
     };
+    // For non-equipment widgets, return null so handles use simple percentage offsets
   }, [data.widgetType, data.config.equipmentSubType, size.width, size.height]);
 
   /* ---------- Render ---------------------------------------------- */
@@ -302,7 +304,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
           },
         )}
 
-      {/* Connection handles for equipment widgets */}
+      {/* Connection handles for all widget types */}
       {connectionHandles && connectionHandles.map((pt) => {
         const posMap: Record<string, Position> = {
           top: Position.Top,

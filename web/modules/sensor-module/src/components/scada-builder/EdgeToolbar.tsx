@@ -3,7 +3,7 @@
  * Appears on the SCADA canvas for controlling edge creation and editing.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { CONNECTION_TYPES, type ConnectionType } from '../../config/connectionTypes';
 import type { ScadaEdgeType } from '../../types/scada-edge.types';
 
@@ -112,7 +112,12 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
         </div>
 
         {showConnectionTypes && (
-          <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-50">
+          <>
+            <div
+              className="fixed inset-0 z-30"
+              onClick={() => setShowConnectionTypes(false)}
+            />
+          <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-40">
             {/* Process Lines */}
             <div className="px-3 pt-1.5 pb-0.5">
               <span className="text-[9px] text-gray-400 font-semibold uppercase tracking-wider">Proses Hatlari</span>
@@ -171,6 +176,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
               </button>
             ))}
           </div>
+          </>
         )}
       </div>
 

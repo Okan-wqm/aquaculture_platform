@@ -40,6 +40,7 @@ import { EdgeStoreContextProvider } from './EdgeStoreContext';
 import { EdgeToolbar } from './EdgeToolbar';
 import { getEdgeStyle } from '../../config/connectionTypes';
 import type { ConnectionType } from '../../config/connectionTypes';
+import { CONNECTION_POINTS } from './equipment-symbols/types';
 import {
   GRID_CELL_W,
   GRID_CELL_H,
@@ -381,13 +382,38 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
       );
       if (duplicate) return false;
 
-      // Validate handle direction: source handle should end with '-out' or be an 'out'/'inout' port,
-      // target handle should end with '-in' or be an 'in'/'inout' port
-      const sh = connection.sourceHandle || '';
-      const th = connection.targetHandle || '';
-      // Block connecting two '-in' handles or two '-out' handles
-      if (sh.endsWith('-in') && !sh.endsWith('-out')) return false;
-      if (th.endsWith('-out') && !th.endsWith('-in')) return false;
+      // Validate handle direction using CONNECTION_POINTS registry
+      const sourceNode = useScadaPackageStore.getState().screens
+        .find((s) => s.id === useScadaPackageStore.getState().activeScreenId)
+        ?.widgets.find((w) => w.id === connection.source);
+      const targetNode = useScadaPackageStore.getState().screens
+        .find((s) => s.id === useScadaPackageStore.getState().activeScreenId)
+        ?.widgets.find((w) => w.id === connection.target);
+
+      if (sourceNode && targetNode) {
+        const srcKey = sourceNode.widgetType === 'equipment'
+          ? (sourceNode.config?.equipmentSubType as string) || ''
+          : sourceNode.widgetType;
+        const tgtKey = targetNode.widgetType === 'equipment'
+          ? (targetNode.config?.equipmentSubType as string) || ''
+          : targetNode.widgetType;
+
+        const srcPoints = CONNECTION_POINTS[srcKey] || [];
+        const tgtPoints = CONNECTION_POINTS[tgtKey] || [];
+
+        // Find the source handle's direction
+        const srcHandleId = connection.sourceHandle || '';
+        const srcPoint = srcPoints.find((p) => p.id === srcHandleId || `${p.id}-out` === srcHandleId);
+
+        // Find the target handle's direction
+        const tgtHandleId = connection.targetHandle || '';
+        const tgtPoint = tgtPoints.find((p) => p.id === tgtHandleId || `${p.id}-in` === tgtHandleId);
+
+        // Block if source handle direction is 'in' only (not 'out' or 'inout')
+        if (srcPoint && srcPoint.direction === 'in') return false;
+        // Block if target handle direction is 'out' only (not 'in' or 'inout')
+        if (tgtPoint && tgtPoint.direction === 'out') return false;
+      }
 
       return true;
     },

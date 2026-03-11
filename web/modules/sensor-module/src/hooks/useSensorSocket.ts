@@ -8,7 +8,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { create } from 'zustand';
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
+import { getAccessToken } from '@aquaculture/shared-ui';
 
 // WebSocket server URL — BUG-021 / SEC-003: use runtime/env config, not hardcoded localhost
 const WS_URL =

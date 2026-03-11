@@ -34,6 +34,8 @@ export interface RegisteredSensor {
   dataPath?: string;
   sensorRole?: 'parent' | 'child';
   unit?: string;
+  siteId?: string;
+  alertThresholds?: Record<string, unknown>;
 }
 
 export interface SensorFilter {

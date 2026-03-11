@@ -188,7 +188,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
     for (const screen of screens) {
       for (const widget of screen.widgets) {
         const cfg = widget.config;
-        if (cfg?.tagName) tagSet.add(cfg.tagName);
+        if (cfg?.tagName) tagSet.add(cfg.tagName as string);
         if (Array.isArray(cfg?.tags)) {
           for (const t of cfg.tags) {
             if (typeof t === 'string') tagSet.add(t);
@@ -287,8 +287,8 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
   // Register ST language on Monaco mount
   const handleEditorMount = useCallback(
     (editor: monacoEditor.IStandaloneCodeEditor, monaco: typeof import('monaco-editor')) => {
-      editorRef.current = editor as typeof editorRef.current;
-      monacoRef.current = monaco as typeof monacoRef.current;
+      (editorRef as any).current = editor;
+      (monacoRef as any).current = monaco;
 
       // Check Monaco's own language registry to avoid duplicates on HMR
       const registeredLanguages = monaco.languages.getLanguages();
@@ -703,7 +703,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             )}
 
             {diagnostics.map((d, i) => (
-              <DiagnosticItem key={i} diag={d} editorRef={editorRef} />
+              <DiagnosticItem key={i} diag={d} editorRef={editorRef as any} />
             ))}
           </div>
         </div>
@@ -785,7 +785,12 @@ function DiagnosticItem({
   editorRef,
 }: {
   diag: CompileDiagnostic;
-  editorRef: React.RefObject<monacoEditor.IStandaloneCodeEditor | null>;
+  editorRef: React.RefObject<{
+    revealLineInCenter?: (line: number) => void;
+    setPosition?: (pos: { lineNumber: number; column: number }) => void;
+    focus?: () => void;
+    [key: string]: unknown;
+  } | null>;
 }) {
   const isSeverityError = diag.severity === 'error';
 
@@ -794,9 +799,9 @@ function DiagnosticItem({
       onClick={() => {
         const editor = editorRef.current;
         if (editor) {
-          editor.revealLineInCenter(diag.line);
-          editor.setPosition({ lineNumber: diag.line, column: diag.column });
-          editor.focus();
+          editor.revealLineInCenter?.(diag.line);
+          editor.setPosition?.({ lineNumber: diag.line, column: diag.column });
+          editor.focus?.();
         }
       }}
       className="w-full text-left px-2 py-1 text-xs hover:bg-gray-800 flex items-start gap-1.5 border-b border-gray-800"

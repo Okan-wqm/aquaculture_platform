@@ -32,19 +32,19 @@ END_PROGRAM`;
     expect(variables[0]).toMatchObject({
       varName: 'temperature',
       dataType: 'REAL',
-      scope: 'local',
+      scope: 'LOCAL',
       initialValue: '25.0',
     });
     expect(variables[1]).toMatchObject({
       varName: 'pump_on',
       dataType: 'BOOL',
-      scope: 'local',
+      scope: 'LOCAL',
       initialValue: 'FALSE',
     });
     expect(variables[2]).toMatchObject({
       varName: 'counter',
       dataType: 'INT',
-      scope: 'local',
+      scope: 'LOCAL',
     });
     // counter has no initial value
     expect(variables[2]!.initialValue).toBeUndefined();
@@ -61,8 +61,8 @@ END_PROGRAM`;
 
     const { variables } = parseStVariables(code);
     expect(variables).toHaveLength(2);
-    expect(variables[0]).toMatchObject({ varName: 'setpoint', scope: 'input', dataType: 'REAL' });
-    expect(variables[1]).toMatchObject({ varName: 'enable', scope: 'input', initialValue: 'TRUE' });
+    expect(variables[0]).toMatchObject({ varName: 'setpoint', scope: 'INPUT', dataType: 'REAL' });
+    expect(variables[1]).toMatchObject({ varName: 'enable', scope: 'INPUT', initialValue: 'TRUE' });
   });
 
   it('extracts VAR_OUTPUT variables (scope = output)', () => {
@@ -76,8 +76,8 @@ END_PROGRAM`;
 
     const { variables } = parseStVariables(code);
     expect(variables).toHaveLength(2);
-    expect(variables[0]).toMatchObject({ varName: 'alarm', scope: 'output', dataType: 'BOOL' });
-    expect(variables[1]).toMatchObject({ varName: 'output_value', scope: 'output', initialValue: '0.0' });
+    expect(variables[0]).toMatchObject({ varName: 'alarm', scope: 'OUTPUT', dataType: 'BOOL' });
+    expect(variables[1]).toMatchObject({ varName: 'output_value', scope: 'OUTPUT', initialValue: '0.0' });
   });
 
   it('extracts VAR_IN_OUT variables (scope = inout)', () => {
@@ -90,7 +90,7 @@ END_PROGRAM`;
 
     const { variables } = parseStVariables(code);
     expect(variables).toHaveLength(1);
-    expect(variables[0]).toMatchObject({ varName: 'shared_val', scope: 'inout' });
+    expect(variables[0]).toMatchObject({ varName: 'shared_val', scope: 'INOUT' });
   });
 
   it('extracts VAR_GLOBAL variables (scope = global)', () => {
@@ -116,7 +116,7 @@ END_PROGRAM`;
 
     const { variables } = parseStVariables(code);
     expect(variables).toHaveLength(1);
-    expect(variables[0]).toMatchObject({ varName: 'persistent_val', scope: 'retain', initialValue: '1.5' });
+    expect(variables[0]).toMatchObject({ varName: 'persistent_val', scope: 'RETAIN', initialValue: '1.5' });
   });
 
   it('extracts VAR CONSTANT variables (scope = constant)', () => {
@@ -130,8 +130,8 @@ END_PROGRAM`;
 
     const { variables } = parseStVariables(code);
     expect(variables).toHaveLength(2);
-    expect(variables[0]).toMatchObject({ varName: 'PI', scope: 'constant', initialValue: '3.14159' });
-    expect(variables[1]).toMatchObject({ varName: 'MAX_TEMP', scope: 'constant', initialValue: '100' });
+    expect(variables[0]).toMatchObject({ varName: 'PI', scope: 'CONSTANT', initialValue: '3.14159' });
+    expect(variables[1]).toMatchObject({ varName: 'MAX_TEMP', scope: 'CONSTANT', initialValue: '100' });
   });
 
   it('handles multiple VAR blocks of different types', () => {
@@ -153,10 +153,10 @@ END_PROGRAM`;
 
     const { variables } = parseStVariables(code);
     expect(variables).toHaveLength(4);
-    expect(variables[0]).toMatchObject({ varName: 'local_var', scope: 'local' });
-    expect(variables[1]).toMatchObject({ varName: 'input_val', scope: 'input' });
-    expect(variables[2]).toMatchObject({ varName: 'output_val', scope: 'output' });
-    expect(variables[3]).toMatchObject({ varName: 'LIMIT', scope: 'constant' });
+    expect(variables[0]).toMatchObject({ varName: 'local_var', scope: 'LOCAL' });
+    expect(variables[1]).toMatchObject({ varName: 'input_val', scope: 'INPUT' });
+    expect(variables[2]).toMatchObject({ varName: 'output_val', scope: 'OUTPUT' });
+    expect(variables[3]).toMatchObject({ varName: 'LIMIT', scope: 'CONSTANT' });
   });
 
   it('handles empty VAR blocks', () => {
@@ -335,11 +335,11 @@ END_FUNCTION_BLOCK`;
     const { variables, errors } = parseStVariables(code);
     expect(errors).toHaveLength(0);
     expect(variables).toHaveLength(5);
-    expect(variables[0]).toMatchObject({ varName: 'setpoint', scope: 'input' });
-    expect(variables[1]).toMatchObject({ varName: 'process_value', scope: 'input' });
-    expect(variables[2]).toMatchObject({ varName: 'control_output', scope: 'output' });
-    expect(variables[3]).toMatchObject({ varName: 'error', scope: 'local' });
-    expect(variables[4]).toMatchObject({ varName: 'integral', scope: 'local', initialValue: '0.0' });
+    expect(variables[0]).toMatchObject({ varName: 'setpoint', scope: 'INPUT' });
+    expect(variables[1]).toMatchObject({ varName: 'process_value', scope: 'INPUT' });
+    expect(variables[2]).toMatchObject({ varName: 'control_output', scope: 'OUTPUT' });
+    expect(variables[3]).toMatchObject({ varName: 'error', scope: 'LOCAL' });
+    expect(variables[4]).toMatchObject({ varName: 'integral', scope: 'LOCAL', initialValue: '0.0' });
   });
 
   it('works with FUNCTION POU', () => {
@@ -355,7 +355,7 @@ END_FUNCTION`;
     const { variables, errors } = parseStVariables(code);
     expect(errors).toHaveLength(0);
     expect(variables).toHaveLength(3);
-    expect(variables[0]).toMatchObject({ varName: 'value', scope: 'input' });
+    expect(variables[0]).toMatchObject({ varName: 'value', scope: 'INPUT' });
   });
 
   it('populates line numbers', () => {
@@ -433,10 +433,10 @@ END_PROGRAM`;
     expect(variables).toHaveLength(13);
 
     // Check scopes
-    const inputs = variables.filter((v) => v.scope === 'input');
-    const outputs = variables.filter((v) => v.scope === 'output');
-    const locals = variables.filter((v) => v.scope === 'local');
-    const constants = variables.filter((v) => v.scope === 'constant');
+    const inputs = variables.filter((v) => v.scope === 'INPUT');
+    const outputs = variables.filter((v) => v.scope === 'OUTPUT');
+    const locals = variables.filter((v) => v.scope === 'LOCAL');
+    const constants = variables.filter((v) => v.scope === 'CONSTANT');
 
     expect(inputs).toHaveLength(3);
     expect(outputs).toHaveLength(2);
@@ -495,9 +495,9 @@ describe('hasStVariables', () => {
 
 describe('diffVariables', () => {
   const parsed: ParsedVariable[] = [
-    { varName: 'temperature', dataType: 'REAL', scope: 'input' },
-    { varName: 'pump_on', dataType: 'BOOL', scope: 'local' },
-    { varName: 'new_var', dataType: 'INT', scope: 'output' },
+    { varName: 'temperature', dataType: 'REAL', scope: 'INPUT' },
+    { varName: 'pump_on', dataType: 'BOOL', scope: 'LOCAL' },
+    { varName: 'new_var', dataType: 'INT', scope: 'OUTPUT' },
   ];
 
   const existing = [
@@ -527,7 +527,7 @@ describe('diffVariables', () => {
 
   it('matches case-insensitively', () => {
     const { toAdd, unchanged } = diffVariables(
-      [{ varName: 'Temperature', dataType: 'REAL', scope: 'input' }],
+      [{ varName: 'Temperature', dataType: 'REAL', scope: 'INPUT' }],
       [{ varName: 'temperature', id: 'uuid-1' }],
     );
     expect(toAdd).toHaveLength(0);

@@ -14,7 +14,7 @@
 import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { create } from 'zustand';
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
+import { getAccessToken } from '@aquaculture/shared-ui';
 
 // Same WS_URL resolution as useSensorSocket
 const WS_URL =

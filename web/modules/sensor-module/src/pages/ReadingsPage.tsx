@@ -169,7 +169,7 @@ const generateMockReading = (sensor: RegisteredSensor): SensorReading => {
   // Determine status based on alert thresholds
   let status: 'normal' | 'warning' | 'critical' = 'normal';
   if (sensor.alertThresholds) {
-    const { warning, critical } = sensor.alertThresholds;
+    const { warning, critical } = sensor.alertThresholds as { warning?: { low?: number; high?: number }; critical?: { low?: number; high?: number } };
     if (critical?.low !== undefined && value < critical.low) status = 'critical';
     else if (critical?.high !== undefined && value > critical.high) status = 'critical';
     else if (warning?.low !== undefined && value < warning.low) status = 'warning';

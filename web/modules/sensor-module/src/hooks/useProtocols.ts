@@ -7,7 +7,7 @@ import {
   CategoryStats,
   ValidationResult,
 } from '../types/registration.types';
-import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
+import { getAccessToken, getTenantId } from '@aquaculture/shared-ui';
 
 // =============================================================================
 // GraphQL API

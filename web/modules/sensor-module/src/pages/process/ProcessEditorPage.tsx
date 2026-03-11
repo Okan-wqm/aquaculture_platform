@@ -38,14 +38,16 @@ import {
   Monitor,
 } from 'lucide-react';
 
-import { useProcessStore, EquipmentNodeData } from '../../store/processStore';
+import { useProcessStore, EquipmentNodeData, ProcessEdgeData } from '../../store/processStore';
+import { graphqlFetch } from '../../config/api';
+import type { Edge } from 'reactflow';
 import { AUTOMATION_PROGRAMS_QUERY, DEPLOY_PROGRAM_MUTATION } from '../../graphql/automation.queries';
 import { useAuth } from '@aquaculture/shared-ui';
 import { EquipmentPanel } from '../../components/process-editor/panels/EquipmentPanel';
 import { PropertiesPanel } from '../../components/process-editor/panels/PropertiesPanel';
 import { AttachmentsPanel } from '../../components/process-editor/panels/AttachmentsPanel';
 import { NodeTemplate } from '../../components/process-editor/panels/EquipmentPanel';
-import { useProcess } from '../../hooks/useProcess';
+import { useProcess, type ProcessNode } from '../../hooks/useProcess';
 import { useDataChannelList, DataChannel } from '../../hooks/useDataChannelList';
 import { WIDGET_TYPES, TIME_RANGES, REFRESH_INTERVALS, WidgetType } from '../../components/dashboard/types';
 import { DeployToEdgeDialog } from '../../components/process-editor/dialogs/DeployToEdgeDialog';
@@ -502,7 +504,10 @@ interface DeployModalProps {
 }
 
 const DeployAutomationModal: React.FC<DeployModalProps> = ({ isOpen, onClose, boundDevices }) => {
-  const { graphqlRequest } = useAuth();
+  const graphqlRequest = useCallback(
+    (query: string, variables?: Record<string, unknown>) => graphqlFetch<Record<string, unknown>>(query, variables),
+    [],
+  );
   const [programs, setPrograms] = useState<Array<{
     id: string; programCode: string; programName: string; status: string;
   }>>([]);
@@ -815,7 +820,7 @@ const ProcessEditorPage: React.FC = () => {
           break;
 
         case 'edgeSelected':
-          selectEdge(data as CanvasEdge);
+          selectEdge(data as CanvasEdge as unknown as Edge<ProcessEdgeData>);
           break;
 
         case 'selectionCleared':
@@ -944,7 +949,7 @@ const ProcessEditorPage: React.FC = () => {
         // Create new process with current canvas state
         const result = await createProcess({
           name: processName,
-          nodes: currentState.nodes,
+          nodes: currentState.nodes as unknown as ProcessNode[],
           edges: currentState.edges,
         });
 
@@ -963,7 +968,7 @@ const ProcessEditorPage: React.FC = () => {
         const result = await updateProcess({
           processId: storeProcessId,
           name: processName,
-          nodes: currentState.nodes,
+          nodes: currentState.nodes as unknown as ProcessNode[],
           edges: currentState.edges,
         });
 

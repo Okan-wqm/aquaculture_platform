@@ -1,4 +1,6 @@
-import { gql } from '@apollo/client';
+// Simple gql tagged template literal (avoids @apollo/client dependency)
+const gql = (strings: TemplateStringsArray, ...values: unknown[]): string =>
+  strings.reduce((result, str, i) => result + str + (values[i] ?? ''), '');
 import {
   ProtocolInfo,
   ProtocolCategory,

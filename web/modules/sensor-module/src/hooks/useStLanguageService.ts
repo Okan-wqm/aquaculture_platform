@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
+import { getAccessToken } from '@aquaculture/shared-ui';
 import { stWebSocketService } from '../services/st-websocket.service';
 import type {
   STRequest,

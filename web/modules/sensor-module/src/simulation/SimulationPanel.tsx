@@ -19,7 +19,8 @@ import {
   AlertCircle,
   Download,
 } from 'lucide-react';
-import { useSimulation, SimValue } from './useSimulation';
+import { useSimulation } from './useSimulation';
+import type { SimValue } from './st-interpreter';
 import type { SimulationState } from './useSimulation';
 import type { VariableInfo } from './st-interpreter';
 import type { VarBlockKind } from './st-ast-types';

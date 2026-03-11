@@ -20,7 +20,7 @@ import {
   Layers,
   LayoutGrid,
 } from 'lucide-react';
-import { useScadaStore } from '../store/scadaStore';
+import { useScadaStore, type ScadaProcess } from '../store/scadaStore';
 import { useSensorList } from '../hooks/useSensorList';
 import { useActiveProcesses } from '../hooks/useProcess';
 import { ScadaViewer } from '../components/scada/ScadaViewer';
@@ -62,7 +62,7 @@ const SensorScadaPage: React.FC = () => {
         nodes: p.nodes || [],
         edges: p.edges || [],
       }));
-      setProcesses(mappedProcesses);
+      setProcesses(mappedProcesses as ScadaProcess[]);
       // Auto-select first process if none selected
       if (!selectedProcessId && mappedProcesses.length > 0) {
         setSelectedProcessId(mappedProcesses[0].id);

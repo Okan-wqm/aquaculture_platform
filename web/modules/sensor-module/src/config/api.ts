@@ -4,7 +4,7 @@
  * Centralized API endpoint configuration for sensor module.
  */
 
-import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
+import { getAccessToken, getTenantId } from '@aquaculture/shared-ui';
 
 // GraphQL API endpoint - uses environment variable with fallback
 // Safety guard: if a localhost URL was embedded at build-time but we're running

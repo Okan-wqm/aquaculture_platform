@@ -293,7 +293,7 @@ export interface RegenerateTokenResponse {
 async function graphqlFetch<T>(
   query: string,
   variables: Record<string, unknown>,
-  token?: string
+  token?: string | null
 ): Promise<T> {
   const response = await fetch('/graphql', {
     method: 'POST',
@@ -326,7 +326,7 @@ export function useEdgeDevices(filter?: EdgeDeviceFilter) {
     queryFn: async () => {
       const data = await graphqlFetch<{ edgeDevices: EdgeDeviceConnection }>(
         EDGE_DEVICES_QUERY,
-        filter || {},
+        (filter || {}) as Record<string, unknown>,
         token
       );
       return data.edgeDevices;

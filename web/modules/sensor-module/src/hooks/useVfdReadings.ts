@@ -7,7 +7,7 @@ import {
   VfdReadingFilter,
   VFD_PARAMETER_UNITS,
 } from '../types/vfd.types';
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
+import { getAccessToken } from '@aquaculture/shared-ui';
 
 // API base URL
 const API_URL = '/graphql';

@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { WidgetConfig } from '../components/dashboard/types';
-import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
+import { getAccessToken, getTenantId } from '@aquaculture/shared-ui';
 
 // API base URL
 const API_URL = '/graphql';

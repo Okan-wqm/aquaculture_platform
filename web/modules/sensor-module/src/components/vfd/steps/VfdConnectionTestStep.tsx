@@ -428,7 +428,7 @@ function renderConfigSummary(protocol: VfdProtocol, config: VfdProtocolConfigura
       break;
     }
     default: {
-      const genericConfig = config as Record<string, unknown>;
+      const genericConfig = config as unknown as Record<string, unknown>;
       const firstThreeKeys = Object.keys(genericConfig).slice(0, 3);
       firstThreeKeys.forEach((key) => {
         items.push(

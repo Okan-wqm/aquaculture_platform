@@ -102,7 +102,7 @@ const SYSTEMS_BY_DEPARTMENT_QUERY = `
 async function graphqlFetch<T>(
   query: string,
   variables: Record<string, unknown>,
-  token?: string
+  token?: string | null
 ): Promise<T> {
   const response = await fetch('/graphql', {
     method: 'POST',

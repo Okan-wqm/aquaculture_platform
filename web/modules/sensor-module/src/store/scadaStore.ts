@@ -169,7 +169,7 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
       const updatedReadings = equipmentReadings.map((reading) => {
         if (reading.sensorId === sensorId) {
           const oldValue = reading.value;
-          const trend = value > oldValue ? 'up' : value < oldValue ? 'down' : 'stable';
+          const trend: SensorReading['trend'] = value > oldValue ? 'up' : value < oldValue ? 'down' : 'stable';
           const status = getStatusFromValue(value, reading);
           const history = [
             ...reading.history.slice(-59),

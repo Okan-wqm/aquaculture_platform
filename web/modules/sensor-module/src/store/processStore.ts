@@ -543,7 +543,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
     set((state) => ({
       edges: state.edges.map((edge) =>
         edge.id === edgeId
-          ? { ...edge, data: { ...edge.data, ...data } }
+          ? { ...edge, data: { ...edge.data, ...data } as ProcessEdgeData }
           : edge
       ),
       isDirty: true,
@@ -577,7 +577,8 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
     const sensorNodeMap: Record<string, string> = {};
     process.nodes.forEach((node) => {
       if (node.data?.equipmentId) equipmentNodeMap[node.data.equipmentId] = node.id;
-      if (node.data?.sensorId) sensorNodeMap[node.data.sensorId] = node.id;
+      const sensorId = (node.data as any)?.sensorId as string | undefined;
+      if (sensorId) sensorNodeMap[sensorId] = node.id;
     });
     set({
       processId: process.id,

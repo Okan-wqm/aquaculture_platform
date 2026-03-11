@@ -1143,7 +1143,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
         <div className="mb-4 p-3 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
           <span className="text-sm text-green-800">
-            {pushMutation.data.message || 'Konfigurasyon cihaza basariyla gonderildi.'}
+            {'Konfigurasyon cihaza basariyla gonderildi.'}
           </span>
         </div>
       )}

@@ -6,7 +6,7 @@
  */
 
 import { io, Socket } from 'socket.io-client';
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
+import { getAccessToken } from '@aquaculture/shared-ui';
 import type {
   STRequest,
   STResponse,

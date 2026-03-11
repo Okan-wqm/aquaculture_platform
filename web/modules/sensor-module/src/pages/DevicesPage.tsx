@@ -48,6 +48,7 @@ import {
   DeviceLifecycleState,
   DeviceModel,
   EdgeDevice,
+  BulkFirmwareUpdateResult,
   getDeviceStatusText,
   getDeviceModelText,
 } from '../hooks/useEdgeDevices';
@@ -421,7 +422,7 @@ const DevicesPage: React.FC = () => {
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<string>>(new Set());
   const [showBulkFirmwareModal, setShowBulkFirmwareModal] = useState(false);
   const [bulkFirmwareVersion, setBulkFirmwareVersion] = useState('');
-  const [bulkUpdateResult, setBulkUpdateResult] = useState<{ success: boolean; failed: { id: string; error: string }[] } | null>(null);
+  const [bulkUpdateResult, setBulkUpdateResult] = useState<BulkFirmwareUpdateResult | null>(null);
   const [edgeViewMode, setEdgeViewMode] = useState<ViewMode>('grid');
   const [edgeSearchTerm, setEdgeSearchTerm] = useState('');
   const [edgeStateFilter, setEdgeStateFilter] = useState('');

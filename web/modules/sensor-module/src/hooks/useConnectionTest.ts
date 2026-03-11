@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { ConnectionTestResult } from '../types/registration.types';
-import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
+import { getAccessToken, getTenantId } from '@aquaculture/shared-ui';
 
 // API base URL
 const API_URL = '/graphql';

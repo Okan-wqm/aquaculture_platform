@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { getAccessToken, getTenantId } from '@platform/shared-ui/utils/api-client';
+import { getAccessToken, getTenantId } from '@aquaculture/shared-ui';
 
 // API base URL
 const API_URL = '/graphql';

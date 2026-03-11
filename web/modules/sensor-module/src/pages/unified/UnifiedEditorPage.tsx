@@ -174,7 +174,7 @@ const UnifiedEditorPage: React.FC = () => {
           break;
         }
         case 'edgeSelected':
-          selectEdge(data as CanvasEdge);
+          selectEdge(data as CanvasEdge as any);
           break;
         case 'selectionCleared':
           setSelectedNodeId(null);
@@ -347,7 +347,7 @@ const UnifiedEditorPage: React.FC = () => {
           w: 4,
           h: 3,
         },
-        config: payload,
+        config: payload as unknown as Record<string, unknown>,
       });
     }
 
@@ -396,7 +396,7 @@ const UnifiedEditorPage: React.FC = () => {
       if (isNewProcess) {
         const result = await createProcess({
           name: processName,
-          nodes: currentState.nodes,
+          nodes: currentState.nodes as any,
           edges: currentState.edges,
         });
         if (result.success && result.process) {
@@ -408,7 +408,7 @@ const UnifiedEditorPage: React.FC = () => {
         const result = await updateProcess({
           processId: storeProcessId,
           name: processName,
-          nodes: currentState.nodes,
+          nodes: currentState.nodes as any,
           edges: currentState.edges,
         });
         if (result.success) {

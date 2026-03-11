@@ -202,17 +202,17 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
     height: size.height,
     position: 'relative' as const,
     zIndex: 500,
-    borderRadius: isEquipment ? 4 : 8,
+    borderRadius: 4,
     border: selected
       ? '2px solid #06b6d4'
-      : isEquipment ? '1px solid transparent' : '1px solid #e5e7eb',
+      : '1px solid transparent',
     boxShadow: selected
       ? '0 0 0 2px rgba(6,182,212,0.35)'
-      : isEquipment ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
-    background: isEquipment ? 'transparent' : '#ffffff',
+      : 'none',
+    background: 'transparent',
     overflow: 'visible' as const,
     userSelect: 'none' as const,
-  }), [size.width, size.height, selected, isEquipment]);
+  }), [size.width, size.height, selected]);
 
   /* ---------- Connection handles for all widget types --------------- */
   const connectionHandles = useMemo(() => {

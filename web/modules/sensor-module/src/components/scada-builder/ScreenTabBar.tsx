@@ -54,6 +54,8 @@ const ScreenTabBar: React.FC = () => {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; screenId: string } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
 
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -117,6 +119,24 @@ const ScreenTabBar: React.FC = () => {
     setContextMenu(null);
   }, [setDefaultScreen]);
 
+  const handleReorder = useCallback((dragId: string, dropId: string) => {
+    const state = useScadaPackageStore.getState();
+    const screensCopy = [...state.screens];
+    const dragIdx = screensCopy.findIndex((s) => s.id === dragId);
+    const dropIdx = screensCopy.findIndex((s) => s.id === dropId);
+    if (dragIdx === -1 || dropIdx === -1) return;
+
+    // Remove dragged screen and insert before drop target
+    const [dragged] = screensCopy.splice(dragIdx, 1);
+    const insertIdx = screensCopy.findIndex((s) => s.id === dropId);
+    screensCopy.splice(insertIdx, 0, dragged);
+
+    // Update sortOrder for all screens
+    screensCopy.forEach((screen, idx) => {
+      updateScreen(screen.id, { sortOrder: idx });
+    });
+  }, [updateScreen]);
+
   const isLastScreen = screens.length <= 1;
 
   return (
@@ -147,11 +167,43 @@ const ScreenTabBar: React.FC = () => {
             key={screen.id}
             onClick={() => setActiveScreen(screen.id)}
             onContextMenu={(e) => handleContextMenu(e, screen.id)}
+            draggable
+            onDragStart={(e) => {
+              setDraggedTabId(screen.id);
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', screen.id);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (draggedTabId && draggedTabId !== screen.id) {
+                setDropTargetId(screen.id);
+              }
+            }}
+            onDragLeave={() => {
+              if (dropTargetId === screen.id) setDropTargetId(null);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (draggedTabId && draggedTabId !== screen.id) {
+                handleReorder(draggedTabId, screen.id);
+              }
+              setDraggedTabId(null);
+              setDropTargetId(null);
+            }}
+            onDragEnd={() => {
+              setDraggedTabId(null);
+              setDropTargetId(null);
+            }}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
               isActive
                 ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
                 : 'text-gray-600 hover:bg-gray-200 hover:text-gray-800'
             }`}
+            style={{
+              opacity: draggedTabId === screen.id ? 0.5 : 1,
+              borderLeft: dropTargetId === screen.id ? '2px solid #06b6d4' : undefined,
+              cursor: draggedTabId ? 'grabbing' : 'default',
+            }}
           >
             {getScreenIcon(screen.icon)}
             <span>{screen.name}</span>

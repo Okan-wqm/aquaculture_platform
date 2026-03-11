@@ -95,6 +95,9 @@ export const WIDGET_SIZES: Record<string, WidgetSizeDef> = {
   mbbr:              { defaultW: 3, defaultH: 2, minW: 2, minH: 2, maxW: 4, maxH: 4 },
   hepaFilter:        { defaultW: 3, defaultH: 2, minW: 2, minH: 1, maxW: 4, maxH: 3 },
   cornellDualDrain:  { defaultW: 4, defaultH: 3, minW: 2, minH: 2, maxW: 6, maxH: 4 },
+  // Navigation & annotation
+  screenLink:        { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 4, maxH: 3 },
+  staticText:        { defaultW: 3, defaultH: 1, minW: 1, minH: 1, maxW: 12, maxH: 4 },
 };
 
 /* ------------------------------------------------------------------ */

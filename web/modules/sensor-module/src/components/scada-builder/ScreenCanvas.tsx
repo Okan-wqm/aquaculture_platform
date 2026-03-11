@@ -472,7 +472,15 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
       if (_event.shiftKey) {
         toggleWidgetSelection(node.id);
       } else {
-        setSelectedWidget(node.id);
+        // Check if widget is part of a group
+        const state = useScadaPackageStore.getState();
+        const screen = state.screens.find((s) => s.id === state.activeScreenId);
+        const widget = screen?.widgets.find((w) => w.id === node.id);
+        if (widget?.groupId && 'selectGroup' in state) {
+          (state as any).selectGroup(state.activeScreenId, widget.groupId);
+        } else {
+          setSelectedWidget(node.id);
+        }
         setSelectedEdge(null);
       }
     },
@@ -726,7 +734,19 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
             position="bottom-right"
           />
           <MiniMap
-            nodeColor="#06b6d4"
+            nodeColor={(node: Node) => {
+              const data = node.data as ScadaWidgetNodeData | undefined;
+              if (!data) return '#06b6d4';
+              const type = data.widgetType;
+              // Equipment types get industrial colors
+              if (type === 'equipment') return '#f59e0b'; // amber
+              if (type === 'gauge') return '#10b981'; // emerald
+              if (type === 'alarmBanner' || type === 'alarmList') return '#ef4444'; // red
+              if (type === 'trendChart') return '#8b5cf6'; // violet
+              if (type === 'screenLink') return '#3b82f6'; // blue
+              if (type === 'staticText') return '#6b7280'; // gray
+              return '#06b6d4'; // cyan default
+            }}
             maskColor="rgba(0,0,0,0.1)"
             position="bottom-left"
             pannable

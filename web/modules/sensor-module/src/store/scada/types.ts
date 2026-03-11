@@ -234,6 +234,7 @@ export interface SelectionSlice {
   setSelectedWidget: (id: string | null) => void;
   setSelectedEdge: (id: string | null) => void;
   toggleWidgetSelection: (id: string) => void;
+  selectGroup: (screenId: string, groupId: string) => void;
   selectAllWidgets: () => void;
   deselectAll: () => void;
   copySelectedWidgets: () => void;

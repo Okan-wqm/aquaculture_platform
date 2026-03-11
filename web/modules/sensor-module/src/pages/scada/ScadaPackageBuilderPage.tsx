@@ -601,7 +601,12 @@ const ScadaPackageBuilderPage: React.FC = () => {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {activeScreenId && (
+            <span className="text-gray-400">
+              {screens.find((s) => s.id === activeScreenId)?.name ?? ''}
+            </span>
+          )}
           <span className="w-2 h-2 rounded-full bg-green-500" />
           <span>Hazır</span>
         </div>

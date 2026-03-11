@@ -43,6 +43,19 @@ export const createSelectionSlice: ScadaSliceCreator<SelectionSlice> = (set, get
       state.selectedEdgeId = null;
     }),
 
+  selectGroup: (screenId, groupId) =>
+    set((state) => {
+      const screen = state.screens.find((s) => s.id === screenId);
+      if (!screen) return;
+      const groupWidgetIds = screen.widgets
+        .filter((w) => w.groupId === groupId)
+        .map((w) => w.id);
+      if (groupWidgetIds.length === 0) return;
+      state.selectedWidgetIds = groupWidgetIds;
+      state.selectedWidgetId = groupWidgetIds[0];
+      state.selectedEdgeId = null;
+    }),
+
   selectAllWidgets: () =>
     set((state) => {
       const screen = state.screens.find((s) => s.id === state.activeScreenId);

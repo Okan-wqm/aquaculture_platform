@@ -72,7 +72,7 @@ export function useScadaKeyboardShortcuts(
     }
 
     // Ctrl+D — Duplicate selected widget(s) in place
-    if (mod && e.key === 'd') {
+    if (mod && key === 'd') {
       e.preventDefault();
       // Copy then paste (creates duplicates offset by 1 grid cell)
       if (s.selectedWidgetIds.length > 0) {
@@ -106,7 +106,7 @@ export function useScadaKeyboardShortcuts(
     }
 
     // Ctrl+A — Select all widgets
-    if (mod && e.key === 'a') {
+    if (mod && key === 'a') {
       e.preventDefault();
       s.selectAllWidgets();
       return;

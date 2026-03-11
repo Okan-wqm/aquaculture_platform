@@ -39,7 +39,17 @@ export const createSceneSlice: ScadaSliceCreator<SceneSlice> = (set, get) => ({
       const removedIndex = state.screens.findIndex((s) => s.id === id);
       if (removedIndex === -1) return;
 
-      const wasDefault = state.screens[removedIndex].isDefault;
+      const removedScreen = state.screens[removedIndex];
+      const wasDefault = removedScreen.isDefault;
+
+      // Reparent orphaned children to the deleted screen's parent (or root)
+      const newParentId = removedScreen.parentId ?? null;
+      for (const screen of state.screens) {
+        if (screen.parentId === id) {
+          screen.parentId = newParentId;
+        }
+      }
+
       state.screens.splice(removedIndex, 1);
 
       // If removed screen was active, switch to first remaining

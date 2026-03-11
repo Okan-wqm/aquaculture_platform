@@ -1,13 +1,15 @@
 /**
  * SCADA Store — Canonical type definitions for the decomposed store.
  *
- * The monolithic scadaPackageStore (783 lines) is refactored into 7 slices:
+ * The monolithic scadaPackageStore is refactored into 9 slices:
  *   sceneSlice     — Screen CRUD, hierarchy, viewport, navigation
  *   widgetSlice    — Widget CRUD, position, resize
  *   edgeSlice      — Edge CRUD, type changes
  *   selectionSlice — Widget/edge selection, clipboard, copy/paste
  *   historySlice   — Undo/redo (command pattern)
  *   alarmSlice     — Alarm rules, control permissions, trend config
+ *   groupSlice     — Widget grouping/ungrouping
+ *   templateSlice  — Widget templates save/load/apply
  *   projectSlice   — Package meta, automation, serialization, reset
  *
  * All slice implementations use zustand + immer middleware.

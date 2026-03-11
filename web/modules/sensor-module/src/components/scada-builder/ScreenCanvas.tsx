@@ -498,7 +498,11 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
 
   const onNodeContextMenu = useCallback((_e: React.MouseEvent, node: Node) => {
     _e.preventDefault();
-    setSelectedWidget(node.id);
+    // Preserve multi-selection: only reset if right-clicked widget is NOT in current selection
+    const currentIds = useScadaPackageStore.getState().selectedWidgetIds;
+    if (!currentIds.includes(node.id)) {
+      setSelectedWidget(node.id);
+    }
     setSelectedEdge(null);
     setContextMenu({
       position: { x: _e.clientX, y: _e.clientY },
@@ -541,26 +545,8 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
     [activeScreenId, removeWidget],
   );
 
-  // Keyboard Delete/Backspace handler for selected widget
-  useEffect(() => {
-    if (isPreview) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Skip if user is typing in an input/textarea
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedWidgetId && activeScreenId) {
-          e.preventDefault();
-          removeWidget(activeScreenId, selectedWidgetId);
-        } else if (selectedEdgeId && activeScreenId) {
-          e.preventDefault();
-          storeRemoveEdge(activeScreenId, selectedEdgeId);
-        }
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isPreview, selectedWidgetId, selectedEdgeId, activeScreenId, removeWidget, storeRemoveEdge]);
+  // NOTE: Delete/Backspace is handled by useScadaKeyboardShortcuts hook (supports multi-select).
+  // ReactFlow's deleteKeyCode is set to null to prevent triple-fire.
 
   // Edge toolbar handlers
   const handleEdgeTypeChange = useCallback(
@@ -707,7 +693,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
           snapToGrid={!isPreview && snapEnabled}
           snapGrid={SNAP_GRID}
           fitView={false}
-          deleteKeyCode={isPreview ? null : 'Delete'}
+          deleteKeyCode={null}
           multiSelectionKeyCode={null}
           minZoom={0.2}
           maxZoom={2}

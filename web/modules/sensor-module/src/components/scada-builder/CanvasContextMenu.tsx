@@ -146,7 +146,12 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   };
 
   const handleDeleteWidget = () => {
-    if (activeScreenId && selectedWidgetId) {
+    if (activeScreenId && selectedWidgetIds.length > 0) {
+      const store = useScadaStore.getState();
+      for (const wId of [...selectedWidgetIds]) {
+        store.removeWidget(activeScreenId, wId);
+      }
+    } else if (activeScreenId && selectedWidgetId) {
       useScadaStore.getState().removeWidget(activeScreenId, selectedWidgetId);
     }
     onClose();
@@ -316,8 +321,11 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
           <MenuItem
             icon={<MousePointer className="h-4 w-4" />}
             label="Tümünü Seç"
-            disabled
-            onClick={() => onClose()}
+            shortcut="Ctrl+A"
+            onClick={() => {
+              useScadaStore.getState().selectAllWidgets();
+              onClose();
+            }}
           />
         </>
       )}

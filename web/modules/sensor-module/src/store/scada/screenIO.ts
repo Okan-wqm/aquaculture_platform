@@ -18,6 +18,7 @@ export function exportScreen(screen: ScreenDef): ScreenJSON {
     icon: screen.icon,
     layout: { ...screen.layout },
     widgets: screen.widgets.map((w) => ({
+      id: w.id,
       widgetType: w.widgetType,
       position: { ...w.position },
       config: { ...w.config },

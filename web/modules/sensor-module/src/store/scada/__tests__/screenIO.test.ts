@@ -36,12 +36,14 @@ describe('exportScreen', () => {
     expect(json.widgets).toHaveLength(2);
   });
 
-  it('should strip widget IDs from export', () => {
+  it('should preserve widget IDs in export for edge remapping', () => {
     const json = exportScreen(mockScreen);
-    // exportScreen maps widgets without their id field
+    // exportScreen keeps widget IDs so edges can be remapped on import
     for (const w of json.widgets!) {
-      expect(w).not.toHaveProperty('id');
+      expect(w).toHaveProperty('id');
     }
+    expect(json.widgets![0].id).toBe('w1');
+    expect(json.widgets![1].id).toBe('w2');
   });
 
   it('should export all edges', () => {

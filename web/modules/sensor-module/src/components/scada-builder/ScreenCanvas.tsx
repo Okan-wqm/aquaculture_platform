@@ -479,6 +479,10 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
         config: parsed.defaultConfig || {},
       };
 
+      // Reset sync flags so the store→local useEffect will render the new widget
+      syncingFromStore.current = false;
+      isDragging.current = false;
+
       addWidget(activeScreenId, newWidget);
       setSelectedWidget(newWidget.id);
     },

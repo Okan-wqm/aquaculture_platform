@@ -7,15 +7,15 @@ import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
-  const label = (config.label ?? 'Kirli Su Tanki') as string;
   const raw = isEditing ? (config.demoLevel ?? 55) : Number(value ?? 0);
   const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;
   const level = Math.max(0, Math.min(100, isNaN(numValue) ? 0 : numValue));
-  const pct = level / 100;
 
   const status = (isEditing ? (config.demoStatus ?? 'running') : String(value !== undefined ? 'running' : 'stopped')) as string;
   const isRunning = status === 'running';
   const statusColor = isRunning ? '#22c55e' : '#9ca3af';
+  const effectiveLevel = isRunning ? Math.max(level, 90) : 0;
+  const pct = effectiveLevel / 100;
 
   // Tank geometry (same as clean water tank)
   const tankX = 20;
@@ -64,11 +64,6 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
             <ellipse cx={tankX + tankW / 2} cy={tankY + tankH - capRy} rx={tankW / 2 - 1} ry={capRy} />
           </clipPath>
         </defs>
-
-        {/* Label */}
-        <text x={60} y={12} textAnchor="middle" fontSize={10} fill="#6b7280" fontWeight={500}>
-          {label}
-        </text>
 
         {/* Tank body (rounded rect simulating cylinder) */}
         <rect
@@ -182,14 +177,14 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           fontWeight={700}
           fill="#111827"
         >
-          {Math.round(level)}%
+          {Math.round(effectiveLevel)}%
         </text>
 
         {/* "Kirli" badge */}
         <rect x={34} y={110} width={52} height={16} rx={8} fill="#d97706" opacity={0.15} />
         <rect x={34} y={110} width={52} height={16} rx={8} fill="none" stroke="#d97706" strokeWidth={1} />
         <text x={60} y={121} textAnchor="middle" fontSize={9} fill="#92400e" fontWeight={600}>
-          Kirli
+          Dirty
         </text>
 
         {/* Status dot */}

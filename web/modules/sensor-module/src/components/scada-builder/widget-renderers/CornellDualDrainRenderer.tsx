@@ -8,7 +8,7 @@
  * - Center bottom drain (solids removal) with vertical downpipe
  * - Side outlet / sideflow box with vertical standpipe and overflow weir
  * - Water fill with fish silhouettes
- * - Spray-bar inlet pipe from above
+ * - Inlet connection points at top
  * - Flow direction arrows
  *
  * NaN-safe. Uses config.demoLevel / config.demoStatus in edit mode.
@@ -18,15 +18,16 @@ import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
-  const label = (config.label ?? 'Cornell Dual Drain') as string;
   const raw = isEditing ? (config.demoLevel ?? 75) : Number(value ?? 0);
   const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;
   const level = Math.max(0, Math.min(100, isNaN(numValue) ? 0 : numValue));
-  const pct = level / 100;
 
   const status = (isEditing ? (config.demoStatus ?? 'running') : String(value !== undefined ? 'running' : 'stopped')) as string;
   const isRunning = status === 'running';
   const statusColor = isRunning ? '#22c55e' : '#9ca3af';
+
+  const effectiveLevel = isRunning ? Math.max(level, 90) : 0;
+  const pct = effectiveLevel / 100;
 
   // --- Main tank geometry (side view cross-section) ---
   const tankL = 14;     // tank left x
@@ -48,7 +49,7 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
 
   // --- Sideflow box geometry (right side) ---
   const sfBoxW = 18;
-  const sfBoxH = 50;
+  const sfBoxH = 65;
   const sfBoxX = tankR;          // flush with right tank wall
   const sfBoxTop = tankBot - sfBoxH; // top of sideflow box
   const sfBoxBot = tankBot;
@@ -65,11 +66,6 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
   const drainPipeW = 8;
   const drainPipeTop = centerBotY;
   const drainPipeBot = 148;
-
-  // --- Inlet spray bar ---
-  const sprayBarY = tankTop - 4;
-  const sprayBarLeft = centerX - 30;
-  const sprayBarRight = centerX + 30;
 
   // Water color
   const waterColor = '#4FB3F6';
@@ -107,41 +103,10 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
           </clipPath>
         </defs>
 
-        {/* ==================== LABEL ==================== */}
-        <text x={100} y={12} textAnchor="middle" fontSize={10} fill="#6b7280" fontWeight={500}>
-          {label}
-        </text>
 
-        {/* Status dot */}
-        <circle cx={188} cy={10} r={4} fill={statusColor} />
-
-        {/* ==================== INLET SPRAY BAR ==================== */}
-        {/* Inlet pipe from top */}
-        <line x1={centerX} y1={2} x2={centerX} y2={sprayBarY - 2} stroke="#333" strokeWidth={2} />
-        {/* Spray bar horizontal */}
-        <line x1={sprayBarLeft} y1={sprayBarY} x2={sprayBarRight} y2={sprayBarY} stroke="#333" strokeWidth={2.5} />
-        {/* Spray nozzles (small downward lines) */}
-        {[-24, -12, 0, 12, 24].map((offset) => (
-          <g key={offset}>
-            <line
-              x1={centerX + offset}
-              y1={sprayBarY}
-              x2={centerX + offset}
-              y2={sprayBarY + 5}
-              stroke={statusColor}
-              strokeWidth={1.5}
-            />
-            {/* Spray droplets */}
-            {isRunning && (
-              <>
-                <circle cx={centerX + offset - 1.5} cy={sprayBarY + 7} r={0.8} fill={waterColor} opacity={0.7} />
-                <circle cx={centerX + offset + 1.5} cy={sprayBarY + 8} r={0.8} fill={waterColor} opacity={0.7} />
-              </>
-            )}
-          </g>
-        ))}
-        {/* Inlet flow arrow */}
-        <polygon points={`${centerX - 3},6 ${centerX},2 ${centerX + 3},6`} fill={statusColor} />
+        {/* Inlet connection points at top */}
+        <circle cx={centerX - 25} cy={tankTop} r={3} fill={statusColor} stroke="#333" strokeWidth={1.5} />
+        <circle cx={centerX + 25} cy={tankTop} r={3} fill={statusColor} stroke="#333" strokeWidth={1.5} />
 
         {/* ==================== TANK BODY ==================== */}
         {/* Tank walls + sloped bottom */}
@@ -249,11 +214,6 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
           fill={statusColor}
         />
 
-        {/* Drain label */}
-        <text x={centerX} y={drainPipeBot + 8} textAnchor="middle" fontSize={7} fill="#6b7280">
-          Solids
-        </text>
-
         {/* ==================== SIDEFLOW BOX ==================== */}
         {/* Box outline */}
         <rect
@@ -330,7 +290,7 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
           fontWeight={700}
           fill="#111827"
         >
-          {Math.round(level)}%
+          {Math.round(effectiveLevel)}%
         </text>
 
         {/* Tank wall thickness indicators (small horizontal lines at top) */}

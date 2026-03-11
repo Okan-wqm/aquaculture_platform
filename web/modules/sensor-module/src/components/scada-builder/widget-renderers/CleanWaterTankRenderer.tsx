@@ -7,15 +7,15 @@ import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
-  const label = (config.label ?? 'Temiz Su Tanki') as string;
   const raw = isEditing ? (config.demoLevel ?? 70) : Number(value ?? 0);
   const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;
   const level = Math.max(0, Math.min(100, isNaN(numValue) ? 0 : numValue));
-  const pct = level / 100;
 
   const status = (isEditing ? (config.demoStatus ?? 'running') : String(value !== undefined ? 'running' : 'stopped')) as string;
   const isRunning = status === 'running';
   const statusColor = isRunning ? '#22c55e' : '#9ca3af';
+  const effectiveLevel = isRunning ? Math.max(level, 90) : 0;
+  const pct = effectiveLevel / 100;
 
   // Tank geometry
   const tankX = 20;
@@ -55,11 +55,6 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
             <ellipse cx={tankX + tankW / 2} cy={tankY + tankH - capRy} rx={tankW / 2 - 1} ry={capRy} />
           </clipPath>
         </defs>
-
-        {/* Label */}
-        <text x={60} y={12} textAnchor="middle" fontSize={10} fill="#6b7280" fontWeight={500}>
-          {label}
-        </text>
 
         {/* Inlet pipe (top-left) */}
         <line x1={2} y1={tankY + 8} x2={tankX} y2={tankY + 8} stroke="#333" strokeWidth={2} />
@@ -138,14 +133,14 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           fontWeight={700}
           fill="#111827"
         >
-          {Math.round(level)}%
+          {Math.round(effectiveLevel)}%
         </text>
 
         {/* "Temiz" badge */}
         <rect x={34} y={110} width={52} height={16} rx={8} fill={waterColor} opacity={0.2} />
         <rect x={34} y={110} width={52} height={16} rx={8} fill="none" stroke={waterColor} strokeWidth={1} />
         <text x={60} y={121} textAnchor="middle" fontSize={9} fill="#2563eb" fontWeight={600}>
-          Temiz
+          Clean
         </text>
 
         {/* Status dot */}

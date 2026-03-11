@@ -24,7 +24,6 @@ const RadialFilterRenderer: React.FC<WidgetRendererProps> = ({
   height,
   isEditing,
 }) => {
-  const label = (config.label ?? 'Radyal Filtre') as string;
   const demoStatus = (config.demoStatus ?? 'running') as string;
   const status = isEditing ? demoStatus : (String(value ?? 'stopped'));
   const colors = STATUS_COLORS[status] ?? STATUS_COLORS.stopped;
@@ -38,22 +37,10 @@ const RadialFilterRenderer: React.FC<WidgetRendererProps> = ({
         preserveAspectRatio="xMidYMid meet"
         style={{ display: 'block' }}
       >
-        {/* Label */}
-        <text
-          x={60}
-          y={12}
-          textAnchor="middle"
-          fontSize={10}
-          fill="#6b7280"
-          fontWeight={500}
-        >
-          {label}
-        </text>
-
         {/* Top circular rim (ellipse) */}
         <ellipse
           cx={60}
-          cy={28}
+          cy={14}
           rx={42}
           ry={8}
           fill="#e0e0e0"
@@ -63,7 +50,7 @@ const RadialFilterRenderer: React.FC<WidgetRendererProps> = ({
 
         {/* Conical body — trapezoid from wide top to narrow bottom */}
         <path
-          d="M18,28 L102,28 L72,130 L48,130 Z"
+          d="M18,14 L102,14 L72,116 L48,116 Z"
           fill="#cfd8dc"
           stroke="#333"
           strokeWidth={2}
@@ -71,49 +58,49 @@ const RadialFilterRenderer: React.FC<WidgetRendererProps> = ({
         />
 
         {/* Internal settling cone lines */}
-        <line x1={38} y1={50} x2={60} y2={120} stroke="#999" strokeWidth={1.5} strokeDasharray="4,3" />
-        <line x1={82} y1={50} x2={60} y2={120} stroke="#999" strokeWidth={1.5} strokeDasharray="4,3" />
+        <line x1={38} y1={36} x2={60} y2={106} stroke="#999" strokeWidth={1.5} strokeDasharray="4,3" />
+        <line x1={82} y1={36} x2={60} y2={106} stroke="#999" strokeWidth={1.5} strokeDasharray="4,3" />
 
         {/* Liquid fill zone (upper portion) */}
         <path
-          d="M24,40 L96,40 L78,100 L42,100 Z"
+          d="M24,26 L96,26 L78,86 L42,86 Z"
           fill={colors.fill}
           opacity={0.25}
         />
 
         {/* Sludge collection pocket at bottom */}
         <path
-          d="M52,118 L68,118 L64,130 L56,130 Z"
+          d="M52,104 L68,104 L64,116 L56,116 Z"
           fill={colors.accent}
           opacity={0.6}
         />
         <path
-          d="M52,118 L68,118 L64,130 L56,130 Z"
+          d="M52,104 L68,104 L64,116 L56,116 Z"
           fill="none"
           stroke="#333"
           strokeWidth={1.5}
         />
 
         {/* Inlet pipe (left side) */}
-        <rect x={2} y={38} width={18} height={8} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
-        <path d="M14,38 L14,46" stroke={colors.fill} strokeWidth={2} />
+        <rect x={2} y={24} width={18} height={8} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
+        <path d="M14,24 L14,32" stroke={colors.fill} strokeWidth={2} />
         {/* Inlet arrow */}
-        <polygon points="16,42 20,39 20,45" fill={colors.fill} />
+        <polygon points="16,28 20,25 20,31" fill={colors.fill} />
 
         {/* Outlet pipe (right side) */}
-        <rect x={100} y={50} width={18} height={8} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
+        <rect x={100} y={36} width={18} height={8} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
         {/* Outlet arrow */}
-        <polygon points="114,54 118,51 118,57" fill={colors.fill} />
+        <polygon points="114,40 118,37 118,43" fill={colors.fill} />
 
         {/* Bottom drain pipe */}
-        <rect x={56} y={130} width={8} height={14} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
+        <rect x={56} y={116} width={8} height={14} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
         {/* Drain valve symbol (small butterfly) */}
-        <line x1={56} y1={140} x2={64} y2={140} stroke="#333" strokeWidth={2} />
-        <circle cx={60} cy={140} r={3} fill="white" stroke="#333" strokeWidth={1.5} />
+        <line x1={56} y1={126} x2={64} y2={126} stroke="#333" strokeWidth={2} />
+        <circle cx={60} cy={126} r={3} fill="white" stroke="#333" strokeWidth={1.5} />
 
         {/* Status indicator dot */}
-        <circle cx={60} cy={152} r={4} fill={colors.fill} />
-        <circle cx={60} cy={152} r={6} fill={colors.fill} opacity={0.3} />
+        <circle cx={60} cy={146} r={4} fill={colors.fill} />
+        <circle cx={60} cy={146} r={6} fill={colors.fill} opacity={0.3} />
       </svg>
     </div>
   );

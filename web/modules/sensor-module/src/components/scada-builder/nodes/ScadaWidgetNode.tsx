@@ -259,9 +259,9 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
 
       {/* Widget type badge (edit mode, top-left) */}
       <span style={BADGE_STYLE}>
-        {data.widgetType === 'equipment'
+        {(data.config.label as string) || (data.widgetType === 'equipment'
           ? (data.config.equipmentSubType as string) || 'equipment'
-          : data.widgetType}
+          : data.widgetType)}
       </span>
 
       {/* Widget content - overflow hidden here to clip widget internals */}

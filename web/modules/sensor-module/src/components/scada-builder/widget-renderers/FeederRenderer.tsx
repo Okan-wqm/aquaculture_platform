@@ -21,7 +21,6 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
-  const label = (config.label ?? 'Yemlik') as string;
   const rawLevel = isEditing
     ? ((config.demoFeedLevel ?? 65) as number)
     : Number(value ?? 0);
@@ -31,7 +30,10 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
   ).toLowerCase();
   const statusColor = STATUS_COLORS[status] ?? '#9ca3af';
   const statusLabel = STATUS_LABELS[status] ?? status;
-  const pct = feedLevel / 100;
+
+  // When stopped/maintenance → show empty; when running → show ~90% if no specific value
+  const effectiveLevel = status === 'stopped' ? 0 : (status === 'error' ? feedLevel : Math.max(feedLevel, 90));
+  const pct = effectiveLevel / 100;
 
   // --- Hopper geometry (viewBox 0 0 120 160) ---
   // Motor housing: centered rect at top
@@ -63,7 +65,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
   const fillTopLeft = hopperBottomLeft + tFill * (hopperTopLeft - hopperBottomLeft);
   const fillTopRight = hopperBottomRight + tFill * (hopperTopRight - hopperBottomRight);
 
-  // Fill color: blue normally, yellow when low, red when critically low
+  // Fill color: brown normally, yellow when low, red when critically low
   let fillColor = '#8B6914'; // feed/grain brown
   if (pct < 0.15) fillColor = '#ef4444';
   else if (pct < 0.3) fillColor = '#eab308';
@@ -77,11 +79,6 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
         preserveAspectRatio="xMidYMid meet"
         style={{ display: 'block' }}
       >
-        {/* ---- Label ---- */}
-        <text x={60} y={7} textAnchor="middle" fontSize={10} fill="#374151" fontWeight={500}>
-          {label}
-        </text>
-
         {/* ---- Motor housing ---- */}
         <rect
           x={motorX}
@@ -141,7 +138,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
           fontWeight={700}
           fill="#111827"
         >
-          {Math.round(feedLevel)}
+          {Math.round(effectiveLevel)}
         </text>
         <text
           x={60}

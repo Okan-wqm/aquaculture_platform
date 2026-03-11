@@ -169,20 +169,20 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
     ],
   },
   {
-    name: 'Proses Ekipmanlari',
+    name: 'Process Equipment',
     widgets: [
-      { type: 'feeder' as ScadaWidgetType, label: 'Yemlik', icon: FEEDER_ICON },
+      { type: 'feeder' as ScadaWidgetType, label: 'Feeder', icon: FEEDER_ICON },
       { type: 'mbbr' as ScadaWidgetType, label: 'MBBR', icon: MBBR_ICON },
-      { type: 'hepaFilter' as ScadaWidgetType, label: 'HEPA Filtre', icon: HEPA_ICON },
-      { type: 'radialFilter' as ScadaWidgetType, label: 'Radyal Filtre', icon: FILTER_ICON },
+      { type: 'hepaFilter' as ScadaWidgetType, label: 'HEPA Filter', icon: HEPA_ICON },
+      { type: 'radialFilter' as ScadaWidgetType, label: 'Radial Filter', icon: FILTER_ICON },
       { type: 'cornellDualDrain' as ScadaWidgetType, label: 'Cornell Dual Drain', icon: CORNELL_ICON },
     ],
   },
   {
-    name: 'Su Tanklari',
+    name: 'Water Tanks',
     widgets: [
-      { type: 'cleanWaterTank' as ScadaWidgetType, label: 'Temiz Su Tanki', icon: WATER_TANK_ICON },
-      { type: 'dirtyWaterTank' as ScadaWidgetType, label: 'Kirli Su Tanki', icon: WATER_TANK_ICON },
+      { type: 'cleanWaterTank' as ScadaWidgetType, label: 'Clean Water Tank', icon: WATER_TANK_ICON },
+      { type: 'dirtyWaterTank' as ScadaWidgetType, label: 'Dirty Water Tank', icon: WATER_TANK_ICON },
     ],
   },
   {

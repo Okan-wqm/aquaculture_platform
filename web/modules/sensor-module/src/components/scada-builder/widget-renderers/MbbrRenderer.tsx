@@ -39,7 +39,6 @@ const MbbrRenderer: React.FC<WidgetRendererProps> = ({
   height,
   isEditing,
 }) => {
-  const label = (config.label ?? 'MBBR') as string;
   const demoStatus = (config.demoStatus ?? 'running') as string;
   const status = isEditing ? demoStatus : (String(value ?? 'stopped'));
   const colors = STATUS_COLORS[status] ?? STATUS_COLORS.stopped;
@@ -50,26 +49,14 @@ const MbbrRenderer: React.FC<WidgetRendererProps> = ({
       <svg
         width="100%"
         height="100%"
-        viewBox="0 0 140 120"
+        viewBox="0 0 140 106"
         preserveAspectRatio="xMidYMid meet"
         style={{ display: 'block' }}
       >
-        {/* Label */}
-        <text
-          x={70}
-          y={12}
-          textAnchor="middle"
-          fontSize={10}
-          fill="#6b7280"
-          fontWeight={500}
-        >
-          {label}
-        </text>
-
         {/* Tank body */}
         <rect
           x={20}
-          y={22}
+          y={8}
           width={100}
           height={86}
           rx={3}
@@ -81,7 +68,7 @@ const MbbrRenderer: React.FC<WidgetRendererProps> = ({
         {/* Water fill */}
         <rect
           x={22}
-          y={30}
+          y={16}
           width={96}
           height={76}
           rx={2}
@@ -90,76 +77,79 @@ const MbbrRenderer: React.FC<WidgetRendererProps> = ({
         />
 
         {/* Diffuser grid at bottom */}
-        <line x1={28} y1={104} x2={112} y2={104} stroke="#555" strokeWidth={2} />
+        <line x1={28} y1={90} x2={112} y2={90} stroke="#555" strokeWidth={2} />
         {/* Diffuser nozzles */}
         {[36, 48, 60, 72, 84, 96, 108].map((cx) => (
-          <circle key={cx} cx={cx} cy={104} r={1.5} fill="#555" />
+          <circle key={cx} cx={cx} cy={90} r={1.5} fill="#555" />
         ))}
 
         {/* Aeration bubbles (animated when running) */}
-        {BUBBLES.map(([cx, startY], i) => (
-          <g key={`bubble-${i}`}>
-            <circle cx={cx} cy={startY} r={1.8} fill={colors.fill} opacity={0.5}>
-              {isRunning && (
-                <animate
-                  attributeName="cy"
-                  from={startY}
-                  to={32}
-                  dur={`${1.2 + i * 0.15}s`}
-                  repeatCount="indefinite"
-                />
-              )}
-              {isRunning && (
-                <animate
-                  attributeName="opacity"
-                  from="0.5"
-                  to="0"
-                  dur={`${1.2 + i * 0.15}s`}
-                  repeatCount="indefinite"
-                />
-              )}
-            </circle>
-            <circle cx={cx + 3} cy={startY - 6} r={1.2} fill={colors.fill} opacity={0.35}>
-              {isRunning && (
-                <animate
-                  attributeName="cy"
-                  from={startY - 6}
-                  to={28}
-                  dur={`${1.5 + i * 0.12}s`}
-                  repeatCount="indefinite"
-                />
-              )}
-              {isRunning && (
-                <animate
-                  attributeName="opacity"
-                  from="0.35"
-                  to="0"
-                  dur={`${1.5 + i * 0.12}s`}
-                  repeatCount="indefinite"
-                />
-              )}
-            </circle>
-          </g>
-        ))}
+        {BUBBLES.map(([cx, startY], i) => {
+          const sy = startY - 14;
+          return (
+            <g key={`bubble-${i}`}>
+              <circle cx={cx} cy={sy} r={1.8} fill={colors.fill} opacity={0.5}>
+                {isRunning && (
+                  <animate
+                    attributeName="cy"
+                    from={sy}
+                    to={18}
+                    dur={`${1.2 + i * 0.15}s`}
+                    repeatCount="indefinite"
+                  />
+                )}
+                {isRunning && (
+                  <animate
+                    attributeName="opacity"
+                    from="0.5"
+                    to="0"
+                    dur={`${1.2 + i * 0.15}s`}
+                    repeatCount="indefinite"
+                  />
+                )}
+              </circle>
+              <circle cx={cx + 3} cy={sy - 6} r={1.2} fill={colors.fill} opacity={0.35}>
+                {isRunning && (
+                  <animate
+                    attributeName="cy"
+                    from={sy - 6}
+                    to={14}
+                    dur={`${1.5 + i * 0.12}s`}
+                    repeatCount="indefinite"
+                  />
+                )}
+                {isRunning && (
+                  <animate
+                    attributeName="opacity"
+                    from="0.35"
+                    to="0"
+                    dur={`${1.5 + i * 0.12}s`}
+                    repeatCount="indefinite"
+                  />
+                )}
+              </circle>
+            </g>
+          );
+        })}
 
         {/* Bio-media carriers (small donut shapes) */}
         {CARRIERS.map(([cx, cy], i) => (
           <g key={`carrier-${i}`}>
-            <circle cx={cx} cy={cy} r={4} fill="#e0e0e0" stroke="#777" strokeWidth={1} />
-            <circle cx={cx} cy={cy} r={1.5} fill="#cfd8dc" />
+            <circle cx={cx} cy={cy - 14} r={4} fill="#e0e0e0" stroke="#777" strokeWidth={1} />
+            <circle cx={cx} cy={cy - 14} r={1.5} fill="#cfd8dc" />
           </g>
         ))}
 
         {/* Inlet pipe (left) */}
-        <rect x={2} y={40} width={20} height={8} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
-        <polygon points="16,44 20,41 20,47" fill={colors.fill} />
+        <rect x={2} y={26} width={20} height={8} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
+        <polygon points="16,30 20,27 20,33" fill={colors.fill} />
 
         {/* Outlet pipe (right) */}
-        <rect x={118} y={40} width={20} height={8} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
-        <polygon points="132,44 136,41 136,47" fill={colors.fill} />
+        <rect x={118} y={26} width={20} height={8} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
+        <polygon points="132,30 136,27 136,33" fill={colors.fill} />
 
         {/* Status indicator */}
-        <circle cx={70} cy={116} r={3} fill={colors.fill} />
+        <circle cx={70} cy={102} r={3} fill={colors.fill} />
       </svg>
     </div>
   );

@@ -25,7 +25,6 @@ const HepaFilterRenderer: React.FC<WidgetRendererProps> = ({
   height,
   isEditing,
 }) => {
-  const label = (config.label ?? 'HEPA Filtre') as string;
   const demoStatus = (config.demoStatus ?? 'running') as string;
   const status = isEditing ? demoStatus : (String(value ?? 'stopped'));
   const colors = STATUS_COLORS[status] ?? STATUS_COLORS.stopped;
@@ -34,8 +33,8 @@ const HepaFilterRenderer: React.FC<WidgetRendererProps> = ({
   const pleats: string[] = [];
   const pleatsStartX = 58;
   const pleatsEndX = 82;
-  const pleatsTop = 28;
-  const pleatsBottom = 78;
+  const pleatsTop = 14;
+  const pleatsBottom = 64;
   const numPleats = 8;
   const step = (pleatsBottom - pleatsTop) / numPleats;
 
@@ -57,26 +56,14 @@ const HepaFilterRenderer: React.FC<WidgetRendererProps> = ({
       <svg
         width="100%"
         height="100%"
-        viewBox="0 0 140 100"
+        viewBox="0 0 140 86"
         preserveAspectRatio="xMidYMid meet"
         style={{ display: 'block' }}
       >
-        {/* Label */}
-        <text
-          x={70}
-          y={12}
-          textAnchor="middle"
-          fontSize={10}
-          fill="#6b7280"
-          fontWeight={500}
-        >
-          {label}
-        </text>
-
         {/* Filter housing (outer rectangle) */}
         <rect
           x={38}
-          y={20}
+          y={6}
           width={64}
           height={66}
           rx={3}
@@ -88,7 +75,7 @@ const HepaFilterRenderer: React.FC<WidgetRendererProps> = ({
         {/* Inner chamber */}
         <rect
           x={42}
-          y={24}
+          y={10}
           width={56}
           height={58}
           rx={2}
@@ -107,25 +94,25 @@ const HepaFilterRenderer: React.FC<WidgetRendererProps> = ({
         />
 
         {/* Vertical filter frame lines */}
-        <line x1={58} y1={24} x2={58} y2={82} stroke="#777" strokeWidth={1} />
-        <line x1={82} y1={24} x2={82} y2={82} stroke="#777" strokeWidth={1} />
+        <line x1={58} y1={10} x2={58} y2={68} stroke="#777" strokeWidth={1} />
+        <line x1={82} y1={10} x2={82} y2={68} stroke="#777" strokeWidth={1} />
 
         {/* Inlet pipe (left) */}
-        <rect x={8} y={46} width={32} height={12} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
+        <rect x={8} y={32} width={32} height={12} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
         {/* Inlet airflow arrows */}
-        <polygon points="18,52 24,48 24,56" fill={colors.fill} />
-        <polygon points="28,52 34,48 34,56" fill={colors.fill} opacity={0.6} />
+        <polygon points="18,38 24,34 24,42" fill={colors.fill} />
+        <polygon points="28,38 34,34 34,42" fill={colors.fill} opacity={0.6} />
 
         {/* Outlet pipe (right) */}
-        <rect x={100} y={46} width={32} height={12} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
+        <rect x={100} y={32} width={32} height={12} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
         {/* Outlet airflow arrows */}
-        <polygon points="112,52 118,48 118,56" fill={colors.fill} />
-        <polygon points="122,52 128,48 128,56" fill={colors.fill} opacity={0.6} />
+        <polygon points="112,38 118,34 118,42" fill={colors.fill} />
+        <polygon points="122,38 128,34 128,42" fill={colors.fill} opacity={0.6} />
 
         {/* Pressure differential indicator (Delta-P) */}
         <rect
           x={52}
-          y={86}
+          y={72}
           width={36}
           height={12}
           rx={2}
@@ -135,7 +122,7 @@ const HepaFilterRenderer: React.FC<WidgetRendererProps> = ({
         />
         <text
           x={70}
-          y={95}
+          y={81}
           textAnchor="middle"
           fontSize={8}
           fontWeight={600}
@@ -145,7 +132,7 @@ const HepaFilterRenderer: React.FC<WidgetRendererProps> = ({
         </text>
 
         {/* Status indicator */}
-        <circle cx={70} cy={18} r={3} fill={colors.fill} />
+        <circle cx={70} cy={4} r={3} fill={colors.fill} />
       </svg>
     </div>
   );

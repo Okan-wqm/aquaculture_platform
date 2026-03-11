@@ -234,14 +234,30 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   const [nodes, setNodes] = useState<Node<ScadaWidgetNodeData>[]>(storeNodes);
 
   // Sync store → local nodes when store changes (not during drag)
+  // Smart merge: update data/config for existing nodes but preserve local positions,
+  // add new nodes from store, remove deleted nodes.
   useEffect(() => {
     if (syncingFromStore.current) {
       syncingFromStore.current = false;
       return; // Skip this sync cycle — we just pushed to store
     }
-    // Don't overwrite local positions while user is actively dragging
     if (isDragging.current) return;
-    setNodes(storeNodes);
+
+    setNodes((prevNodes) => {
+      const prevMap = new Map(prevNodes.map((n) => [n.id, n]));
+      const storeIds = new Set(storeNodes.map((n) => n.id));
+
+      return storeNodes.map((sn) => {
+        const existing = prevMap.get(sn.id);
+        if (existing) {
+          // Existing node: keep local position, update data (config/label/value changes)
+          return { ...existing, data: sn.data };
+        }
+        // New node from store (just dropped from palette): use store position
+        return sn;
+      });
+      // Nodes not in storeIds are implicitly removed (not included in storeNodes.map)
+    });
   }, [storeNodes]);
 
   // Handle screen transitions: save/restore viewport

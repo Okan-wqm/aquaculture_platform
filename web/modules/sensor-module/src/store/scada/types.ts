@@ -211,6 +211,7 @@ export interface WidgetSlice {
   updateWidgetPosition: (screenId: string, widgetId: string, position: WidgetPosition) => void;
   bringToFront: (screenId: string, widgetId: string) => void;
   sendToBack: (screenId: string, widgetId: string) => void;
+  toggleWidgetLock: (screenId: string, widgetId: string) => void;
 }
 
 // --- Edge Slice (operates on screens[].edges) ---
@@ -269,6 +270,14 @@ export interface AlarmSlice {
   updateTrendConfig: (config: TrendConfigDef) => void;
 }
 
+// --- Group Slice ---
+
+export interface GroupSlice {
+  groupWidgets: (screenId: string, widgetIds: string[]) => string; // returns groupId
+  ungroupWidgets: (screenId: string, groupId: string) => void;
+  getGroupMembers: (screenId: string, groupId: string) => string[]; // returns widget IDs
+}
+
 // --- Project Slice ---
 
 export interface ProjectSlice {
@@ -321,6 +330,7 @@ export type ScadaStore =
   SelectionSlice &
   HistorySlice &
   AlarmSlice &
+  GroupSlice &
   ProjectSlice;
 
 /* ------------------------------------------------------------------ */

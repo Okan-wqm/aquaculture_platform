@@ -9,6 +9,7 @@ import { createEdgeSlice } from './edgeSlice';
 import { createSelectionSlice } from './selectionSlice';
 import { createHistorySlice } from './historySlice';
 import { createAlarmSlice } from './alarmSlice';
+import { createGroupSlice } from './groupSlice';
 import { createProjectSlice } from './projectSlice';
 
 export function createScadaStore() {
@@ -22,6 +23,7 @@ export function createScadaStore() {
           ...createSelectionSlice(...args),
           ...createHistorySlice(...args),
           ...createAlarmSlice(...args),
+          ...createGroupSlice(...args),
           ...createProjectSlice(...args),
         }))
       ),

@@ -111,6 +111,41 @@ export function useScadaKeyboardShortcuts(
       s.selectAllWidgets();
       return;
     }
+
+    // Ctrl+G — Group selected widgets
+    if (mod && key === 'g' && !e.shiftKey) {
+      e.preventDefault();
+      if (s.selectedWidgetIds.length >= 2 && s.activeScreenId) {
+        if ('groupWidgets' in s) {
+          (s as any).groupWidgets(s.activeScreenId, s.selectedWidgetIds);
+        }
+      }
+      return;
+    }
+
+    // Ctrl+Shift+G — Ungroup
+    if (mod && e.shiftKey && key === 'g') {
+      e.preventDefault();
+      if (s.selectedWidgetId && s.activeScreenId) {
+        const screen = s.screens.find((scr) => scr.id === s.activeScreenId);
+        const widget = screen?.widgets.find((w) => w.id === s.selectedWidgetId);
+        if (widget?.groupId && 'ungroupWidgets' in s) {
+          (s as any).ungroupWidgets(s.activeScreenId, widget.groupId);
+        }
+      }
+      return;
+    }
+
+    // Ctrl+L — Toggle lock on selected widget
+    if (mod && key === 'l') {
+      e.preventDefault();
+      if (s.selectedWidgetId && s.activeScreenId) {
+        if ('toggleWidgetLock' in s) {
+          (s as any).toggleWidgetLock(s.activeScreenId, s.selectedWidgetId);
+        }
+      }
+      return;
+    }
   }, []);
 
   useEffect(() => {

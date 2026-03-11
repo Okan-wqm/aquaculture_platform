@@ -17,6 +17,8 @@ import {
   Plus,
   GripVertical,
   FolderTree,
+  Download,
+  Upload,
 } from 'lucide-react';
 import { useScadaStore } from '../../store/scada';
 import { buildScreenTree, wouldCreateCycle, type ScreenTreeNode } from '../../store/scada/sceneUtils';
@@ -213,6 +215,7 @@ export const SceneTreePanel: React.FC = () => {
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Keep expandedIds in sync when new screens are added
   useEffect(() => {
@@ -385,6 +388,47 @@ export const SceneTreePanel: React.FC = () => {
     setDragOverId('__root__');
   }, []);
 
+  /* ---- Export / Import ---- */
+  const handleExportScreen = useCallback(
+    (screenId: string) => {
+      const screen = screens.find((s) => s.id === screenId);
+      if (!screen) return;
+      import('../../store/scada/screenIO').then(({ downloadScreenJSON }) => {
+        downloadScreenJSON(screen);
+      });
+      setContextMenu(null);
+    },
+    [screens],
+  );
+
+  const handleImportScreen = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileSelected = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const json = JSON.parse(text);
+        const { importScreen } = await import('../../store/scada/screenIO');
+        const newScreen = importScreen(json);
+        // Use immer-powered set to push the imported screen into the store
+        useScadaStore.setState((state) => {
+          state.screens.push(newScreen);
+          state.activeScreenId = newScreen.id;
+          state.isDirty = true;
+        });
+      } catch (err) {
+        console.error('Screen import failed:', err);
+      }
+      // Reset file input so re-selecting the same file triggers onChange
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    },
+    [],
+  );
+
   const isLastScreen = screens.length <= 1;
 
   return (
@@ -443,6 +487,27 @@ export const SceneTreePanel: React.FC = () => {
         </div>
       </div>
 
+      {/* Import button at bottom */}
+      <div className="border-t border-gray-200 px-2 py-1.5">
+        <button
+          onClick={handleImportScreen}
+          className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50 rounded transition-colors"
+          title="JSON dosyasindan ekran ice aktar"
+        >
+          <Upload className="w-3.5 h-3.5" />
+          Ekran Ice Aktar
+        </button>
+      </div>
+
+      {/* Hidden file input for import */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,.scada-screen.json"
+        className="hidden"
+        onChange={handleFileSelected}
+      />
+
       {/* Context Menu */}
       {contextMenu && (
         <>
@@ -472,6 +537,13 @@ export const SceneTreePanel: React.FC = () => {
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
             >
               Cogalt
+            </button>
+            <button
+              onClick={() => handleExportScreen(contextMenu.screenId)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+            >
+              <Download className="w-3 h-3" />
+              Ekrani Disa Aktar
             </button>
             <hr className="my-1 border-gray-200" />
             <button

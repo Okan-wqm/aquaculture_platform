@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Scissors,
   Copy,
@@ -7,6 +7,10 @@ import {
   ArrowUpToLine,
   ArrowDownToLine,
   MousePointer,
+  Group,
+  Ungroup,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { useScadaStore } from '../../store/scada';
 
@@ -67,9 +71,25 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   const activeScreenId = useScadaStore((s) => s.activeScreenId);
   const selectedWidgetId = useScadaStore((s) => s.selectedWidgetId);
   const selectedEdgeId = useScadaStore((s) => s.selectedEdgeId);
+  const selectedWidgetIds = useScadaStore((s) => s.selectedWidgetIds);
   const clipboard = useScadaStore((s) => s.clipboard);
 
   const hasClipboard = clipboard !== null;
+
+  // Compute current widget's group ID and lock state
+  const currentGroupId = useMemo(() => {
+    if (!activeScreenId || !selectedWidgetId) return null;
+    const screen = useScadaStore.getState().screens.find((s) => s.id === activeScreenId);
+    const widget = screen?.widgets.find((w) => w.id === selectedWidgetId);
+    return widget?.groupId ?? null;
+  }, [activeScreenId, selectedWidgetId]);
+
+  const isLocked = useMemo(() => {
+    if (!activeScreenId || !selectedWidgetId) return false;
+    const screen = useScadaStore.getState().screens.find((s) => s.id === activeScreenId);
+    const widget = screen?.widgets.find((w) => w.id === selectedWidgetId);
+    return widget?.locked ?? false;
+  }, [activeScreenId, selectedWidgetId]);
 
   /* ---- Position clamping ---- */
 
@@ -154,6 +174,30 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
     onClose();
   };
 
+  const handleGroup = () => {
+    const store = useScadaStore.getState();
+    if ('groupWidgets' in store && store.activeScreenId) {
+      (store as any).groupWidgets(store.activeScreenId, store.selectedWidgetIds);
+    }
+    onClose();
+  };
+
+  const handleUngroup = () => {
+    const store = useScadaStore.getState();
+    if ('ungroupWidgets' in store && store.activeScreenId && currentGroupId) {
+      (store as any).ungroupWidgets(store.activeScreenId, currentGroupId);
+    }
+    onClose();
+  };
+
+  const handleToggleLock = () => {
+    const store = useScadaStore.getState();
+    if ('toggleWidgetLock' in store && store.activeScreenId && store.selectedWidgetId) {
+      (store as any).toggleWidgetLock(store.activeScreenId, store.selectedWidgetId);
+    }
+    onClose();
+  };
+
   /* ---- Render ---- */
 
   return (
@@ -193,6 +237,31 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
             icon={<ArrowDownToLine className="h-4 w-4" />}
             label="Arkaya Gönder"
             onClick={handleSendToBack}
+          />
+          {/* Group/Ungroup */}
+          <Separator />
+          {selectedWidgetIds.length >= 2 && (
+            <MenuItem
+              icon={<Group className="h-4 w-4" />}
+              label="Grupla"
+              shortcut="Ctrl+G"
+              onClick={handleGroup}
+            />
+          )}
+          {currentGroupId && (
+            <MenuItem
+              icon={<Ungroup className="h-4 w-4" />}
+              label="Grubu Çöz"
+              shortcut="Ctrl+Shift+G"
+              onClick={handleUngroup}
+            />
+          )}
+          {/* Lock/Unlock */}
+          <MenuItem
+            icon={isLocked ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+            label={isLocked ? "Kilidi Aç" : "Kilitle"}
+            shortcut="Ctrl+L"
+            onClick={handleToggleLock}
           />
           <Separator />
           <MenuItem

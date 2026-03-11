@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import type { LucideIcon } from 'lucide-react';
 import {
   CheckCircle,
   AlertTriangle,
@@ -31,7 +32,7 @@ const sizeConfig = {
   lg: { iconSize: 24, fontSize: 'text-base', padding: 'p-3' },
 };
 
-const statusConfig: Record<SensorStatus, { icon: React.FC<{ size?: number; className?: string }>; color: string; bg: string; label: string }> = {
+const statusConfig: Record<SensorStatus, { icon: LucideIcon; color: string; bg: string; label: string }> = {
   normal: {
     icon: CheckCircle,
     color: 'text-green-600',
@@ -58,7 +59,7 @@ const statusConfig: Record<SensorStatus, { icon: React.FC<{ size?: number; class
   },
 };
 
-const typeIcons: Record<SensorType, React.FC<{ size?: number; className?: string }>> = {
+const typeIcons: Partial<Record<SensorType, LucideIcon>> = {
   temperature: Thermometer,
   ph: Gauge,
   dissolved_oxygen: Droplets,

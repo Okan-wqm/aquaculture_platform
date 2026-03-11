@@ -6,9 +6,9 @@ import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const NumericDisplayRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
-  const unit = config.unit ?? '';
-  const label = config.label ?? 'Value';
-  const decimals = config.decimals ?? 1;
+  const unit = (config.unit ?? '') as string;
+  const label = (config.label ?? 'Value') as string;
+  const decimals = (config.decimals ?? 1) as number;
   const raw = isEditing ? (config.demoValue ?? 25.4) : Number(value ?? 0);
   const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;
   const safeValue = isNaN(numValue) ? 0 : numValue;

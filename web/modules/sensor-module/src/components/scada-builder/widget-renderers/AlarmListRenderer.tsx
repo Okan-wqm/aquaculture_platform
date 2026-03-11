@@ -25,8 +25,8 @@ const SEV_COLOR_MAP: Record<string, string> = {
 };
 
 const AlarmListRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
-  const label = config.label ?? 'Alarm Listesi';
-  const alarms = isEditing ? DEMO_ALARMS : (config.alarms ?? DEMO_ALARMS);
+  const label = (config.label ?? 'Alarm Listesi') as string;
+  const alarms = (isEditing ? DEMO_ALARMS : (config.alarms ?? DEMO_ALARMS)) as typeof DEMO_ALARMS;
   const h = height - 16; // inner height after padding
   const rowH = Math.max(18, h * 0.08);
   const headerH = Math.max(22, h * 0.1);

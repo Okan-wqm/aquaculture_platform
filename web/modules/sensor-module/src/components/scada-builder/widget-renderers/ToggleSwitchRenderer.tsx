@@ -6,7 +6,7 @@ import React, { memo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
-  const label = config.label ?? 'Switch';
+  const label = (config.label ?? 'Switch') as string;
   const isOn = isEditing ? (config.demoValue ?? true) : Boolean(value);
 
   const innerW = width - 16; // account for 8px padding

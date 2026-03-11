@@ -6,7 +6,7 @@ import React, { memo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
-  const label = config.label ?? 'E-STOP';
+  const label = (config.label ?? 'E-STOP') as string;
   const activated = isEditing ? false : Boolean(value);
 
   const handleEmergencyStop = useCallback(() => {

@@ -6,8 +6,8 @@ import React, { memo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const NumericInputRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
-  const label = config.label ?? 'Setpoint';
-  const unit = config.unit ?? '';
+  const label = (config.label ?? 'Setpoint') as string;
+  const unit = (config.unit ?? '') as string;
   const raw = isEditing ? (config.demoValue ?? 7.2) : Number(value ?? 0);
   const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;
   const safeValue = isNaN(numValue) ? 0 : numValue;
@@ -40,7 +40,7 @@ const NumericInputRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
           type="text"
           readOnly={isEditing}
           disabled={isEditing}
-          value={safeValue.toFixed(config.decimals ?? 1)}
+          value={safeValue.toFixed((config.decimals ?? 1) as number)}
           onChange={handleChange}
           style={{
             width: Math.max(60, width * 0.5),

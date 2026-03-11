@@ -15,8 +15,8 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const StatusIndicatorRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
-  const label = config.label ?? 'Status';
-  const statusValue = isEditing ? (config.demoStatus ?? 'normal') : String(value ?? 'offline');
+  const label = (config.label ?? 'Status') as string;
+  const statusValue = (isEditing ? (config.demoStatus ?? 'normal') : String(value ?? 'offline')) as string;
   const color = STATUS_COLORS[statusValue.toLowerCase()] ?? '#9ca3af';
   const circleR = Math.min(width, height) * 0.22;
 

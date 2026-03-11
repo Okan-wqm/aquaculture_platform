@@ -6,8 +6,8 @@ import React, { memo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const PushButtonRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
-  const label = config.label ?? 'START';
-  const color = config.color ?? '#3b82f6';
+  const label = (config.label ?? 'START') as string;
+  const color = (config.color ?? '#3b82f6') as string;
   const pressed = isEditing ? false : Boolean(value);
 
   const btnSize = Math.min(width * 0.6, height * 0.55, 80);

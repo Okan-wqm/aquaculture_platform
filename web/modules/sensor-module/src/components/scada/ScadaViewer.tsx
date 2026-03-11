@@ -20,9 +20,10 @@ function sanitizeNodes(nodes: ScadaProcess['nodes']): ScadaProcess['nodes'] {
     ...node,
     data: {
       ...node.data,
-      label: stripHtml(node.data?.label) as string | undefined,
-      equipmentName: stripHtml(node.data?.equipmentName) as string | undefined,
-      description: stripHtml((node.data as Record<string, unknown>)?.description) as string | undefined,
+      equipmentName: (stripHtml(node.data?.equipmentName) as string) ?? node.data.equipmentName,
+      ...((node.data as unknown as Record<string, unknown>).description != null
+        ? { description: stripHtml((node.data as unknown as Record<string, unknown>).description) as string }
+        : {}),
     },
   }));
 }

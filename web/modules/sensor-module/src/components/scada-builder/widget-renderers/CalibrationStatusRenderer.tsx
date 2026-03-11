@@ -14,11 +14,11 @@ const STATUS_MAP: Record<string, { bg: string; text: string; label: string }> = 
 };
 
 const CalibrationStatusRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
-  const label = config.label ?? 'Kalibrasyon Durumu';
-  const statusKey = isEditing ? (config.demoStatus ?? 'calibrated') : String(value ?? 'unknown');
+  const label = (config.label ?? 'Kalibrasyon Durumu') as string;
+  const statusKey = (isEditing ? (config.demoStatus ?? 'calibrated') : String(value ?? 'unknown')) as string;
   const status = STATUS_MAP[statusKey] ?? STATUS_MAP.unknown;
-  const lastDate = config.lastCalibration ?? '2026-03-01';
-  const nextDate = config.nextCalibration ?? '2026-06-01';
+  const lastDate = (config.lastCalibration ?? '2026-03-01') as string;
+  const nextDate = (config.nextCalibration ?? '2026-06-01') as string;
 
   return (
     <div

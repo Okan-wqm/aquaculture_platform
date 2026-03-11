@@ -8,9 +8,9 @@ import type { WidgetRendererProps } from '../WidgetRenderer';
 const STEPS = ['Hazirlik', 'Buffer 1', 'Buffer 2', 'Dogrulama', 'Tamam'];
 
 const CalibrationWizardRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
-  const label = config.label ?? 'Kalibrasyon';
-  const currentStep = isEditing ? (config.demoStep ?? 2) : Number(config.currentStep ?? 0);
-  const steps = config.steps ?? STEPS;
+  const label = (config.label ?? 'Kalibrasyon') as string;
+  const currentStep = (isEditing ? (config.demoStep ?? 2) : Number(config.currentStep ?? 0)) as number;
+  const steps = (config.steps ?? STEPS) as string[];
   const stepCount = steps.length;
 
   const padX = 24;

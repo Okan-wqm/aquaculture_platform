@@ -7,8 +7,8 @@ import React, { memo, useMemo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const TrendChartRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
-  const label = config.label ?? 'Trend';
-  const color = config.color ?? '#3b82f6';
+  const label = (config.label ?? 'Trend') as string;
+  const color = (config.color ?? '#3b82f6') as string;
 
   const innerW = width - 16; // account for 8px padding
   const innerH = height - 16;

@@ -6,10 +6,10 @@ import React, { memo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const SliderRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
-  const label = config.label ?? 'Slider';
-  const unit = config.unit ?? '';
-  const min = config.min ?? 0;
-  const max = config.max ?? 100;
+  const label = (config.label ?? 'Slider') as string;
+  const unit = (config.unit ?? '') as string;
+  const min = (config.min ?? 0) as number;
+  const max = (config.max ?? 100) as number;
   const raw = isEditing ? (config.demoValue ?? 50) : Number(value ?? min);
   const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : (typeof value === 'string' ? parseFloat(value as string) : 0);
   const safeValue = isNaN(numValue) ? 0 : numValue;

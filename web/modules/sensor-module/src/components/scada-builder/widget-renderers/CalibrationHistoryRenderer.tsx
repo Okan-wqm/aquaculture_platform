@@ -13,8 +13,8 @@ const DEMO_ROWS = [
 ];
 
 const CalibrationHistoryRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
-  const label = config.label ?? 'Kalibrasyon Gecmisi';
-  const rows = isEditing ? DEMO_ROWS : (config.rows ?? DEMO_ROWS);
+  const label = (config.label ?? 'Kalibrasyon Gecmisi') as string;
+  const rows = (isEditing ? DEMO_ROWS : (config.rows ?? DEMO_ROWS)) as typeof DEMO_ROWS;
   const h = height - 16; // inner height after padding
   const headerH = Math.max(22, h * 0.1);
   const rowH = Math.max(18, h * 0.08);

@@ -6,8 +6,8 @@ import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const ProcessViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, height }) => {
-  const label = config.label ?? 'Process View';
-  const processName = config.processName ?? 'RAS-01';
+  const label = (config.label ?? 'Process View') as string;
+  const processName = (config.processName ?? 'RAS-01') as string;
 
   return (
     <div

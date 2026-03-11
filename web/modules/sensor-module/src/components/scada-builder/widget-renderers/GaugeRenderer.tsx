@@ -7,12 +7,12 @@ import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
-  const min = config.min ?? 0;
-  const max = config.max ?? 100;
-  const unit = config.unit ?? '';
-  const label = config.label ?? 'Gauge';
-  const warningThreshold = config.warningThreshold ?? 70;
-  const criticalThreshold = config.criticalThreshold ?? 90;
+  const min = (config.min ?? 0) as number;
+  const max = (config.max ?? 100) as number;
+  const unit = (config.unit ?? '') as string;
+  const label = (config.label ?? 'Gauge') as string;
+  const warningThreshold = (config.warningThreshold ?? 70) as number;
+  const criticalThreshold = (config.criticalThreshold ?? 90) as number;
 
   const raw = isEditing ? (config.demoValue ?? 42) : Number(value ?? 0);
   const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;

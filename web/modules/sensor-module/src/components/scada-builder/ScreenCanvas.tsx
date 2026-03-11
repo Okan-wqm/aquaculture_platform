@@ -95,6 +95,9 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   // Track whether we're currently syncing FROM store to prevent loops
   const syncingFromStore = useRef(false);
 
+  // Track whether a node drag is currently in progress
+  const isDragging = useRef(false);
+
   // Default edge creation settings
   const [defaultEdgeType, setDefaultEdgeType] = useState<ScadaEdgeType>('orthogonal');
   const [defaultConnectionType, setDefaultConnectionType] = useState<ConnectionType>('process-pipe');
@@ -174,6 +177,10 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   );
 
   // Convert store widgets → ReactFlow nodes (source of truth)
+  // NOTE: selectedWidgetId is intentionally excluded from deps to prevent
+  // selection changes from recomputing nodes (which would overwrite local
+  // drag positions). Selection is handled by ReactFlow internally via
+  // applyNodeChanges in onNodesChange.
   const storeNodes: Node<ScadaWidgetNodeData>[] = useMemo(() => {
     return widgets.map((w) => {
       const px = gridToPixel(w.position);
@@ -181,7 +188,6 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
         id: w.id,
         type: 'scadaWidget',
         position: { x: px.x, y: px.y },
-        selected: w.id === selectedWidgetId,
         data: {
           widgetType: w.widgetType as ScadaWidgetType,
           config: w.config,
@@ -197,7 +203,8 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
         dragHandle: undefined,
       };
     });
-  }, [widgets, activeScreenId, handleWidgetResize, selectedWidgetId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [widgets, activeScreenId, handleWidgetResize]);
 
   // Convert store edges → ReactFlow edges
   const rfEdges: Edge[] = useMemo(() => {
@@ -232,6 +239,8 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
       syncingFromStore.current = false;
       return; // Skip this sync cycle — we just pushed to store
     }
+    // Don't overwrite local positions while user is actively dragging
+    if (isDragging.current) return;
     setNodes(storeNodes);
   }, [storeNodes]);
 
@@ -259,8 +268,13 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
       setNodes((nds) => applyNodeChanges(changes, nds));
 
       for (const change of changes) {
+        if (change.type === 'position' && change.dragging === true) {
+          // Drag in progress — mark so store→local sync is suppressed
+          isDragging.current = true;
+        }
         if (change.type === 'position' && change.dragging === false && change.position) {
           // Drag ended → commit position to store in grid units
+          isDragging.current = false;
           const state = useScadaPackageStore.getState();
           const currentScreenId = state.activeScreenId;
           if (!currentScreenId) continue;

@@ -2,8 +2,11 @@ import { randomUUID } from 'crypto';
 
 import { Injectable, Logger, NotFoundException, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, ILike } from 'typeorm';
+import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
 
+import { AutomationService } from '../../automation/automation.service';
+import { AutomationProgram, ProgramStatus } from '../../automation/entities/automation-program.entity';
+import { ProgramVariable } from '../../automation/entities/program-variable.entity';
 import { EdgeDeviceService } from '../../edge-device/edge-device.service';
 import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
 
@@ -15,6 +18,7 @@ import {
 import { ProcessPaginationInput } from '../dto/process.dto';
 import { Process } from '../entities/process.entity';
 import { ScadaPackage, ScadaPackageStatus } from '../entities/scada-package.entity';
+import { ScadaDeployLogService } from './scada-deploy-log.service';
 
 export interface ScadaPackageListResult {
   items: ScadaPackage[];
@@ -51,6 +55,18 @@ export class ScadaPackageService {
     @Optional()
     @Inject(EdgeDeviceService)
     private readonly edgeDeviceService: EdgeDeviceService | null,
+    @Optional()
+    @Inject(ScadaDeployLogService)
+    private readonly scadaDeployLogService: ScadaDeployLogService | null,
+    @Optional()
+    @Inject(AutomationService)
+    private readonly automationService: AutomationService | null,
+    @Optional()
+    @InjectRepository(AutomationProgram)
+    private readonly automationProgramRepo: Repository<AutomationProgram> | null,
+    @Optional()
+    @InjectRepository(ProgramVariable)
+    private readonly programVariableRepo: Repository<ProgramVariable> | null,
   ) {}
 
   async createScadaPackage(
@@ -185,6 +201,11 @@ export class ScadaPackageService {
       throw new BadRequestException('Not connected to MQTT broker');
     }
 
+    // Validate automation bindings before deploying (TASK 2)
+    await this.validateAutomationBindings(pkg);
+
+    const commandId = randomUUID();
+
     const packagePayload = {
       ...pkg.packageData,
       meta: {
@@ -202,11 +223,28 @@ export class ScadaPackageService {
     // Server-controlled envelope — spread packagePayload into params only,
     // so client packageData cannot override commandId/command/timestamp
     const payload = {
-      commandId: randomUUID(),
+      commandId,
       command: 'deploy_scada_package',
       params: packagePayload,
       timestamp: new Date().toISOString(),
     };
+
+    // Create SCADA deploy log entry before sending MQTT (TASK 1)
+    if (this.scadaDeployLogService) {
+      try {
+        await this.scadaDeployLogService.createLog({
+          tenantId,
+          packageId: pkg.id,
+          deviceId: device.id,
+          commandId,
+          version: pkg.version,
+          deployedBy: userId,
+        });
+      } catch (logError) {
+        this.logger.error(`Failed to create SCADA deploy log: ${(logError as Error).message}`);
+        // Continue with deployment even if logging fails
+      }
+    }
 
     try {
       await this.mqttClient.publish(topic, payload);
@@ -214,7 +252,7 @@ export class ScadaPackageService {
       await this.scadaPackageRepository.save(pkg);
 
       this.logger.log(
-        `SCADA package "${pkg.name}" v${pkg.version} deployed to device ${device.deviceCode}`,
+        `SCADA package "${pkg.name}" v${pkg.version} deployed to device ${device.deviceCode} (command: ${commandId})`,
       );
       return { success: true, message: 'SCADA package deployed successfully' };
     } catch (error) {
@@ -223,4 +261,286 @@ export class ScadaPackageService {
       return { success: false, message: `Failed to deploy: ${msg}` };
     }
   }
+
+  // ==========================================================================
+  // Automation Binding Validation (TASK 2)
+  // ==========================================================================
+
+  /**
+   * Validate automation bindings in a SCADA package's metadata.
+   *
+   * When a package has `meta.automationBindings`, each binding references
+   * an automation program and its variables. This method validates:
+   *   1. Each referenced programId exists in the database
+   *   2. Each program is in APPROVED or DEPLOYED status
+   *   3. Each referenced variableId exists for that program
+   *   4. Each boundWidgetId references a widget present in the package screens
+   */
+  private async validateAutomationBindings(pkg: ScadaPackage): Promise<void> {
+    const meta = (pkg.packageData as any)?.meta;
+    const bindings: AutomationBinding[] | undefined = meta?.automationBindings;
+
+    if (!bindings || !Array.isArray(bindings) || bindings.length === 0) {
+      return; // No automation bindings — nothing to validate
+    }
+
+    if (!this.automationProgramRepo || !this.programVariableRepo) {
+      this.logger.warn(
+        'Automation repositories not available — skipping automation binding validation',
+      );
+      return;
+    }
+
+    const errors: string[] = [];
+
+    // 1. Collect all unique programIds and variableIds from bindings
+    const isString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+    const programIds = [...new Set(bindings.map((b) => b.programId).filter(isString))];
+    const variableIds = [...new Set(bindings.map((b) => b.variableId).filter(isString))];
+    const widgetIds = [...new Set(bindings.map((b) => b.boundWidgetId).filter(isString))];
+
+    // 2. Validate programs exist and are in deployable status
+    if (programIds.length > 0) {
+      const programs = await this.automationProgramRepo.find({
+        where: { id: In(programIds), tenantId: pkg.tenantId },
+      });
+
+      const foundIds = new Set(programs.map((p) => p.id));
+      for (const pid of programIds) {
+        if (!foundIds.has(pid)) {
+          errors.push(`Automation program ${pid} not found`);
+        }
+      }
+
+      for (const program of programs) {
+        if (
+          program.status !== ProgramStatus.APPROVED &&
+          program.status !== ProgramStatus.DEPLOYED
+        ) {
+          errors.push(
+            `Program "${program.programName}" (${program.id}) is in ${program.status} status; must be APPROVED or DEPLOYED`,
+          );
+        }
+      }
+    }
+
+    // 3. Validate variables exist and belong to their referenced programs
+    if (variableIds.length > 0) {
+      const variables = await this.programVariableRepo.find({
+        where: { id: In(variableIds) },
+      });
+
+      const foundVarIds = new Set(variables.map((v) => v.id));
+      const varProgramMap = new Map(variables.map((v) => [v.id, v.programId]));
+
+      for (const binding of bindings) {
+        if (binding.variableId && !foundVarIds.has(binding.variableId)) {
+          errors.push(`Variable ${binding.variableId} not found`);
+        } else if (binding.variableId && binding.programId) {
+          const actualProgramId = varProgramMap.get(binding.variableId);
+          if (actualProgramId && actualProgramId !== binding.programId) {
+            errors.push(
+              `Variable ${binding.variableId} belongs to program ${actualProgramId}, not ${binding.programId}`,
+            );
+          }
+        }
+      }
+    }
+
+    // 4. Validate widget IDs exist in the package screens
+    if (widgetIds.length > 0) {
+      const packageWidgetIds = this.extractWidgetIds(pkg.packageData);
+      for (const wid of widgetIds) {
+        if (!packageWidgetIds.has(wid)) {
+          errors.push(`Widget "${wid}" not found in package screens`);
+        }
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new BadRequestException(
+        `Automation binding validation failed:\n- ${errors.join('\n- ')}`,
+      );
+    }
+  }
+
+  /**
+   * Recursively extract all widget IDs from the SCADA package data.
+   * Looks for `id` fields inside `screens[].widgets[]` and nested children.
+   */
+  private extractWidgetIds(packageData: Record<string, unknown>): Set<string> {
+    const ids = new Set<string>();
+    const screens = (packageData as any)?.screens;
+    if (!Array.isArray(screens)) return ids;
+
+    const collectIds = (widgets: unknown[]): void => {
+      for (const widget of widgets) {
+        if (widget && typeof widget === 'object') {
+          const w = widget as Record<string, unknown>;
+          if (typeof w.id === 'string') {
+            ids.add(w.id);
+          }
+          // Recurse into children
+          if (Array.isArray(w.children)) {
+            collectIds(w.children);
+          }
+          if (Array.isArray(w.widgets)) {
+            collectIds(w.widgets);
+          }
+        }
+      }
+    };
+
+    for (const screen of screens) {
+      if (screen && typeof screen === 'object') {
+        const s = screen as Record<string, unknown>;
+        if (Array.isArray(s.widgets)) {
+          collectIds(s.widgets);
+        }
+      }
+    }
+
+    return ids;
+  }
+
+  // ==========================================================================
+  // Unified Deploy: SCADA + Automation (TASK 3)
+  // ==========================================================================
+
+  /**
+   * Deploy a SCADA package together with its bound automation programs.
+   *
+   * Order of operations:
+   *   1. Validate the SCADA package and its automation bindings
+   *   2. Deploy each referenced automation program (must be running before SCADA reads variables)
+   *   3. Deploy the SCADA package
+   *
+   * If any automation deployment fails, the SCADA package is NOT deployed.
+   */
+  async deployScadaWithAutomation(
+    packageId: string,
+    deviceId: string,
+    tenantId: string,
+    userId?: string,
+    programIdOverrides?: string[],
+  ): Promise<UnifiedDeployResult> {
+    const pkg = await this.scadaPackageRepository.findOne({ where: { id: packageId, tenantId } });
+    if (!pkg) throw new NotFoundException(`ScadaPackage ${packageId} not found`);
+
+    // Determine which programs to deploy
+    const meta = (pkg.packageData as any)?.meta;
+    const bindings: AutomationBinding[] | undefined = meta?.automationBindings;
+    const programIds = programIdOverrides && programIdOverrides.length > 0
+      ? programIdOverrides
+      : [...new Set((bindings || []).map((b) => b.programId).filter(Boolean))];
+
+    const automationResults: AutomationDeployStepResult[] = [];
+
+    // Step 1: Deploy automation programs (if any)
+    if (programIds.length > 0) {
+      if (!this.automationService) {
+        throw new BadRequestException(
+          'AutomationService not available — cannot deploy automation programs',
+        );
+      }
+
+      for (const programId of programIds) {
+        try {
+          const result = await this.automationService.deployProgram(
+            programId,
+            deviceId,
+            tenantId,
+            userId || 'system',
+          );
+          automationResults.push({
+            programId,
+            success: result.success,
+            message: result.message,
+            commandId: result.commandId,
+          });
+
+          if (!result.success) {
+            // Abort: if an automation program fails to deploy, do not deploy SCADA
+            return {
+              success: false,
+              message: `Automation program ${programId} deployment failed: ${result.message}. SCADA deployment aborted.`,
+              automationResults,
+            };
+          }
+        } catch (error) {
+          const errMsg = (error as Error).message;
+          automationResults.push({
+            programId,
+            success: false,
+            message: errMsg,
+          });
+          return {
+            success: false,
+            message: `Automation program ${programId} deployment error: ${errMsg}. SCADA deployment aborted.`,
+            automationResults,
+          };
+        }
+      }
+    }
+
+    // Step 2: Deploy SCADA package (validation happens inside deployScadaPackageToEdge)
+    try {
+      const scadaResult = await this.deployScadaPackageToEdge(packageId, deviceId, tenantId, userId);
+      return {
+        success: scadaResult.success,
+        message: scadaResult.success
+          ? `Deployed ${programIds.length} automation program(s) and SCADA package successfully`
+          : scadaResult.message,
+        automationResults,
+        scadaResult: {
+          packageId,
+          success: scadaResult.success,
+          message: scadaResult.message,
+        },
+      };
+    } catch (error) {
+      const errMsg = (error as Error).message;
+      return {
+        success: false,
+        message: `SCADA deployment failed: ${errMsg}`,
+        automationResults,
+        scadaResult: {
+          packageId,
+          success: false,
+          message: errMsg,
+        },
+      };
+    }
+  }
+}
+
+// ==========================================================================
+// Interfaces
+// ==========================================================================
+
+/** Shape of a single automation binding in packageData.meta.automationBindings */
+interface AutomationBinding {
+  programId: string;
+  variableId?: string;
+  boundWidgetId?: string;
+}
+
+/** Result for a single automation program deployment step */
+export interface AutomationDeployStepResult {
+  programId: string;
+  success: boolean;
+  message?: string;
+  commandId?: string;
+}
+
+/** Combined result for unified SCADA + Automation deployment */
+export interface UnifiedDeployResult {
+  success: boolean;
+  message: string;
+  automationResults: AutomationDeployStepResult[];
+  scadaResult?: {
+    packageId: string;
+    success: boolean;
+    message?: string;
+  };
 }

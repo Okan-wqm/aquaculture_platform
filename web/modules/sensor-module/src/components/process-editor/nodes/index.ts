@@ -30,7 +30,7 @@ import ConnectionPointNode from './ConnectionPointNode';
 import SensorWidget, { SensorWidgetData } from './SensorWidget';
 import { AlgaeBagRedNode, AlgaeBagGreenNode, AlgaeBagYellowNode } from './AlgaeBagNode';
 import UltrafiltrationNode from './UltrafiltrationNode';
-import { ScadaWidgetNode } from './ScadaWidgetNode';
+import ScadaWidgetNode from './ScadaWidgetNode';
 
 // Node types for ReactFlow
 export const nodeTypes = {

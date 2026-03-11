@@ -55,6 +55,8 @@ export interface Equipment {
     code: string;
     status: string;
   }>;
+  systemIds?: string[];
+  systems?: Array<{ systemId: string; [key: string]: unknown }>;
 }
 
 export interface EquipmentFilterInput {

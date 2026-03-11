@@ -17,8 +17,8 @@ const BANNER_STYLES: Record<string, { bg: string; border: string; text: string; 
 };
 
 const AlarmBannerRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
-  const severity = isEditing ? (config.demoSeverity ?? 'warning') : String(value ?? 'info');
-  const message = config.message ?? (isEditing ? 'pH seviyesi yuksek' : '');
+  const severity = isEditing ? String(config.demoSeverity ?? 'warning') : String(value ?? 'info');
+  const message = (config.message as string) ?? (isEditing ? 'pH seviyesi yuksek' : '');
   const colors = BANNER_STYLES[severity.toLowerCase()] ?? BANNER_STYLES.info;
 
   return (

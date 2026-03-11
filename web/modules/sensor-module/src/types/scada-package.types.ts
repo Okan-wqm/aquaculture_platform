@@ -97,7 +97,7 @@ export interface ScadaPackage {
 export interface VariableBinding {
   variableId: string;
   varName: string;
-  scope: 'INPUT' | 'OUTPUT' | 'IN_OUT';
+  scope: 'INPUT' | 'OUTPUT' | 'INOUT';
   dataType: string;
   boundWidgetId: string | null;
   boundTag: string | null;

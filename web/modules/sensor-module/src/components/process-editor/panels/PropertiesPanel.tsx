@@ -214,8 +214,8 @@ export const PropertiesPanel: React.FC = () => {
       newBindings = [...currentBindings, {
         ioConfigId: ioConfig.id,
         tagName: ioConfig.tagName,
-        ioType: ioConfig.ioType,
-        dataType: ioConfig.dataType,
+        ioType: ioConfig.ioType as IoBinding['ioType'],
+        dataType: ioConfig.dataType as IoBinding['dataType'],
       }];
     }
 

@@ -20,7 +20,7 @@ const ScopeLabel: React.FC<{ scope: VariableBinding['scope'] }> = ({ scope }) =>
   const colors = {
     INPUT: 'bg-blue-100 text-blue-700',
     OUTPUT: 'bg-orange-100 text-orange-700',
-    IN_OUT: 'bg-purple-100 text-purple-700',
+    INOUT: 'bg-purple-100 text-purple-700',
   };
   return (
     <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${colors[scope]}`}>
@@ -34,34 +34,35 @@ const ScopeLabel: React.FC<{ scope: VariableBinding['scope'] }> = ({ scope }) =>
 // ---------------------------------------------------------------------------
 
 interface WidgetPickerProps {
+  variableTag: string;
   onSelect: (widgetId: string, tag: string) => void;
   onClose: () => void;
 }
 
-const WidgetPicker: React.FC<WidgetPickerProps> = ({ onSelect, onClose }) => {
+const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onClose }) => {
   const screens = useScadaPackageStore((s) => s.screens);
   const [search, setSearch] = useState('');
 
-  const taggedWidgets = useMemo(() => {
-    const result: { widgetId: string; tag: string; widgetType: string; screenName: string }[] = [];
+  const allWidgets = useMemo(() => {
+    const result: { widgetId: string; label: string; tag: string | null; widgetType: string; screenName: string }[] = [];
     for (const screen of screens) {
       for (const w of screen.widgets) {
-        const tag = w.config.tag as string | undefined;
-        if (tag) {
-          result.push({ widgetId: w.id, tag, widgetType: w.widgetType, screenName: screen.name });
-        }
+        const tag = (w.config.tag as string | undefined) || null;
+        const label = (w.config.label as string | undefined) || w.widgetType;
+        result.push({ widgetId: w.id, label, tag, widgetType: w.widgetType, screenName: screen.name });
       }
     }
     return result;
   }, [screens]);
 
   const filtered = search
-    ? taggedWidgets.filter(
+    ? allWidgets.filter(
         (w) =>
-          w.tag.toLowerCase().includes(search.toLowerCase()) ||
-          w.widgetType.toLowerCase().includes(search.toLowerCase()),
+          w.label.toLowerCase().includes(search.toLowerCase()) ||
+          w.widgetType.toLowerCase().includes(search.toLowerCase()) ||
+          (w.tag && w.tag.toLowerCase().includes(search.toLowerCase())),
       )
-    : taggedWidgets;
+    : allWidgets;
 
   return (
     <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-hidden flex flex-col">
@@ -72,7 +73,7 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ onSelect, onClose }) => {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Tag veya widget ara..."
+            placeholder="Widget ara..."
             className="flex-1 text-xs bg-transparent outline-none"
             autoFocus
           />
@@ -81,17 +82,22 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ onSelect, onClose }) => {
       <div className="overflow-y-auto flex-1">
         {filtered.length === 0 ? (
           <p className="text-xs text-gray-400 text-center py-4">
-            {taggedWidgets.length === 0 ? 'Tag atanmis widget yok' : 'Sonuc bulunamadi'}
+            {allWidgets.length === 0 ? 'Ekranlarda widget yok' : 'Sonuc bulunamadi'}
           </p>
         ) : (
           filtered.map((w) => (
             <button
               key={w.widgetId}
-              onClick={() => { onSelect(w.widgetId, w.tag); onClose(); }}
+              onClick={() => { onSelect(w.widgetId, variableTag); onClose(); }}
               className="w-full text-left px-3 py-2 text-xs hover:bg-cyan-50 flex items-center gap-2 border-b border-gray-50 last:border-0"
             >
-              <span className="font-mono text-cyan-700 flex-1 truncate">{w.tag}</span>
-              <span className="text-gray-400 truncate text-[10px]">{w.widgetType}</span>
+              <div className="flex-1 min-w-0">
+                <span className="font-medium text-gray-700 truncate block">{w.label}</span>
+                {w.tag && (
+                  <span className="text-[10px] text-cyan-600 font-mono truncate block">tag: {w.tag}</span>
+                )}
+              </div>
+              <span className="text-gray-400 truncate text-[10px] shrink-0">{w.widgetType}</span>
             </button>
           ))
         )}
@@ -175,7 +181,7 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
   const [expanded, setExpanded] = useState(true);
   const [pickerVarId, setPickerVarId] = useState<string | null>(null);
   const removeAutomationProgram = useScadaPackageStore((s) => s.removeAutomationProgram);
-  const bindVariableToWidget = useScadaPackageStore((s) => s.bindVariableToWidget);
+  const bindVariableToWidgetAndSetTag = useScadaPackageStore((s) => s.bindVariableToWidgetAndSetTag);
   const unbindVariable = useScadaPackageStore((s) => s.unbindVariable);
 
   const boundCount = binding.variableBindings.filter((v) => v.boundWidgetId).length;
@@ -248,8 +254,9 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
 
                 {pickerVarId === v.variableId && (
                   <WidgetPicker
+                    variableTag={v.ioTagName || v.varName}
                     onSelect={(widgetId, tag) =>
-                      bindVariableToWidget(binding.programId, v.variableId, widgetId, tag)
+                      bindVariableToWidgetAndSetTag(binding.programId, v.variableId, widgetId, tag)
                     }
                     onClose={() => setPickerVarId(null)}
                   />

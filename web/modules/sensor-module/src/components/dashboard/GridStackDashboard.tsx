@@ -38,6 +38,7 @@ import { TableWidgetContent } from './widgets/TableWidgetContent';
 import { ProcessViewWidgetContent } from './widgets/ProcessViewWidgetContent';
 import { ProcessBackgroundLayer } from './widgets/ProcessBackgroundLayer';
 import { useDashboardLayout, DashboardLayout, SaveLayoutInput, ProcessBackground } from '../../hooks/useDashboardLayout';
+export type { DashboardLayout } from '../../hooks/useDashboardLayout';
 import { useActiveProcesses } from '../../hooks/useProcess';
 
 // ============================================================================

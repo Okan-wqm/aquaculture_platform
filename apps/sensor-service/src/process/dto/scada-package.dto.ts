@@ -1,5 +1,5 @@
 import { InputType, ObjectType, Field, ID, Int } from '@nestjs/graphql';
-import { IsString, IsOptional, IsEnum, IsUUID, MaxLength, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsUUID, MaxLength, IsObject, IsArray } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { ScadaPackageStatus } from '../entities/scada-package.entity';
@@ -158,4 +158,66 @@ export class DeployScadaPackageResultType {
 
   @Field(() => ID, { nullable: true })
   deviceId?: string;
+}
+
+// ============================================================================
+// Unified Deploy (SCADA + Automation) DTOs
+// ============================================================================
+
+@InputType()
+export class DeployScadaWithAutomationInput {
+  @Field(() => ID)
+  @IsUUID()
+  packageId!: string;
+
+  @Field(() => ID)
+  @IsUUID()
+  deviceId!: string;
+
+  @Field(() => [ID], { nullable: true, description: 'Override which automation programs to deploy. If omitted, uses programs from package automationBindings.' })
+  @IsOptional()
+  @IsArray()
+  programIds?: string[];
+}
+
+@ObjectType()
+export class AutomationDeployStepResultType {
+  @Field(() => ID)
+  programId!: string;
+
+  @Field()
+  success!: boolean;
+
+  @Field({ nullable: true })
+  message?: string;
+
+  @Field({ nullable: true })
+  commandId?: string;
+}
+
+@ObjectType()
+export class ScadaDeployStepResultType {
+  @Field(() => ID)
+  packageId!: string;
+
+  @Field()
+  success!: boolean;
+
+  @Field({ nullable: true })
+  message?: string;
+}
+
+@ObjectType()
+export class UnifiedDeployResultType {
+  @Field()
+  success!: boolean;
+
+  @Field({ nullable: true })
+  message?: string;
+
+  @Field(() => [AutomationDeployStepResultType])
+  automationResults!: AutomationDeployStepResultType[];
+
+  @Field(() => ScadaDeployStepResultType, { nullable: true })
+  scadaResult?: ScadaDeployStepResultType;
 }

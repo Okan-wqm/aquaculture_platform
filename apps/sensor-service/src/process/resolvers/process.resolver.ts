@@ -19,6 +19,8 @@ import {
   ScadaPackageType,
   ScadaPackageListType,
   DeployScadaPackageResultType,
+  DeployScadaWithAutomationInput,
+  UnifiedDeployResultType,
 } from '../dto/scada-package.dto';
 import { Process } from '../entities/process.entity';
 import { ScadaPackage } from '../entities/scada-package.entity';
@@ -333,6 +335,53 @@ export class ProcessResolver {
       return { success: result.success, message: result.message, packageId: result.success ? packageId : undefined, deviceId: result.success ? deviceId : undefined };
     } catch (error) {
       return { success: false, message: (error as Error).message };
+    }
+  }
+
+  /**
+   * Deploy SCADA package together with its bound automation programs.
+   * Deploys automation programs first, then the SCADA package.
+   * If any automation deployment fails, SCADA deployment is aborted.
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
+  @Mutation(() => UnifiedDeployResultType, { name: 'deployScadaWithAutomation' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async deployScadaWithAutomation(
+    @Args('input') input: DeployScadaWithAutomationInput,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<UnifiedDeployResultType> {
+    try {
+      const result = await this.scadaPackageService.deployScadaWithAutomation(
+        input.packageId,
+        input.deviceId,
+        tenantId,
+        user.sub,
+        input.programIds,
+      );
+      return {
+        success: result.success,
+        message: result.message,
+        automationResults: result.automationResults.map((r) => ({
+          programId: r.programId,
+          success: r.success,
+          message: r.message,
+          commandId: r.commandId,
+        })),
+        scadaResult: result.scadaResult
+          ? {
+              packageId: result.scadaResult.packageId,
+              success: result.scadaResult.success,
+              message: result.scadaResult.message,
+            }
+          : undefined,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: (error as Error).message || 'Unified deployment failed',
+        automationResults: [],
+      };
     }
   }
 

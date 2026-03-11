@@ -169,6 +169,7 @@ interface ScadaPackageState {
   addAutomationProgram: (programId: string, programName: string, programCode: string, variables: { id: string; varName: string; scope: string; dataType: string; ioTagName?: string }[]) => void;
   removeAutomationProgram: (programId: string) => void;
   bindVariableToWidget: (programId: string, variableId: string, widgetId: string, tag: string) => void;
+  bindVariableToWidgetAndSetTag: (programId: string, variableId: string, widgetId: string, tag: string) => void;
   unbindVariable: (programId: string, variableId: string) => void;
   autoBindByTag: () => { matched: number; unmatched: number };
 
@@ -374,6 +375,13 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
             }
           : s,
       ),
+      // Clean up automation bindings that reference the removed widget
+      automationBindings: state.automationBindings.map((b) => ({
+        ...b,
+        variableBindings: b.variableBindings.map((v) =>
+          v.boundWidgetId === widgetId ? { ...v, boundWidgetId: null, boundTag: null } : v,
+        ),
+      })),
       selectedWidgetId: state.selectedWidgetId === widgetId ? null : state.selectedWidgetId,
       selectedEdgeId: state.screens.find((s) => s.id === screenId)
         ?.edges.some((e) => (e.source === widgetId || e.target === widgetId) && e.id === state.selectedEdgeId)
@@ -525,7 +533,7 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
         programName,
         programCode,
         variableBindings: variables
-          .filter((v) => v.scope === 'INPUT' || v.scope === 'OUTPUT' || v.scope === 'IN_OUT')
+          .filter((v) => v.scope === 'INPUT' || v.scope === 'OUTPUT' || v.scope === 'INOUT')
           .map((v) => ({
             variableId: v.id,
             varName: v.varName,
@@ -560,6 +568,29 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
       isDirty: true,
     })),
 
+  bindVariableToWidgetAndSetTag: (programId, variableId, widgetId, tag) =>
+    set((state) => ({
+      // Set widget's config.tag to the provided tag
+      screens: state.screens.map((s) => ({
+        ...s,
+        widgets: s.widgets.map((w) =>
+          w.id === widgetId ? { ...w, config: { ...w.config, tag } } : w,
+        ),
+      })),
+      // Create the binding
+      automationBindings: state.automationBindings.map((b) =>
+        b.programId === programId
+          ? {
+              ...b,
+              variableBindings: b.variableBindings.map((v) =>
+                v.variableId === variableId ? { ...v, boundWidgetId: widgetId, boundTag: tag } : v,
+              ),
+            }
+          : b,
+      ),
+      isDirty: true,
+    })),
+
   unbindVariable: (programId, variableId) =>
     set((state) => ({
       automationBindings: state.automationBindings.map((b) =>
@@ -578,10 +609,15 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
   autoBindByTag: () => {
     const state = get();
     const allWidgets = state.screens.flatMap((s) => s.widgets);
+    // Primary lookup: by config.tag
     const tagToWidget = new Map<string, { id: string; tag: string }>();
+    // Fallback lookup: by config.label
+    const labelToWidget = new Map<string, { id: string; label: string }>();
     for (const w of allWidgets) {
       const tag = w.config.tag as string | undefined;
       if (tag) tagToWidget.set(tag.toLowerCase(), { id: w.id, tag });
+      const label = w.config.label as string | undefined;
+      if (label) labelToWidget.set(label.toLowerCase(), { id: w.id, label });
     }
 
     let matched = 0;
@@ -591,10 +627,18 @@ export const useScadaPackageStore = create<ScadaPackageState>((set, get) => ({
       variableBindings: b.variableBindings.map((v) => {
         if (v.boundWidgetId) { matched++; return v; }
         const tagName = v.ioTagName || v.varName;
-        const widget = tagToWidget.get(tagName.toLowerCase());
-        if (widget) {
+        const tagKey = tagName.toLowerCase();
+        // Try matching by tag first
+        const widgetByTag = tagToWidget.get(tagKey);
+        if (widgetByTag) {
           matched++;
-          return { ...v, boundWidgetId: widget.id, boundTag: widget.tag };
+          return { ...v, boundWidgetId: widgetByTag.id, boundTag: widgetByTag.tag };
+        }
+        // Fallback: match by label
+        const widgetByLabel = labelToWidget.get(tagKey);
+        if (widgetByLabel) {
+          matched++;
+          return { ...v, boundWidgetId: widgetByLabel.id, boundTag: tagName };
         }
         unmatched++;
         return v;

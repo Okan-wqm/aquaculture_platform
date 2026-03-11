@@ -36,6 +36,7 @@ use std::path::PathBuf;
 use crate::AppState;
 use crate::commands::{ProgramDefinition, ProgramState};
 use crate::gpio::PinState;
+use crate::process_image::{TagQuality, TagSource};
 
 /// Script execution result
 #[derive(Debug, Clone)]
@@ -678,6 +679,9 @@ impl ScriptEngine {
                     error!("Script {} execution failed: {}", script_id, e);
                 }
             }
+
+            // Sync script outputs to ProcessImage for SCADA HMI visibility
+            self.sync_to_process_image().await;
         }
     }
 
@@ -735,6 +739,11 @@ impl ScriptEngine {
                     error!(script_id = %script_id, error = %e, "Script execution failed");
                 }
             }
+
+            // ========== PHASE 5b: SYNC TO PROCESS IMAGE ==========
+            // Write script variables and virtual sensors to ProcessImage so
+            // the SCADA HMI (WebSocket) can display automation outputs.
+            self.sync_to_process_image().await;
 
             // ========== PHASE 6: PERIODIC TASKS ==========
             reload_counter += 1;
@@ -929,6 +938,76 @@ impl ScriptEngine {
                 // Note: Direct GPIO/Modbus writes should be done via script actions
                 // for proper conflict detection
             }
+        }
+    }
+
+    /// Sync script outputs to ProcessImage so SCADA HMI can display them.
+    ///
+    /// Iterates context variables and virtual sensors, writing each to ProcessImage
+    /// with `TagSource::Script`. This bridges the gap between the scripting engine's
+    /// internal state and the SCADA display system which reads exclusively from
+    /// ProcessImage.
+    ///
+    /// Called at the end of each scan cycle / event-driven tick, AFTER wire_fb_outputs()
+    /// so that function block outputs are included.
+    async fn sync_to_process_image(&self) {
+        let process_image = {
+            let state = self.state.read().await;
+            state.process_image.clone()
+        };
+
+        let mut synced = 0u32;
+
+        // Sync context variables -> ProcessImage
+        for (var_name, value) in &self.context.variables {
+            let numeric = if let Some(n) = value.as_f64() {
+                n
+            } else if let Some(i) = value.as_i64() {
+                i as f64
+            } else if let Some(b) = value.as_bool() {
+                if b { 1.0 } else { 0.0 }
+            } else {
+                // String or complex JSON values cannot be represented as f64 tags;
+                // skip them silently (they are still accessible via MQTT variables).
+                continue;
+            };
+
+            let tag_name = format!("var:{}", var_name);
+            process_image
+                .update_tag_raw(&tag_name, numeric, TagQuality::Good, TagSource::Script)
+                .await;
+            synced += 1;
+        }
+
+        // Sync virtual sensors (set by FB outputs via "sensor:xxx" wiring)
+        // These are already in context.sensors but may not have a physical TagConfig,
+        // so we write them with TagSource::Script to distinguish from hardware reads.
+        // Only sync sensors that were NOT read from hardware (those already in PI via io_poll).
+        // We identify virtual sensors by checking if they exist in ProcessImage with a
+        // non-Script source; if not, they are virtual and we write them.
+        for (sensor_name, &sensor_value) in &self.context.sensors {
+            let tag_name = format!("sensor:{}", sensor_name);
+            // Check if this tag already exists with a hardware source (Gpio, Modbus, I2c, etc.)
+            if let Some(existing) = process_image.get_tag(&tag_name).await {
+                if existing.source != TagSource::Script {
+                    // Hardware-sourced tag — do not overwrite from script side
+                    continue;
+                }
+            }
+            // Also check the bare sensor name (io_poll uses tag_name directly, not "sensor:" prefix)
+            if let Some(existing) = process_image.get_tag(sensor_name).await {
+                if existing.source != TagSource::Script {
+                    continue;
+                }
+            }
+            process_image
+                .update_tag_raw(&tag_name, sensor_value, TagQuality::Good, TagSource::Script)
+                .await;
+            synced += 1;
+        }
+
+        if synced > 0 {
+            trace!(count = synced, "Script outputs synced to ProcessImage");
         }
     }
 

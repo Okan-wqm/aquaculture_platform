@@ -1,6 +1,7 @@
 /**
  * IEC 61131-3 Structured Text language definition for Monaco Editor
  */
+// @ts-ignore — monaco-editor types provided at runtime by @monaco-editor/react
 import type { languages } from 'monaco-editor';
 
 export const ST_LANGUAGE_ID = 'iec61131-st';

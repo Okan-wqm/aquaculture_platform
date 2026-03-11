@@ -5,6 +5,7 @@ import { RedisModule } from '@platform/backend-common';
 
 import { AutomationModule } from '../automation/automation.module';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
+import { ProcessModule } from '../process/process.module';
 import { SensorProtocol } from '../database/entities/sensor-protocol.entity';
 import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor } from '../database/entities/sensor.entity';
@@ -22,6 +23,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     TypeOrmModule.forFeature([Sensor, SensorReading, SensorProtocol, SensorDataChannel]),
     EdgeDeviceModule, // For edge device heartbeat handling (no longer circular)
     AutomationModule, // For deployment confirmation in MQTT responses
+    ProcessModule, // For ScadaDeployLogService in MQTT response handling
     // Redis for sensor-topic caching (critical for MQTT message routing performance)
     RedisModule.forRootAsync({
       imports: [ConfigModule],

@@ -8,6 +8,8 @@ import { Repository, DataSource } from 'typeorm';
 
 import { AutomationService } from '../automation/automation.service';
 import { DeploymentLogService } from '../automation/services/deployment-log.service';
+import { ScadaDeployLogService } from '../process/services/scada-deploy-log.service';
+import { ScadaDeployStatus } from '../process/entities/scada-deploy-log.entity';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { SensorReading } from '../database/entities/sensor-reading.entity';
@@ -172,6 +174,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(AutomationService)
     private readonly automationService: AutomationService | null,
+    @Optional()
+    @Inject(ScadaDeployLogService)
+    private readonly scadaDeployLogService: ScadaDeployLogService | null,
   ) {
     // Bind message handler to this instance
     this.messageHandler = (topic: string, message: Buffer) => {
@@ -588,6 +593,38 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(`Deployment response processed for command ${payload.commandId}: success=${payload.success}`);
       } catch (error) {
         this.logger.error(`Failed to process deployment response: ${(error as Error).message}`);
+      }
+    }
+
+    // Route SCADA deploy responses to ScadaDeployLogService
+    if (payload.command === 'deploy_scada_package' && payload.commandId) {
+      try {
+        if (this.scadaDeployLogService) {
+          if (payload.success) {
+            await this.scadaDeployLogService.updateStatus(
+              payload.commandId,
+              ScadaDeployStatus.SUCCESS,
+            );
+            this.logger.log(
+              `SCADA deploy succeeded for command ${payload.commandId}`,
+            );
+          } else {
+            await this.scadaDeployLogService.updateStatus(
+              payload.commandId,
+              ScadaDeployStatus.FAILED,
+              { errorMessage: payload.error || 'SCADA deployment failed on device' },
+            );
+            this.logger.warn(
+              `SCADA deploy failed for command ${payload.commandId}: ${payload.error || 'unknown error'}`,
+            );
+          }
+        } else {
+          this.logger.warn(
+            `ScadaDeployLogService not available — cannot update deploy status for command ${payload.commandId}`,
+          );
+        }
+      } catch (error) {
+        this.logger.error(`Failed to process SCADA deploy response: ${(error as Error).message}`);
       }
     }
 

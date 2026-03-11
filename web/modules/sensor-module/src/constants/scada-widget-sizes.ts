@@ -87,6 +87,14 @@ export const WIDGET_SIZES: Record<string, WidgetSizeDef> = {
   processView:       { defaultW: 12, defaultH: 6, minW: 4, minH: 3, maxW: 12, maxH: 8 },
   // equipment (fallback 2x2 — actual size resolved via EQUIPMENT_SUBTYPE_SIZES)
   equipment:         { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 6, maxH: 6 },
+  // Proses ekipmanları
+  feeder:            { defaultW: 2, defaultH: 3, minW: 1, minH: 2, maxW: 3, maxH: 4 },
+  radialFilter:      { defaultW: 2, defaultH: 3, minW: 1, minH: 2, maxW: 3, maxH: 4 },
+  cleanWaterTank:    { defaultW: 2, defaultH: 3, minW: 1, minH: 2, maxW: 4, maxH: 4 },
+  dirtyWaterTank:    { defaultW: 2, defaultH: 3, minW: 1, minH: 2, maxW: 4, maxH: 4 },
+  mbbr:              { defaultW: 3, defaultH: 2, minW: 2, minH: 2, maxW: 4, maxH: 4 },
+  hepaFilter:        { defaultW: 3, defaultH: 2, minW: 2, minH: 1, maxW: 4, maxH: 3 },
+  cornellDualDrain:  { defaultW: 4, defaultH: 3, minW: 2, minH: 2, maxW: 6, maxH: 4 },
 };
 
 /* ------------------------------------------------------------------ */

@@ -58,6 +58,13 @@ const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<Widg
   calibrationStatus:   React.lazy(() => import('./widget-renderers/CalibrationStatusRenderer')),
   processView:         React.lazy(() => import('./widget-renderers/ProcessViewRenderer')),
   equipment:           React.lazy(() => import('./widget-renderers/EquipmentRenderer')),
+  feeder:              React.lazy(() => import('./widget-renderers/FeederRenderer')),
+  radialFilter:        React.lazy(() => import('./widget-renderers/RadialFilterRenderer')),
+  cleanWaterTank:      React.lazy(() => import('./widget-renderers/CleanWaterTankRenderer')),
+  dirtyWaterTank:      React.lazy(() => import('./widget-renderers/DirtyWaterTankRenderer')),
+  mbbr:                React.lazy(() => import('./widget-renderers/MbbrRenderer')),
+  hepaFilter:          React.lazy(() => import('./widget-renderers/HepaFilterRenderer')),
+  cornellDualDrain:    React.lazy(() => import('./widget-renderers/CornellDualDrainRenderer')),
 };
 
 /* ------------------------------------------------------------------ */

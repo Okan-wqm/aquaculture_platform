@@ -70,6 +70,57 @@ const HX_ICON = (
   </svg>
 );
 
+const FEEDER_ICON = (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" className="w-4 h-4">
+    <polygon points="4,4 12,4 10,12 6,12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    <rect x="6" y="1" width="4" height="3" rx="1" fill="none" stroke="currentColor" strokeWidth="1"/>
+    <line x1="7" y1="12" x2="7" y2="15" stroke="currentColor" strokeWidth="1"/>
+    <line x1="9" y1="12" x2="9" y2="15" stroke="currentColor" strokeWidth="1"/>
+  </svg>
+);
+
+const FILTER_ICON = (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" className="w-4 h-4">
+    <path d="M3,3 L13,3 L10,13 L6,13 Z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    <line x1="5" y1="6" x2="8" y2="11" stroke="currentColor" strokeWidth="0.8" strokeDasharray="1.5,1"/>
+    <line x1="11" y1="6" x2="8" y2="11" stroke="currentColor" strokeWidth="0.8" strokeDasharray="1.5,1"/>
+  </svg>
+);
+
+const WATER_TANK_ICON = (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" className="w-4 h-4">
+    <rect x="3" y="4" width="10" height="9" rx="1" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+    <ellipse cx="8" cy="4" rx="5" ry="1.5" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+    <rect x="4" y="8" width="8" height="4" rx="0" fill="currentColor" opacity="0.2"/>
+  </svg>
+);
+
+const MBBR_ICON = (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" className="w-4 h-4">
+    <rect x="2" y="3" width="12" height="10" rx="1" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+    <circle cx="5" cy="7" r="1.2" fill="currentColor" opacity="0.5"/>
+    <circle cx="8" cy="6" r="1.2" fill="currentColor" opacity="0.5"/>
+    <circle cx="11" cy="7" r="1.2" fill="currentColor" opacity="0.5"/>
+    <circle cx="6.5" cy="9.5" r="1.2" fill="currentColor" opacity="0.5"/>
+    <circle cx="9.5" cy="9.5" r="1.2" fill="currentColor" opacity="0.5"/>
+  </svg>
+);
+
+const HEPA_ICON = (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" className="w-4 h-4">
+    <rect x="4" y="2" width="8" height="12" rx="1" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M6,4 L10,6 L6,8 L10,10 L6,12" fill="none" stroke="currentColor" strokeWidth="1" strokeLinejoin="round"/>
+  </svg>
+);
+
+const CORNELL_ICON = (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" className="w-4 h-4">
+    <path d="M2,4 L12,4 L12,12 L8,13 L2,12 Z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    <rect x="12" y="5" width="3" height="6" fill="none" stroke="currentColor" strokeWidth="1"/>
+    <line x1="7" y1="13" x2="7" y2="15" stroke="currentColor" strokeWidth="1.5"/>
+  </svg>
+);
+
 const WIDGET_CATEGORIES: WidgetCategory[] = [
   {
     name: 'Gosterge',
@@ -115,6 +166,23 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
     name: 'Proses',
     widgets: [
       { type: 'processView', label: 'ProcessView', icon: <LayoutDashboard className="w-4 h-4" /> },
+    ],
+  },
+  {
+    name: 'Proses Ekipmanlari',
+    widgets: [
+      { type: 'feeder' as ScadaWidgetType, label: 'Yemlik', icon: FEEDER_ICON },
+      { type: 'mbbr' as ScadaWidgetType, label: 'MBBR', icon: MBBR_ICON },
+      { type: 'hepaFilter' as ScadaWidgetType, label: 'HEPA Filtre', icon: HEPA_ICON },
+      { type: 'radialFilter' as ScadaWidgetType, label: 'Radyal Filtre', icon: FILTER_ICON },
+      { type: 'cornellDualDrain' as ScadaWidgetType, label: 'Cornell Dual Drain', icon: CORNELL_ICON },
+    ],
+  },
+  {
+    name: 'Su Tanklari',
+    widgets: [
+      { type: 'cleanWaterTank' as ScadaWidgetType, label: 'Temiz Su Tanki', icon: WATER_TANK_ICON },
+      { type: 'dirtyWaterTank' as ScadaWidgetType, label: 'Kirli Su Tanki', icon: WATER_TANK_ICON },
     ],
   },
   {

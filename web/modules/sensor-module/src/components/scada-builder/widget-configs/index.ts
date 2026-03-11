@@ -16,6 +16,13 @@ import { CalibrationHistoryConfig } from './CalibrationHistoryConfig';
 import { CalibrationStatusConfig } from './CalibrationStatusConfig';
 import { ProcessViewConfig } from './ProcessViewConfig';
 import { EquipmentConfig } from './EquipmentConfig';
+import { FeederConfig } from './FeederConfig';
+import { RadialFilterConfig } from './RadialFilterConfig';
+import { CleanWaterTankConfig } from './CleanWaterTankConfig';
+import { DirtyWaterTankConfig } from './DirtyWaterTankConfig';
+import { MbbrConfig } from './MbbrConfig';
+import { HepaFilterConfig } from './HepaFilterConfig';
+import { CornellDualDrainConfig } from './CornellDualDrainConfig';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -41,4 +48,11 @@ export const widgetConfigMap: Record<string, React.FC<WidgetConfigProps>> = {
   calibrationStatus: CalibrationStatusConfig,
   processView: ProcessViewConfig,
   equipment: EquipmentConfig,
+  feeder: FeederConfig,
+  radialFilter: RadialFilterConfig,
+  cleanWaterTank: CleanWaterTankConfig,
+  dirtyWaterTank: DirtyWaterTankConfig,
+  mbbr: MbbrConfig,
+  hepaFilter: HepaFilterConfig,
+  cornellDualDrain: CornellDualDrainConfig,
 };

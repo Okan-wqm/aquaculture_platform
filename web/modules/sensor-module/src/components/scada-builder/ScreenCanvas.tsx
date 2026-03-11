@@ -272,9 +272,10 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
           // Drag in progress — mark so store→local sync is suppressed
           isDragging.current = true;
         }
-        if (change.type === 'position' && change.dragging === false && change.position) {
-          // Drag ended → commit position to store in grid units
+        if (change.type === 'position' && change.dragging === false) {
+          // Drag ended — always clear isDragging, even if position is missing
           isDragging.current = false;
+          if (!change.position) continue;
           const state = useScadaPackageStore.getState();
           const currentScreenId = state.activeScreenId;
           if (!currentScreenId) continue;
@@ -288,8 +289,14 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
             px.width,
             px.height,
           );
-          syncingFromStore.current = true;
-          state.updateWidgetPosition(currentScreenId, change.id, newGrid);
+          // Only push to store if grid position actually changed
+          const posChanged =
+            newGrid.col !== widget.position.col ||
+            newGrid.row !== widget.position.row;
+          if (posChanged) {
+            syncingFromStore.current = true;
+            state.updateWidgetPosition(currentScreenId, change.id, newGrid);
+          }
         }
         if (change.type === 'select' && change.selected) {
           setSelectedWidget(change.id);
@@ -395,17 +402,37 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
     [setSelectedWidget, setSelectedEdge],
   );
 
-  // Delete key handler
+  // Delete key handler (ReactFlow callback)
   const onNodesDelete = useCallback(
     (deletedNodes: Node[]) => {
       if (!activeScreenId) return;
-      if (!window.confirm('Bu widget\'i silmek istediginize emin misiniz?')) return;
       for (const node of deletedNodes) {
         removeWidget(activeScreenId, node.id);
       }
     },
     [activeScreenId, removeWidget],
   );
+
+  // Keyboard Delete/Backspace handler for selected widget
+  useEffect(() => {
+    if (isPreview) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip if user is typing in an input/textarea
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedWidgetId && activeScreenId) {
+          e.preventDefault();
+          removeWidget(activeScreenId, selectedWidgetId);
+        } else if (selectedEdgeId && activeScreenId) {
+          e.preventDefault();
+          storeRemoveEdge(activeScreenId, selectedEdgeId);
+        }
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isPreview, selectedWidgetId, selectedEdgeId, activeScreenId, removeWidget, storeRemoveEdge]);
 
   // Edge toolbar handlers
   const handleEdgeTypeChange = useCallback(

@@ -22,7 +22,14 @@ export type ScadaWidgetType =
   | 'calibrationHistory'
   | 'calibrationStatus'
   | 'processView'
-  | 'equipment';
+  | 'equipment'
+  | 'feeder'
+  | 'radialFilter'
+  | 'cleanWaterTank'
+  | 'dirtyWaterTank'
+  | 'mbbr'
+  | 'hepaFilter'
+  | 'cornellDualDrain';
 
 /* ------------------------------------------------------------------ */
 /*  Equipment sub-types                                                */

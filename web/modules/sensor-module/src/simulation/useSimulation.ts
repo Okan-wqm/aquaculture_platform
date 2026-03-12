@@ -35,6 +35,14 @@ export interface UseSimulationReturn {
   stop: () => void;
   setInput: (name: string, value: SimValue) => void;
   setScanCycleMs: (ms: number) => void;
+
+  // Synchronous accessors for closed-loop use (bypass React state)
+  /** Read variable info directly from interpreter — no stale closure risk */
+  getVariableSnapshot: () => VariableInfo[];
+  /** Set input variable directly on interpreter without triggering refreshVariables */
+  setInputDirect: (name: string, value: SimValue) => void;
+  /** Run one cycle directly without React state updates (call refreshVariables after) */
+  runOneCycleDirect: () => void;
 }
 
 // ── Hook ────────────────────────────────────────────────────
@@ -200,6 +208,28 @@ export function useSimulation(): UseSimulationReturn {
     [refreshVariables],
   );
 
+  // ---- Synchronous accessors for closed-loop (no React state overhead) ----
+
+  const getVariableSnapshot = useCallback((): VariableInfo[] => {
+    return interpreterRef.current?.getVariableInfo() ?? [];
+  }, []);
+
+  const setInputDirect = useCallback((name: string, value: SimValue) => {
+    const interp = interpreterRef.current;
+    if (!interp) return;
+    const info = interp.getVariableInfo();
+    const varInfo = info.find((v) => v.name === name);
+    if (!varInfo || (varInfo.scope !== 'VAR_INPUT' && varInfo.scope !== 'VAR_IN_OUT')) return;
+    interp.setVariable(name, value);
+  }, []);
+
+  const runOneCycleDirect = useCallback(() => {
+    const interp = interpreterRef.current;
+    if (!interp) return;
+    interp.runCycle();
+    setCycleCount((prev) => prev + 1);
+  }, []);
+
   const setScanCycleMs = useCallback(
     (ms: number) => {
       const clamped = Math.max(10, ms); // Minimum 10ms to avoid pegging the CPU
@@ -258,5 +288,10 @@ export function useSimulation(): UseSimulationReturn {
     stop,
     setInput,
     setScanCycleMs,
+
+    // Synchronous accessors
+    getVariableSnapshot,
+    setInputDirect,
+    runOneCycleDirect,
   };
 }

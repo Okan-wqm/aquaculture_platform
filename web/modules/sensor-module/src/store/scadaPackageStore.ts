@@ -37,5 +37,6 @@ export type {
   ScadaEdgeData,
   HistoryEntry,
   ClipboardData,
+  SimulationSlice,
   ScadaStore,
 } from './scada';

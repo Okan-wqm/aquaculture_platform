@@ -21,6 +21,8 @@ import {
   CheckCircle,
   Search,
   Bookmark,
+  Zap,
+  Pencil,
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -44,6 +46,8 @@ import {
 import { useEdgeDevices } from '../../hooks/useEdgeDevices';
 import { useScadaKeyboardShortcuts } from '../../hooks/useScadaKeyboardShortcuts';
 import { ScadaDataProvider } from '../../context/ScadaDataProvider';
+import { SimulationDataProvider } from '../../context/SimulationDataProvider';
+import { SimulationSidebar } from '../../components/scada-builder/SimulationSidebar';
 
 const DEFAULT_EMERGENCY_STOP = {
   holdDuration: 3000,
@@ -63,7 +67,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
   const [showDeployMenu, setShowDeployMenu] = useState(false);
   const [showDeployDialog, setShowDeployDialog] = useState(false);
   const [showDeviceDropdown, setShowDeviceDropdown] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
+  const [mode, setMode] = useState<'edit' | 'preview' | 'simulation'>('edit');
   const [showSearch, setShowSearch] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const deployParam = searchParams.get('deploy');
@@ -105,6 +109,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
     updateEdgeType,
     removeEdge,
     reset,
+    setSimulationMode,
   } = useScadaPackageStore(useShallow((s) => ({
     packageId: s.packageId,
     packageName: s.packageName,
@@ -135,6 +140,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
     updateEdgeType: s.updateEdgeType,
     removeEdge: s.removeEdge,
     reset: s.reset,
+    setSimulationMode: s.setSimulationMode,
   })));
 
   // Effective packageId (from route or store)
@@ -253,7 +259,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
   // Keyboard shortcuts (Ctrl+Z/Y, Ctrl+C/V/X, Del, Ctrl+S, Esc)
   useScadaKeyboardShortcuts({
     onSave: handleSave,
-    isPreview: showPreview,
+    isPreview: mode !== 'edit',
   });
 
   // Deploy handler - ensure save first
@@ -551,17 +557,42 @@ const ScadaPackageBuilderPage: React.FC = () => {
             {isSaving ? 'Kaydediliyor...' : 'Kaydet'}
           </button>
 
-          <button
-            onClick={() => setShowPreview(!showPreview)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
-              showPreview
-                ? 'text-white bg-cyan-600 hover:bg-cyan-700'
-                : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
-            }`}
-          >
-            <Eye className="w-4 h-4" />
-            {showPreview ? 'Düzenle' : 'Önizleme'}
-          </button>
+          {/* Mode Segment Control */}
+          <div className="flex items-center bg-gray-100 rounded-lg p-0.5 border border-gray-200">
+            <button
+              onClick={() => { setMode('edit'); setSimulationMode(false); }}
+              className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors ${
+                mode === 'edit'
+                  ? 'bg-white text-gray-900 shadow-sm font-medium'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              Düzenle
+            </button>
+            <button
+              onClick={() => { setMode('preview'); setSimulationMode(false); }}
+              className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors ${
+                mode === 'preview'
+                  ? 'bg-white text-gray-900 shadow-sm font-medium'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              Önizleme
+            </button>
+            <button
+              onClick={() => { setMode('simulation'); setSimulationMode(true); }}
+              className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors ${
+                mode === 'simulation'
+                  ? 'bg-cyan-600 text-white shadow-sm font-medium'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              Simülasyon
+            </button>
+          </div>
 
           <div className="relative">
             <button
@@ -599,11 +630,11 @@ const ScadaPackageBuilderPage: React.FC = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Scene Tree Panel (hidden in preview) */}
-        {!showPreview && <SceneTreePanel />}
+        {/* Scene Tree Panel (hidden in preview/simulation) */}
+        {mode === 'edit' && <SceneTreePanel />}
 
-        {/* Left Panel - Widget Palette (hidden in preview) */}
-        {!showPreview && <WidgetPalette />}
+        {/* Left Panel - Widget Palette (hidden in preview/simulation) */}
+        {mode === 'edit' && <WidgetPalette />}
 
         {/* Center - Canvas with Screen Tabs */}
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -616,23 +647,28 @@ const ScadaPackageBuilderPage: React.FC = () => {
           {/* Breadcrumb navigation for nested screens */}
           <ScreenBreadcrumb />
 
-          {/* Canvas — wrapped with ScadaDataProvider in preview mode for live data */}
+          {/* Canvas — wrapped with appropriate data provider per mode */}
           <div className="flex-1 flex flex-col">
-            {showPreview && selectedDevice?.deviceCode ? (
+            {mode === 'preview' && selectedDevice?.deviceCode ? (
               <ScadaDataProvider
                 initialDeviceCodes={[selectedDevice.deviceCode]}
                 enabled
               >
                 <ScreenCanvas isPreview deviceCode={selectedDevice.deviceCode} />
               </ScadaDataProvider>
+            ) : mode === 'simulation' ? (
+              <SimulationDataProvider>
+                <ScreenCanvas isPreview deviceCode="__sim__" />
+              </SimulationDataProvider>
             ) : (
-              <ScreenCanvas isPreview={showPreview} />
+              <ScreenCanvas isPreview={mode === 'preview'} />
             )}
           </div>
         </div>
 
-        {/* Right Panel - PropertiesPanel (hidden in preview) */}
-        {!showPreview && <PropertiesPanel
+        {/* Right Panel - SimulationSidebar in simulation mode, PropertiesPanel in edit mode */}
+        {mode === 'simulation' && <SimulationSidebar />}
+        {mode === 'edit' && <PropertiesPanel
           selectedWidget={selectedWidget}
           onWidgetConfigChange={handleWidgetConfigChange}
           alarmRules={alarmRules}
@@ -677,8 +713,14 @@ const ScadaPackageBuilderPage: React.FC = () => {
               {screens.find((s) => s.id === activeScreenId)?.name ?? ''}
             </span>
           )}
-          <span className="w-2 h-2 rounded-full bg-green-500" />
-          <span>Hazır</span>
+          {mode === 'simulation' && (
+            <span className="flex items-center gap-1 text-cyan-500 font-medium">
+              <Zap className="w-3 h-3" />
+              Simülasyon
+            </span>
+          )}
+          <span className={`w-2 h-2 rounded-full ${mode === 'simulation' ? 'bg-cyan-500 animate-pulse' : 'bg-green-500'}`} />
+          <span>{mode === 'simulation' ? 'Simülasyon Aktif' : 'Hazır'}</span>
         </div>
       </div>
 

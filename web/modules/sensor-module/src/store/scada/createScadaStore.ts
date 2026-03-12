@@ -12,6 +12,7 @@ import { createAlarmSlice } from './alarmSlice';
 import { createGroupSlice } from './groupSlice';
 import { createTemplateSlice } from './templateSlice';
 import { createProjectSlice } from './projectSlice';
+import { createSimulationSlice } from './simulationSlice';
 
 export function createScadaStore() {
   return create<ScadaStore>()(
@@ -27,6 +28,7 @@ export function createScadaStore() {
           ...createGroupSlice(...args),
           ...createTemplateSlice(...args),
           ...createProjectSlice(...args),
+          ...createSimulationSlice(...args),
         }))
       ),
       { name: 'ScadaStore', enabled: process.env.NODE_ENV === 'development' }

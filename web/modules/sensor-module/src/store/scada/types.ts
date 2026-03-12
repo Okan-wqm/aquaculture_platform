@@ -307,6 +307,20 @@ export interface TemplateSlice {
   getTemplatesByCategory: () => Record<string, WidgetTemplate[]>;
 }
 
+// --- Simulation Slice ---
+
+export interface SimulationSlice {
+  simulationMode: boolean;
+  simTagValues: Record<string, any>;
+  simAlarms: Array<{ ruleId: string; severity: string; message: string; firedAt: string }>;
+
+  setSimulationMode: (on: boolean) => void;
+  setSimTagValue: (tagName: string, value: any) => void;
+  setSimTagValuesBatch: (values: Record<string, any>) => void;
+  clearSimTagValues: () => void;
+  setSimAlarms: (alarms: SimulationSlice['simAlarms']) => void;
+}
+
 // --- Project Slice ---
 
 export interface ProjectSlice {
@@ -361,7 +375,8 @@ export type ScadaStore =
   AlarmSlice &
   GroupSlice &
   TemplateSlice &
-  ProjectSlice;
+  ProjectSlice &
+  SimulationSlice;
 
 /* ------------------------------------------------------------------ */
 /*  Slice Creator Helper Type                                          */

@@ -135,12 +135,39 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
   });
 
   /* ---------- Runtime command dispatch -------------------------------- */
+  const tagName = data.config?.tagName as string | undefined;
+  const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear press timer on unmount
+  useEffect(() => {
+    return () => {
+      if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+    };
+  }, []);
+
   const handleCommand = useCallback((command: string, value?: unknown) => {
     if (command === 'navigate' && typeof value === 'string') {
       useScadaPackageStore.getState().setActiveScreen(value);
+      return;
     }
-    // Future commands (e.g. 'writeTag', 'openFaceplate') can be added here
-  }, []);
+
+    // Simulation mode commands: toggle, press, writeTag
+    const store = useScadaPackageStore.getState();
+    if (store.simulationMode && tagName) {
+      if (command === 'toggle') {
+        store.setSimTagValue(tagName, !store.simTagValues[tagName]);
+      } else if (command === 'press') {
+        store.setSimTagValue(tagName, true);
+        if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+        pressTimerRef.current = setTimeout(() => {
+          pressTimerRef.current = null;
+          useScadaPackageStore.getState().setSimTagValue(tagName, false);
+        }, 200);
+      } else if (command === 'writeTag' && value !== undefined) {
+        store.setSimTagValue(tagName, value);
+      }
+    }
+  }, [tagName]);
 
   const [size, setSize] = useState({
     width: data.width ?? constraints.defaultW,

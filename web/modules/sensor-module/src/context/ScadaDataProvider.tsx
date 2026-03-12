@@ -18,7 +18,7 @@ export interface ScadaDataContextValue {
   unsubscribeTag: (deviceCode: string, tagName: string) => void;
 }
 
-const ScadaDataContext = createContext<ScadaDataContextValue | null>(null);
+export const ScadaDataContext = createContext<ScadaDataContextValue | null>(null);
 
 interface ScadaDataProviderProps {
   initialDeviceCodes?: string[];

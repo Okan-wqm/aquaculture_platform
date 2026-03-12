@@ -48,8 +48,24 @@ const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'warning', 'info'];
 
 export const GlobalAlarmBanner: React.FC = () => {
   const alarmRules = useScadaStore((s) => s.alarmRules);
+  const simulationMode = useScadaStore((s) => s.simulationMode);
+  const simAlarms = useScadaStore((s) => s.simAlarms);
 
   const { counts, total, highestSeverity } = useMemo(() => {
+    // In simulation mode, show fired simulation alarms
+    if (simulationMode && simAlarms.length > 0) {
+      const c: Record<Severity, number> = { critical: 0, high: 0, warning: 0, info: 0 };
+      for (const alarm of simAlarms) {
+        const sev = alarm.severity as Severity;
+        if (c[sev] !== undefined) c[sev]++;
+      }
+      let highest: Severity | null = null;
+      for (const sev of SEVERITY_ORDER) {
+        if (c[sev] > 0) { highest = sev; break; }
+      }
+      return { counts: c, total: simAlarms.length, highestSeverity: highest };
+    }
+
     const c: Record<Severity, number> = {
       critical: 0,
       high: 0,
@@ -71,7 +87,7 @@ export const GlobalAlarmBanner: React.FC = () => {
     }
 
     return { counts: c, total: alarmRules.length, highestSeverity: highest };
-  }, [alarmRules]);
+  }, [alarmRules, simulationMode, simAlarms]);
 
   const hasCritical = counts.critical > 0;
   const isEmpty = total === 0;
@@ -91,7 +107,9 @@ export const GlobalAlarmBanner: React.FC = () => {
         ) : (
           <Bell className="w-3.5 h-3.5 flex-shrink-0" />
         )}
-        <span className="font-medium whitespace-nowrap">Alarmlar</span>
+        <span className="font-medium whitespace-nowrap">
+          {simulationMode ? 'Alarmlar (SİM)' : 'Alarmlar'}
+        </span>
       </div>
 
       {/* Center: Severity summary or empty message */}

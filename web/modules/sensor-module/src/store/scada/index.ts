@@ -25,6 +25,7 @@ export type {
   GroupSlice,
   WidgetTemplate,
   TemplateSlice,
+  SimulationSlice,
   ScadaStore,
 } from './types';
 

@@ -20,6 +20,7 @@ import {
   WifiOff,
   CheckCircle,
   Search,
+  Bookmark,
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -33,6 +34,7 @@ import { SceneTreePanel } from '../../components/scada-builder/SceneTreePanel';
 import { ScreenBreadcrumb } from '../../components/scada-builder/ScreenBreadcrumb';
 import { GlobalAlarmBanner } from '../../components/scada-builder/GlobalAlarmBanner';
 import { WidgetSearchPanel } from '../../components/scada-builder/WidgetSearchPanel';
+import { WidgetTemplatePanel } from '../../components/scada-builder/WidgetTemplatePanel';
 import { UndoRedoToolbar } from '../../components/scada-builder/UndoRedoToolbar';
 import {
   useScadaPackageById,
@@ -41,6 +43,7 @@ import {
 } from '../../hooks/useScadaPackage';
 import { useEdgeDevices } from '../../hooks/useEdgeDevices';
 import { useScadaKeyboardShortcuts } from '../../hooks/useScadaKeyboardShortcuts';
+import { ScadaDataProvider } from '../../context/ScadaDataProvider';
 
 const DEFAULT_EMERGENCY_STOP = {
   holdDuration: 3000,
@@ -62,6 +65,8 @@ const ScadaPackageBuilderPage: React.FC = () => {
   const [showDeviceDropdown, setShowDeviceDropdown] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const deployParam = searchParams.get('deploy');
 
   const {
     packageId: storePackageId,
@@ -99,6 +104,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
     updateEdgeData,
     updateEdgeType,
     removeEdge,
+    reset,
   } = useScadaPackageStore(useShallow((s) => ({
     packageId: s.packageId,
     packageName: s.packageName,
@@ -128,10 +134,30 @@ const ScadaPackageBuilderPage: React.FC = () => {
     updateEdgeData: s.updateEdgeData,
     updateEdgeType: s.updateEdgeType,
     removeEdge: s.removeEdge,
+    reset: s.reset,
   })));
 
   // Effective packageId (from route or store)
   const effectivePackageId = routePackageId && routePackageId !== 'new' ? routePackageId : storePackageId;
+
+  // Reset store when navigating to a new package
+  useEffect(() => {
+    if (routePackageId === 'new') {
+      reset();
+    }
+  }, [routePackageId, reset]);
+
+  // Warn before unloading when there are unsaved changes
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
 
   // Load existing package
   const { scadaPackage, loading: loadingPackage } = useScadaPackageById(
@@ -161,6 +187,13 @@ const ScadaPackageBuilderPage: React.FC = () => {
       }
     }
   }, [scadaPackage, routePackageId, setPackageId, setPackageName, loadFromJSON]);
+
+  // Auto-open deploy dialog when ?deploy=true and package is loaded
+  useEffect(() => {
+    if (deployParam === 'true' && effectivePackageId && !loadingPackage) {
+      setShowDeployDialog(true);
+    }
+  }, [deployParam, effectivePackageId, loadingPackage]);
 
   // Import from process on mount
   useEffect(() => {
@@ -204,6 +237,8 @@ const ScadaPackageBuilderPage: React.FC = () => {
         setPackageId(result.id);
         navigate(`/sensor/scada-builder/${result.id}`, { replace: true });
       }
+      // Mark store as clean after successful save
+      useScadaPackageStore.setState({ isDirty: false });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err) {
@@ -475,6 +510,30 @@ const ScadaPackageBuilderPage: React.FC = () => {
             )}
           </div>
 
+          {/* Widget Templates */}
+          <div className="relative">
+            <button
+              onClick={() => setShowTemplates(!showTemplates)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                showTemplates
+                  ? 'text-white bg-cyan-600 hover:bg-cyan-700'
+                  : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
+              }`}
+              title="Sablonlar"
+            >
+              <Bookmark className="w-4 h-4" />
+              Sablonlar
+            </button>
+            {showTemplates && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setShowTemplates(false)} />
+                <div className="absolute right-0 mt-1 z-40">
+                  <WidgetTemplatePanel />
+                </div>
+              </>
+            )}
+          </div>
+
           <button
             onClick={handleSave}
             disabled={isSaving || !packageName.trim()}
@@ -557,9 +616,18 @@ const ScadaPackageBuilderPage: React.FC = () => {
           {/* Breadcrumb navigation for nested screens */}
           <ScreenBreadcrumb />
 
-          {/* Canvas */}
+          {/* Canvas — wrapped with ScadaDataProvider in preview mode for live data */}
           <div className="flex-1 flex flex-col">
-            <ScreenCanvas isPreview={showPreview} />
+            {showPreview && selectedDevice?.deviceCode ? (
+              <ScadaDataProvider
+                initialDeviceCodes={[selectedDevice.deviceCode]}
+                enabled
+              >
+                <ScreenCanvas isPreview deviceCode={selectedDevice.deviceCode} />
+              </ScadaDataProvider>
+            ) : (
+              <ScreenCanvas isPreview={showPreview} />
+            )}
           </div>
         </div>
 

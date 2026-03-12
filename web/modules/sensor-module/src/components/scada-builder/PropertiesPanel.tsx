@@ -21,6 +21,8 @@ interface AlarmRule {
   value: number;
   severity: 'critical' | 'high' | 'warning' | 'info';
   message: string;
+  deadband?: number;
+  delay?: number;
 }
 
 interface ControlSecurityConfig {
@@ -393,6 +395,32 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   placeholder="Alarm mesaji"
                   className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 />
+                <div className="flex gap-1">
+                  <div className="flex-1">
+                    <label className="block text-[10px] text-gray-400 mb-0.5">Deadband</label>
+                    <input
+                      type="number"
+                      value={rule.deadband ?? ''}
+                      onChange={(e) => updateAlarmRule(rule.id, 'deadband', e.target.value === '' ? undefined : Number(e.target.value))}
+                      placeholder="Hysteresis degeri"
+                      min={0}
+                      step={0.1}
+                      className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-[10px] text-gray-400 mb-0.5">Gecikme (sn)</label>
+                    <input
+                      type="number"
+                      value={rule.delay ?? ''}
+                      onChange={(e) => updateAlarmRule(rule.id, 'delay', e.target.value === '' ? undefined : Number(e.target.value))}
+                      placeholder="Saniye"
+                      min={0}
+                      step={1}
+                      className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    />
+                  </div>
+                </div>
               </div>
             ))}
           </div>

@@ -92,4 +92,8 @@ export interface ScadaWidgetNodeData {
   width?: number;
   height?: number;
   onResize?: (widgetType: string, width: number, height: number) => void;
+  /** True when rendered in preview/runtime mode (disables edit-only overlays like tooltips). */
+  isPreview?: boolean;
+  /** Group ID from ScreenWidget, passed through for tooltip display. */
+  groupId?: string | null;
 }

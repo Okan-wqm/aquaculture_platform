@@ -18,6 +18,7 @@ import type { NodeProps } from 'reactflow';
 import { Handle, Position } from 'reactflow';
 import { Lock } from 'lucide-react';
 import { WidgetRenderer } from '../WidgetRenderer';
+import { WidgetTooltip } from '../WidgetTooltip';
 import type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 import type { EquipmentConnectionPoint } from '../../../types/scada-widget.types';
 import { getWidgetPixelConstraints } from '../../../constants/scada-widget-sizes';
@@ -126,6 +127,13 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     return screen?.widgets.find((w) => w.id === id)?.locked ?? false;
   });
 
+  /* ---------- Grid position from store (for tooltip) -------------------- */
+  const gridPosition = useScadaPackageStore((s) => {
+    const screen = s.screens.find((scr) => scr.id === data.screenId);
+    const w = screen?.widgets.find((wgt) => wgt.id === id);
+    return w?.position ?? { col: 0, row: 0, w: 1, h: 1 };
+  });
+
   /* ---------- Runtime command dispatch -------------------------------- */
   const handleCommand = useCallback((command: string, value?: unknown) => {
     if (command === 'navigate' && typeof value === 'string') {
@@ -154,6 +162,41 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     startH: number;
   } | null>(null);
 
+  /* ---------- Tooltip hover state ------------------------------------ */
+  const [isHovered, setIsHovered] = useState(false);
+  const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+
+  const onMouseEnterNode = useCallback(() => {
+    // Don't show tooltip while resizing (dragRef active)
+    if (dragRef.current) return;
+    setIsHovered(true);
+    hoverTimerRef.current = setTimeout(() => {
+      setTooltipVisible(true);
+    }, 300);
+  }, []);
+
+  const onMouseMoveNode = useCallback((e: React.MouseEvent) => {
+    setHoverPos({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const onMouseLeaveNode = useCallback(() => {
+    setIsHovered(false);
+    setTooltipVisible(false);
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  }, []);
+
+  // Clear tooltip timer on unmount
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    };
+  }, []);
+
   const sizeRef = useRef(size);
   useEffect(() => { sizeRef.current = size; }, [size]);
 
@@ -177,6 +220,13 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
         startW: sizeRef.current.width,
         startH: sizeRef.current.height,
       };
+      // Hide tooltip immediately when resize starts
+      setTooltipVisible(false);
+      setIsHovered(false);
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
+      }
     },
     [],
   );
@@ -265,22 +315,30 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     // For non-equipment widgets, return null so handles use simple percentage offsets
   }, [data.widgetType, data.config.equipmentSubType, size.width, size.height]);
 
+  /* ---------- Derived tooltip flag --------------------------------- */
+  const showTooltip = tooltipVisible && isHovered && !data.isPreview && !dragRef.current;
+
   /* ---------- Render ---------------------------------------------- */
   return (
     <div
       style={containerStyle}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onMouseEnter={onMouseEnterNode}
+      onMouseMove={onMouseMoveNode}
+      onMouseLeave={onMouseLeaveNode}
     >
       {/* TODO: Move this to canvas level so it's injected once, not per node */}
       <style>{HANDLE_HOVER_CSS}</style>
 
-      {/* Widget type badge (edit mode, top-left) */}
-      <span style={BADGE_STYLE}>
-        {(data.config.label as string) || (data.widgetType === 'equipment'
-          ? (data.config.equipmentSubType as string) || 'equipment'
-          : data.widgetType)}
-      </span>
+      {/* Widget type badge (edit mode only, top-left) */}
+      {!data.isPreview && (
+        <span style={BADGE_STYLE}>
+          {(data.config.label as string) || (data.widgetType === 'equipment'
+            ? (data.config.equipmentSubType as string) || 'equipment'
+            : data.widgetType)}
+        </span>
+      )}
 
       {/* Lock indicator (top-right, only when locked) */}
       {locked && (
@@ -309,13 +367,13 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
           value={data.liveValue}
           width={size.width}
           height={size.height}
-          isEditing
+          isEditing={!data.isPreview}
           onCommand={handleCommand}
         />
       </div>
 
-      {/* Resize handles (only when selected) */}
-      {selected &&
+      {/* Resize handles (only when selected and not locked) */}
+      {selected && !locked &&
         (Object.entries(HANDLE_META) as [HandleDir, typeof HANDLE_META[HandleDir]][]).map(
           ([dir, meta]) => {
             const isCorner = dir.length === 2;
@@ -410,6 +468,19 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
           />
         );
       })}
+
+      {/* Hover tooltip (edit mode only, with 300ms delay) */}
+      <WidgetTooltip
+        visible={showTooltip}
+        widgetType={data.widgetType}
+        label={data.label}
+        tagName={data.tagName}
+        position={gridPosition}
+        locked={locked}
+        groupId={data.groupId}
+        x={hoverPos.x}
+        y={hoverPos.y}
+      />
     </div>
   );
 };

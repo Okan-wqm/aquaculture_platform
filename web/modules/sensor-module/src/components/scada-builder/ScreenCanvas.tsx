@@ -31,6 +31,7 @@ import 'reactflow/dist/style.css';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useScadaPackageStore } from '../../store/scadaPackageStore';
+import { useScadaDataOptional } from '../../context/ScadaDataProvider';
 import type { ScreenWidget } from '../../types/scada-package.types';
 import type { ScadaWidgetNodeData, ScadaWidgetType } from '../../types/scada-widget.types';
 import type { ScadaEdge, ScadaEdgeType } from '../../types/scada-edge.types';
@@ -40,7 +41,9 @@ import { EdgeStoreContextProvider } from './EdgeStoreContext';
 import { EdgeToolbar } from './EdgeToolbar';
 import { CanvasContextMenu } from './CanvasContextMenu';
 import { CanvasSettings } from './CanvasSettings';
+import { CanvasRuler } from './CanvasRuler';
 import { AlignmentToolbar } from './AlignmentToolbar';
+import { SmartGuides } from './SmartGuides';
 import { PidFaceplate } from './PidFaceplate';
 import { getEdgeStyle } from '../../config/connectionTypes';
 import type { ConnectionType } from '../../config/connectionTypes';
@@ -92,9 +95,11 @@ const ANIMATED_EDGE_CSS = `
 
 interface CanvasInnerProps {
   isPreview?: boolean;
+  /** Device code for live data lookups in preview mode */
+  deviceCode?: string | null;
 }
 
-const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
+const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode }) => {
   const rfInstance = useReactFlow();
 
   // Track whether we're currently syncing FROM store to prevent loops
@@ -112,6 +117,14 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   const [showGrid, setShowGrid] = useState(true);
   const [currentZoom, setCurrentZoom] = useState(1);
 
+  // Viewport position for CanvasRuler
+  const [viewportX, setViewportX] = useState(0);
+  const [viewportY, setViewportY] = useState(0);
+
+  // Container dimensions for CanvasRuler
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+
   const [contextMenu, setContextMenu] = useState<{
     position: { x: number; y: number };
     target: 'widget' | 'edge' | 'canvas';
@@ -123,6 +136,11 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
     config: Record<string, unknown>;
     position: { col: number; row: number; w: number; h: number };
   } | null>(null);
+
+  // Smart guide drag tracking state
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
+  const [dragSize, setDragSize] = useState<{ w: number; h: number } | null>(null);
 
   const {
     activeScreenId,
@@ -165,6 +183,9 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   const activeScreen = screens.find((s) => s.id === activeScreenId);
   const widgets = activeScreen?.widgets ?? EMPTY_WIDGETS;
   const storeEdges = activeScreen?.edges ?? EMPTY_EDGES;
+
+  // Live data context (only available when ScadaDataProvider is mounted in preview mode)
+  const scadaData = useScadaDataOptional();
 
   // Keep a ref of last active screen to detect transitions
   const prevScreenIdRef = useRef(activeScreenId);
@@ -210,6 +231,12 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   const storeNodes: Node<ScadaWidgetNodeData>[] = useMemo(() => {
     return widgets.map((w) => {
       const px = gridToPixel(w.position);
+      // Resolve live tag value in preview mode
+      const tagName = w.config?.tagName as string | undefined;
+      let liveValue: number | string | boolean | undefined;
+      if (isPreview && scadaData && deviceCode && tagName) {
+        liveValue = scadaData.getTagValue(deviceCode, tagName);
+      }
       return {
         id: w.id,
         type: 'scadaWidget',
@@ -221,16 +248,20 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
           width: px.width,
           height: px.height,
           label: (w.config?.label as string) || w.widgetType,
-          tagName: w.config?.tagName as string | undefined,
+          tagName,
+          liveValue,
           onResize: (_wt: string, newW: number, newH: number) => {
             handleWidgetResize(w.id, newW, newH);
           },
+          isPreview,
+          groupId: w.groupId,
         },
+        draggable: !w.locked,
         dragHandle: undefined,
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [widgets, activeScreenId, handleWidgetResize]);
+  }, [widgets, activeScreenId, handleWidgetResize, isPreview, scadaData, deviceCode]);
 
   // Convert store edges → ReactFlow edges
   const rfEdges: Edge[] = useMemo(() => {
@@ -276,8 +307,8 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
       return storeNodes.map((sn) => {
         const existing = prevMap.get(sn.id);
         if (existing) {
-          // Existing node: keep local position, update data (config/label/value changes)
-          return { ...existing, data: sn.data };
+          // Existing node: keep local position, update data and draggable (lock toggle)
+          return { ...existing, data: sn.data, draggable: sn.draggable };
         }
         // New node from store (just dropped from palette): use store position
         return sn;
@@ -306,22 +337,51 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   // Handle node changes (position drag, selection)
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      // Apply ALL changes locally for smooth visual feedback
-      setNodes((nds) => applyNodeChanges(changes, nds));
+      // Filter out position changes for locked widgets so they cannot be dragged
+      const state = useScadaPackageStore.getState();
+      const currentScreenId = state.activeScreenId;
+      const currentWidgets = currentScreenId
+        ? state.screens.find((s) => s.id === currentScreenId)?.widgets ?? []
+        : [];
+      const lockedIds = new Set(
+        currentWidgets.filter((w) => w.locked).map((w) => w.id),
+      );
 
-      for (const change of changes) {
+      const filteredChanges = changes.filter((change) => {
+        if (change.type === 'position' && lockedIds.has(change.id)) {
+          return false; // Skip position changes for locked widgets
+        }
+        return true;
+      });
+
+      // Apply filtered changes locally for smooth visual feedback
+      setNodes((nds) => applyNodeChanges(filteredChanges, nds));
+
+      for (const change of filteredChanges) {
         if (change.type === 'position' && change.dragging === true) {
           // Drag in progress — mark so store→local sync is suppressed
           isDragging.current = true;
+
+          // Track drag position/size for SmartGuides
+          if (change.position) {
+            const sgWidget = currentWidgets.find((w) => w.id === change.id);
+            setDraggingNodeId(change.id);
+            setDragPosition({ x: change.position.x, y: change.position.y });
+            if (sgWidget) {
+              setDragSize({ w: sgWidget.position.w, h: sgWidget.position.h });
+            }
+          }
         }
         if (change.type === 'position' && change.dragging === false) {
           // Drag ended — always clear isDragging, even if position is missing
           isDragging.current = false;
+
+          // Clear SmartGuides tracking
+          setDraggingNodeId(null);
+          setDragPosition(null);
+          setDragSize(null);
+
           if (!change.position) continue;
-          const state = useScadaPackageStore.getState();
-          const currentScreenId = state.activeScreenId;
-          if (!currentScreenId) continue;
-          const currentWidgets = state.screens.find((s) => s.id === currentScreenId)?.widgets ?? [];
           const widget = currentWidgets.find((w) => w.id === change.id);
           if (!widget) continue;
           const px = gridToPixel(widget.position);
@@ -337,7 +397,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
             newGrid.row !== widget.position.row;
           if (posChanged) {
             syncingFromStore.current = true;
-            state.updateWidgetPosition(currentScreenId, change.id, newGrid);
+            state.updateWidgetPosition(currentScreenId!, change.id, newGrid);
           }
         }
         if (change.type === 'select' && change.selected) {
@@ -461,8 +521,32 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
     setContextMenu(null);
   }, [setSelectedWidget, setSelectedEdge]);
 
-  // Track zoom level for CanvasSettings
+  // Measure canvas container dimensions with ResizeObserver
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setCanvasSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+      }
+    });
+    ro.observe(el);
+    // Set initial size
+    setCanvasSize({ width: el.clientWidth, height: el.clientHeight });
+    return () => ro.disconnect();
+  }, []);
+
+  // Track viewport during pan/zoom for CanvasRuler (fires continuously)
+  const onMove = useCallback((_event: unknown, viewport: { x: number; y: number; zoom: number }) => {
+    setViewportX(viewport.x);
+    setViewportY(viewport.y);
+    setCurrentZoom(viewport.zoom);
+  }, []);
+
+  // Track zoom level for CanvasSettings (fires at end of move)
   const onMoveEnd = useCallback((_event: unknown, viewport: { x: number; y: number; zoom: number }) => {
+    setViewportX(viewport.x);
+    setViewportY(viewport.y);
     setCurrentZoom(viewport.zoom);
   }, []);
 
@@ -604,7 +688,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
       const snappedY = Math.round(position.y / GRID_CELL_H) * GRID_CELL_H;
 
       // Get default size from constants
-      const sizeDef = getWidgetSize(parsed.widgetType);
+      const sizeDef = getWidgetSize(parsed.widgetType, parsed.defaultConfig?.equipmentSubType as string | undefined);
 
       const gridPos = pixelToGrid(
         snappedX,
@@ -658,7 +742,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   return (
     <EdgeStoreContextProvider value={edgeStoreValue}>
       <style>{ANIMATED_EDGE_CSS}</style>
-      <div className="w-full h-full relative" aria-label="SCADA tasarim alani" onDragOver={isPreview ? undefined : onDragOver} onDrop={isPreview ? undefined : onDrop}>
+      <div ref={containerRef} className="w-full h-full relative" aria-label="SCADA tasarim alani" onDragOver={isPreview ? undefined : onDragOver} onDrop={isPreview ? undefined : onDrop}>
         {/* Edge Toolbar (edit mode only) */}
         {!isPreview && (
           <EdgeToolbar
@@ -705,6 +789,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
           connectionLineStyle={{ stroke: '#06b6d4', strokeWidth: 2 }}
           connectionLineType={ConnectionLineType.SmoothStep}
           connectionRadius={20}
+          onMove={onMove}
           onMoveEnd={onMoveEnd}
         >
           {showGrid && (
@@ -739,6 +824,26 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
             zoomable
           />
         </ReactFlow>
+
+        {/* Smart Guides: alignment lines during widget drag (edit mode only) */}
+        {!isPreview && (
+          <SmartGuides
+            draggingWidgetId={draggingNodeId}
+            dragPosition={dragPosition}
+            dragSize={dragSize}
+          />
+        )}
+
+        {/* Grid Rulers (edit mode only) */}
+        {!isPreview && (
+          <CanvasRuler
+            viewportX={viewportX}
+            viewportY={viewportY}
+            zoom={currentZoom}
+            canvasWidth={canvasSize.width}
+            canvasHeight={canvasSize.height}
+          />
+        )}
 
         {/* Canvas Settings */}
         {!isPreview && (
@@ -780,12 +885,14 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
 
 interface ScreenCanvasProps {
   isPreview?: boolean;
+  /** Device code for live data lookups in preview mode */
+  deviceCode?: string | null;
 }
 
-export const ScreenCanvas: React.FC<ScreenCanvasProps> = ({ isPreview }) => {
+export const ScreenCanvas: React.FC<ScreenCanvasProps> = ({ isPreview, deviceCode }) => {
   return (
     <ReactFlowProvider>
-      <CanvasInner isPreview={isPreview} />
+      <CanvasInner isPreview={isPreview} deviceCode={deviceCode} />
     </ReactFlowProvider>
   );
 };

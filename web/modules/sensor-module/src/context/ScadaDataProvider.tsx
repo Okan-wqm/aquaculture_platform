@@ -88,4 +88,12 @@ export function useScadaData(): ScadaDataContextValue {
   return ctx;
 }
 
+/**
+ * Safe version of useScadaData that returns null when not inside a ScadaDataProvider.
+ * Useful for components that render in both edit and preview modes.
+ */
+export function useScadaDataOptional(): ScadaDataContextValue | null {
+  return useContext(ScadaDataContext);
+}
+
 export default ScadaDataProvider;

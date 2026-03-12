@@ -48,46 +48,56 @@ const buildPath = (pts: Point[]): string => {
 };
 
 /**
- * Compute the arrival angle at the endpoint by walking a fixed distance
- * back along the polyline path. This produces a stable arrow direction
- * that follows the overall line flow instead of snapping to the nearest
- * dragged control point.
+ * Walk along a polyline to find position & tangent angle at a given fraction (0–1).
  */
-const ARROW_LOOKBACK = 30; // px to walk back along the path
+const getPointOnPolyline = (
+  pts: { x: number; y: number }[],
+  fraction: number,
+): { x: number; y: number; angle: number } => {
+  if (pts.length < 2) return { x: pts[0]?.x ?? 0, y: pts[0]?.y ?? 0, angle: 0 };
 
-const getArrivalAngle = (pts: { x: number; y: number }[]): number => {
-  if (pts.length < 2) return 0;
-  const end = pts[pts.length - 1];
-  let remaining = ARROW_LOOKBACK;
-
-  for (let i = pts.length - 1; i > 0; i--) {
-    const cur = pts[i];
-    const prev = pts[i - 1];
-    const segLen = Math.sqrt((cur.x - prev.x) ** 2 + (cur.y - prev.y) ** 2);
-    if (segLen >= remaining && segLen > 0) {
-      // Interpolate a sample point on this segment
-      const t = remaining / segLen;
-      const sampleX = cur.x + t * (prev.x - cur.x);
-      const sampleY = cur.y + t * (prev.y - cur.y);
-      return Math.atan2(end.y - sampleY, end.x - sampleX) * (180 / Math.PI);
-    }
-    remaining -= segLen;
+  let totalLen = 0;
+  const segLens: number[] = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const len = Math.sqrt((pts[i + 1].x - pts[i].x) ** 2 + (pts[i + 1].y - pts[i].y) ** 2);
+    segLens.push(len);
+    totalLen += len;
   }
-  // Path shorter than lookback — use first→last
-  return Math.atan2(end.y - pts[0].y, end.x - pts[0].x) * (180 / Math.PI);
+  if (totalLen === 0) return { x: pts[0].x, y: pts[0].y, angle: 0 };
+
+  let target = totalLen * fraction;
+  for (let i = 0; i < segLens.length; i++) {
+    if (target <= segLens[i] && segLens[i] > 0) {
+      const t = target / segLens[i];
+      return {
+        x: pts[i].x + t * (pts[i + 1].x - pts[i].x),
+        y: pts[i].y + t * (pts[i + 1].y - pts[i].y),
+        angle: Math.atan2(pts[i + 1].y - pts[i].y, pts[i + 1].x - pts[i].x) * (180 / Math.PI),
+      };
+    }
+    target -= segLens[i];
+  }
+  const last = pts.length - 1;
+  return {
+    x: pts[last].x,
+    y: pts[last].y,
+    angle: Math.atan2(pts[last].y - pts[last - 1].y, pts[last].x - pts[last - 1].x) * (180 / Math.PI),
+  };
 };
 
-const renderArrow = (pts: Point[], color: string = '#374151'): JSX.Element | null => {
+/** P&ID style: animated flow-direction chevron on the line at 50% */
+const renderFlowArrow = (pts: Point[], color: string = '#374151'): JSX.Element | null => {
   if (pts.length < 2) return null;
-  const end = pts[pts.length - 1];
-  const angle = getArrivalAngle(pts);
+  const mid = getPointOnPolyline(pts, 0.5);
   return (
     <polygon
-      points="-12,-5 0,0 -12,5"
+      points="-7,-5 0,0 -7,5"
       fill={color}
-      transform={`translate(${end.x},${end.y}) rotate(${angle})`}
+      transform={`translate(${mid.x},${mid.y}) rotate(${mid.angle})`}
       style={{ pointerEvents: 'none' }}
-    />
+    >
+      <animate attributeName="opacity" values="1;0.2;1" dur="1.5s" repeatCount="indefinite" />
+    </polygon>
   );
 };
 
@@ -342,8 +352,8 @@ const MultiHandleEdge: React.FC<EdgeProps<MultiHandleEdgeData>> = (props) => {
         />
       )}
 
-      {/* Custom arrow head - rotates based on last segment direction */}
-      {renderArrow(points, edgeStyle.stroke)}
+      {/* P&ID flow direction indicator — animated chevron at path midpoint */}
+      {renderFlowArrow(points, edgeStyle.stroke)}
 
       {/* Hover insertion preview */}
       {hoverSegment && (

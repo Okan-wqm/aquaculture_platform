@@ -36,28 +36,13 @@ export interface DraggableEdgeData {
 const CONTROL_RADIUS = 8;
 const CONTROL_RADIUS_HOVER = 10;
 
-/**
- * Render arrow head at the end of the Bezier curve, rotated based on tangent direction
- * For Quadratic: tangent at end is from control point to end
- * For Cubic: tangent at end is from second control point to end
- */
-const renderArrow = (
-  targetX: number,
-  targetY: number,
-  prevX: number,
-  prevY: number,
-  color: string = '#374151'
-): JSX.Element => {
-  const angle = Math.atan2(targetY - prevY, targetX - prevX) * (180 / Math.PI);
-  return (
-    <polygon
-      points="-12,-5 0,0 -12,5"
-      fill={color}
-      transform={`translate(${targetX},${targetY}) rotate(${angle})`}
-      style={{ pointerEvents: 'none' }}
-    />
-  );
-};
+/** Evaluate a point on a quadratic Bezier at parameter t */
+const quadBezier = (t: number, p0: number, p1: number, p2: number) =>
+  (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2;
+
+/** Evaluate a point on a cubic Bezier at parameter t */
+const cubicBezier = (t: number, p0: number, p1: number, p2: number, p3: number) =>
+  (1 - t) ** 3 * p0 + 3 * (1 - t) ** 2 * t * p1 + 3 * (1 - t) * t * t * p2 + t ** 3 * p3;
 
 /* -------------------------------------------------- */
 /*  Component                                         */
@@ -249,11 +234,35 @@ const DraggableEdge: React.FC<EdgeProps<DraggableEdgeData>> = (props) => {
         />
       )}
 
-      {/* Custom arrow head - tangent direction based on curve type */}
-      {curveType === 'cubic'
-        ? renderArrow(targetX, targetY, controlPoint2.x, controlPoint2.y, edgeStyle.stroke)
-        : renderArrow(targetX, targetY, controlPoint.x, controlPoint.y, edgeStyle.stroke)
-      }
+      {/* P&ID flow direction indicator — animated chevron at curve midpoint */}
+      {(() => {
+        const T = 0.5;
+        const DELTA = 0.01;
+        let mx: number, my: number, angle: number;
+        if (curveType === 'cubic') {
+          mx = cubicBezier(T, sourceX, controlPoint.x, controlPoint2.x, targetX);
+          my = cubicBezier(T, sourceY, controlPoint.y, controlPoint2.y, targetY);
+          const nx = cubicBezier(T + DELTA, sourceX, controlPoint.x, controlPoint2.x, targetX);
+          const ny = cubicBezier(T + DELTA, sourceY, controlPoint.y, controlPoint2.y, targetY);
+          angle = Math.atan2(ny - my, nx - mx) * (180 / Math.PI);
+        } else {
+          mx = quadBezier(T, sourceX, controlPoint.x, targetX);
+          my = quadBezier(T, sourceY, controlPoint.y, targetY);
+          const nx = quadBezier(T + DELTA, sourceX, controlPoint.x, targetX);
+          const ny = quadBezier(T + DELTA, sourceY, controlPoint.y, targetY);
+          angle = Math.atan2(ny - my, nx - mx) * (180 / Math.PI);
+        }
+        return (
+          <polygon
+            points="-7,-5 0,0 -7,5"
+            fill={edgeStyle.stroke}
+            transform={`translate(${mx},${my}) rotate(${angle})`}
+            style={{ pointerEvents: 'none' }}
+          >
+            <animate attributeName="opacity" values="1;0.2;1" dur="1.5s" repeatCount="indefinite" />
+          </polygon>
+        );
+      })()}
 
       {/* Control point handles - only visible when selected */}
       {selected && (

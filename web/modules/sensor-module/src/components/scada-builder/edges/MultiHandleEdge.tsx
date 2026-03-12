@@ -48,13 +48,39 @@ const buildPath = (pts: Point[]): string => {
 };
 
 /**
- * Render arrow head at the end of the path, rotated based on last segment direction
+ * Compute the arrival angle at the endpoint by walking a fixed distance
+ * back along the polyline path. This produces a stable arrow direction
+ * that follows the overall line flow instead of snapping to the nearest
+ * dragged control point.
  */
+const ARROW_LOOKBACK = 30; // px to walk back along the path
+
+const getArrivalAngle = (pts: { x: number; y: number }[]): number => {
+  if (pts.length < 2) return 0;
+  const end = pts[pts.length - 1];
+  let remaining = ARROW_LOOKBACK;
+
+  for (let i = pts.length - 1; i > 0; i--) {
+    const cur = pts[i];
+    const prev = pts[i - 1];
+    const segLen = Math.sqrt((cur.x - prev.x) ** 2 + (cur.y - prev.y) ** 2);
+    if (segLen >= remaining && segLen > 0) {
+      // Interpolate a sample point on this segment
+      const t = remaining / segLen;
+      const sampleX = cur.x + t * (prev.x - cur.x);
+      const sampleY = cur.y + t * (prev.y - cur.y);
+      return Math.atan2(end.y - sampleY, end.x - sampleX) * (180 / Math.PI);
+    }
+    remaining -= segLen;
+  }
+  // Path shorter than lookback — use first→last
+  return Math.atan2(end.y - pts[0].y, end.x - pts[0].x) * (180 / Math.PI);
+};
+
 const renderArrow = (pts: Point[], color: string = '#374151'): JSX.Element | null => {
   if (pts.length < 2) return null;
   const end = pts[pts.length - 1];
-  const prev = pts[pts.length - 2];
-  const angle = Math.atan2(end.y - prev.y, end.x - prev.x) * (180 / Math.PI);
+  const angle = getArrivalAngle(pts);
   return (
     <polygon
       points="-12,-5 0,0 -12,5"

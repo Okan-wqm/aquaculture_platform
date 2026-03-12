@@ -275,15 +275,17 @@ const MultiHandleEdge: React.FC<EdgeProps<MultiHandleEdgeData>> = (props) => {
   /* ---------- Render ------------------------------- */
   return (
     <g className="react-flow__edge-multihandle">
-      {/* Invisible hit area for hover preview */}
+      {/* Combined hit area: hover preview + double-click to add point.
+          Rendered BEFORE control points so draggable circles stay on top. */}
       <path
         d={edgePath}
         fill="none"
         stroke="transparent"
         strokeWidth={HIT_AREA_WIDTH}
-        style={{ cursor: 'pointer' }}
+        style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
         onMouseMove={handlePathMouseMove}
         onMouseLeave={handlePathMouseLeave}
+        onDoubleClick={handlePathDoubleClick}
       />
 
       {/* Main visible path with P&ID styling */}
@@ -397,15 +399,6 @@ const MultiHandleEdge: React.FC<EdgeProps<MultiHandleEdgeData>> = (props) => {
         </text>
       )}
 
-      {/* Double-click hit area - rendered last for highest z-index over control points */}
-      <path
-        d={edgePath}
-        fill="none"
-        stroke="transparent"
-        strokeWidth={HIT_AREA_WIDTH}
-        style={{ cursor: 'crosshair', pointerEvents: 'stroke' }}
-        onDoubleClick={handlePathDoubleClick}
-      />
     </g>
   );
 };

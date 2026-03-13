@@ -38,9 +38,20 @@ function getGlowMode(statusKey: string): 'pulse-fast' | 'pulse' | 'steady' | 'no
 
 const StatusIndicatorRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
   const label = (config.label ?? 'Status') as string;
+  const activeColor = (config.activeColor as string) || null;
+  const inactiveColor = (config.inactiveColor as string) || '#9ca3af';
   const rawValue = isEditing ? (config.demoStatus ?? 'normal') : (value ?? 'offline');
   const statusKey = resolveStatus(rawValue);
-  const color = STATUS_COLORS[statusKey] ?? '#9ca3af';
+
+  // If activeColor is configured, use it for boolean true/numeric >=1, otherwise use STATUS_COLORS
+  let color: string;
+  if (activeColor && (statusKey === 'normal' || statusKey === 'ok')) {
+    color = activeColor;
+  } else if (statusKey === 'offline' && inactiveColor) {
+    color = inactiveColor;
+  } else {
+    color = STATUS_COLORS[statusKey] ?? '#9ca3af';
+  }
   const circleR = Math.min(width, height) * 0.22;
   const glowMode = getGlowMode(statusKey);
   const uid = useId().replace(/:/g, '_');

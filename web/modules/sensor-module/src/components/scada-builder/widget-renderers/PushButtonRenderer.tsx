@@ -9,6 +9,7 @@ import type { WidgetRendererProps } from '../WidgetRenderer';
 const PushButtonRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
   const label = (config.label ?? 'START') as string;
   const color = (config.color ?? '#3b82f6') as string;
+  const mode = (config.mode ?? 'momentary') as string; // 'momentary' | 'toggle'
   const pressed = isEditing ? false : Boolean(value);
 
   const btnSize = Math.min(width * 0.6, height * 0.55, 80);
@@ -16,8 +17,12 @@ const PushButtonRenderer: React.FC<WidgetRendererProps> = ({ config, value, widt
 
   const handlePress = useCallback(() => {
     if (isEditing) return;
-    onCommand?.('press', true);
-  }, [isEditing, onCommand]);
+    if (mode === 'toggle') {
+      onCommand?.('toggle', !value);
+    } else {
+      onCommand?.('press', true);
+    }
+  }, [isEditing, onCommand, mode, value]);
 
   return (
     <div

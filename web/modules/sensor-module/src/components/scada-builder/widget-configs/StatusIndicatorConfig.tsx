@@ -31,6 +31,52 @@ export const StatusIndicatorConfig: React.FC<WidgetConfigProps> = ({ config, onC
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>
+          <label className="block text-xs text-gray-500 mb-1">Aktif Renk</label>
+          <div className="flex gap-1">
+            {[
+              { label: 'Yeşil', value: '#22c55e' },
+              { label: 'Kırmızı', value: '#ef4444' },
+              { label: 'Sarı', value: '#eab308' },
+              { label: 'Mavi', value: '#3b82f6' },
+              { label: 'Turuncu', value: '#f97316' },
+            ].map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                title={c.label}
+                onClick={() => onChange({ activeColor: c.value })}
+                style={{
+                  width: 24, height: 24, borderRadius: '50%', background: c.value, border: config.activeColor === c.value ? '2px solid #111' : '2px solid transparent',
+                  cursor: 'pointer',
+                }}
+              />
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Pasif Renk</label>
+          <div className="flex gap-1">
+            {[
+              { label: 'Gri', value: '#9ca3af' },
+              { label: 'Koyu Gri', value: '#4b5563' },
+              { label: 'Kırmızı', value: '#ef4444' },
+            ].map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                title={c.label}
+                onClick={() => onChange({ inactiveColor: c.value })}
+                style={{
+                  width: 24, height: 24, borderRadius: '50%', background: c.value, border: config.inactiveColor === c.value ? '2px solid #111' : '2px solid transparent',
+                  cursor: 'pointer',
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
           <label className="block text-xs text-gray-500 mb-1">ON Label</label>
           <input
             type="text"

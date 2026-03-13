@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import {
   CreateProvisionedDeviceInput,
@@ -52,6 +52,7 @@ export class ProvisioningService {
   constructor(
     @InjectRepository(EdgeDevice)
     private readonly deviceRepository: Repository<EdgeDevice>,
+    private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
     private readonly mqttAuthService: MqttAuthService,
     private readonly installerScriptService: InstallerScriptService,
@@ -206,9 +207,7 @@ export class ProvisioningService {
    */
   async generateInstallerScript(deviceCode: string, provisioningToken: string): Promise<string> {
     // Find device by code (cross-tenant lookup for public endpoint)
-    const device = await this.deviceRepository.findOne({
-      where: { deviceCode },
-    });
+    const device = await this.findDeviceAcrossSchemas('device_code', deviceCode);
 
     if (!device) {
       throw new NotFoundException(`Device ${deviceCode} not found`);
@@ -255,10 +254,8 @@ export class ProvisioningService {
   ): Promise<DeviceActivationResponse> {
     const { deviceId, token, fingerprint, agentVersion } = request;
 
-    // Find device
-    const device = await this.deviceRepository.findOne({
-      where: { id: deviceId },
-    });
+    // Find device across all tenant schemas (public endpoint, no tenant context)
+    const device = await this.findDeviceAcrossSchemas('id', deviceId);
 
     if (!device) {
       this.logger.warn(`Activation failed: device ${deviceId} not found`);
@@ -322,7 +319,11 @@ export class ProvisioningService {
     const { password: mqttPassword, hash: mqttPasswordHash } = this.generateMqttCredentials();
 
     // Wrap in transaction to prevent partial activation
-    return await this.deviceRepository.manager.transaction(async (transactionalManager) => {
+    // Set search_path to the device's tenant schema so TypeORM writes to the correct schema
+    return await this.dataSource.transaction(async (transactionalManager) => {
+      const tenantSchema = this.getTenantSchemaFromId(device.tenantId);
+      await transactionalManager.query(`SET LOCAL search_path TO "${tenantSchema}", sensor, public`);
+
       // Update device
       device.tokenUsedAt = new Date();
       device.fingerprint = fingerprint;
@@ -392,12 +393,12 @@ export class ProvisioningService {
   }
 
   /**
-   * Get device by code (for installer endpoint)
+   * Get device by code (for installer endpoint).
+   * Searches across all tenant schemas because public provisioning
+   * endpoints have no tenant context (search_path defaults to sensor,public).
    */
   async getDeviceByCode(deviceCode: string): Promise<EdgeDevice | null> {
-    return this.deviceRepository.findOne({
-      where: { deviceCode },
-    });
+    return this.findDeviceAcrossSchemas('device_code', deviceCode);
   }
 
   /**
@@ -692,6 +693,94 @@ export class ProvisioningService {
       tenant_id: key.tenantId,
       mqtt_tls_enabled: config.mqttPort === 8883,
     };
+  }
+
+  // ============================================
+  // Tenant Schema Helpers
+  // ============================================
+
+  /**
+   * Derive tenant schema name from tenantId UUID.
+   * Formula: 'tenant_' + first 16 hex chars of UUID (dashes removed).
+   * Matches SchemaManagerService.getTenantSchemaName().
+   */
+  private getTenantSchemaFromId(tenantId: string): string {
+    const hex = tenantId.replace(/-/g, '').toLowerCase().substring(0, 16);
+    return `tenant_${hex}`;
+  }
+
+  // ============================================
+  // Cross-Schema Device Lookup (for public endpoints)
+  // ============================================
+
+  /**
+   * Find a device across all tenant schemas.
+   *
+   * Public provisioning endpoints (install, activate) have no tenant context,
+   * so search_path defaults to "sensor, public". But devices are stored in
+   * tenant-specific schemas (tenant_*). This method dynamically builds a
+   * UNION ALL query across all tenant schemas to find the device.
+   */
+  private async findDeviceAcrossSchemas(
+    column: 'device_code' | 'id',
+    value: string,
+  ): Promise<EdgeDevice | null> {
+    // 1. Get all tenant schemas
+    const schemas: { schema_name: string }[] = await this.dataSource.query(
+      `SELECT schema_name FROM information_schema.schemata WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'`,
+    );
+
+    if (schemas.length === 0) {
+      return null;
+    }
+
+    // 2. Build UNION ALL query across all tenant schemas
+    // Schema names are validated by the regex above (tenant_ + 16 hex chars only)
+    const unionParts = schemas.map(
+      (s) => `SELECT * FROM "${s.schema_name}".edge_devices WHERE ${column} = $1`,
+    );
+    const sql = `(${unionParts.join(' UNION ALL ')}) LIMIT 1`;
+
+    const rows = await this.dataSource.query(sql, [value]);
+
+    if (!rows || rows.length === 0) {
+      return null;
+    }
+
+    // 3. Map raw row to EdgeDevice entity (snake_case → camelCase)
+    return this.mapRowToEdgeDevice(rows[0]);
+  }
+
+  /**
+   * Map a raw database row (snake_case) to an EdgeDevice entity (camelCase).
+   * Only maps fields needed for provisioning operations.
+   */
+  private mapRowToEdgeDevice(row: Record<string, any>): EdgeDevice {
+    const device = new EdgeDevice();
+    device.id = row.id;
+    device.tenantId = row.tenant_id;
+    device.deviceCode = row.device_code;
+    device.deviceName = row.device_name;
+    device.deviceModel = row.device_model;
+    device.serialNumber = row.serial_number;
+    device.description = row.description;
+    device.siteId = row.site_id;
+    device.lifecycleState = row.lifecycle_state;
+    device.provisioningToken = row.provisioning_token;
+    device.tokenExpiresAt = row.token_expires_at ? new Date(row.token_expires_at) : undefined;
+    device.tokenUsedAt = row.token_used_at ? new Date(row.token_used_at) : undefined;
+    device.mqttClientId = row.mqtt_client_id;
+    device.mqttPasswordHash = row.mqtt_password_hash;
+    device.fingerprint = row.fingerprint;
+    device.agentVersion = row.agent_version;
+    device.isOnline = row.is_online;
+    device.lastSeenAt = row.last_seen_at ? new Date(row.last_seen_at) : undefined;
+    device.config = row.config;
+    device.securityLevel = row.security_level;
+    device.createdBy = row.created_by;
+    device.createdAt = row.created_at ? new Date(row.created_at) : undefined;
+    device.updatedAt = row.updated_at ? new Date(row.updated_at) : undefined;
+    return device;
   }
 
   // ============================================

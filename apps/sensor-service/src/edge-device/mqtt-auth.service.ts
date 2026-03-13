@@ -6,7 +6,7 @@ import { promisify } from 'util';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { EdgeDevice } from './entities/edge-device.entity';
 
@@ -65,6 +65,7 @@ export class MqttAuthService implements OnModuleInit {
     private readonly configService: ConfigService,
     @InjectRepository(EdgeDevice)
     private readonly deviceRepository: Repository<EdgeDevice>,
+    private readonly dataSource: DataSource,
   ) {
     this.authMode = this.configService.get<string>('MQTT_AUTH_MODE', 'file') as 'http' | 'file';
 
@@ -116,13 +117,15 @@ export class MqttAuthService implements OnModuleInit {
       return this.verifyPassword(password, serviceHash);
     }
 
-    // Look up device by mqttClientId
-    const device = await this.deviceRepository.findOne({
-      where: { mqttClientId: username },
-      select: ['id', 'mqttPasswordHash', 'lifecycleState'],
-    });
+    // Look up device by mqttClientId across all tenant schemas
+    const device = await this.findDeviceAcrossSchemas('mqtt_client_id', username);
 
-    if (!device || !device.mqttPasswordHash) {
+    if (!device) {
+      this.logger.debug(`MQTT auth: device not found for ${username}`);
+      return false;
+    }
+    if (!device.mqttPasswordHash) {
+      this.logger.debug(`MQTT auth: no password hash for ${username} (state=${device.lifecycleState})`);
       return false;
     }
 
@@ -132,7 +135,11 @@ export class MqttAuthService implements OnModuleInit {
       return false;
     }
 
-    return this.verifyPassword(password, device.mqttPasswordHash);
+    const valid = this.verifyPassword(password, device.mqttPasswordHash);
+    if (!valid) {
+      this.logger.debug(`MQTT auth: password mismatch for ${username} (state=${device.lifecycleState})`);
+    }
+    return valid;
   }
 
   /**
@@ -191,10 +198,7 @@ export class MqttAuthService implements OnModuleInit {
       let isOwnDevice = topicDeviceId === username;
       if (!isOwnDevice) {
         // Topic uses device UUID — verify the UUID belongs to this mqttClientId
-        const device = await this.deviceRepository.findOne({
-          where: { mqttClientId: username },
-          select: ['id'],
-        });
+        const device = await this.findDeviceAcrossSchemas('mqtt_client_id', username);
         isOwnDevice = !!device && device.id === topicDeviceId;
       }
 
@@ -298,10 +302,7 @@ export class MqttAuthService implements OnModuleInit {
       return cached.tenantId;
     }
 
-    const device = await this.deviceRepository.findOne({
-      where: { mqttClientId: username },
-      select: ['tenantId'],
-    });
+    const device = await this.findDeviceAcrossSchemas('mqtt_client_id', username);
 
     if (!device?.tenantId) {
       // Remove stale cache entry if device no longer exists
@@ -330,6 +331,58 @@ export class MqttAuthService implements OnModuleInit {
    */
   invalidateTenantCache(username: string): void {
     this.tenantIdCache.delete(username);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Cross-Schema Device Lookup
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Find a device across all tenant schemas by a given column.
+   * Devices are stored in tenant-specific schemas (tenant_*), not the default
+   * search_path. This builds a UNION ALL query across all tenant schemas.
+   */
+  private async findDeviceAcrossSchemas(
+    column: 'mqtt_client_id' | 'id',
+    value: string,
+  ): Promise<EdgeDevice | null> {
+    const schemas: { schema_name: string }[] = await this.dataSource.query(
+      `SELECT schema_name FROM information_schema.schemata WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'`,
+    );
+
+    if (schemas.length === 0) {
+      return null;
+    }
+
+    const unionParts = schemas.map(
+      (s) => `SELECT * FROM "${s.schema_name}".edge_devices WHERE "${column}" = $1`,
+    );
+    const sql = `(${unionParts.join(' UNION ALL ')}) LIMIT 1`;
+
+    const rows = await this.dataSource.query(sql, [value]);
+
+    if (!rows || rows.length === 0) {
+      return null;
+    }
+
+    return this.mapRowToEdgeDevice(rows[0]);
+  }
+
+  /**
+   * Map a raw database row (snake_case) to an EdgeDevice entity (camelCase).
+   */
+  private mapRowToEdgeDevice(row: Record<string, any>): EdgeDevice {
+    const device = new EdgeDevice();
+    device.id = row.id;
+    device.tenantId = row.tenant_id;
+    device.deviceCode = row.device_code;
+    device.deviceName = row.device_name;
+    device.lifecycleState = row.lifecycle_state;
+    device.mqttClientId = row.mqtt_client_id;
+    device.mqttPasswordHash = row.mqtt_password_hash;
+    device.isOnline = row.is_online;
+    device.lastSeenAt = row.last_seen_at ? new Date(row.last_seen_at) : undefined;
+    return device;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -453,10 +506,7 @@ export class MqttAuthService implements OnModuleInit {
    */
   async hasCredentials(username: string): Promise<boolean> {
     if (this.authMode === 'http') {
-      const device = await this.deviceRepository.findOne({
-        where: { mqttClientId: username },
-        select: ['id', 'mqttPasswordHash'],
-      });
+      const device = await this.findDeviceAcrossSchemas('mqtt_client_id', username);
       return !!device?.mqttPasswordHash;
     }
 

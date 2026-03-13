@@ -329,7 +329,7 @@ export class ProvisioningService {
       device.fingerprint = fingerprint;
       device.agentVersion = agentVersion;
       device.mqttPasswordHash = mqttPasswordHash;
-      device.lifecycleState = DeviceLifecycleState.PROVISIONING;
+      device.lifecycleState = DeviceLifecycleState.ACTIVE;
       device.isOnline = false; // Will be set to true when MQTT heartbeat arrives
 
       // Clear the token from database (single-use)

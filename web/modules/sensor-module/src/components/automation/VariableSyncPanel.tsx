@@ -118,10 +118,10 @@ function compareVariables(
       // Check for differences
       const changes: string[] = [];
       if (reg.dataType.toUpperCase() !== det.dataType.toUpperCase()) {
-        changes.push(`Tip: ${reg.dataType} -> ${det.dataType}`);
+        changes.push(`Type: ${reg.dataType} -> ${det.dataType}`);
       }
       if (reg.scope.toUpperCase() !== det.scope.toUpperCase()) {
-        changes.push(`Kapsam: ${reg.scope} -> ${det.scope}`);
+        changes.push(`Scope: ${reg.scope} -> ${det.scope}`);
       }
 
       if (changes.length > 0) {
@@ -176,9 +176,9 @@ function scopeLabel(scope: string): string {
 const StatusBadge: React.FC<{ status: SyncStatus }> = ({ status }) => {
   const config: Record<SyncStatus, { bg: string; text: string; label: string }> = {
     missing: { bg: 'bg-blue-50', text: 'text-blue-700', label: 'Yeni' },
-    orphaned: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'Yetim' },
-    synced: { bg: 'bg-green-50', text: 'text-green-700', label: 'Eslesmis' },
-    changed: { bg: 'bg-orange-50', text: 'text-orange-700', label: 'Degismis' },
+    orphaned: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'Orphaned' },
+    synced: { bg: 'bg-green-50', text: 'text-green-700', label: 'Synced' },
+    changed: { bg: 'bg-orange-50', text: 'text-orange-700', label: 'Changed' },
   };
 
   const { bg, text, label } = config[status];
@@ -294,7 +294,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
         <div className="flex items-center gap-2 text-sm text-gray-500">
           <Code className="h-4 w-4" />
           <span>
-            ST kodu yazildiginda degiskenler otomatik olarak tespit edilecektir.
+            Variables will be automatically detected when ST code is written.
           </span>
         </div>
       </div>
@@ -309,7 +309,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
         <div className="flex items-center gap-2 text-sm text-gray-500">
           <Code className="h-4 w-4" />
           <span>
-            ST kodunda degisken tanimlamasi bulunamadi. VAR bloku ekleyerek degisken tanimlayin.
+            No variable declarations found in ST code. Define variables by adding a VAR block.
           </span>
         </div>
       </div>
@@ -330,7 +330,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
         )}
         <Zap className="h-4 w-4 text-indigo-500 flex-shrink-0" />
         <span className="text-sm font-medium text-gray-700">
-          Koddan Tespit Edilen Degiskenler
+          Variables Detected from Code
         </span>
 
         {/* Summary badges */}
@@ -338,29 +338,29 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
           {missingCount > 0 && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
               <Plus className="h-3 w-3" />
-              {missingCount} yeni
+              {missingCount} new
             </span>
           )}
           {changedCount > 0 && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">
               <RefreshCw className="h-3 w-3" />
-              {changedCount} degismis
+              {changedCount} changed
             </span>
           )}
           {orphanedCount > 0 && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">
               <AlertTriangle className="h-3 w-3" />
-              {orphanedCount} yetim
+              {orphanedCount} orphaned
             </span>
           )}
           {!hasIssues && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
               <Check className="h-3 w-3" />
-              Senkron
+              In Sync
             </span>
           )}
           <span className="text-xs text-gray-400">
-            {detectedVars.length} degisken
+            {detectedVars.length} variables
           </span>
         </div>
       </button>
@@ -371,13 +371,13 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
           <div className="flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
             <div className="text-xs text-amber-700">
-              <span className="font-medium">Ayristirma uyarilari:</span>
+              <span className="font-medium">Parse warnings:</span>
               <ul className="mt-1 space-y-0.5">
                 {parseErrors.slice(0, 5).map((err: { message: string; line: number; col: number }, i: number) => (
-                  <li key={i}>Satir {err.line}: {err.message}</li>
+                  <li key={i}>Line {err.line}: {err.message}</li>
                 ))}
                 {parseErrors.length > 5 && (
-                  <li>...ve {parseErrors.length - 5} uyari daha</li>
+                  <li>...and {parseErrors.length - 5} more warnings</li>
                 )}
               </ul>
             </div>
@@ -389,12 +389,12 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
       {expanded && hasIssues && (
         <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 border-b border-blue-200">
           <span className="text-xs text-blue-700">
-            {missingCount > 0 && `${missingCount} yeni`}
+            {missingCount > 0 && `${missingCount} new`}
             {missingCount > 0 && (changedCount > 0 || orphanedCount > 0) && ', '}
-            {changedCount > 0 && `${changedCount} degismis`}
+            {changedCount > 0 && `${changedCount} changed`}
             {changedCount > 0 && orphanedCount > 0 && ', '}
-            {orphanedCount > 0 && `${orphanedCount} yetim`}
-            {' '}degisken tespit edildi.
+            {orphanedCount > 0 && `${orphanedCount} orphaned`}
+            {' '}variables detected.
           </span>
           <div className="ml-auto flex items-center gap-2">
             {missingCount > 0 && !onSyncAll && (
@@ -408,7 +408,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
                 ) : (
                   <Plus className="h-3 w-3" />
                 )}
-                Tumunu Ekle
+                Add All
               </button>
             )}
             {onSyncAll && (
@@ -422,7 +422,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
                 ) : (
                   <RefreshCw className="h-3 w-3" />
                 )}
-                Tumunu Senkronize Et
+                Sync All
               </button>
             )}
           </div>
@@ -434,11 +434,11 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
         <div className="flex items-center gap-2 px-4 py-2 bg-green-50 border-b border-green-200">
           <Check className="h-3.5 w-3.5 text-green-600 flex-shrink-0" />
           <span className="text-xs text-green-700">
-            Senkronizasyon tamamlandi:
-            {syncResult.added > 0 && ` ${syncResult.added} eklendi`}
-            {syncResult.updated > 0 && ` ${syncResult.updated} guncellendi`}
-            {syncResult.removed > 0 && ` ${syncResult.removed} kaldirildi`}
-            {syncResult.unchanged > 0 && ` ${syncResult.unchanged} degismedi`}
+            Sync complete:
+            {syncResult.added > 0 && ` ${syncResult.added} added`}
+            {syncResult.updated > 0 && ` ${syncResult.updated} updated`}
+            {syncResult.removed > 0 && ` ${syncResult.removed} removed`}
+            {syncResult.unchanged > 0 && ` ${syncResult.unchanged} unchanged`}
           </span>
         </div>
       )}
@@ -453,7 +453,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
                   Durum
                 </th>
                 <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Degisken Adi
+                  Variable Name
                 </th>
                 <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
                   Tip
@@ -503,10 +503,10 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
                     <td className="px-4 py-2 text-sm text-gray-600">{scopeLabel(scope)}</td>
                     <td className="px-4 py-2 text-xs text-gray-500">
                       {item.status === 'missing' && (
-                        <span className="text-blue-600">Kodda var, DB'de yok</span>
+                        <span className="text-blue-600">In code, not in DB</span>
                       )}
                       {item.status === 'orphaned' && (
-                        <span className="text-amber-600">DB'de var, kodda yok</span>
+                        <span className="text-amber-600">In DB, not in code</span>
                       )}
                       {item.status === 'changed' && item.changes && (
                         <span className="text-orange-600">{item.changes.join('; ')}</span>
@@ -514,7 +514,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
                       {item.status === 'synced' && (
                         <span className="text-green-600">
                           <Check className="h-3 w-3 inline mr-0.5" />
-                          Eslesmis
+                          Synced
                         </span>
                       )}
                     </td>
@@ -555,7 +555,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
               {comparison.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-400">
-                    Karsilastirilacak degisken bulunamadi.
+                    No variables to compare.
                   </td>
                 </tr>
               )}

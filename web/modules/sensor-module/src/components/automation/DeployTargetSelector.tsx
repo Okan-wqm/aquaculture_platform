@@ -1,5 +1,5 @@
 /**
- * Deploy Target Selector - Choose between Yol A/B/C deployment targets
+ * Deploy Target Selector - Choose between Path A/B/C deployment targets
  */
 
 import React from 'react';
@@ -29,24 +29,24 @@ const targets = [
   {
     value: DeployTarget.RUST_ENGINE,
     label: 'Rust Engine',
-    sublabel: 'Yol A',
-    description: 'Dahili Rust betik motoru - PLC gerektirmez',
+    sublabel: 'Path A',
+    description: 'Built-in Rust scripting engine - no PLC required',
     icon: Cpu,
     color: 'indigo',
   },
   {
     value: DeployTarget.CODESYS_PLC,
     label: 'Codesys PLC',
-    sublabel: 'Yol B',
-    description: 'Codesys V3 tabanli PLC - ST kaynak kodu gonderilir, cihaz uzerinde derlenir',
+    sublabel: 'Path B',
+    description: 'Codesys V3 based PLC - ST source code is sent and compiled on the device',
     icon: Server,
     color: 'emerald',
   },
   {
     value: DeployTarget.PLC_SETPOINT,
     label: 'PLC Setpoint',
-    sublabel: 'Yol C',
-    description: 'Kapali PLC - sadece setpoint yazma (OPC-UA, Modbus, S7comm)',
+    sublabel: 'Path C',
+    description: 'Closed PLC - setpoint writing only (OPC-UA, Modbus, S7comm)',
     icon: Settings2,
     color: 'amber',
   },
@@ -66,7 +66,7 @@ const plcModelOptions = [
   { value: 'festo_cpx_e', label: 'Festo CPX-E' },
   { value: 'schneider_m241', label: 'Schneider M241' },
   { value: 'schneider_m251', label: 'Schneider M251' },
-  { value: 'other', label: 'Diger Codesys V3 Runtime' },
+  { value: 'other', label: 'Other Codesys V3 Runtime' },
 ];
 
 const colorStyles: Record<string, { active: string; inactive: string; icon: string; iconInactive: string; badge: string; badgeInactive: string; dot: string }> = {
@@ -149,11 +149,11 @@ const DeployTargetSelector: React.FC<DeployTargetSelectorProps> = ({
       {showPlcConfig && (
         <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
           <h4 className="text-sm font-medium text-gray-700 mb-3">
-            PLC Baglanti Ayarlari
+            PLC Connection Settings
           </h4>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="plc-ip-address" className="block text-xs text-gray-500 mb-1">IP Adresi</label>
+              <label htmlFor="plc-ip-address" className="block text-xs text-gray-500 mb-1">IP Address</label>
               <input
                 id="plc-ip-address"
                 type="text"
@@ -176,14 +176,14 @@ const DeployTargetSelector: React.FC<DeployTargetSelectorProps> = ({
             </div>
             {value === DeployTarget.CODESYS_PLC && (
               <div>
-                <label htmlFor="plc-model" className="block text-xs text-gray-500 mb-1">PLC Modeli</label>
+                <label htmlFor="plc-model" className="block text-xs text-gray-500 mb-1">PLC Model</label>
                 <select
                   id="plc-model"
                   value={plcConfig.targetPlcModel || ''}
                   onChange={(e) => onPlcConfigChange({ ...plcConfig, targetPlcModel: e.target.value })}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white"
                 >
-                  <option value="">Sec...</option>
+                  <option value="">Select...</option>
                   {plcModelOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
@@ -191,7 +191,7 @@ const DeployTargetSelector: React.FC<DeployTargetSelectorProps> = ({
               </div>
             )}
             <div>
-              <label htmlFor="plc-protocol" className="block text-xs text-gray-500 mb-1">Protokol</label>
+              <label htmlFor="plc-protocol" className="block text-xs text-gray-500 mb-1">Protocol</label>
               <select
                 id="plc-protocol"
                 aria-label="PLC communication protocol"
@@ -199,7 +199,7 @@ const DeployTargetSelector: React.FC<DeployTargetSelectorProps> = ({
                 onChange={(e) => onPlcConfigChange({ ...plcConfig, targetPlcProtocol: e.target.value })}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white"
               >
-                <option value="">Sec...</option>
+                <option value="">Select...</option>
                 {(value === DeployTarget.CODESYS_PLC
                   ? protocolOptions.filter((p) => p.value === 'codesys_v3')
                   : protocolOptions.filter((p) => p.value !== 'codesys_v3')

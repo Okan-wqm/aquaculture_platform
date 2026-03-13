@@ -100,7 +100,7 @@ const getStatusIcon = (status: ProgramStatus) => {
 
 const formatDate = (dateStr?: string): string => {
   if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleDateString('tr-TR', {
+  return new Date(dateStr).toLocaleDateString('en-US', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
@@ -158,26 +158,26 @@ const ProgramCard: React.FC<{
                 onClick={() => { navigate(`/sensor/automation/${program.id}`); setShowMenu(false); }}
                 className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
               >
-                <Edit className="h-4 w-4" /> Duzenle
+                <Edit className="h-4 w-4" /> Edit
               </button>
               <button
                 onClick={() => { onClone(); setShowMenu(false); }}
                 className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
               >
-                <Copy className="h-4 w-4" /> Kopyala
+                <Copy className="h-4 w-4" /> Clone
               </button>
               <button
                 onClick={() => { onArchive(); setShowMenu(false); }}
                 className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
               >
-                <Archive className="h-4 w-4" /> Arsivle
+                <Archive className="h-4 w-4" /> Archive
               </button>
               <hr className="my-1 border-gray-200" />
               <button
                 onClick={() => { onDelete(); setShowMenu(false); }}
                 className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
               >
-                <Trash2 className="h-4 w-4" /> Sil
+                <Trash2 className="h-4 w-4" /> Delete
               </button>
             </div>
           )}
@@ -214,22 +214,22 @@ const ProgramCard: React.FC<{
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-100 hover:bg-green-200 rounded-lg transition-colors"
           >
             <ThumbsUp className="h-3.5 w-3.5" />
-            Onayla
+            Approve
           </button>
           <button
             onClick={onReject}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 rounded-lg transition-colors"
           >
             <ThumbsDown className="h-3.5 w-3.5" />
-            Reddet
+            Reject
           </button>
         </div>
       )}
 
       <div className="flex items-center justify-between text-xs text-gray-500 pt-3 border-t border-gray-100">
         <div className="flex items-center gap-3">
-          <span>{program.stepCount ?? 0} adim</span>
-          <span>{program.variableCount ?? 0} degisken</span>
+          <span>{program.stepCount ?? 0} steps</span>
+          <span>{program.variableCount ?? 0} variables</span>
         </div>
         <span>{formatDate(program.updatedAt)}</span>
       </div>
@@ -283,14 +283,14 @@ const ProgramRow: React.FC<{
               <button
                 onClick={onApprove}
                 className="p-1.5 rounded hover:bg-green-100"
-                title="Onayla"
+                title="Approve"
               >
                 <ThumbsUp className="h-4 w-4 text-green-600" />
               </button>
               <button
                 onClick={onReject}
                 className="p-1.5 rounded hover:bg-red-100"
-                title="Reddet"
+                title="Reject"
               >
                 <ThumbsDown className="h-4 w-4 text-red-500" />
               </button>
@@ -299,28 +299,28 @@ const ProgramRow: React.FC<{
           <button
             onClick={() => navigate(`/sensor/automation/${program.id}`)}
             className="p-1.5 rounded hover:bg-gray-100"
-            title="Duzenle"
+            title="Edit"
           >
             <Edit className="h-4 w-4 text-gray-500" />
           </button>
           <button
             onClick={onClone}
             className="p-1.5 rounded hover:bg-gray-100"
-            title="Kopyala"
+            title="Clone"
           >
             <Copy className="h-4 w-4 text-gray-500" />
           </button>
           <button
             onClick={onArchive}
             className="p-1.5 rounded hover:bg-gray-100"
-            title="Arsivle"
+            title="Archive"
           >
             <Archive className="h-4 w-4 text-gray-500" />
           </button>
           <button
             onClick={onDelete}
             className="p-1.5 rounded hover:bg-red-100"
-            title="Sil"
+            title="Delete"
           >
             <Trash2 className="h-4 w-4 text-red-500" />
           </button>
@@ -439,7 +439,7 @@ const AutomationProgramsPage: React.FC = () => {
   };
 
   const handleDelete = (program: AutomationProgram) => {
-    if (window.confirm(`"${program.programName}" programini silmek istediginize emin misiniz?`)) {
+    if (window.confirm(`Are you sure you want to delete "${program.programName}"?`)) {
       deleteMutation.mutate(program.id);
     }
   };
@@ -449,13 +449,13 @@ const AutomationProgramsPage: React.FC = () => {
   };
 
   const handleApprove = (program: AutomationProgram) => {
-    if (window.confirm(`"${program.programName}" programini onaylamak istediginize emin misiniz?`)) {
+    if (window.confirm(`Are you sure you want to approve "${program.programName}"?`)) {
       approveMutation.mutate(program.id);
     }
   };
 
   const handleReject = (program: AutomationProgram) => {
-    const reason = window.prompt(`"${program.programName}" programini reddetme sebebi:`);
+    const reason = window.prompt(`Reason for rejecting "${program.programName}":`);
     if (reason !== null && reason.trim()) {
       rejectMutation.mutate({ id: program.id, reason: reason.trim() });
     }
@@ -468,10 +468,10 @@ const AutomationProgramsPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Workflow className="h-6 w-6 text-indigo-600" />
-            Otomasyon Programlari
+            Automation Programs
           </h1>
           <p className="text-gray-500 mt-1">
-            IEC 61131-3 uyumlu otomasyon programlarini yonetin
+            Manage IEC 61131-3 compliant automation programs
           </p>
         </div>
         <button
@@ -479,18 +479,18 @@ const AutomationProgramsPage: React.FC = () => {
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
         >
           <Plus className="h-4 w-4" />
-          Yeni Program
+          New Program
         </button>
       </div>
 
       {/* Stats */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-          <StatCard label="Toplam" value={stats.total} color="bg-gray-100 text-gray-900" />
-          <StatCard label="Taslak" value={stats.byStatus?.draft ?? 0} color="bg-gray-100 text-gray-700" />
-          <StatCard label="Onaylandi" value={stats.byStatus?.approved ?? 0} color="bg-blue-100 text-blue-700" />
-          <StatCard label="Devrede" value={stats.byStatus?.deployed ?? 0} color="bg-green-100 text-green-700" />
-          <StatCard label="Inceleniyor" value={stats.byStatus?.pending_review ?? 0} color="bg-yellow-100 text-yellow-700" />
+          <StatCard label="Total" value={stats.total} color="bg-gray-100 text-gray-900" />
+          <StatCard label="Draft" value={stats.byStatus?.draft ?? 0} color="bg-gray-100 text-gray-700" />
+          <StatCard label="Approved" value={stats.byStatus?.approved ?? 0} color="bg-blue-100 text-blue-700" />
+          <StatCard label="Deployed" value={stats.byStatus?.deployed ?? 0} color="bg-green-100 text-green-700" />
+          <StatCard label="Pending Review" value={stats.byStatus?.pending_review ?? 0} color="bg-yellow-100 text-yellow-700" />
         </div>
       )}
 
@@ -500,7 +500,7 @@ const AutomationProgramsPage: React.FC = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Program ara..."
+            placeholder="Search programs..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg bg-white text-gray-900"
@@ -512,7 +512,7 @@ const AutomationProgramsPage: React.FC = () => {
           onChange={(e) => { setStatusFilter(e.target.value as ProgramStatus | ''); setPage(1); }}
           className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900"
         >
-          <option value="">Tum Durumlar</option>
+          <option value="">All Statuses</option>
           {Object.values(ProgramStatus).map((status) => (
             <option key={status} value={status}>
               {getStatusText(status)}
@@ -525,7 +525,7 @@ const AutomationProgramsPage: React.FC = () => {
           onChange={(e) => { setTypeFilter(e.target.value as ProgramType | ''); setPage(1); }}
           className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900"
         >
-          <option value="">Tum Tipler</option>
+          <option value="">All Types</option>
           {Object.values(ProgramType).map((type) => (
             <option key={type} value={type}>
               {getProgramTypeText(type)}
@@ -565,34 +565,34 @@ const AutomationProgramsPage: React.FC = () => {
         <div className="text-center py-12 bg-red-50 rounded-lg">
           <AlertCircle className="h-12 w-12 mx-auto text-red-400 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">
-            Programlar yuklenemedi
+            Failed to load programs
           </h3>
           <p className="text-red-600 text-sm mb-4">
-            {error instanceof Error ? error.message : 'Bilinmeyen hata'}
+            {error instanceof Error ? error.message : 'Unknown error'}
           </p>
           <button
             onClick={() => refetch()}
             className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
           >
             <RefreshCw className="h-4 w-4" />
-            Tekrar Dene
+            Retry
           </button>
         </div>
       ) : filteredPrograms.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 rounded-lg">
           <Workflow className="h-12 w-12 mx-auto text-gray-400 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">
-            Program bulunamadi
+            No programs found
           </h3>
           <p className="text-gray-500 mb-4">
-            Yeni bir otomasyon programi olusturun
+            Create a new automation program
           </p>
           <button
             onClick={() => navigate('/sensor/automation/new')}
             className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
           >
             <Plus className="h-4 w-4" />
-            Yeni Program
+            New Program
           </button>
         </div>
       ) : viewMode === 'grid' ? (
@@ -615,12 +615,12 @@ const AutomationProgramsPage: React.FC = () => {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Program</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tip</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Versiyon</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Adimlar</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Guncelleme</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Islemler</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Steps</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Updated</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -645,8 +645,8 @@ const AutomationProgramsPage: React.FC = () => {
         <div className="flex items-center justify-between mt-6 px-1">
           <span className="text-sm text-gray-500">
             {totalPrograms > 0
-              ? `${(page - 1) * limit + 1} - ${Math.min(page * limit, totalPrograms)} / ${totalPrograms} program`
-              : `${filteredPrograms.length} program`}
+              ? `${(page - 1) * limit + 1} - ${Math.min(page * limit, totalPrograms)} / ${totalPrograms} programs`
+              : `${filteredPrograms.length} programs`}
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -655,7 +655,7 @@ const AutomationProgramsPage: React.FC = () => {
               className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <ChevronLeft className="h-4 w-4" />
-              Onceki
+              Previous
             </button>
             <span className="text-sm text-gray-700 px-2">
               {page} / {totalPages}
@@ -665,7 +665,7 @@ const AutomationProgramsPage: React.FC = () => {
               disabled={isLastPage}
               className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Sonraki
+              Next
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>

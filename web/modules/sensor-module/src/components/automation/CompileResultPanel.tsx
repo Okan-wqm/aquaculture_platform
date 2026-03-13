@@ -50,7 +50,7 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
     return (
       <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-lg border border-gray-200">
         <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
-        <span className="text-sm text-gray-600">ST kodu dogrulanıyor...</span>
+        <span className="text-sm text-gray-600">Validating ST code...</span>
       </div>
     );
   }
@@ -79,11 +79,11 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
           <AlertCircle className="h-4 w-4 text-red-500" />
         )}
         <span className={`text-sm font-medium ${result.valid ? 'text-green-700' : 'text-red-700'}`}>
-          {result.valid ? 'Dogrulama basarili' : 'Dogrulama hatasi'}
+          {result.valid ? 'Validation successful' : 'Validation failed'}
         </span>
         <span className="text-xs text-gray-500 ml-auto">
-          {result.errors.length} hata, {result.warnings.length} uyari
-          {result.parsedSymbols !== undefined && `, ${result.parsedSymbols} sembol`}
+          {result.errors.length} errors, {result.warnings.length} warnings
+          {result.parsedSymbols !== undefined && `, ${result.parsedSymbols} symbols`}
         </span>
       </div>
 

@@ -40,12 +40,12 @@ export const getStatusColor = (status: ProgramStatus): string => {
 
 export const getStatusText = (status: ProgramStatus): string => {
   const texts: Record<ProgramStatus, string> = {
-    [ProgramStatus.DRAFT]: 'Taslak',
-    [ProgramStatus.PENDING_REVIEW]: 'Inceleniyor',
-    [ProgramStatus.APPROVED]: 'Onaylandi',
-    [ProgramStatus.DEPLOYING]: 'Yukleniyor',
-    [ProgramStatus.DEPLOYED]: 'Devrede',
-    [ProgramStatus.ARCHIVED]: 'Arsivlendi',
+    [ProgramStatus.DRAFT]: 'Draft',
+    [ProgramStatus.PENDING_REVIEW]: 'Pending Review',
+    [ProgramStatus.APPROVED]: 'Approved',
+    [ProgramStatus.DEPLOYING]: 'Deploying',
+    [ProgramStatus.DEPLOYED]: 'Deployed',
+    [ProgramStatus.ARCHIVED]: 'Archived',
   };
   return texts[status] || status;
 };

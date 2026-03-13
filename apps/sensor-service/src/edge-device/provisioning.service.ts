@@ -778,8 +778,8 @@ export class ProvisioningService {
     device.config = row.config;
     device.securityLevel = row.security_level;
     device.createdBy = row.created_by;
-    device.createdAt = row.created_at ? new Date(row.created_at) : undefined;
-    device.updatedAt = row.updated_at ? new Date(row.updated_at) : undefined;
+    device.createdAt = new Date(row.created_at);
+    device.updatedAt = new Date(row.updated_at);
     return device;
   }
 

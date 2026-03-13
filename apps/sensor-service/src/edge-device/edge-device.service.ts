@@ -583,15 +583,26 @@ export class EdgeDeviceService implements OnModuleDestroy {
     // Device identifier from MQTT topic can be either deviceCode (e.g. "PI-A36C09D4")
     // or device UUID (e.g. "0cfb7dad-..."). The edge agent uses UUID in topic paths.
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(heartbeat.deviceCode);
-    const whereCondition: Record<string, unknown> = isUuid
-      ? { id: heartbeat.deviceCode }
-      : { deviceCode: heartbeat.deviceCode };
-    if (heartbeat.tenantId) {
-      whereCondition.tenantId = heartbeat.tenantId;
+
+    // Use tenant-scoped query when tenantId is available (MQTT listener always provides it)
+    let device: EdgeDevice | null = null;
+    const tenantSchema = heartbeat.tenantId ? this.getTenantSchemaFromId(heartbeat.tenantId) : null;
+
+    if (tenantSchema) {
+      const column = isUuid ? 'id' : 'device_code';
+      const rows = await this.dataSource.query(
+        `SELECT * FROM "${tenantSchema}".edge_devices WHERE "${column}" = $1 LIMIT 1`,
+        [heartbeat.deviceCode],
+      );
+      if (rows && rows.length > 0) {
+        device = this.mapRowToEdgeDevice(rows[0]);
+      }
+    } else {
+      const whereCondition: Record<string, unknown> = isUuid
+        ? { id: heartbeat.deviceCode }
+        : { deviceCode: heartbeat.deviceCode };
+      device = await this.deviceRepository.findOne({ where: whereCondition });
     }
-    const device = await this.deviceRepository.findOne({
-      where: whereCondition,
-    });
 
     if (!device) {
       this.logger.warn(`Heartbeat from unknown device: ${heartbeat.deviceCode}`);
@@ -644,6 +655,28 @@ export class EdgeDeviceService implements OnModuleDestroy {
     } else if (!heartbeat.isOnline && device.lifecycleState === DeviceLifecycleState.ACTIVE) {
       // Transition to OFFLINE when device goes offline while in ACTIVE state
       device.lifecycleState = DeviceLifecycleState.OFFLINE;
+    }
+
+    // Save using tenant-scoped query when available
+    if (tenantSchema) {
+      await this.dataSource.query(
+        `UPDATE "${tenantSchema}".edge_devices SET
+          last_seen_at = $2, is_online = $3, lifecycle_state = $4,
+          cpu_usage = COALESCE($5, cpu_usage), memory_usage = COALESCE($6, memory_usage),
+          storage_usage = COALESCE($7, storage_usage), temperature_celsius = COALESCE($8, temperature_celsius),
+          uptime_seconds = COALESCE($9, uptime_seconds), firmware_version = COALESCE($10, firmware_version),
+          ip_address = COALESCE($11, ip_address), connection_quality = $12,
+          updated_at = NOW()
+        WHERE id = $1`,
+        [
+          device.id, device.lastSeenAt, device.isOnline, device.lifecycleState,
+          device.cpuUsage ?? null, device.memoryUsage ?? null,
+          device.storageUsage ?? null, device.temperatureCelsius ?? null,
+          device.uptimeSeconds ?? null, device.firmwareVersion ?? null,
+          device.ipAddress ?? null, device.connectionQuality,
+        ],
+      );
+      return device;
     }
 
     return await this.deviceRepository.save(device);
@@ -2278,6 +2311,43 @@ export class EdgeDeviceService implements OnModuleDestroy {
     if (update.devAddr) device.devAddr = update.devAddr;
 
     await this.loraDeviceRepository.save(device);
+  }
+
+  // ==================== Tenant Schema Helpers ====================
+
+  private getTenantSchemaFromId(tenantId: string): string {
+    const hex = tenantId.replace(/-/g, '').toLowerCase().substring(0, 16);
+    return `tenant_${hex}`;
+  }
+
+  private mapRowToEdgeDevice(row: Record<string, any>): EdgeDevice {
+    const device = new EdgeDevice();
+    device.id = row.id;
+    device.tenantId = row.tenant_id;
+    device.deviceCode = row.device_code;
+    device.deviceName = row.device_name;
+    device.deviceModel = row.device_model;
+    device.serialNumber = row.serial_number;
+    device.description = row.description;
+    device.siteId = row.site_id;
+    device.lifecycleState = row.lifecycle_state;
+    device.mqttClientId = row.mqtt_client_id;
+    device.mqttPasswordHash = row.mqtt_password_hash;
+    device.isOnline = row.is_online;
+    device.lastSeenAt = row.last_seen_at ? new Date(row.last_seen_at) : undefined;
+    device.cpuUsage = row.cpu_usage;
+    device.memoryUsage = row.memory_usage;
+    device.storageUsage = row.storage_usage;
+    device.temperatureCelsius = row.temperature_celsius;
+    device.uptimeSeconds = row.uptime_seconds;
+    device.firmwareVersion = row.firmware_version;
+    device.targetFirmwareVersion = row.target_firmware_version;
+    device.ipAddress = row.ip_address;
+    device.connectionQuality = row.connection_quality;
+    device.fingerprint = row.fingerprint;
+    device.agentVersion = row.agent_version;
+    device.config = row.config;
+    return device;
   }
 }
 

@@ -233,19 +233,19 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
         <>
           <MenuItem
             icon={<Scissors className="h-4 w-4" />}
-            label="Kes"
+            label="Cut"
             shortcut="Ctrl+X"
             onClick={handleCut}
           />
           <MenuItem
             icon={<Copy className="h-4 w-4" />}
-            label="Kopyala"
+            label="Copy"
             shortcut="Ctrl+C"
             onClick={handleCopy}
           />
           <MenuItem
             icon={<ClipboardPaste className="h-4 w-4" />}
-            label="Yapıştır"
+            label="Paste"
             shortcut="Ctrl+V"
             disabled={!hasClipboard}
             onClick={handlePaste}
@@ -253,12 +253,12 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
           <Separator />
           <MenuItem
             icon={<ArrowUpToLine className="h-4 w-4" />}
-            label="Öne Getir"
+            label="Bring to Front"
             onClick={handleBringToFront}
           />
           <MenuItem
             icon={<ArrowDownToLine className="h-4 w-4" />}
-            label="Arkaya Gönder"
+            label="Send to Back"
             onClick={handleSendToBack}
           />
           {/* Group/Ungroup */}
@@ -266,7 +266,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
           {selectedWidgetIds.length >= 2 && (
             <MenuItem
               icon={<Group className="h-4 w-4" />}
-              label="Grupla"
+              label="Group"
               shortcut="Ctrl+G"
               onClick={handleGroup}
             />
@@ -274,7 +274,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
           {currentGroupId && (
             <MenuItem
               icon={<Ungroup className="h-4 w-4" />}
-              label="Grubu Çöz"
+              label="Ungroup"
               shortcut="Ctrl+Shift+G"
               onClick={handleUngroup}
             />
@@ -282,19 +282,19 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
           {/* Lock/Unlock */}
           <MenuItem
             icon={isLocked ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
-            label={isLocked ? "Kilidi Aç" : "Kilitle"}
+            label={isLocked ? "Unlock" : "Lock"}
             shortcut="Ctrl+L"
             onClick={handleToggleLock}
           />
           <MenuItem
             icon={<Bookmark className="h-4 w-4" />}
-            label="Sablon Olarak Kaydet"
+            label="Save as Template"
             onClick={handleSaveAsTemplate}
           />
           <Separator />
           <MenuItem
             icon={<Trash2 className="h-4 w-4" />}
-            label="Sil"
+            label="Delete"
             shortcut="Del"
             onClick={handleDeleteWidget}
           />
@@ -304,7 +304,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
       {target === 'edge' && (
         <MenuItem
           icon={<Trash2 className="h-4 w-4" />}
-          label="Sil"
+          label="Delete"
           onClick={handleDeleteEdge}
         />
       )}
@@ -313,14 +313,14 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
         <>
           <MenuItem
             icon={<ClipboardPaste className="h-4 w-4" />}
-            label="Yapıştır"
+            label="Paste"
             shortcut="Ctrl+V"
             disabled={!hasClipboard}
             onClick={handlePaste}
           />
           <MenuItem
             icon={<MousePointer className="h-4 w-4" />}
-            label="Tümünü Seç"
+            label="Select All"
             shortcut="Ctrl+A"
             onClick={() => {
               useScadaStore.getState().selectAllWidgets();

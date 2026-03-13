@@ -125,7 +125,7 @@ const CORNELL_ICON = (
 
 const WIDGET_CATEGORIES: WidgetCategory[] = [
   {
-    name: 'Gosterge',
+    name: 'Indicators',
     widgets: [
       { type: 'gauge', label: 'Gauge', icon: <Gauge className="w-4 h-4" /> },
       { type: 'numericDisplay', label: 'NumericDisplay', icon: <Hash className="w-4 h-4" /> },
@@ -134,7 +134,7 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
     ],
   },
   {
-    name: 'Kontrol',
+    name: 'Control',
     widgets: [
       { type: 'toggleSwitch', label: 'ToggleSwitch', icon: <ToggleLeft className="w-4 h-4" /> },
       { type: 'slider', label: 'Slider', icon: <SlidersHorizontal className="w-4 h-4" /> },
@@ -157,7 +157,7 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
     ],
   },
   {
-    name: 'Kalibrasyon',
+    name: 'Calibration',
     widgets: [
       { type: 'calibrationWizard', label: 'CalibrationWizard', icon: <Wrench className="w-4 h-4" /> },
       { type: 'calibrationHistory', label: 'CalibrationHistory', icon: <History className="w-4 h-4" /> },
@@ -165,16 +165,16 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
     ],
   },
   {
-    name: 'Proses',
+    name: 'Process',
     widgets: [
       { type: 'processView', label: 'ProcessView', icon: <LayoutDashboard className="w-4 h-4" /> },
     ],
   },
   {
-    name: 'Navigasyon & Metin',
+    name: 'Navigation & Text',
     widgets: [
-      { type: 'screenLink', label: 'Ekran Linki', icon: <Link2 className="w-4 h-4" /> },
-      { type: 'staticText', label: 'Metin Etiketi', icon: <Type className="w-4 h-4" /> },
+      { type: 'screenLink', label: 'Screen Link', icon: <Link2 className="w-4 h-4" /> },
+      { type: 'staticText', label: 'Text Label', icon: <Type className="w-4 h-4" /> },
     ],
   },
   {
@@ -195,48 +195,48 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
     ],
   },
   {
-    name: 'Pompa',
+    name: 'Pumps',
     widgets: [
-      { type: 'equipment' as ScadaWidgetType, label: 'Santrifuj Pompa', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'centrifugalPump' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Disli Pompa', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'gearPump' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Diyafram Pompa', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'diaphragmPump' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Piston Pompa', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'pistonPump' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Dalgic Pompa', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'submersiblePump' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Vakum Pompa', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'vacuumPump' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Centrifugal Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'centrifugalPump' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Gear Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'gearPump' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Diaphragm Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'diaphragmPump' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Piston Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'pistonPump' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Submersible Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'submersiblePump' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Vacuum Pump', icon: PUMP_ICON, defaultConfig: { equipmentSubType: 'vacuumPump' } },
     ],
   },
   {
-    name: 'Vana',
+    name: 'Valves',
     widgets: [
-      { type: 'equipment' as ScadaWidgetType, label: 'Surgulu Vana', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'gateValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Kuresel Vana', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'ballValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Kelebek Vana', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'butterflyValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Glob Vana', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'globeValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Cekvalf', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'checkValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Emniyet Vanasi', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'reliefValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Kontrol Vanasi', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'controlValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Igne Vana', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'needleValve' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Solenoid Vana', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'solenoidValve' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Gate Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'gateValve' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Ball Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'ballValve' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Butterfly Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'butterflyValve' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Globe Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'globeValve' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Check Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'checkValve' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Relief Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'reliefValve' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Control Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'controlValve' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Needle Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'needleValve' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Solenoid Valve', icon: VALVE_ICON, defaultConfig: { equipmentSubType: 'solenoidValve' } },
     ],
   },
   {
     name: 'Tank / Vessel',
     widgets: [
-      { type: 'equipment' as ScadaWidgetType, label: 'Dikey Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'verticalTank' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Yatay Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'horizontalTank' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Konik Dipli Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'conicalBottomTank' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Basinçli Kap', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'pressureVessel' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Vertical Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'verticalTank' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Horizontal Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'horizontalTank' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Conical Bottom Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'conicalBottomTank' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Pressure Vessel', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'pressureVessel' } },
       { type: 'equipment' as ScadaWidgetType, label: 'Silo', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'silo' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Karistirma Tanki', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'mixingTank' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Mixing Tank', icon: TANK_ICON, defaultConfig: { equipmentSubType: 'mixingTank' } },
     ],
   },
   {
-    name: 'Isi Degistirici',
+    name: 'Heat Exchangers',
     widgets: [
-      { type: 'equipment' as ScadaWidgetType, label: 'Boru Demeti', icon: HX_ICON, defaultConfig: { equipmentSubType: 'shellAndTube' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Plakali Esanjor', icon: HX_ICON, defaultConfig: { equipmentSubType: 'plateHeatExchanger' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Hava Sogutucu', icon: HX_ICON, defaultConfig: { equipmentSubType: 'airCooler' } },
-      { type: 'equipment' as ScadaWidgetType, label: 'Kondenser', icon: HX_ICON, defaultConfig: { equipmentSubType: 'condenser' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Shell & Tube', icon: HX_ICON, defaultConfig: { equipmentSubType: 'shellAndTube' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Plate Heat Exchanger', icon: HX_ICON, defaultConfig: { equipmentSubType: 'plateHeatExchanger' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Air Cooler', icon: HX_ICON, defaultConfig: { equipmentSubType: 'airCooler' } },
+      { type: 'equipment' as ScadaWidgetType, label: 'Condenser', icon: HX_ICON, defaultConfig: { equipmentSubType: 'condenser' } },
       { type: 'equipment' as ScadaWidgetType, label: 'Evaporator', icon: HX_ICON, defaultConfig: { equipmentSubType: 'evaporator' } },
     ],
   },

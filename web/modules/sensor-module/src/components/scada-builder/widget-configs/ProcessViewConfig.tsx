@@ -14,7 +14,7 @@ export const ProcessViewConfig: React.FC<WidgetConfigProps> = ({ config, onChang
           type="text"
           value={config.processId || ''}
           onChange={(e) => onChange({ processId: e.target.value })}
-          placeholder="Proses ID giriniz"
+          placeholder="Enter Process ID"
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>

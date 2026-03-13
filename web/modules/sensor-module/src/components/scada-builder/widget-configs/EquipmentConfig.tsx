@@ -12,36 +12,36 @@ interface WidgetConfigProps {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Turkish labels for equipment sub-types                             */
+/*  Labels for equipment sub-types                                     */
 /* ------------------------------------------------------------------ */
 
 const SUBTYPE_LABELS: Record<string, string> = {
-  centrifugalPump: 'Santrifüj Pompa',
-  gearPump: 'Dişli Pompa',
-  diaphragmPump: 'Diyafram Pompa',
-  pistonPump: 'Piston Pompa',
-  submersiblePump: 'Dalgıç Pompa',
-  vacuumPump: 'Vakum Pompa',
-  gateValve: 'Sürgülü Vana',
-  ballValve: 'Küresel Vana',
-  butterflyValve: 'Kelebek Vana',
-  globeValve: 'Glob Vana',
-  checkValve: 'Çekvalf',
-  reliefValve: 'Emniyet Vanası',
-  controlValve: 'Kontrol Vanası',
-  needleValve: 'İğne Vana',
-  solenoidValve: 'Solenoid Vana',
-  verticalTank: 'Dikey Tank',
-  horizontalTank: 'Yatay Tank',
-  conicalBottomTank: 'Konik Dipli Tank',
-  pressureVessel: 'Basınçlı Kap',
+  centrifugalPump: 'Centrifugal Pump',
+  gearPump: 'Gear Pump',
+  diaphragmPump: 'Diaphragm Pump',
+  pistonPump: 'Piston Pump',
+  submersiblePump: 'Submersible Pump',
+  vacuumPump: 'Vacuum Pump',
+  gateValve: 'Gate Valve',
+  ballValve: 'Ball Valve',
+  butterflyValve: 'Butterfly Valve',
+  globeValve: 'Globe Valve',
+  checkValve: 'Check Valve',
+  reliefValve: 'Relief Valve',
+  controlValve: 'Control Valve',
+  needleValve: 'Needle Valve',
+  solenoidValve: 'Solenoid Valve',
+  verticalTank: 'Vertical Tank',
+  horizontalTank: 'Horizontal Tank',
+  conicalBottomTank: 'Conical Bottom Tank',
+  pressureVessel: 'Pressure Vessel',
   silo: 'Silo',
-  mixingTank: 'Karıştırma Tankı',
-  shellAndTube: 'Boru Demeti',
-  plateHeatExchanger: 'Plakalı Eşanjör',
-  airCooler: 'Hava Soğutucu',
-  condenser: 'Kondenser',
-  evaporator: 'Evaporatör',
+  mixingTank: 'Mixing Tank',
+  shellAndTube: 'Shell and Tube',
+  plateHeatExchanger: 'Plate Heat Exchanger',
+  airCooler: 'Air Cooler',
+  condenser: 'Condenser',
+  evaporator: 'Evaporator',
 };
 
 /* ------------------------------------------------------------------ */
@@ -55,12 +55,12 @@ const ROTATION_OPTIONS = [0, 90, 180, 270] as const;
 /* ------------------------------------------------------------------ */
 
 const DEMO_STATE_OPTIONS = [
-  { value: '', label: 'Yok (canlı değer)' },
-  { value: 'running', label: 'Çalışıyor' },
-  { value: 'stopped', label: 'Durdu' },
-  { value: 'open', label: 'Açık' },
-  { value: 'closed', label: 'Kapalı' },
-  { value: 'fault', label: 'Arıza' },
+  { value: '', label: 'None (live value)' },
+  { value: 'running', label: 'Running' },
+  { value: 'stopped', label: 'Stopped' },
+  { value: 'open', label: 'Open' },
+  { value: 'closed', label: 'Closed' },
+  { value: 'fault', label: 'Fault' },
 ] as const;
 
 /* ------------------------------------------------------------------ */
@@ -75,9 +75,9 @@ export const EquipmentConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
     <div className="space-y-3">
       {/* Equipment sub-type badge (read-only) */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Ekipman Tipi</label>
+        <label className="block text-xs text-gray-500 mb-1">Equipment Type</label>
         <div className="px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg text-gray-700 font-medium">
-          {SUBTYPE_LABELS[subType] || subType || 'Belirtilmemiş'}
+          {SUBTYPE_LABELS[subType] || subType || 'Not specified'}
         </div>
       </div>
 
@@ -88,25 +88,25 @@ export const EquipmentConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
           deviceId={deviceId || null}
           value={config.tagName || ''}
           onChange={(tagName) => onChange({ tagName })}
-          placeholder="Tag seçin..."
+          placeholder="Select tag..."
         />
       </div>
 
       {/* Label */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Etiket</label>
+        <label className="block text-xs text-gray-500 mb-1">Label</label>
         <input
           type="text"
           value={config.label || ''}
           onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Ekipman etiketi"
+          placeholder="Equipment label"
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
 
       {/* Rotation selector */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Rotasyon</label>
+        <label className="block text-xs text-gray-500 mb-1">Rotation</label>
         <div className="flex gap-1">
           {ROTATION_OPTIONS.map((deg) => (
             <button
@@ -127,7 +127,7 @@ export const EquipmentConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
 
       {/* Demo state selector */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Demo Durum</label>
+        <label className="block text-xs text-gray-500 mb-1">Demo Status</label>
         <select
           value={config.demoState || ''}
           onChange={(e) => onChange({ demoState: e.target.value || undefined })}
@@ -140,7 +140,7 @@ export const EquipmentConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
           ))}
         </select>
         <p className="mt-1 text-xs text-gray-400">
-          Düzenleme modunda sembolü test etmek için bir durum seçin.
+          Select a state to test the symbol in edit mode.
         </p>
       </div>
     </div>

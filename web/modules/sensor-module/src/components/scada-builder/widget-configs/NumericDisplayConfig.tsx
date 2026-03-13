@@ -16,7 +16,7 @@ export const NumericDisplayConfig: React.FC<WidgetConfigProps> = ({ config, onCh
           deviceId={deviceId || null}
           value={config.tagName || ''}
           onChange={(tagName) => onChange({ tagName })}
-          placeholder="Tag secin..."
+          placeholder="Select tag..."
         />
       </div>
       <div>
@@ -25,7 +25,7 @@ export const NumericDisplayConfig: React.FC<WidgetConfigProps> = ({ config, onCh
           type="text"
           value={config.label || ''}
           onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Sicaklik"
+          placeholder="Temperature"
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>

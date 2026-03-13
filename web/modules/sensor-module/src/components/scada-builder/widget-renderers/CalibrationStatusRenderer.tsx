@@ -6,15 +6,15 @@ import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const STATUS_MAP: Record<string, { bg: string; text: string; label: string }> = {
-  calibrated:   { bg: '#dcfce7', text: '#166534', label: 'Kalibre' },
-  due:          { bg: '#fef9c3', text: '#854d0e', label: 'Kalibrasyon Gerekli' },
-  overdue:      { bg: '#fee2e2', text: '#991b1b', label: 'Suresi Gecmis' },
-  inProgress:   { bg: '#dbeafe', text: '#1e40af', label: 'Devam Ediyor' },
-  unknown:      { bg: '#f3f4f6', text: '#6b7280', label: 'Bilinmiyor' },
+  calibrated:   { bg: '#dcfce7', text: '#166534', label: 'Calibrated' },
+  due:          { bg: '#fef9c3', text: '#854d0e', label: 'Calibration Required' },
+  overdue:      { bg: '#fee2e2', text: '#991b1b', label: 'Overdue' },
+  inProgress:   { bg: '#dbeafe', text: '#1e40af', label: 'In Progress' },
+  unknown:      { bg: '#f3f4f6', text: '#6b7280', label: 'Unknown' },
 };
 
 const CalibrationStatusRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
-  const label = (config.label ?? 'Kalibrasyon Durumu') as string;
+  const label = (config.label ?? 'Calibration Status') as string;
   const statusKey = (isEditing ? (config.demoStatus ?? 'calibrated') : String(value ?? 'unknown')) as string;
   const status = STATUS_MAP[statusKey] ?? STATUS_MAP.unknown;
   const lastDate = (config.lastCalibration ?? '2026-03-01') as string;
@@ -51,8 +51,8 @@ const CalibrationStatusRenderer: React.FC<WidgetRendererProps> = ({ config, valu
       </span>
       {/* Dates */}
       <div style={{ display: 'flex', gap: 12, fontSize: 9, color: '#9ca3af' }}>
-        <span>Son: {lastDate}</span>
-        <span>Sonraki: {nextDate}</span>
+        <span>Last: {lastDate}</span>
+        <span>Next: {nextDate}</span>
       </div>
     </div>
   );

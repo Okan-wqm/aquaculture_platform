@@ -16,7 +16,7 @@ export const StatusIndicatorConfig: React.FC<WidgetConfigProps> = ({ config, onC
           deviceId={deviceId || null}
           value={config.tagName || ''}
           onChange={(tagName) => onChange({ tagName })}
-          placeholder="Tag secin..."
+          placeholder="Select tag..."
         />
       </div>
       <div>
@@ -25,20 +25,20 @@ export const StatusIndicatorConfig: React.FC<WidgetConfigProps> = ({ config, onC
           type="text"
           value={config.label || ''}
           onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Pompa Durumu"
+          placeholder="Pump Status"
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Aktif Renk</label>
+          <label className="block text-xs text-gray-500 mb-1">Active Color</label>
           <div className="flex gap-1">
             {[
-              { label: 'Yeşil', value: '#22c55e' },
-              { label: 'Kırmızı', value: '#ef4444' },
-              { label: 'Sarı', value: '#eab308' },
-              { label: 'Mavi', value: '#3b82f6' },
-              { label: 'Turuncu', value: '#f97316' },
+              { label: 'Green', value: '#22c55e' },
+              { label: 'Red', value: '#ef4444' },
+              { label: 'Yellow', value: '#eab308' },
+              { label: 'Blue', value: '#3b82f6' },
+              { label: 'Orange', value: '#f97316' },
             ].map((c) => (
               <button
                 key={c.value}
@@ -54,12 +54,12 @@ export const StatusIndicatorConfig: React.FC<WidgetConfigProps> = ({ config, onC
           </div>
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Pasif Renk</label>
+          <label className="block text-xs text-gray-500 mb-1">Inactive Color</label>
           <div className="flex gap-1">
             {[
-              { label: 'Gri', value: '#9ca3af' },
-              { label: 'Koyu Gri', value: '#4b5563' },
-              { label: 'Kırmızı', value: '#ef4444' },
+              { label: 'Gray', value: '#9ca3af' },
+              { label: 'Dark Gray', value: '#4b5563' },
+              { label: 'Red', value: '#ef4444' },
             ].map((c) => (
               <button
                 key={c.value}
@@ -82,7 +82,7 @@ export const StatusIndicatorConfig: React.FC<WidgetConfigProps> = ({ config, onC
             type="text"
             value={config.onLabel || ''}
             onChange={(e) => onChange({ onLabel: e.target.value })}
-            placeholder="Calisiyor"
+            placeholder="Running"
             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         </div>
@@ -92,7 +92,7 @@ export const StatusIndicatorConfig: React.FC<WidgetConfigProps> = ({ config, onC
             type="text"
             value={config.offLabel || ''}
             onChange={(e) => onChange({ offLabel: e.target.value })}
-            placeholder="Durdu"
+            placeholder="Stopped"
             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         </div>

@@ -278,7 +278,7 @@ export const SceneTreePanel: React.FC = () => {
 
   const handleAddChildScreen = useCallback(
     (parentId: string) => {
-      addScreen('dashboard' as ScreenType, 'Yeni Ekran');
+      addScreen('dashboard' as ScreenType, 'New Screen');
       // The newly added screen is the last one in the store
       const latestScreens = useScadaStore.getState().screens;
       const newScreen = latestScreens[latestScreens.length - 1];
@@ -334,7 +334,7 @@ export const SceneTreePanel: React.FC = () => {
   );
 
   const handleAddRootScreen = useCallback(() => {
-    addScreen('dashboard' as ScreenType, 'Yeni Ekran');
+    addScreen('dashboard' as ScreenType, 'New Screen');
   }, [addScreen]);
 
   /* ---- Drag & Drop ---- */
@@ -437,12 +437,12 @@ export const SceneTreePanel: React.FC = () => {
       <div className="flex items-center justify-between px-2 py-2 border-b border-gray-200">
         <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
           <FolderTree className="w-3.5 h-3.5 text-gray-500" />
-          <span>Sahne Agaci</span>
+          <span>Scene Tree</span>
         </div>
         <button
           onClick={handleAddRootScreen}
           className="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-          title="Kok ekran ekle"
+          title="Add root screen"
         >
           <Plus className="w-3.5 h-3.5" />
         </button>
@@ -483,7 +483,7 @@ export const SceneTreePanel: React.FC = () => {
             ${dragOverId === '__root__' ? 'border-cyan-400 bg-cyan-50/50 text-cyan-500' : 'border-gray-200'}
           `}
         >
-          Koke tasima
+          Move to root
         </div>
       </div>
 
@@ -492,10 +492,10 @@ export const SceneTreePanel: React.FC = () => {
         <button
           onClick={handleImportScreen}
           className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50 rounded transition-colors"
-          title="JSON dosyasindan ekran ice aktar"
+          title="Import screen from JSON file"
         >
           <Upload className="w-3.5 h-3.5" />
-          Ekran Ice Aktar
+          Import Screen
         </button>
       </div>
 
@@ -524,26 +524,26 @@ export const SceneTreePanel: React.FC = () => {
               onClick={() => handleAddChildScreen(contextMenu.screenId)}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
             >
-              Alt Ekran Ekle
+              Add Child Screen
             </button>
             <button
               onClick={() => handleRenameStart(contextMenu.screenId)}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
             >
-              Yeniden Adlandir
+              Rename
             </button>
             <button
               onClick={() => handleDuplicate(contextMenu.screenId)}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
             >
-              Cogalt
+              Duplicate
             </button>
             <button
               onClick={() => handleExportScreen(contextMenu.screenId)}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
             >
               <Download className="w-3 h-3" />
-              Ekrani Disa Aktar
+              Export Screen
             </button>
             <hr className="my-1 border-gray-200" />
             <button
@@ -555,7 +555,7 @@ export const SceneTreePanel: React.FC = () => {
                   : 'text-red-600 hover:bg-red-50'
               }`}
             >
-              Sil
+              Delete
             </button>
           </div>
         </>

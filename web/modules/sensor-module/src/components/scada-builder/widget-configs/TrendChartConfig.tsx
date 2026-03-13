@@ -29,7 +29,7 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         <div className="flex items-center justify-between mb-1">
           <label className="text-xs text-gray-500">Tags</label>
           <button onClick={addTag} className="text-xs text-cyan-600 hover:text-cyan-700">
-            + Tag Ekle
+            + Add Tag
           </button>
         </div>
         <div className="space-y-1">
@@ -39,7 +39,7 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
                 deviceId={deviceId || null}
                 value={tag}
                 onChange={(val) => updateTag(i, val)}
-                placeholder="Tag secin..."
+                placeholder="Select tag..."
               />
               <button
                 onClick={() => removeTag(i)}
@@ -50,23 +50,23 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
             </div>
           ))}
           {tags.length === 0 && (
-            <p className="text-xs text-gray-400">Henuz tag eklenmedi</p>
+            <p className="text-xs text-gray-400">No tags added yet</p>
           )}
         </div>
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Varsayilan Aralik</label>
+        <label className="block text-xs text-gray-500 mb-1">Default Range</label>
         <select
           value={config.defaultRange || '1h'}
           onChange={(e) => onChange({ defaultRange: e.target.value })}
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         >
-          <option value="15m">15 Dakika</option>
-          <option value="1h">1 Saat</option>
-          <option value="6h">6 Saat</option>
-          <option value="24h">24 Saat</option>
-          <option value="7d">7 Gun</option>
-          <option value="30d">30 Gun</option>
+          <option value="15m">15 Minutes</option>
+          <option value="1h">1 Hour</option>
+          <option value="6h">6 Hours</option>
+          <option value="24h">24 Hours</option>
+          <option value="7d">7 Days</option>
+          <option value="30d">30 Days</option>
         </select>
       </div>
       <div className="flex items-center gap-2">
@@ -77,7 +77,7 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           onChange={(e) => onChange({ showLegend: e.target.checked })}
           className="text-cyan-600 rounded focus:ring-cyan-500"
         />
-        <label htmlFor="showLegend" className="text-sm text-gray-700">Legend goster</label>
+        <label htmlFor="showLegend" className="text-sm text-gray-700">Show legend</label>
       </div>
     </div>
   );

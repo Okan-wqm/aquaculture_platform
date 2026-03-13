@@ -16,7 +16,7 @@ export const PushButtonConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           deviceId={deviceId || null}
           value={config.tagName || ''}
           onChange={(tagName) => onChange({ tagName })}
-          placeholder="Tag secin..."
+          placeholder="Select tag..."
         />
       </div>
       <div>
@@ -25,23 +25,23 @@ export const PushButtonConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           type="text"
           value={config.label || ''}
           onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Baslat"
+          placeholder="Start"
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Buton Modu</label>
+        <label className="block text-xs text-gray-500 mb-1">Button Mode</label>
         <select
           value={config.mode || 'momentary'}
           onChange={(e) => onChange({ mode: e.target.value })}
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         >
-          <option value="momentary">Anlık (Momentary) - bas-bırak</option>
-          <option value="toggle">Toggle - aç/kapa kalıcı</option>
+          <option value="momentary">Momentary - press &amp; release</option>
+          <option value="toggle">Toggle - on/off persistent</option>
         </select>
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Gonderilecek Deger</label>
+        <label className="block text-xs text-gray-500 mb-1">Value to Send</label>
         <input
           type="text"
           value={config.value ?? ''}
@@ -51,15 +51,15 @@ export const PushButtonConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Guvenlik Seviyesi</label>
+        <label className="block text-xs text-gray-500 mb-1">Security Level</label>
         <select
           value={config.security || 'none'}
           onChange={(e) => onChange({ security: e.target.value })}
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         >
-          <option value="none">Yok</option>
-          <option value="confirm">Onay Gerekli</option>
-          <option value="pin">PIN Gerekli</option>
+          <option value="none">None</option>
+          <option value="confirm">Confirmation Required</option>
+          <option value="pin">PIN Required</option>
         </select>
       </div>
     </div>

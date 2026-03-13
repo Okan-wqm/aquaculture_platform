@@ -39,11 +39,11 @@ export const WidgetTooltip: React.FC<WidgetTooltipProps> = ({
       {label && <div className="text-gray-300">{label}</div>}
       {tagName && <div className="text-emerald-300 font-mono">{tagName}</div>}
       <div className="text-gray-400 mt-0.5">
-        Konum: ({position.col},{position.row}) Boyut: {position.w}x{position.h}
+        Position: ({position.col},{position.row}) Size: {position.w}x{position.h}
       </div>
       <div className="flex gap-2 mt-0.5">
-        {locked && <span className="text-yellow-400">Kilitli</span>}
-        {groupId && <span className="text-blue-300">Gruplu</span>}
+        {locked && <span className="text-yellow-400">Locked</span>}
+        {groupId && <span className="text-blue-300">Grouped</span>}
       </div>
     </div>
   );

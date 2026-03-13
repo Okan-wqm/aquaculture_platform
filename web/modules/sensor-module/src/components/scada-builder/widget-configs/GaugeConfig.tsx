@@ -31,7 +31,7 @@ export const GaugeConfig: React.FC<WidgetConfigProps> = ({ config, onChange, dev
           deviceId={deviceId || null}
           value={config.tagName || ''}
           onChange={(tagName) => onChange({ tagName })}
-          placeholder="Tag secin..."
+          placeholder="Select tag..."
         />
       </div>
       <div className="grid grid-cols-2 gap-2">
@@ -85,7 +85,7 @@ export const GaugeConfig: React.FC<WidgetConfigProps> = ({ config, onChange, dev
             onClick={addZone}
             className="text-xs text-cyan-600 hover:text-cyan-700"
           >
-            + Zone Ekle
+            + Add Zone
           </button>
         </div>
         <div className="space-y-2">

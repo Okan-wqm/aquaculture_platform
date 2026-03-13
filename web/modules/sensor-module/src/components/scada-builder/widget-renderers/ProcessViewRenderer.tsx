@@ -72,7 +72,7 @@ const ProcessViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, hei
         </svg>
 
         <span style={{ fontSize: 12, fontWeight: 600, color: '#0c4a6e' }}>{processName}</span>
-        <span style={{ fontSize: 9, color: '#9ca3af' }}>Proses diyagrami gorunumu</span>
+        <span style={{ fontSize: 9, color: '#9ca3af' }}>Process diagram view</span>
       </div>
     </div>
   );

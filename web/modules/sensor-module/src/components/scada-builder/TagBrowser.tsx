@@ -22,7 +22,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
   deviceId,
   value,
   onChange,
-  placeholder = 'Tag sec...',
+  placeholder = 'Select tag...',
   multiple = false,
 }) => {
   const [open, setOpen] = useState(false);
@@ -149,13 +149,13 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
 
   const renderDropdownContent = () => {
     if (!deviceId) {
-      return <div className="px-3 py-4 text-sm text-gray-400 text-center">Once hedef cihaz secin</div>;
+      return <div className="px-3 py-4 text-sm text-gray-400 text-center">Select a target device first</div>;
     }
     if (loading) {
       return (
         <div className="px-3 py-4 flex items-center justify-center gap-2 text-sm text-gray-400">
           <Loader2 className="w-4 h-4 animate-spin" />
-          Yukleniyor...
+          Loading...
         </div>
       );
     }
@@ -165,7 +165,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
     if (filteredGroups.length === 0) {
       return (
         <div className="px-3 py-4 text-sm text-gray-400 text-center">
-          {search ? 'Sonuc bulunamadi' : 'Bu cihazda tag bulunamadi'}
+          {search ? 'No results found' : 'No tags found for this device'}
         </div>
       );
     }
@@ -215,7 +215,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
             onChange={handleInputChange}
             onFocus={() => setOpen(true)}
             onKeyDown={handleInputKeyDown}
-            placeholder={open ? 'Ara...' : multiple && selectedTags.length > 0 ? 'Tag ekle...' : placeholder}
+            placeholder={open ? 'Search...' : multiple && selectedTags.length > 0 ? 'Add tag...' : placeholder}
             className={`w-full py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 ${
               open ? 'pl-8 pr-3' : 'pl-3 pr-8'
             }`}

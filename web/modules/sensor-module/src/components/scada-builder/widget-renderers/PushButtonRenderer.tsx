@@ -75,7 +75,7 @@ const PushButtonRenderer: React.FC<WidgetRendererProps> = ({ config, value, widt
           }}
         />
         <span style={{ color: 'white', fontSize: Math.max(10, btnSize * 0.18), fontWeight: 700, userSelect: 'none' }}>
-          {pressed ? 'AÇIK' : label}
+          {pressed ? 'ON' : label}
         </span>
       </div>
     </div>

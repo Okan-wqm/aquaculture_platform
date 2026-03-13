@@ -1,5 +1,5 @@
 /**
- * FeederRenderer - Hopper-style automatic fish feeder (Yemlik)
+ * FeederRenderer - Hopper-style automatic fish feeder
  *
  * SVG drawing: conical hopper with motor housing on top, feed discharge
  * chute at bottom, fill-level indicator inside hopper, and motor status.
@@ -15,9 +15,9 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  running: 'Calisiyor',
-  stopped: 'Durdu',
-  error: 'Hata',
+  running: 'Running',
+  stopped: 'Stopped',
+  error: 'Error',
 };
 
 const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {

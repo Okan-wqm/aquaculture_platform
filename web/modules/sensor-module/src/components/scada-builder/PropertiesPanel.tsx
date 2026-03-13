@@ -75,10 +75,10 @@ type TabId = 'widget' | 'alarms' | 'control' | 'trend' | 'automation';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'widget', label: 'Widget' },
-  { id: 'alarms', label: 'Alarmlar' },
-  { id: 'control', label: 'Kontrol' },
+  { id: 'alarms', label: 'Alarms' },
+  { id: 'control', label: 'Control' },
   { id: 'trend', label: 'Trend' },
-  { id: 'automation', label: 'Otomasyon' },
+  { id: 'automation', label: 'Automation' },
 ];
 
 const CONDITIONS = ['>', '<', '>=', '<=', '==', '!='];
@@ -227,11 +227,11 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               </div>
             ) : selectedEdge && onEdgeDataChange ? (
               <div className="space-y-4">
-                <h4 className="text-sm font-medium text-gray-700">Baglanti Ozellikleri</h4>
+                <h4 className="text-sm font-medium text-gray-700">Connection Properties</h4>
 
                 {/* Connection Type */}
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Baglanti Tipi</label>
+                  <label className="block text-xs text-gray-500 mb-1">Connection Type</label>
                   <select
                     value={selectedEdge.data.connectionType}
                     onChange={(e) => onEdgeDataChange(selectedEdge.id, { connectionType: e.target.value as ConnectionType })}
@@ -245,7 +245,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
                 {/* Edge Type */}
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Cizgi Tipi</label>
+                  <label className="block text-xs text-gray-500 mb-1">Line Type</label>
                   <div className="flex gap-1">
                     {([
                       { type: 'orthogonal' as const, label: 'Orthogonal' },
@@ -269,12 +269,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
                 {/* Label */}
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Etiket</label>
+                  <label className="block text-xs text-gray-500 mb-1">Label</label>
                   <input
                     type="text"
                     value={selectedEdge.data.label || ''}
                     onChange={(e) => onEdgeDataChange(selectedEdge.id, { label: e.target.value || undefined })}
-                    placeholder="Baglanti etiketi"
+                    placeholder="Connection label"
                     className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   />
                 </div>
@@ -289,17 +289,17 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     className="text-cyan-600 rounded focus:ring-cyan-500"
                   />
                   <label htmlFor="edgeAnimated" className="text-xs text-gray-700">
-                    Animasyonlu akis
+                    Animated flow
                   </label>
                 </div>
 
                 {/* Connection Info */}
                 <div className="pt-3 border-t border-gray-200">
                   <p className="text-[10px] text-gray-400">
-                    Kaynak: {selectedEdge.source} ({selectedEdge.sourceHandle})
+                    Source: {selectedEdge.source} ({selectedEdge.sourceHandle})
                   </p>
                   <p className="text-[10px] text-gray-400">
-                    Hedef: {selectedEdge.target} ({selectedEdge.targetHandle})
+                    Target: {selectedEdge.target} ({selectedEdge.targetHandle})
                   </p>
                 </div>
 
@@ -309,35 +309,35 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   className="w-full mt-2 px-3 py-2 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors flex items-center justify-center gap-1.5"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  Baglantiyi Sil
+                  Delete Connection
                 </button>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center text-gray-400 py-12">
                 <Settings className="w-10 h-10 mb-3 text-gray-300" />
-                <p className="text-sm">Widget seciniz</p>
-                <p className="text-xs mt-1">Canvas uzerinden bir widget secin</p>
+                <p className="text-sm">Select a widget</p>
+                <p className="text-xs mt-1">Select a widget from the canvas</p>
               </div>
             )}
           </>
         )}
 
-        {/* ===== Alarmlar Tab ===== */}
+        {/* ===== Alarms Tab ===== */}
         {activeTab === 'alarms' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-medium text-gray-700">Alarm Kurallari</h4>
+              <h4 className="text-sm font-medium text-gray-700">Alarm Rules</h4>
               <button
                 onClick={addAlarmRule}
                 className="flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700"
               >
                 <Plus className="w-3 h-3" />
-                Alarm Ekle
+                Add Alarm
               </button>
             </div>
 
             {alarmRules.length === 0 && (
-              <p className="text-xs text-gray-400 py-4 text-center">Henuz alarm kurali yok</p>
+              <p className="text-xs text-gray-400 py-4 text-center">No alarm rules yet</p>
             )}
 
             {alarmRules.map((rule) => (
@@ -392,7 +392,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   type="text"
                   value={rule.message}
                   onChange={(e) => updateAlarmRule(rule.id, 'message', e.target.value)}
-                  placeholder="Alarm mesaji"
+                  placeholder="Alarm message"
                   className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 />
                 <div className="flex gap-1">
@@ -402,19 +402,19 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                       type="number"
                       value={rule.deadband ?? ''}
                       onChange={(e) => updateAlarmRule(rule.id, 'deadband', e.target.value === '' ? undefined : Number(e.target.value))}
-                      placeholder="Hysteresis degeri"
+                      placeholder="Hysteresis value"
                       min={0}
                       step={0.1}
                       className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="block text-[10px] text-gray-400 mb-0.5">Gecikme (sn)</label>
+                    <label className="block text-[10px] text-gray-400 mb-0.5">Delay (sec)</label>
                     <input
                       type="number"
                       value={rule.delay ?? ''}
                       onChange={(e) => updateAlarmRule(rule.id, 'delay', e.target.value === '' ? undefined : Number(e.target.value))}
-                      placeholder="Saniye"
+                      placeholder="Seconds"
                       min={0}
                       step={1}
                       className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
@@ -426,22 +426,22 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           </div>
         )}
 
-        {/* ===== Kontrol Tab ===== */}
+        {/* ===== Control Tab ===== */}
         {activeTab === 'control' && (
           <div className="space-y-4">
-            <h4 className="text-sm font-medium text-gray-700">Guvenlik Seviyeleri</h4>
+            <h4 className="text-sm font-medium text-gray-700">Security Levels</h4>
 
             {(['none', 'confirm', 'pin'] as const).map((level) => (
               <div key={level} className="space-y-1">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-gray-600 capitalize">
-                    {level === 'none' ? 'Guvenlik Yok' : level === 'confirm' ? 'Onay Gerekli' : 'PIN Gerekli'}
+                    {level === 'none' ? 'No Security' : level === 'confirm' ? 'Confirmation Required' : 'PIN Required'}
                   </label>
                   <button
                     onClick={() => addTagToLevel(level)}
                     className="text-xs text-cyan-600 hover:text-cyan-700"
                   >
-                    + Ekle
+                    + Add
                   </button>
                 </div>
                 {controlSecurity[level].map((tag, i) => (
@@ -466,9 +466,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
             {/* Emergency Stop Config */}
             <div className="pt-3 border-t border-gray-200 space-y-2">
-              <h5 className="text-xs font-medium text-gray-600">Acil Durdurma</h5>
+              <h5 className="text-xs font-medium text-gray-600">Emergency Stop</h5>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Basili Tutma (ms)</label>
+                <label className="block text-xs text-gray-500 mb-1">Hold Duration (ms)</label>
                 <input
                   type="number"
                   min={500}
@@ -480,9 +480,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs text-gray-500">Etkilenen Tag'ler</label>
+                  <label className="text-xs text-gray-500">Affected Tags</label>
                   <button onClick={addAffectedTag} className="text-xs text-cyan-600 hover:text-cyan-700">
-                    + Ekle
+                    + Add
                   </button>
                 </div>
                 {emergencyStop.affectedTags.map((tag, i) => (
@@ -512,7 +512,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   className="text-cyan-600 rounded focus:ring-cyan-500"
                 />
                 <label htmlFor="resetRequiresPin" className="text-xs text-gray-700">
-                  Reset icin PIN gerekli
+                  PIN required for reset
                 </label>
               </div>
             </div>
@@ -522,9 +522,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         {/* ===== Trend Tab ===== */}
         {activeTab === 'trend' && (
           <div className="space-y-3">
-            <h4 className="text-sm font-medium text-gray-700">Trend Ayarlari</h4>
+            <h4 className="text-sm font-medium text-gray-700">Trend Settings</h4>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Saklama Suresi (gun)</label>
+              <label className="block text-xs text-gray-500 mb-1">Retention Period (days)</label>
               <input
                 type="number"
                 min={1}
@@ -534,7 +534,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Ornekleme Araligi (sn)</label>
+              <label className="block text-xs text-gray-500 mb-1">Sampling Interval (sec)</label>
               <input
                 type="number"
                 min={1}
@@ -545,9 +545,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             </div>
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-gray-500">Tag'ler</label>
+                <label className="text-xs text-gray-500">Tags</label>
                 <button onClick={addTrendTag} className="text-xs text-cyan-600 hover:text-cyan-700">
-                  + Tag Ekle
+                  + Add Tag
                 </button>
               </div>
               <div className="space-y-1">
@@ -569,14 +569,14 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   </div>
                 ))}
                 {trendConfig.tags.length === 0 && (
-                  <p className="text-xs text-gray-400 text-center py-2">Henuz tag eklenmedi</p>
+                  <p className="text-xs text-gray-400 text-center py-2">No tags added yet</p>
                 )}
               </div>
             </div>
           </div>
         )}
 
-        {/* ===== Otomasyon Tab ===== */}
+        {/* ===== Automation Tab ===== */}
         {activeTab === 'automation' && <AutomationBindingPanel />}
       </div>
     </div>

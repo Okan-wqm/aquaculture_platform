@@ -16,7 +16,7 @@ export const DirtyWaterTankConfig: React.FC<WidgetConfigProps> = ({ config, onCh
           deviceId={deviceId || null}
           value={config.tagName || ''}
           onChange={(tagName) => onChange({ tagName })}
-          placeholder="Tag secin..."
+          placeholder="Select tag..."
         />
       </div>
       <div>
@@ -25,12 +25,12 @@ export const DirtyWaterTankConfig: React.FC<WidgetConfigProps> = ({ config, onCh
           type="text"
           value={config.label || ''}
           onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Kirli Su Tanki"
+          placeholder="Dirty Water Tank"
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Demo Seviye (%)</label>
+        <label className="block text-xs text-gray-500 mb-1">Demo Level (%)</label>
         <input
           type="number"
           min={0}
@@ -41,14 +41,14 @@ export const DirtyWaterTankConfig: React.FC<WidgetConfigProps> = ({ config, onCh
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Demo Durum</label>
+        <label className="block text-xs text-gray-500 mb-1">Demo Status</label>
         <select
           value={config.demoStatus || 'running'}
           onChange={(e) => onChange({ demoStatus: e.target.value })}
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         >
-          <option value="running">Calisiyor</option>
-          <option value="stopped">Durdu</option>
+          <option value="running">Running</option>
+          <option value="stopped">Stopped</option>
         </select>
       </div>
     </div>

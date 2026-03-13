@@ -6,14 +6,14 @@ import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const DEMO_ROWS = [
-  { date: '2026-03-01', sensor: 'pH-01', offset: '+0.12', result: 'Basarili' },
-  { date: '2026-02-15', sensor: 'DO-02', offset: '-0.05', result: 'Basarili' },
-  { date: '2026-02-01', sensor: 'pH-01', offset: '+0.08', result: 'Basarili' },
-  { date: '2026-01-15', sensor: 'Temp-03', offset: '+0.3', result: 'Basarisiz' },
+  { date: '2026-03-01', sensor: 'pH-01', offset: '+0.12', result: 'Success' },
+  { date: '2026-02-15', sensor: 'DO-02', offset: '-0.05', result: 'Success' },
+  { date: '2026-02-01', sensor: 'pH-01', offset: '+0.08', result: 'Success' },
+  { date: '2026-01-15', sensor: 'Temp-03', offset: '+0.3', result: 'Failed' },
 ];
 
 const CalibrationHistoryRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
-  const label = (config.label ?? 'Kalibrasyon Gecmisi') as string;
+  const label = (config.label ?? 'Calibration History') as string;
   const rows = (isEditing ? DEMO_ROWS : (config.rows ?? DEMO_ROWS)) as typeof DEMO_ROWS;
   const h = height - 16; // inner height after padding
   const headerH = Math.max(22, h * 0.1);
@@ -21,7 +21,7 @@ const CalibrationHistoryRenderer: React.FC<WidgetRendererProps> = ({ config, wid
   const colHeaderH = Math.max(18, h * 0.08);
   const visibleCount = Math.max(1, Math.floor((h - headerH - colHeaderH) / rowH));
 
-  const cols = ['Tarih', 'Sensor', 'Offset', 'Sonuc'];
+  const cols = ['Date', 'Sensor', 'Offset', 'Result'];
   const colW = (width - 16) / cols.length;
 
   return (
@@ -47,7 +47,7 @@ const CalibrationHistoryRenderer: React.FC<WidgetRendererProps> = ({ config, wid
             <div style={{ width: colW, color: '#6b7280' }}>{row.date}</div>
             <div style={{ width: colW, color: '#374151' }}>{row.sensor}</div>
             <div style={{ width: colW, color: '#374151', fontFamily: 'monospace' }}>{row.offset}</div>
-            <div style={{ width: colW, color: row.result === 'Basarili' ? '#16a34a' : '#dc2626', fontWeight: 500 }}>
+            <div style={{ width: colW, color: row.result === 'Success' ? '#16a34a' : '#dc2626', fontWeight: 500 }}>
               {row.result}
             </div>
           </div>

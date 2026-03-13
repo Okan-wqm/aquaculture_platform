@@ -70,7 +70,7 @@ export const WidgetSearchPanel: React.FC = () => {
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
         <input
           type="text"
-          placeholder="Widget ara..."
+          placeholder="Search widgets..."
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
           className="w-full pl-8 pr-3 py-2 text-sm border-b border-gray-200 focus:outline-none focus:ring-1 focus:ring-cyan-500"
@@ -81,7 +81,7 @@ export const WidgetSearchPanel: React.FC = () => {
       <div className="max-h-64 overflow-y-auto">
         {results.length === 0 ? (
           <div className="px-3 py-4 text-xs text-gray-400 text-center">
-            Eslesen widget bulunamadi
+            No matching widgets found
           </div>
         ) : (
           results.map((item) => {
@@ -124,7 +124,7 @@ export const WidgetSearchPanel: React.FC = () => {
 
       {/* Stats Footer */}
       <div className="px-3 py-1.5 text-[10px] text-gray-400 border-t border-gray-200">
-        {totalWidgets} widget, {screens.length} ekran
+        {totalWidgets} widget{totalWidgets !== 1 ? 's' : ''}, {screens.length} screen{screens.length !== 1 ? 's' : ''}
       </div>
     </div>
   );

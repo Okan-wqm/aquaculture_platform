@@ -11,7 +11,7 @@ const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, w
 
   const handleEmergencyStop = useCallback(() => {
     if (isEditing) return;
-    const confirmed = window.confirm('ACIL DURDURMA aktive edilecek. Emin misiniz?');
+    const confirmed = window.confirm('EMERGENCY STOP will be activated. Are you sure?');
     if (confirmed && onCommand) {
       onCommand('emergencyStop', true);
     }

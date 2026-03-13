@@ -76,13 +76,13 @@ export const AlignmentToolbar: React.FC = () => {
     <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-0.5 bg-white rounded-lg shadow-lg border border-gray-200 px-2 py-1">
       {/* Count badge */}
       <span className="text-xs text-gray-500 mr-1.5 select-none whitespace-nowrap">
-        {selectedWidgetIds.length} se\u00e7ili
+        {selectedWidgetIds.length} selected
       </span>
 
       {/* Align Left */}
       <button
         className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-        title="Sola Hizala"
+        title="Align Left"
         onClick={() => handleAlign(alignLeft)}
       >
         <AlignStartVertical className="w-4 h-4" />
@@ -91,7 +91,7 @@ export const AlignmentToolbar: React.FC = () => {
       {/* Align Center Horizontal */}
       <button
         className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-        title="Yatay Ortala"
+        title="Align Center Horizontally"
         onClick={() => handleAlign(alignCenterH)}
       >
         <AlignCenterVertical className="w-4 h-4" />
@@ -100,7 +100,7 @@ export const AlignmentToolbar: React.FC = () => {
       {/* Align Right */}
       <button
         className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-        title="Sa\u011fa Hizala"
+        title="Align Right"
         onClick={() => handleAlign(alignRight)}
       >
         <AlignEndVertical className="w-4 h-4" />
@@ -112,7 +112,7 @@ export const AlignmentToolbar: React.FC = () => {
       {/* Align Top */}
       <button
         className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-        title="Yukar\u0131 Hizala"
+        title="Align Top"
         onClick={() => handleAlign(alignTop)}
       >
         <AlignStartHorizontal className="w-4 h-4" />
@@ -121,7 +121,7 @@ export const AlignmentToolbar: React.FC = () => {
       {/* Align Center Vertical */}
       <button
         className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-        title="Dikey Ortala"
+        title="Align Center Vertically"
         onClick={() => handleAlign(alignCenterV)}
       >
         <AlignCenterHorizontal className="w-4 h-4" />
@@ -130,7 +130,7 @@ export const AlignmentToolbar: React.FC = () => {
       {/* Align Bottom */}
       <button
         className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-        title="A\u015fa\u011f\u0131 Hizala"
+        title="Align Bottom"
         onClick={() => handleAlign(alignBottom)}
       >
         <AlignEndHorizontal className="w-4 h-4" />
@@ -146,7 +146,7 @@ export const AlignmentToolbar: React.FC = () => {
             ? 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
             : 'text-gray-300 cursor-not-allowed'
         }`}
-        title="Yatay Da\u011f\u0131t"
+        title="Distribute Horizontally"
         disabled={!canDistribute}
         onClick={() => handleAlign(distributeH)}
       >
@@ -160,7 +160,7 @@ export const AlignmentToolbar: React.FC = () => {
             ? 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
             : 'text-gray-300 cursor-not-allowed'
         }`}
-        title="Dikey Da\u011f\u0131t"
+        title="Distribute Vertically"
         disabled={!canDistribute}
         onClick={() => handleAlign(distributeV)}
       >
@@ -173,7 +173,7 @@ export const AlignmentToolbar: React.FC = () => {
       {/* Zoom to Selection */}
       <button
         className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-        title="Se\u00e7ime Odaklan"
+        title="Focus on Selection"
         onClick={handleZoomToSelection}
       >
         <Focus className="w-4 h-4" />

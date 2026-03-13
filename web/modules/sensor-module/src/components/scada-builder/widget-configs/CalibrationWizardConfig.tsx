@@ -27,9 +27,9 @@ export const CalibrationWizardConfig: React.FC<WidgetConfigProps> = ({ config, o
     <div className="space-y-3">
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label className="text-xs text-gray-500">Sensorler</label>
+          <label className="text-xs text-gray-500">Sensors</label>
           <button onClick={addSensor} className="text-xs text-cyan-600 hover:text-cyan-700">
-            + Sensor Ekle
+            + Add Sensor
           </button>
         </div>
         <div className="space-y-1">
@@ -39,7 +39,7 @@ export const CalibrationWizardConfig: React.FC<WidgetConfigProps> = ({ config, o
                 deviceId={deviceId || null}
                 value={sensor}
                 onChange={(val) => updateSensor(i, val)}
-                placeholder="Tag secin..."
+                placeholder="Select tag..."
               />
               <button
                 onClick={() => removeSensor(i)}
@@ -50,7 +50,7 @@ export const CalibrationWizardConfig: React.FC<WidgetConfigProps> = ({ config, o
             </div>
           ))}
           {sensors.length === 0 && (
-            <p className="text-xs text-gray-400">Henuz sensor eklenmedi</p>
+            <p className="text-xs text-gray-400">No sensors added yet</p>
           )}
         </div>
       </div>

@@ -16,7 +16,7 @@ export const FeederConfig: React.FC<WidgetConfigProps> = ({ config, onChange, de
           deviceId={deviceId || null}
           value={config.tagName || ''}
           onChange={(tagName) => onChange({ tagName })}
-          placeholder="Tag secin..."
+          placeholder="Select tag..."
         />
       </div>
       <div>
@@ -25,12 +25,12 @@ export const FeederConfig: React.FC<WidgetConfigProps> = ({ config, onChange, de
           type="text"
           value={config.label || ''}
           onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Yemlik"
+          placeholder="Feeder"
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Demo Yem Seviyesi (%)</label>
+        <label className="block text-xs text-gray-500 mb-1">Demo Feed Level (%)</label>
         <input
           type="number"
           min={0}
@@ -41,15 +41,15 @@ export const FeederConfig: React.FC<WidgetConfigProps> = ({ config, onChange, de
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Demo Durum</label>
+        <label className="block text-xs text-gray-500 mb-1">Demo Status</label>
         <select
           value={config.demoStatus || 'running'}
           onChange={(e) => onChange({ demoStatus: e.target.value })}
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         >
-          <option value="running">Calisiyor</option>
-          <option value="stopped">Durdu</option>
-          <option value="error">Hata</option>
+          <option value="running">Running</option>
+          <option value="stopped">Stopped</option>
+          <option value="error">Error</option>
         </select>
       </div>
     </div>

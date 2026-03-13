@@ -64,7 +64,7 @@ const ScadaPackageListPage: React.FC = () => {
 
   const formatDate = (date: string) => {
     const d = new Date(date);
-    return new Intl.DateTimeFormat('tr-TR', {
+    return new Intl.DateTimeFormat('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -73,7 +73,7 @@ const ScadaPackageListPage: React.FC = () => {
 
   const handleDelete = useCallback(
     async (pkg: ScadaPackage) => {
-      if (!window.confirm(`"${pkg.name}" paketini silmek istediginize emin misiniz?`)) {
+      if (!window.confirm(`Are you sure you want to delete this package "${pkg.name}"?`)) {
         return;
       }
       setActiveDropdown(null);
@@ -94,7 +94,7 @@ const ScadaPackageListPage: React.FC = () => {
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
             <Loader2 className="w-8 h-8 animate-spin text-purple-600 mx-auto" />
-            <p className="mt-2 text-sm text-gray-500">SCADA paketleri yukleniyor...</p>
+            <p className="mt-2 text-sm text-gray-500">Loading SCADA packages...</p>
           </div>
         </div>
       </div>
@@ -108,13 +108,13 @@ const ScadaPackageListPage: React.FC = () => {
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
             <AlertCircle className="w-8 h-8 text-red-500 mx-auto" />
-            <p className="mt-2 text-sm text-gray-900 font-medium">Paketler yuklenemedi</p>
+            <p className="mt-2 text-sm text-gray-900 font-medium">Failed to load packages</p>
             <p className="mt-1 text-sm text-gray-500">{error}</p>
             <button
               onClick={refetch}
               className="mt-4 px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700"
             >
-              Tekrar Dene
+              Retry
             </button>
           </div>
         </div>
@@ -127,9 +127,9 @@ const ScadaPackageListPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">SCADA Paketleri</h1>
+          <h1 className="text-2xl font-bold text-gray-900">SCADA Packages</h1>
           <p className="text-gray-500 mt-1">
-            Edge cihazlara deploy edilebilir SCADA HMI paketleri
+            Deployable SCADA HMI packages for edge devices
           </p>
         </div>
         <div className="flex gap-3">
@@ -138,14 +138,14 @@ const ScadaPackageListPage: React.FC = () => {
             className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
-            Yenile
+            Refresh
           </button>
           <Link
             to="/sensor/scada-builder/new"
             className="flex items-center gap-2 px-4 py-2 text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors"
           >
             <Plus className="w-4 h-4" />
-            Yeni Paket
+            New Package
           </Link>
         </div>
       </div>
@@ -157,7 +157,7 @@ const ScadaPackageListPage: React.FC = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
             type="text"
-            placeholder="Paket ara..."
+            placeholder="Search packages..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -172,7 +172,7 @@ const ScadaPackageListPage: React.FC = () => {
             onChange={(e) => setStatusFilter(e.target.value)}
             className="pl-9 pr-8 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 appearance-none bg-white"
           >
-            <option value="all">Tum Durumlar</option>
+            <option value="all">All Statuses</option>
             <option value="DRAFT">Draft</option>
             <option value="PUBLISHED">Published</option>
             <option value="ARCHIVED">Archived</option>
@@ -184,18 +184,18 @@ const ScadaPackageListPage: React.FC = () => {
       {filteredPackages.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
           <Package className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Paket bulunamadi</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No packages found</h3>
           <p className="text-gray-500 mb-4">
             {searchTerm || statusFilter !== 'all'
-              ? 'Arama veya filtreyi degistirmeyi deneyin'
-              : 'Ilk SCADA paketinizi olusturarak baslayabilirsiniz'}
+              ? 'Try changing the search or filter'
+              : 'Get started by creating your first SCADA package'}
           </p>
           <Link
             to="/sensor/scada-builder/new"
             className="inline-flex items-center gap-2 px-4 py-2 text-white bg-purple-600 rounded-lg hover:bg-purple-700"
           >
             <Plus className="w-4 h-4" />
-            Paket Olustur
+            Create Package
           </Link>
         </div>
       ) : (
@@ -204,22 +204,22 @@ const ScadaPackageListPage: React.FC = () => {
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Paket Adi
+                  Package Name
                 </th>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Versiyon
+                  Version
                 </th>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Durum
+                  Status
                 </th>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Ekranlar
+                  Screens
                 </th>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Son Guncelleme
+                  Last Updated
                 </th>
                 <th className="text-right px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Islemler
+                  Actions
                 </th>
               </tr>
             </thead>
@@ -239,7 +239,7 @@ const ScadaPackageListPage: React.FC = () => {
                           {pkg.name}
                         </div>
                         <div className="text-sm text-gray-500 line-clamp-1">
-                          {pkg.description || 'Aciklama yok'}
+                          {pkg.description || 'No description'}
                         </div>
                       </Link>
                     </td>
@@ -254,7 +254,7 @@ const ScadaPackageListPage: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
-                      {screenCount} ekran
+                      {screenCount} screens
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-1 text-sm text-gray-500">
@@ -280,7 +280,7 @@ const ScadaPackageListPage: React.FC = () => {
                               className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                             >
                               <Edit className="w-4 h-4" />
-                              Duzenle
+                              Edit
                             </Link>
                             <button
                               onClick={() => {
@@ -298,7 +298,7 @@ const ScadaPackageListPage: React.FC = () => {
                               className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                             >
                               <Trash2 className="w-4 h-4" />
-                              Sil
+                              Delete
                             </button>
                           </div>
                         )}

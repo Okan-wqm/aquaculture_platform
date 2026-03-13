@@ -17,7 +17,7 @@ const ICON_MAP: Record<string, typeof ArrowRight> = {
 
 const ScreenLinkRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing, onCommand }) => {
   const targetScreenId = config.targetScreenId as string | undefined;
-  const label = (config.label ?? 'Ekrana Git') as string;
+  const label = (config.label ?? 'Go to Screen') as string;
   const iconName = (config.icon ?? 'ArrowRight') as string;
   const style = (config.style ?? 'card') as 'button' | 'card' | 'minimal';
   const color = (config.color ?? '#06b6d4') as string;
@@ -48,7 +48,7 @@ const ScreenLinkRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
         }}
       >
         <span style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic', textAlign: 'center' }}>
-          Hedef ekran secin
+          Select target screen
         </span>
       </div>
     );

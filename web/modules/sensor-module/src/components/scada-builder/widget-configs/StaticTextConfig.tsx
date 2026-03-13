@@ -18,17 +18,17 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
 
   return (
     <div className="space-y-3">
-      {/* ── Tipografi ── */}
-      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Tipografi</div>
+      {/* ── Typography ── */}
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Typography</div>
 
       {/* Text */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Metin</label>
+        <label className="block text-xs text-gray-500 mb-1">Text</label>
         <textarea
           rows={3}
           value={config.text || ''}
           onChange={(e) => onChange({ text: e.target.value })}
-          placeholder="Metin"
+          placeholder="Text"
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 resize-none"
         />
       </div>
@@ -36,7 +36,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       {/* Font Size & Weight */}
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Yazi Boyutu</label>
+          <label className="block text-xs text-gray-500 mb-1">Font Size</label>
           <input
             type="number"
             min={8}
@@ -47,22 +47,22 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Kalinlik</label>
+          <label className="block text-xs text-gray-500 mb-1">Weight</label>
           <select
             value={config.fontWeight || 'normal'}
             onChange={(e) => onChange({ fontWeight: e.target.value })}
             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           >
-            <option value="light">Ince</option>
+            <option value="light">Light</option>
             <option value="normal">Normal</option>
-            <option value="bold">Kalin</option>
+            <option value="bold">Bold</option>
           </select>
         </div>
       </div>
 
       {/* Text Align */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Yatay Hizalama</label>
+        <label className="block text-xs text-gray-500 mb-1">Horizontal Alignment</label>
         <div className="flex gap-1">
           {ALIGN_OPTIONS.map(({ value, icon: Icon }) => (
             <button
@@ -83,24 +83,24 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
 
       {/* Vertical Align */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Dikey Hizalama</label>
+        <label className="block text-xs text-gray-500 mb-1">Vertical Alignment</label>
         <select
           value={config.verticalAlign || 'middle'}
           onChange={(e) => onChange({ verticalAlign: e.target.value })}
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         >
-          <option value="top">Ust</option>
-          <option value="middle">Orta</option>
-          <option value="bottom">Alt</option>
+          <option value="top">Top</option>
+          <option value="middle">Middle</option>
+          <option value="bottom">Bottom</option>
         </select>
       </div>
 
-      {/* ── Görünüm ── */}
-      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-1">Gorunum</div>
+      {/* ── Appearance ── */}
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-1">Appearance</div>
 
       {/* Text Color */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Yazi Rengi</label>
+        <label className="block text-xs text-gray-500 mb-1">Text Color</label>
         <input
           type="color"
           value={config.color || '#1f2937'}
@@ -120,7 +120,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
             }
             className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
           />
-          Arka Plan
+          Background
         </label>
         {hasBg && (
           <input
@@ -135,7 +135,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       {/* Border */}
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Kenarlık Kalinligi</label>
+          <label className="block text-xs text-gray-500 mb-1">Border Width</label>
           <input
             type="number"
             min={0}
@@ -146,7 +146,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Kenarlık Rengi</label>
+          <label className="block text-xs text-gray-500 mb-1">Border Color</label>
           <input
             type="color"
             value={config.borderColor || '#d1d5db'}
@@ -158,7 +158,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
 
       {/* Padding */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Ic Bosluk (px)</label>
+        <label className="block text-xs text-gray-500 mb-1">Padding (px)</label>
         <input
           type="number"
           min={0}

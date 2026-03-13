@@ -5,10 +5,10 @@
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
-const STEPS = ['Hazirlik', 'Buffer 1', 'Buffer 2', 'Dogrulama', 'Tamam'];
+const STEPS = ['Preparation', 'Buffer 1', 'Buffer 2', 'Verification', 'Done'];
 
 const CalibrationWizardRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
-  const label = (config.label ?? 'Kalibrasyon') as string;
+  const label = (config.label ?? 'Calibration') as string;
   const currentStep = (isEditing ? (config.demoStep ?? 2) : Number(config.currentStep ?? 0)) as number;
   const steps = (config.steps ?? STEPS) as string[];
   const stepCount = steps.length;
@@ -90,7 +90,7 @@ const CalibrationWizardRenderer: React.FC<WidgetRendererProps> = ({ config, widt
           color: '#9ca3af',
         }}
       >
-        Adim {currentStep + 1}: {steps[currentStep] ?? ''}
+        Step {currentStep + 1}: {steps[currentStep] ?? ''}
       </div>
     </div>
   );

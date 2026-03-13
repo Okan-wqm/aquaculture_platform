@@ -9,28 +9,28 @@ import type { AlarmRuleDef } from '../../store/scada';
 
 const SEVERITY_CONFIG = {
   critical: {
-    label: 'Kritik',
+    label: 'Critical',
     bg: 'bg-red-600',
     text: 'text-white',
     pillBg: 'bg-red-700',
     pillText: 'text-white',
   },
   high: {
-    label: 'Yüksek',
+    label: 'High',
     bg: 'bg-orange-500',
     text: 'text-white',
     pillBg: 'bg-orange-600',
     pillText: 'text-white',
   },
   warning: {
-    label: 'Uyarı',
+    label: 'Warning',
     bg: 'bg-yellow-400',
     text: 'text-gray-900',
     pillBg: 'bg-yellow-500',
     pillText: 'text-gray-900',
   },
   info: {
-    label: 'Bilgi',
+    label: 'Info',
     bg: 'bg-blue-500',
     text: 'text-white',
     pillBg: 'bg-blue-600',
@@ -108,14 +108,14 @@ export const GlobalAlarmBanner: React.FC = () => {
           <Bell className="w-3.5 h-3.5 flex-shrink-0" />
         )}
         <span className="font-medium whitespace-nowrap">
-          {simulationMode ? 'Alarmlar (SİM)' : 'Alarmlar'}
+          {simulationMode ? 'Alarms (SIM)' : 'Alarms'}
         </span>
       </div>
 
       {/* Center: Severity summary or empty message */}
       <div className="flex items-center gap-2">
         {isEmpty ? (
-          <span className="text-gray-500 italic">Alarm kuralı tanımlanmamış</span>
+          <span className="text-gray-500 italic">No alarm rules defined</span>
         ) : (
           <div className="flex items-center gap-1.5">
             {SEVERITY_ORDER.map((sev, idx) => {
@@ -152,7 +152,7 @@ export const GlobalAlarmBanner: React.FC = () => {
                 : 'bg-gray-700 text-gray-200'
           }`}
         >
-          {total} kural
+          {total} rule{total !== 1 ? 's' : ''}
         </span>
       </div>
     </div>

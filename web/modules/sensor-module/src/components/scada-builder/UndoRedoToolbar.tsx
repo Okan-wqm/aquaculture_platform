@@ -29,7 +29,7 @@ export const UndoRedoToolbar: React.FC = () => {
       <button
         onClick={undo}
         disabled={!canUndoNow}
-        title={`Geri Al (${undoCount})`}
+        title={`Undo (${undoCount})`}
         className={`relative flex items-center gap-1 px-2 py-1.5 text-sm rounded-lg transition-colors ${
           canUndoNow
             ? 'text-gray-700 hover:bg-gray-100'
@@ -44,7 +44,7 @@ export const UndoRedoToolbar: React.FC = () => {
       <button
         onClick={redo}
         disabled={!canRedoNow}
-        title={`Yinele (${redoCount})`}
+        title={`Redo (${redoCount})`}
         className={`relative flex items-center gap-1 px-2 py-1.5 text-sm rounded-lg transition-colors ${
           canRedoNow
             ? 'text-gray-700 hover:bg-gray-100'

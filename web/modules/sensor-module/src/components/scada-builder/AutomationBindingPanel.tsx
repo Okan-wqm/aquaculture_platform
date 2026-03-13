@@ -1,8 +1,8 @@
 /**
  * AutomationBindingPanel
  *
- * SCADA package'a otomasyon programı bağlama ve tag eşleştirme paneli.
- * PropertiesPanel'in "Otomasyon" tab'ında render edilir.
+ * Panel for binding automation programs and matching tags to a SCADA package.
+ * Rendered in the "Automation" tab of PropertiesPanel.
  */
 
 import React, { useState, useMemo } from 'react';
@@ -73,7 +73,7 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Widget ara..."
+            placeholder="Search widget..."
             className="flex-1 text-xs bg-transparent outline-none"
             autoFocus
           />
@@ -82,7 +82,7 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
       <div className="overflow-y-auto flex-1">
         {filtered.length === 0 ? (
           <p className="text-xs text-gray-400 text-center py-4">
-            {allWidgets.length === 0 ? 'Ekranlarda widget yok' : 'Sonuc bulunamadi'}
+            {allWidgets.length === 0 ? 'No widgets on screens' : 'No results found'}
           </p>
         ) : (
           filtered.map((w) => (
@@ -104,7 +104,7 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
       </div>
       <div className="p-1.5 border-t border-gray-100">
         <button onClick={onClose} className="w-full text-xs text-gray-500 hover:text-gray-700 py-1">
-          Kapat
+          Close
         </button>
       </div>
     </div>
@@ -129,14 +129,14 @@ const ProgramSelector: React.FC<ProgramSelectorProps> = ({ onSelect, onClose, ex
   return (
     <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-hidden flex flex-col">
       <div className="px-3 py-2 border-b border-gray-100">
-        <h5 className="text-xs font-medium text-gray-700">Otomasyon Programi Sec</h5>
+        <h5 className="text-xs font-medium text-gray-700">Select Automation Program</h5>
       </div>
       <div className="overflow-y-auto flex-1">
         {isLoading ? (
-          <p className="text-xs text-gray-400 text-center py-4">Yukleniyor...</p>
+          <p className="text-xs text-gray-400 text-center py-4">Loading...</p>
         ) : available.length === 0 ? (
           <p className="text-xs text-gray-400 text-center py-4">
-            {programs.length === 0 ? 'Onaylanmis program yok' : 'Tum programlar eklendi'}
+            {programs.length === 0 ? 'No approved programs' : 'All programs added'}
           </p>
         ) : (
           available.map((p) => (
@@ -153,7 +153,7 @@ const ProgramSelector: React.FC<ProgramSelectorProps> = ({ onSelect, onClose, ex
               </div>
               <div className="flex items-center gap-2 mt-0.5">
                 <span className="text-[10px] text-gray-400 font-mono">{p.programCode}</span>
-                <span className="text-[10px] text-gray-400">{p.variableCount} degisken</span>
+                <span className="text-[10px] text-gray-400">{p.variableCount} variable{p.variableCount !== 1 ? 's' : ''}</span>
               </div>
             </button>
           ))
@@ -161,7 +161,7 @@ const ProgramSelector: React.FC<ProgramSelectorProps> = ({ onSelect, onClose, ex
       </div>
       <div className="p-1.5 border-t border-gray-100">
         <button onClick={onClose} className="w-full text-xs text-gray-500 hover:text-gray-700 py-1">
-          Iptal
+          Cancel
         </button>
       </div>
     </div>
@@ -204,7 +204,7 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
         <button
           onClick={() => removeAutomationProgram(binding.programId)}
           className="text-red-400 hover:text-red-600 p-0.5"
-          title="Programi kaldir"
+          title="Remove program"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
@@ -214,7 +214,7 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
       {expanded && (
         <div className="divide-y divide-gray-100">
           {binding.variableBindings.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-3">I/O degisken yok</p>
+            <p className="text-xs text-gray-400 text-center py-3">No I/O variables</p>
           ) : (
             binding.variableBindings.map((v) => (
               <div key={v.variableId} className="px-3 py-2 relative">
@@ -230,7 +230,7 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
                     <button
                       onClick={() => unbindVariable(binding.programId, v.variableId)}
                       className="text-gray-400 hover:text-red-500 p-0.5"
-                      title="Eslestirmeyi kaldir"
+                      title="Remove binding"
                     >
                       <Unlink className="w-3 h-3" />
                     </button>
@@ -238,13 +238,13 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
                 ) : (
                   <div className="flex items-center gap-1.5">
                     <AlertTriangle className="w-3 h-3 text-amber-500" />
-                    <span className="text-[10px] text-amber-600 flex-1">Eslestirilmedi</span>
+                    <span className="text-[10px] text-amber-600 flex-1">Unbound</span>
                     <button
                       onClick={() => setPickerVarId(v.variableId)}
                       className="text-xs text-cyan-600 hover:text-cyan-700 flex items-center gap-0.5"
                     >
                       <Link className="w-3 h-3" />
-                      Eslestir
+                      Bind
                     </button>
                   </div>
                 )}
@@ -325,14 +325,14 @@ export const AutomationBindingPanel: React.FC = () => {
     <div className="space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-700">Otomasyon Programlari</h4>
+        <h4 className="text-sm font-medium text-gray-700">Automation Programs</h4>
         <div className="relative">
           <button
             onClick={() => setShowSelector(!showSelector)}
             className="flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700"
           >
             <Plus className="w-3 h-3" />
-            Program Ekle
+            Add Program
           </button>
           {showSelector && (
             <ProgramSelector
@@ -351,14 +351,14 @@ export const AutomationBindingPanel: React.FC = () => {
           className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-lg hover:bg-cyan-100 transition-colors"
         >
           <Zap className="w-3.5 h-3.5" />
-          Otomatik Eslestir
+          Auto Bind
         </button>
       )}
 
       {/* Auto-bind result toast */}
       {autoBindResult && (
         <div className="px-3 py-2 text-xs bg-green-50 text-green-700 border border-green-200 rounded-lg">
-          {autoBindResult.matched} eslesti, {autoBindResult.unmatched} eslesmedi
+          {autoBindResult.matched} matched, {autoBindResult.unmatched} unmatched
         </div>
       )}
 
@@ -368,14 +368,14 @@ export const AutomationBindingPanel: React.FC = () => {
           <div className="px-3 py-2 bg-green-50 border border-green-100 rounded-lg">
             <div className="flex items-center gap-1 mb-0.5">
               <Check className="w-3 h-3 text-green-600" />
-              <span className="text-[10px] text-green-700 font-medium">Eslesmis</span>
+              <span className="text-[10px] text-green-700 font-medium">Bound</span>
             </div>
             <span className="text-sm font-semibold text-green-800">{totalBound}</span>
           </div>
           <div className="px-3 py-2 bg-amber-50 border border-amber-100 rounded-lg">
             <div className="flex items-center gap-1 mb-0.5">
               <AlertTriangle className="w-3 h-3 text-amber-600" />
-              <span className="text-[10px] text-amber-700 font-medium">Bosta</span>
+              <span className="text-[10px] text-amber-700 font-medium">Unbound</span>
             </div>
             <span className="text-sm font-semibold text-amber-800">{totalUnbound}</span>
           </div>
@@ -386,9 +386,9 @@ export const AutomationBindingPanel: React.FC = () => {
       {automationBindings.length === 0 ? (
         <div className="flex flex-col items-center py-8 text-center text-gray-400">
           <Zap className="w-8 h-8 mb-2 text-gray-300" />
-          <p className="text-xs">Henuz program baglenmadi</p>
+          <p className="text-xs">No programs linked yet</p>
           <p className="text-[10px] mt-1">
-            "Program Ekle" ile otomasyon programi secin
+            Use "Add Program" to select an automation program
           </p>
         </div>
       ) : (
@@ -402,7 +402,7 @@ export const AutomationBindingPanel: React.FC = () => {
       {/* Pending indicator */}
       {pendingProgram && (
         <div className="text-xs text-gray-500 text-center py-2">
-          Program degiskenleri yukleniyor...
+          Loading program variables...
         </div>
       )}
     </div>

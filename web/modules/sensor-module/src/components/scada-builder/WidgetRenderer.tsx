@@ -138,7 +138,7 @@ class WidgetErrorBoundary extends Component<
           fontSize: 11, gap: 4, padding: 8, textAlign: 'center' as const,
         }}>
           <span style={{ fontSize: 18 }}>&#9888;</span>
-          <span>Widget hatasi: {this.props.widgetType}</span>
+          <span>Widget error: {this.props.widgetType}</span>
         </div>
       );
     }
@@ -173,7 +173,7 @@ const UnknownWidget: React.FC<{ widgetType: string; width: number; height: numbe
     }}
   >
     <span style={{ fontSize: 20 }}>?</span>
-    <span>Bilinmeyen widget: {widgetType}</span>
+    <span>Unknown widget: {widgetType}</span>
   </div>
 );
 

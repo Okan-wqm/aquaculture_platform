@@ -283,7 +283,7 @@ export const SimulationSidebar: React.FC = () => {
       const mid = ((t.min ?? 0) + (t.max ?? 100)) / 2;
       normalValues[t.tagName] = Math.round(mid);
     }
-    scenarios.push({ id: '__normal__', name: 'Normal Çalışma', values: normalValues, isBuiltIn: true });
+    scenarios.push({ id: '__normal__', name: 'Normal Operation', values: normalValues, isBuiltIn: true });
 
     // Pump Fault
     if (boolTags.some((t) => t.tagName.toLowerCase().includes('pump') || t.widgetType.toLowerCase().includes('pump'))) {
@@ -292,7 +292,7 @@ export const SimulationSidebar: React.FC = () => {
       if (pumpTag) faultValues[pumpTag.tagName] = false;
       const faultNum = numTags.find((t) => t.tagName.toLowerCase().includes('fault') || t.tagName.toLowerCase().includes('pump'));
       if (faultNum) faultValues[faultNum.tagName] = -1;
-      scenarios.push({ id: '__pump_fault__', name: 'Pompa Arıza', values: faultValues, isBuiltIn: true });
+      scenarios.push({ id: '__pump_fault__', name: 'Pump Fault', values: faultValues, isBuiltIn: true });
     }
 
     // Tank Overflow
@@ -303,7 +303,7 @@ export const SimulationSidebar: React.FC = () => {
           overflowValues[t.tagName] = Math.round((t.max ?? 100) * 0.95);
         }
       }
-      scenarios.push({ id: '__tank_overflow__', name: 'Tank Taşma', values: overflowValues, isBuiltIn: true });
+      scenarios.push({ id: '__tank_overflow__', name: 'Tank Overflow', values: overflowValues, isBuiltIn: true });
     }
 
     // All Stop
@@ -311,7 +311,7 @@ export const SimulationSidebar: React.FC = () => {
     for (const t of allTags) {
       stopValues[t.tagName] = t.dataHint === 'boolean' ? false : 0;
     }
-    scenarios.push({ id: '__all_stop__', name: 'Tüm Durdur', values: stopValues, isBuiltIn: true });
+    scenarios.push({ id: '__all_stop__', name: 'All Stop', values: stopValues, isBuiltIn: true });
 
     return scenarios;
   }, [allTags]);
@@ -420,7 +420,7 @@ export const SimulationSidebar: React.FC = () => {
         // runOneCycleDirect returns false on ST runtime error (it sets error state internally).
         // Re-throw so the caller's try/catch can handle UI cleanup.
         throw new Error(
-          'ST çalışma hatası: program çalıştırılırken hata oluştu',
+          'ST runtime error: error occurred while executing program',
         );
       }
 
@@ -488,7 +488,7 @@ export const SimulationSidebar: React.FC = () => {
             automationIntervalRef.current = null;
           }
           const message = err instanceof Error ? err.message : String(err);
-          setAutomationError(`ST çalışma hatası: ${message}`);
+          setAutomationError(`ST runtime error: ${message}`);
           setActiveProgram(null);
           simulation.stop();
         }
@@ -518,7 +518,7 @@ export const SimulationSidebar: React.FC = () => {
             automationIntervalRef.current = null;
           }
           const message = err instanceof Error ? err.message : String(err);
-          setAutomationError(`ST çalışma hatası: ${message}`);
+          setAutomationError(`ST runtime error: ${message}`);
           setActiveProgram(null);
           simulation.stop();
         }
@@ -549,14 +549,14 @@ export const SimulationSidebar: React.FC = () => {
       {/* Header */}
       <div className="px-3 py-2 border-b border-gray-700 flex items-center gap-2">
         <Zap className="w-4 h-4 text-cyan-400" />
-        <span className="text-sm font-semibold text-gray-200">Simülasyon</span>
+        <span className="text-sm font-semibold text-gray-200">Simulation</span>
       </div>
 
       <div className="flex-1 overflow-y-auto">
         {/* A. Tag Values */}
-        <Section title="Tag Değerleri" icon={<Settings className="w-3 h-3" />} badge={allTags.length}>
+        <Section title="Tag Values" icon={<Settings className="w-3 h-3" />} badge={allTags.length}>
           {allTags.length === 0 ? (
-            <p className="text-[11px] text-gray-500 italic">Widget'lara tag atayın</p>
+            <p className="text-[11px] text-gray-500 italic">Assign tags to widgets</p>
           ) : (
             <>
               <div className="space-y-0.5">
@@ -575,14 +575,14 @@ export const SimulationSidebar: React.FC = () => {
                 className="mt-2 flex items-center gap-1 px-2 py-1 text-[10px] text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
               >
                 <RotateCcw className="w-3 h-3" />
-                Tümünü Sıfırla
+                Reset All
               </button>
             </>
           )}
         </Section>
 
         {/* B. Scenarios */}
-        <Section title="Senaryolar" icon={<BookOpen className="w-3 h-3" />} defaultOpen={false}>
+        <Section title="Scenarios" icon={<BookOpen className="w-3 h-3" />} defaultOpen={false}>
           <div className="space-y-1">
             {builtInScenarios.map((sc) => (
               <button
@@ -620,7 +620,7 @@ export const SimulationSidebar: React.FC = () => {
               type="text"
               value={newScenarioName}
               onChange={(e) => setNewScenarioName(e.target.value)}
-              placeholder="Senaryo adı..."
+              placeholder="Scenario name..."
               className="flex-1 px-2 py-1 text-[11px] bg-gray-700 border border-gray-600 rounded text-gray-200 placeholder-gray-500"
               onKeyDown={(e) => e.key === 'Enter' && handleSaveScenario()}
             />
@@ -628,7 +628,7 @@ export const SimulationSidebar: React.FC = () => {
               onClick={handleSaveScenario}
               disabled={!newScenarioName.trim()}
               className="p-1 text-gray-400 hover:text-cyan-400 disabled:opacity-30 transition-colors"
-              title="Mevcut değerleri senaryo olarak kaydet"
+              title="Save current values as scenario"
             >
               <Save className="w-3.5 h-3.5" />
             </button>
@@ -637,14 +637,14 @@ export const SimulationSidebar: React.FC = () => {
 
         {/* C. Active Alarms */}
         <Section
-          title="Aktif Alarmlar"
+          title="Active Alarms"
           icon={<AlertTriangle className="w-3 h-3" />}
           badge={firedAlarms.length > 0 ? firedAlarms.length : undefined}
         >
           {alarmRules.length === 0 ? (
-            <p className="text-[11px] text-gray-500 italic">Alarm kuralı tanımlanmamış</p>
+            <p className="text-[11px] text-gray-500 italic">No alarm rules defined</p>
           ) : firedAlarms.length === 0 ? (
-            <p className="text-[11px] text-green-400">Tetiklenen alarm yok</p>
+            <p className="text-[11px] text-green-400">No alarms triggered</p>
           ) : (
             <div className="space-y-1.5">
               {firedAlarms.map((alarm) => (
@@ -674,7 +674,7 @@ export const SimulationSidebar: React.FC = () => {
         {/* D. Automation Programs */}
         {automationBindings.length > 0 && (
           <Section
-            title="Otomasyon Programları"
+            title="Automation Programs"
             icon={<Play className="w-3 h-3" />}
             badge={automationBindings.length}
             defaultOpen={false}
@@ -699,7 +699,7 @@ export const SimulationSidebar: React.FC = () => {
               <div className="mb-2 p-2 rounded bg-red-900/40 border border-red-700 text-[11px] text-red-300 flex items-start gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-red-400" />
                 <div>
-                  <div className="font-medium text-red-200 mb-0.5">Program durduruldu</div>
+                  <div className="font-medium text-red-200 mb-0.5">Program stopped</div>
                   <div>{automationError}</div>
                 </div>
               </div>
@@ -731,7 +731,7 @@ export const SimulationSidebar: React.FC = () => {
                           className="flex items-center gap-1 px-2 py-0.5 text-[10px] bg-green-600 hover:bg-green-700 text-white rounded transition-colors"
                         >
                           <Play className="w-3 h-3" />
-                          Çalıştır
+                          Run
                         </button>
                       ) : (
                         <button
@@ -739,13 +739,13 @@ export const SimulationSidebar: React.FC = () => {
                           className="flex items-center gap-1 px-2 py-0.5 text-[10px] bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
                         >
                           <Square className="w-3 h-3" />
-                          Durdur
+                          Stop
                         </button>
                       )}
                       {isActive && (
                         <span className="text-[9px] text-green-400 flex items-center gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                          Döngü: {simulation.cycleCount}
+                          Cycle: {simulation.cycleCount}
                         </span>
                       )}
                     </div>

@@ -212,7 +212,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
   // Ensure there's at least one screen (guard against loading race condition)
   useEffect(() => {
     if (screens.length === 0 && !loadingPackage) {
-      addScreen('dashboard', 'Ekran 1');
+      addScreen('dashboard', 'Screen 1');
     }
   }, [screens.length, addScreen, loadingPackage]);
 
@@ -249,7 +249,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err) {
       console.error('Save failed:', err);
-      setSaveError('Kaydetme başarısız oldu. Lütfen tekrar deneyin.');
+      setSaveError('Save failed. Please try again.');
       setTimeout(() => setSaveError(null), 5000);
     } finally {
       setIsSaving(false);
@@ -374,7 +374,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
       <div className="flex items-center justify-center h-screen bg-gray-100">
         <div className="text-center">
           <Loader2 className="w-8 h-8 animate-spin text-cyan-600 mx-auto" />
-          <p className="mt-2 text-sm text-gray-500">Paket yükleniyor...</p>
+          <p className="mt-2 text-sm text-gray-500">Loading package...</p>
         </div>
       </div>
     );
@@ -391,26 +391,26 @@ const ScadaPackageBuilderPage: React.FC = () => {
             className="flex items-center gap-1.5 text-gray-600 hover:text-gray-900 text-sm"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span>Geri</span>
+            <span>Back</span>
           </Link>
           <div className="h-5 w-px bg-gray-300" />
           <input
             type="text"
             value={packageName}
             onChange={(e) => setPackageName(e.target.value)}
-            placeholder="Paket Adı"
-            aria-label="Paket adı"
+            placeholder="Package Name"
+            aria-label="Package name"
             className="text-base font-medium text-gray-900 border-none bg-transparent focus:outline-none focus:ring-0 w-56"
           />
           {isDirty && (
             <span className="text-xs text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded">
-              Kaydedilmemiş
+              Unsaved
             </span>
           )}
           {saveSuccess && (
             <span className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded">
               <CheckCircle className="w-3 h-3" />
-              Kaydedildi
+              Saved
             </span>
           )}
           {saveError && (
@@ -437,7 +437,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
                   )}
                 </span>
               ) : (
-                <span className="text-gray-400">Cihaz Seç</span>
+                <span className="text-gray-400">Select Device</span>
               )}
               <ChevronDown className="w-3 h-3 text-gray-400" />
             </button>
@@ -456,7 +456,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
                     }}
                     className="w-full text-left px-3 py-2 text-sm text-gray-500 hover:bg-gray-50"
                   >
-                    Cihaz Seçme
+                    No Device
                   </button>
                   {devices.map((device) => (
                     <button
@@ -481,7 +481,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
                     </button>
                   ))}
                   {devices.length === 0 && (
-                    <p className="px-3 py-2 text-xs text-gray-400">Edge device bulunamadı</p>
+                    <p className="px-3 py-2 text-xs text-gray-400">No edge devices found</p>
                   )}
                 </div>
               </>
@@ -501,10 +501,10 @@ const ScadaPackageBuilderPage: React.FC = () => {
                   ? 'text-white bg-cyan-600 hover:bg-cyan-700'
                   : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
               }`}
-              title="Widget Ara"
+              title="Search Widgets"
             >
               <Search className="w-4 h-4" />
-              Ara
+              Search
             </button>
             {showSearch && (
               <>
@@ -525,10 +525,10 @@ const ScadaPackageBuilderPage: React.FC = () => {
                   ? 'text-white bg-cyan-600 hover:bg-cyan-700'
                   : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
               }`}
-              title="Sablonlar"
+              title="Templates"
             >
               <Bookmark className="w-4 h-4" />
-              Sablonlar
+              Templates
             </button>
             {showTemplates && (
               <>
@@ -554,7 +554,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
             ) : (
               <Save className="w-4 h-4" />
             )}
-            {isSaving ? 'Kaydediliyor...' : 'Kaydet'}
+            {isSaving ? 'Saving...' : 'Save'}
           </button>
 
           {/* Mode Segment Control */}
@@ -568,7 +568,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
               }`}
             >
               <Pencil className="w-3.5 h-3.5" />
-              Düzenle
+              Edit
             </button>
             <button
               onClick={() => { setMode('preview'); setSimulationMode(false); }}
@@ -579,7 +579,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
               }`}
             >
               <Eye className="w-3.5 h-3.5" />
-              Önizleme
+              Preview
             </button>
             <button
               onClick={() => { setMode('simulation'); setSimulationMode(true); }}
@@ -590,7 +590,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
               }`}
             >
               <Zap className="w-3.5 h-3.5" />
-              Simülasyon
+              Simulation
             </button>
           </div>
 
@@ -613,13 +613,13 @@ const ScadaPackageBuilderPage: React.FC = () => {
                     className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                     onClick={handleDeployClick}
                   >
-                    Edge Device'a Deploy
+                    Deploy to Edge Device
                   </button>
                   <button
                     className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                     onClick={() => setShowDeployMenu(false)}
                   >
-                    Cloud'a Publish
+                    Publish to Cloud
                   </button>
                 </div>
               </>
@@ -694,11 +694,11 @@ const ScadaPackageBuilderPage: React.FC = () => {
       {/* Status Bar */}
       <div className="px-4 py-1 bg-white border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
         <div className="flex items-center gap-4">
-          <span>Durum: Taslak</span>
+          <span>Status: Draft</span>
           <span>v1</span>
-          <span>{screens.length} ekran</span>
+          <span>{screens.length} screens</span>
           <span>{totalWidgets} widget</span>
-          <span>{totalEdges} baglanti</span>
+          <span>{totalEdges} connections</span>
           <span>{alarmWidgets} alarm</span>
           {selectedDevice && (
             <span className="flex items-center gap-1">
@@ -716,11 +716,11 @@ const ScadaPackageBuilderPage: React.FC = () => {
           {mode === 'simulation' && (
             <span className="flex items-center gap-1 text-cyan-500 font-medium">
               <Zap className="w-3 h-3" />
-              Simülasyon
+              Simulation
             </span>
           )}
           <span className={`w-2 h-2 rounded-full ${mode === 'simulation' ? 'bg-cyan-500 animate-pulse' : 'bg-green-500'}`} />
-          <span>{mode === 'simulation' ? 'Simülasyon Aktif' : 'Hazır'}</span>
+          <span>{mode === 'simulation' ? 'Simulation Active' : 'Ready'}</span>
         </div>
       </div>
 

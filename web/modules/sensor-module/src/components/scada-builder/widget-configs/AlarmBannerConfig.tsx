@@ -9,7 +9,7 @@ export const AlarmBannerConfig: React.FC<WidgetConfigProps> = ({ config, onChang
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Kaydirma Araligi (sn)</label>
+        <label className="block text-xs text-gray-500 mb-1">Scroll Interval (s)</label>
         <input
           type="number"
           min={1}

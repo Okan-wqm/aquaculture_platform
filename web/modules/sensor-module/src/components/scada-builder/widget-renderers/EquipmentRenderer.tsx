@@ -99,7 +99,7 @@ const EquipmentRenderer: React.FC<WidgetRendererProps> = ({
           padding: 8,
         }}
       >
-        Bilinmeyen ekipman: {subType || 'yok'}
+        Unknown equipment: {subType || 'none'}
       </div>
     );
   }

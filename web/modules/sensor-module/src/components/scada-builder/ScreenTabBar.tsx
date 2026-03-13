@@ -109,7 +109,7 @@ const ScreenTabBar: React.FC = () => {
   }, [duplicateScreen]);
 
   const handleDelete = useCallback((screenId: string) => {
-    if (!window.confirm('Bu ekrani silmek istediginize emin misiniz?')) return;
+    if (!window.confirm('Are you sure you want to delete this screen?')) return;
     removeScreen(screenId);
     setContextMenu(null);
   }, [removeScreen]);
@@ -226,7 +226,7 @@ const ScreenTabBar: React.FC = () => {
             setShowAddDropdown(!showAddDropdown);
           }}
           className="flex items-center justify-center w-7 h-7 rounded-md text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors"
-          title="Ekran Ekle"
+          title="Add Screen"
         >
           <Plus className="w-4 h-4" />
         </button>
@@ -238,7 +238,7 @@ const ScreenTabBar: React.FC = () => {
               ? 'text-gray-300 cursor-not-allowed'
               : 'text-gray-500 hover:bg-red-100 hover:text-red-600'
           }`}
-          title="Ekranı Sil"
+          title="Delete Screen"
         >
           <Minus className="w-4 h-4" />
         </button>
@@ -287,19 +287,19 @@ const ScreenTabBar: React.FC = () => {
               }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
-              Yeniden Adlandır
+              Rename
             </button>
             <button
               onClick={() => handleDuplicate(contextMenu.screenId)}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
-              Çoğalt
+              Duplicate
             </button>
             <button
               onClick={() => handleSetDefault(contextMenu.screenId)}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
-              Varsayılan Yap
+              Set as Default
             </button>
             <hr className="my-1 border-gray-200" />
             <button
@@ -311,7 +311,7 @@ const ScreenTabBar: React.FC = () => {
                   : 'text-red-600 hover:bg-red-50'
               }`}
             >
-              Sil
+              Delete
             </button>
           </div>
         </>

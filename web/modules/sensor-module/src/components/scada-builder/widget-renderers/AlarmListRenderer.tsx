@@ -9,10 +9,10 @@ import { ALARM_SEVERITY_COLORS } from '../WidgetRenderer';
 
 const DEMO_ALARMS = [
   { time: '14:32', severity: 'critical', msg: 'pH > 8.5' },
-  { time: '14:28', severity: 'warning', msg: 'DO dusuk' },
-  { time: '14:15', severity: 'info', msg: 'Pompa basladi' },
-  { time: '13:55', severity: 'warning', msg: 'Sicaklik yuksek' },
-  { time: '13:40', severity: 'critical', msg: 'Tank seviye alarm' },
+  { time: '14:28', severity: 'warning', msg: 'DO low' },
+  { time: '14:15', severity: 'info', msg: 'Pump started' },
+  { time: '13:55', severity: 'warning', msg: 'Temperature high' },
+  { time: '13:40', severity: 'critical', msg: 'Tank level alarm' },
 ];
 
 const SEV_COLOR_MAP: Record<string, string> = {
@@ -25,7 +25,7 @@ const SEV_COLOR_MAP: Record<string, string> = {
 };
 
 const AlarmListRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
-  const label = (config.label ?? 'Alarm Listesi') as string;
+  const label = (config.label ?? 'Alarm List') as string;
   const alarms = (isEditing ? DEMO_ALARMS : (config.alarms ?? DEMO_ALARMS)) as typeof DEMO_ALARMS;
   const h = height - 16; // inner height after padding
   const rowH = Math.max(18, h * 0.08);

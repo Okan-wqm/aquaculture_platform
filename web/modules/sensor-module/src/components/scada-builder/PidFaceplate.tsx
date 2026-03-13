@@ -63,9 +63,9 @@ function getStatusLabel(state: unknown): string {
 /* ------------------------------------------------------------------ */
 
 const DIRECTION_LABELS: Record<string, string> = {
-  in:    'Giri\u015f',
-  out:   '\u00c7\u0131k\u0131\u015f',
-  inout: '\u00c7ift Y\u00f6nl\u00fc',
+  in:    'Inlet',
+  out:   'Outlet',
+  inout: 'Bidirectional',
 };
 
 /* ------------------------------------------------------------------ */
@@ -105,29 +105,29 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
 
   /* ---------- Property rows -------------------------------------- */
   const propertyRows: { label: string; value: string; color?: string }[] = [
-    { label: 'Widget Tipi', value: widget.widgetType },
+    { label: 'Widget Type', value: widget.widgetType },
   ];
 
   if (widget.widgetType === 'equipment' && config.equipmentSubType) {
     propertyRows.push({
-      label: 'Alt Tip',
+      label: 'Sub Type',
       value: config.equipmentSubType as string,
     });
   }
 
   propertyRows.push(
-    { label: 'Konum', value: `Col ${pos.col}, Row ${pos.row}` },
-    { label: 'Boyut', value: `${pos.w}\u00d7${pos.h} h\u00fccre` },
+    { label: 'Position', value: `Col ${pos.col}, Row ${pos.row}` },
+    { label: 'Size', value: `${pos.w}\u00d7${pos.h} cells` },
     {
-      label: 'Tag Ad\u0131',
+      label: 'Tag Name',
       value: (config.tagName as string) || (config.tag as string) || '\u2014',
     },
     {
-      label: 'Etiket',
+      label: 'Label',
       value: (config.label as string) || '\u2014',
     },
     {
-      label: 'Durum',
+      label: 'Status',
       value: state ? getStatusLabel(state) : '\u2014',
       color: state ? getStatusColor(state) : undefined,
     },
@@ -162,7 +162,7 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
           <button
             onClick={onClose}
             className="p-1 hover:bg-gray-700 rounded transition-colors"
-            title="Kapat"
+            title="Close"
           >
             <X size={18} />
           </button>
@@ -187,7 +187,7 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
             <div className="flex-1 min-w-0">
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <Activity size={12} />
-                \u00d6zellikler
+                Properties
               </h3>
               <table className="w-full text-sm">
                 <tbody>
@@ -222,16 +222,16 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
             <div>
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <CircleDot size={12} />
-                Ba\u011flant\u0131 Noktalar\u0131
+                Connection Points
               </h3>
               <div className="border border-gray-200 rounded-lg overflow-hidden">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-100 text-gray-600">
                       <th className="py-1.5 px-2 text-left font-semibold">Port</th>
-                      <th className="py-1.5 px-2 text-left font-semibold">Kenar</th>
-                      <th className="py-1.5 px-2 text-left font-semibold">Y\u00f6n</th>
-                      <th className="py-1.5 px-2 text-center font-semibold">Renk</th>
+                      <th className="py-1.5 px-2 text-left font-semibold">Side</th>
+                      <th className="py-1.5 px-2 text-left font-semibold">Direction</th>
+                      <th className="py-1.5 px-2 text-center font-semibold">Color</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -269,13 +269,13 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
             className="px-4 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors flex items-center gap-1.5"
           >
             <Zap size={14} />
-            \u00d6zellikler
+            Properties
           </button>
           <button
             onClick={onClose}
             className="px-4 py-1.5 text-sm font-medium text-white bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
           >
-            Kapat
+            Close
           </button>
         </div>
       </div>

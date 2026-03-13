@@ -9,12 +9,12 @@ export const AlarmListConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Baslik</label>
+        <label className="block text-xs text-gray-500 mb-1">Title</label>
         <input
           type="text"
           value={config.title || ''}
           onChange={(e) => onChange({ title: e.target.value })}
-          placeholder="Alarm Listesi"
+          placeholder="Alarm List"
           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
@@ -26,7 +26,7 @@ export const AlarmListConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
           onChange={(e) => onChange({ showActive: e.target.checked })}
           className="text-cyan-600 rounded focus:ring-cyan-500"
         />
-        <label htmlFor="showActive" className="text-sm text-gray-700">Sadece aktif alarmlari goster</label>
+        <label htmlFor="showActive" className="text-sm text-gray-700">Show active alarms only</label>
       </div>
     </div>
   );

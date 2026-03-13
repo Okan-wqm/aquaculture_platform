@@ -43,10 +43,10 @@ export const WidgetTemplatePanel: React.FC = () => {
       <div className="w-64 bg-white border border-gray-200 rounded-lg shadow-lg p-4">
         <div className="flex items-center gap-2 mb-3">
           <Bookmark className="w-4 h-4 text-gray-400" />
-          <span className="text-sm font-medium text-gray-700">Sablonlar</span>
+          <span className="text-sm font-medium text-gray-700">Templates</span>
         </div>
         <p className="text-xs text-gray-400 text-center py-4">
-          Henuz sablon yok. Bir widget'a sag tiklayip "Sablon Olarak Kaydet" secin.
+          No templates yet. Right-click a widget and select "Save as Template".
         </p>
       </div>
     );
@@ -56,7 +56,7 @@ export const WidgetTemplatePanel: React.FC = () => {
     <div className="w-64 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
         <Bookmark className="w-4 h-4 text-gray-400" />
-        <span className="text-sm font-medium text-gray-700">Sablonlar</span>
+        <span className="text-sm font-medium text-gray-700">Templates</span>
         <span className="text-[10px] text-gray-400 ml-auto">{widgetTemplates.length}</span>
       </div>
 
@@ -80,14 +80,14 @@ export const WidgetTemplatePanel: React.FC = () => {
                 <button
                   onClick={() => handleApply(t.id)}
                   className="p-1 rounded text-cyan-600 hover:bg-cyan-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Ekle"
+                  title="Add"
                 >
                   <Plus className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => deleteTemplate(t.id)}
                   className="p-1 rounded text-red-400 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Sil"
+                  title="Delete"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>

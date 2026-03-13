@@ -111,11 +111,12 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
 
   bindVariableToWidgetAndSetTag: (programId, variableId, widgetId, tag) =>
     set((state) => {
-      // Set widget's config.tag across ALL screens
+      // Set widget's config.tagName across ALL screens (and clean up legacy config.tag)
       for (const screen of state.screens) {
         for (const widget of screen.widgets) {
           if (widget.id === widgetId) {
-            widget.config.tag = tag;
+            widget.config.tagName = tag;
+            delete widget.config.tag;
           }
         }
       }
@@ -144,13 +145,13 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
     const state = get();
     const allWidgets = state.screens.flatMap((s) => s.widgets);
 
-    // Primary lookup: by config.tag
+    // Primary lookup: by config.tagName (with fallback to legacy config.tag)
     const tagToWidget = new Map<string, { id: string; tag: string }>();
     // Fallback lookup: by config.label
     const labelToWidget = new Map<string, { id: string; label: string }>();
 
     for (const w of allWidgets) {
-      const tag = w.config.tag as string | undefined;
+      const tag = (w.config.tagName || w.config.tag) as string | undefined;
       if (tag) tagToWidget.set(tag.toLowerCase(), { id: w.id, tag });
       const label = w.config.label as string | undefined;
       if (label) labelToWidget.set(label.toLowerCase(), { id: w.id, label });

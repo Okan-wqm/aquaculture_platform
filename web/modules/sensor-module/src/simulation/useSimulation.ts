@@ -41,8 +41,19 @@ export interface UseSimulationReturn {
   getVariableSnapshot: () => VariableInfo[];
   /** Set input variable directly on interpreter without triggering refreshVariables */
   setInputDirect: (name: string, value: SimValue) => void;
-  /** Run one cycle directly without React state updates (call refreshVariables after) */
-  runOneCycleDirect: () => void;
+  /**
+   * Run one cycle directly without triggering React re-renders.
+   * Returns `true` if the cycle succeeded, `false` if a runtime error occurred.
+   * On error, sets state to 'error' and stores the error message.
+   * Call `flushCycleCount()` periodically to sync the cycle counter to React state.
+   */
+  runOneCycleDirect: () => boolean;
+  /**
+   * Flush the accumulated cycle count from the internal ref to React state.
+   * Call this periodically (e.g., every 500ms or after a batch of direct cycles)
+   * to update the UI without per-tick re-renders.
+   */
+  flushCycleCount: () => void;
 }
 
 // ── Hook ────────────────────────────────────────────────────
@@ -59,6 +70,8 @@ export function useSimulation(): UseSimulationReturn {
   const interpreterRef = useRef<StInterpreter | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scanCycleMsRef = useRef(scanCycleMs);
+  /** Accumulates cycle count from runOneCycleDirect without triggering re-renders */
+  const cycleCountRef = useRef(0);
 
   // Keep ref in sync with state so callbacks see latest value without dep churn
   scanCycleMsRef.current = scanCycleMs;
@@ -96,6 +109,7 @@ export function useSimulation(): UseSimulationReturn {
           setError(errors.map((e) => e.message).join('\n'));
           interpreterRef.current = null;
           setVariables([]);
+          cycleCountRef.current = 0;
           setCycleCount(0);
           return;
         }
@@ -105,6 +119,7 @@ export function useSimulation(): UseSimulationReturn {
           setError('No program found in the provided code.');
           interpreterRef.current = null;
           setVariables([]);
+          cycleCountRef.current = 0;
           setCycleCount(0);
           return;
         }
@@ -114,6 +129,7 @@ export function useSimulation(): UseSimulationReturn {
 
         setState('ready');
         setError(null);
+        cycleCountRef.current = 0;
         setCycleCount(0);
         setVariables(interp.getVariableInfo());
       } catch (err) {
@@ -121,6 +137,7 @@ export function useSimulation(): UseSimulationReturn {
         setError(err instanceof Error ? err.message : String(err));
         interpreterRef.current = null;
         setVariables([]);
+        cycleCountRef.current = 0;
         setCycleCount(0);
       }
     },
@@ -133,7 +150,8 @@ export function useSimulation(): UseSimulationReturn {
 
     try {
       interp.runCycle();
-      setCycleCount((prev) => prev + 1);
+      cycleCountRef.current += 1;
+      setCycleCount(cycleCountRef.current);
       refreshVariables();
       // Single step leaves us in ready (or paused if we were paused)
       setState((prev) => (prev === 'running' ? 'running' : 'ready'));
@@ -158,7 +176,8 @@ export function useSimulation(): UseSimulationReturn {
       intervalRef.current = setInterval(() => {
         try {
           interp.runCycle();
-          setCycleCount((prev) => prev + 1);
+          cycleCountRef.current += 1;
+          setCycleCount(cycleCountRef.current);
           refreshVariables();
         } catch (err) {
           setState('error');
@@ -186,6 +205,7 @@ export function useSimulation(): UseSimulationReturn {
     }
 
     setState(interp ? 'ready' : 'idle');
+    cycleCountRef.current = 0;
     setCycleCount(0);
     setError(null);
   }, [clearRunInterval]);
@@ -195,10 +215,10 @@ export function useSimulation(): UseSimulationReturn {
       const interp = interpreterRef.current;
       if (!interp) return;
 
-      // Safety: only allow setting VAR_INPUT scoped variables
+      // Safety: only allow setting VAR_INPUT and VAR_IN_OUT scoped variables
       const info = interp.getVariableInfo();
       const varInfo = info.find((v) => v.name === name);
-      if (!varInfo || varInfo.scope !== 'VAR_INPUT') {
+      if (!varInfo || (varInfo.scope !== 'VAR_INPUT' && varInfo.scope !== 'VAR_IN_OUT')) {
         return; // silently refuse non-input variables
       }
 
@@ -223,11 +243,25 @@ export function useSimulation(): UseSimulationReturn {
     interp.setVariable(name, value);
   }, []);
 
-  const runOneCycleDirect = useCallback(() => {
+  const runOneCycleDirect = useCallback((): boolean => {
     const interp = interpreterRef.current;
-    if (!interp) return;
-    interp.runCycle();
-    setCycleCount((prev) => prev + 1);
+    if (!interp) return false;
+
+    try {
+      interp.runCycle();
+      // Accumulate in ref — no React re-render per tick.
+      // Call flushCycleCount() periodically to sync to React state.
+      cycleCountRef.current += 1;
+      return true;
+    } catch (err) {
+      setState('error');
+      setError(err instanceof Error ? err.message : String(err));
+      return false;
+    }
+  }, []);
+
+  const flushCycleCount = useCallback(() => {
+    setCycleCount(cycleCountRef.current);
   }, []);
 
   const setScanCycleMs = useCallback(
@@ -245,7 +279,8 @@ export function useSimulation(): UseSimulationReturn {
           intervalRef.current = setInterval(() => {
             try {
               interp.runCycle();
-              setCycleCount((prev) => prev + 1);
+              cycleCountRef.current += 1;
+              setCycleCount(cycleCountRef.current);
               refreshVariables();
             } catch (err) {
               setState('error');
@@ -293,5 +328,6 @@ export function useSimulation(): UseSimulationReturn {
     getVariableSnapshot,
     setInputDirect,
     runOneCycleDirect,
+    flushCycleCount,
   };
 }

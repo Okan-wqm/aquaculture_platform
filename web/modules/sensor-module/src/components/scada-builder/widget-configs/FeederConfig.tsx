@@ -14,8 +14,8 @@ export const FeederConfig: React.FC<WidgetConfigProps> = ({ config, onChange, de
         <label className="block text-xs text-gray-500 mb-1">Tag</label>
         <TagBrowser
           deviceId={deviceId || null}
-          value={config.tag || ''}
-          onChange={(tag) => onChange({ tag })}
+          value={config.tagName || ''}
+          onChange={(tagName) => onChange({ tagName })}
           placeholder="Tag secin..."
         />
       </div>

@@ -44,6 +44,13 @@ interface RegisteredVariable {
   ioConfigId?: string;
 }
 
+interface SyncResult {
+  added: number;
+  removed: number;
+  updated: number;
+  unchanged: number;
+}
+
 interface VariableSyncPanelProps {
   /** Current ST code from the editor */
   stCode: string;
@@ -58,10 +65,16 @@ interface VariableSyncPanelProps {
   }) => void;
   /** Callback to remove a variable from the backend by id */
   onRemoveVariable: (id: string) => void;
+  /** Callback to bulk-sync all variables at once */
+  onSyncAll?: (variables: { varName: string; dataType: string; initialValue?: string; scope: string }[]) => void;
   /** Whether an add mutation is currently in progress */
   isAdding?: boolean;
   /** Whether a remove mutation is currently in progress */
   isRemoving?: boolean;
+  /** Whether a bulk sync mutation is currently in progress */
+  isSyncing?: boolean;
+  /** Result of the last bulk sync operation */
+  syncResult?: SyncResult | null;
 }
 
 type SyncStatus = 'missing' | 'orphaned' | 'synced' | 'changed';
@@ -185,8 +198,11 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
   registeredVariables,
   onAddVariable,
   onRemoveVariable,
+  onSyncAll,
   isAdding = false,
   isRemoving = false,
+  isSyncing = false,
+  syncResult = null,
 }) => {
   const [expanded, setExpanded] = useState(true);
   const [addingVarNames, setAddingVarNames] = useState<Set<string>>(new Set());
@@ -258,6 +274,17 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
     },
     [onRemoveVariable],
   );
+
+  const handleSyncAll = useCallback(() => {
+    if (!onSyncAll) return;
+    const allDetected = detectedVars.map((v) => ({
+      varName: v.varName,
+      dataType: v.dataType,
+      initialValue: v.initialValue,
+      scope: v.scope,
+    }));
+    onSyncAll(allDetected);
+  }, [onSyncAll, detectedVars]);
 
   // ── Don't show panel if there's no ST code ───────────────────────────────
 
@@ -359,23 +386,60 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
       )}
 
       {/* ── Bulk action bar ─────────────────────────────────────────────── */}
-      {expanded && missingCount > 0 && (
+      {expanded && hasIssues && (
         <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 border-b border-blue-200">
           <span className="text-xs text-blue-700">
-            {missingCount} degisken kodda var ama henuz kayitli degil.
+            {missingCount > 0 && `${missingCount} yeni`}
+            {missingCount > 0 && (changedCount > 0 || orphanedCount > 0) && ', '}
+            {changedCount > 0 && `${changedCount} degismis`}
+            {changedCount > 0 && orphanedCount > 0 && ', '}
+            {orphanedCount > 0 && `${orphanedCount} yetim`}
+            {' '}degisken tespit edildi.
           </span>
-          <button
-            onClick={handleAddAll}
-            disabled={isAdding}
-            className="ml-auto inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            {isAdding ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Plus className="h-3 w-3" />
+          <div className="ml-auto flex items-center gap-2">
+            {missingCount > 0 && !onSyncAll && (
+              <button
+                onClick={handleAddAll}
+                disabled={isAdding}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                {isAdding ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Plus className="h-3 w-3" />
+                )}
+                Tumunu Ekle
+              </button>
             )}
-            Tumunu Ekle
-          </button>
+            {onSyncAll && (
+              <button
+                onClick={handleSyncAll}
+                disabled={isSyncing}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+              >
+                {isSyncing ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3 w-3" />
+                )}
+                Tumunu Senkronize Et
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Sync result feedback ──────────────────────────────────────── */}
+      {expanded && syncResult && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-green-50 border-b border-green-200">
+          <Check className="h-3.5 w-3.5 text-green-600 flex-shrink-0" />
+          <span className="text-xs text-green-700">
+            Senkronizasyon tamamlandi:
+            {syncResult.added > 0 && ` ${syncResult.added} eklendi`}
+            {syncResult.updated > 0 && ` ${syncResult.updated} guncellendi`}
+            {syncResult.removed > 0 && ` ${syncResult.removed} kaldirildi`}
+            {syncResult.unchanged > 0 && ` ${syncResult.unchanged} degismedi`}
+          </span>
         </div>
       )}
 

@@ -120,7 +120,7 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
     { label: 'Boyut', value: `${pos.w}\u00d7${pos.h} h\u00fccre` },
     {
       label: 'Tag Ad\u0131',
-      value: (config.tagName as string) || '\u2014',
+      value: (config.tagName as string) || (config.tag as string) || '\u2014',
     },
     {
       label: 'Etiket',

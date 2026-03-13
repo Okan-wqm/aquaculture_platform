@@ -247,6 +247,17 @@ export const REMOVE_VARIABLE_MUTATION = `
   }
 `;
 
+export const SYNC_PROGRAM_VARIABLES_MUTATION = `
+  mutation SyncProgramVariables($input: SyncProgramVariablesInput!) {
+    syncProgramVariables(input: $input) {
+      added
+      removed
+      updated
+      unchanged
+    }
+  }
+`;
+
 // ============================================================================
 // Transition Mutations
 // ============================================================================

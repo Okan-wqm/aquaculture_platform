@@ -69,6 +69,7 @@ import {
   REMOVE_STEP_MUTATION,
   ADD_VARIABLE_MUTATION,
   REMOVE_VARIABLE_MUTATION,
+  SYNC_PROGRAM_VARIABLES_MUTATION,
   ADD_TRANSITION_MUTATION,
   REMOVE_TRANSITION_MUTATION,
   DEPLOYMENT_HISTORY_QUERY,
@@ -545,6 +546,7 @@ const AutomationProgramEditorPage: React.FC = () => {
   const [ioDeviceId, setIoDeviceId] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [syncResult, setSyncResult] = useState<{ added: number; removed: number; updated: number; unchanged: number } | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -722,6 +724,22 @@ const AutomationProgramEditorPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
     },
     onError: (error: Error) => handleMutationError(error, 'Değişken silinemedi'),
+  });
+
+  const syncVariablesMutation = useMutation({
+    mutationFn: (input: { programId: string; variables: { varName: string; dataType: string; initialValue?: string; scope: string }[] }) =>
+      graphqlFetch<{ syncProgramVariables: { added: number; removed: number; updated: number; unchanged: number } }>(
+        SYNC_PROGRAM_VARIABLES_MUTATION,
+        { input },
+      ),
+    onSuccess: (result) => {
+      setErrorMessage(null);
+      setSyncResult(result.syncProgramVariables);
+      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+      // Auto-clear sync result after 5 seconds
+      setTimeout(() => setSyncResult(null), 5000);
+    },
+    onError: (error: Error) => handleMutationError(error, 'Değişken senkronizasyonu başarısız'),
   });
 
   const deployMutation = useMutation({
@@ -965,6 +983,19 @@ const AutomationProgramEditorPage: React.FC = () => {
       };
       if (variable.initialValue) sanitized.initialValue = variable.initialValue;
       addVariableMutation.mutate(sanitized as typeof newVariable & { programId: string });
+    }
+  };
+
+  // Bulk sync all detected variables with the backend in a single call
+  const handleSyncAllVariables = (variables: { varName: string; dataType: string; initialValue?: string; scope: string }[]) => {
+    if (!isNew && programId) {
+      const sanitized = variables.map((v) => ({
+        varName: v.varName,
+        dataType: v.dataType,
+        scope: v.scope.toUpperCase(),
+        ...(v.initialValue ? { initialValue: v.initialValue } : {}),
+      }));
+      syncVariablesMutation.mutate({ programId, variables: sanitized });
     }
   };
 
@@ -1300,8 +1331,11 @@ const AutomationProgramEditorPage: React.FC = () => {
             registeredVariables={variables}
             onAddVariable={handleAddDetectedVariable}
             onRemoveVariable={(id) => removeVariableMutation.mutate(id)}
+            onSyncAll={handleSyncAllVariables}
             isAdding={addVariableMutation.isPending}
             isRemoving={removeVariableMutation.isPending}
+            isSyncing={syncVariablesMutation.isPending}
+            syncResult={syncResult}
           />
 
           {/* I/O Tag Analysis Panel */}

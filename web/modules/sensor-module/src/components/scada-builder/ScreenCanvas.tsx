@@ -232,7 +232,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
     return widgets.map((w) => {
       const px = gridToPixel(w.position);
       // Resolve live tag value in preview mode
-      const tagName = w.config?.tagName as string | undefined;
+      const tagName = (w.config?.tagName || w.config?.tag) as string | undefined;
       let liveValue: number | string | boolean | undefined;
       if (isPreview && scadaData && deviceCode && tagName) {
         liveValue = scadaData.getTagValue(deviceCode, tagName);

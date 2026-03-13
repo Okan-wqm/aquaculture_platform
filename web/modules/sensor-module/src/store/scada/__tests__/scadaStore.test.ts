@@ -1183,10 +1183,10 @@ describe('ScadaStore', () => {
       expect(store.getState().automationBindings[0].variableBindings[0].boundTag).toBeNull();
     });
 
-    it('bindVariableToWidgetAndSetTag sets widget config.tag', () => {
+    it('bindVariableToWidgetAndSetTag sets widget config.tagName and removes legacy config.tag', () => {
       store.getState().addScreen('process', 'Test');
       const screenId = store.getState().screens[0].id;
-      const w = makeWidget({ config: {} });
+      const w = makeWidget({ config: { tag: 'oldTag' } });
       store.getState().addWidget(screenId, w);
 
       store.getState().addAutomationProgram('prog1', 'Control', 'code', [
@@ -1195,9 +1195,11 @@ describe('ScadaStore', () => {
 
       store.getState().bindVariableToWidgetAndSetTag('prog1', 'v1', w.id, 'temperature');
 
-      // Check widget config was updated
+      // Check widget config was updated to tagName
       const widget = store.getState().screens[0].widgets[0];
-      expect(widget.config.tag).toBe('temperature');
+      expect(widget.config.tagName).toBe('temperature');
+      // Legacy config.tag should be removed
+      expect(widget.config.tag).toBeUndefined();
 
       // Check binding was created
       const binding = store.getState().automationBindings[0].variableBindings[0];

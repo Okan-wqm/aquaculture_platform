@@ -24,7 +24,7 @@ export const WidgetSearchPanel: React.FC = () => {
     for (const screen of screens) {
       for (const widget of screen.widgets) {
         const label = (widget.config?.label as string) || widget.widgetType;
-        const tag = (widget.config?.tagName as string) || '';
+        const tag = (widget.config?.tagName as string) || (widget.config?.tag as string) || '';
 
         if (
           !query ||

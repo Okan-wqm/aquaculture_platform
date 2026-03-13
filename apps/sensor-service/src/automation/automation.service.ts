@@ -33,6 +33,8 @@ import {
   UpdateVariableInput,
   ProgramStats,
   DeploymentResult,
+  SyncVariableInput,
+  SyncProgramVariablesResult,
 } from './dto/automation.dto';
 import {
   AutomationProgram,
@@ -798,6 +800,142 @@ export class AutomationService {
         order: { varOrder: 'ASC', createdAt: 'ASC' },
       }),
     );
+  }
+
+  /**
+   * Bulk sync variables from parsed ST code.
+   *
+   * Compares the incoming array of variables (parsed from ST source) against
+   * existing variables in the DB for the given program. Matching is done by
+   * varName (case-insensitive, since IEC 61131-3 / ST is case-insensitive).
+   *
+   * - Missing variables (in input but not DB) are created.
+   * - Orphaned variables (in DB but not input) are deleted, UNLESS they have
+   *   user-configured I/O bindings (ioConfigId or ioTagName), in which case
+   *   they are preserved to avoid destroying manual wiring.
+   * - Changed variables (same name but different dataType/scope/initialValue)
+   *   are updated, preserving all user-configured fields (ioConfigId, ioTagName,
+   *   alarm thresholds, equipment bindings, sensor bindings, metadata, etc.).
+   * - Unchanged variables are left untouched.
+   *
+   * The entire operation runs inside a transaction for atomicity.
+   */
+  async syncVariables(
+    tenantId: string,
+    programId: string,
+    variables: SyncVariableInput[],
+  ): Promise<SyncProgramVariablesResult> {
+    const schemaName = this.getTenantSchemaName(tenantId);
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
+    try {
+      await qr.query(`SET search_path TO "${schemaName}", sensor, public`);
+      const manager = qr.manager;
+
+      // Verify program exists and belongs to tenant
+      const program = await manager.findOne(AutomationProgram, {
+        where: { id: programId, tenantId },
+      });
+      if (!program) {
+        throw new NotFoundException(`Program ${programId} not found`);
+      }
+
+      // Fetch existing variables for this program
+      const existing = await manager.find(ProgramVariable, {
+        where: { programId },
+      });
+
+      // Build lookup map: UPPERCASE varName -> existing variable
+      const existingMap = new Map<string, ProgramVariable>();
+      for (const v of existing) {
+        existingMap.set(v.varName.toUpperCase(), v);
+      }
+
+      // Build set of incoming variable names (UPPERCASE) for orphan detection
+      const incomingNames = new Set<string>();
+      for (const v of variables) {
+        incomingNames.add(v.varName.toUpperCase());
+      }
+
+      let added = 0;
+      let removed = 0;
+      let updated = 0;
+      let unchanged = 0;
+
+      const varRepo = manager.getRepository(ProgramVariable);
+
+      // Process each incoming variable
+      for (let i = 0; i < variables.length; i++) {
+        const v = variables[i]!;
+        const key = v.varName.toUpperCase();
+        const ex = existingMap.get(key);
+
+        if (!ex) {
+          // Missing: create new variable
+          const newVar = varRepo.create({
+            programId,
+            varName: v.varName,
+            dataType: v.dataType,
+            scope: v.scope,
+            initialValue: v.initialValue,
+            varOrder: i,
+          });
+          await varRepo.save(newVar);
+          added++;
+        } else {
+          // Check for changes in the fields the ST parser provides
+          const dataTypeChanged =
+            (v.dataType ?? ex.dataType).toString().toUpperCase() !==
+            ex.dataType.toString().toUpperCase();
+          const scopeChanged =
+            (v.scope ?? ex.scope).toString().toLowerCase() !==
+            ex.scope.toString().toLowerCase();
+          const initialValueChanged =
+            (v.initialValue ?? '') !== (ex.initialValue ?? '');
+
+          if (dataTypeChanged || scopeChanged || initialValueChanged) {
+            // Update only the fields that come from the parser.
+            // Preserve ALL user-configured fields: ioConfigId, ioTagName,
+            // equipmentNodeId, equipmentProperty, sensorChannelId,
+            // minValue, maxValue, engUnit, alarmHH/H/L/LL, metadata, displayName, description.
+            if (v.dataType !== undefined) ex.dataType = v.dataType;
+            if (v.scope !== undefined) ex.scope = v.scope;
+            if (v.initialValue !== undefined) ex.initialValue = v.initialValue;
+            ex.varOrder = i;
+            await varRepo.save(ex);
+            updated++;
+          } else {
+            unchanged++;
+          }
+        }
+      }
+
+      // Process orphaned variables (in DB but not in incoming set)
+      for (const ex of existing) {
+        const key = ex.varName.toUpperCase();
+        if (!incomingNames.has(key)) {
+          // Preserve variables with user-configured I/O bindings
+          if (ex.ioConfigId || ex.ioTagName) {
+            unchanged++;
+            continue;
+          }
+          await manager.delete(ProgramVariable, ex.id);
+          removed++;
+        }
+      }
+
+      await qr.commitTransaction();
+
+      return { added, removed, updated, unchanged };
+    } catch (error) {
+      await qr.rollbackTransaction();
+      throw error;
+    } finally {
+      try { await qr.query('RESET search_path'); } catch { /* ignore */ }
+      await qr.release();
+    }
   }
 
   // ============================================

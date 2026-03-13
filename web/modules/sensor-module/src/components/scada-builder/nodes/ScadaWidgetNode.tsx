@@ -135,7 +135,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
   });
 
   /* ---------- Runtime command dispatch -------------------------------- */
-  const tagName = data.config?.tagName as string | undefined;
+  const tagName = (data.config?.tagName || data.config?.tag) as string | undefined;
   const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Clear press timer on unmount

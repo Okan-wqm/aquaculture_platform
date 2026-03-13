@@ -35,6 +35,8 @@ import {
   DeploymentLogConnection,
   ValidationResult,
   DiagnosticItem,
+  SyncProgramVariablesInput,
+  SyncProgramVariablesResult,
 } from './dto/automation.dto';
 import { AutomationProgram } from './entities/automation-program.entity';
 import { DeploymentLog } from './entities/deployment-log.entity';
@@ -459,6 +461,32 @@ export class AutomationResolver {
     @Tenant() tenantId: string,
   ): Promise<boolean> {
     return this.automationService.removeVariable(id, tenantId);
+  }
+
+  /**
+   * Bulk sync variables from parsed ST code.
+   *
+   * Compares the input array against existing DB variables (by varName,
+   * case-insensitive). Adds missing, removes orphaned (unless they have
+   * I/O bindings), and updates changed variables while preserving
+   * user-configured fields (ioConfigId, alarm thresholds, etc.).
+   *
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
+  @Mutation(() => SyncProgramVariablesResult)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async syncProgramVariables(
+    @Args('input') input: SyncProgramVariablesInput,
+    @Tenant() tenantId: string,
+  ): Promise<SyncProgramVariablesResult> {
+    this.logger.log(
+      `Syncing ${input.variables.length} variables for program ${input.programId}`,
+    );
+    return this.automationService.syncVariables(
+      tenantId,
+      input.programId,
+      input.variables,
+    );
   }
 
   // ============================================

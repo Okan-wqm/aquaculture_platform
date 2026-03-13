@@ -47,7 +47,7 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
     const result: { widgetId: string; label: string; tag: string | null; widgetType: string; screenName: string }[] = [];
     for (const screen of screens) {
       for (const w of screen.widgets) {
-        const tag = (w.config.tag as string | undefined) || null;
+        const tag = (w.config.tagName as string | undefined) || (w.config.tag as string | undefined) || null;
         const label = (w.config.label as string | undefined) || w.widgetType;
         result.push({ widgetId: w.id, label, tag, widgetType: w.widgetType, screenName: screen.name });
       }

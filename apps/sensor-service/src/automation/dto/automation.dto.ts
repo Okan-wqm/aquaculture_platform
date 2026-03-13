@@ -15,8 +15,9 @@ import {
   IsBoolean,
   IsArray,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { GraphQLJSON } from 'graphql-scalars';
 
 // GraphQL registerEnumType sends enum KEYS ('MANUAL', 'ST', 'RUST_ENGINE')
@@ -1168,6 +1169,64 @@ export class ValidationResult {
 
   @Field(() => [String])
   parsedSymbols!: string[];
+}
+
+// ============================================
+// Variable Sync Types (Bulk sync from ST code)
+// ============================================
+
+@InputType()
+export class SyncVariableInput {
+  @IsString()
+  @MaxLength(50)
+  @Field()
+  varName!: string;
+
+  @IsOptional()
+  @Transform(enumTransformKeepCase(VariableDataType.REAL))
+  @IsEnum(VariableDataType)
+  @Field(() => VariableDataType, { defaultValue: VariableDataType.REAL })
+  dataType?: VariableDataType;
+
+  @IsOptional()
+  @Transform(enumTransform(VariableScope.LOCAL))
+  @IsEnum(VariableScope)
+  @Field(() => VariableScope, { defaultValue: VariableScope.LOCAL })
+  scope?: VariableScope;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Field({ nullable: true })
+  initialValue?: string;
+}
+
+@InputType()
+export class SyncProgramVariablesInput {
+  @IsUUID()
+  @Field(() => ID)
+  programId!: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SyncVariableInput)
+  @Field(() => [SyncVariableInput])
+  variables!: SyncVariableInput[];
+}
+
+@ObjectType()
+export class SyncProgramVariablesResult {
+  @Field(() => Int)
+  added!: number;
+
+  @Field(() => Int)
+  removed!: number;
+
+  @Field(() => Int)
+  updated!: number;
+
+  @Field(() => Int)
+  unchanged!: number;
 }
 
 // Re-export entity types for convenience

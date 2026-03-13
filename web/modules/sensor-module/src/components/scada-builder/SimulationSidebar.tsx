@@ -241,7 +241,7 @@ export const SimulationSidebar: React.FC = () => {
     const tagMap = new Map<string, TagInfo>();
     for (const screen of screens) {
       for (const widget of screen.widgets) {
-        const tagName = widget.config?.tagName as string | undefined;
+        const tagName = (widget.config?.tagName || widget.config?.tag) as string | undefined;
         if (!tagName || tagMap.has(tagName)) continue;
         tagMap.set(tagName, {
           tagName,
@@ -372,6 +372,7 @@ export const SimulationSidebar: React.FC = () => {
   const automationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scanIntervalRef = useRef(scanInterval);
   scanIntervalRef.current = scanInterval;
+  const [automationError, setAutomationError] = useState<string | null>(null);
 
   /** Stop any running automation interval */
   const stopAutomation = useCallback(() => {
@@ -381,7 +382,65 @@ export const SimulationSidebar: React.FC = () => {
     }
     simulation.stop();
     setActiveProgram(null);
+    setAutomationError(null);
   }, [simulation]);
+
+  /**
+   * Run one closed-loop tick: feed inputs from simTagValues, execute one ST cycle,
+   * read outputs back. Extracted to avoid duplication between handleStartProgram
+   * and the scanInterval restart effect.
+   *
+   * Returns false if the simulation mode was turned off (caller should stop interval).
+   * Throws if ST runtime error occurs (caller must catch).
+   */
+  const runClosedLoopTick = useCallback(
+    (programId: string): boolean => {
+      const store = useScadaStore.getState();
+      // Guard: simulation mode might have been turned off
+      if (!store.simulationMode) {
+        return false;
+      }
+
+      const currentBinding = store.automationBindings.find((b) => b.programId === programId);
+      if (!currentBinding) return true; // binding gone, but sim mode still on — skip tick
+
+      // 1. Feed INPUT and INOUT variables from simTagValues
+      for (const vb of currentBinding.variableBindings) {
+        if ((vb.scope === 'INPUT' || vb.scope === 'INOUT') && vb.boundTag) {
+          const val = store.simTagValues[vb.boundTag];
+          if (val !== undefined) {
+            simulation.setInputDirect(vb.varName, val);
+          }
+        }
+      }
+
+      // 2. Run one cycle directly (no React state update per tick)
+      const success = simulation.runOneCycleDirect();
+      if (!success) {
+        // runOneCycleDirect returns false on ST runtime error (it sets error state internally).
+        // Re-throw so the caller's try/catch can handle UI cleanup.
+        throw new Error(
+          'ST çalışma hatası: program çalıştırılırken hata oluştu',
+        );
+      }
+
+      // 3. Read OUTPUT and INOUT variables synchronously from interpreter
+      const snapshot = simulation.getVariableSnapshot();
+      for (const vb of currentBinding.variableBindings) {
+        if ((vb.scope === 'OUTPUT' || vb.scope === 'INOUT') && vb.boundTag) {
+          const varInfo = snapshot.find(
+            (v) => v.name.toLowerCase() === vb.varName.toLowerCase(),
+          );
+          if (varInfo) {
+            store.setSimTagValue(vb.boundTag, varInfo.value);
+          }
+        }
+      }
+
+      return true;
+    },
+    [simulation],
+  );
 
   const handleStartProgram = useCallback(
     (programId: string) => {
@@ -410,85 +469,71 @@ export const SimulationSidebar: React.FC = () => {
       }
 
       setActiveProgram(programId);
+      setAutomationError(null);
 
-      // Start closed-loop cycle using Direct methods (no React state overhead per tick)
+      // Start closed-loop cycle using the extracted tick function
       automationIntervalRef.current = setInterval(() => {
-        const store = useScadaStore.getState();
-        // Guard: simulation mode might have been turned off
-        if (!store.simulationMode) {
+        try {
+          const continueRunning = runClosedLoopTick(programId);
+          if (!continueRunning) {
+            if (automationIntervalRef.current) {
+              clearInterval(automationIntervalRef.current);
+              automationIntervalRef.current = null;
+            }
+          }
+        } catch (err) {
+          // ST runtime error — stop the interval and surface the error
           if (automationIntervalRef.current) {
             clearInterval(automationIntervalRef.current);
             automationIntervalRef.current = null;
           }
-          return;
-        }
-
-        const currentBinding = store.automationBindings.find((b) => b.programId === programId);
-        if (!currentBinding) return;
-
-        // 1. Feed INPUT and INOUT variables from simTagValues (no refreshVariables per call)
-        for (const vb of currentBinding.variableBindings) {
-          if ((vb.scope === 'INPUT' || vb.scope === 'INOUT') && vb.boundTag) {
-            const val = store.simTagValues[vb.boundTag];
-            if (val !== undefined) {
-              simulation.setInputDirect(vb.varName, val);
-            }
-          }
-        }
-
-        // 2. Run one cycle directly (no React state update)
-        simulation.runOneCycleDirect();
-
-        // 3. Read OUTPUT and INOUT variables synchronously from interpreter
-        const snapshot = simulation.getVariableSnapshot();
-        for (const vb of currentBinding.variableBindings) {
-          if ((vb.scope === 'OUTPUT' || vb.scope === 'INOUT') && vb.boundTag) {
-            const varInfo = snapshot.find((v) => v.name === vb.varName);
-            if (varInfo) {
-              store.setSimTagValue(vb.boundTag, varInfo.value);
-            }
-          }
+          const message = err instanceof Error ? err.message : String(err);
+          setAutomationError(`ST çalışma hatası: ${message}`);
+          setActiveProgram(null);
+          simulation.stop();
         }
       }, scanIntervalRef.current);
     },
-    [automationBindings, simulation, activeProgram],
+    [automationBindings, simulation, activeProgram, runClosedLoopTick],
   );
 
   // Restart interval when scan interval changes during active run
   useEffect(() => {
     if (activeProgram && automationIntervalRef.current) {
       clearInterval(automationIntervalRef.current);
-      // Re-create with new interval
+      // Re-create with new interval using extracted tick function
       const programId = activeProgram;
       automationIntervalRef.current = setInterval(() => {
-        const store = useScadaStore.getState();
-        if (!store.simulationMode) {
+        try {
+          const continueRunning = runClosedLoopTick(programId);
+          if (!continueRunning) {
+            if (automationIntervalRef.current) {
+              clearInterval(automationIntervalRef.current);
+              automationIntervalRef.current = null;
+            }
+          }
+        } catch (err) {
           if (automationIntervalRef.current) {
             clearInterval(automationIntervalRef.current);
             automationIntervalRef.current = null;
           }
-          return;
-        }
-        const currentBinding = store.automationBindings.find((b) => b.programId === programId);
-        if (!currentBinding) return;
-
-        for (const vb of currentBinding.variableBindings) {
-          if ((vb.scope === 'INPUT' || vb.scope === 'INOUT') && vb.boundTag) {
-            const val = store.simTagValues[vb.boundTag];
-            if (val !== undefined) simulation.setInputDirect(vb.varName, val);
-          }
-        }
-        simulation.runOneCycleDirect();
-        const snapshot = simulation.getVariableSnapshot();
-        for (const vb of currentBinding.variableBindings) {
-          if ((vb.scope === 'OUTPUT' || vb.scope === 'INOUT') && vb.boundTag) {
-            const varInfo = snapshot.find((v) => v.name === vb.varName);
-            if (varInfo) store.setSimTagValue(vb.boundTag, varInfo.value);
-          }
+          const message = err instanceof Error ? err.message : String(err);
+          setAutomationError(`ST çalışma hatası: ${message}`);
+          setActiveProgram(null);
+          simulation.stop();
         }
       }, scanInterval);
     }
-  }, [scanInterval, activeProgram, simulation]);
+  }, [scanInterval, activeProgram, simulation, runClosedLoopTick]);
+
+  // Periodically flush cycle count to React state for UI updates (every 500ms)
+  useEffect(() => {
+    if (!activeProgram) return;
+    const flushInterval = setInterval(() => {
+      simulation.flushCycleCount();
+    }, 500);
+    return () => clearInterval(flushInterval);
+  }, [activeProgram, simulation]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -649,6 +694,16 @@ export const SimulationSidebar: React.FC = () => {
                 ))}
               </select>
             </div>
+
+            {automationError && (
+              <div className="mb-2 p-2 rounded bg-red-900/40 border border-red-700 text-[11px] text-red-300 flex items-start gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-red-400" />
+                <div>
+                  <div className="font-medium text-red-200 mb-0.5">Program durduruldu</div>
+                  <div>{automationError}</div>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               {automationBindings.map((binding) => {

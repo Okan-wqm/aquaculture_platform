@@ -44,7 +44,8 @@ export default defineConfig({
       workbox: {
         // PERF-06: Tighter glob patterns — SVGs excluded to avoid inlining HTML SVGs
         // into the precache manifest unintentionally.
-        globPatterns: ['**/*.{js,css,html,ico,png,woff2}'],
+        globPatterns: ['**/*.{js,css,html}'],
+        // ico, png, woff2 are handled by runtimeCaching below
         runtimeCaching: [
           // CRIT-2 / SEC-02 / PERF-01: GraphQL runtime caching has been intentionally
           // removed. Reasons:
